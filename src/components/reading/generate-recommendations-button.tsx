@@ -20,7 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { generateRecommendations } from "@/app/(reading)/reading/discover/actions";
+import { generateRecommendations } from "@/app/(reading)/reader/discover/actions";
 import type { ReadingRecommendation } from "@/lib/types";
 
 /**

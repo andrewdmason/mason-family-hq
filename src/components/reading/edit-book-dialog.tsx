@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +20,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { removeBook, updateBook } from "@/app/(reading)/reading/actions";
+import { removeBook, updateBook } from "@/app/(reading)/reader/actions";
 import { RatingPicker } from "@/components/reading/rating-picker";
 import { READING_STATUSES, readingStatusLabel } from "@/lib/reading/status";
 import type { ReadingBook, ReadingBookStatus, ReadingRating } from "@/lib/types";
@@ -30,6 +30,8 @@ export function EditBookDialog({
   memberEmail = null,
   trigger,
   triggerClassName,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   book: ReadingBook;
   /** When set (owner view), edits/removal apply to this member's book. */
@@ -37,8 +39,17 @@ export function EditBookDialog({
   /** Custom trigger content (e.g. a cover tile). Defaults to a pencil button. */
   trigger?: React.ReactNode;
   triggerClassName?: string;
+  /** Controlled open state — when provided, no built-in trigger is rendered. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = isControlled ? controlledOpen : uncontrolledOpen;
+  const setOpen = (next: boolean) => {
+    if (!isControlled) setUncontrolledOpen(next);
+    onOpenChange?.(next);
+  };
   const [title, setTitle] = useState(book.title);
   const [author, setAuthor] = useState(book.author ?? "");
   const [totalPages, setTotalPages] = useState(
@@ -59,6 +70,13 @@ export function EditBookDialog({
     setRating(book.rating);
     setError(null);
   }
+
+  // Reset the form to the book's current values each time the dialog opens —
+  // works whether opened by the built-in trigger or controlled from outside.
+  useEffect(() => {
+    if (open) syncFromBook();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -99,27 +117,23 @@ export function EditBookDialog({
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) syncFromBook();
-      }}
-    >
-      <DialogTrigger
-        render={
-          <button
-            type="button"
-            aria-label={`Edit ${book.title}`}
-            className={
-              triggerClassName ??
-              "text-muted-foreground transition-colors hover:text-foreground"
-            }
-          />
-        }
-      >
-        {trigger ?? <Pencil className="h-4 w-4" />}
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={setOpen}>
+      {!isControlled && (
+        <DialogTrigger
+          render={
+            <button
+              type="button"
+              aria-label={`Edit ${book.title}`}
+              className={
+                triggerClassName ??
+                "text-muted-foreground transition-colors hover:text-foreground"
+              }
+            />
+          }
+        >
+          {trigger ?? <Pencil className="h-4 w-4" />}
+        </DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Edit book</DialogTitle>

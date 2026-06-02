@@ -16,7 +16,7 @@ import {
   generateRecommendations,
   queueRecommendation,
   rateRecommendation,
-} from "@/app/(reading)/reading/discover/actions";
+} from "@/app/(reading)/reader/discover/actions";
 import type { ReadingRating, ReadingRecommendation } from "@/lib/types";
 
 /**

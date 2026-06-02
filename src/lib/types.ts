@@ -696,9 +696,21 @@ export type ReadingCheckin = {
 };
 
 /** A book plus this week's derived progress for the reading home. */
+/** The slice of a book's uploaded-content state the reading list needs. */
+export type ReadingBookContentSummary = {
+  status: ReadingBookContentStatus;
+  page_count: number | null;
+  has_real_pages: boolean;
+  error_message: string | null;
+};
+
 export type ReadingBookWithProgress = ReadingBook & {
   /** Pages advanced since the start of the current week (Mon). */
   pagesReadThisWeek: number;
+  /** Uploaded-file content state, or null when no file has been attached. */
+  content: ReadingBookContentSummary | null;
+  /** Whether the reader has a saved resume point (Continue vs. Read). */
+  hasResumePoint: boolean;
 };
 
 /** Everything the reading home renders for the signed-in member. */
@@ -707,4 +719,59 @@ export type ReadingHome = {
   weeklyPageGoal: number;
   totalReadThisWeek: number;
   checkedInThisWeek: boolean;
+};
+
+/** Lifecycle of an uploaded book file as it converts into the reading experience. */
+export type ReadingBookContentStatus =
+  | "uploaded"
+  | "processing"
+  | "ready"
+  | "failed";
+
+/** Converted-content metadata for a book that has a file uploaded (1:1). */
+export type ReadingBookContent = {
+  book_id: string;
+  user_id: string;
+  source_format: "pdf" | "epub";
+  source_path: string;
+  /** Storage path to the reflowed content.html; null until status is "ready". */
+  content_path: string | null;
+  status: ReadingBookContentStatus;
+  error_message: string | null;
+  page_count: number | null;
+  /** True when page numbers are real (PDF, or EPUB with a page-list). */
+  has_real_pages: boolean;
+  char_count: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** One chapter/section heading for the reader's table-of-contents navigation. */
+export type ReadingTocEntry = {
+  title: string;
+  /** The heading's id in the reflowed HTML, to scroll to. */
+  anchorId: string;
+  /** 1 = major section (Part/Book), 2 = chapter/section. */
+  level: number;
+  /** Source page the heading falls on, when known. */
+  page: number | null;
+};
+
+/** One source page mapped to its anchor and character range in the reflowed text. */
+export type ReadingBookPage = {
+  book_id: string;
+  page_number: number;
+  anchor_id: string;
+  char_start: number;
+  char_end: number | null;
+};
+
+/** Where a member last was in the reader. Separate from manual check-in progress. */
+export type ReadingBookState = {
+  book_id: string;
+  user_id: string;
+  last_anchor_id: string | null;
+  last_scroll_ratio: number | null;
+  last_page_number: number | null;
+  last_read_at: string | null;
 };
