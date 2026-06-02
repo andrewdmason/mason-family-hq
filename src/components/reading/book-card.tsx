@@ -1,8 +1,8 @@
 import { BookCover } from "@/components/reading/book-cover";
 import { CheckInDialog } from "@/components/reading/check-in-dialog";
 import { EditBookDialog } from "@/components/reading/edit-book-dialog";
+import { RatingControl } from "@/components/reading/rating-control";
 import { StartReadingButton } from "@/components/reading/start-reading-button";
-import { readingStatusLabel } from "@/lib/reading/status";
 import type { ReadingBookWithProgress } from "@/lib/types";
 
 export function BookCard({
@@ -18,6 +18,8 @@ export function BookCard({
   memberEmail?: string | null;
 }) {
   const inProgress = book.status === "in_progress";
+  // Recommended by a real family member (AI picks carry a label but no email).
+  const fromPerson = !!book.recommended_by_email && !!book.recommended_by_label;
   const pct =
     book.total_pages && book.total_pages > 0
       ? Math.min(100, Math.round((book.current_page / book.total_pages) * 100))
@@ -28,49 +30,51 @@ export function BookCard({
       <BookCover url={book.cover_image_url} title={book.title} />
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <p className="font-serif text-sm text-foreground">{book.title}</p>
-          {!inProgress && (
-            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-              {readingStatusLabel(book.status)}
-            </span>
-          )}
-        </div>
+        <p className="font-serif text-sm text-foreground">{book.title}</p>
         {book.author && (
           <p className="truncate text-xs text-muted-foreground">{book.author}</p>
         )}
 
-        {book.recommended_by_label && (
+        {/* The "Recommended by" badge is for real people only — an AI pick
+            (no recommender email) just shows its rationale, which speaks for itself. */}
+        {(fromPerson || book.recommendation_note) && (
           <div className="mt-1.5">
-            <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
-              Recommended by {book.recommended_by_label}
-            </span>
+            {fromPerson && (
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                Recommended by {book.recommended_by_label}
+              </span>
+            )}
             {book.recommendation_note && (
-              <p className="mt-1 text-xs italic text-muted-foreground">
+              <p className={`text-xs italic text-muted-foreground${fromPerson ? " mt-1" : ""}`}>
                 &ldquo;{book.recommendation_note}&rdquo;
               </p>
             )}
           </div>
         )}
 
-        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="tabular-nums">
-            Page {book.current_page}
-            {book.total_pages ? ` of ${book.total_pages}` : ""}
-          </span>
-          {pct != null && <span aria-hidden>· {pct}%</span>}
-        </div>
+        {/* Queued books haven't been opened — page/progress would just read 0. */}
+        {book.status !== "queued" && (
+          <>
+            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="tabular-nums">
+                Page {book.current_page}
+                {book.total_pages ? ` of ${book.total_pages}` : ""}
+              </span>
+              {pct != null && <span aria-hidden>· {pct}%</span>}
+            </div>
 
-        {pct != null && (
-          <div
-            className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted"
-            aria-hidden
-          >
-            <div
-              className="h-full rounded-full bg-primary"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
+            {pct != null && (
+              <div
+                className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                aria-hidden
+              >
+                <div
+                  className="h-full rounded-full bg-primary"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            )}
+          </>
         )}
 
         {inProgress && (
@@ -84,6 +88,19 @@ export function BookCard({
               </span>
             )}
           </p>
+        )}
+
+        {book.status === "archive" && (
+          <div className="mt-2 flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              {book.rating ? "Your rating" : "Rate it"}
+            </span>
+            <RatingControl
+              bookId={book.id}
+              rating={book.rating}
+              memberEmail={memberEmail}
+            />
+          </div>
         )}
       </div>
 

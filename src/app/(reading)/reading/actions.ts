@@ -11,10 +11,11 @@ import type {
   ReadingBookStatus,
   ReadingBookWithProgress,
   ReadingHome,
+  ReadingRating,
 } from "@/lib/types";
 
 const BOOK_COLUMNS =
-  "id, user_id, title, author, total_pages, current_page, status, cover_image_url, started_at, finished_at, recommended_by_email, recommended_by_label, recommendation_note, created_at, updated_at";
+  "id, user_id, title, author, total_pages, current_page, status, cover_image_url, started_at, finished_at, rating, recommended_by_email, recommended_by_label, recommendation_note, created_at, updated_at";
 
 function firstName(name: string | null | undefined, fallback: string): string {
   return name?.trim().split(/\s+/)[0] || fallback;
@@ -212,6 +213,7 @@ export async function addBook(input: {
   totalPages?: number | null;
   status?: ReadingBookStatus;
   coverImageUrl?: string | null;
+  rating?: ReadingRating | null;
   memberEmail?: string | null;
 }): Promise<void> {
   const { client, userId } = await resolveReadingScope(input.memberEmail);
@@ -226,7 +228,11 @@ export async function addBook(input: {
   const tz = await getUserTimezone();
   const today = localDate(new Date(), tz);
 
-  const completed = status === "completed";
+  const archived = status === "archive";
+  // A rating only makes sense on a book they're done with.
+  const rating = archived ? input.rating ?? null : null;
+  // A "didn't finish" book wasn't read to the end, so don't slam it to the back.
+  const finished = archived && rating !== "didnt_finish";
   const { data: book, error } = await client
     .from("reading_books")
     .insert({
@@ -234,11 +240,13 @@ export async function addBook(input: {
       title,
       author,
       total_pages: totalPages,
-      current_page: completed && totalPages ? totalPages : 0,
+      current_page: finished && totalPages ? totalPages : 0,
       status,
       cover_image_url: input.coverImageUrl ?? null,
       started_at: status === "in_progress" ? today : null,
-      finished_at: completed ? today : null,
+      finished_at: finished ? today : null,
+      rating,
+      rated_at: rating ? today : null,
     })
     .select("id")
     .single();
@@ -268,6 +276,7 @@ export async function updateBook(
     totalPages?: number | null;
     status?: ReadingBookStatus;
     currentPage?: number | null;
+    rating?: ReadingRating | null;
     memberEmail?: string | null;
   }
 ): Promise<void> {
@@ -298,14 +307,21 @@ export async function updateBook(
   if (input.currentPage !== undefined && input.currentPage != null) {
     update.current_page = Math.max(0, Math.floor(input.currentPage));
   }
+  if (input.rating !== undefined) {
+    update.rating = input.rating;
+    // Re-stamp when the opinion was formed (or clear it), for recency weighting.
+    update.rated_at = input.rating ? today : null;
+  }
 
   let startedReading = false;
   if (input.status !== undefined && input.status !== existing.status) {
     update.status = input.status;
-    if (input.status === "completed") {
+    if (input.status === "archive") {
       update.finished_at = today;
-      // Default to the back cover when completing, unless they set a page here.
-      if (input.currentPage == null && existing.total_pages) {
+      // Default to the back cover when archiving a finished book, unless they set
+      // a page here or marked it as one they didn't finish.
+      const rating = input.rating !== undefined ? input.rating : null;
+      if (input.currentPage == null && existing.total_pages && rating !== "didnt_finish") {
         update.current_page = existing.total_pages;
       }
     } else {
@@ -375,18 +391,46 @@ export async function checkIn(
   });
   if (checkinError) throw new Error(checkinError.message);
 
-  const completed = book.total_pages != null && nextPage >= book.total_pages;
+  const finished = book.total_pages != null && nextPage >= book.total_pages;
   const { error: updateError } = await client
     .from("reading_books")
     .update({
       current_page: nextPage,
-      status: completed ? "completed" : "in_progress",
-      finished_at: completed ? today : null,
+      status: finished ? "archive" : "in_progress",
+      finished_at: finished ? today : null,
     })
     .eq("id", bookId)
     .eq("user_id", userId);
   if (updateError) throw new Error(updateError.message);
 
+  revalidatePath("/reading");
+}
+
+const RATINGS: ReadingRating[] = ["loved", "liked", "neutral", "disliked"];
+
+/**
+ * Set (or clear) a member's emoji rating on a book they've read. This is the
+ * taste signal the Discover recommender leans on. Passing null clears it.
+ */
+export async function rateBook(
+  bookId: string,
+  rating: ReadingRating | null,
+  memberEmail?: string | null
+): Promise<void> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+  if (rating !== null && !RATINGS.includes(rating)) {
+    throw new Error("Unknown rating.");
+  }
+
+  const tz = await getUserTimezone();
+  const today = localDate(new Date(), tz);
+
+  const { error } = await client
+    .from("reading_books")
+    .update({ rating, rated_at: rating ? today : null })
+    .eq("id", bookId)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
   revalidatePath("/reading");
 }
 

@@ -21,16 +21,22 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { removeBook, updateBook } from "@/app/(reading)/reading/actions";
+import { RatingPicker } from "@/components/reading/rating-picker";
 import { READING_STATUSES, readingStatusLabel } from "@/lib/reading/status";
-import type { ReadingBook, ReadingBookStatus } from "@/lib/types";
+import type { ReadingBook, ReadingBookStatus, ReadingRating } from "@/lib/types";
 
 export function EditBookDialog({
   book,
   memberEmail = null,
+  trigger,
+  triggerClassName,
 }: {
   book: ReadingBook;
   /** When set (owner view), edits/removal apply to this member's book. */
   memberEmail?: string | null;
+  /** Custom trigger content (e.g. a cover tile). Defaults to a pencil button. */
+  trigger?: React.ReactNode;
+  triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(book.title);
@@ -40,6 +46,7 @@ export function EditBookDialog({
   );
   const [currentPage, setCurrentPage] = useState(String(book.current_page));
   const [status, setStatus] = useState<ReadingBookStatus>(book.status);
+  const [rating, setRating] = useState<ReadingRating | null>(book.rating);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -49,6 +56,7 @@ export function EditBookDialog({
     setTotalPages(book.total_pages ? String(book.total_pages) : "");
     setCurrentPage(String(book.current_page));
     setStatus(book.status);
+    setRating(book.rating);
     setError(null);
   }
 
@@ -63,6 +71,7 @@ export function EditBookDialog({
           totalPages: totalPages ? Number(totalPages) : null,
           currentPage: currentPage ? Number(currentPage) : 0,
           status,
+          rating: status === "archive" ? rating : null,
           memberEmail,
         });
         setOpen(false);
@@ -102,11 +111,14 @@ export function EditBookDialog({
           <button
             type="button"
             aria-label={`Edit ${book.title}`}
-            className="text-muted-foreground transition-colors hover:text-foreground"
+            className={
+              triggerClassName ??
+              "text-muted-foreground transition-colors hover:text-foreground"
+            }
           />
         }
       >
-        <Pencil className="h-4 w-4" />
+        {trigger ?? <Pencil className="h-4 w-4" />}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -169,6 +181,15 @@ export function EditBookDialog({
               </SelectContent>
             </Select>
           </div>
+          {status === "archive" && (
+            <div className="grid gap-1.5">
+              <Label>Your rating</Label>
+              <RatingPicker
+                value={rating}
+                onSelect={(r) => setRating((prev) => (prev === r ? null : r))}
+              />
+            </div>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
           <DialogFooter className="sm:justify-between">
             <Button

@@ -6,6 +6,7 @@ import { listFamilyMembers } from "@/app/(journal)/settings/family/actions";
 import { getIsOwner } from "@/lib/journal/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { getReadingHome, listRecommendRecipients } from "./actions";
+import { getDiscover } from "./discover/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,10 @@ export default async function ReadingPage({
       : null;
   const viewingEmail = viewedMember?.email ?? null;
 
-  const home = await getReadingHome(viewingEmail);
+  const [home, discover] = await Promise.all([
+    getReadingHome(viewingEmail),
+    getDiscover(viewingEmail),
+  ]);
 
   // Recommend-to-someone is offered in self-view only (in view-as mode you're
   // already acting as that member).
@@ -106,6 +110,9 @@ export default async function ReadingPage({
         soleBookTargetPage={soleBookTargetPage}
         emphasizeCheckIn={urgent}
         memberEmail={viewingEmail}
+        recommendations={discover.recommendations}
+        recsHasSignal={discover.hasSignal}
+        recsGenres={discover.genres}
       />
     </main>
   );

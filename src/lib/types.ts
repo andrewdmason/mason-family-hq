@@ -620,10 +620,20 @@ export type PieceSectionTimestamp = {
 
 export type ReadingBookStatus =
   | "in_progress"
-  | "completed"
+  | "archive"
   | "paused"
-  | "archived"
   | "queued";
+
+/**
+ * A member's verdict on a book. The emoji scale for books they read, plus
+ * "didnt_finish" for ones they started but abandoned (a soft negative signal).
+ */
+export type ReadingRating =
+  | "loved"
+  | "liked"
+  | "neutral"
+  | "disliked"
+  | "didnt_finish";
 
 /** A book a family member is tracking. */
 export type ReadingBook = {
@@ -637,11 +647,40 @@ export type ReadingBook = {
   cover_image_url: string | null;
   started_at: string | null;
   finished_at: string | null;
+  /** The member's emoji rating, once they've read it. Null until rated. */
+  rating: ReadingRating | null;
   /** Set when another member added this book to your list as a recommendation. */
   recommended_by_email: string | null;
   /** How to show the recommender — "Dad", "Mom", or their first name. */
   recommended_by_label: string | null;
   recommendation_note: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Where a recommendation row is in its lifecycle (also the feedback signal). */
+export type ReadingRecStatus =
+  | "pending"
+  | "queued"
+  | "already_read"
+  | "not_for_me"
+  | "not_now";
+
+/** One Claude-generated book suggestion for a member, plus their feedback on it. */
+export type ReadingRecommendation = {
+  id: string;
+  user_id: string;
+  title: string;
+  author: string | null;
+  total_pages: number | null;
+  cover_image_url: string | null;
+  isbn: string | null;
+  /** Claude's one-line "why you'd like this". */
+  rationale: string | null;
+  status: ReadingRecStatus;
+  /** For "not_now": the date this title may resurface. Null otherwise. */
+  suppressed_until: string | null;
+  acted_at: string | null;
   created_at: string;
   updated_at: string;
 };

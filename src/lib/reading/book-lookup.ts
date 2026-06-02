@@ -71,6 +71,50 @@ function coverUrlFromIsbn(isbn: string | null): string | null {
   return `https://covers.openlibrary.org/b/isbn/${digits}-L.jpg?default=false`;
 }
 
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * A cover resolved by Open Library title+author search. Far more reliable than a
+ * guessed ISBN: it returns a `cover_i` only for editions that actually have art.
+ * We accept the first hit whose title and author plausibly match, so we don't
+ * pin the wrong book's cover. Resilient — returns null on any failure.
+ */
+async function coverFromSearch(
+  title: string,
+  author: string | null
+): Promise<string | null> {
+  try {
+    const params = new URLSearchParams({
+      title,
+      fields: "title,author_name,cover_i",
+      limit: "5",
+    });
+    if (author) params.set("author", author);
+    const res = await fetch(`https://openlibrary.org/search.json?${params}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      docs?: { title?: string; author_name?: string[]; cover_i?: number }[];
+    };
+    const qt = norm(title);
+    const surname = author ? norm(author.split(/\s+/).pop() ?? "") : "";
+    for (const d of data.docs ?? []) {
+      if (!d.cover_i) continue;
+      const mt = norm(d.title ?? "");
+      const titleOk = !!qt && !!mt && (qt.includes(mt) || mt.includes(qt));
+      const authorOk =
+        !surname || (d.author_name ?? []).some((a) => norm(a).includes(surname));
+      if (titleOk && authorOk) {
+        return `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg`;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Resolve a book from just its title using the AI. Returns confident details to
  * auto-fill the add flow, or `confident: false` so the UI asks the user to fill
@@ -122,12 +166,16 @@ export async function lookupBookByTitle(title: string): Promise<BookLookupResult
         : null;
     const isbn = typeof input.isbn === "string" ? input.isbn : null;
 
+    // Prefer a search-resolved cover (reliably present); fall back to the ISBN.
+    const coverImageUrl =
+      (await coverFromSearch(resolvedTitle, author)) ?? coverUrlFromIsbn(isbn);
+
     return {
       confident,
       title: resolvedTitle,
       author,
       totalPages,
-      coverImageUrl: coverUrlFromIsbn(isbn),
+      coverImageUrl,
     };
   } catch (err) {
     console.error(
