@@ -38,7 +38,9 @@ export async function listFamilyMembers(): Promise<JournalMember[]> {
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("journal_members")
-    .select("email, name, is_owner, user_id, seeded_at")
+    .select(
+      "email, name, is_owner, user_id, seeded_at, birthdate, mother_email, father_email"
+    )
     .order("is_owner", { ascending: false })
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
@@ -212,6 +214,92 @@ export async function removeFamilyMember(emailRaw: string): Promise<void> {
   const { error } = await admin.from("journal_members").delete().eq("email", email);
   if (error) throw new Error(error.message);
 
+  revalidatePath("/settings/family");
+}
+
+/** Edit a member's profile: birthdate and parent links. Owner-only. */
+export async function updateMemberProfile(
+  emailRaw: string,
+  input: {
+    birthdate?: string | null;
+    motherEmail?: string | null;
+    fatherEmail?: string | null;
+  }
+): Promise<void> {
+  await requireOwner();
+  const email = emailRaw.trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) throw new Error("Unknown member.");
+
+  const birthdate = input.birthdate?.trim() || null;
+  if (birthdate && !/^\d{4}-\d{2}-\d{2}$/.test(birthdate)) {
+    throw new Error("Enter the birthdate as YYYY-MM-DD.");
+  }
+  const motherEmail = input.motherEmail?.trim().toLowerCase() || null;
+  const fatherEmail = input.fatherEmail?.trim().toLowerCase() || null;
+  if (motherEmail === email || fatherEmail === email) {
+    throw new Error("A member can't be their own parent.");
+  }
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("journal_members")
+    .update({
+      birthdate,
+      mother_email: motherEmail,
+      father_email: fatherEmail,
+    })
+    .eq("email", email);
+  if (error) throw new Error(error.message);
+  revalidatePath("/settings/family");
+}
+
+// ============================================================
+// Reading: per-member weekly page goal
+// ============================================================
+
+/** Each member's weekly reading page goal, keyed by email. Owner-only. */
+export async function getReadingGoals(): Promise<Record<string, number>> {
+  await requireOwner();
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("reading_settings")
+    .select("member_email, weekly_page_goal");
+  if (error) throw new Error(error.message);
+  const result: Record<string, number> = {};
+  for (const row of data ?? []) {
+    result[row.member_email as string] = row.weekly_page_goal as number;
+  }
+  return result;
+}
+
+/** Set a member's weekly reading page goal. Owner-only. */
+export async function updateReadingGoal(
+  emailRaw: string,
+  goal: number
+): Promise<void> {
+  await requireOwner();
+  const email = emailRaw.trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) throw new Error("Unknown member.");
+  if (!Number.isFinite(goal) || goal < 0) {
+    throw new Error("Enter a goal of 0 or more pages.");
+  }
+  const weeklyPageGoal = Math.floor(goal);
+
+  const admin = createAdminClient();
+  const { data: member } = await admin
+    .from("journal_members")
+    .select("email")
+    .eq("email", email)
+    .maybeSingle();
+  if (!member) throw new Error("Member not found.");
+
+  const { error } = await admin
+    .from("reading_settings")
+    .upsert(
+      { member_email: email, weekly_page_goal: weeklyPageGoal },
+      { onConflict: "member_email" }
+    );
+  if (error) throw new Error(error.message);
   revalidatePath("/settings/family");
 }
 

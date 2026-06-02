@@ -10,6 +10,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { NotificationBell } from "@/components/journal/notification-bell";
+import { AppSwitcher } from "@/components/layout/app-switcher";
 import { cn } from "@/lib/utils";
 import type { JournalStreakStats } from "@/components/journal/header";
 import type { JournalNotifications } from "@/lib/types";
@@ -25,12 +26,7 @@ export function JournalHeaderClient({
     <TooltipProvider>
       <header className="sticky top-0 z-50 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="relative mx-auto flex h-14 max-w-3xl items-center justify-between px-6">
-          <Link
-            href="/journal"
-            className="font-serif text-lg tracking-tight text-foreground"
-          >
-            Journal
-          </Link>
+          <AppSwitcher />
           <div className="flex items-center gap-2">
             <JournalNewButton />
             <JournalStreakBadge streak={streak} />

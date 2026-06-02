@@ -24,6 +24,27 @@ export function localDate(date: Date = new Date(), timeZone?: string): string {
 }
 
 /**
+ * Add (or subtract) whole days to a YYYY-MM-DD date string, returning YYYY-MM-DD.
+ * Anchored at noon so DST shifts never bump the result across a day boundary.
+ */
+export function addDays(date: string, days: number): string {
+  const d = new Date(`${date}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  return localDate(d);
+}
+
+/**
+ * The Monday on or before `date` (YYYY-MM-DD in, YYYY-MM-DD out). Weeks run
+ * Mon–Sun across the apps (journal streaks, reading goals, practice reports).
+ */
+export function getWeekStart(date: string): string {
+  const d = new Date(`${date}T12:00:00`);
+  const day = d.getDay(); // 0 = Sunday … 6 = Saturday
+  const diff = (day - 1 + 7) % 7; // days since Monday
+  return addDays(date, -diff);
+}
+
+/**
  * A human "right now" stamp in the given timezone, e.g.
  * "Thursday, May 29, 2026 at 8:25 AM PDT". Gives the interviewer a real
  * time-of-day anchor so it can tell a 5pm event apart from a past one.

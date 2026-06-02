@@ -3,7 +3,12 @@ import { FamilyManager } from "@/components/journal/family-manager";
 import { SingleFileEditor } from "@/components/journal/agent-file-editor";
 import { getIsOwner } from "@/lib/journal/auth";
 import { loadFamilyDoc } from "@/lib/journal/context";
-import { getFamilyJournalStats, getMemberPhotos, listFamilyMembers } from "./actions";
+import {
+  getFamilyJournalStats,
+  getMemberPhotos,
+  getReadingGoals,
+  listFamilyMembers,
+} from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -13,18 +18,21 @@ export default async function FamilySettingsPage() {
     redirect("/settings/user");
   }
 
-  const [members, familyDoc, photosByEmail, journalStatsByUserId] = await Promise.all([
-    listFamilyMembers(),
-    loadFamilyDoc(),
-    getMemberPhotos(),
-    getFamilyJournalStats(),
-  ]);
+  const [members, familyDoc, photosByEmail, journalStatsByUserId, readingGoalsByEmail] =
+    await Promise.all([
+      listFamilyMembers(),
+      loadFamilyDoc(),
+      getMemberPhotos(),
+      getFamilyJournalStats(),
+      getReadingGoals(),
+    ]);
   return (
     <>
       <FamilyManager
         members={members}
         photosByEmail={photosByEmail}
         journalStatsByUserId={journalStatsByUserId}
+        readingGoalsByEmail={readingGoalsByEmail}
       />
       <div className="mt-10 border-t border-border pt-6">
         <h3 className="font-serif text-xs uppercase tracking-wide text-muted-foreground">

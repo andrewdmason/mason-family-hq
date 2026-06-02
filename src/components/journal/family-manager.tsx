@@ -2,15 +2,32 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Pencil, Settings, Trash2 } from "lucide-react";
+import { Pencil, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import { MemberPhotoDialog } from "@/components/journal/member-photo-dialog";
 import {
   addFamilyMember,
-  removeFamilyMember,
   updateFamilyMember,
+  updateMemberProfile,
+  updateReadingGoal,
 } from "@/app/(journal)/settings/family/actions";
 import type { JournalMember, MemberJournalStats, MemberPhoto } from "@/lib/types";
 
@@ -18,17 +35,17 @@ export function FamilyManager({
   members,
   photosByEmail,
   journalStatsByUserId,
+  readingGoalsByEmail,
 }: {
   members: JournalMember[];
   photosByEmail: Record<string, MemberPhoto[]>;
   journalStatsByUserId: Record<string, MemberJournalStats>;
+  readingGoalsByEmail: Record<string, number>;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [adding, setAdding] = useState(false);
-  const [editingEmail, setEditingEmail] = useState<string | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editEmail, setEditEmail] = useState("");
+  const [editingMember, setEditingMember] = useState<JournalMember | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -47,50 +64,6 @@ export function FamilyManager({
     });
   }
 
-  function startEdit(member: JournalMember) {
-    setError(null);
-    setEditingEmail(member.email);
-    setEditName(member.name ?? "");
-    setEditEmail(member.email);
-  }
-
-  function cancelEdit() {
-    setEditingEmail(null);
-    setError(null);
-  }
-
-  function handleEdit(e: React.FormEvent, original: JournalMember) {
-    e.preventDefault();
-    setError(null);
-    startTransition(async () => {
-      try {
-        await updateFamilyMember(original.email, editName, editEmail);
-        setEditingEmail(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't save changes.");
-      }
-    });
-  }
-
-  function handleRemove(member: JournalMember) {
-    const label = member.name || member.email;
-    if (
-      !window.confirm(
-        `Remove ${label}? This permanently deletes their account and all of their journal entries.`
-      )
-    ) {
-      return;
-    }
-    setError(null);
-    startTransition(async () => {
-      try {
-        await removeFamilyMember(member.email);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't remove member.");
-      }
-    });
-  }
-
   return (
     <div className="mt-6">
       <div className="divide-y divide-border rounded-lg border border-border">
@@ -98,7 +71,6 @@ export function FamilyManager({
           const photos = photosByEmail[m.email] ?? [];
           const primary = photos.find((p) => p.is_primary) ?? photos[0];
           const stats = m.user_id ? journalStatsByUserId[m.user_id] : null;
-          const isEditing = editingEmail === m.email;
           return (
             <div
               key={m.email}
@@ -117,104 +89,56 @@ export function FamilyManager({
                   </button>
                 }
               />
-              {isEditing ? (
-                <form
-                  onSubmit={(e) => handleEdit(e, m)}
-                  className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center"
-                >
-                  <Input
-                    placeholder="Name"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="sm:max-w-[160px]"
-                  />
-                  <Input
-                    type="email"
-                    placeholder="Email address"
-                    value={editEmail}
-                    onChange={(e) => setEditEmail(e.target.value)}
-                    disabled={m.is_owner}
-                    className="flex-1"
-                  />
-                  <div className="flex gap-2">
-                    <Button type="submit" size="sm" disabled={pending}>
-                      {pending ? "Saving…" : "Save"}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={cancelEdit}
-                      disabled={pending}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </form>
-              ) : (
-                <>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-serif text-sm text-foreground">
-                        {m.name || "—"}
-                      </span>
-                      {m.is_owner && (
-                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                          Owner
-                        </span>
-                      )}
-                      {!m.is_owner && !m.seeded_at && (
-                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                          Invited
-                        </span>
-                      )}
-                    </div>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {m.email}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-serif text-sm text-foreground">
+                    {m.name || "—"}
+                  </span>
+                  {m.is_owner && (
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                      Owner
                     </span>
-                  </div>
-                  <MemberPostingStats stats={stats} />
-                  {!m.is_owner &&
-                    (m.seeded_at ? (
-                      <Link
-                        href={`/settings/user?member=${encodeURIComponent(m.email)}`}
-                        aria-label={`Edit ${m.name || m.email}'s settings`}
-                        title="Edit settings"
-                        className="text-muted-foreground transition-colors hover:text-foreground"
-                      >
-                        <Settings className="h-4 w-4" />
-                      </Link>
-                    ) : (
-                      <span
-                        aria-label="Pending first sign-in"
-                        title="Settings open once they've signed in"
-                        className="text-muted-foreground opacity-40"
-                      >
-                        <Settings className="h-4 w-4" />
-                      </span>
-                    ))}
-                  <button
-                    type="button"
-                    onClick={() => startEdit(m)}
-                    disabled={pending}
-                    aria-label={`Edit ${m.name || m.email}`}
-                    className="text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                  {!m.is_owner && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemove(m)}
-                      disabled={pending}
-                      aria-label={`Remove ${m.name || m.email}`}
-                      className="text-muted-foreground transition-colors hover:text-destructive disabled:opacity-40"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
                   )}
-                </>
-              )}
+                  {!m.is_owner && !m.seeded_at && (
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                      Invited
+                    </span>
+                  )}
+                </div>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {m.email}
+                </span>
+              </div>
+              <MemberPostingStats stats={stats} />
+              <ReadingGoalBadge goal={readingGoalsByEmail[m.email] ?? 0} />
+              {!m.is_owner &&
+                (m.seeded_at ? (
+                  <Link
+                    href={`/settings/user?member=${encodeURIComponent(m.email)}`}
+                    aria-label={`Edit ${m.name || m.email}'s settings`}
+                    title="Edit settings"
+                    className="text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <Settings className="h-4 w-4" />
+                  </Link>
+                ) : (
+                  <span
+                    aria-label="Pending first sign-in"
+                    title="Settings open once they've signed in"
+                    className="text-muted-foreground opacity-40"
+                  >
+                    <Settings className="h-4 w-4" />
+                  </span>
+                ))}
+              <button
+                type="button"
+                onClick={() => setEditingMember(m)}
+                disabled={pending}
+                aria-label={`Edit ${m.name || m.email}`}
+                className="text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
             </div>
           );
         })}
@@ -262,6 +186,205 @@ export function FamilyManager({
         </button>
       )}
       {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+
+      {editingMember && (
+        <EditMemberDialog
+          key={editingMember.email}
+          member={editingMember}
+          allMembers={members}
+          initialGoal={readingGoalsByEmail[editingMember.email] ?? 0}
+          onClose={() => setEditingMember(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+const NO_PARENT = "__none__";
+
+function EditMemberDialog({
+  member,
+  allMembers,
+  initialGoal,
+  onClose,
+}: {
+  member: JournalMember;
+  allMembers: JournalMember[];
+  initialGoal: number;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(member.name ?? "");
+  const [email, setEmail] = useState(member.email);
+  const [goal, setGoal] = useState(String(initialGoal));
+  const [birthdate, setBirthdate] = useState(member.birthdate ?? "");
+  const [motherEmail, setMotherEmail] = useState(member.mother_email ?? NO_PARENT);
+  const [fatherEmail, setFatherEmail] = useState(member.father_email ?? NO_PARENT);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  // A member can't be their own parent.
+  const parentChoices = allMembers.filter((m) => m.email !== member.email);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const goalNum = Math.floor(Number(goal));
+    if (!Number.isFinite(goalNum) || goalNum < 0) {
+      setError("Enter a reading goal of 0 or more pages.");
+      return;
+    }
+    const newEmail = email.trim().toLowerCase();
+    startTransition(async () => {
+      try {
+        // Name/email first: editing the email cascades dependent rows
+        // (reading_settings, parent links) to the new address.
+        await updateFamilyMember(member.email, name, newEmail);
+        if (goalNum !== initialGoal) {
+          await updateReadingGoal(member.is_owner ? member.email : newEmail, goalNum);
+        }
+        await updateMemberProfile(newEmail, {
+          birthdate: birthdate || null,
+          motherEmail: motherEmail === NO_PARENT ? null : motherEmail,
+          fatherEmail: fatherEmail === NO_PARENT ? null : fatherEmail,
+        });
+        onClose();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't save changes.");
+      }
+    });
+  }
+
+  return (
+    <Dialog open onOpenChange={(next) => !next && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit family member</DialogTitle>
+          <DialogDescription>
+            Update {member.name || member.email}&apos;s details, parents, and
+            weekly reading goal.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="grid gap-3">
+          <div className="grid gap-1.5">
+            <Label htmlFor="edit-name">Name</Label>
+            <Input
+              id="edit-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="edit-email">Email address</Label>
+            <Input
+              id="edit-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={member.is_owner}
+            />
+            {member.is_owner && (
+              <p className="text-xs text-muted-foreground">
+                The owner&apos;s email can&apos;t be changed here.
+              </p>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="edit-birthdate">Birthdate</Label>
+              <Input
+                id="edit-birthdate"
+                type="date"
+                value={birthdate}
+                onChange={(e) => setBirthdate(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="edit-goal">Reading goal /wk</Label>
+              <Input
+                id="edit-goal"
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
+                className="tabular-nums"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <ParentSelect
+              id="edit-mother"
+              label="Mother"
+              value={motherEmail}
+              choices={parentChoices}
+              onChange={setMotherEmail}
+            />
+            <ParentSelect
+              id="edit-father"
+              label="Father"
+              value={fatherEmail}
+              choices={parentChoices}
+              onChange={setFatherEmail}
+            />
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <DialogFooter showCloseButton>
+            <Button type="submit" disabled={pending}>
+              {pending ? "Saving…" : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ParentSelect({
+  id,
+  label,
+  value,
+  choices,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  choices: JournalMember[];
+  onChange: (value: string) => void;
+}) {
+  const selected = choices.find((m) => m.email === value);
+  return (
+    <div className="grid gap-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Select value={value} onValueChange={(v) => onChange(v ?? NO_PARENT)}>
+        <SelectTrigger id={id} className="w-full">
+          <SelectValue>
+            {value === NO_PARENT ? "None" : selected?.name ?? value}
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_PARENT}>None</SelectItem>
+          {choices.map((m) => (
+            <SelectItem key={m.email} value={m.email}>
+              {m.name ?? m.email}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function ReadingGoalBadge({ goal }: { goal: number }) {
+  return (
+    <div className="shrink-0 text-right" title="Weekly reading page goal">
+      <p className="text-sm font-medium tabular-nums text-foreground">
+        {goal > 0 ? goal : "—"}
+      </p>
+      <p className="mt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+        reading /wk
+      </p>
     </div>
   );
 }

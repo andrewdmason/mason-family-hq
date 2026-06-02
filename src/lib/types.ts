@@ -390,6 +390,10 @@ export type JournalMember = {
   is_owner: boolean;
   user_id: string | null;
   seeded_at: string | null;
+  birthdate: string | null;
+  /** Email of this member's mother / father (another member), or null. */
+  mother_email: string | null;
+  father_email: string | null;
 };
 
 /** A profile photo for a family member, with a short-lived signed display URL. */
@@ -608,4 +612,60 @@ export type PieceSectionTimestamp = {
   end_seconds: number | null;
   created_at: string;
   updated_at: string;
+};
+
+// ============================================================
+// Reading app
+// ============================================================
+
+export type ReadingBookStatus =
+  | "in_progress"
+  | "completed"
+  | "paused"
+  | "archived"
+  | "queued";
+
+/** A book a family member is tracking. */
+export type ReadingBook = {
+  id: string;
+  user_id: string;
+  title: string;
+  author: string | null;
+  total_pages: number | null;
+  current_page: number;
+  status: ReadingBookStatus;
+  cover_image_url: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  /** Set when another member added this book to your list as a recommendation. */
+  recommended_by_email: string | null;
+  /** How to show the recommender — "Dad", "Mom", or their first name. */
+  recommended_by_label: string | null;
+  recommendation_note: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** One "what page on what date" check-in, the basis for weekly progress. */
+export type ReadingCheckin = {
+  id: string;
+  user_id: string;
+  book_id: string;
+  checked_on: string;
+  page: number;
+  created_at: string;
+};
+
+/** A book plus this week's derived progress for the reading home. */
+export type ReadingBookWithProgress = ReadingBook & {
+  /** Pages advanced since the start of the current week (Mon). */
+  pagesReadThisWeek: number;
+};
+
+/** Everything the reading home renders for the signed-in member. */
+export type ReadingHome = {
+  books: ReadingBookWithProgress[];
+  weeklyPageGoal: number;
+  totalReadThisWeek: number;
+  checkedInThisWeek: boolean;
 };
