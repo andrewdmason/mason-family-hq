@@ -14,8 +14,8 @@ const lora = Lora({
 });
 
 export const metadata: Metadata = {
-  title: "Practice Book",
-  description: "A personal piano practice journal",
+  title: "Mason Family HQ",
+  description: "The Mason family's private home base",
 };
 
 export default function RootLayout({
