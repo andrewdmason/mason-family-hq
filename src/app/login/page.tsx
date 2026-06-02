@@ -44,7 +44,7 @@ function LoginForm() {
           Mason Family HQ
         </h1>
         <p className="text-sm text-muted-foreground">
-          The Mason family's private home base
+          The Mason family&apos;s private home base
         </p>
       </CardHeader>
       <CardContent>
@@ -60,11 +60,27 @@ function LoginForm() {
         )}
 
         {sent ? (
-          <p className="text-sm text-center text-muted-foreground">
-            Check your email for a magic link to sign in.
-          </p>
+          <div className="space-y-4 text-center">
+            <p className="text-sm text-muted-foreground">
+              We sent a magic link to{" "}
+              <span className="font-medium text-foreground">{email}</span>.
+              Open it on this device to come on in.
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full"
+              onClick={() => setSent(false)}
+            >
+              Use a different email
+            </Button>
+          </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
+            <p className="text-sm text-center text-muted-foreground">
+              Sign in to the family&apos;s space — journal, reading, practice,
+              and everything else under one roof.
+            </p>
             <Input
               type="email"
               placeholder="Email address"
