@@ -41,10 +41,10 @@ function LoginForm() {
     <Card className="w-full max-w-sm">
       <CardHeader className="text-center space-y-2">
         <h1 className="text-2xl font-semibold tracking-tight">
-          Practice Book
+          Mason Family HQ
         </h1>
         <p className="text-sm text-muted-foreground">
-          A private piano practice journal
+          The Mason family's private home base
         </p>
       </CardHeader>
       <CardContent>
