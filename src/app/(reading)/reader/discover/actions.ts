@@ -198,7 +198,7 @@ export async function generateRecommendations(
     .select(REC_COLUMNS);
   if (error) throw new Error(error.message);
 
-  revalidatePath("/reading");
+  revalidatePath("/reader");
   return (data ?? []) as ReadingRecommendation[];
 }
 
@@ -250,7 +250,7 @@ export async function queueRecommendation(
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
 
-  revalidatePath("/reading");
+  revalidatePath("/reader");
 }
 
 /**
@@ -293,7 +293,7 @@ export async function rateRecommendation(
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
 
-  revalidatePath("/reading");
+  revalidatePath("/reader");
 }
 
 /**
@@ -312,5 +312,5 @@ export async function dismissRecommendation(
     .eq("id", recId)
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
-  revalidatePath("/reading");
+  revalidatePath("/reader");
 }

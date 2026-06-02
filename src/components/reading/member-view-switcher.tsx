@@ -34,9 +34,9 @@ export function MemberViewSwitcher({
 
   function handleChange(email: string | null) {
     if (!email || email === ownerEmail) {
-      router.push("/reading");
+      router.push("/reader");
     } else {
-      router.push(`/reading?member=${encodeURIComponent(email)}`);
+      router.push(`/reader?member=${encodeURIComponent(email)}`);
     }
   }
 

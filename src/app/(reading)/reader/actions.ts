@@ -6,12 +6,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserTimezone, getWeekStart, localDate } from "@/lib/date-utils";
 import { lookupBookByTitle, type BookLookupResult } from "@/lib/reading/book-lookup";
 import { resolveReadingScope } from "@/lib/reading/scope";
+import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
 import type {
   ReadingBook,
+  ReadingBookContentSummary,
   ReadingBookStatus,
   ReadingBookWithProgress,
   ReadingHome,
   ReadingRating,
+  ReadingTocEntry,
 } from "@/lib/types";
 
 const BOOK_COLUMNS =
@@ -120,7 +123,7 @@ export async function recommendBook(input: {
     recommendation_note: input.note?.trim() || null,
   });
   if (error) throw new Error(error.message);
-  revalidatePath("/reading");
+  revalidatePath("/reader");
 }
 
 /**
@@ -152,6 +155,36 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
 
   const books = (bookRows ?? []) as ReadingBook[];
   const bookIds = books.map((b) => b.id);
+
+  // Uploaded-content and reader-resume state for every book, so the list can
+  // surface the Read button and upload/replace affordances without a detail page.
+  const contentByBook = new Map<string, ReadingBookContentSummary>();
+  const resumeBooks = new Set<string>();
+  if (bookIds.length > 0) {
+    const [{ data: contentRows }, { data: stateRows }] = await Promise.all([
+      client
+        .from("reading_book_content")
+        .select("book_id, status, page_count, has_real_pages, error_message")
+        .eq("user_id", userId)
+        .in("book_id", bookIds),
+      client
+        .from("reading_book_state")
+        .select("book_id, last_anchor_id")
+        .eq("user_id", userId)
+        .in("book_id", bookIds),
+    ]);
+    for (const c of contentRows ?? []) {
+      contentByBook.set(c.book_id as string, {
+        status: c.status as ReadingBookContentSummary["status"],
+        page_count: (c.page_count as number) ?? null,
+        has_real_pages: (c.has_real_pages as boolean) ?? false,
+        error_message: (c.error_message as string) ?? null,
+      });
+    }
+    for (const s of stateRows ?? []) {
+      if (s.last_anchor_id) resumeBooks.add(s.book_id as string);
+    }
+  }
 
   // Derive each book's "page at the start of this week" from its check-ins:
   // the most recent check-in before Monday, or — for a book only started this
@@ -187,6 +220,8 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
     return {
       ...book,
       pagesReadThisWeek: Math.max(0, book.current_page - baseline),
+      content: contentByBook.get(book.id) ?? null,
+      hasResumePoint: resumeBooks.has(book.id),
     };
   });
 
@@ -264,7 +299,7 @@ export async function addBook(input: {
     if (checkinError) throw new Error(checkinError.message);
   }
 
-  revalidatePath("/reading");
+  revalidatePath("/reader");
 }
 
 /** Edit a book's details and/or status. Manages finished_at on status changes. */
@@ -359,7 +394,7 @@ export async function updateBook(
     if (checkinError) throw new Error(checkinError.message);
   }
 
-  revalidatePath("/reading");
+  revalidatePath("/reader");
 }
 
 /** Record what page the member is on now. Marks the book completed at the end. */
@@ -403,7 +438,7 @@ export async function checkIn(
     .eq("user_id", userId);
   if (updateError) throw new Error(updateError.message);
 
-  revalidatePath("/reading");
+  revalidatePath("/reader");
 }
 
 const RATINGS: ReadingRating[] = ["loved", "liked", "neutral", "disliked"];
@@ -431,7 +466,7 @@ export async function rateBook(
     .eq("id", bookId)
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
-  revalidatePath("/reading");
+  revalidatePath("/reader");
 }
 
 /** Stop tracking a book (and its check-ins, via ON DELETE CASCADE). */
@@ -446,5 +481,188 @@ export async function removeBook(
     .eq("id", bookId)
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
-  revalidatePath("/reading");
+  revalidatePath("/reader");
+}
+
+// ============================================================
+// Uploaded book files + the reading experience
+// ============================================================
+
+const UPLOAD_EXT: Record<"pdf" | "epub", string> = { pdf: "pdf", epub: "epub" };
+
+/**
+ * Sign an upload URL for a book's source file. Mirrors createPhotoUploadUrls:
+ * owner-on-behalf uploads land in the member's folder, which the user client's
+ * storage policy ({auth.uid()}/…) would reject — so member mode signs via the
+ * service role. The path is derived from the trusted userId, never client input.
+ */
+export async function createBookUploadUrl(
+  bookId: string,
+  format: "pdf" | "epub",
+  memberEmail?: string | null
+): Promise<{ path: string; token: string }> {
+  const { client, userId, isMemberMode } = await resolveReadingScope(memberEmail);
+
+  // Confirm the book belongs to the scoped user before handing out a URL.
+  const { data: book, error } = await client
+    .from("reading_books")
+    .select("id")
+    .eq("id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!book) throw new Error("Book not found.");
+
+  const path = `${userId}/${bookId}/source.${UPLOAD_EXT[format]}`;
+  const storage = (isMemberMode ? createAdminClient() : await createClient())
+    .storage;
+  const signed = await storage
+    .from(READING_BOOKS_BUCKET)
+    .createSignedUploadUrl(path, { upsert: true });
+  if (signed.error || !signed.data) {
+    throw new Error(signed.error?.message ?? "Failed to create upload URL.");
+  }
+  return { path: signed.data.path, token: signed.data.token };
+}
+
+/**
+ * Record that a source file was uploaded and mark it for conversion. Resets any
+ * prior conversion state (re-upload replaces content). The caller then triggers
+ * the conversion route, which flips status to ready/failed.
+ */
+export async function attachBookFile(
+  bookId: string,
+  sourcePath: string,
+  format: "pdf" | "epub",
+  memberEmail?: string | null
+): Promise<void> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+
+  const { data: book, error: bookError } = await client
+    .from("reading_books")
+    .select("id")
+    .eq("id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (bookError) throw new Error(bookError.message);
+  if (!book) throw new Error("Book not found.");
+
+  const { error } = await client.from("reading_book_content").upsert(
+    {
+      book_id: bookId,
+      user_id: userId,
+      source_format: format,
+      source_path: sourcePath,
+      content_path: null,
+      status: "processing",
+      error_message: null,
+      page_count: null,
+      has_real_pages: false,
+      char_count: null,
+    },
+    { onConflict: "book_id" }
+  );
+  if (error) throw new Error(error.message);
+
+  // Stale page map from a previous conversion (re-upload) must not linger.
+  await client.from("reading_book_pages").delete().eq("book_id", bookId);
+
+  revalidatePath("/reader");
+}
+
+export type ReadingBookReaderData = {
+  title: string;
+  author: string | null;
+  /** Short-lived signed URL the client fetches the reflowed HTML from. */
+  contentUrl: string;
+  hasRealPages: boolean;
+  pageCount: number | null;
+  toc: ReadingTocEntry[];
+  resume: {
+    anchorId: string | null;
+    scrollRatio: number | null;
+  };
+};
+
+/** Everything the reader needs: a signed content URL, pagination, resume point. */
+export async function getBookReaderData(
+  bookId: string,
+  memberEmail?: string | null
+): Promise<ReadingBookReaderData | null> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+
+  const { data: book, error } = await client
+    .from("reading_books")
+    .select("title, author")
+    .eq("id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!book) return null;
+
+  const { data: content } = await client
+    .from("reading_book_content")
+    .select("content_path, status, has_real_pages, page_count, toc")
+    .eq("book_id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!content || content.status !== "ready" || !content.content_path) {
+    return null;
+  }
+
+  const signed = await client.storage
+    .from(READING_BOOKS_BUCKET)
+    .createSignedUrl(content.content_path, 60 * 60);
+  if (signed.error || !signed.data) {
+    throw new Error(signed.error?.message ?? "Couldn't open this book.");
+  }
+
+  const { data: state } = await client
+    .from("reading_book_state")
+    .select("last_anchor_id, last_scroll_ratio")
+    .eq("book_id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  return {
+    title: book.title as string,
+    author: (book.author as string) ?? null,
+    contentUrl: signed.data.signedUrl,
+    hasRealPages: content.has_real_pages as boolean,
+    pageCount: (content.page_count as number) ?? null,
+    toc: (content.toc as ReadingTocEntry[]) ?? [],
+    resume: {
+      anchorId: (state?.last_anchor_id as string) ?? null,
+      scrollRatio: (state?.last_scroll_ratio as number) ?? null,
+    },
+  };
+}
+
+/**
+ * Persist where the reader left off. Deliberately does NOT touch current_page or
+ * check-ins — manual progress stays manual; this is just resume state.
+ */
+export async function saveReadingPosition(
+  bookId: string,
+  position: {
+    anchorId: string | null;
+    scrollRatio: number | null;
+    pageNumber: number | null;
+  },
+  memberEmail?: string | null
+): Promise<void> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+
+  const { error } = await client.from("reading_book_state").upsert(
+    {
+      book_id: bookId,
+      user_id: userId,
+      last_anchor_id: position.anchorId,
+      last_scroll_ratio: position.scrollRatio,
+      last_page_number: position.pageNumber,
+      last_read_at: new Date().toISOString(),
+    },
+    { onConflict: "book_id" }
+  );
+  if (error) throw new Error(error.message);
 }

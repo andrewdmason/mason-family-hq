@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { rateBook } from "@/app/(reading)/reading/actions";
+import { rateBook } from "@/app/(reading)/reader/actions";
 import { RatingPicker } from "@/components/reading/rating-picker";
 import type { ReadingRating } from "@/lib/types";
 

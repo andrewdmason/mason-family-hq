@@ -26,7 +26,7 @@ import {
   addBook,
   lookupBook,
   recommendBook,
-} from "@/app/(reading)/reading/actions";
+} from "@/app/(reading)/reader/actions";
 import { RatingPicker } from "@/components/reading/rating-picker";
 import { READING_STATUSES, readingStatusLabel } from "@/lib/reading/status";
 import type { ReadingBookStatus, ReadingRating } from "@/lib/types";

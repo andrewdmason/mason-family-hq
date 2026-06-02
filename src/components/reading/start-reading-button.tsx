@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { updateBook } from "@/app/(reading)/reading/actions";
+import { updateBook } from "@/app/(reading)/reader/actions";
 
 /** Quick action to promote a queued/paused book to actively reading. */
 export function StartReadingButton({

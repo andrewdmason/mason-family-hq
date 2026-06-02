@@ -1,13 +1,13 @@
-import { BookCover } from "@/components/reading/book-cover";
-import { EditBookDialog } from "@/components/reading/edit-book-dialog";
+import { ArchiveBookTile } from "@/components/reading/archive-book-tile";
 import { RATING_OPTIONS } from "@/components/reading/rating-picker";
 import type { ReadingBookWithProgress, ReadingRating } from "@/lib/types";
 
 /**
  * The archive shelf: books you're done with, as a cover-focused tile grid grouped
  * by your verdict. Sentiment ratings first (loved → didn't like), "didn't finish"
- * at the bottom, and anything unrated up top to nudge a rating. Tapping a tile
- * opens its editor (where the rating, including DNF, can be set or changed).
+ * at the bottom, and anything unrated up top to nudge a rating. Each tile carries
+ * the same hover affordances as the reading list: a Read badge when a file's been
+ * uploaded, and an overflow menu to upload/replace the file or edit details.
  */
 
 // Display order of the groups, top to bottom.
@@ -55,30 +55,10 @@ export function ArchiveShelf({
             </h2>
             <div className="grid grid-cols-3 gap-x-4 gap-y-5 sm:grid-cols-4 md:grid-cols-5">
               {groupBooks.map((book) => (
-                <EditBookDialog
+                <ArchiveBookTile
                   key={book.id}
                   book={book}
                   memberEmail={memberEmail}
-                  triggerClassName="group flex flex-col gap-1.5 text-left outline-none"
-                  trigger={
-                    <>
-                      <span className="transition-transform group-hover:-translate-y-0.5">
-                        <BookCover
-                          url={book.cover_image_url}
-                          title={book.title}
-                          size="lg"
-                        />
-                      </span>
-                      <span className="line-clamp-2 font-serif text-xs leading-tight text-foreground">
-                        {book.title}
-                      </span>
-                      {book.author && (
-                        <span className="line-clamp-1 text-[11px] text-muted-foreground">
-                          {book.author}
-                        </span>
-                      )}
-                    </>
-                  }
                 />
               ))}
             </div>

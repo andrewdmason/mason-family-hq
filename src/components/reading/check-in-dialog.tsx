@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { checkIn } from "@/app/(reading)/reading/actions";
+import { checkIn } from "@/app/(reading)/reader/actions";
 import type { ReadingBook } from "@/lib/types";
 
 export function CheckInDialog({
