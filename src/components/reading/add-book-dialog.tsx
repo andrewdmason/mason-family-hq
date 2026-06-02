@@ -27,8 +27,9 @@ import {
   lookupBook,
   recommendBook,
 } from "@/app/(reading)/reading/actions";
+import { RatingPicker } from "@/components/reading/rating-picker";
 import { READING_STATUSES, readingStatusLabel } from "@/lib/reading/status";
-import type { ReadingBookStatus } from "@/lib/types";
+import type { ReadingBookStatus, ReadingRating } from "@/lib/types";
 
 const FOR_ME = "me";
 
@@ -54,6 +55,7 @@ export function AddBookDialog({
   const [totalPages, setTotalPages] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<ReadingBookStatus>("in_progress");
+  const [rating, setRating] = useState<ReadingRating | null>(null);
   const [forWhom, setForWhom] = useState<string>(FOR_ME);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +71,7 @@ export function AddBookDialog({
     setTotalPages("");
     setCoverImageUrl(null);
     setStatus("in_progress");
+    setRating(null);
     setForWhom(FOR_ME);
     setNote("");
     setError(null);
@@ -102,6 +105,7 @@ export function AddBookDialog({
         totalPages: meta.totalPages,
         status,
         coverImageUrl: meta.coverImageUrl,
+        rating: status === "archive" ? rating : null,
         memberEmail,
       });
     }
@@ -203,7 +207,12 @@ export function AddBookDialog({
               {isRecommendation ? (
                 <NoteField value={note} onChange={setNote} />
               ) : (
-                <StatusField value={status} onChange={setStatus} />
+                <>
+                  <StatusField value={status} onChange={setStatus} />
+                  {status === "archive" && (
+                    <RatingField value={rating} onChange={setRating} />
+                  )}
+                </>
               )}
               {error && <p className="text-sm text-destructive">{error}</p>}
               <DialogFooter showCloseButton>
@@ -269,7 +278,12 @@ export function AddBookDialog({
               {isRecommendation ? (
                 <NoteField value={note} onChange={setNote} />
               ) : (
-                <StatusField value={status} onChange={setStatus} />
+                <>
+                  <StatusField value={status} onChange={setStatus} />
+                  {status === "archive" && (
+                    <RatingField value={rating} onChange={setRating} />
+                  )}
+                </>
               )}
               {error && <p className="text-sm text-destructive">{error}</p>}
               <DialogFooter showCloseButton>
@@ -337,6 +351,21 @@ function NoteField({
       <p className="text-xs text-muted-foreground">
         Goes to their queue with your recommendation.
       </p>
+    </div>
+  );
+}
+
+function RatingField({
+  value,
+  onChange,
+}: {
+  value: ReadingRating | null;
+  onChange: (value: ReadingRating) => void;
+}) {
+  return (
+    <div className="grid gap-1.5">
+      <Label>How was it?</Label>
+      <RatingPicker value={value} onSelect={onChange} />
     </div>
   );
 }

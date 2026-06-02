@@ -1,12 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { ArchiveShelf } from "@/components/reading/archive-shelf";
 import { BookCard } from "@/components/reading/book-card";
+import { PausedSection } from "@/components/reading/paused-section";
+import { QueueRecommendations } from "@/components/reading/queue-recommendations";
 import { READING_STATUSES } from "@/lib/reading/status";
 import { cn } from "@/lib/utils";
-import type { ReadingBookStatus, ReadingBookWithProgress } from "@/lib/types";
+import type {
+  ReadingBookStatus,
+  ReadingBookWithProgress,
+  ReadingRecommendation,
+} from "@/lib/types";
 
-type Tab = "all" | ReadingBookStatus;
+type Tab = ReadingBookStatus;
 
 function emptyMessage(tab: Tab): string {
   switch (tab) {
@@ -14,6 +21,8 @@ function emptyMessage(tab: Tab): string {
       return "Your queue is empty. Add a book and set its status to Queue.";
     case "in_progress":
       return "Nothing in progress right now. Add a book to start reading.";
+    case "archive":
+      return "Books you finish or set aside land here.";
     default:
       return "No books here yet.";
   }
@@ -25,12 +34,18 @@ export function ReadingList({
   soleBookTargetPage,
   emphasizeCheckIn,
   memberEmail = null,
+  recommendations,
+  recsHasSignal,
+  recsGenres,
 }: {
   books: ReadingBookWithProgress[];
   soleBookId: string | null;
   soleBookTargetPage: number | null;
   emphasizeCheckIn: boolean;
   memberEmail?: string | null;
+  recommendations: ReadingRecommendation[];
+  recsHasSignal: boolean;
+  recsGenres: string[];
 }) {
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -39,26 +54,30 @@ export function ReadingList({
   }, [books]);
 
   // Always offer the forward-looking tabs (Reading, Queue) so the queue is
-  // reachable even when empty; show the rest only when they have books.
+  // reachable even when empty; show the rest only when they have books. Paused
+  // isn't a tab — it lives in a collapsed section at the bottom.
   const ALWAYS_SHOWN: ReadingBookStatus[] = ["in_progress", "queued"];
-  const tabs: { value: Tab; label: string; count: number }[] = [
-    { value: "all", label: "All", count: books.length },
-    ...READING_STATUSES.filter(
-      (s) => ALWAYS_SHOWN.includes(s.value) || (counts[s.value] ?? 0) > 0
+  const tabs: { value: Tab; label: string; count: number }[] =
+    READING_STATUSES.filter(
+      (s) =>
+        s.value !== "paused" &&
+        (ALWAYS_SHOWN.includes(s.value) || (counts[s.value] ?? 0) > 0)
     ).map((s) => ({
       value: s.value as Tab,
       label: s.label,
       count: counts[s.value] ?? 0,
-    })),
-  ];
+    }));
+
+  const pausedBooks = books.filter((b) => b.status === "paused");
 
   const [active, setActive] = useState<Tab>(
-    (counts["in_progress"] ?? 0) > 0 ? "in_progress" : "all"
+    (counts["in_progress"] ?? 0) > 0 ? "in_progress" : "queued"
   );
-  const activeTab = tabs.some((t) => t.value === active) ? active : "all";
+  const activeTab = tabs.some((t) => t.value === active)
+    ? active
+    : tabs[0]?.value ?? "in_progress";
 
-  const visible =
-    activeTab === "all" ? books : books.filter((b) => b.status === activeTab);
+  const visible = books.filter((b) => b.status === activeTab);
 
   if (books.length === 0) {
     return (
@@ -90,10 +109,23 @@ export function ReadingList({
         ))}
       </div>
 
+      {activeTab === "queued" && (
+        <QueueRecommendations
+          recommendations={recommendations}
+          hasSignal={recsHasSignal}
+          genres={recsGenres}
+          memberEmail={memberEmail}
+        />
+      )}
+
       {visible.length === 0 ? (
-        <p className="mt-3 rounded-lg border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
-          {emptyMessage(activeTab)}
-        </p>
+        activeTab === "queued" ? null : (
+          <p className="mt-3 rounded-lg border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
+            {emptyMessage(activeTab)}
+          </p>
+        )
+      ) : activeTab === "archive" ? (
+        <ArchiveShelf books={visible} memberEmail={memberEmail} />
       ) : (
         <div className="mt-3 space-y-3">
           {visible.map((book) => (
@@ -107,6 +139,8 @@ export function ReadingList({
           ))}
         </div>
       )}
+
+      <PausedSection books={pausedBooks} memberEmail={memberEmail} />
     </div>
   );
 }
