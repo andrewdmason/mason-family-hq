@@ -32,6 +32,9 @@ const ENTRIES = [
   { id: "a0000002-0001-4001-8001-000000000001", photos: [{ seed: "family-redwoods" }, { seed: "family-campfire" }] }, // Jenny — camping
   { id: "a0000002-0002-4001-8001-000000000001", photos: [{ seed: "family-volcano" }] }, // Oscar — volcano
   { id: "a0000002-0003-4001-8001-000000000001", photos: [{ seed: "family-soccer" }] }, // Sebastian — soccer
+  // Timeline-linked dev posts (08_timeline_dev.sql)
+  { id: "c0000002-0001-4001-8001-000000000002", photos: [{ seed: "jenny-album-studio" }, { seed: "jenny-album-cover" }] }, // Jenny — debut album
+  { id: "c0000002-0003-4001-8001-000000000002", photos: [{ seed: "sebastian-first-book" }] }, // Sebastian — first chapter book
 ];
 
 // One primary avatar per family member, keyed by email → member-photos bucket

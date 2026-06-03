@@ -13,6 +13,10 @@ export const FAMILY_FOLLOWUP = "family-followup";
 /** The currently-reading question type's kebab name. */
 export const CURRENTLY_READING = "currently-reading";
 
+/** The reminiscence question type's kebab name. Targets a single
+ * under-elaborated timeline event and links the resulting entry back to it. */
+export const REMINISCENCE = "reminiscence";
+
 /**
  * The sources a question type is allowed to see. Each candidate is generated in
  * its own model call against a prompt built from only these sources, so a type
@@ -23,6 +27,8 @@ export const CURRENTLY_READING = "currently-reading";
  */
 export type CategoryContextSpec = {
   present: boolean;
+  /** Whether the type sees the user's timeline of life events (the structured
+   * replacement for the old Past doc). Named `past` for historical continuity. */
   past: boolean;
   history: boolean;
   calendar: CalendarWindow | "none";
@@ -59,8 +65,8 @@ export const CONTEXT_SPECS: Record<string, CategoryContextSpec> = {
 /**
  * Custom (user-authored) types and the untyped fallback get generous grounding
  * minus the calendar — the calendar is the big drift source, and a custom type
- * shouldn't silently inherit it. They still get Present, Past, and history so a
- * user-authored type has material to work with.
+ * shouldn't silently inherit it. They still get Present, the timeline, and
+ * history so a user-authored type has material to work with.
  */
 export const DEFAULT_SPEC: CategoryContextSpec = {
   present: true,
@@ -76,7 +82,7 @@ export function specFor(name: string | undefined): CategoryContextSpec {
 /** The data-source pills shown under a question type, in the order they load. */
 export type QuestionSource =
   | "user/present"
-  | "user/past"
+  | "user/timeline"
   | "journal/history"
   | "calendar/past"
   | "calendar/future"
@@ -99,7 +105,7 @@ export function sourcesFor(name: string | undefined): QuestionSource[] {
   const spec = specFor(name);
   const sources: QuestionSource[] = [];
   if (spec.present) sources.push("user/present");
-  if (spec.past) sources.push("user/past");
+  if (spec.past) sources.push("user/timeline");
   if (spec.history) sources.push("journal/history");
   if (spec.calendar === "recent") sources.push("calendar/past");
   if (spec.calendar === "ahead") sources.push("calendar/future");

@@ -355,7 +355,7 @@ export type PieceSectionWithChildren = PieceSection & {
 // Journal app
 // ============================================================
 
-export type JournalAgentFileName = "Interviewer" | "Present" | "Past";
+export type JournalAgentFileName = "Interviewer" | "Present";
 
 export type JournalAgentFile = {
   id: string;
@@ -441,6 +441,12 @@ export type JournalOpeningCandidate = {
    * every other type.
    */
   reading_book_id?: string | null;
+  /**
+   * Set only for reminiscence candidates: the timeline event the question is
+   * about. Picking the candidate links the entry to this event. Null/absent for
+   * every other type.
+   */
+  timeline_entry_id?: string | null;
 };
 
 export type JournalEntryStatus = "open" | "closed";
@@ -478,9 +484,85 @@ export type JournalEntry = {
   summary_stale: boolean;
   /** The book this entry is about, when answered from a currently-reading question. */
   reading_book_id: string | null;
+  /** The timeline event this entry elaborates, when answered from a reminiscence
+   * question that targeted one. Null otherwise. */
+  timeline_entry_id: string | null;
   closed_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+// ============================================================
+// Timeline
+// ============================================================
+
+export const TIMELINE_CATEGORIES = [
+  "origins",
+  "childhood",
+  "education",
+  "career",
+  "recognition",
+  "relationships",
+  "children_family",
+  "homes",
+  "travel",
+  "music_hobbies",
+  "health_hard_times",
+] as const;
+export type TimelineCategory = (typeof TIMELINE_CATEGORIES)[number];
+
+export type TimelineProminence = "major" | "medium" | "minor";
+
+/** How precise a timeline date is. Governs rendering (so "1986" never becomes
+ * "Jan 1 1986"); the stored date is always normalized to first-of-period. */
+export type DatePrecision = "year" | "month" | "day";
+
+/** A person's relationship to a timeline entry: it's their life event
+ * ("subject") or they're merely named in it ("mention"). */
+export type TimelinePersonRole = "subject" | "mention";
+
+/** A person in the shared registry. `member_email` links to a family_members
+ * row (bridge to a real account) for family people; null for everyone else. */
+export type Person = {
+  id: string;
+  name: string;
+  member_email: string | null;
+  notes: string | null;
+};
+
+/** The slim person shape carried on timeline entries. */
+export type TimelinePerson = Pick<Person, "id" | "name" | "member_email"> & {
+  /** Signed avatar URL, when the person is a family member with a profile photo. */
+  avatarUrl?: string | null;
+};
+
+export type TimelineEntry = {
+  id: string;
+  title: string;
+  description: string;
+  category: TimelineCategory;
+  prominence: TimelineProminence;
+  location: string | null;
+  /** Normalized to the first day of the stated period; sortable. */
+  start_date: string; // YYYY-MM-DD
+  start_precision: DatePrecision;
+  /** Null => a point event; non-null => a period/span. */
+  end_date: string | null;
+  end_precision: DatePrecision | null;
+  approximate: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+/** A timeline entry with its resolved people and viewer-relative metadata. */
+export type TimelineEntryWithPeople = TimelineEntry & {
+  subjects: TimelinePerson[];
+  mentions: TimelinePerson[];
+  /** Journal entries visible to the viewer that link to this event. */
+  linkedCount: number;
+  /** A signed display URL for a representative photo from a linked journal entry,
+   * when one exists and the viewer can see it. Drives the timeline card's image. */
+  coverPhotoUrl: string | null;
 };
 
 export type JournalMediaType = "photo" | "video";
@@ -573,13 +655,13 @@ export type JournalProfileSuggestionStatus = "pending" | "accepted" | "dismissed
 
 export type JournalProfileSuggestionChangeType = "add" | "edit" | "remove";
 
-/** Which doc a suggestion targets: the Present (current-life) or Past (life
- * story) profile doc. */
-export type JournalProfileSuggestionTarget = "Present" | "Past";
+/** Which doc a suggestion targets. Only the Present (current-life) profile doc
+ * now — biographical history lives in the shared timeline. */
+export type JournalProfileSuggestionTarget = "Present";
 
 /**
- * A passive, discriminating suggestion to update one of the user's profile docs
- * (Present or Past), produced by the wrap pass after an entry closes. Surfaced
+ * A passive, discriminating suggestion to update the user's Present profile doc,
+ * produced by the wrap pass after an entry closes. Surfaced
  * as a toast the user accepts (auto-applies the change) or dismisses. For `add`,
  * `replace` holds the new text; for `edit`, `find`→`replace`; for `remove`,
  * `find` is excised.

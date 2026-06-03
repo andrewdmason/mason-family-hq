@@ -1,0 +1,602 @@
+[
+  {
+    "title": "Born in Pittsburgh",
+    "description": "Born in Pittsburgh, Pennsylvania, and raised in the suburb of Mt. Lebanon. Both parents were entrepreneurs — father a diamond salesman, mother a photographer.",
+    "start_date": "1980-10-22",
+    "end_date": null,
+    "category": "Origins",
+    "prominence": "major",
+    "location": "Pittsburgh, PA",
+    "people": []
+  },
+  {
+    "title": "Sister Jessica born",
+    "description": "Younger sister, Jessica.",
+    "start_date": "1982-09-26",
+    "end_date": null,
+    "category": "Origins",
+    "prominence": "minor",
+    "location": "Pittsburgh, PA",
+    "people": ["Jessica Mason"]
+  },
+  {
+    "title": "Started piano at age six",
+    "description": "Began piano lessons via the Suzuki method.",
+    "start_date": "1986",
+    "end_date": null,
+    "category": "Music & Hobbies",
+    "prominence": "medium",
+    "location": "Mt. Lebanon, PA",
+    "people": []
+  },
+  {
+    "title": "Studied with Vince Leschade",
+    "description": "Took piano lessons with Vince Leschade, organist for the Pirates and Penguins, from around age nine through late high school, with a fading interest toward the end.",
+    "start_date": "1989",
+    "end_date": "1996",
+    "category": "Music & Hobbies",
+    "prominence": "minor",
+    "location": "Pittsburgh, PA",
+    "people": ["Vince Leschade"]
+  },
+  {
+    "title": "Little League: All-Star and Travel teams",
+    "description": "Played youth baseball; made both the All-Star team and the Travel team.",
+    "start_date": "1990",
+    "end_date": "1993",
+    "category": "Childhood",
+    "prominence": "minor",
+    "location": "Mt. Lebanon, PA",
+    "people": []
+  },
+  {
+    "title": "Childhood entrepreneurial hustles",
+    "description": "A string of small kid ventures: the Bagel Express bagel-delivery service at age 15, selling candy in the school cafeteria until getting shut down, and painting house numbers on curbs with his friend Luke.",
+    "start_date": "1993",
+    "end_date": "1998",
+    "category": "Childhood",
+    "prominence": "minor",
+    "location": "Mt. Lebanon, PA",
+    "people": ["Luke"]
+  },
+  {
+    "title": "Got into Fugazi, followed them on tour",
+    "description": "Musical taste evolved from Billy Joel to Elton John before Fugazi became his favorite band; followed them around on tour.",
+    "start_date": "1996",
+    "end_date": "1999",
+    "category": "Music & Hobbies",
+    "prominence": "minor",
+    "location": null,
+    "people": []
+  },
+  {
+    "title": "Piano reignites via a Steinway-store teacher",
+    "description": "Late in high school, a teacher at the Steinway store rekindled his interest, introducing Chopin études — his first real pull toward classical music after years of Billy Joel and the Rhapsody in Blue transcription.",
+    "start_date": "1998",
+    "end_date": null,
+    "category": "Music & Hobbies",
+    "prominence": "medium",
+    "location": "Pittsburgh, PA",
+    "people": []
+  },
+  {
+    "title": "Graduated Mt. Lebanon High School",
+    "description": "Finished high school in Mt. Lebanon.",
+    "start_date": "1999-06",
+    "end_date": null,
+    "category": "Education",
+    "prominence": "medium",
+    "location": "Mt. Lebanon, PA",
+    "people": []
+  },
+  {
+    "title": "Started at Northwestern in materials science engineering",
+    "description": "Entered Northwestern University as a materials science engineering major; first year lived in the performing-arts residential college (Jones).",
+    "start_date": "1999-09",
+    "end_date": null,
+    "category": "Education",
+    "prominence": "medium",
+    "location": "Evanston, IL",
+    "people": []
+  },
+  {
+    "title": "Carnegie Mellon summer internship",
+    "description": "An internship at Carnegie Mellon made clear he didn't want engineering and wanted to stay in music — the pivot point back toward a music path.",
+    "start_date": "2000",
+    "end_date": null,
+    "category": "Education",
+    "prominence": "minor",
+    "location": "Pittsburgh, PA",
+    "people": []
+  },
+  {
+    "title": "Transferred into the Northwestern School of Music",
+    "description": "Sophomore year, switched into the Bienen School of Music, studying music technology with a minor in piano.",
+    "start_date": "2000-09",
+    "end_date": null,
+    "category": "Education",
+    "prominence": "medium",
+    "location": "Evanston, IL",
+    "people": []
+  },
+  {
+    "title": "WWOOF in New Zealand",
+    "description": "Spent about two and a half months doing WWOOF (Willing Workers on Organic Farms) in New Zealand with his friend Tim.",
+    "start_date": "2001-06",
+    "end_date": "2001-08",
+    "category": "Travel & Adventure",
+    "prominence": "minor",
+    "location": "New Zealand",
+    "people": ["Tim"]
+  },
+  {
+    "title": "Chicago-area apartment years",
+    "description": "A run of post–freshman-year housing: off-campus on Clark Street in Evanston (rooming with Mark Roberts, then Doug Torrance, then Aaron With), then Rogers Park, Bucktown, and Lincoln Park.",
+    "start_date": "2000",
+    "end_date": "2006",
+    "category": "Homes & Relocation",
+    "prominence": "minor",
+    "location": "Chicago area, IL",
+    "people": ["Mark Roberts", "Doug Torrance", "Aaron With"]
+  },
+  {
+    "title": "Graduated Northwestern with a music degree",
+    "description": "Earned a B.A. from the Bienen School of Music (music technology).",
+    "start_date": "2003-06",
+    "end_date": null,
+    "category": "Education",
+    "prominence": "medium",
+    "location": "Evanston, IL",
+    "people": []
+  },
+  {
+    "title": "Odd-jobs era",
+    "description": "A cluster of early jobs: Apple specialist at Knobbies, waiter at Blind Faith Café (eventually fired), computer repair at Howard Brown Health Center, and an at-home Apple consulting gig advertised in the Chicago Reader and on Craigslist.",
+    "start_date": "2000",
+    "end_date": "2005",
+    "category": "Career",
+    "prominence": "minor",
+    "location": "Chicago, IL",
+    "people": []
+  },
+  {
+    "title": "LSAT and the almost-law-school detour",
+    "description": "Considered law school and took the LSAT; strong on practice tests but landed in the 160s on the real one.",
+    "start_date": "2005",
+    "end_date": null,
+    "category": "Education",
+    "prominence": "minor",
+    "location": "Chicago, IL",
+    "people": []
+  },
+  {
+    "title": "Built Policy Tree",
+    "description": "Created Policy Tree, a visualization tool for policy debates — the project that led him toward the Harris School.",
+    "start_date": "2005",
+    "end_date": null,
+    "category": "Career",
+    "prominence": "medium",
+    "location": "Chicago, IL",
+    "people": []
+  },
+  {
+    "title": "Met and started dating Jenny",
+    "description": "Met Jenny Gillespie at Hungry Brain and started dating on St. Patrick's Day 2006.",
+    "start_date": "2006-03-17",
+    "end_date": null,
+    "category": "Relationships",
+    "prominence": "medium",
+    "location": "Chicago, IL",
+    "people": ["Jenny Gillespie"]
+  },
+  {
+    "title": "Bought a Hyde Park condo for grad school",
+    "description": "Purchased a ~$120K condo in Hyde Park when starting graduate school nearby — a decision he later judged ill-advised.",
+    "start_date": "2006",
+    "end_date": null,
+    "category": "Homes & Relocation",
+    "prominence": "minor",
+    "location": "Hyde Park, Chicago, IL",
+    "people": []
+  },
+  {
+    "title": "Harris School, then dropped out",
+    "description": "Enrolled at the University of Chicago's Harris School of Public Policy to work on ideas like Policy Tree, then dropped out about a quarter in to start The Point.",
+    "start_date": "2006",
+    "end_date": null,
+    "category": "Education",
+    "prominence": "medium",
+    "location": "Chicago, IL",
+    "people": []
+  },
+  {
+    "title": "Founded The Point",
+    "description": "Started The Point, a grassroots collective-action platform, seeded with roughly $1M from Eric Lefkofsky.",
+    "start_date": "2007",
+    "end_date": null,
+    "category": "Career",
+    "prominence": "medium",
+    "location": "Chicago, IL",
+    "people": ["Eric Lefkofsky"]
+  },
+  {
+    "title": "Founded Groupon",
+    "description": "Pivoted The Point's collective-buying mechanic into Groupon, becoming founding CEO.",
+    "start_date": "2008",
+    "end_date": null,
+    "category": "Career",
+    "prominence": "major",
+    "location": "Chicago, IL",
+    "people": ["Eric Lefkofsky"]
+  },
+  {
+    "title": "Turned down Google's ~$6B offer",
+    "description": "Declined Google's roughly $6 billion acquisition offer for Groupon.",
+    "start_date": "2010-12",
+    "end_date": null,
+    "category": "Career",
+    "prominence": "medium",
+    "location": "Chicago, IL",
+    "people": []
+  },
+  {
+    "title": "Forbes cover / fastest-growing-company moment",
+    "description": "Public peak of the Groupon era, with Groupon framed as one of the fastest-growing companies ever and Mason on the cover of Forbes.",
+    "start_date": "2010",
+    "end_date": null,
+    "category": "Recognition & Creative Work",
+    "prominence": "medium",
+    "location": null,
+    "people": []
+  },
+  {
+    "title": "Bought the Ukrainian Village place",
+    "description": "Bought a beloved home in Ukrainian Village where he and Jenny lived and were married.",
+    "start_date": "2010",
+    "end_date": "2012",
+    "category": "Homes & Relocation",
+    "prominence": "medium",
+    "location": "Ukrainian Village, Chicago, IL",
+    "people": ["Jenny Gillespie"]
+  },
+  {
+    "title": "Married Jenny Gillespie",
+    "description": "Married Jenny at Dunton Springs.",
+    "start_date": "2011-10-01",
+    "end_date": null,
+    "category": "Relationships",
+    "prominence": "major",
+    "location": "Dunton Springs",
+    "people": ["Jenny Gillespie"]
+  },
+  {
+    "title": "Groupon IPO",
+    "description": "Groupon went public, raising roughly $700M at a ~$12.7B valuation.",
+    "start_date": "2011-11",
+    "end_date": null,
+    "category": "Career",
+    "prominence": "major",
+    "location": "Chicago, IL",
+    "people": []
+  },
+  {
+    "title": "Honeymoon in South Africa",
+    "description": "Honeymoon trip to South Africa over the winter holidays.",
+    "start_date": "2011-12-19",
+    "end_date": "2012-01-01",
+    "category": "Travel & Adventure",
+    "prominence": "medium",
+    "location": "South Africa",
+    "people": ["Jenny Gillespie"]
+  },
+  {
+    "title": "Bought the Evanston lakefront house",
+    "description": "In the roughly six months before being fired, bought a beautiful house in Evanston right on the lake.",
+    "start_date": "2012",
+    "end_date": null,
+    "category": "Homes & Relocation",
+    "prominence": "medium",
+    "location": "Evanston, IL",
+    "people": ["Jenny Gillespie"]
+  },
+  {
+    "title": "Ousted as Groupon CEO",
+    "description": "Fired as CEO of Groupon, marked by an unusually candid goodbye memo.",
+    "start_date": "2013-02",
+    "end_date": null,
+    "category": "Career",
+    "prominence": "major",
+    "location": "Chicago, IL",
+    "people": []
+  },
+  {
+    "title": "Phat Camp and Pritikin Camp",
+    "description": "Back-to-back stays at Phat Camp and the Pritikin program in Florida in early 2013.",
+    "start_date": "2013",
+    "end_date": null,
+    "category": "Travel & Adventure",
+    "prominence": "minor",
+    "location": "Florida",
+    "people": []
+  },
+  {
+    "title": "South Asia trip",
+    "description": "Traveled through South Asia just after leaving Groupon.",
+    "start_date": "2013-03",
+    "end_date": null,
+    "category": "Travel & Adventure",
+    "prominence": "minor",
+    "location": "South Asia",
+    "people": []
+  },
+  {
+    "title": "Recorded a motivational business album",
+    "description": "Made a motivational/business-themed music album in the wake of the Groupon departure.",
+    "start_date": "2013",
+    "end_date": null,
+    "category": "Recognition & Creative Work",
+    "prominence": "medium",
+    "location": null,
+    "people": []
+  },
+  {
+    "title": "Cross-country road trip to San Francisco",
+    "description": "Drove from the Midwest to San Francisco with Jenny (pregnant with Sebastian), stopping at national parks along the way.",
+    "start_date": "2013-07-10",
+    "end_date": "2013-07-21",
+    "category": "Travel & Adventure",
+    "prominence": "medium",
+    "location": "United States",
+    "people": ["Jenny Gillespie"]
+  },
+  {
+    "title": "Moved to San Francisco (Presidio Heights)",
+    "description": "Settled in Presidio Heights on Pacific Avenue (3577 Pacific), along the Presidio wall, until the move to Berkeley.",
+    "start_date": "2013-07",
+    "end_date": "2019",
+    "category": "Homes & Relocation",
+    "prominence": "medium",
+    "location": "San Francisco, CA",
+    "people": ["Jenny Gillespie"]
+  },
+  {
+    "title": "Founded Detour",
+    "description": "Started Detour, a self-funded GPS-triggered audio walking-tour app, launching first in San Francisco.",
+    "start_date": "2013",
+    "end_date": null,
+    "category": "Career",
+    "prominence": "medium",
+    "location": "San Francisco, CA",
+    "people": []
+  },
+  {
+    "title": "Sebastian born",
+    "description": "First son, Sebastian.",
+    "start_date": "2013-12-19",
+    "end_date": null,
+    "category": "Children & Family",
+    "prominence": "major",
+    "location": "San Francisco, CA",
+    "people": ["Sebastian Mason"]
+  },
+  {
+    "title": "Bought a place in Big Sur",
+    "description": "Acquired a home in Big Sur.",
+    "start_date": "2014",
+    "end_date": null,
+    "category": "Homes & Relocation",
+    "prominence": "medium",
+    "location": "Big Sur, CA",
+    "people": []
+  },
+  {
+    "title": "Aspen trip",
+    "description": "Summer trip to Aspen. (Photo library labels this 2018 — worth a quick double-check.)",
+    "start_date": "2014-07",
+    "end_date": null,
+    "category": "Travel & Adventure",
+    "prominence": "minor",
+    "location": "Aspen, CO",
+    "people": []
+  },
+  {
+    "title": "Sweden / Finland / Russia trip",
+    "description": "Travel through Sweden, Finland, and Russia.",
+    "start_date": "2015-07",
+    "end_date": null,
+    "category": "Travel & Adventure",
+    "prominence": "minor",
+    "location": "Sweden, Finland, Russia",
+    "people": []
+  },
+  {
+    "title": "Oscar born",
+    "description": "Second son, Oscar.",
+    "start_date": "2016-07-14",
+    "end_date": null,
+    "category": "Children & Family",
+    "prominence": "major",
+    "location": "San Francisco, CA",
+    "people": ["Oscar Mason"]
+  },
+  {
+    "title": "Founded Descript",
+    "description": "Spun Descript out of Detour's transcription-based editing tech (which had emerged ~late 2016), building an AI-powered audio/video editing platform as CEO.",
+    "start_date": "2017",
+    "end_date": null,
+    "category": "Career",
+    "prominence": "major",
+    "location": "San Francisco, CA",
+    "people": []
+  },
+  {
+    "title": "Los Cabos at Christmas",
+    "description": "Holiday trip to Los Cabos.",
+    "start_date": "2017-12",
+    "end_date": null,
+    "category": "Travel & Adventure",
+    "prominence": "minor",
+    "location": "Los Cabos, Mexico",
+    "people": []
+  },
+  {
+    "title": "Wirikuta Gardens trip",
+    "description": "A trip to Wirikuta with friends Tim and Rob.",
+    "start_date": "2018-03",
+    "end_date": null,
+    "category": "Travel & Adventure",
+    "prominence": "minor",
+    "location": "Wirikuta, Mexico",
+    "people": ["Tim", "Rob"]
+  },
+  {
+    "title": "Detour acquired by Bose",
+    "description": "Bose acquired Detour's software and tour content; the team moved on to Descript.",
+    "start_date": "2018-04",
+    "end_date": null,
+    "category": "Career",
+    "prominence": "medium",
+    "location": "San Francisco, CA",
+    "people": []
+  },
+  {
+    "title": "Hawaii trip",
+    "description": "Trip to Hawaii.",
+    "start_date": "2019-03",
+    "end_date": null,
+    "category": "Travel & Adventure",
+    "prominence": "minor",
+    "location": "Hawaii",
+    "people": []
+  },
+  {
+    "title": "Tahoe trip",
+    "description": "Trip to Lake Tahoe.",
+    "start_date": "2019-03",
+    "end_date": null,
+    "category": "Travel & Adventure",
+    "prominence": "minor",
+    "location": "Lake Tahoe, CA",
+    "people": []
+  },
+  {
+    "title": "Moved to Berkeley",
+    "description": "Relocated to Berkeley as Sebastian was entering kindergarten.",
+    "start_date": "2019-08",
+    "end_date": null,
+    "category": "Homes & Relocation",
+    "prominence": "major",
+    "location": "Berkeley, CA",
+    "people": ["Jenny Gillespie", "Sebastian Mason", "Oscar Mason"]
+  },
+  {
+    "title": "Kids' schooling: Berkwood Hedge to Bentley",
+    "description": "Both sons attended Berkwood Hedge School, then transferred to Bentley School around when Sebastian was in third grade and Oscar in first.",
+    "start_date": "2019",
+    "end_date": "2022",
+    "category": "Children & Family",
+    "prominence": "minor",
+    "location": "Berkeley, CA",
+    "people": ["Sebastian Mason", "Oscar Mason"]
+  },
+  {
+    "title": "Tulum at Christmas",
+    "description": "Holiday trip to Tulum.",
+    "start_date": "2022-12",
+    "end_date": null,
+    "category": "Travel & Adventure",
+    "prominence": "minor",
+    "location": "Tulum, Mexico",
+    "people": []
+  },
+  {
+    "title": "Costa Rica trip",
+    "description": "Trip to Costa Rica.",
+    "start_date": "2023-12",
+    "end_date": null,
+    "category": "Travel & Adventure",
+    "prominence": "minor",
+    "location": "Costa Rica",
+    "people": []
+  },
+  {
+    "title": "Hawaii trip",
+    "description": "Return trip to Hawaii.",
+    "start_date": "2024",
+    "end_date": null,
+    "category": "Travel & Adventure",
+    "prominence": "minor",
+    "location": "Hawaii",
+    "people": []
+  },
+  {
+    "title": "Europe family vacation",
+    "description": "Family vacation in Europe.",
+    "start_date": "2024-08",
+    "end_date": null,
+    "category": "Travel & Adventure",
+    "prominence": "minor",
+    "location": "Europe",
+    "people": ["Jenny Gillespie", "Sebastian Mason", "Oscar Mason"]
+  },
+  {
+    "title": "Founded Tabletop Library",
+    "description": "Co-founded Tabletop Library, a membership-based board game club, with Nabeel. (February 2025 is a placeholder date.)",
+    "start_date": "2025-02",
+    "end_date": null,
+    "category": "Career",
+    "prominence": "major",
+    "location": "Berkeley, CA",
+    "people": ["Nabeel"]
+  },
+  {
+    "title": "Dolomites trip",
+    "description": "Trip to the Dolomites while the kids were at their first sleepaway camp in the Santa Cruz Mountains.",
+    "start_date": "2025-07",
+    "end_date": null,
+    "category": "Travel & Adventure",
+    "prominence": "minor",
+    "location": "Dolomites, Italy",
+    "people": []
+  },
+  {
+    "title": "Stepped down as Descript CEO",
+    "description": "Stepped down from the Descript CEO role.",
+    "start_date": "2025-09",
+    "end_date": null,
+    "category": "Career",
+    "prominence": "major",
+    "location": "Berkeley, CA",
+    "people": []
+  },
+  {
+    "title": "Returned to serious piano study",
+    "description": "Resumed serious piano lessons (the SFCM / Yoshi Nagai chapter). (~December 2025 is a placeholder date.)",
+    "start_date": "2025-12",
+    "end_date": null,
+    "category": "Music & Hobbies",
+    "prominence": "medium",
+    "location": "San Francisco, CA",
+    "people": ["Yoshi Nagai"]
+  },
+  {
+    "title": "Niseko ski trip",
+    "description": "Skied in Niseko, Japan, with friends Tim, Rob, and Jyri.",
+    "start_date": "2026-02",
+    "end_date": null,
+    "category": "Travel & Adventure",
+    "prominence": "minor",
+    "location": "Niseko, Japan",
+    "people": ["Tim", "Rob", "Jyri"]
+  },
+  {
+    "title": "Tabletop Library launch",
+    "description": "Planned public launch of Tabletop Library. (Upcoming/forward-looking — the only future-dated entry.)",
+    "start_date": "2026-09",
+    "end_date": null,
+    "category": "Career",
+    "prominence": "major",
+    "location": "Berkeley, CA",
+    "people": ["Nabeel"]
+  }
+]

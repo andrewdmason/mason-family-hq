@@ -9,15 +9,24 @@ import {
 } from "@/lib/journal/context";
 import { loadCalendarBlock } from "@/lib/journal/calendar";
 import type { CalendarWindow } from "@/lib/journal/calendar/types";
-import { CURRENTLY_READING, FAMILY_FOLLOWUP, specFor } from "@/lib/journal/question-sources";
+import {
+  CURRENTLY_READING,
+  FAMILY_FOLLOWUP,
+  REMINISCENCE,
+  specFor,
+} from "@/lib/journal/question-sources";
 import { formatNow, localDate, resolveTimezone } from "@/lib/date-utils";
 import { createClient } from "@/lib/supabase/server";
 import { requireUserId } from "@/lib/members/auth";
+import { loadTimeline, loadTimelineEntryById } from "@/lib/timeline/queries";
+import { serializeTimelineForPrompt } from "@/lib/timeline/serialize";
+import { formatTimelineRange, isUpcoming } from "@/lib/timeline/format";
 import type {
   JournalOpeningCandidate,
   JournalQuestionType,
   ReadingBookStatus,
   ReadingRating,
+  TimelineEntryWithPeople,
 } from "@/lib/types";
 
 export const OPENING_CANDIDATES_TOOL_NAME = "propose_questions";
@@ -80,6 +89,12 @@ export type QuestionCategory = {
    * withReadingSource and stamped onto each candidate by generateSlot.
    */
   readingBookId?: string;
+  /**
+   * Set only for reminiscence: the timeline event the question targets, so the
+   * picked candidate can be linked to it. Folded in by withTimelineSource and
+   * stamped onto each candidate by generateSlot.
+   */
+  timelineEntryId?: string;
 };
 
 /**
@@ -436,6 +451,60 @@ function withReadingSource(
   };
 }
 
+const PROMINENCE_WEIGHT: Record<string, number> = { major: 3, medium: 2, minor: 1 };
+
+/**
+ * Pick one under-elaborated timeline event for a reminiscence question. Prefer
+ * events the user hasn't written about yet (linkedCount 0), falling back to
+ * lightly-covered ones; never future events. Among the pool, sample weighted by
+ * prominence so the big milestones get drawn out first, with randomness for
+ * variety across days. Null when there's nothing left to elaborate (the type is
+ * then dropped from the day's mix, exactly like family-followup / currently-reading).
+ */
+export function pickReminiscenceTarget(
+  entries: TimelineEntryWithPeople[],
+  today: string,
+  rand: () => number = Math.random
+): TimelineEntryWithPeople | null {
+  const past = entries.filter((e) => !isUpcoming(e, today));
+  let pool = past.filter((e) => e.linkedCount === 0);
+  if (pool.length === 0) pool = past.filter((e) => e.linkedCount <= 1);
+  if (pool.length === 0) return null;
+
+  const total = pool.reduce((s, e) => s + (PROMINENCE_WEIGHT[e.prominence] ?? 1), 0);
+  let r = rand() * total;
+  for (const e of pool) {
+    r -= PROMINENCE_WEIGHT[e.prominence] ?? 1;
+    if (r <= 0) return e;
+  }
+  return pool[pool.length - 1];
+}
+
+/**
+ * Fold a specific timeline event into the category description so the model asks
+ * a concrete question about it, and stamp its id onto the category so generateSlot
+ * can link the picked candidate to it.
+ */
+function withTimelineSource(
+  category: QuestionCategory,
+  entry: TimelineEntryWithPeople
+): QuestionCategory {
+  const when = formatTimelineRange(entry);
+  const where = entry.location ? `, ${entry.location}` : "";
+  const people =
+    entry.mentions.length > 0
+      ? ` People who were part of it: ${entry.mentions.map((m) => m.name).join(", ")}.`
+      : "";
+  return {
+    ...category,
+    timelineEntryId: entry.id,
+    description:
+      `${category.description} Center the question on this specific event from the user's life — draw them out on it, don't just restate it: ` +
+      `"${entry.title}" (${when}${where}). ${entry.description}${people} ` +
+      "Ask one warm, specific question inviting them to tell the story or reflect on what it meant. Never mention that it came from a timeline or that you were told to ask about it.",
+  };
+}
+
 const EMPTY_HISTORY = { recent: [], older: [] } as Awaited<ReturnType<typeof loadHistory>>;
 
 /**
@@ -459,7 +528,8 @@ export async function generateCandidates(
   rejected: string[],
   forcedCategoryName?: string,
   clientTz?: string,
-  forcedBookId?: string | null
+  forcedBookId?: string | null,
+  forcedTimelineEntryId?: string | null
 ): Promise<JournalOpeningCandidate[]> {
   const tz = await resolveTimezone(clientTz);
   const today = localDate(new Date(), tz);
@@ -473,6 +543,7 @@ export async function generateCandidates(
     files,
     recentlyShown,
     familyDoc,
+    timelineEntries,
   ] = await Promise.all([
     loadQuestionTypes(),
     loadSettings(),
@@ -483,9 +554,14 @@ export async function generateCandidates(
     loadAgentFiles(),
     loadRecentlyShown(today),
     loadFamilyDoc(),
+    // The user's own timeline: serialized as life context for the prompt, and
+    // mined for one under-elaborated event for reminiscence to target.
+    loadTimeline("mine", { ownLinksOnly: true }),
   ]);
 
   const n = settings.questions_per_day;
+  const timelineBlock = serializeTimelineForPrompt(timelineEntries, today);
+  const reminiscenceTarget = pickReminiscenceTarget(timelineEntries, today);
 
   // Lazy, deduped loaders: history is fetched at most once and reused; each
   // calendar window is fetched at most once even when several slots want it.
@@ -517,9 +593,9 @@ export async function generateCandidates(
     ]);
 
     const system =
-      buildSystemPrompt(files, history, today, calendarBlock, nowLabel, familyDoc, {
+      buildSystemPrompt(files, history, today, calendarBlock, nowLabel, familyDoc, timelineBlock, {
         includePresent: spec.present,
-        includePast: spec.past,
+        includeTimeline: spec.past,
         includeHistory: spec.history,
       }) +
       "\n" +
@@ -562,6 +638,9 @@ export async function generateCandidates(
       // currently-reading carries the book it's grounded in, so picking it links
       // the entry to that book (withReadingSource set readingBookId).
       reading_book_id: category?.readingBookId ?? null,
+      // reminiscence carries the timeline event it targets, so picking it links
+      // the entry to that event (withTimelineSource set timelineEntryId).
+      timeline_entry_id: category?.timelineEntryId ?? null,
     }));
   }
 
@@ -575,6 +654,9 @@ export async function generateCandidates(
     }
     if (cat && cat.name === CURRENTLY_READING && readingSource) {
       cat = withReadingSource(cat, readingSource);
+    }
+    if (cat && cat.name === REMINISCENCE && reminiscenceTarget) {
+      cat = withTimelineSource(cat, reminiscenceTarget);
     }
     // Unknown forced category falls back to an untyped varied set.
     return generateSlot(n, cat, []);
@@ -591,6 +673,22 @@ export async function generateCandidates(
     return generateSlot(n, withReadingSource(base, readingSource), []);
   }
 
+  // A reflection started from a timeline event ("Reflect on this"): force
+  // reminiscence grounded in that specific event — even if reminiscence is
+  // disabled in the mix or the event isn't on the user's own timeline.
+  if (forcedTimelineEntryId) {
+    const target =
+      timelineEntries.find((e) => e.id === forcedTimelineEntryId) ??
+      (await loadTimelineEntryById(forcedTimelineEntryId));
+    if (target) {
+      const t = questionTypes.find((q) => q.name === REMINISCENCE);
+      const base = t
+        ? questionTypeToCategory(t)
+        : { name: REMINISCENCE, description: "", weight: 0 };
+      return generateSlot(n, withTimelineSource(base, target), []);
+    }
+  }
+
   // Normal morning: sample N distinct categories and generate each in its own
   // scoped call, in parallel.
   const enabled = questionTypes
@@ -600,10 +698,13 @@ export async function generateCandidates(
     .filter((t) => t.name !== FAMILY_FOLLOWUP || familySource !== null)
     // Likewise drop currently-reading when no book is in progress to ground it.
     .filter((t) => t.name !== CURRENTLY_READING || readingSource !== null)
+    // And drop reminiscence when there's no under-elaborated event to target.
+    .filter((t) => t.name !== REMINISCENCE || reminiscenceTarget !== null)
     .map(questionTypeToCategory);
   const sampled = sampleQuestionMix(enabled, n).map((c) => {
     if (c.name === FAMILY_FOLLOWUP && familySource) return withFamilySource(c, familySource);
     if (c.name === CURRENTLY_READING && readingSource) return withReadingSource(c, readingSource);
+    if (c.name === REMINISCENCE && reminiscenceTarget) return withTimelineSource(c, reminiscenceTarget);
     return c;
   });
 

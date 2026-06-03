@@ -127,9 +127,9 @@ export async function GET(request: Request) {
   // Seed this member's journal on first dev-login (idempotent thereafter).
   const membership = await ensureProvisioned({ id: userId, email });
 
-  // Dev convenience: give the owner a populated Present/Past so the
-  // source-grounded question types have material to draw on locally. Only fills
-  // docs that are still empty, so it never clobbers edits.
+  // Dev convenience: give the owner a populated Present doc so the source-grounded
+  // question types have material to draw on locally. Only fills it when still
+  // empty, so it never clobbers edits.
   if (membership.allowed && membership.isOwner) {
     await backfillOwnerContext(admin, userId);
   }
