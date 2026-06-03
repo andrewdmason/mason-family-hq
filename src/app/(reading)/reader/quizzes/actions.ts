@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireOwner } from "@/lib/journal/auth";
+import { requireOwner } from "@/lib/members/auth";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { getTextForRange } from "@/lib/reading/extract-text";
 import { generateQuiz } from "@/lib/reading/quiz-generate";

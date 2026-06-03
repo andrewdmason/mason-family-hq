@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { QuizDraftEditor } from "@/components/reading/quiz-draft-editor";
-import { getIsOwner } from "@/lib/journal/auth";
+import { getIsOwner } from "@/lib/members/auth";
 import { getQuizForEditing } from "../../actions";
 
 export const dynamic = "force-dynamic";
