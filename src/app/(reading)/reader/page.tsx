@@ -1,12 +1,15 @@
+import Link from "next/link";
+import { GraduationCap } from "lucide-react";
 import { AddBookDialog } from "@/components/reading/add-book-dialog";
 import { MemberViewSwitcher } from "@/components/reading/member-view-switcher";
 import { ReadingList } from "@/components/reading/reading-list";
-import { WeeklyGoalBanner } from "@/components/reading/weekly-goal-banner";
 import { listFamilyMembers } from "@/app/(journal)/settings/family/actions";
 import { getIsOwner } from "@/lib/journal/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
+import { quizzesHref } from "@/lib/reading/links";
 import { getReadingHome, listRecommendRecipients } from "./actions";
 import { getDiscover } from "./discover/actions";
+import { getActiveQuizzesByBook } from "./quizzes/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +43,13 @@ export default async function ReadingPage({
     getDiscover(viewingEmail),
   ]);
 
+  // Per-book check-in quizzes (published, not yet passed) — drive the
+  // "check in & take quiz" CTA on each book card.
+  const activeQuizzesByBook = await getActiveQuizzesByBook(
+    home.books.map((b) => b.id),
+    viewingEmail
+  );
+
   // Recommend-to-someone is offered in self-view only (in view-as mode you're
   // already acting as that member).
   const recipients = viewingEmail ? [] : await listRecommendRecipients();
@@ -49,17 +59,6 @@ export default async function ReadingPage({
   const dayOfWeek = new Date(`${today}T12:00:00`).getDay(); // 0 = Sun, 6 = Sat
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
   const urgent = isWeekend || !home.checkedInThisWeek;
-  // Days from today through the week's end (Sunday). 0 = due today.
-  const daysRemaining = (7 - dayOfWeek) % 7;
-
-  // When a member has exactly one active book, the per-person goal maps cleanly
-  // to a single "be on page N by Sunday" target.
-  const inProgress = home.books.filter((b) => b.status === "in_progress");
-  const soleBook = inProgress.length === 1 ? inProgress[0] : null;
-  const soleBookTargetPage =
-    soleBook && home.weeklyPageGoal > 0
-      ? soleBook.current_page - soleBook.pagesReadThisWeek + home.weeklyPageGoal
-      : null;
 
   const heading = viewedMember
     ? `${firstName(viewedMember.name, "Their")}'s books`
@@ -72,6 +71,15 @@ export default async function ReadingPage({
           {heading}
         </h1>
         <div className="flex items-center gap-2">
+          {isOwner && (
+            <Link
+              href={quizzesHref(viewingEmail)}
+              className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <GraduationCap className="h-4 w-4" />
+              Quizzes
+            </Link>
+          )}
           {isOwner && viewable.length > 1 && (
             <MemberViewSwitcher
               members={viewable}
@@ -93,23 +101,12 @@ export default async function ReadingPage({
         </p>
       )}
 
-      <div className="mt-5">
-        <WeeklyGoalBanner
-          weeklyPageGoal={home.weeklyPageGoal}
-          targetPage={soleBookTargetPage}
-          currentPage={soleBook?.current_page ?? null}
-          daysRemaining={daysRemaining}
-          checkInBook={soleBook ?? null}
-          memberEmail={viewingEmail}
-        />
-      </div>
-
       <ReadingList
         books={home.books}
-        soleBookId={soleBook?.id ?? null}
-        soleBookTargetPage={soleBookTargetPage}
         emphasizeCheckIn={urgent}
         memberEmail={viewingEmail}
+        isOwner={isOwner}
+        activeQuizzesByBook={activeQuizzesByBook}
         recommendations={discover.recommendations}
         recsHasSignal={discover.hasSignal}
         recsGenres={discover.genres}

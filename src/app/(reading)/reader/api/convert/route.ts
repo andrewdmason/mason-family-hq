@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { convertBookFile, ConversionError } from "@/lib/reading/convert";
+import { ensureStretchQuiz } from "@/lib/reading/ensure-stretch-quiz";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
 
 export const runtime = "nodejs";
@@ -116,6 +117,29 @@ export async function POST(req: NextRequest) {
       .eq("book_id", bookId)
       .eq("user_id", userId);
     if (finalizeError) return await fail(finalizeError.message);
+
+    // The text now exists: if this book is being actively read toward a target,
+    // prepare its stretch quiz so it's ready when they reach it. Best-effort —
+    // never fail the conversion over quiz generation.
+    try {
+      const { data: book } = await client
+        .from("reading_books")
+        .select("status, current_page, target_page")
+        .eq("id", bookId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (book?.status === "in_progress" && book.target_page != null) {
+        const current = book.current_page as number;
+        await ensureStretchQuiz(
+          scope,
+          bookId,
+          current > 1 ? current : null,
+          book.target_page as number
+        );
+      }
+    } catch (err) {
+      console.error("[reading/convert] stretch quiz prep failed:", err);
+    }
 
     return NextResponse.json({ status: "ready" });
   } catch (err) {

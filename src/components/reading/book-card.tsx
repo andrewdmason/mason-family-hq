@@ -5,17 +5,19 @@ import Link from "next/link";
 import {
   AlertCircle,
   BookOpen,
+  GraduationCap,
   Loader2,
   MoreHorizontal,
   Pencil,
   Upload,
 } from "lucide-react";
 import { BookCover } from "@/components/reading/book-cover";
-import { CheckInDialog } from "@/components/reading/check-in-dialog";
+import { MarkReachedButton } from "@/components/reading/mark-reached-button";
 import { EditBookDialog } from "@/components/reading/edit-book-dialog";
+import { GenerateQuizDialog } from "@/components/reading/generate-quiz-dialog";
 import { RatingControl } from "@/components/reading/rating-control";
 import { StartReadingButton } from "@/components/reading/start-reading-button";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,22 +26,25 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { bookReaderHref } from "@/lib/reading/links";
 import { useBookFileActions } from "@/lib/reading/use-book-file-actions";
-import { cn } from "@/lib/utils";
-import type { ReadingBookWithProgress } from "@/lib/types";
+import type { ActiveBookQuiz, ReadingBookWithProgress } from "@/lib/types";
 
 export function BookCard({
   book,
-  targetPage,
   emphasizeCheckIn = false,
   memberEmail = null,
+  isOwner = false,
+  activeQuiz = null,
 }: {
   book: ReadingBookWithProgress;
-  /** This week's target page, shown when it's this member's only active book. */
-  targetPage?: number | null;
   emphasizeCheckIn?: boolean;
   memberEmail?: string | null;
+  /** Owners get the "Generate quiz" action on books that have been uploaded. */
+  isOwner?: boolean;
+  /** A published, not-yet-passed quiz tied to this book's check-in, if any. */
+  activeQuiz?: ActiveBookQuiz | null;
 }) {
   const [editOpen, setEditOpen] = useState(false);
+  const [quizOpen, setQuizOpen] = useState(false);
   const {
     inputRef,
     openFilePicker,
@@ -115,16 +120,11 @@ export function BookCard({
             </>
           )}
 
-          {inProgress && (
+          {inProgress && book.target_page != null && (
             <p className="mt-2 text-xs text-muted-foreground">
-              {book.pagesReadThisWeek > 0
-                ? `${book.pagesReadThisWeek} page${book.pagesReadThisWeek === 1 ? "" : "s"} this week`
-                : "No pages logged this week yet"}
-              {targetPage != null && (
-                <span className="text-foreground">
-                  {" · "}aim for page {targetPage} by Sunday
-                </span>
-              )}
+              <span className="text-foreground">
+                Aim for page {book.target_page}
+              </span>
             </p>
           )}
 
@@ -144,20 +144,12 @@ export function BookCard({
 
         {/* Actions live on the same row as the overflow menu, to its left. */}
         <div className="flex shrink-0 items-center gap-1.5">
-          {isReady && (
-            <Link
-              href={bookReaderHref(book.id, memberEmail)}
-              className={cn(buttonVariants({ variant: "default", size: "sm" }))}
-            >
-              <BookOpen />
-              {book.hasResumePoint ? "Continue reading" : "Read"}
-            </Link>
-          )}
           {inProgress && (
-            <CheckInDialog
-              book={book}
-              emphasize={emphasizeCheckIn && !isReady}
-              targetPage={targetPage}
+            <MarkReachedButton
+              bookId={book.id}
+              targetPage={book.target_page}
+              hasActiveQuiz={!!activeQuiz}
+              emphasize={emphasizeCheckIn}
               memberEmail={memberEmail}
             />
           )}
@@ -178,6 +170,16 @@ export function BookCard({
               )}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="bottom" className="w-48">
+              {/* Reading is uncommon for now, so it lives in the menu rather
+                  than as a prominent button. Only shown once the file is ready. */}
+              {isReady && (
+                <DropdownMenuItem
+                  render={<Link href={bookReaderHref(book.id, memberEmail)} />}
+                >
+                  <BookOpen />
+                  {book.hasResumePoint ? "Continue reading" : "Read"}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem disabled={busy} onClick={openFilePicker}>
                 <Upload />
                 {hasFile ? "Replace book file" : "Upload book file"}
@@ -186,6 +188,14 @@ export function BookCard({
                 <Pencil />
                 Edit details
               </DropdownMenuItem>
+              {/* Quizzes need the converted text, so only offer this once the
+                  uploaded file is ready — and only to the account owner. */}
+              {isOwner && isReady && (
+                <DropdownMenuItem onClick={() => setQuizOpen(true)}>
+                  <GraduationCap />
+                  Generate quiz
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -232,6 +242,15 @@ export function BookCard({
         open={editOpen}
         onOpenChange={setEditOpen}
       />
+      {isOwner && (
+        <GenerateQuizDialog
+          book={book}
+          memberEmail={memberEmail}
+          defaultThroughPage={book.target_page}
+          open={quizOpen}
+          onOpenChange={setQuizOpen}
+        />
+      )}
       <input
         ref={inputRef}
         type="file"

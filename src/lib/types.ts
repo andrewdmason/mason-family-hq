@@ -643,6 +643,10 @@ export type ReadingBook = {
   author: string | null;
   total_pages: number | null;
   current_page: number;
+  /** This book's own weekly target page (in_progress only). Null = no target. */
+  target_page: number | null;
+  /** True when the owner manually set target_page; blocks auto-tracking until the next advance. */
+  target_locked: boolean;
   status: ReadingBookStatus;
   cover_image_url: string | null;
   started_at: string | null;
@@ -774,4 +778,153 @@ export type ReadingBookState = {
   last_scroll_ratio: number | null;
   last_page_number: number | null;
   last_read_at: string | null;
+};
+
+// ============================================================
+// Reading comprehension quizzes
+// ============================================================
+
+export type ReadingQuizStatus = "draft" | "published";
+export type ReadingQuizQuestionType = "multiple_choice" | "free_text";
+
+/** A quiz scoped to a book's material from the start through `through_page`. */
+export type ReadingQuiz = {
+  id: string;
+  /** The reader (kid) the quiz belongs to. */
+  user_id: string;
+  book_id: string;
+  /** Start of the covered range. Null = from the very beginning (cumulative). */
+  from_page: number | null;
+  /** End of the covered range. */
+  through_page: number;
+  status: ReadingQuizStatus;
+  title: string | null;
+  /** Owner who generated it (audit), not the reader. */
+  created_by_email: string;
+  /** "manual" now; "checkin" once auto-generation lands. */
+  source: "manual" | "checkin";
+  /** Last generation failure, surfaced in the draft editor. */
+  generation_error: string | null;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** One quiz question — multiple-choice or a free-text writing response. */
+export type ReadingQuizQuestion = {
+  id: string;
+  quiz_id: string;
+  user_id: string;
+  position: number;
+  type: ReadingQuizQuestionType;
+  prompt: string;
+  /** MC: ordered option strings. Null for free_text. */
+  options: string[] | null;
+  /** MC: index of the correct option. Null for free_text. */
+  correct_index: number | null;
+  /** MC: why the answer is correct. */
+  explanation: string | null;
+  /** free_text: what a correct answer must contain. */
+  grading_rubric: string | null;
+  /** free_text: a model answer, to ground the grader. */
+  sample_answer: string | null;
+  created_at: string;
+};
+
+/** One of a kid's attempts at a quiz, with the derived score. */
+export type ReadingQuizSubmission = {
+  id: string;
+  quiz_id: string;
+  user_id: string;
+  /** 1 for the first try, incrementing on each retake. */
+  attempt_number: number;
+  submitted_at: string;
+  score_correct: number;
+  score_total: number;
+  /** False when an AI free-text grade failed, leaving an ungraded answer. */
+  grading_complete: boolean;
+  created_at: string;
+};
+
+/** A lightweight summary of one attempt, for showing retake history. */
+export type ReadingQuizAttemptSummary = {
+  id: string;
+  attemptNumber: number;
+  submittedAt: string;
+  scoreCorrect: number;
+  scoreTotal: number;
+  gradingComplete: boolean;
+};
+
+/** One graded answer within a submission. */
+export type ReadingQuizAnswer = {
+  id: string;
+  submission_id: string;
+  question_id: string;
+  user_id: string;
+  /** MC: the chosen option index. Null for free_text. */
+  selected_index: number | null;
+  /** free_text: the kid's written response. Null for MC. */
+  response_text: string | null;
+  /** Null = ungraded (an AI grade failed). */
+  is_correct: boolean | null;
+  /** free_text: the AI's note on why the answer was good/bad. */
+  ai_notes: string | null;
+  created_at: string;
+};
+
+/** A quiz with its ordered questions (owner draft view / taking flow). */
+export type ReadingQuizWithQuestions = ReadingQuiz & {
+  questions: ReadingQuizQuestion[];
+};
+
+/**
+ * A graded attempt being viewed (the latest by default, or a chosen one), plus a
+ * summary of every attempt so the reader and owner can see how many tries it took
+ * and how each went.
+ */
+export type ReadingQuizResult = {
+  quiz: ReadingQuiz;
+  bookTitle: string;
+  questions: ReadingQuizQuestion[];
+  /** The attempt whose answers are shown in detail. */
+  submission: ReadingQuizSubmission;
+  answersByQuestionId: Record<string, ReadingQuizAnswer>;
+  /** Every attempt, oldest first. */
+  attempts: ReadingQuizAttemptSummary[];
+  /** True once any attempt got every question right. */
+  passed: boolean;
+};
+
+/** The active quiz tied to a book's check-in: published and not yet passed. */
+export type ActiveBookQuiz = {
+  quizId: string;
+  fromPage: number | null;
+  throughPage: number;
+  /** True once the kid has attempted it at least once (failed, not passed). */
+  attempted: boolean;
+};
+
+/** One row of the owner's cross-kid quizzes list. */
+export type OwnerQuizListItem = {
+  id: string;
+  status: ReadingQuizStatus;
+  fromPage: number | null;
+  throughPage: number;
+  createdAt: string;
+  bookTitle: string;
+  memberEmail: string;
+  memberName: string | null;
+  /** How many times the kid has attempted this quiz. */
+  attemptCount: number;
+  /** True once any attempt got every question right. */
+  passed: boolean;
+  /** The kid's most recent attempt, once they've taken it. */
+  latest: {
+    attemptNumber: number;
+    submittedAt: string;
+    scoreCorrect: number;
+    scoreTotal: number;
+    gradingComplete: boolean;
+  } | null;
 };

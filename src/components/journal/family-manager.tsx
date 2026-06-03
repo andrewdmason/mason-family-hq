@@ -261,7 +261,7 @@ function EditMemberDialog({
           <DialogTitle>Edit family member</DialogTitle>
           <DialogDescription>
             Update {member.name || member.email}&apos;s details, parents, and
-            weekly reading goal.
+            weekly reading target (the default pages-per-week each book aims for).
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="grid gap-3">
@@ -300,7 +300,7 @@ function EditMemberDialog({
               />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="edit-goal">Reading goal /wk</Label>
+              <Label htmlFor="edit-goal">Pages / week</Label>
               <Input
                 id="edit-goal"
                 type="number"
@@ -378,12 +378,12 @@ function ParentSelect({
 
 function ReadingGoalBadge({ goal }: { goal: number }) {
   return (
-    <div className="shrink-0 text-right" title="Weekly reading page goal">
+    <div className="shrink-0 text-right" title="Default weekly target (pages per week)">
       <p className="text-sm font-medium tabular-nums text-foreground">
         {goal > 0 ? goal : "—"}
       </p>
       <p className="mt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-        reading /wk
+        pages/wk
       </p>
     </div>
   );
