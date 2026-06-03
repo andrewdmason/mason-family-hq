@@ -205,7 +205,7 @@ export function HistoryList({
                         <img
                           src={photo.displayUrl}
                           alt=""
-                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                          className="h-full w-full object-cover object-[center_30%] transition-transform duration-300 group-hover:scale-[1.02]"
                         />
                         {photo.mediaType === "video" && (
                           <span className="absolute inset-0 flex items-center justify-center">
