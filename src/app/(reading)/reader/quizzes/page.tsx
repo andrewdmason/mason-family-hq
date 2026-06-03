@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { getIsOwner } from "@/lib/journal/auth";
+import { getIsOwner } from "@/lib/members/auth";
 import { quizEditHref, quizResultsHref, readingHomeHref } from "@/lib/reading/links";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
 import type { OwnerQuizListItem } from "@/lib/types";

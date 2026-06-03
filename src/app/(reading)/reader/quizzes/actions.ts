@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireOwner } from "@/lib/journal/auth";
+import { requireOwner } from "@/lib/members/auth";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { getTextForRange } from "@/lib/reading/extract-text";
 import { generateQuiz } from "@/lib/reading/quiz-generate";
@@ -693,7 +693,7 @@ export async function listAllQuizzes(): Promise<OwnerQuizListItem[]> {
   const admin = createAdminClient();
 
   const { data: members } = await admin
-    .from("journal_members")
+    .from("family_members")
     .select("email, name, user_id")
     .not("user_id", "is", null);
   const memberByUser = new Map(
