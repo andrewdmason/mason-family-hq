@@ -308,25 +308,39 @@ function stripMargins(lines: PdfLine[], running: Set<string>): PdfLine[] {
 }
 
 /**
- * pdfjs needs the browser globals DOMMatrix / ImageData / Path2D, absent in
- * serverless Node. It tries to polyfill them from @napi-rs/canvas via
- * `createRequire(import.meta.url)`, but under the bundler `import.meta.url`
- * points at a generated external chunk that can't resolve the package — so the
- * polyfill silently fails and loading pdf.mjs throws "DOMMatrix is not defined".
- * We resolve @napi-rs/canvas from this module's own context and install the
- * globals before importing pdfjs (which only polyfills what's still missing).
+ * pdfjs in serverless Node needs two things our deployment otherwise breaks, and
+ * both fail the same way: pdfjs tries to resolve them itself with module
+ * specifiers the bundler can't follow, so it must be handed them up front.
+ *
+ *  1. The browser globals DOMMatrix / ImageData / Path2D. pdfjs loads these from
+ *     @napi-rs/canvas via `createRequire(import.meta.url)`, but under the bundler
+ *     `import.meta.url` points at a generated external chunk that can't resolve
+ *     the package — so the polyfill fails and loading pdf.mjs throws
+ *     "DOMMatrix is not defined".
+ *  2. The worker. With no real Worker in Node, pdfjs runs a "fake worker" by
+ *     dynamically importing `./pdf.worker.mjs` (a computed specifier the bundler
+ *     can't trace, so the file is pruned from the function → "Setting up fake
+ *     worker failed: Cannot find module …/pdf.worker.mjs"). Setting
+ *     `globalThis.pdfjsWorker` makes pdfjs use it directly and skip that import.
+ *
+ * Both imports here use static specifiers resolved from this module's own
+ * context, so the bundler traces and ships the files.
  */
-async function ensurePdfGlobals(): Promise<void> {
+async function ensurePdfEnv(): Promise<void> {
   const g = globalThis as Record<string, unknown>;
-  if (g.DOMMatrix && g.ImageData && g.Path2D) return;
-  const canvas = await import("@napi-rs/canvas");
-  g.DOMMatrix ??= canvas.DOMMatrix;
-  g.ImageData ??= canvas.ImageData;
-  g.Path2D ??= canvas.Path2D;
+  if (!g.DOMMatrix || !g.ImageData || !g.Path2D) {
+    const canvas = await import("@napi-rs/canvas");
+    g.DOMMatrix ??= canvas.DOMMatrix;
+    g.ImageData ??= canvas.ImageData;
+    g.Path2D ??= canvas.Path2D;
+  }
+  if (!g.pdfjsWorker) {
+    g.pdfjsWorker = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+  }
 }
 
 async function convertPdf(buffer: ArrayBuffer): Promise<ConversionResult> {
-  await ensurePdfGlobals();
+  await ensurePdfEnv();
   // The legacy build runs in Node without a browser DOM or a web worker.
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const doc = await pdfjs.getDocument({
