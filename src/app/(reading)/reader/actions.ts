@@ -4,7 +4,12 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserTimezone, getWeekStart, localDate } from "@/lib/date-utils";
-import { lookupBookByTitle, type BookLookupResult } from "@/lib/reading/book-lookup";
+import {
+  lookupBookByTitle,
+  searchBooks as searchBooksByTitle,
+  type BookLookupResult,
+  type BookSearchResult,
+} from "@/lib/reading/book-lookup";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
 import { capTarget, defaultTargetPage } from "@/lib/reading/targets";
@@ -25,7 +30,7 @@ import type {
 } from "@/lib/types";
 
 const BOOK_COLUMNS =
-  "id, user_id, title, author, total_pages, current_page, target_page, target_locked, status, cover_image_url, started_at, finished_at, rating, recommended_by_email, recommended_by_label, recommendation_note, created_at, updated_at";
+  "id, user_id, title, author, total_pages, current_page, target_page, target_locked, status, cover_image_url, openlibrary_key, isbn, published_year, started_at, finished_at, rating, recommended_by_email, recommended_by_label, recommendation_note, created_at, updated_at";
 
 function firstName(name: string | null | undefined, fallback: string): string {
   return name?.trim().split(/\s+/)[0] || fallback;
@@ -34,6 +39,11 @@ function firstName(name: string | null | undefined, fallback: string): string {
 /** Ask the AI to resolve a book from its title (used by the add flow). */
 export async function lookupBook(title: string): Promise<BookLookupResult> {
   return lookupBookByTitle(title);
+}
+
+/** Live typeahead matches from Open Library, by title or author. */
+export async function searchBooks(query: string): Promise<BookSearchResult[]> {
+  return searchBooksByTitle(query);
 }
 
 /**
@@ -77,6 +87,9 @@ export async function recommendBook(input: {
   author?: string | null;
   totalPages?: number | null;
   coverImageUrl?: string | null;
+  openlibraryKey?: string | null;
+  isbn?: string | null;
+  publishedYear?: number | null;
   note?: string | null;
 }): Promise<void> {
   const supabase = await createClient();
@@ -125,6 +138,12 @@ export async function recommendBook(input: {
     current_page: 0,
     status: "queued",
     cover_image_url: input.coverImageUrl ?? null,
+    openlibrary_key: input.openlibraryKey?.trim() || null,
+    isbn: input.isbn?.trim() || null,
+    published_year:
+      input.publishedYear != null && input.publishedYear > 0
+        ? input.publishedYear
+        : null,
     recommended_by_email: fromEmail,
     recommended_by_label: label,
     recommendation_note: input.note?.trim() || null,
@@ -255,6 +274,9 @@ export async function addBook(input: {
   totalPages?: number | null;
   status?: ReadingBookStatus;
   coverImageUrl?: string | null;
+  openlibraryKey?: string | null;
+  isbn?: string | null;
+  publishedYear?: number | null;
   rating?: ReadingRating | null;
   memberEmail?: string | null;
 }): Promise<void> {
@@ -265,7 +287,27 @@ export async function addBook(input: {
   const author = input.author?.trim() || null;
   const totalPages =
     input.totalPages != null && input.totalPages > 0 ? input.totalPages : null;
+  const openlibraryKey = input.openlibraryKey?.trim() || null;
+  const isbn = input.isbn?.trim() || null;
+  const publishedYear =
+    input.publishedYear != null && input.publishedYear > 0
+      ? input.publishedYear
+      : null;
   const status: ReadingBookStatus = input.status ?? "in_progress";
+
+  // Don't silently create duplicates. Match on the Open Library key when we have
+  // one (precise), otherwise on a case-insensitive title (best effort).
+  const dupeQuery = client
+    .from("reading_books")
+    .select("id")
+    .eq("user_id", userId)
+    .limit(1);
+  const { data: existing } = openlibraryKey
+    ? await dupeQuery.eq("openlibrary_key", openlibraryKey)
+    : await dupeQuery.ilike("title", title);
+  if (existing && existing.length > 0) {
+    throw new Error(`"${title}" is already on this list.`);
+  }
 
   const tz = await getUserTimezone();
   const today = localDate(new Date(), tz);
@@ -291,6 +333,9 @@ export async function addBook(input: {
       target_page: targetPage,
       status,
       cover_image_url: input.coverImageUrl ?? null,
+      openlibrary_key: openlibraryKey,
+      isbn,
+      published_year: publishedYear,
       started_at: status === "in_progress" ? today : null,
       finished_at: finished ? today : null,
       rating,
@@ -459,6 +504,35 @@ export async function updateBook(
       target_page: (update.target_page as number | null) ?? null,
       total_pages: existing.total_pages,
     });
+  }
+
+  // Manually setting the current page declares where the member *is* — not pages
+  // read this week. If the only check-in this week is the auto-seeded baseline
+  // (no real check-ins yet), re-anchor it to the new page so the weekly target
+  // recalculates from there. Without this, adding a book and then setting the
+  // page leaves the baseline at 0, so the week's target stays stuck low.
+  if (
+    !startedReading &&
+    typeof update.current_page === "number" &&
+    update.status !== "archive"
+  ) {
+    const weekStart = getWeekStart(today);
+    const { data: weekCheckins } = await client
+      .from("reading_checkins")
+      .select("id, checked_on")
+      .eq("user_id", userId)
+      .eq("book_id", bookId)
+      .gte("checked_on", weekStart);
+    if (
+      weekCheckins?.length === 1 &&
+      weekCheckins[0].checked_on === weekStart
+    ) {
+      const { error: anchorError } = await client
+        .from("reading_checkins")
+        .update({ page: update.current_page })
+        .eq("id", weekCheckins[0].id);
+      if (anchorError) throw new Error(anchorError.message);
+    }
   }
 
   revalidatePath("/reader");
