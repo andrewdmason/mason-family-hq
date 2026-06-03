@@ -394,6 +394,35 @@ export async function updateBook(
     if (checkinError) throw new Error(checkinError.message);
   }
 
+  // Manually setting the current page declares where the member *is* — not pages
+  // read this week. If the only check-in this week is the auto-seeded baseline
+  // (no real check-ins yet), re-anchor it to the new page so the weekly target
+  // recalculates from there. Without this, adding a book and then setting the
+  // page leaves the baseline at 0, so the week's target stays stuck low.
+  if (
+    !startedReading &&
+    typeof update.current_page === "number" &&
+    update.status !== "archive"
+  ) {
+    const weekStart = getWeekStart(today);
+    const { data: weekCheckins } = await client
+      .from("reading_checkins")
+      .select("id, checked_on")
+      .eq("user_id", userId)
+      .eq("book_id", bookId)
+      .gte("checked_on", weekStart);
+    if (
+      weekCheckins?.length === 1 &&
+      weekCheckins[0].checked_on === weekStart
+    ) {
+      const { error: anchorError } = await client
+        .from("reading_checkins")
+        .update({ page: update.current_page })
+        .eq("id", weekCheckins[0].id);
+      if (anchorError) throw new Error(anchorError.message);
+    }
+  }
+
   revalidatePath("/reader");
 }
 
