@@ -10,7 +10,7 @@ import { RecapEntryView } from "@/components/journal/recap-entry-view";
 import { JournalPhotoGallery } from "@/components/journal/journal-photo-gallery";
 import { MarkEntryViewed } from "@/components/journal/mark-entry-viewed";
 import { createClient } from "@/lib/supabase/server";
-import { getIsOwner, requireUserId } from "@/lib/journal/auth";
+import { getIsOwner, requireUserId } from "@/lib/members/auth";
 import { getEntryBlocks } from "@/lib/journal/entry-blocks";
 import {
   getEntriesImageGenerationStates,
@@ -54,7 +54,7 @@ export default async function EntryPage({
   const isOwner = await getIsOwner(supabase);
   const canManagePhotos = isAuthor || isOwner;
   const { data: authorMember } = await supabase
-    .from("journal_members")
+    .from("family_members")
     .select("name, email")
     .eq("user_id", entry.user_id)
     .maybeSingle();
@@ -92,7 +92,7 @@ export default async function EntryPage({
     const nameByUser = new Map<string, string>();
     if (commenterIds.length > 0) {
       const { data: members } = await supabase
-        .from("journal_members")
+        .from("family_members")
         .select("user_id, name, email")
         .in("user_id", commenterIds);
       for (const m of members ?? []) {

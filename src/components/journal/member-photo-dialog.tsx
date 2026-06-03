@@ -17,14 +17,14 @@ import {
   deleteMemberPhoto,
   setPrimaryMemberPhoto,
 } from "@/app/(journal)/settings/family/actions";
-import type { JournalMember, MemberPhoto } from "@/lib/types";
+import type { FamilyMember, MemberPhoto } from "@/lib/types";
 
 export function MemberPhotoDialog({
   member,
   photos,
   trigger,
 }: {
-  member: JournalMember;
+  member: FamilyMember;
   photos: MemberPhoto[];
   trigger: React.ReactNode;
 }) {

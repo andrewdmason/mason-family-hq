@@ -47,7 +47,7 @@ export default async function UserSettingsPage({
         .maybeSingle(),
       loadFamilyDoc(),
       client
-        .from("journal_members")
+        .from("family_members")
         .select("name")
         .eq("user_id", userId)
         .maybeSingle(),

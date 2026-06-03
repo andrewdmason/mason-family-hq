@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { requireUserId } from "@/lib/journal/auth";
+import { requireUserId } from "@/lib/members/auth";
 import type {
   JournalAgentFile,
   JournalAgentFileName,

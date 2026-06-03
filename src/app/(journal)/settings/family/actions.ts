@@ -3,11 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
-import { requireOwner } from "@/lib/journal/auth";
-import type { JournalMember, MemberJournalStats, MemberPhoto } from "@/lib/types";
+import { requireOwner } from "@/lib/members/auth";
+import type {
+  FamilyMember,
+  MemberJournalStats,
+  MemberPhoto,
+  MemberRole,
+} from "@/lib/types";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MEMBER_PHOTOS_BUCKET = "member-photos";
+const ROLES: readonly MemberRole[] = ["owner", "parent", "kid"];
 
 type StatsEntry = {
   id: string;
@@ -33,18 +39,21 @@ export async function saveFamilyDoc(content: string): Promise<void> {
 
 /** List all family members. Owner-only (uses service role to see every row,
  * since RLS otherwise scopes reads to the caller's own membership). */
-export async function listFamilyMembers(): Promise<JournalMember[]> {
+export async function listFamilyMembers(): Promise<FamilyMember[]> {
   await requireOwner();
   const admin = createAdminClient();
   const { data, error } = await admin
-    .from("journal_members")
+    .from("family_members")
     .select(
-      "email, name, is_owner, user_id, seeded_at, birthdate, mother_email, father_email"
+      "email, name, role, user_id, seeded_at, birthdate, mother_email, father_email"
     )
-    .order("is_owner", { ascending: false })
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
-  return (data ?? []) as JournalMember[];
+  // Owner first, then creation order. (Text role doesn't sort owner-first in the
+  // query, so order it here.)
+  return ((data ?? []) as FamilyMember[]).sort(
+    (a, b) => Number(b.role === "owner") - Number(a.role === "owner")
+  );
 }
 
 /** Per-member posting stats for the owner-facing family roster. Owner-only. */
@@ -96,18 +105,25 @@ export async function getFamilyJournalStats(): Promise<Record<string, MemberJour
   return result;
 }
 
-/** Add a family member to the allowlist. They're provisioned on first sign-in. */
-export async function addFamilyMember(emailRaw: string, nameRaw: string): Promise<void> {
+/** Add a family member to the allowlist. They're provisioned on first sign-in.
+ * New members default to 'parent' — a fully-capable non-owner role. */
+export async function addFamilyMember(
+  emailRaw: string,
+  nameRaw: string,
+  role: MemberRole = "parent"
+): Promise<void> {
   await requireOwner();
   const email = emailRaw.trim().toLowerCase();
   const name = nameRaw.trim();
   if (!EMAIL_RE.test(email)) throw new Error("Enter a valid email address.");
   if (!name) throw new Error("Give this person a name.");
+  if (!ROLES.includes(role)) throw new Error("Pick a valid role.");
+  if (role === "owner") throw new Error("There can only be one owner.");
 
   const admin = createAdminClient();
   const { error } = await admin
-    .from("journal_members")
-    .insert({ email, name, is_owner: false });
+    .from("family_members")
+    .insert({ email, name, role });
   if (error) {
     if (error.code === "23505") throw new Error(`${email} is already a member.`);
     throw new Error(error.message);
@@ -133,21 +149,21 @@ export async function updateFamilyMember(
 
   const admin = createAdminClient();
   const { data: member } = await admin
-    .from("journal_members")
-    .select("email, user_id, is_owner")
+    .from("family_members")
+    .select("email, user_id, role")
     .eq("email", originalEmail)
     .maybeSingle();
   if (!member) throw new Error("Member not found.");
 
   const emailChanged = newEmail !== originalEmail;
-  const isOwnerRow = member.is_owner || member.user_id === ownerId;
+  const isOwnerRow = member.role === "owner" || member.user_id === ownerId;
   if (emailChanged && isOwnerRow) {
     throw new Error("You can't change the owner's email.");
   }
 
   if (emailChanged) {
     const { data: existing } = await admin
-      .from("journal_members")
+      .from("family_members")
       .select("email")
       .eq("email", newEmail)
       .maybeSingle();
@@ -165,7 +181,7 @@ export async function updateFamilyMember(
   }
 
   const { error } = await admin
-    .from("journal_members")
+    .from("family_members")
     .update({ email: newEmail, name })
     .eq("email", originalEmail);
   if (error) {
@@ -185,12 +201,12 @@ export async function removeFamilyMember(emailRaw: string): Promise<void> {
   const admin = createAdminClient();
 
   const { data: member } = await admin
-    .from("journal_members")
-    .select("email, user_id, is_owner")
+    .from("family_members")
+    .select("email, user_id, role")
     .eq("email", email)
     .maybeSingle();
   if (!member) throw new Error("Member not found.");
-  if (member.is_owner || member.user_id === ownerId) {
+  if (member.role === "owner" || member.user_id === ownerId) {
     throw new Error("You can't remove the owner account.");
   }
 
@@ -211,7 +227,7 @@ export async function removeFamilyMember(emailRaw: string): Promise<void> {
     const { error: delErr } = await admin.auth.admin.deleteUser(member.user_id);
     if (delErr) throw new Error(delErr.message);
   }
-  const { error } = await admin.from("journal_members").delete().eq("email", email);
+  const { error } = await admin.from("family_members").delete().eq("email", email);
   if (error) throw new Error(error.message);
 
   revalidatePath("/settings/family");
@@ -242,12 +258,46 @@ export async function updateMemberProfile(
 
   const admin = createAdminClient();
   const { error } = await admin
-    .from("journal_members")
+    .from("family_members")
     .update({
       birthdate,
       mother_email: motherEmail,
       father_email: fatherEmail,
     })
+    .eq("email", email);
+  if (error) throw new Error(error.message);
+  revalidatePath("/settings/family");
+}
+
+/** Set a member's role (owner / parent / kid). Owner-only.
+ *
+ * The model is single-owner: there's exactly one owner and it's a fixed account.
+ * So you can move members between parent and kid, but you can't promote anyone to
+ * owner or demote the owner — that would strand the family without an admin. */
+export async function updateMemberRole(
+  emailRaw: string,
+  role: MemberRole
+): Promise<void> {
+  const ownerId = await requireOwner();
+  const email = emailRaw.trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) throw new Error("Unknown member.");
+  if (!ROLES.includes(role)) throw new Error("Pick a valid role.");
+  if (role === "owner") throw new Error("There can only be one owner.");
+
+  const admin = createAdminClient();
+  const { data: member } = await admin
+    .from("family_members")
+    .select("user_id, role")
+    .eq("email", email)
+    .maybeSingle();
+  if (!member) throw new Error("Member not found.");
+  if (member.role === "owner" || member.user_id === ownerId) {
+    throw new Error("You can't change the owner's role.");
+  }
+
+  const { error } = await admin
+    .from("family_members")
+    .update({ role })
     .eq("email", email);
   if (error) throw new Error(error.message);
   revalidatePath("/settings/family");
@@ -287,7 +337,7 @@ export async function updateReadingGoal(
 
   const admin = createAdminClient();
   const { data: member } = await admin
-    .from("journal_members")
+    .from("family_members")
     .select("email")
     .eq("email", email)
     .maybeSingle();
@@ -353,7 +403,7 @@ export async function addMemberPhoto(formData: FormData): Promise<void> {
 
   const admin = createAdminClient();
   const { data: member } = await admin
-    .from("journal_members")
+    .from("family_members")
     .select("email")
     .eq("email", email)
     .maybeSingle();

@@ -49,7 +49,7 @@ export async function searchBooks(query: string): Promise<BookSearchResult[]> {
 /**
  * Other family members you can recommend a book to (everyone who's signed in,
  * excluding yourself). Available to any member, so it reads via the service role
- * — journal_members RLS otherwise hides other members' rows.
+ * — family_members RLS otherwise hides other members' rows.
  */
 export async function listRecommendRecipients(): Promise<
   { email: string; name: string | null }[]
@@ -63,7 +63,7 @@ export async function listRecommendRecipients(): Promise<
 
   const admin = createAdminClient();
   const { data, error } = await admin
-    .from("journal_members")
+    .from("family_members")
     .select("email, name, user_id")
     .not("user_id", "is", null)
     .order("created_at", { ascending: true });
@@ -108,7 +108,7 @@ export async function recommendBook(input: {
 
   const admin = createAdminClient();
   const { data: people, error: peopleError } = await admin
-    .from("journal_members")
+    .from("family_members")
     .select("email, name, user_id, mother_email, father_email")
     .in("email", [fromEmail, recipientEmail]);
   if (peopleError) throw new Error(peopleError.message);

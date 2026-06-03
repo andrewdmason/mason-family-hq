@@ -27,9 +27,22 @@ import {
   addFamilyMember,
   updateFamilyMember,
   updateMemberProfile,
+  updateMemberRole,
   updateReadingGoal,
 } from "@/app/(journal)/settings/family/actions";
-import type { JournalMember, MemberJournalStats, MemberPhoto } from "@/lib/types";
+import type {
+  FamilyMember,
+  MemberJournalStats,
+  MemberPhoto,
+  MemberRole,
+} from "@/lib/types";
+
+const ROLE_LABELS: Record<MemberRole, string> = {
+  owner: "Owner",
+  parent: "Parent",
+  kid: "Kid",
+};
+const ASSIGNABLE_ROLES: MemberRole[] = ["parent", "kid"];
 
 export function FamilyManager({
   members,
@@ -37,15 +50,16 @@ export function FamilyManager({
   journalStatsByUserId,
   readingGoalsByEmail,
 }: {
-  members: JournalMember[];
+  members: FamilyMember[];
   photosByEmail: Record<string, MemberPhoto[]>;
   journalStatsByUserId: Record<string, MemberJournalStats>;
   readingGoalsByEmail: Record<string, number>;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [role, setRole] = useState<MemberRole>("parent");
   const [adding, setAdding] = useState(false);
-  const [editingMember, setEditingMember] = useState<JournalMember | null>(null);
+  const [editingMember, setEditingMember] = useState<FamilyMember | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -54,9 +68,10 @@ export function FamilyManager({
     setError(null);
     startTransition(async () => {
       try {
-        await addFamilyMember(email, name);
+        await addFamilyMember(email, name, role);
         setName("");
         setEmail("");
+        setRole("parent");
         setAdding(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't add member.");
@@ -94,12 +109,10 @@ export function FamilyManager({
                   <span className="font-serif text-sm text-foreground">
                     {m.name || "—"}
                   </span>
-                  {m.is_owner && (
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                      Owner
-                    </span>
-                  )}
-                  {!m.is_owner && !m.seeded_at && (
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {ROLE_LABELS[m.role]}
+                  </span>
+                  {m.role !== "owner" && !m.seeded_at && (
                     <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
                       Invited
                     </span>
@@ -111,7 +124,7 @@ export function FamilyManager({
               </div>
               <MemberPostingStats stats={stats} />
               <ReadingGoalBadge goal={readingGoalsByEmail[m.email] ?? 0} />
-              {!m.is_owner &&
+              {m.role !== "owner" &&
                 (m.seeded_at ? (
                   <Link
                     href={`/settings/user?member=${encodeURIComponent(m.email)}`}
@@ -160,6 +173,21 @@ export function FamilyManager({
               onChange={(e) => setEmail(e.target.value)}
               className="flex-1"
             />
+            <Select value={role} onValueChange={(v) => setRole(v as MemberRole)}>
+              <SelectTrigger
+                className="sm:w-[120px]"
+                aria-label="Role for the new member"
+              >
+                <SelectValue>{ROLE_LABELS[role]}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {ASSIGNABLE_ROLES.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {ROLE_LABELS[r]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button type="submit" disabled={pending}>
               {pending ? "Adding…" : "Add member"}
             </Button>
@@ -208,13 +236,15 @@ function EditMemberDialog({
   initialGoal,
   onClose,
 }: {
-  member: JournalMember;
-  allMembers: JournalMember[];
+  member: FamilyMember;
+  allMembers: FamilyMember[];
   initialGoal: number;
   onClose: () => void;
 }) {
+  const isOwner = member.role === "owner";
   const [name, setName] = useState(member.name ?? "");
   const [email, setEmail] = useState(member.email);
+  const [role, setRole] = useState<MemberRole>(member.role);
   const [goal, setGoal] = useState(String(initialGoal));
   const [birthdate, setBirthdate] = useState(member.birthdate ?? "");
   const [motherEmail, setMotherEmail] = useState(member.mother_email ?? NO_PARENT);
@@ -239,8 +269,11 @@ function EditMemberDialog({
         // Name/email first: editing the email cascades dependent rows
         // (reading_settings, parent links) to the new address.
         await updateFamilyMember(member.email, name, newEmail);
+        if (!isOwner && role !== member.role) {
+          await updateMemberRole(newEmail, role);
+        }
         if (goalNum !== initialGoal) {
-          await updateReadingGoal(member.is_owner ? member.email : newEmail, goalNum);
+          await updateReadingGoal(isOwner ? member.email : newEmail, goalNum);
         }
         await updateMemberProfile(newEmail, {
           birthdate: birthdate || null,
@@ -281,12 +314,39 @@ function EditMemberDialog({
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              disabled={member.is_owner}
+              disabled={isOwner}
             />
-            {member.is_owner && (
+            {isOwner && (
               <p className="text-xs text-muted-foreground">
                 The owner&apos;s email can&apos;t be changed here.
               </p>
+            )}
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="edit-role">Role</Label>
+            {isOwner ? (
+              <>
+                <Input id="edit-role" value="Owner" disabled />
+                <p className="text-xs text-muted-foreground">
+                  The owner&apos;s role can&apos;t be changed.
+                </p>
+              </>
+            ) : (
+              <Select
+                value={role}
+                onValueChange={(v) => setRole(v as MemberRole)}
+              >
+                <SelectTrigger id="edit-role" className="w-full">
+                  <SelectValue>{ROLE_LABELS[role]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {ASSIGNABLE_ROLES.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {ROLE_LABELS[r]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -350,7 +410,7 @@ function ParentSelect({
   id: string;
   label: string;
   value: string;
-  choices: JournalMember[];
+  choices: FamilyMember[];
   onChange: (value: string) => void;
 }) {
   const selected = choices.find((m) => m.email === value);

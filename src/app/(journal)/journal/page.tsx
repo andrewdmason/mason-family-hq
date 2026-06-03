@@ -2,7 +2,7 @@ import { HistoryList } from "@/components/journal/history-list";
 import { JournalFeedToggle, type JournalFeed } from "@/components/journal/feed-toggle";
 import { JournalListDropZone } from "@/components/journal/journal-list-drop-zone";
 import { createClient } from "@/lib/supabase/server";
-import { requireUserId } from "@/lib/journal/auth";
+import { requireUserId } from "@/lib/members/auth";
 import { getUnreadFamilyEntryIds } from "@/lib/journal/notifications";
 import {
   getEntriesImageGenerationStates,
@@ -65,7 +65,7 @@ export default async function JournalPage({
   const authorPhotoByUser = new Map<string, string>();
   if (showsOthers && entries.length > 0) {
     const { data: members } = await supabase
-      .from("journal_members")
+      .from("family_members")
       .select("user_id, name, email");
     const emailByUser = new Map<string, string>();
     for (const m of members ?? []) {

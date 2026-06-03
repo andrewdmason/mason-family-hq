@@ -34,7 +34,7 @@ export type DiscoverView = {
 async function memberBirthdate(email: string | null): Promise<string | null> {
   if (!email) return null;
   const { data } = await createAdminClient()
-    .from("journal_members")
+    .from("family_members")
     .select("birthdate")
     .eq("email", email)
     .maybeSingle();

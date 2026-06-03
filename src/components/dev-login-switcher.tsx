@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import type { MemberRole } from "@/lib/types";
 
-type Member = { email: string; name: string | null; is_owner: boolean };
+type Member = { email: string; name: string | null; role: MemberRole };
 
 /**
  * Dev-only sign-in helper: pick an existing family member from the dropdown, or
@@ -54,7 +55,7 @@ export function DevLoginSwitcher() {
             {members.map((m) => (
               <option key={m.email} value={m.email}>
                 {(m.name ? `${m.name} — ${m.email}` : m.email) +
-                  (m.is_owner ? " (owner)" : "")}
+                  ` (${m.role})`}
               </option>
             ))}
             <option value="">Custom email…</option>

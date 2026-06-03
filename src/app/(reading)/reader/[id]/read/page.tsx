@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { BookReader } from "@/components/reading/book-reader";
 import { listFamilyMembers } from "@/app/(journal)/settings/family/actions";
-import { getIsOwner } from "@/lib/journal/auth";
+import { getIsOwner } from "@/lib/members/auth";
 import { readingHomeHref } from "@/lib/reading/links";
 import { getBookReaderData } from "../../actions";
 
@@ -19,12 +19,12 @@ export default async function ReadBookPage({
 
   const isOwner = await getIsOwner();
   const members = isOwner ? await listFamilyMembers() : [];
-  const ownerEmail = members.find((m) => m.is_owner)?.email ?? "";
-  const viewable = members.filter((m) => m.is_owner || m.user_id);
+  const ownerEmail = members.find((m) => m.role === "owner")?.email ?? "";
+  const viewable = members.filter((m) => m.role === "owner" || m.user_id);
   const requested = isOwner ? member?.trim().toLowerCase() || null : null;
   const viewingEmail =
     requested && requested !== ownerEmail
-      ? viewable.find((m) => m.email === requested && !m.is_owner)?.email ?? null
+      ? viewable.find((m) => m.email === requested && m.role !== "owner")?.email ?? null
       : null;
 
   const data = await getBookReaderData(id, viewingEmail);

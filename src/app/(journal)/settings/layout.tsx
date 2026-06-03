@@ -1,7 +1,7 @@
 import { SettingsNav } from "@/components/journal/settings-nav";
 import { LogoutButton } from "@/components/journal/logout-button";
 import { createClient } from "@/lib/supabase/server";
-import { requireUserId } from "@/lib/journal/auth";
+import { requireUserId } from "@/lib/members/auth";
 import type { JournalAgentFile } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -13,14 +13,14 @@ export default async function SettingsLayout({
 }) {
   const supabase = await createClient();
   const userId = await requireUserId(supabase);
-  // One row gives us both the owner flag (gates the Family tab) and the
+  // One row gives us both the role (owner gates the Family tab) and the
   // name/email to show above Log out.
   const { data: me } = await supabase
-    .from("journal_members")
-    .select("name, email, is_owner")
+    .from("family_members")
+    .select("name, email, role")
     .eq("user_id", userId)
     .maybeSingle();
-  const isOwner = me?.is_owner === true;
+  const isOwner = me?.role === "owner";
   const { data } = await supabase
     .from("journal_agent_files")
     .select("id, name, updated_at")

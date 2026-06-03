@@ -9,11 +9,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { MemberRole } from "@/lib/types";
 
 type ViewableMember = {
   email: string;
   name: string | null;
-  is_owner: boolean;
+  role: MemberRole;
 };
 
 /**
@@ -43,7 +44,7 @@ export function MemberViewSwitcher({
   function labelFor(email: string): string {
     const m = members.find((x) => x.email === email);
     if (!m) return email;
-    if (m.is_owner) return `${m.name ?? "Me"} (me)`;
+    if (m.role === "owner") return `${m.name ?? "Me"} (me)`;
     return m.name ?? m.email;
   }
 
@@ -56,7 +57,7 @@ export function MemberViewSwitcher({
       <SelectContent>
         {members.map((m) => (
           <SelectItem key={m.email} value={m.email}>
-            {m.is_owner ? `${m.name ?? "Me"} (me)` : m.name ?? m.email}
+            {m.role === "owner" ? `${m.name ?? "Me"} (me)` : m.name ?? m.email}
           </SelectItem>
         ))}
       </SelectContent>

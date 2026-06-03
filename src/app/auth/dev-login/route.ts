@@ -52,13 +52,20 @@ export async function GET(request: Request) {
 
   // Dev convenience: make sure this email is on the family allowlist so you can
   // sign in as the owner or as a kid to test provisioning + per-user isolation.
-  // (In production the owner adds members explicitly.)
+  // (In production the owner adds members explicitly.) New rows default to the
+  // 'parent' role; we don't pass role on upsert so an existing member's role
+  // (e.g. a seeded kid) isn't clobbered.
   await admin
-    .from("journal_members")
-    .upsert(
-      { email, user_id: userId, is_owner: email === ownerEmail?.toLowerCase().trim() },
-      { onConflict: "email" }
-    );
+    .from("family_members")
+    .upsert({ email, user_id: userId }, { onConflict: "email" });
+
+  // The owner email is always the owner, even if the row pre-existed otherwise.
+  if (email === ownerEmail?.toLowerCase().trim()) {
+    await admin
+      .from("family_members")
+      .update({ role: "owner" })
+      .eq("email", email);
+  }
 
   // Generate a magic link
   const { data: linkData, error: linkError } =

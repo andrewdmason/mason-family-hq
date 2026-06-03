@@ -1,6 +1,6 @@
 import { JournalHeaderClient } from "@/components/journal/header-client";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
-import { requireUserId } from "@/lib/journal/auth";
+import { requireUserId } from "@/lib/members/auth";
 import { getJournalNotifications } from "@/lib/journal/notifications";
 import { createClient } from "@/lib/supabase/server";
 

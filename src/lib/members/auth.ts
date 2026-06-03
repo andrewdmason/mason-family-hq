@@ -3,9 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 /**
  * Resolve the authenticated user's id, throwing if there's no session.
  *
- * Journal rows are scoped per-user by RLS, whose WITH CHECK clause rejects any
- * insert that omits user_id — so every journal insert must stamp it. Reads don't
- * need an explicit user filter (RLS applies one automatically).
+ * Per-user rows are scoped by RLS, whose WITH CHECK clause rejects any insert
+ * that omits user_id — so every such insert must stamp it. Reads don't need an
+ * explicit user filter (RLS applies one automatically).
  */
 export async function requireUserId(
   supabase?: Awaited<ReturnType<typeof createClient>>
@@ -28,11 +28,11 @@ export async function getIsOwner(
   const client = supabase ?? (await createClient());
   const userId = await requireUserId(client);
   const { data } = await client
-    .from("journal_members")
-    .select("is_owner")
+    .from("family_members")
+    .select("role")
     .eq("user_id", userId)
     .maybeSingle();
-  return data?.is_owner === true;
+  return data?.role === "owner";
 }
 
 /** Throw unless the current user is the owner. Returns the owner's user id. */

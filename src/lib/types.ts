@@ -383,11 +383,22 @@ export type JournalSettings = {
   questions_per_day: number;
 };
 
+/**
+ * A member's role. Cross-app (journal, reader, practice, …):
+ * - `owner`  — the family admin + practice book (just Andrew).
+ * - `parent` — a grown-up (Andrew, Jenny).
+ * - `kid`    — a child (Oscar, Sebastian).
+ *
+ * Today only `owner` carries extra capability; `parent` and `kid` behave like
+ * any other member. The distinction is the seam for handing out abilities later.
+ */
+export type MemberRole = "owner" | "parent" | "kid";
+
 /** A family member: the sign-in allowlist + per-member provisioning record. */
-export type JournalMember = {
+export type FamilyMember = {
   email: string;
   name: string | null;
-  is_owner: boolean;
+  role: MemberRole;
   user_id: string | null;
   seeded_at: string | null;
   birthdate: string | null;

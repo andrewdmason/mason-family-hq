@@ -45,30 +45,32 @@ export async function ensureProvisioned(user: {
   const admin = createAdminClient();
 
   const { data: member } = await admin
-    .from("journal_members")
-    .select("email, user_id, is_owner, seeded_at")
+    .from("family_members")
+    .select("email, user_id, role, seeded_at")
     .eq("email", email)
     .maybeSingle();
   if (!member) return { allowed: false };
 
+  const isOwner = member.role === "owner";
+
   // Link the auth user to the membership row the first time we see them.
-  // Middleware gates /practice by reading is_owner from this row directly.
+  // Middleware gates /practice by reading the role from this row directly.
   if (member.user_id !== user.id) {
     await admin
-      .from("journal_members")
+      .from("family_members")
       .update({ user_id: user.id })
       .eq("email", email);
   }
 
   if (!member.seeded_at) {
-    await seedJournal(admin, user.id, member.is_owner);
+    await seedJournal(admin, user.id, isOwner);
     await admin
-      .from("journal_members")
+      .from("family_members")
       .update({ seeded_at: new Date().toISOString() })
       .eq("email", email);
   }
 
-  return { allowed: true, isOwner: member.is_owner };
+  return { allowed: true, isOwner };
 }
 
 /** Seed a new member's per-user journal rows from the resolved template. */
@@ -129,9 +131,9 @@ async function resolveTemplate(
 ): Promise<SeedTemplate> {
   if (!isOwner) {
     const { data: owner } = await admin
-      .from("journal_members")
+      .from("family_members")
       .select("user_id, seeded_at")
-      .eq("is_owner", true)
+      .eq("role", "owner")
       .maybeSingle();
     if (owner?.user_id && owner.seeded_at && owner.user_id !== userId) {
       return loadTemplateFromUser(admin, owner.user_id);

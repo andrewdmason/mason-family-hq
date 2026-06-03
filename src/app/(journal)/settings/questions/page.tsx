@@ -35,7 +35,7 @@ export default async function QuestionsSettingsPage({
       .maybeSingle(),
     isMemberMode
       ? client
-          .from("journal_members")
+          .from("family_members")
           .select("name")
           .eq("user_id", userId)
           .maybeSingle()

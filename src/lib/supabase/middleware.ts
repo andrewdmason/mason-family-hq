@@ -48,16 +48,16 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // The practice book is owner-only. Resolve is_owner from the membership table
+  // The practice book is owner-only. Resolve the role from the membership table
   // (authoritative, and /practice is owner-only/low-traffic so the extra lookup
   // is negligible). RLS scopes the read to the caller's own row.
   if (user && request.nextUrl.pathname.startsWith("/practice")) {
     const { data: membership } = await supabase
-      .from("journal_members")
-      .select("is_owner")
+      .from("family_members")
+      .select("role")
       .eq("user_id", user.id)
       .maybeSingle();
-    if (membership?.is_owner !== true) {
+    if (membership?.role !== "owner") {
       const url = request.nextUrl.clone();
       url.pathname = "/journal";
       return NextResponse.redirect(url);

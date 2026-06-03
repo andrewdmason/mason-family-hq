@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { FamilyManager } from "@/components/journal/family-manager";
 import { SingleFileEditor } from "@/components/journal/agent-file-editor";
-import { getIsOwner } from "@/lib/journal/auth";
+import { getIsOwner } from "@/lib/members/auth";
 import { loadFamilyDoc } from "@/lib/journal/context";
 import {
   getFamilyJournalStats,
