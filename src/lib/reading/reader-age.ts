@@ -25,7 +25,7 @@ export function ageFromBirthdate(
 export async function readerAge(email: string | null): Promise<number | null> {
   if (!email) return null;
   const { data } = await createAdminClient()
-    .from("journal_members")
+    .from("family_members")
     .select("birthdate")
     .eq("email", email)
     .maybeSingle();
