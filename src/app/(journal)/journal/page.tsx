@@ -29,7 +29,7 @@ export default async function JournalPage({
   const userId = await requireUserId(supabase);
 
   const columns =
-    "id, entry_date, user_id, status, entry_type, visibility, opening_question, freeform_started_at, summary, title, pull_quote, quote_attribution, summary_stale, closed_at, created_at, updated_at";
+    "id, entry_date, user_id, status, entry_type, visibility, opening_question, question_type, freeform_started_at, summary, title, pull_quote, quote_attribution, summary_stale, closed_at, created_at, updated_at";
 
   // The entries SELECT policy is "own rows OR visibility = 'family'".
   // Me: the caller's own entries (private + family); the user_id filter keeps

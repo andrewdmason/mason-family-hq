@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateEntryContent } from "@/app/(journal)/journal/actions";
+import { typeLabel } from "@/lib/journal/candidates";
 import type { JournalMessageRole } from "@/lib/types";
 
 type EditableMessage = { id: string; role: JournalMessageRole; content: string };
@@ -16,14 +17,21 @@ type EditableMessage = { id: string; role: JournalMessageRole; content: string }
 export function EntryEditor({
   entryId,
   initialTitle,
+  initialQuestionType,
+  questionTypeOptions,
   messages,
 }: {
   entryId: string;
   initialTitle: string;
+  /** The entry's current category (question type `name`), or "" for none. */
+  initialQuestionType: string;
+  /** Categories to offer, as question type `name`s, in display order. */
+  questionTypeOptions: string[];
   messages: EditableMessage[];
 }) {
   const router = useRouter();
   const [title, setTitle] = useState(initialTitle);
+  const [questionType, setQuestionType] = useState(initialQuestionType);
   // Edited user-message content, keyed by message id. Assistant messages are
   // never editable, so they're not tracked here.
   const [drafts, setDrafts] = useState<Record<string, string>>(() =>
@@ -43,7 +51,7 @@ export function EntryEditor({
     const messageEdits = userMessageIds.map((id) => ({ id, content: drafts[id] }));
     startSave(async () => {
       try {
-        await updateEntryContent(entryId, title, messageEdits);
+        await updateEntryContent(entryId, title, messageEdits, questionType || null);
         router.push(`/journal/${entryId}`);
         router.refresh();
       } catch (err) {
@@ -65,6 +73,23 @@ export function EntryEditor({
         disabled={isSaving}
         className="w-full rounded-lg border border-muted bg-transparent px-5 py-3 font-serif text-2xl leading-snug text-foreground focus:border-foreground/40 focus:outline-none disabled:opacity-50"
       />
+
+      <label className="mb-2 mt-6 block font-serif text-xs text-muted-foreground">
+        Category
+      </label>
+      <select
+        value={questionType}
+        onChange={(e) => setQuestionType(e.target.value)}
+        disabled={isSaving}
+        className="w-full rounded-lg border border-muted bg-transparent px-5 py-3 font-serif text-base text-foreground focus:border-foreground/40 focus:outline-none disabled:opacity-50"
+      >
+        <option value="">No category</option>
+        {questionTypeOptions.map((name) => (
+          <option key={name} value={name}>
+            {typeLabel(name)}
+          </option>
+        ))}
+      </select>
 
       <div className="mt-10 space-y-6 font-serif text-lg leading-relaxed">
         {messages.map((m) =>

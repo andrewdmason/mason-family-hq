@@ -350,6 +350,9 @@ export async function pickOpeningQuestion(entryId: string, question: string) {
     .update({
       opening_question: question,
       opening_candidates: null,
+      // The picked candidate's question type tags the entry so the feed can show
+      // its category label. Null for untyped fallback questions.
+      question_type: picked.type,
       visibility: picked.visibility,
       // currently-reading questions carry the book they're about; link it so the
       // Reading list can surface this entry on that book's card. Fall back to any
@@ -602,14 +605,30 @@ export async function updateRecapEntry(
 export async function updateEntryContent(
   entryId: string,
   title: string,
-  messageEdits: { id: string; content: string }[]
+  messageEdits: { id: string; content: string }[],
+  questionType: string | null = null
 ) {
   const supabase = await createClient();
+  const userId = await requireUserId(supabase);
+
+  // Normalize the category: empty → null (no category). A non-empty value must
+  // be one of the caller's own question types — defends against a tampered
+  // select submitting an arbitrary string.
+  let nextType: string | null = questionType?.trim() ? questionType.trim() : null;
+  if (nextType) {
+    const { data: typeRow } = await supabase
+      .from("journal_question_types")
+      .select("name")
+      .eq("user_id", userId)
+      .eq("name", nextType)
+      .maybeSingle();
+    if (!typeRow) nextType = null;
+  }
 
   const trimmedTitle = title.trim();
   const { error: titleErr } = await supabase
     .from("journal_entries")
-    .update({ title: trimmedTitle || null })
+    .update({ title: trimmedTitle || null, question_type: nextType })
     .eq("id", entryId);
   if (titleErr) throw new Error(titleErr.message);
 
