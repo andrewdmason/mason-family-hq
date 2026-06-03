@@ -211,6 +211,43 @@ export async function createFreeformEntry(): Promise<string> {
 }
 
 /**
+ * Start a journal entry about a specific book, from the "Reflect in journal"
+ * action on the Reading list. Creates a fresh open entry pre-bound to the book
+ * (reading_book_id) so the opening-question picker grounds its questions in that
+ * book — its status and rating included — and the entry surfaces on the book's
+ * card. Returns the new entry id; the caller routes to /journal/new?entry=<id>.
+ */
+export async function startBookReflection(bookId: string): Promise<string> {
+  const supabase = await createClient();
+  const userId = await requireUserId(supabase);
+
+  // Confirm the book is the signed-in user's before binding an entry to it.
+  const { data: book } = await supabase
+    .from("reading_books")
+    .select("id")
+    .eq("id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!book) throw new Error("book not found");
+
+  const date = await todayLocal();
+  const { data, error } = await supabase
+    .from("journal_entries")
+    .insert({
+      entry_date: date,
+      status: "open",
+      user_id: userId,
+      reading_book_id: bookId,
+    })
+    .select("id")
+    .single();
+  if (error || !data) {
+    throw new Error(error?.message ?? "failed to create entry");
+  }
+  return data.id as string;
+}
+
+/**
  * Set an entry's date. Used when a new entry is started from a dropped photo
  * and the user opts to date the entry to when the photo was taken.
  */
@@ -281,7 +318,7 @@ export async function pickOpeningQuestion(entryId: string, question: string) {
 
   const { data: entry, error: entryErr } = await supabase
     .from("journal_entries")
-    .select("id, status, opening_candidates")
+    .select("id, status, opening_candidates, reading_book_id")
     .eq("id", entryId)
     .single();
   if (entryErr || !entry) throw new Error("entry not found");
@@ -314,6 +351,11 @@ export async function pickOpeningQuestion(entryId: string, question: string) {
       opening_question: question,
       opening_candidates: null,
       visibility: picked.visibility,
+      // currently-reading questions carry the book they're about; link it so the
+      // Reading list can surface this entry on that book's card. Fall back to any
+      // link the entry already had (a "Reflect in journal" entry is pre-bound to
+      // its book), so switching question doesn't silently drop the provenance.
+      reading_book_id: picked.reading_book_id ?? entry.reading_book_id ?? null,
     })
     .eq("id", entryId);
   if (updateErr) throw new Error(updateErr.message);

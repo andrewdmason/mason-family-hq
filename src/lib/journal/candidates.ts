@@ -10,13 +10,21 @@ export function normalizeCandidates(raw: unknown): JournalOpeningCandidate[] {
   return raw
     .map((c): JournalOpeningCandidate => {
       if (typeof c === "string") return { text: c, type: null, visibility: "private" };
-      const obj = (c ?? {}) as { text?: unknown; type?: unknown; visibility?: unknown };
+      const obj = (c ?? {}) as {
+        text?: unknown;
+        type?: unknown;
+        visibility?: unknown;
+        reading_book_id?: unknown;
+      };
       return {
         text: typeof obj.text === "string" ? obj.text : "",
         type: typeof obj.type === "string" ? obj.type : null,
         // Legacy rows (and any unexpected value) default to private — sharing is
         // always an explicit, opt-in act.
         visibility: obj.visibility === "family" ? "family" : "private",
+        // Preserved so a picked currently-reading candidate can link its book.
+        reading_book_id:
+          typeof obj.reading_book_id === "string" ? obj.reading_book_id : null,
       };
     })
     .filter((c) => c.text.length > 0);

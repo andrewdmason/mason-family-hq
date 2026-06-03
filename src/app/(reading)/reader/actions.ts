@@ -20,6 +20,7 @@ import { getActiveQuizzesByBook } from "./quizzes/actions";
 import type {
   ReadingBook,
   ReadingBookContentSummary,
+  ReadingBookJournalEntry,
   ReadingBookStatus,
   ReadingBookWithProgress,
   ReadingHome,
@@ -179,19 +180,30 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
   // surface the Read button and upload/replace affordances without a detail page.
   const contentByBook = new Map<string, ReadingBookContentSummary>();
   const resumeBooks = new Set<string>();
+  // Closed journal entries linked to each book (from currently-reading questions),
+  // newest first, so the card can show "From your journal".
+  const relatedByBook = new Map<string, ReadingBookJournalEntry[]>();
   if (bookIds.length > 0) {
-    const [{ data: contentRows }, { data: stateRows }] = await Promise.all([
-      client
-        .from("reading_book_content")
-        .select("book_id, status, page_count, has_real_pages, error_message")
-        .eq("user_id", userId)
-        .in("book_id", bookIds),
-      client
-        .from("reading_book_state")
-        .select("book_id, last_anchor_id")
-        .eq("user_id", userId)
-        .in("book_id", bookIds),
-    ]);
+    const [{ data: contentRows }, { data: stateRows }, { data: entryRows }] =
+      await Promise.all([
+        client
+          .from("reading_book_content")
+          .select("book_id, status, page_count, has_real_pages, error_message")
+          .eq("user_id", userId)
+          .in("book_id", bookIds),
+        client
+          .from("reading_book_state")
+          .select("book_id, last_anchor_id")
+          .eq("user_id", userId)
+          .in("book_id", bookIds),
+        client
+          .from("journal_entries")
+          .select("id, reading_book_id, title, pull_quote, entry_date")
+          .eq("user_id", userId)
+          .eq("status", "closed")
+          .in("reading_book_id", bookIds)
+          .order("entry_date", { ascending: false }),
+      ]);
     for (const c of contentRows ?? []) {
       contentByBook.set(c.book_id as string, {
         status: c.status as ReadingBookContentSummary["status"],
@@ -202,6 +214,17 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
     }
     for (const s of stateRows ?? []) {
       if (s.last_anchor_id) resumeBooks.add(s.book_id as string);
+    }
+    for (const e of entryRows ?? []) {
+      const bookId = e.reading_book_id as string;
+      const list = relatedByBook.get(bookId) ?? [];
+      list.push({
+        id: e.id as string,
+        title: (e.title as string | null) ?? null,
+        pull_quote: (e.pull_quote as string | null) ?? null,
+        entry_date: e.entry_date as string,
+      });
+      relatedByBook.set(bookId, list);
     }
   }
 
@@ -241,6 +264,7 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
       pagesReadThisWeek: Math.max(0, book.current_page - baseline),
       content: contentByBook.get(book.id) ?? null,
       hasResumePoint: resumeBooks.has(book.id),
+      relatedEntries: relatedByBook.get(book.id) ?? [],
     };
   });
 

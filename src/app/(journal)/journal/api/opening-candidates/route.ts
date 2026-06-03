@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
   const { data: entry, error: entryErr } = await supabase
     .from("journal_entries")
-    .select("id, status, opening_candidates, candidates_reroll_count")
+    .select("id, status, opening_candidates, candidates_reroll_count, reading_book_id")
     .eq("id", entryId)
     .single();
   if (entryErr || !entry) {
@@ -51,7 +51,15 @@ export async function POST(req: NextRequest) {
 
   let candidates: JournalOpeningCandidate[];
   try {
-    candidates = await generateCandidates(entryId, [], undefined, body.tz);
+    // A book-reflection entry carries the book it's about; ground the questions
+    // in it (status + rating folded into the prompt).
+    candidates = await generateCandidates(
+      entryId,
+      [],
+      undefined,
+      body.tz,
+      entry.reading_book_id as string | null
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return new Response(msg, { status: 500 });
