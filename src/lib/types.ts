@@ -645,6 +645,12 @@ export type ReadingBook = {
   current_page: number;
   status: ReadingBookStatus;
   cover_image_url: string | null;
+  /** Open Library work key (e.g. "/works/OL12345W"), when added via typeahead. */
+  openlibrary_key: string | null;
+  /** ISBN-13 of a common edition, for re-fetch and external links. */
+  isbn: string | null;
+  /** First publication year, for display and sorting. */
+  published_year: number | null;
   started_at: string | null;
   finished_at: string | null;
   /** The member's emoji rating, once they've read it. Null until rated. */

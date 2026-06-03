@@ -7,6 +7,8 @@ export type BookLookupResult = {
   title: string;
   author: string | null;
   totalPages: number | null;
+  /** ISBN-13 the AI resolved, used for re-fetch and links. Null if unknown. */
+  isbn: string | null;
   coverImageUrl: string | null;
 };
 
@@ -73,6 +75,89 @@ function coverUrlFromIsbn(isbn: string | null): string | null {
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
+/** One Open Library typeahead match for the add-a-book search. */
+export type BookSearchResult = {
+  /** Open Library work key (e.g. "/works/OL12345W") — a stable list key. */
+  key: string;
+  title: string;
+  author: string | null;
+  totalPages: number | null;
+  year: number | null;
+  /** ISBN-13 of a common edition, null when none is listed. */
+  isbn: string | null;
+  /** Large cover for storage, null when the edition has no art. */
+  coverImageUrl: string | null;
+  /** Small cover for the dropdown row, null when the edition has no art. */
+  coverThumbUrl: string | null;
+};
+
+type SearchDoc = {
+  key?: string;
+  title?: string;
+  author_name?: string[];
+  first_publish_year?: number;
+  number_of_pages_median?: number;
+  cover_i?: number;
+  isbn?: string[];
+};
+
+/** Prefer a 13-digit ISBN; fall back to the first listed. Null when none. */
+function pickIsbn(isbns: string[] | undefined): string | null {
+  if (!isbns?.length) return null;
+  return isbns.find((i) => i.replace(/[^0-9Xx]/g, "").length === 13) ?? isbns[0];
+}
+
+/**
+ * Typeahead search against Open Library. Matches across title and author (`q=`)
+ * so the user can type either. Returns up to `limit` results with author, page
+ * count, year and covers. Resilient: any failure (network, timeout, bad input)
+ * resolves to an empty list rather than throwing, so the dropdown just shows
+ * nothing instead of erroring the form.
+ */
+export async function searchBooks(
+  query: string,
+  limit = 6
+): Promise<BookSearchResult[]> {
+  const trimmed = query.trim();
+  if (trimmed.length < 2) return [];
+  try {
+    const params = new URLSearchParams({
+      q: trimmed,
+      fields:
+        "key,title,author_name,first_publish_year,number_of_pages_median,cover_i,isbn",
+      limit: String(limit),
+    });
+    const res = await fetch(`https://openlibrary.org/search.json?${params}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { docs?: SearchDoc[] };
+    return (data.docs ?? [])
+      .filter((d): d is SearchDoc & { title: string } => !!d.title)
+      .map((d) => ({
+        key: d.key ?? d.title,
+        title: d.title,
+        author: d.author_name?.[0]?.trim() || null,
+        totalPages:
+          typeof d.number_of_pages_median === "number" &&
+          d.number_of_pages_median > 0
+            ? d.number_of_pages_median
+            : null,
+        year:
+          typeof d.first_publish_year === "number" ? d.first_publish_year : null,
+        isbn: pickIsbn(d.isbn),
+        coverImageUrl: d.cover_i
+          ? `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg`
+          : null,
+        coverThumbUrl: d.cover_i
+          ? `https://covers.openlibrary.org/b/id/${d.cover_i}-S.jpg`
+          : null,
+      }));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * A cover resolved by Open Library title+author search. Far more reliable than a
  * guessed ISBN: it returns a `cover_i` only for editions that actually have art.
@@ -128,6 +213,7 @@ export async function lookupBookByTitle(title: string): Promise<BookLookupResult
     title: trimmed,
     author: null,
     totalPages: null,
+    isbn: null,
     coverImageUrl: null,
   };
   if (!trimmed) return fallback;
@@ -165,6 +251,12 @@ export async function lookupBookByTitle(title: string): Promise<BookLookupResult
         ? Math.round(input.total_pages)
         : null;
     const isbn = typeof input.isbn === "string" ? input.isbn : null;
+    // Store only a well-formed ISBN-10/13 (digits only); drop anything else.
+    const cleanedIsbn = isbn?.replace(/[^0-9Xx]/g, "") ?? "";
+    const storedIsbn =
+      cleanedIsbn.length === 10 || cleanedIsbn.length === 13
+        ? cleanedIsbn
+        : null;
 
     // Prefer a search-resolved cover (reliably present); fall back to the ISBN.
     const coverImageUrl =
@@ -175,6 +267,7 @@ export async function lookupBookByTitle(title: string): Promise<BookLookupResult
       title: resolvedTitle,
       author,
       totalPages,
+      isbn: storedIsbn,
       coverImageUrl,
     };
   } catch (err) {
