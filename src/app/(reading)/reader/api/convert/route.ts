@@ -46,6 +46,10 @@ export async function POST(req: NextRequest) {
   }
 
   const format = content.source_format as "pdf" | "epub";
+  // A correlation tag so every line for one conversion can be grepped together.
+  const tag = `[reading/convert] book=${bookId} fmt=${format}`;
+  const log = (msg: string, extra?: Record<string, unknown>) =>
+    console.log(`${tag} ${msg}`, extra ? JSON.stringify(extra) : "");
 
   const fail = async (message: string) => {
     await client
@@ -57,6 +61,7 @@ export async function POST(req: NextRequest) {
   };
 
   try {
+    log("start");
     await client
       .from("reading_book_content")
       .update({ status: "processing", error_message: null })
@@ -67,11 +72,19 @@ export async function POST(req: NextRequest) {
       .from(READING_BOOKS_BUCKET)
       .download(content.source_path);
     if (download.error || !download.data) {
+      log("download failed", { error: download.error?.message ?? null });
       return await fail("Couldn't read the uploaded file.");
     }
     const buffer = await download.data.arrayBuffer();
+    log("downloaded", { bytes: buffer.byteLength });
 
     const result = await convertBookFile(format, buffer);
+    log("converted", {
+      pageCount: result.pageCount,
+      hasRealPages: result.hasRealPages,
+      charCount: result.charCount,
+      pages: result.pages.length,
+    });
 
     const contentPath = `${userId}/${bookId}/content.html`;
     const upload = await client.storage
@@ -141,15 +154,23 @@ export async function POST(req: NextRequest) {
       console.error("[reading/convert] stretch quiz prep failed:", err);
     }
 
+    log("ready");
     return NextResponse.json({ status: "ready" });
   } catch (err) {
     const message =
       err instanceof ConversionError
         ? err.message
         : "Something went wrong while preparing this book.";
-    if (!(err instanceof ConversionError)) {
-      console.error("[reading/convert] failed:", err);
-    }
+    // A ConversionError is an expected, user-facing outcome (e.g. a scanned
+    // PDF); everything else is a bug worth the full stack. Log both so a failed
+    // book always leaves a breadcrumb, and include the error name + stack since
+    // the bare message ("Setting up fake worker failed") hides the real cause.
+    console.error(`${tag} failed`, {
+      expected: err instanceof ConversionError,
+      name: err instanceof Error ? err.name : typeof err,
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
     return await fail(message);
   }
 }
