@@ -2,12 +2,14 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   BookOpen,
   GraduationCap,
   Loader2,
   MoreHorizontal,
+  NotebookPen,
   Pencil,
   ShoppingBag,
   Trash2,
@@ -28,10 +30,19 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { removeBook } from "@/app/(reading)/reader/actions";
+import { startBookReflection } from "@/app/(journal)/journal/actions";
 import { bookReaderHref } from "@/lib/reading/links";
 import { amazonHref, koboHref } from "@/lib/reading/store-links";
 import { useBookFileActions } from "@/lib/reading/use-book-file-actions";
 import type { ActiveBookQuiz, ReadingBookWithProgress } from "@/lib/types";
+
+/** Compact "Mon 5" label for a YYYY-MM-DD entry date (parsed in local time). */
+function formatEntryDate(date: string): string {
+  return new Date(`${date}T00:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
 
 export function BookCard({
   book,
@@ -48,10 +59,13 @@ export function BookCard({
   /** A published, not-yet-passed quiz tied to this book's check-in, if any. */
   activeQuiz?: ActiveBookQuiz | null;
 }) {
+  const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
   const [quizOpen, setQuizOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, startDelete] = useTransition();
+  const [reflectError, setReflectError] = useState<string | null>(null);
+  const [reflecting, startReflect] = useTransition();
   const {
     inputRef,
     openFilePicker,
@@ -75,6 +89,20 @@ export function BookCard({
       } catch (err) {
         setDeleteError(
           err instanceof Error ? err.message : "Couldn't delete the book."
+        );
+      }
+    });
+  }
+
+  function handleReflect() {
+    setReflectError(null);
+    startReflect(async () => {
+      try {
+        const entryId = await startBookReflection(book.id);
+        router.push(`/journal/new?entry=${entryId}`);
+      } catch (err) {
+        setReflectError(
+          err instanceof Error ? err.message : "Couldn't start a journal entry."
         );
       }
     });
@@ -182,15 +210,26 @@ export function BookCard({
             <DropdownMenuTrigger
               className="-mr-1 shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
               aria-label={`Actions for ${book.title}`}
-              disabled={busy || deleting}
+              disabled={busy || deleting || reflecting}
             >
-              {busy || deleting ? (
+              {busy || deleting || reflecting ? (
                 <Loader2 className="h-5 w-5 animate-spin" />
               ) : (
                 <MoreHorizontal className="h-5 w-5" />
               )}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="bottom" className="w-48">
+              {/* Journaling is the signed-in user's own act, so this entry point
+                  is self-view only (hidden when an owner views a member's books). */}
+              {!memberEmail && (
+                <>
+                  <DropdownMenuItem onClick={handleReflect} disabled={reflecting}>
+                    <NotebookPen />
+                    Reflect in journal
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               {/* Reading is uncommon for now, so it lives in the menu rather
                   than as a prominent button. Only shown once the file is ready. */}
               {isReady && (
@@ -251,6 +290,33 @@ export function BookCard({
         </div>
       </div>
 
+      {/* Journal entries written about this book (via the currently-reading
+          question type), newest first — links into the journal. */}
+      {book.relatedEntries.length > 0 && (
+        <div className="mt-3 border-t border-border pt-3">
+          <p className="font-serif text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            From your journal
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {book.relatedEntries.map((entry) => (
+              <li key={entry.id}>
+                <Link
+                  href={`/journal/${entry.id}`}
+                  className="flex items-baseline gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <span className="truncate">
+                    {entry.title || entry.pull_quote || "Journal entry"}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-[10px]">
+                    {formatEntryDate(entry.entry_date)}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* File status: preparing, uploading, or a failed conversion to retry. */}
       {(busy || isProcessing || isFailed) && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -288,6 +354,10 @@ export function BookCard({
 
       {deleteError && (
         <p className="mt-2 text-xs text-destructive">{deleteError}</p>
+      )}
+
+      {reflectError && (
+        <p className="mt-2 text-xs text-destructive">{reflectError}</p>
       )}
 
       <EditBookDialog

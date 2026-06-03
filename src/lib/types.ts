@@ -435,6 +435,12 @@ export type JournalOpeningCandidate = {
   text: string;
   type: string | null;
   visibility: JournalVisibility;
+  /**
+   * Set only for currently-reading candidates: the in-progress book the question
+   * is about. Picking the candidate links the entry to this book. Null/absent for
+   * every other type.
+   */
+  reading_book_id?: string | null;
 };
 
 export type JournalEntryStatus = "open" | "closed";
@@ -466,6 +472,8 @@ export type JournalEntry = {
   quote_attribution: string | null;
   recap_body: string | null;
   summary_stale: boolean;
+  /** The book this entry is about, when answered from a currently-reading question. */
+  reading_book_id: string | null;
   closed_at: string | null;
   created_at: string;
   updated_at: string;
@@ -725,6 +733,14 @@ export type ReadingBookContentSummary = {
   error_message: string | null;
 };
 
+/** A journal entry written about a book, shown on its card in the Reading list. */
+export type ReadingBookJournalEntry = {
+  id: string;
+  title: string | null;
+  pull_quote: string | null;
+  entry_date: string;
+};
+
 export type ReadingBookWithProgress = ReadingBook & {
   /** Pages advanced since the start of the current week (Mon). */
   pagesReadThisWeek: number;
@@ -732,6 +748,8 @@ export type ReadingBookWithProgress = ReadingBook & {
   content: ReadingBookContentSummary | null;
   /** Whether the reader has a saved resume point (Continue vs. Read). */
   hasResumePoint: boolean;
+  /** Closed journal entries linked to this book, newest first. */
+  relatedEntries: ReadingBookJournalEntry[];
 };
 
 /** Everything the reading home renders for the signed-in member. */

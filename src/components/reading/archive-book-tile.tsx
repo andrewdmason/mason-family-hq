@@ -2,11 +2,13 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   BookOpen,
   Loader2,
   MoreHorizontal,
+  NotebookPen,
   Pencil,
   Trash2,
   Upload,
@@ -21,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { removeBook } from "@/app/(reading)/reader/actions";
+import { startBookReflection } from "@/app/(journal)/journal/actions";
 import { bookReaderHref } from "@/lib/reading/links";
 import { useBookFileActions } from "@/lib/reading/use-book-file-actions";
 import { cn } from "@/lib/utils";
@@ -39,10 +42,13 @@ export function ArchiveBookTile({
   book: ReadingBookWithProgress;
   memberEmail?: string | null;
 }) {
+  const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, startDelete] = useTransition();
+  const [reflectError, setReflectError] = useState<string | null>(null);
+  const [reflecting, startReflect] = useTransition();
   const {
     inputRef,
     openFilePicker,
@@ -66,6 +72,20 @@ export function ArchiveBookTile({
       } catch (err) {
         setDeleteError(
           err instanceof Error ? err.message : "Couldn't delete the book."
+        );
+      }
+    });
+  }
+
+  function handleReflect() {
+    setReflectError(null);
+    startReflect(async () => {
+      try {
+        const entryId = await startBookReflection(book.id);
+        router.push(`/journal/new?entry=${entryId}`);
+      } catch (err) {
+        setReflectError(
+          err instanceof Error ? err.message : "Couldn't start a journal entry."
         );
       }
     });
@@ -109,19 +129,29 @@ export function ArchiveBookTile({
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger
             aria-label={`Actions for ${book.title}`}
-            disabled={busy || deleting}
+            disabled={busy || deleting || reflecting}
             className={cn(
               "absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-full bg-background/85 text-muted-foreground shadow-sm backdrop-blur transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-50",
-              menuOpen || busy || deleting ? "opacity-100" : "opacity-0"
+              menuOpen || busy || deleting || reflecting ? "opacity-100" : "opacity-0"
             )}
           >
-            {busy || deleting ? (
+            {busy || deleting || reflecting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <MoreHorizontal className="h-4 w-4" />
             )}
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" side="bottom" className="w-48">
+            {/* Self-view only — you journal in your own journal, not a member's. */}
+            {!memberEmail && (
+              <>
+                <DropdownMenuItem onClick={handleReflect} disabled={reflecting}>
+                  <NotebookPen />
+                  Reflect in journal
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem disabled={busy} onClick={openFilePicker}>
               <Upload />
               {hasFile ? "Replace book file" : "Upload book file"}
@@ -152,6 +182,9 @@ export function ArchiveBookTile({
       )}
       {deleteError && (
         <span className="text-[11px] text-destructive">{deleteError}</span>
+      )}
+      {reflectError && (
+        <span className="text-[11px] text-destructive">{reflectError}</span>
       )}
 
       <EditBookDialog

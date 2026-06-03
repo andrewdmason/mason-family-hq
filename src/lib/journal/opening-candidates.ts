@@ -9,11 +9,16 @@ import {
 } from "@/lib/journal/context";
 import { loadCalendarBlock } from "@/lib/journal/calendar";
 import type { CalendarWindow } from "@/lib/journal/calendar/types";
-import { FAMILY_FOLLOWUP, specFor } from "@/lib/journal/question-sources";
+import { CURRENTLY_READING, FAMILY_FOLLOWUP, specFor } from "@/lib/journal/question-sources";
 import { formatNow, localDate, resolveTimezone } from "@/lib/date-utils";
 import { createClient } from "@/lib/supabase/server";
 import { requireUserId } from "@/lib/members/auth";
-import type { JournalOpeningCandidate, JournalQuestionType } from "@/lib/types";
+import type {
+  JournalOpeningCandidate,
+  JournalQuestionType,
+  ReadingBookStatus,
+  ReadingRating,
+} from "@/lib/types";
 
 export const OPENING_CANDIDATES_TOOL_NAME = "propose_questions";
 
@@ -69,6 +74,12 @@ export type QuestionCategory = {
   name: string;
   description: string;
   weight: number;
+  /**
+   * Set only for currently-reading: the in-progress book the question is
+   * grounded in, so the picked candidate can be linked to it. Folded in by
+   * withReadingSource and stamped onto each candidate by generateSlot.
+   */
+  readingBookId?: string;
 };
 
 /**
@@ -249,6 +260,182 @@ function withFamilySource(
   return { ...category, description: `${category.description} ${parts.join("\n")}` };
 }
 
+type ReadingSource = {
+  book_id: string;
+  title: string;
+  author: string | null;
+  current_page: number;
+  total_pages: number | null;
+  status: ReadingBookStatus;
+  rating: ReadingRating | null;
+  finished_at: string | null;
+};
+
+const READING_SOURCE_COLUMNS =
+  "id, title, author, current_page, total_pages, status, rating, finished_at";
+
+function toReadingSource(row: Record<string, unknown>): ReadingSource {
+  return {
+    book_id: row.id as string,
+    title: row.title as string,
+    author: (row.author as string | null) ?? null,
+    current_page: (row.current_page as number) ?? 0,
+    total_pages: (row.total_pages as number | null) ?? null,
+    status: row.status as ReadingBookStatus,
+    rating: (row.rating as ReadingRating | null) ?? null,
+    finished_at: (row.finished_at as string | null) ?? null,
+  };
+}
+
+/**
+ * The book to ground a daily currently-reading question in: the user's most
+ * recently active in-progress book. "Most recently active" = the book with the
+ * latest check-in, tie-broken by the most recently updated book (and so a book
+ * just started, with no check-ins yet, can still win on updated_at). Null when
+ * nothing is in progress — the currently-reading type is then dropped, exactly
+ * like family-followup with no shared entry.
+ */
+export async function loadCurrentlyReadingSource(): Promise<ReadingSource | null> {
+  const supabase = await createClient();
+  const userId = await requireUserId(supabase);
+
+  const { data: books } = await supabase
+    .from("reading_books")
+    .select(`${READING_SOURCE_COLUMNS}, updated_at`)
+    .eq("user_id", userId)
+    .eq("status", "in_progress");
+  if (!books || books.length === 0) return null;
+
+  const bookIds = books.map((b) => b.id as string);
+  const { data: checkins } = await supabase
+    .from("reading_checkins")
+    .select("book_id, checked_on")
+    .eq("user_id", userId)
+    .in("book_id", bookIds);
+
+  // Latest check-in date per book stands in for "most recent reading activity".
+  const lastCheckin = new Map<string, string>();
+  for (const c of checkins ?? []) {
+    const bookId = c.book_id as string;
+    const on = c.checked_on as string;
+    const prev = lastCheckin.get(bookId);
+    if (!prev || on > prev) lastCheckin.set(bookId, on);
+  }
+
+  const chosen = books.slice().sort((a, b) => {
+    const ca = lastCheckin.get(a.id as string) ?? "";
+    const cb = lastCheckin.get(b.id as string) ?? "";
+    if (ca !== cb) return ca < cb ? 1 : -1;
+    const ua = (a.updated_at as string) ?? "";
+    const ub = (b.updated_at as string) ?? "";
+    return ua < ub ? 1 : -1;
+  })[0];
+
+  return toReadingSource(chosen);
+}
+
+/**
+ * One specific book to ground a question in, whatever its status — used by the
+ * "Reflect in journal" entry point on the Reading list, where the user picks the
+ * book (including one they finished a while ago). Null when the book doesn't
+ * exist or isn't theirs.
+ */
+export async function loadBookSource(bookId: string): Promise<ReadingSource | null> {
+  const supabase = await createClient();
+  const userId = await requireUserId(supabase);
+
+  const { data: book } = await supabase
+    .from("reading_books")
+    .select(READING_SOURCE_COLUMNS)
+    .eq("user_id", userId)
+    .eq("id", bookId)
+    .maybeSingle();
+  return book ? toReadingSource(book) : null;
+}
+
+function readingByline(source: ReadingSource): string {
+  return source.author ? ` by ${source.author}` : "";
+}
+
+function readingWhere(source: ReadingSource): string {
+  if (source.total_pages && source.total_pages > 0) {
+    return ` (around page ${source.current_page} of ${source.total_pages})`;
+  }
+  return source.current_page > 0 ? ` (around page ${source.current_page})` : "";
+}
+
+/** A sentence placing the book in their reading life, by status. */
+function readingStateClause(source: ReadingSource): string {
+  const book = `"${source.title}"${readingByline(source)}`;
+  switch (source.status) {
+    case "in_progress":
+      return `The book they're reading right now is ${book}${readingWhere(source)}.`;
+    case "paused":
+      return `They started ${book} but have set it aside for now${readingWhere(source)}.`;
+    case "archive":
+      return source.finished_at
+        ? `They finished reading ${book} (on ${source.finished_at}).`
+        : `They've finished reading ${book}.`;
+    case "queued":
+      return `${book} is on their to-read list — they haven't started it yet.`;
+    default:
+      return `The book is ${book}.`;
+  }
+}
+
+/** Their verdict on the book, when they've rated it. */
+function readingRatingClause(rating: ReadingRating | null): string {
+  switch (rating) {
+    case "loved":
+      return " They loved it.";
+    case "liked":
+      return " They liked it.";
+    case "neutral":
+      return " They felt lukewarm about it.";
+    case "disliked":
+      return " They didn't really like it.";
+    case "didnt_finish":
+      return " They set it down without finishing.";
+    default:
+      return "";
+  }
+}
+
+/**
+ * Fold a specific book — its state in their reading life and their verdict on it
+ * — into the category description so the model asks a question grounded in it,
+ * and stamp the book id onto the category so generateSlot can link the picked
+ * candidate to it. Adapts to whether they're mid-read (mind spoilers) or finished
+ * (ask looking back).
+ */
+function withReadingSource(
+  category: QuestionCategory,
+  source: ReadingSource
+): QuestionCategory {
+  const finished = source.status === "archive";
+  const midRead = source.status === "in_progress" || source.status === "paused";
+  const guidance =
+    "If you genuinely know this book, ground the question in something specific to it — a particular " +
+    "character and their predicament, a central theme or argument, the author's preoccupations or style, " +
+    "a real moment in it. The more it could only be asked about THIS book, the better. Actively avoid " +
+    "questions that would fit any book — 'is there a character you relate to?', 'what's it left you with?' " +
+    "are exactly the generic shapes to skip." +
+    (finished
+      ? " They've already finished it, so ask looking back — what stuck with them, what they made of it, " +
+        "how it sits with them now, and let their verdict color the tone."
+      : "") +
+    (midRead ? " Mind where they are in it so you don't spoil what's ahead." : "") +
+    " Only if you're truly not confident about this book's contents should you fall back to asking what drew " +
+    "them to it — and even then, keep it concrete, never invent plot details you're unsure of.";
+  return {
+    ...category,
+    readingBookId: source.book_id,
+    description: `${category.description} ${readingStateClause(source)}${readingRatingClause(
+      source.rating
+    )} ${guidance}`,
+  };
+}
+
 const EMPTY_HISTORY = { recent: [], older: [] } as Awaited<ReturnType<typeof loadHistory>>;
 
 /**
@@ -271,21 +458,32 @@ export async function generateCandidates(
   entryId: string,
   rejected: string[],
   forcedCategoryName?: string,
-  clientTz?: string
+  clientTz?: string,
+  forcedBookId?: string | null
 ): Promise<JournalOpeningCandidate[]> {
   const tz = await resolveTimezone(clientTz);
   const today = localDate(new Date(), tz);
   const nowLabel = formatNow(new Date(), tz);
 
-  const [questionTypes, settings, familySource, files, recentlyShown, familyDoc] =
-    await Promise.all([
-      loadQuestionTypes(),
-      loadSettings(),
-      loadFamilyFollowupSource(),
-      loadAgentFiles(),
-      loadRecentlyShown(today),
-      loadFamilyDoc(),
-    ]);
+  const [
+    questionTypes,
+    settings,
+    familySource,
+    readingSource,
+    files,
+    recentlyShown,
+    familyDoc,
+  ] = await Promise.all([
+    loadQuestionTypes(),
+    loadSettings(),
+    loadFamilyFollowupSource(),
+    // A book-reflection entry grounds in its specific book; the daily flow auto-
+    // picks the most recently active in-progress book.
+    forcedBookId ? loadBookSource(forcedBookId) : loadCurrentlyReadingSource(),
+    loadAgentFiles(),
+    loadRecentlyShown(today),
+    loadFamilyDoc(),
+  ]);
 
   const n = settings.questions_per_day;
 
@@ -361,6 +559,9 @@ export async function generateCandidates(
       text: q.text,
       type: category?.name ?? null,
       visibility: category?.name === FAMILY_FOLLOWUP ? "family" : q.visibility,
+      // currently-reading carries the book it's grounded in, so picking it links
+      // the entry to that book (withReadingSource set readingBookId).
+      reading_book_id: category?.readingBookId ?? null,
     }));
   }
 
@@ -372,8 +573,22 @@ export async function generateCandidates(
     if (cat && cat.name === FAMILY_FOLLOWUP && familySource) {
       cat = withFamilySource(cat, familySource);
     }
+    if (cat && cat.name === CURRENTLY_READING && readingSource) {
+      cat = withReadingSource(cat, readingSource);
+    }
     // Unknown forced category falls back to an untyped varied set.
     return generateSlot(n, cat, []);
+  }
+
+  // A reflection started from the Reading list ("Reflect in journal" on a book):
+  // force currently-reading grounded in that specific book, whatever its status
+  // (finished, paused, …) — even if the type is disabled in the daily mix.
+  if (forcedBookId && readingSource) {
+    const t = questionTypes.find((q) => q.name === CURRENTLY_READING);
+    const base = t
+      ? questionTypeToCategory(t)
+      : { name: CURRENTLY_READING, description: "", weight: 0 };
+    return generateSlot(n, withReadingSource(base, readingSource), []);
   }
 
   // Normal morning: sample N distinct categories and generate each in its own
@@ -383,10 +598,14 @@ export async function generateCandidates(
     // Drop family-followup from the pool entirely when no other member has
     // shared anything, so the sampler never picks a slot it can't fill.
     .filter((t) => t.name !== FAMILY_FOLLOWUP || familySource !== null)
+    // Likewise drop currently-reading when no book is in progress to ground it.
+    .filter((t) => t.name !== CURRENTLY_READING || readingSource !== null)
     .map(questionTypeToCategory);
-  const sampled = sampleQuestionMix(enabled, n).map((c) =>
-    c.name === FAMILY_FOLLOWUP && familySource ? withFamilySource(c, familySource) : c
-  );
+  const sampled = sampleQuestionMix(enabled, n).map((c) => {
+    if (c.name === FAMILY_FOLLOWUP && familySource) return withFamilySource(c, familySource);
+    if (c.name === CURRENTLY_READING && readingSource) return withReadingSource(c, readingSource);
+    return c;
+  });
 
   // If sampling can't fill every slot (too few enabled types), fall back to a
   // single untyped call for the whole set rather than leaving slots empty.
