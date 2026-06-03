@@ -123,7 +123,7 @@ async function seedMemberAvatars(supabase) {
   for (const avatar of MEMBER_AVATARS) {
     // The member must exist (00_dev_family.sql / first sign-in).
     const { data: member } = await supabase
-      .from("journal_members")
+      .from("family_members")
       .select("email")
       .eq("email", avatar.email)
       .maybeSingle();

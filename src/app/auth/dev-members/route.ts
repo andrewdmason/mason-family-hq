@@ -13,10 +13,15 @@ export async function GET() {
 
   const admin = createAdminClient();
   const { data } = await admin
-    .from("journal_members")
-    .select("email, name, is_owner")
-    .order("is_owner", { ascending: false })
+    .from("family_members")
+    .select("email, name, role")
     .order("created_at", { ascending: true });
 
-  return NextResponse.json({ members: data ?? [] });
+  // Owner first, then creation order. (Text role doesn't sort owner-first, so do
+  // it here rather than in the query.)
+  const members = (data ?? []).sort(
+    (a, b) => Number(b.role === "owner") - Number(a.role === "owner")
+  );
+
+  return NextResponse.json({ members });
 }

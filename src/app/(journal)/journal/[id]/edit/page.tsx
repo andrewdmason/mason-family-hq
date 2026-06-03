@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { EntryEditor } from "@/components/journal/entry-editor";
 import { createClient } from "@/lib/supabase/server";
-import { requireUserId } from "@/lib/journal/auth";
+import { requireUserId } from "@/lib/members/auth";
 import type { JournalEntry, JournalMessage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { requireUserId } from "@/lib/journal/auth";
+import { requireUserId } from "@/lib/members/auth";
 import { generateCandidates } from "@/lib/journal/opening-candidates";
 import { candidateTexts } from "@/lib/journal/candidates";
 import { localDate, resolveTimezone } from "@/lib/date-utils";

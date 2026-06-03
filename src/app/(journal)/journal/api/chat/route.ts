@@ -9,7 +9,7 @@ import {
   messagesAsAnthropicTurns,
 } from "@/lib/journal/context";
 import { loadCalendarBlock } from "@/lib/journal/calendar";
-import { requireUserId } from "@/lib/journal/auth";
+import { requireUserId } from "@/lib/members/auth";
 import { formatNow, getUserTimezone, localDate } from "@/lib/date-utils";
 import type { JournalMessage } from "@/lib/types";
 

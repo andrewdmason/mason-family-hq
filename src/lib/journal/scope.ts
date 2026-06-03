@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getIsOwner, requireUserId } from "@/lib/journal/auth";
+import { getIsOwner, requireUserId } from "@/lib/members/auth";
 
 export type SettingsScope = {
   /** RLS-scoped client in self mode; service-role admin client in member mode. */
@@ -41,7 +41,7 @@ export async function resolveSettingsScope(
 
   const admin = createAdminClient();
   const { data: member, error } = await admin
-    .from("journal_members")
+    .from("family_members")
     .select("user_id, seeded_at")
     .eq("email", email)
     .maybeSingle();

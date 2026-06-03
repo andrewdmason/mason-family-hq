@@ -10,7 +10,7 @@
 -- finds them by email and reuses them.
 --
 -- Per-member journals (question types, agent files, settings) are still provisioned
--- on first dev-login: we link journal_members.user_id but leave seeded_at NULL,
+-- on first dev-login: we link family_members.user_id but leave seeded_at NULL,
 -- the exact pre-sign-in state ensureProvisioned expects.
 --
 -- The uuids are hardcoded only because these are throwaway local fixtures (stable
@@ -23,11 +23,11 @@ DECLARE
 BEGIN
   FOR m IN
     SELECT * FROM (VALUES
-      ('andrew@mason.io',    'Andrew',    true,  'a0000000-0000-4000-8000-000000000001'::uuid),
-      ('jenny@mason.io',     'Jenny',     false, 'a0000000-0000-4000-8000-000000000002'::uuid),
-      ('oscar@mason.io',     'Oscar',     false, 'a0000000-0000-4000-8000-000000000003'::uuid),
-      ('sebastian@mason.io', 'Sebastian', false, 'a0000000-0000-4000-8000-000000000004'::uuid)
-    ) AS v(email, name, is_owner, uid)
+      ('andrew@mason.io',    'Andrew',    'owner',  'a0000000-0000-4000-8000-000000000001'::uuid),
+      ('jenny@mason.io',     'Jenny',     'parent', 'a0000000-0000-4000-8000-000000000002'::uuid),
+      ('oscar@mason.io',     'Oscar',     'kid',    'a0000000-0000-4000-8000-000000000003'::uuid),
+      ('sebastian@mason.io', 'Sebastian', 'kid',    'a0000000-0000-4000-8000-000000000004'::uuid)
+    ) AS v(email, name, role, uid)
   LOOP
     IF NOT EXISTS (SELECT 1 FROM auth.users WHERE email = m.email) THEN
       -- GoTrue scans these token columns into non-nullable Go strings, so they must
@@ -59,13 +59,14 @@ BEGIN
     SELECT id INTO resolved FROM auth.users WHERE email = m.email;
 
     -- Upsert the membership row. The owner row already exists from migration 00051
-    -- (with a NULL user_id on a fresh DB); the others are inserted. seeded_at is
+    -- (renamed to family_members in 00086; NULL user_id on a fresh DB); the others
+    -- are inserted. seeded_at is
     -- left untouched so each member's first dev-login still provisions their journal.
-    INSERT INTO journal_members (email, user_id, name, is_owner)
-    VALUES (m.email, resolved, m.name, m.is_owner)
+    INSERT INTO family_members (email, user_id, name, role)
+    VALUES (m.email, resolved, m.name, m.role)
     ON CONFLICT (email) DO UPDATE
       SET user_id = EXCLUDED.user_id,
           name = EXCLUDED.name,
-          is_owner = EXCLUDED.is_owner;
+          role = EXCLUDED.role;
   END LOOP;
 END $$;

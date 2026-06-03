@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getIsOwner, requireUserId } from "@/lib/journal/auth";
+import { getIsOwner, requireUserId } from "@/lib/members/auth";
 import { resolveSettingsScope } from "@/lib/journal/scope";
 import { todayLocal } from "@/lib/journal/today";
 import { runWrap } from "@/lib/journal/wrap";
@@ -1374,7 +1374,7 @@ export async function addInlineComment(
   if (error || !data) throw new Error(error?.message ?? "Couldn't add comment.");
 
   const { data: member } = await supabase
-    .from("journal_members")
+    .from("family_members")
     .select("name, email")
     .eq("user_id", userId)
     .maybeSingle();

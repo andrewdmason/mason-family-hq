@@ -28,7 +28,7 @@ export default async function InterviewerSettingsPage({
       .maybeSingle(),
     isMemberMode
       ? client
-          .from("journal_members")
+          .from("family_members")
           .select("name")
           .eq("user_id", userId)
           .maybeSingle()

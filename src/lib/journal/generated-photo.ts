@@ -384,7 +384,7 @@ async function pickReferencePhotos(
 ): Promise<ReferencePhoto[]> {
   const admin = createAdminClient();
   const { data: members } = await admin
-    .from("journal_members")
+    .from("family_members")
     .select("email, name, user_id");
 
   const matchedEmails = new Set<string>();

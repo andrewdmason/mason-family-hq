@@ -12,7 +12,7 @@ import type { CalendarWindow } from "@/lib/journal/calendar/types";
 import { FAMILY_FOLLOWUP, specFor } from "@/lib/journal/question-sources";
 import { formatNow, localDate, resolveTimezone } from "@/lib/date-utils";
 import { createClient } from "@/lib/supabase/server";
-import { requireUserId } from "@/lib/journal/auth";
+import { requireUserId } from "@/lib/members/auth";
 import type { JournalOpeningCandidate, JournalQuestionType } from "@/lib/types";
 
 export const OPENING_CANDIDATES_TOOL_NAME = "propose_questions";
@@ -218,7 +218,7 @@ export async function loadFamilyFollowupSource(): Promise<FamilyFollowupSource |
   if (!entry) return null;
 
   const { data: member } = await supabase
-    .from("journal_members")
+    .from("family_members")
     .select("name")
     .eq("user_id", entry.user_id)
     .maybeSingle();

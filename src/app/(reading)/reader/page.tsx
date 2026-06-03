@@ -3,7 +3,7 @@ import { MemberViewSwitcher } from "@/components/reading/member-view-switcher";
 import { ReadingList } from "@/components/reading/reading-list";
 import { WeeklyGoalBanner } from "@/components/reading/weekly-goal-banner";
 import { listFamilyMembers } from "@/app/(journal)/settings/family/actions";
-import { getIsOwner } from "@/lib/journal/auth";
+import { getIsOwner } from "@/lib/members/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { getReadingHome, listRecommendRecipients } from "./actions";
 import { getDiscover } from "./discover/actions";
@@ -24,14 +24,14 @@ export default async function ReadingPage({
   // Only the owner can view other members; resolve who we're looking at.
   const isOwner = await getIsOwner();
   const members = isOwner ? await listFamilyMembers() : [];
-  const ownerEmail = members.find((m) => m.is_owner)?.email ?? "";
+  const ownerEmail = members.find((m) => m.role === "owner")?.email ?? "";
   // Viewable = the owner plus members who've signed in (so their data exists).
-  const viewable = members.filter((m) => m.is_owner || m.user_id);
+  const viewable = members.filter((m) => m.role === "owner" || m.user_id);
 
   const requested = isOwner ? member?.trim().toLowerCase() || null : null;
   const viewedMember =
     requested && requested !== ownerEmail
-      ? viewable.find((m) => m.email === requested && !m.is_owner) ?? null
+      ? viewable.find((m) => m.email === requested && m.role !== "owner") ?? null
       : null;
   const viewingEmail = viewedMember?.email ?? null;
 
