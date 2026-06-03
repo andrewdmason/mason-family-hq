@@ -18,7 +18,7 @@ export default async function EditEntryPage({
 
   const { data: entryRow } = await supabase
     .from("journal_entries")
-    .select("id, user_id, entry_type, title, entry_date")
+    .select("id, user_id, entry_type, title, entry_date, question_type")
     .eq("id", id)
     .maybeSingle();
   if (!entryRow) notFound();
@@ -41,6 +41,21 @@ export default async function EditEntryPage({
     content: m.content,
   }));
 
+  // Categories to offer in the editor: the user's enabled question types, plus
+  // the entry's current category if it happens to be a disabled/removed one (so
+  // editing never silently drops a tag it can't re-offer).
+  const { data: typeRows } = await supabase
+    .from("journal_question_types")
+    .select("name, enabled, sort_order")
+    .eq("user_id", userId)
+    .order("sort_order", { ascending: true });
+  const questionTypeOptions = ((typeRows ?? []) as {
+    name: string;
+    enabled: boolean;
+  }[])
+    .filter((t) => t.enabled || t.name === entry.question_type)
+    .map((t) => t.name);
+
   return (
     <div className="flex flex-1 flex-col">
       <div className="mx-auto w-full max-w-2xl px-6 pb-24 pt-8">
@@ -56,6 +71,8 @@ export default async function EditEntryPage({
         <EntryEditor
           entryId={id}
           initialTitle={entry.title?.trim() ?? ""}
+          initialQuestionType={entry.question_type ?? ""}
+          questionTypeOptions={questionTypeOptions}
           messages={messages}
         />
       </div>

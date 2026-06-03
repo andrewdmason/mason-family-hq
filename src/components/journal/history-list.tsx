@@ -11,6 +11,7 @@ import type {
 } from "@/lib/types";
 import { AiPhotoFrame } from "@/components/journal/ai-photo-frame";
 import { buildByline } from "@/lib/journal/byline";
+import { typeLabel } from "@/lib/journal/candidates";
 
 type HistoryEntry = JournalEntry & {
   photos: {
@@ -94,6 +95,10 @@ export function HistoryList({
             className="mr-2 inline-block size-4 shrink-0 align-[-0.15em] text-muted-foreground"
           />
         ) : null;
+        // The category this entry was answered from, shown above the title with
+        // the same small uppercase label as the opening-question picker. Only
+        // picked-question entries carry a type; freeform/quote/recap show none.
+        const categoryLabel = typeLabel(e.question_type ?? null);
         return (
           <li key={e.id}>
             <Link href={`/journal/${e.id}`} className="group block">
@@ -122,6 +127,11 @@ export function HistoryList({
                   </span>
                 )}
               </div>
+              {categoryLabel && (
+                <span className="mt-2 block font-serif text-[0.7rem] uppercase tracking-[0.15em] text-muted-foreground">
+                  {categoryLabel}
+                </span>
+              )}
               {generating ? (
                 <p className="mt-2 font-serif text-2xl italic leading-tight text-muted-foreground/50 animate-pulse">
                   summing up…

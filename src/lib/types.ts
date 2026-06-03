@@ -464,6 +464,10 @@ export type JournalEntry = {
   visibility: JournalVisibility;
   opening_question: string | null;
   opening_candidates: JournalOpeningCandidate[] | null;
+  /** The question category this entry was answered from — the question type's
+   * kebab-case `name` (e.g. "recent-calendar"). Null for freeform/quote/recap
+   * and pre-existing entries. Drives the category label in the journal feed. */
+  question_type: string | null;
   candidates_reroll_count: number;
   freeform_started_at: string | null;
   summary: string | null;
