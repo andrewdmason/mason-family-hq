@@ -27,9 +27,10 @@ import {
   addBook,
   lookupBook,
   recommendBook,
-  searchBooks,
 } from "@/app/(reading)/reader/actions";
-import type { BookSearchResult } from "@/lib/reading/book-lookup";
+// The typeahead hits Open Library straight from the browser (public, CORS-enabled
+// API) rather than through a server action — no extra hop, no action queueing.
+import { searchBooks, type BookSearchResult } from "@/lib/reading/book-search";
 import { RatingPicker } from "@/components/reading/rating-picker";
 import { READING_STATUSES, readingStatusLabel } from "@/lib/reading/status";
 import { cn } from "@/lib/utils";
@@ -456,10 +457,11 @@ function BookTitleAutocomplete({
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
     setLoading(true);
     const timer = setTimeout(async () => {
       try {
-        const found = await searchBooks(q);
+        const found = await searchBooks(q, 6, controller.signal);
         if (cancelled) return;
         setResults(found);
         setOpen(found.length > 0);
@@ -470,6 +472,7 @@ function BookTitleAutocomplete({
     }, 250);
     return () => {
       cancelled = true;
+      controller.abort();
       clearTimeout(timer);
     };
   }, [value]);

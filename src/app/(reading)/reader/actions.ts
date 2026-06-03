@@ -6,9 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserTimezone, getWeekStart, localDate } from "@/lib/date-utils";
 import {
   lookupBookByTitle,
-  searchBooks as searchBooksByTitle,
   type BookLookupResult,
-  type BookSearchResult,
 } from "@/lib/reading/book-lookup";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
@@ -39,11 +37,6 @@ function firstName(name: string | null | undefined, fallback: string): string {
 /** Ask the AI to resolve a book from its title (used by the add flow). */
 export async function lookupBook(title: string): Promise<BookLookupResult> {
   return lookupBookByTitle(title);
-}
-
-/** Live typeahead matches from Open Library, by title or author. */
-export async function searchBooks(query: string): Promise<BookSearchResult[]> {
-  return searchBooksByTitle(query);
 }
 
 /**

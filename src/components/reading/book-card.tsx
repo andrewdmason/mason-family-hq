@@ -9,6 +9,7 @@ import {
   Loader2,
   MoreHorizontal,
   Pencil,
+  ShoppingBag,
   Upload,
 } from "lucide-react";
 import { BookCover } from "@/components/reading/book-cover";
@@ -25,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { bookReaderHref } from "@/lib/reading/links";
+import { amazonHref, koboHref } from "@/lib/reading/store-links";
 import { useBookFileActions } from "@/lib/reading/use-book-file-actions";
 import type { ActiveBookQuiz, ReadingBookWithProgress } from "@/lib/types";
 
@@ -187,6 +189,30 @@ export function BookCard({
               <DropdownMenuItem onClick={() => setEditOpen(true)}>
                 <Pencil />
                 Edit details
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                render={
+                  <a
+                    href={amazonHref(book)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  />
+                }
+              >
+                <ShoppingBag />
+                Find on Amazon
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                render={
+                  <a
+                    href={koboHref(book)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  />
+                }
+              >
+                <ShoppingBag />
+                Find on Kobo
               </DropdownMenuItem>
               {/* Quizzes need the converted text, so only offer this once the
                   uploaded file is ready — and only to the account owner. */}
