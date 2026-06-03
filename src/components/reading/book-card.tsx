@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
@@ -10,6 +10,7 @@ import {
   MoreHorizontal,
   Pencil,
   ShoppingBag,
+  Trash2,
   Upload,
 } from "lucide-react";
 import { BookCover } from "@/components/reading/book-cover";
@@ -23,8 +24,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { removeBook } from "@/app/(reading)/reader/actions";
 import { bookReaderHref } from "@/lib/reading/links";
 import { amazonHref, koboHref } from "@/lib/reading/store-links";
 import { useBookFileActions } from "@/lib/reading/use-book-file-actions";
@@ -47,6 +50,8 @@ export function BookCard({
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [quizOpen, setQuizOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, startDelete] = useTransition();
   const {
     inputRef,
     openFilePicker,
@@ -60,6 +65,20 @@ export function BookCard({
     isProcessing,
     isFailed,
   } = useBookFileActions(book, memberEmail);
+
+  function handleDelete() {
+    if (!window.confirm(`Delete "${book.title}" from your books?`)) return;
+    setDeleteError(null);
+    startDelete(async () => {
+      try {
+        await removeBook(book.id, memberEmail);
+      } catch (err) {
+        setDeleteError(
+          err instanceof Error ? err.message : "Couldn't delete the book."
+        );
+      }
+    });
+  }
 
   const inProgress = book.status === "in_progress";
   // Recommended by a real family member (AI picks carry a label but no email).
@@ -163,9 +182,9 @@ export function BookCard({
             <DropdownMenuTrigger
               className="-mr-1 shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
               aria-label={`Actions for ${book.title}`}
-              disabled={busy}
+              disabled={busy || deleting}
             >
-              {busy ? (
+              {busy || deleting ? (
                 <Loader2 className="h-5 w-5 animate-spin" />
               ) : (
                 <MoreHorizontal className="h-5 w-5" />
@@ -222,6 +241,11 @@ export function BookCard({
                   Generate quiz
                 </DropdownMenuItem>
               )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={handleDelete}>
+                <Trash2 />
+                Delete book
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -260,6 +284,10 @@ export function BookCard({
 
       {uploadError && (
         <p className="mt-2 text-xs text-destructive">{uploadError}</p>
+      )}
+
+      {deleteError && (
+        <p className="mt-2 text-xs text-destructive">{deleteError}</p>
       )}
 
       <EditBookDialog
