@@ -35,7 +35,10 @@ export async function updateSession(request: NextRequest) {
   if (
     !user &&
     !request.nextUrl.pathname.startsWith("/login") &&
-    !request.nextUrl.pathname.startsWith("/auth")
+    !request.nextUrl.pathname.startsWith("/auth") &&
+    // The family-status feed is intentionally public (no login) so the family
+    // assistant can read it on a schedule — see src/app/family-status/route.ts.
+    !request.nextUrl.pathname.startsWith("/family-status")
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
