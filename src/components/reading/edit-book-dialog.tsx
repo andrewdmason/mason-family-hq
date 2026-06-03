@@ -56,6 +56,9 @@ export function EditBookDialog({
     book.total_pages ? String(book.total_pages) : ""
   );
   const [currentPage, setCurrentPage] = useState(String(book.current_page));
+  const [targetPage, setTargetPage] = useState(
+    book.target_page != null ? String(book.target_page) : ""
+  );
   const [status, setStatus] = useState<ReadingBookStatus>(book.status);
   const [rating, setRating] = useState<ReadingRating | null>(book.rating);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +69,7 @@ export function EditBookDialog({
     setAuthor(book.author ?? "");
     setTotalPages(book.total_pages ? String(book.total_pages) : "");
     setCurrentPage(String(book.current_page));
+    setTargetPage(book.target_page != null ? String(book.target_page) : "");
     setStatus(book.status);
     setRating(book.rating);
     setError(null);
@@ -81,6 +85,10 @@ export function EditBookDialog({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    // Only send targetPage when the owner actually changed it — sending it always
+    // would lock the target (blocking auto-tracking) on every unrelated edit.
+    const targetNum = targetPage.trim() ? Number(targetPage) : null;
+    const targetChanged = targetNum !== (book.target_page ?? null);
     startTransition(async () => {
       try {
         await updateBook(book.id, {
@@ -88,6 +96,9 @@ export function EditBookDialog({
           author,
           totalPages: totalPages ? Number(totalPages) : null,
           currentPage: currentPage ? Number(currentPage) : 0,
+          ...(status === "in_progress" && targetChanged
+            ? { targetPage: targetNum }
+            : {}),
           status,
           rating: status === "archive" ? rating : null,
           memberEmail,
@@ -177,6 +188,22 @@ export function EditBookDialog({
               />
             </div>
           </div>
+          {status === "in_progress" && (
+            <div className="grid gap-1.5">
+              <Label htmlFor="edit-book-target">This week&apos;s target page</Label>
+              <Input
+                id="edit-book-target"
+                type="number"
+                min={1}
+                value={targetPage}
+                placeholder="Auto (current page + weekly pages)"
+                onChange={(e) => setTargetPage(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave blank to track automatically from the current page.
+              </p>
+            </div>
+          )}
           <div className="grid gap-1.5">
             <Label htmlFor="edit-book-status">Status</Label>
             <Select

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { BookCard } from "@/components/reading/book-card";
 import { cn } from "@/lib/utils";
-import type { ReadingBookWithProgress } from "@/lib/types";
+import type { ActiveBookQuiz, ReadingBookWithProgress } from "@/lib/types";
 
 /**
  * Paused books, tucked into a collapsed disclosure at the bottom of the reading
@@ -14,9 +14,13 @@ import type { ReadingBookWithProgress } from "@/lib/types";
 export function PausedSection({
   books,
   memberEmail = null,
+  isOwner = false,
+  activeQuizzesByBook = {},
 }: {
   books: ReadingBookWithProgress[];
   memberEmail?: string | null;
+  isOwner?: boolean;
+  activeQuizzesByBook?: Record<string, ActiveBookQuiz>;
 }) {
   const [open, setOpen] = useState(false);
   if (books.length === 0) return null;
@@ -37,7 +41,13 @@ export function PausedSection({
       {open && (
         <div className="mt-3 space-y-3">
           {books.map((book) => (
-            <BookCard key={book.id} book={book} memberEmail={memberEmail} />
+            <BookCard
+              key={book.id}
+              book={book}
+              memberEmail={memberEmail}
+              isOwner={isOwner}
+              activeQuiz={activeQuizzesByBook[book.id] ?? null}
+            />
           ))}
         </div>
       )}

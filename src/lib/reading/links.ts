@@ -17,3 +17,23 @@ export function bookReaderHref(
 ): string {
   return withMember(`/reader/${bookId}/read`, memberEmail);
 }
+
+/** The owner-facing list of all quizzes and results. */
+export function quizzesHref(memberEmail?: string | null): string {
+  return withMember("/reader/quizzes", memberEmail);
+}
+
+/** The owner's draft review/edit screen for a quiz. */
+export function quizEditHref(quizId: string, memberEmail?: string | null): string {
+  return withMember(`/reader/quizzes/${quizId}/edit`, memberEmail);
+}
+
+/** The page where a reader takes a published quiz. */
+export function quizTakeHref(quizId: string, memberEmail?: string | null): string {
+  return withMember(`/reader/quizzes/${quizId}`, memberEmail);
+}
+
+/** A graded quiz's results/feedback. */
+export function quizResultsHref(quizId: string, memberEmail?: string | null): string {
+  return withMember(`/reader/quizzes/${quizId}/results`, memberEmail);
+}

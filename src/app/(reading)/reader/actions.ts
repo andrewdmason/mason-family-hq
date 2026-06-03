@@ -12,6 +12,13 @@ import {
 } from "@/lib/reading/book-lookup";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
+import { capTarget, defaultTargetPage } from "@/lib/reading/targets";
+import {
+  advanceStretch,
+  ensureStretchQuizInline,
+  readingIncrement,
+} from "@/lib/reading/advance";
+import { getActiveQuizzesByBook } from "./quizzes/actions";
 import type {
   ReadingBook,
   ReadingBookContentSummary,
@@ -23,7 +30,7 @@ import type {
 } from "@/lib/types";
 
 const BOOK_COLUMNS =
-  "id, user_id, title, author, total_pages, current_page, status, cover_image_url, openlibrary_key, isbn, published_year, started_at, finished_at, rating, recommended_by_email, recommended_by_label, recommendation_note, created_at, updated_at";
+  "id, user_id, title, author, total_pages, current_page, target_page, target_locked, status, cover_image_url, openlibrary_key, isbn, published_year, started_at, finished_at, rating, recommended_by_email, recommended_by_label, recommendation_note, created_at, updated_at";
 
 function firstName(name: string | null | undefined, fallback: string): string {
   return name?.trim().split(/\s+/)[0] || fallback;
@@ -273,7 +280,7 @@ export async function addBook(input: {
   rating?: ReadingRating | null;
   memberEmail?: string | null;
 }): Promise<void> {
-  const { client, userId } = await resolveReadingScope(input.memberEmail);
+  const { client, userId, email } = await resolveReadingScope(input.memberEmail);
 
   const title = input.title.trim();
   if (!title) throw new Error("Give the book a title.");
@@ -310,6 +317,11 @@ export async function addBook(input: {
   const rating = archived ? input.rating ?? null : null;
   // A "didn't finish" book wasn't read to the end, so don't slam it to the back.
   const finished = archived && rating !== "didnt_finish";
+  // A freshly-started book aims for current_page + the member's weekly increment.
+  const targetPage =
+    status === "in_progress"
+      ? defaultTargetPage(0, await readingIncrement(client, email), totalPages)
+      : null;
   const { data: book, error } = await client
     .from("reading_books")
     .insert({
@@ -318,6 +330,7 @@ export async function addBook(input: {
       author,
       total_pages: totalPages,
       current_page: finished && totalPages ? totalPages : 0,
+      target_page: targetPage,
       status,
       cover_image_url: input.coverImageUrl ?? null,
       openlibrary_key: openlibraryKey,
@@ -356,15 +369,17 @@ export async function updateBook(
     totalPages?: number | null;
     status?: ReadingBookStatus;
     currentPage?: number | null;
+    targetPage?: number | null;
     rating?: ReadingRating | null;
     memberEmail?: string | null;
   }
 ): Promise<void> {
-  const { client, userId } = await resolveReadingScope(input.memberEmail);
+  const scope = await resolveReadingScope(input.memberEmail);
+  const { client, userId, email } = scope;
 
   const { data: existing, error: fetchError } = await client
     .from("reading_books")
-    .select("status, total_pages, current_page, started_at")
+    .select("status, total_pages, current_page, target_page, target_locked, started_at")
     .eq("id", bookId)
     .eq("user_id", userId)
     .single();
@@ -413,6 +428,49 @@ export async function updateBook(
     }
   }
 
+  // Per-book target. An explicit value locks it (the owner's override for the
+  // week); otherwise it tracks current_page + the member's increment whenever the
+  // book becomes active or its current page moves (unless the owner locked it).
+  const increment = await readingIncrement(client, email);
+  const newCurrentProvided = typeof update.current_page === "number";
+  const effectiveCurrent = newCurrentProvided
+    ? (update.current_page as number)
+    : existing.current_page;
+
+  if (input.targetPage !== undefined) {
+    if (input.targetPage == null) {
+      update.target_page = null;
+      update.target_locked = false;
+    } else {
+      update.target_page = capTarget(
+        Math.max(1, Math.floor(input.targetPage)),
+        existing.total_pages
+      );
+      update.target_locked = true;
+    }
+  } else if (startedReading) {
+    update.target_page = defaultTargetPage(
+      effectiveCurrent,
+      increment,
+      existing.total_pages
+    );
+    update.target_locked = false;
+  } else if (newCurrentProvided && !existing.target_locked) {
+    update.target_page = defaultTargetPage(
+      effectiveCurrent,
+      increment,
+      existing.total_pages
+    );
+  }
+
+  // Only an actively-read book carries a target.
+  const finalStatus =
+    (update.status as ReadingBookStatus | undefined) ?? existing.status;
+  if (finalStatus !== "in_progress") {
+    update.target_page = null;
+    update.target_locked = false;
+  }
+
   if (Object.keys(update).length === 0) return;
 
   const { error } = await client
@@ -437,6 +495,15 @@ export async function updateBook(
       page: baselinePage,
     });
     if (checkinError) throw new Error(checkinError.message);
+
+    // Prepare the first stretch's quiz if the file is already converted (no-op
+    // otherwise; the convert route fires this when the upload finishes).
+    await ensureStretchQuizInline(scope, {
+      id: bookId,
+      current_page: baselinePage,
+      target_page: (update.target_page as number | null) ?? null,
+      total_pages: existing.total_pages,
+    });
   }
 
   // Manually setting the current page declares where the member *is* — not pages
@@ -471,48 +538,63 @@ export async function updateBook(
   revalidatePath("/reader");
 }
 
-/** Record what page the member is on now. Marks the book completed at the end. */
-export async function checkIn(
+export type MarkReachedResult =
+  | { outcome: "advanced"; finished: boolean; nextTarget: number | null }
+  | { outcome: "quiz"; quizId: string }
+  | { outcome: "quiz_pending" };
+
+/**
+ * Mark a book's weekly target reached — binary, no page entry. For a book with an
+ * uploaded+converted file, this routes the reader into the stretch quiz (passing
+ * it is what advances the milestone — see submitQuiz). For a book without a file,
+ * it advances the milestone directly.
+ */
+export async function markTargetReached(
   bookId: string,
-  page: number,
   memberEmail?: string | null
-): Promise<void> {
-  const { client, userId } = await resolveReadingScope(memberEmail);
+): Promise<MarkReachedResult> {
+  const scope = await resolveReadingScope(memberEmail);
+  const { client, userId } = scope;
 
-  const nextPage = Math.max(0, Math.floor(page));
-
-  const { data: book, error: bookError } = await client
+  const { data: book, error } = await client
     .from("reading_books")
-    .select("id, total_pages")
+    .select("id, current_page, target_page, total_pages")
     .eq("id", bookId)
     .eq("user_id", userId)
     .single();
-  if (bookError) throw new Error(bookError.message);
+  if (error) throw new Error(error.message);
 
-  const tz = await getUserTimezone();
-  const today = localDate(new Date(), tz);
+  const stretchBook = {
+    id: book.id as string,
+    current_page: book.current_page as number,
+    target_page: (book.target_page as number | null) ?? null,
+    total_pages: (book.total_pages as number | null) ?? null,
+  };
 
-  const { error: checkinError } = await client.from("reading_checkins").insert({
-    user_id: userId,
-    book_id: bookId,
-    checked_on: today,
-    page: nextPage,
-  });
-  if (checkinError) throw new Error(checkinError.message);
+  // A book "with quizzes" is one whose uploaded file has converted to ready text.
+  const { data: content } = await client
+    .from("reading_book_content")
+    .select("status")
+    .eq("book_id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const hasContent = content?.status === "ready";
 
-  const finished = book.total_pages != null && nextPage >= book.total_pages;
-  const { error: updateError } = await client
-    .from("reading_books")
-    .update({
-      current_page: nextPage,
-      status: finished ? "archive" : "in_progress",
-      finished_at: finished ? today : null,
-    })
-    .eq("id", bookId)
-    .eq("user_id", userId);
-  if (updateError) throw new Error(updateError.message);
+  if (!hasContent) {
+    const { finished, nextTarget } = await advanceStretch(scope, stretchBook);
+    return { outcome: "advanced", finished, nextTarget };
+  }
 
-  revalidatePath("/reader");
+  // Quiz-gated: hand back the active (published, unpassed) stretch quiz. Passing
+  // it advances the milestone; we don't advance here.
+  const active = await getActiveQuizzesByBook([bookId], memberEmail);
+  const activeQuiz = active[bookId];
+  if (activeQuiz) return { outcome: "quiz", quizId: activeQuiz.quizId };
+
+  // None ready yet (generation still running or failed) — try once on demand.
+  const ensured = await ensureStretchQuizInline(scope, stretchBook);
+  if (ensured.quizId) return { outcome: "quiz", quizId: ensured.quizId };
+  return { outcome: "quiz_pending" };
 }
 
 const RATINGS: ReadingRating[] = ["loved", "liked", "neutral", "disliked"];

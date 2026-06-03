@@ -8,6 +8,7 @@ import { QueueRecommendations } from "@/components/reading/queue-recommendations
 import { READING_STATUSES } from "@/lib/reading/status";
 import { cn } from "@/lib/utils";
 import type {
+  ActiveBookQuiz,
   ReadingBookStatus,
   ReadingBookWithProgress,
   ReadingRecommendation,
@@ -30,19 +31,20 @@ function emptyMessage(tab: Tab): string {
 
 export function ReadingList({
   books,
-  soleBookId,
-  soleBookTargetPage,
   emphasizeCheckIn,
   memberEmail = null,
+  isOwner = false,
+  activeQuizzesByBook = {},
   recommendations,
   recsHasSignal,
   recsGenres,
 }: {
   books: ReadingBookWithProgress[];
-  soleBookId: string | null;
-  soleBookTargetPage: number | null;
   emphasizeCheckIn: boolean;
   memberEmail?: string | null;
+  isOwner?: boolean;
+  /** Per-book active check-in quiz, keyed by book id. */
+  activeQuizzesByBook?: Record<string, ActiveBookQuiz>;
   recommendations: ReadingRecommendation[];
   recsHasSignal: boolean;
   recsGenres: string[];
@@ -132,15 +134,21 @@ export function ReadingList({
             <BookCard
               key={book.id}
               book={book}
-              targetPage={book.id === soleBookId ? soleBookTargetPage : null}
               emphasizeCheckIn={emphasizeCheckIn}
               memberEmail={memberEmail}
+              isOwner={isOwner}
+              activeQuiz={activeQuizzesByBook[book.id] ?? null}
             />
           ))}
         </div>
       )}
 
-      <PausedSection books={pausedBooks} memberEmail={memberEmail} />
+      <PausedSection
+        books={pausedBooks}
+        memberEmail={memberEmail}
+        isOwner={isOwner}
+        activeQuizzesByBook={activeQuizzesByBook}
+      />
     </div>
   );
 }
