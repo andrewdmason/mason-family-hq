@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -112,15 +112,29 @@ type Item =
   | { kind: "now" }
   | { kind: "event"; e: TimelineEntryWithPeople; gap: number; row: 0 | 1; upcoming: boolean };
 
+/** The scope segmented control: how wide a slice of the timeline to show. */
+type Scope = "all" | "family" | "me";
+const SCOPES: { value: Scope; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "family", label: "Family" },
+  { value: "me", label: "Me" },
+];
+
 export function VerticalTimeline({
   entries,
   today,
   currentUserEmail,
+  adultEmails,
 }: {
   entries: TimelineEntryWithPeople[];
   today: string;
   currentUserEmail: string | null;
+  /** Lowercased emails of grown-ups (owner/parent), so "Family" can hide a
+   * single adult's solo milestones (e.g. "Founded Groupon"). */
+  adultEmails: string[];
 }) {
+  const adults = useMemo(() => new Set(adultEmails.map((e) => e.toLowerCase())), [adultEmails]);
+  const myEmail = currentUserEmail?.toLowerCase() ?? null;
   const scrollerRef = useRef<HTMLDivElement>(null);
 
   // The distinct family people and categories present, for the filter chips.
@@ -142,9 +156,12 @@ export function VerticalTimeline({
   // those values: OR within a section, AND across sections (Linear-style).
   const [selectedPeople, setSelectedPeople] = useState<Set<string>>(() => new Set());
   const [selectedCats, setSelectedCats] = useState<Set<string>>(() => new Set());
-  // "Shared only" keeps just the family milestones (2+ subjects), hiding any
-  // single-person event — the inverse of what `Names` labels with a person.
-  const [sharedOnly, setSharedOnly] = useState(false);
+  // Scope sits alongside the filter as a segmented control:
+  //   All    — every event.
+  //   Family — the shared family story; hides a single grown-up's solo milestone
+  //            (e.g. "Founded Groupon"), but keeps anything with a kid or 2+ people.
+  //   Me     — every event the signed-in viewer is named in (subject or mention).
+  const [scope, setScope] = useState<Scope>("all");
 
   // Scroll up/down → move left/right; release at the ends so the page can scroll.
   useEffect(() => {
@@ -298,7 +315,21 @@ export function VerticalTimeline({
   }, []);
 
   const filtered = entries.filter((e) => {
-    if (sharedOnly && e.subjects.length < 2) return false;
+    // Family: drop a lone grown-up's personal milestone ("me only" / "Jenny
+    // only"); a solo kid or non-member, or anyone alongside others, stays.
+    if (scope === "family") {
+      const lone = e.subjects[0];
+      if (e.subjects.length === 1 && lone.member_email && adults.has(lone.member_email.toLowerCase())) {
+        return false;
+      }
+    }
+    // Me: anything that names the viewer, as a subject or a mention.
+    if (scope === "me") {
+      const namesMe =
+        !!myEmail &&
+        [...e.subjects, ...e.mentions].some((p) => p.member_email?.toLowerCase() === myEmail);
+      if (!namesMe) return false;
+    }
     if (selectedCats.size > 0 && !selectedCats.has(e.category)) return false;
     if (selectedPeople.size > 0) {
       const subjectEmails = e.subjects.map((s) => s.member_email?.toLowerCase()).filter(Boolean) as string[];
@@ -367,21 +398,21 @@ export function VerticalTimeline({
       {/* Filter + New entry in the reading column (the nav already labels this page). */}
       <div className="mx-auto w-full max-w-5xl px-6">
         <div className="flex items-center justify-between gap-4">
-          <FilterPopover
-            people={people}
-            categories={categories}
-            selectedPeople={selectedPeople}
-            selectedCats={selectedCats}
-            sharedOnly={sharedOnly}
-            onTogglePerson={(email) => toggle(selectedPeople, email, setSelectedPeople)}
-            onToggleCategory={(cat) => toggle(selectedCats, cat, setSelectedCats)}
-            onToggleSharedOnly={() => setSharedOnly((v) => !v)}
-            onClear={() => {
-              setSelectedPeople(new Set());
-              setSelectedCats(new Set());
-              setSharedOnly(false);
-            }}
-          />
+          <div className="flex items-center gap-2">
+            <ScopeToggle scope={scope} onChange={setScope} />
+            <FilterPopover
+              people={people}
+              categories={categories}
+              selectedPeople={selectedPeople}
+              selectedCats={selectedCats}
+              onTogglePerson={(email) => toggle(selectedPeople, email, setSelectedPeople)}
+              onToggleCategory={(cat) => toggle(selectedCats, cat, setSelectedCats)}
+              onClear={() => {
+                setSelectedPeople(new Set());
+                setSelectedCats(new Set());
+              }}
+            />
+          </div>
           <button
             type="button"
             onClick={() => setCreating(true)}
@@ -463,6 +494,36 @@ export function VerticalTimeline({
 }
 
 /**
+ * A small segmented control for the timeline scope: All / Family / Me. Sits to
+ * the left of the filter button; the selected segment fills with the foreground.
+ */
+function ScopeToggle({ scope, onChange }: { scope: Scope; onChange: (s: Scope) => void }) {
+  return (
+    <div className="inline-flex items-center gap-0.5 rounded-md border border-border bg-background p-0.5">
+      {SCOPES.map((s) => {
+        const selected = scope === s.value;
+        return (
+          <button
+            key={s.value}
+            type="button"
+            onClick={() => onChange(s.value)}
+            aria-pressed={selected}
+            className={cn(
+              "rounded px-2.5 py-1 text-xs font-medium transition",
+              selected
+                ? "bg-foreground text-background"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
+            )}
+          >
+            {s.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
  * A single Linear-style filter popover with People and Categories sections.
  * Each section is a flow of toggle pills (Linear's "Display properties"); nothing
  * is selected by default, and selecting pills narrows the timeline to those values.
@@ -472,20 +533,16 @@ function FilterPopover({
   categories,
   selectedPeople,
   selectedCats,
-  sharedOnly,
   onTogglePerson,
   onToggleCategory,
-  onToggleSharedOnly,
   onClear,
 }: {
   people: { email: string; name: string }[];
   categories: TimelineCategory[];
   selectedPeople: Set<string>;
   selectedCats: Set<string>;
-  sharedOnly: boolean;
   onTogglePerson: (email: string) => void;
   onToggleCategory: (cat: TimelineCategory) => void;
-  onToggleSharedOnly: () => void;
   onClear: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -500,7 +557,7 @@ function FilterPopover({
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  const activeCount = selectedPeople.size + selectedCats.size + (sharedOnly ? 1 : 0);
+  const activeCount = selectedPeople.size + selectedCats.size;
 
   return (
     <div ref={ref} className="relative">
@@ -540,16 +597,6 @@ function FilterPopover({
               </button>
             )}
           </div>
-
-          <FilterSection label="Scope">
-            <FilterPill
-              selected={sharedOnly}
-              onClick={onToggleSharedOnly}
-              leading={<Users className={cn("h-3.5 w-3.5 shrink-0", sharedOnly ? "text-background" : "text-muted-foreground")} />}
-            >
-              Shared only
-            </FilterPill>
-          </FilterSection>
 
           <FilterSection label="People">
             {people.map((p) => (
