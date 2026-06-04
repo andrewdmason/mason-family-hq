@@ -6,21 +6,20 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TIMELINE_CATEGORIES } from "@/lib/types";
 import type {
-  DatePrecision,
   TimelineCategory,
   TimelineEntryWithPeople,
   TimelineProminence,
 } from "@/lib/types";
 import { CATEGORY_LABEL } from "@/lib/timeline/config";
 import { createTimelineEntry, updateTimelineEntry } from "@/lib/timeline/actions";
+import {
+  TimelineDatePicker,
+  dateStateFromEntry,
+  dateStateToInput,
+  emptyDateState,
+} from "./date-picker";
 
 const PROMINENCES: TimelineProminence[] = ["major", "medium", "minor"];
-
-function dateToInput(date: string, precision: DatePrecision): string {
-  if (precision === "year") return date.slice(0, 4);
-  if (precision === "month") return date.slice(0, 7);
-  return date;
-}
 
 const inputCls =
   "w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
@@ -58,11 +57,8 @@ export function EntryModal({
   const [category, setCategory] = useState<TimelineCategory>(entry?.category ?? "career");
   const [prominence, setProminence] = useState<TimelineProminence>(entry?.prominence ?? "medium");
   const [location, setLocation] = useState(entry?.location ?? "");
-  const [startDate, setStartDate] = useState(
-    entry ? dateToInput(entry.start_date, entry.start_precision) : ""
-  );
-  const [endDate, setEndDate] = useState(
-    entry?.end_date && entry?.end_precision ? dateToInput(entry.end_date, entry.end_precision) : ""
+  const [dateState, setDateState] = useState(() =>
+    entry ? dateStateFromEntry(entry) : emptyDateState()
   );
   const [approximate, setApproximate] = useState(entry?.approximate ?? false);
   const [subjects, setSubjects] = useState<Set<string>>(() => {
@@ -84,6 +80,11 @@ export function EntryModal({
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const { start: startInput, end: endInput } = dateStateToInput(dateState);
+    if (!startInput) {
+      setError("Pick a date for this event.");
+      return;
+    }
     start(async () => {
       const input = {
         title,
@@ -91,8 +92,8 @@ export function EntryModal({
         category,
         prominence,
         location: location || null,
-        start: startDate,
-        end: endDate || null,
+        start: startInput,
+        end: endInput,
         approximate,
         subjectEmails: [...subjects],
       };
@@ -162,14 +163,9 @@ export function EntryModal({
             </Field>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Start (year, year-month, or full date)">
-              <input className={inputCls} value={startDate} onChange={(e) => setStartDate(e.target.value)} placeholder="1986 or 1999-06" required />
-            </Field>
-            <Field label="End (optional)">
-              <input className={inputCls} value={endDate} onChange={(e) => setEndDate(e.target.value)} placeholder="leave blank for a moment" />
-            </Field>
-          </div>
+          <Field label="When">
+            <TimelineDatePicker value={dateState} onChange={setDateState} />
+          </Field>
 
           <Field label="Location">
             <input className={inputCls} value={location} onChange={(e) => setLocation(e.target.value)} placeholder="optional" />
