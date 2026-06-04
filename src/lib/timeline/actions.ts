@@ -68,7 +68,7 @@ function entryColumns(input: TimelineEntryInput) {
   };
 }
 
-export async function createTimelineEntry(input: TimelineEntryInput): Promise<void> {
+export async function createTimelineEntry(input: TimelineEntryInput): Promise<string> {
   await requireFamilyMember();
   const admin = createAdminClient();
 
@@ -91,6 +91,7 @@ export async function createTimelineEntry(input: TimelineEntryInput): Promise<vo
   }
 
   revalidatePath("/timeline");
+  return id;
 }
 
 export async function updateTimelineEntry(id: string, input: TimelineEntryInput): Promise<void> {
