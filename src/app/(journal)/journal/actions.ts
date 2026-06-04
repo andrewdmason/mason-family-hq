@@ -248,6 +248,42 @@ export async function startBookReflection(bookId: string): Promise<string> {
 }
 
 /**
+ * Start a journal entry about a specific timeline event, from the "Reflect on
+ * this" affordance on a timeline entry. Creates a fresh open entry pre-bound to
+ * the event (timeline_entry_id) so the opening-question picker offers three
+ * reminiscence questions grounded in it, and the finished entry links back to the
+ * event. Returns the new entry id; the caller routes to /journal/new?entry=<id>.
+ */
+export async function startTimelineReflection(timelineEntryId: string): Promise<string> {
+  const supabase = await createClient();
+  const userId = await requireUserId(supabase);
+
+  // Confirm the event exists / is readable (RLS scopes it to the family).
+  const { data: event } = await supabase
+    .from("timeline_entries")
+    .select("id")
+    .eq("id", timelineEntryId)
+    .maybeSingle();
+  if (!event) throw new Error("timeline event not found");
+
+  const date = await todayLocal();
+  const { data, error } = await supabase
+    .from("journal_entries")
+    .insert({
+      entry_date: date,
+      status: "open",
+      user_id: userId,
+      timeline_entry_id: timelineEntryId,
+    })
+    .select("id")
+    .single();
+  if (error || !data) {
+    throw new Error(error?.message ?? "failed to create entry");
+  }
+  return data.id as string;
+}
+
+/**
  * Set an entry's date. Used when a new entry is started from a dropped photo
  * and the user opts to date the entry to when the photo was taken.
  */
@@ -318,7 +354,7 @@ export async function pickOpeningQuestion(entryId: string, question: string) {
 
   const { data: entry, error: entryErr } = await supabase
     .from("journal_entries")
-    .select("id, status, opening_candidates, reading_book_id")
+    .select("id, status, opening_candidates, reading_book_id, timeline_entry_id")
     .eq("id", entryId)
     .single();
   if (entryErr || !entry) throw new Error("entry not found");
@@ -359,6 +395,10 @@ export async function pickOpeningQuestion(entryId: string, question: string) {
       // link the entry already had (a "Reflect in journal" entry is pre-bound to
       // its book), so switching question doesn't silently drop the provenance.
       reading_book_id: picked.reading_book_id ?? entry.reading_book_id ?? null,
+      // reminiscence questions carry the timeline event they're about; link it so
+      // the event's detail page lists this reflection and the event reads as
+      // "elaborated". Fall back to any link already on the entry.
+      timeline_entry_id: picked.timeline_entry_id ?? entry.timeline_entry_id ?? null,
     })
     .eq("id", entryId);
   if (updateErr) throw new Error(updateErr.message);

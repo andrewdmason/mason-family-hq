@@ -32,6 +32,17 @@ const ENTRIES = [
   { id: "a0000002-0001-4001-8001-000000000001", photos: [{ seed: "family-redwoods" }, { seed: "family-campfire" }] }, // Jenny — camping
   { id: "a0000002-0002-4001-8001-000000000001", photos: [{ seed: "family-volcano" }] }, // Oscar — volcano
   { id: "a0000002-0003-4001-8001-000000000001", photos: [{ seed: "family-soccer" }] }, // Sebastian — soccer
+  // Timeline-linked dev posts (08_timeline_dev.sql)
+  { id: "c0000002-0001-4001-8001-000000000002", photos: [{ seed: "jenny-album-studio" }, { seed: "jenny-album-cover" }] }, // Jenny — debut album
+  { id: "c0000002-0003-4001-8001-000000000002", photos: [{ seed: "sebastian-first-book" }] }, // Sebastian — first chapter book
+  // Early-life reflections (08_timeline_dev.sql, second block) — images on the
+  // 1980s–90s end of the timeline.
+  { id: "c0000002-0000-4001-8001-000000000001", photos: [{ seed: "andrew-born-pittsburgh" }, { seed: "mtlebanon-house" }] }, // Andrew — born
+  { id: "c0000002-0000-4001-8001-000000000002", photos: [{ seed: "andrew-child-piano" }] }, // Andrew — piano
+  { id: "c0000002-0000-4001-8001-000000000003", photos: [{ seed: "bagel-delivery-kid" }] }, // Andrew — hustles
+  { id: "c0000002-0000-4001-8001-000000000004", photos: [{ seed: "fugazi-basement-show" }] }, // Andrew — Fugazi
+  { id: "c0000002-0000-4001-8001-000000000005", photos: [{ seed: "mtlebanon-graduation" }] }, // Andrew — HS graduation
+  { id: "c0000002-0001-4001-8001-000000000003", photos: [{ seed: "jenny-born-chicago" }] }, // Jenny — born
 ];
 
 // One primary avatar per family member, keyed by email → member-photos bucket

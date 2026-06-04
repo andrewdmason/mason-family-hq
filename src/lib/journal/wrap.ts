@@ -3,6 +3,7 @@ import { anthropic, JOURNAL_MODEL } from "@/lib/journal/anthropic";
 import {
   buildSystemPrompt,
   loadAgentFiles,
+  loadTimelineBlock,
   loadFamilyDoc,
   loadHistory,
   messagesAsAnthropicTurns,
@@ -32,26 +33,19 @@ const TOOLS = [
   {
     name: "suggest_profile_update",
     description:
-      "Propose a SINGLE change to one of the user's two profile docs. The user reviews your suggestion as a toast and decides whether to apply it; you never edit a file yourself.\n\n" +
-      "The two docs:\n" +
-      "  • Present — who the user is NOW: their current life, the people around them, projects, interests, routines. Target this for durable changes to their present.\n" +
-      "  • Past — their life story and biography: where they come from, how they grew up, the people and turning points that shaped them. Target this when the conversation surfaced a lasting biographical/historical fact worth keeping.\n\n" +
-      "The bar is HIGH. Only suggest a change when today's conversation revealed something FUNDAMENTAL and durable:\n" +
-      "  • (Present) a new project, role, or commitment, or a significant life/work/relationship change,\n" +
-      "  • (Past) a meaningful piece of the user's history — a formative memory, a place they're from, a turning point — they hadn't recorded,\n" +
-      "  • a fact already in either doc that is now stale and should be corrected or removed.\n\n" +
-      "Do NOT suggest a change for: every person mentioned, passing moods, one-off events, minor details, or anything already captured in either doc. Most entries warrant no suggestion at all — when in doubt, don't call this tool.\n\n" +
+      "Propose a SINGLE change to the user's Present profile doc. The user reviews your suggestion as a toast and decides whether to apply it; you never edit a file yourself.\n\n" +
+      "Present — who the user is NOW: their current life, the people around them, projects, interests, routines. (Biographical history lives in the user's timeline, which they maintain separately — don't try to record past events here.)\n\n" +
+      "The bar is HIGH. Only suggest a change when today's conversation revealed something FUNDAMENTAL and durable about their present: a new project, role, or commitment; a significant life/work/relationship change; or a fact already in the Present doc that is now stale and should be corrected or removed.\n\n" +
+      "Do NOT suggest a change for: every person mentioned, passing moods, one-off events, minor details, or anything already captured in the Present doc. Most entries warrant no suggestion at all — when in doubt, don't call this tool.\n\n" +
       "Call it at most ONCE. Never propose changes to the Interviewer file.\n\n" +
       "Fields:\n" +
-      "  • target_doc: 'Present' or 'Past' — which doc the change applies to.\n" +
       "  • change_type: 'add' (append new text), 'edit' (replace existing text), or 'remove' (delete existing text).\n" +
-      "  • For 'edit'/'remove', `find` must be an exact, unique substring of the chosen target doc.\n" +
+      "  • For 'edit'/'remove', `find` must be an exact, unique substring of the Present doc.\n" +
       "  • For 'add'/'edit', `replace` is the new text (a short markdown line/sentence in the doc's style).\n" +
-      "  • summary: one short sentence, phrased as a question the user can accept or wave off (e.g. 'Want me to note that you've started teaching a weekly chamber-music class?' or 'Want me to add that you grew up on a farm outside Lincoln?').",
+      "  • summary: one short sentence, phrased as a question the user can accept or wave off (e.g. 'Want me to note that you've started teaching a weekly chamber-music class?').",
     input_schema: {
       type: "object" as const,
       properties: {
-        target_doc: { type: "string", enum: ["Present", "Past"] },
         change_type: { type: "string", enum: ["add", "edit", "remove"] },
         find: {
           type: "string",
@@ -66,7 +60,7 @@ const TOOLS = [
           description: "One short sentence, phrased as a question, shown to the user in the toast.",
         },
       },
-      required: ["target_doc", "change_type", "summary"],
+      required: ["change_type", "summary"],
     },
   },
 ];
@@ -112,11 +106,12 @@ export async function runWrap(entryId: string): Promise<WrapResult> {
 
   const tz = await getUserTimezone();
   const today = localDate(new Date(), tz);
-  const [files, history, calendarBlock, familyDoc] = await Promise.all([
+  const [files, history, calendarBlock, familyDoc, timelineBlock] = await Promise.all([
     loadAgentFiles(),
     loadHistory(today, entryId),
     loadCalendarBlock(today, tz),
     loadFamilyDoc(),
+    loadTimelineBlock(today),
   ]);
   const baseSystem = buildSystemPrompt(
     files,
@@ -124,7 +119,8 @@ export async function runWrap(entryId: string): Promise<WrapResult> {
     today,
     calendarBlock,
     formatNow(new Date(), tz),
-    familyDoc
+    familyDoc,
+    timelineBlock
   );
 
   // Recently dismissed suggestions — so the model doesn't re-raise something
@@ -149,7 +145,7 @@ The user has finished today's entry.
 
 1. Call \`write_wrap\` exactly once. It produces a summary, a short evocative title, and (optionally) a verbatim pull quote from something the user said. See the tool description for the bar on each.
 
-2. Then, only if warranted, call \`suggest_profile_update\` exactly once to propose a single change to ONE of the user's profile docs — Present (their current life) or Past (their life story). The bar is high — see the tool description. Most entries warrant no suggestion. You never edit any file yourself; the user reviews the suggestion as a toast and decides. Never propose Interviewer changes. Do not propose anything already captured in either the Present or Past doc.${dismissedBlock}
+2. Then, only if warranted, call \`suggest_profile_update\` exactly once to propose a single change to the user's Present doc (their current life). The bar is high — see the tool description. Most entries warrant no suggestion. You never edit any file yourself; the user reviews the suggestion as a toast and decides. Never propose Interviewer changes. Do not propose anything already captured in the Present doc.${dismissedBlock}
 
 After your tool calls, you may stop. The user does not see the wrap output.`;
 
@@ -186,7 +182,7 @@ After your tool calls, you may stop. The user does not see the wrap output.`;
   let title: string | null = null;
   let pullQuote: string | null = null;
   let suggestion: {
-    target_doc: "Present" | "Past";
+    target_doc: "Present";
     change_type: "add" | "edit" | "remove";
     find: string | null;
     replace: string | null;
@@ -211,8 +207,9 @@ After your tool calls, you may stop. The user does not see the wrap output.`;
         typeof input.summary === "string" ? input.summary.trim() : "";
       const find = typeof input.find === "string" ? input.find : null;
       const replace = typeof input.replace === "string" ? input.replace : null;
-      // Default to Present for backward compatibility / if the model omits it.
-      const targetDoc = input.target_doc === "Past" ? "Past" : "Present";
+      // Present is the only profile doc now (biographical history moved to the
+      // timeline), so suggestions always target it.
+      const targetDoc = "Present" as const;
       // Only keep a well-formed suggestion: a summary, a valid type, and the
       // fields that type requires.
       const validType =

@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireUserId } from "@/lib/members/auth";
+import { loadTimeline } from "@/lib/timeline/queries";
+import { serializeTimelineForPrompt } from "@/lib/timeline/serialize";
 import type {
   JournalAgentFile,
   JournalAgentFileName,
@@ -18,7 +20,7 @@ export async function loadAgentFiles(): Promise<AgentFiles> {
     .select("name, content");
   if (error) throw error;
 
-  const files: AgentFiles = { Interviewer: "", Present: "", Past: "" };
+  const files: AgentFiles = { Interviewer: "", Present: "" };
   for (const row of (data ?? []) as Pick<JournalAgentFile, "name" | "content">[]) {
     files[row.name] = row.content ?? "";
   }
@@ -146,9 +148,20 @@ export async function loadHistory(
  */
 export type PromptScope = {
   includePresent?: boolean;
-  includePast?: boolean;
+  includeTimeline?: boolean;
   includeHistory?: boolean;
 };
+
+/**
+ * Serialize the current user's timeline (the events they're a subject of) into
+ * the compact block the prompt injects in place of the old Past doc. Counts only
+ * the user's own linked reflections, so the "[elaborated]" flag reflects what
+ * *they* have already written about. Empty string when they have no events.
+ */
+export async function loadTimelineBlock(today: string): Promise<string> {
+  const entries = await loadTimeline("mine", { ownLinksOnly: true });
+  return serializeTimelineForPrompt(entries, today);
+}
 
 /**
  * Assemble the system prompt for the interviewer turn (opening question or follow-up).
@@ -160,12 +173,14 @@ export function buildSystemPrompt(
   calendarBlock?: string | null,
   nowLabel?: string | null,
   familyDoc?: string | null,
+  timelineBlock?: string | null,
   scope: PromptScope = {}
 ): string {
   const includePresent = scope.includePresent ?? true;
-  const includePast = scope.includePast ?? true;
+  const includeTimeline = scope.includeTimeline ?? true;
   const includeHistory = scope.includeHistory ?? true;
-  const hasPast = includePast && !!files.Past && files.Past.trim().length > 0;
+  const hasTimeline =
+    includeTimeline && !!timelineBlock && timelineBlock.trim().length > 0;
 
   const sections: string[] = [];
 
@@ -176,7 +191,7 @@ export function buildSystemPrompt(
   if (includePresent) {
     grounds.push("Present (who the user is now — their current life, people, and projects)");
   }
-  if (hasPast) grounds.push("Past (their life story and memories)");
+  if (hasTimeline) grounds.push("Timeline (their life story as dated events)");
   sections.push(
     `Before responding, ground yourself in ${joinClauses(grounds)}. Which kinds of questions to ask, and how often, is decided separately and handed to you below; the Interviewer file only governs voice and craft.`
   );
@@ -195,12 +210,12 @@ export function buildSystemPrompt(
     sections.push("");
   }
 
-  if (hasPast) {
-    sections.push("=== Past ===");
+  if (hasTimeline) {
+    sections.push("=== Timeline ===");
     sections.push(
-      "The user's life story and memories. Draw on it for reminiscence questions and to reference their history naturally; don't re-ask about what's already here."
+      'The user\'s life as a structured timeline of dated events. Draw on it for reminiscence questions and to reference their history naturally; don\'t re-ask about what\'s already here. "[elaborated]" marks events they\'ve already written journal entries about — prefer the un-flagged ones for reminiscence.'
     );
-    sections.push(files.Past);
+    sections.push(timelineBlock!);
     sections.push("");
   }
 

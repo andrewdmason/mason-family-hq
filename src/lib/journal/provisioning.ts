@@ -2,7 +2,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   BUILTIN_QUESTION_TYPES,
   DEFAULT_INTERVIEWER,
-  DEFAULT_PAST_PROFILE,
   DEFAULT_PRESENT_PROFILE,
   DEFAULT_QUESTIONS_PER_DAY,
 } from "@/lib/journal/seeds/defaults";
@@ -82,9 +81,9 @@ async function seedJournal(
   const template = await resolveTemplate(admin, userId, isOwner);
 
   // Every new user starts from the same clean defaults for these docs: a generic
-  // interviewer voice, an empty Present (current-life) profile, and an empty Past
-  // (life-story) doc. They're never copied from another user (which would carry
-  // over personal content).
+  // interviewer voice and an empty Present (current-life) profile. (Life history
+  // lives in the shared timeline, not a per-user doc.) They're never copied from
+  // another user (which would carry over personal content).
   await admin.from("journal_agent_files").insert([
     {
       user_id: userId,
@@ -96,12 +95,6 @@ async function seedJournal(
       user_id: userId,
       name: "Present",
       content: DEFAULT_PRESENT_PROFILE,
-      agent_writable: false,
-    },
-    {
-      user_id: userId,
-      name: "Past",
-      content: DEFAULT_PAST_PROFILE,
       agent_writable: false,
     },
   ]);

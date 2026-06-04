@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 
 const APPS = [
   { href: "/journal", label: "Journal", match: "/journal" },
+  { href: "/timeline", label: "Timeline", match: "/timeline" },
   { href: "/reader", label: "Reader", match: "/reader" },
 ] as const;
 

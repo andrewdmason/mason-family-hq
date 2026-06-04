@@ -58,13 +58,6 @@ Warm. Quiet. Curious. The voice of someone who has known the user a long time an
  */
 export const DEFAULT_PRESENT_PROFILE = "";
 
-/**
- * New users also start with a blank Past (life-story) doc. The User tab offers a
- * separate copyable prompt (see buildPastDocPrompt) that interviews them about
- * their history and writes the doc for them to paste back.
- */
-export const DEFAULT_PAST_PROFILE = "";
-
 export const DEFAULT_QUESTIONS_PER_DAY = 3;
 
 export type BuiltinQuestionType = {
@@ -99,8 +92,8 @@ export const BUILTIN_QUESTION_TYPES: BuiltinQuestionType[] = [
   { name: "imagination", weight: 0, sort_order: 15, base_description: "A playful what-if or would-you-rather — pure imagination, not tied to your real day." },
   { name: "proud-moment", weight: 0, sort_order: 16, base_description: "Asks about something you figured out, pulled off, or feel proud of." },
   { name: "funny-moment", weight: 0, sort_order: 17, base_description: "Asks about something that made you laugh recently." },
-  { name: "reminiscence", weight: 3, sort_order: 18, base_description: "Invites the user to tell a story from their past or reminisce on something old — a memory, a place, a person, a turning point. Draw on the Past doc to make it specific." },
+  { name: "reminiscence", weight: 3, sort_order: 18, base_description: "Invites the user to tell a story from their past or reminisce on something old — a memory, a place, a person, a turning point. Targets a specific event from their timeline so the question is concrete." },
   { name: "family-followup", weight: 3, sort_order: 19, base_description: "Draws on a recent entry another family member shared to the family feed and asks the user about it, referencing that member by name (e.g. \"Jenny wrote about the camping trip — how was that for you?\"). Only fires when another member has shared something." },
-  { name: "principles", weight: 3, sort_order: 20, base_description: "Invites you to put a principle, belief, or value into words and ground it in a real story — something that happened that taught it to you, or shows it in action. Draw on the Past and Present docs and your earlier entries to make it specific and personal. The kind of thing worth passing down." },
+  { name: "principles", weight: 3, sort_order: 20, base_description: "Invites you to put a principle, belief, or value into words and ground it in a real story — something that happened that taught it to you, or shows it in action. Draw on your timeline, your Present doc, and your earlier entries to make it specific and personal. The kind of thing worth passing down." },
   { name: "currently-reading", weight: 3, sort_order: 21, base_description: "Asks about a book from your reading life — a character, an idea, a passage that's stayed with you, or how it landed. Grounded in a specific book from your Reading list, whether you're partway through it or finished it a while ago." },
 ];

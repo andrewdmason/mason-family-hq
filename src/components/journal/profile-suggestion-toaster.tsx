@@ -124,9 +124,7 @@ export function ProfileSuggestionToaster() {
                   disabled={busy}
                   onClick={() => handleAccept(current.id)}
                 >
-                  {current.target_doc === "Past"
-                    ? "Add to life story"
-                    : "Add to profile"}
+                  Add to profile
                 </Button>
               </div>
             </Toast>
@@ -138,16 +136,11 @@ export function ProfileSuggestionToaster() {
         {applied && (
           <DialogContent>
             {(() => {
-              const docLabel =
-                applied.target_doc === "Past" ? "life story" : "profile";
+              const docLabel = "profile";
               return (
                 <>
                   <DialogHeader>
-                    <DialogTitle>
-                      {applied.target_doc === "Past"
-                        ? "Life story updated"
-                        : "Profile updated"}
-                    </DialogTitle>
+                    <DialogTitle>Profile updated</DialogTitle>
                     <DialogDescription>
                       {applied.change_type === "remove"
                         ? `Removed from your ${docLabel}:`

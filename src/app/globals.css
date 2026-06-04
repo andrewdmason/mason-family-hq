@@ -299,8 +299,8 @@
 .agent-editor .prose-editor p {
   margin: 0.5em 0;
 }
-/* Agent file editors stack (e.g. Present + Past on the User tab), so keep the
-   empty/short state compact. Content still grows the editor past this. */
+/* Agent file editors (e.g. the Present doc on the User tab) keep a compact
+   empty/short state. Content still grows the editor past this. */
 .agent-editor .prose-editor {
   min-height: 4rem;
 }
