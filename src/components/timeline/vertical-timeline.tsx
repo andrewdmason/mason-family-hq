@@ -679,7 +679,7 @@ function EventColumn({
         const files = Array.from(ev.dataTransfer?.files ?? []);
         if (files.length) onAddPhotos(files);
       }}
-      className="group relative h-full shrink-0 hover:z-20"
+      className="group relative z-10 h-full shrink-0 hover:z-20"
       style={{ width: `${COL_W}px`, marginLeft: `${gap}px` }}
     >
       {/* The datum at the LEFT edge, on the axis: the category's icon, colored
