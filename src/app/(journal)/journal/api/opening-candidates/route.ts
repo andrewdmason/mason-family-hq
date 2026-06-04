@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { generateCandidates } from "@/lib/journal/opening-candidates";
 import { normalizeCandidates } from "@/lib/journal/candidates";
+import { toErrorMessage } from "@/lib/journal/errors";
 import type { JournalOpeningCandidate } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -62,8 +63,8 @@ export async function POST(req: NextRequest) {
       entry.timeline_entry_id as string | null
     );
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return new Response(msg, { status: 500 });
+    console.error("[opening-candidates] generation failed:", err);
+    return new Response(toErrorMessage(err), { status: 500 });
   }
 
   const { error: writeErr } = await supabase

@@ -15,9 +15,9 @@ export const dynamic = "force-dynamic";
 export default async function NewEntryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ entry?: string; start?: string }>;
+  searchParams: Promise<{ entry?: string; start?: string; type?: string }>;
 }) {
-  const { entry: entryParam, start } = await searchParams;
+  const { entry: entryParam, start, type } = await searchParams;
   // Deep-link from the header's "New ▾" menu into a specific way to start.
   const initialMode =
     start === "freeform" || start === "quote" || start === "recap"
@@ -35,12 +35,21 @@ export default async function NewEntryPage({
     .order("created_at", { ascending: true });
 
   // All question types (incl. disabled) power the "ask about something
-  // specific" menu in the picker.
+  // specific" menu in the picker; recurring ones also get their own trigger.
   const { data: typeRows } = await supabase
     .from("journal_question_types")
-    .select("name")
+    .select("name, recurrence_days")
     .order("sort_order", { ascending: true });
   const questionTypeNames = (typeRows ?? []).map((t) => t.name as string);
+  const recurringTypeNames = (typeRows ?? [])
+    .filter((t) => t.recurrence_days != null)
+    .map((t) => t.name as string);
+
+  // Deep-link from a recurring post's "due" notification (/journal/new?type=…):
+  // force the picker straight into that type. Ignore an unknown type so a stale
+  // link just falls back to the normal picker.
+  const forcedType =
+    type && questionTypeNames.includes(type) ? type : undefined;
 
   const messageRows = (msgs ?? []) as JournalMessage[];
   const messages = messageRows.map((m) => ({
@@ -95,7 +104,9 @@ export default async function NewEntryPage({
           initialCandidates={entry.opening_candidates}
           initialRerollCount={entry.candidates_reroll_count}
           questionTypeNames={questionTypeNames}
+          recurringTypeNames={recurringTypeNames}
           initialMode={initialMode}
+          forcedType={forcedType}
         />
       ) : (
         <ChatSurface

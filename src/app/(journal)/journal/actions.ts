@@ -12,6 +12,7 @@ import { summarizeRecap } from "@/lib/journal/recap-summary";
 import { candidateByText, candidateTexts, normalizeCandidates } from "@/lib/journal/candidates";
 import { applyProfileDocChange } from "@/lib/journal/profile-suggestions";
 import { runEntryPhotoGeneration } from "@/lib/journal/generated-photo";
+import type { CategoryContextSpec } from "@/lib/journal/question-sources";
 import type {
   JournalAgentFileName,
   JournalInlineComment,
@@ -938,6 +939,10 @@ export type QuestionTypeUpdate = {
   style_note: string;
   base_description: string;
   enabled: boolean;
+  /** Recurring posts only (custom types): the rolling cadence and chosen sources.
+   * Omitted/undefined leaves the columns untouched for ordinary rotation rows. */
+  recurrence_days?: number | null;
+  context_spec?: CategoryContextSpec | null;
 };
 
 /**
@@ -969,8 +974,10 @@ export async function saveQuestionConfig(
   for (const row of rows) {
     const isBuiltin = builtinById.get(row.id);
     if (isBuiltin === undefined) continue; // unknown id — skip
-    // Built-ins never have their base_description rewritten.
-    const update = isBuiltin
+    // Built-ins never have their base_description rewritten. Custom rows also
+    // carry recurring-post state (cadence + sources); only set those columns
+    // when the caller supplied them, so a plain rotation save leaves them alone.
+    const update: Record<string, unknown> = isBuiltin
       ? { weight: row.weight, style_note: row.style_note, enabled: row.enabled }
       : {
           weight: row.weight,
@@ -978,6 +985,12 @@ export async function saveQuestionConfig(
           enabled: row.enabled,
           base_description: row.base_description,
         };
+    if (!isBuiltin && row.recurrence_days !== undefined) {
+      update.recurrence_days = row.recurrence_days;
+    }
+    if (!isBuiltin && row.context_spec !== undefined) {
+      update.context_spec = row.context_spec;
+    }
     const { error } = await client
       .from("journal_question_types")
       .update(update)
@@ -997,11 +1010,14 @@ export async function saveQuestionConfig(
 }
 
 /** Add a user-defined question type. Starts disabled (weight 0) so it doesn't
- * break the enabled-weights-sum-to-100 invariant until the user rebalances. */
+ * break the enabled-weights-sum-to-100 invariant until the user rebalances. When
+ * `recurring` is given, it's created as a recurring post (cadence + sources)
+ * instead — kept out of the random rotation by its non-null recurrence_days. */
 export async function addCustomQuestionType(
   name: string,
   baseDescription: string,
-  memberEmail?: string
+  memberEmail?: string,
+  recurring?: { recurrence_days: number; context_spec: CategoryContextSpec }
 ): Promise<JournalQuestionType> {
   const slug = name.trim().toLowerCase().replace(/\s+/g, "-");
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
@@ -1009,6 +1025,9 @@ export async function addCustomQuestionType(
   }
   if (!baseDescription.trim()) {
     throw new Error("Give the question type a short description.");
+  }
+  if (recurring && !(Number.isInteger(recurring.recurrence_days) && recurring.recurrence_days > 0)) {
+    throw new Error("Cadence must be a whole number of days.");
   }
 
   const { client, userId } = await resolveSettingsScope(memberEmail);
@@ -1031,9 +1050,11 @@ export async function addCustomQuestionType(
       is_builtin: false,
       sort_order: sortOrder,
       user_id: userId,
+      recurrence_days: recurring?.recurrence_days ?? null,
+      context_spec: recurring?.context_spec ?? null,
     })
     .select(
-      "id, name, base_description, style_note, weight, enabled, is_builtin, sort_order, created_at, updated_at"
+      "id, name, base_description, style_note, weight, enabled, is_builtin, sort_order, recurrence_days, context_spec, created_at, updated_at"
     )
     .single();
   if (error) {

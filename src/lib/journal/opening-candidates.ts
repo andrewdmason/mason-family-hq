@@ -15,6 +15,7 @@ import {
   REMINISCENCE,
   specFor,
 } from "@/lib/journal/question-sources";
+import type { CategoryContextSpec } from "@/lib/journal/question-sources";
 import { formatNow, localDate, resolveTimezone } from "@/lib/date-utils";
 import { createClient } from "@/lib/supabase/server";
 import { requireUserId } from "@/lib/members/auth";
@@ -95,17 +96,68 @@ export type QuestionCategory = {
    * stamped onto each candidate by generateSlot.
    */
   timelineEntryId?: string;
+  /**
+   * Set only for recurring posts: the user-chosen context sources, overriding the
+   * name-based default. generateSlot reads this in place of specFor(name).
+   */
+  spec?: CategoryContextSpec;
+  /**
+   * Set only for recurring posts: the rolling cadence in days. Scales the
+   * calendar window so a weekly recap sees ~7 days back and a monthly one ~30.
+   */
+  recurrenceDays?: number;
 };
 
 /**
+ * A recurring post's prompt is usually broad ("what's been interesting lately"),
+ * so without steering the model drifts to generic Present-doc themes. This turns
+ * the type's selected sources into an explicit instruction to ground the question
+ * in real, specific material — the actual events on the calendar, prior entries
+ * of this type — naming `recurrenceDays` so a monthly recap reaches across the
+ * whole month. VOICE_NOTE already covers the "if a source is empty, ask a natural
+ * question instead" fallback, so this never forces an invented detail.
+ */
+function recurringGroundingNote(
+  spec: CategoryContextSpec,
+  recurrenceDays: number | undefined
+): string {
+  const span = Math.min(recurrenceDays ?? 30, 92);
+  const sources: string[] = [];
+  if (spec.calendar === "recent")
+    sources.push(`the actual events on their calendar over roughly the last ${span} days`);
+  if (spec.calendar === "ahead") sources.push("what's actually coming up on their calendar");
+  if (spec.typeHistory) sources.push("what they wrote in their previous posts of this kind");
+  if (spec.history) sources.push("their recent journal entries");
+  if (spec.past) sources.push("their life timeline");
+  if (spec.family) sources.push("what family members have recently shared");
+  if (spec.present) sources.push("their current life (the Present doc)");
+  if (sources.length === 0) return "";
+  return (
+    ` Ground the question in something concrete and specific drawn from ${joinSources(sources)} — ` +
+    "name an actual event, moment, or thing that happened, not a generic theme. " +
+    "Survey what's there and pick something real worth reflecting on."
+  );
+}
+
+/** Join clauses as "a", "a and b", or "a, b, and c". */
+function joinSources(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] ?? "";
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
+}
+
+/**
  * Build a `QuestionCategory` from a stored question type, folding the user's
- * free-text style note onto the locked base description.
+ * free-text style note onto the locked base description. A recurring post carries
+ * its stored `context_spec` so generateSlot scopes the prompt to its sources.
  */
 export function questionTypeToCategory(t: JournalQuestionType): QuestionCategory {
   return {
     name: t.name,
     description: t.base_description + (t.style_note.trim() ? " " + t.style_note.trim() : ""),
     weight: t.weight,
+    spec: t.context_spec ?? undefined,
+    recurrenceDays: t.recurrence_days ?? undefined,
   };
 }
 
@@ -273,6 +325,72 @@ function withFamilySource(
     source.pull_quote ? `- A line they wrote: "${source.pull_quote}"` : null,
   ].filter(Boolean);
   return { ...category, description: `${category.description} ${parts.join("\n")}` };
+}
+
+/**
+ * The most recent entries other family members have shared to the family feed,
+ * at summary level — for a recurring post whose spec opts into the `family`
+ * source. Generalizes loadFamilyFollowupSource (which loads only the single most
+ * recent) to a small set, so a recurring post can survey what the family's been
+ * up to. Empty when no one else has shared anything.
+ */
+export async function loadFamilyRecentSource(
+  limit = 3
+): Promise<FamilyFollowupSource[]> {
+  const supabase = await createClient();
+  const userId = await requireUserId(supabase);
+
+  const { data: entries } = await supabase
+    .from("journal_entries")
+    .select("user_id, entry_date, title, summary, pull_quote")
+    .eq("visibility", "family")
+    .eq("status", "closed")
+    .neq("user_id", userId)
+    .order("entry_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (!entries || entries.length === 0) return [];
+
+  const authorIds = [...new Set(entries.map((e) => e.user_id as string))];
+  const { data: members } = await supabase
+    .from("family_members")
+    .select("user_id, name")
+    .in("user_id", authorIds);
+  const nameById = new Map(
+    (members ?? []).map((m) => [m.user_id as string, (m.name as string | null) ?? null])
+  );
+
+  return entries.map((entry) => ({
+    authorName: nameById.get(entry.user_id as string)?.trim() || "a family member",
+    entry_date: entry.entry_date as string,
+    title: (entry.title as string | null) ?? null,
+    summary: (entry.summary as string | null) ?? null,
+    pull_quote: (entry.pull_quote as string | null) ?? null,
+  }));
+}
+
+/**
+ * Fold a few recent family posts into the category description so a recurring
+ * post can reference what the family's been doing lately, naming each author.
+ */
+function withFamilyRecentSource(
+  category: QuestionCategory,
+  sources: FamilyFollowupSource[]
+): QuestionCategory {
+  const lines = sources.map((s) => {
+    const bits = [
+      s.title ? `"${s.title}"` : null,
+      s.summary,
+      s.pull_quote ? `("${s.pull_quote}")` : null,
+    ].filter(Boolean);
+    return `- ${s.authorName} (${s.entry_date}): ${bits.join(" — ")}`;
+  });
+  return {
+    ...category,
+    description:
+      `${category.description}\nRecent things family members have shared (summary-level — reference by name, don't invent beyond it):\n` +
+      lines.join("\n"),
+  };
 }
 
 type ReadingSource = {
@@ -567,12 +685,15 @@ export async function generateCandidates(
   // calendar window is fetched at most once even when several slots want it.
   let historyPromise: ReturnType<typeof loadHistory> | null = null;
   const historyFor = () => (historyPromise ??= loadHistory(today, entryId));
-  const calendarCache = new Map<CalendarWindow, Promise<string | null>>();
-  const calendarFor = (window: CalendarWindow) => {
-    let p = calendarCache.get(window);
+  // Keyed by window + span: recurring posts scale the calendar to their cadence,
+  // so a weekly and a monthly slot mustn't share one cached block.
+  const calendarCache = new Map<string, Promise<string | null>>();
+  const calendarFor = (window: CalendarWindow, spanDays?: number) => {
+    const key = `${window}:${spanDays ?? ""}`;
+    let p = calendarCache.get(key);
     if (!p) {
-      p = loadCalendarBlock(today, tz, window);
-      calendarCache.set(window, p);
+      p = loadCalendarBlock(today, tz, window, spanDays);
+      calendarCache.set(key, p);
     }
     return p;
   };
@@ -586,17 +707,27 @@ export async function generateCandidates(
     category: QuestionCategory | undefined,
     siblingNames: string[]
   ): Promise<JournalOpeningCandidate[]> {
-    const spec = specFor(category?.name);
+    // A recurring post carries its own spec; everything else is name-based.
+    const spec = category?.spec ?? specFor(category?.name);
+    const wantHistory = spec.history || !!spec.typeHistory;
     const [calendarBlock, history] = await Promise.all([
-      spec.calendar === "none" ? Promise.resolve(null) : calendarFor(spec.calendar),
-      spec.history ? historyFor() : Promise.resolve(EMPTY_HISTORY),
+      spec.calendar === "none"
+        ? Promise.resolve(null)
+        : calendarFor(spec.calendar, category?.recurrenceDays),
+      // typeHistory-only narrows history to this type's prior posts; turning on
+      // general history (or any built-in) broadens to the full recent history.
+      spec.typeHistory && !spec.history && category?.name
+        ? loadHistory(today, entryId, 7, category.name)
+        : wantHistory
+          ? historyFor()
+          : Promise.resolve(EMPTY_HISTORY),
     ]);
 
     const system =
       buildSystemPrompt(files, history, today, calendarBlock, nowLabel, familyDoc, timelineBlock, {
         includePresent: spec.present,
         includeTimeline: spec.past,
-        includeHistory: spec.history,
+        includeHistory: wantHistory,
       }) +
       "\n" +
       buildCategoryInstruction(count, category, siblingNames, rejected, recentlyShown);
@@ -658,6 +789,20 @@ export async function generateCandidates(
     if (cat && cat.name === REMINISCENCE && reminiscenceTarget) {
       cat = withTimelineSource(cat, reminiscenceTarget);
     }
+    // A recurring post whose spec opts into family context: fold in a few recent
+    // family posts (deferred until we know the type wants them).
+    if (cat?.spec?.family) {
+      const familyPosts = await loadFamilyRecentSource();
+      if (familyPosts.length > 0) cat = withFamilyRecentSource(cat, familyPosts);
+    }
+    // Steer a recurring post to ground its question in its selected sources
+    // (calendar events, prior posts of this type, …) rather than generic themes.
+    if (cat?.spec) {
+      cat = {
+        ...cat,
+        description: cat.description + recurringGroundingNote(cat.spec, cat.recurrenceDays),
+      };
+    }
     // Unknown forced category falls back to an untyped varied set.
     return generateSlot(n, cat, []);
   }
@@ -693,6 +838,8 @@ export async function generateCandidates(
   // scoped call, in parallel.
   const enabled = questionTypes
     .filter((t) => t.enabled && t.weight > 0)
+    // Recurring posts are deliberate-only — never in the random daily mix.
+    .filter((t) => t.recurrence_days == null)
     // Drop family-followup from the pool entirely when no other member has
     // shared anything, so the sampler never picks a slot it can't fill.
     .filter((t) => t.name !== FAMILY_FOLLOWUP || familySource !== null)

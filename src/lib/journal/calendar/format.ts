@@ -77,16 +77,22 @@ export function formatCalendarBlock(
   tz: string,
   now: Date = new Date(),
   // The window decides which days appear (see CalendarWindow):
-  // - "recent": last 3 days, today's not-yet-happened timed events stripped.
-  // - "ahead":  last 3 days plus the next 7 — the only forward-looking window.
+  // - "recent": looks back `lookbackDays`; today's not-yet-happened timed events
+  //   stripped, and nothing forward.
+  // - "ahead":  looks back `lookbackDays` plus forward `lookaheadDays` — the only
+  //   forward-looking window.
   // Today's all-day events are kept under both windows (ongoing, not
-  // scheduled-for-later).
+  // scheduled-for-later). The spans scale with a recurring post's cadence (a
+  // weekly recap looks back ~7 days, a monthly one ~30) and default to the old
+  // fixed 3-back / 7-ahead for every built-in caller.
   window: CalendarWindow = "recent",
+  lookbackDays = 3,
+  lookaheadDays = window === "ahead" ? 7 : 0,
 ): string {
   if (results.length === 0) return "";
 
   const buckets = new Map<string, NormalizedEvent[]>();
-  for (let d = -3; d <= 7; d++) {
+  for (let d = -lookbackDays; d <= lookaheadDays; d++) {
     buckets.set(addDaysISO(today, d), []);
   }
 
@@ -99,7 +105,7 @@ export function formatCalendarBlock(
         const endKey = localDateKey(ev.end, tz);
         let cursor = startKey;
         let safety = 0;
-        while (cursor < endKey && safety < 31) {
+        while (cursor < endKey && safety < 366) {
           const bucket = buckets.get(cursor);
           if (bucket) bucket.push(ev);
           cursor = addDaysISO(cursor, 1);
@@ -125,11 +131,8 @@ export function formatCalendarBlock(
   // All feeds failed → no block.
   if (failed.length === results.length) return "";
 
-  // Last day shown: "ahead" reaches into next week, "recent" stops at today.
-  const maxD = window === "ahead" ? 7 : 0;
-
   const lines: string[] = [];
-  for (let d = -3; d <= maxD; d++) {
+  for (let d = -lookbackDays; d <= lookaheadDays; d++) {
     const key = addDaysISO(today, d);
     let dayEvents = buckets.get(key) ?? [];
     // "recent" includes today but only its already-happened/ongoing timed events
@@ -177,9 +180,10 @@ export function formatCalendarBlock(
 
   if (lines.length === 0) return "";
 
+  const backPart = `last ${lookbackDays} day${lookbackDays === 1 ? "" : "s"}`;
   const header =
-    window === "ahead"
-      ? "=== Calendar — last 3 days + next 7 ==="
-      : "=== Calendar — last 3 days ===";
+    lookaheadDays > 0
+      ? `=== Calendar — ${backPart} + next ${lookaheadDays} ===`
+      : `=== Calendar — ${backPart} ===`;
   return [header, ...lines].join("\n");
 }
