@@ -57,9 +57,9 @@ export function NotificationBell({
         ) : (
           <ul className="max-h-80 overflow-y-auto py-1">
             {items.map((item) => (
-              <li key={item.entryId}>
+              <li key={item.id}>
                 <Link
-                  href={`/journal/${item.entryId}`}
+                  href={item.href}
                   onClick={() => setOpen(false)}
                   className="flex flex-col gap-0.5 px-3 py-2 transition-colors hover:bg-muted"
                 >

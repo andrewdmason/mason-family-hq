@@ -1,3 +1,5 @@
+import type { CategoryContextSpec } from "@/lib/journal/question-sources";
+
 // Enums matching database
 export type PieceStatus = "active" | "upcoming" | "archived";
 export type PieceKind = "piece" | "technique" | "sight_reading";
@@ -375,6 +377,13 @@ export type JournalQuestionType = {
   enabled: boolean;
   is_builtin: boolean;
   sort_order: number;
+  /** Recurring posts: the rolling cadence in days. Null = ordinary rotation type.
+   * A recurring type is excluded from the random daily sampler and instead nudged
+   * via a notification when its interval lapses. */
+  recurrence_days: number | null;
+  /** Recurring posts: the user's chosen context sources, overriding the name-based
+   * default. Null falls back to specFor(name). See question-sources.ts. */
+  context_spec: CategoryContextSpec | null;
   created_at: string;
   updated_at: string;
 };
@@ -640,14 +649,16 @@ export type JournalEntryView = {
 };
 
 /**
- * One unread post in the notification dropdown. `reason` is the human label
- * ("New post" or "2 new comments"); a post appears at most once regardless of
- * how many reasons apply.
+ * One item in the notification dropdown. `reason` is the human label ("New post",
+ * "2 new comments", or a recurring post's "Due — last posted 34 days ago").
+ * `href` is where clicking navigates: an entry page for unread family posts, or
+ * the new-post flow for a due recurring post. `id` is a stable React key.
  */
 export type JournalNotification = {
-  entryId: string;
+  id: string;
   title: string;
   reason: string;
+  href: string;
 };
 
 /** The header badge's data: the unread posts and their count (== items.length). */

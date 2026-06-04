@@ -32,7 +32,7 @@ export async function loadQuestionTypes(): Promise<JournalQuestionType[]> {
   const { data, error } = await supabase
     .from("journal_question_types")
     .select(
-      "id, name, base_description, style_note, weight, enabled, is_builtin, sort_order, created_at, updated_at"
+      "id, name, base_description, style_note, weight, enabled, is_builtin, sort_order, recurrence_days, context_spec, created_at, updated_at"
     )
     .order("sort_order", { ascending: true });
   if (error) throw error;
@@ -89,7 +89,8 @@ function joinClauses(parts: string[]): string {
 export async function loadHistory(
   today: string,
   excludeEntryId: string | null = null,
-  fullEntries = 7
+  fullEntries = 7,
+  questionType: string | null = null
 ) {
   const supabase = await createClient();
   const userId = await requireUserId(supabase);
@@ -103,6 +104,10 @@ export async function loadHistory(
     .order("entry_date", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(60);
+  // Recurring "this-type" history narrows to the user's prior posts of one kind.
+  if (questionType) {
+    query = query.eq("question_type", questionType);
+  }
   if (excludeEntryId) {
     query = query.neq("id", excludeEntryId);
   } else {

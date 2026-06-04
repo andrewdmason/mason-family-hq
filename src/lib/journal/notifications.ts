@@ -1,5 +1,7 @@
 import type { createClient } from "@/lib/supabase/server";
-import type { JournalNotifications } from "@/lib/types";
+import type { JournalNotification, JournalNotifications } from "@/lib/types";
+import { typeLabel } from "@/lib/journal/candidates";
+import { getUserTimezone, localDate } from "@/lib/date-utils";
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -104,17 +106,106 @@ export async function getJournalNotifications(
   supabase: SupabaseClient,
   userId: string
 ): Promise<JournalNotifications> {
-  const unread = await loadUnreadFamilyEntries(supabase, userId);
+  const [due, unread] = await Promise.all([
+    getRecurringDueNotifications(supabase, userId),
+    loadUnreadFamilyEntries(supabase, userId),
+  ]);
 
-  const items = unread.map(({ entry, isNewPost, unreadComments }) => ({
-    entryId: entry.id,
-    title: displayTitle(entry),
-    reason: isNewPost
-      ? "New post"
-      : `${unreadComments} new comment${unreadComments === 1 ? "" : "s"}`,
-  }));
+  const familyItems: JournalNotification[] = unread.map(
+    ({ entry, isNewPost, unreadComments }) => ({
+      id: entry.id,
+      title: displayTitle(entry),
+      reason: isNewPost
+        ? "New post"
+        : `${unreadComments} new comment${unreadComments === 1 ? "" : "s"}`,
+      href: `/journal/${entry.id}`,
+    })
+  );
 
+  // Due nudges sit on top of unread-family posts.
+  const items = [...due, ...familyItems];
   return { count: items.length, items };
+}
+
+type RecurringType = {
+  name: string;
+  recurrence_days: number;
+};
+
+/**
+ * Persistent "you're due" nudges for the user's recurring posts. A recurring
+ * type is due when it has no closed entry of its kind yet, or its newest one is
+ * at least `recurrence_days` old (a rolling interval). Computed on render like
+ * the rest of the badge — it clears the moment a post of that type is made, and
+ * needs no background job. Clicking takes the user straight into the new-post
+ * flow for that type (`/journal/new?type=<name>`).
+ */
+export async function getRecurringDueNotifications(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<JournalNotification[]> {
+  const { data: typeRows } = await supabase
+    .from("journal_question_types")
+    .select("name, recurrence_days")
+    .eq("user_id", userId)
+    .not("recurrence_days", "is", null);
+  const types = (typeRows ?? []).filter(
+    (t): t is RecurringType =>
+      typeof t.name === "string" && typeof t.recurrence_days === "number"
+  );
+  if (types.length === 0) return [];
+
+  const names = types.map((t) => t.name);
+  const { data: entryRows } = await supabase
+    .from("journal_entries")
+    .select("question_type, entry_date")
+    .eq("user_id", userId)
+    .eq("status", "closed")
+    .in("question_type", names)
+    .order("entry_date", { ascending: false });
+
+  // Newest closed entry_date per recurring type.
+  const lastDateByType = new Map<string, string>();
+  for (const row of entryRows ?? []) {
+    const type = row.question_type as string;
+    if (!lastDateByType.has(type)) {
+      lastDateByType.set(type, row.entry_date as string);
+    }
+  }
+
+  const today = localDate(new Date(), await getUserTimezone());
+
+  // Each due type with how overdue it is, so the most overdue sorts first.
+  const due: { item: JournalNotification; overdueBy: number }[] = [];
+  for (const type of types) {
+    const last = lastDateByType.get(type.name);
+    const daysSince = last === undefined ? null : daysBetween(last, today);
+    const overdue = daysSince === null || daysSince >= type.recurrence_days;
+    if (!overdue) continue;
+
+    const reason =
+      daysSince === null
+        ? "Never posted"
+        : `Due — last posted ${daysSince} day${daysSince === 1 ? "" : "s"} ago`;
+    due.push({
+      item: {
+        id: `recurring:${type.name}`,
+        title: typeLabel(type.name) ?? type.name,
+        reason,
+        href: `/journal/new?type=${encodeURIComponent(type.name)}`,
+      },
+      overdueBy: daysSince === null ? Infinity : daysSince - type.recurrence_days,
+    });
+  }
+
+  return due.sort((a, b) => b.overdueBy - a.overdueBy).map((d) => d.item);
+}
+
+/** Whole days from `from` (YYYY-MM-DD) to `to` (YYYY-MM-DD), never negative. */
+function daysBetween(from: string, to: string): number {
+  const a = Date.parse(`${from}T00:00:00Z`);
+  const b = Date.parse(`${to}T00:00:00Z`);
+  return Math.max(0, Math.round((b - a) / 86400000));
 }
 
 /**

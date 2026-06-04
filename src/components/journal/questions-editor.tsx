@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, type ComponentType } from "react";
-import { Ban, ChevronRight, Plus, StickyNote, Trash2 } from "lucide-react";
+import { Ban, ChevronRight, Plus, Repeat, StickyNote, Trash2 } from "lucide-react";
 import {
   addCustomQuestionType,
   deleteCustomQuestionType,
@@ -19,7 +19,11 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { sourcesFor } from "@/lib/journal/question-sources";
+import {
+  DEFAULT_RECURRING_SPEC,
+  sourcesFor,
+  type CategoryContextSpec,
+} from "@/lib/journal/question-sources";
 import type { JournalQuestionType, JournalSettings } from "@/lib/types";
 
 const MIN_PER_DAY = 1;
@@ -101,6 +105,8 @@ type Row = {
   enabled: boolean;
   is_builtin: boolean;
   sort_order: number;
+  recurrence_days: number | null;
+  context_spec: CategoryContextSpec | null;
 };
 
 function labelFor(name: string): string {
@@ -127,6 +133,8 @@ function toRow(t: JournalQuestionType): Row {
     enabled: t.enabled,
     is_builtin: t.is_builtin,
     sort_order: t.sort_order,
+    recurrence_days: t.recurrence_days,
+    context_spec: t.context_spec,
   };
 }
 
@@ -150,8 +158,16 @@ export function QuestionsEditor({
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
 
-  const builtins = rows.filter((r) => r.is_builtin).sort(byPriority);
-  const customs = rows.filter((r) => !r.is_builtin).sort(byPriority);
+  // Recurring posts live in their own section; the rotation lists exclude them.
+  const recurrings = rows
+    .filter((r) => r.recurrence_days != null)
+    .sort((a, b) => a.sort_order - b.sort_order);
+  const builtins = rows
+    .filter((r) => r.is_builtin && r.recurrence_days == null)
+    .sort(byPriority);
+  const customs = rows
+    .filter((r) => !r.is_builtin && r.recurrence_days == null)
+    .sort(byPriority);
 
   function touch() {
     setDirty(true);
@@ -182,6 +198,8 @@ export function QuestionsEditor({
             style_note: r.style_note,
             base_description: r.base_description,
             enabled: r.enabled,
+            recurrence_days: r.recurrence_days,
+            context_spec: r.context_spec,
           })),
           perDay,
           memberEmail
@@ -213,6 +231,27 @@ export function QuestionsEditor({
       try {
         await deleteCustomQuestionType(id, memberEmail);
         setRows((rs) => rs.filter((r) => r.id !== id));
+      } catch (err) {
+        alert(err instanceof Error ? err.message : String(err));
+      }
+    });
+  }
+
+  function handleAddRecurring(
+    name: string,
+    desc: string,
+    days: number,
+    spec: CategoryContextSpec,
+    onDone: () => void
+  ) {
+    startTransition(async () => {
+      try {
+        const created = await addCustomQuestionType(name, desc, memberEmail, {
+          recurrence_days: days,
+          context_spec: spec,
+        });
+        setRows((rs) => [...rs, toRow(created)]);
+        onDone();
       } catch (err) {
         alert(err instanceof Error ? err.message : String(err));
       }
@@ -328,6 +367,15 @@ export function QuestionsEditor({
           )}
         </div>
       </div>
+
+      {/* Recurring posts */}
+      <RecurringSection
+        rows={recurrings}
+        onPatch={patch}
+        onDelete={handleDelete}
+        onAdd={handleAddRecurring}
+        pending={pending}
+      />
 
       {/* Save bar */}
       <div className="mt-8 flex items-center justify-end gap-3 border-t border-border pt-4 text-xs">
@@ -531,5 +579,326 @@ function PriorityPicker({
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+// ============================================================
+// Recurring posts
+// ============================================================
+
+const CADENCE_PRESETS: { label: string; days: number }[] = [
+  { label: "Weekly", days: 7 },
+  { label: "Monthly", days: 30 },
+];
+
+/** The boolean context sources a recurring post can draw on, in load order. */
+const FLAG_TOGGLES: {
+  key: "present" | "typeHistory" | "history" | "past" | "family";
+  label: string;
+}[] = [
+  { key: "present", label: "About me" },
+  { key: "typeHistory", label: "Past posts of this type" },
+  { key: "history", label: "My recent entries" },
+  { key: "past", label: "My timeline" },
+  { key: "family", label: "Family posts" },
+];
+
+function cadenceLabel(days: number): string {
+  const preset = CADENCE_PRESETS.find((p) => p.days === days);
+  return preset ? preset.label.toLowerCase() : `every ${days} days`;
+}
+
+function RecurringSection({
+  rows,
+  onPatch,
+  onDelete,
+  onAdd,
+  pending,
+}: {
+  rows: Row[];
+  onPatch: (id: string, p: Partial<Row>) => void;
+  onDelete: (id: string) => void;
+  onAdd: (
+    name: string,
+    desc: string,
+    days: number,
+    spec: CategoryContextSpec,
+    onDone: () => void
+  ) => void;
+  pending: boolean;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  const [days, setDays] = useState(7);
+  const [spec, setSpec] = useState<CategoryContextSpec>(DEFAULT_RECURRING_SPEC);
+
+  function reset() {
+    setName("");
+    setDesc("");
+    setDays(7);
+    setSpec(DEFAULT_RECURRING_SPEC);
+    setAdding(false);
+  }
+
+  return (
+    <div className="mt-10">
+      <h3 className="font-serif text-sm uppercase tracking-wide text-muted-foreground">
+        Recurring posts
+      </h3>
+      <p className="mt-1 font-serif text-sm italic text-muted-foreground">
+        Posts you want to make on a regular cadence. You&apos;ll be nudged when one
+        is due, and can start it any time from the new-post menu.
+      </p>
+
+      <div className="mt-3">
+        {rows.length > 0 && (
+          <div className="divide-y divide-border rounded-lg border border-border">
+            {rows.map((r) => (
+              <RecurringRow
+                key={r.id}
+                row={r}
+                onPatch={onPatch}
+                onDelete={() => onDelete(r.id)}
+              />
+            ))}
+          </div>
+        )}
+
+        {adding ? (
+          <div className="mt-3 rounded-lg border border-border p-3">
+            <Input
+              autoFocus
+              placeholder="name (e.g. school-week)"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <Textarea
+              className="mt-2"
+              placeholder="What should this post prompt you about? (e.g. What happened at school this week?)"
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+            />
+            <div className="mt-3">
+              <CadencePicker days={days} onChange={setDays} />
+            </div>
+            <div className="mt-3">
+              <SourceToggles spec={spec} onChange={setSpec} />
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => onAdd(name, desc, days, spec, reset)}
+                disabled={pending}
+              >
+                Add
+              </Button>
+              <Button size="sm" variant="ghost" onClick={reset} disabled={pending}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3"
+            onClick={() => setAdding(true)}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New recurring post
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RecurringRow({
+  row,
+  onPatch,
+  onDelete,
+}: {
+  row: Row;
+  onPatch: (id: string, p: Partial<Row>) => void;
+  onDelete: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const days = row.recurrence_days ?? 7;
+  const spec = row.context_spec ?? DEFAULT_RECURRING_SPEC;
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+
+  return (
+    <div>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((x) => !x)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setExpanded((x) => !x);
+          }
+        }}
+        className="flex cursor-pointer select-none items-center gap-2 px-2 py-1.5"
+      >
+        <Repeat className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+        <ChevronRight
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+            expanded && "rotate-90"
+          )}
+        />
+        <span className="font-serif text-sm text-foreground">{labelFor(row.name)}</span>
+        <span className="font-serif text-xs text-muted-foreground">
+          {cadenceLabel(days)}
+        </span>
+        <div className="flex-1" />
+        <span onClick={stop} className="inline-flex">
+          <Button variant="ghost" size="icon-sm" onClick={onDelete} aria-label="Delete">
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </span>
+      </div>
+
+      {expanded && (
+        <div className="pb-3 pl-9 pr-2">
+          <label className="font-serif text-xs uppercase tracking-wide text-muted-foreground">
+            Prompt
+          </label>
+          <Textarea
+            className="mt-1"
+            value={row.base_description}
+            onChange={(e) => onPatch(row.id, { base_description: e.target.value })}
+            placeholder="What should this post prompt you about?"
+          />
+
+          <div className="mt-3">
+            <CadencePicker
+              days={days}
+              onChange={(d) => onPatch(row.id, { recurrence_days: d })}
+            />
+          </div>
+
+          <div className="mt-3">
+            <SourceToggles
+              spec={spec}
+              onChange={(s) => onPatch(row.id, { context_spec: s })}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CadencePicker({
+  days,
+  onChange,
+}: {
+  days: number;
+  onChange: (days: number) => void;
+}) {
+  const isPreset = CADENCE_PRESETS.some((p) => p.days === days);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="font-serif text-xs uppercase tracking-wide text-muted-foreground">
+        Cadence
+      </span>
+      {CADENCE_PRESETS.map((p) => (
+        <button
+          key={p.days}
+          type="button"
+          onClick={() => onChange(p.days)}
+          className={cn(
+            "rounded-md border px-2.5 py-1 font-serif text-sm transition-colors",
+            days === p.days
+              ? "border-foreground bg-foreground/10 text-foreground"
+              : "border-border text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {p.label}
+        </button>
+      ))}
+      <span className="flex items-center gap-1 font-serif text-sm text-muted-foreground">
+        <button
+          type="button"
+          onClick={() => onChange(isPreset ? 14 : days)}
+          className={cn(
+            "rounded-md border px-2.5 py-1 transition-colors",
+            !isPreset
+              ? "border-foreground bg-foreground/10 text-foreground"
+              : "border-border hover:text-foreground"
+          )}
+        >
+          Every
+        </button>
+        <Input
+          type="number"
+          min={1}
+          value={days}
+          onChange={(e) => {
+            const n = Math.max(1, Math.round(Number(e.target.value) || 1));
+            onChange(n);
+          }}
+          className="h-8 w-16"
+        />
+        <span>days</span>
+      </span>
+    </div>
+  );
+}
+
+function SourceToggles({
+  spec,
+  onChange,
+}: {
+  spec: CategoryContextSpec;
+  onChange: (spec: CategoryContextSpec) => void;
+}) {
+  function pill(active: boolean, label: string, onClick: () => void) {
+    return (
+      <button
+        key={label}
+        type="button"
+        onClick={onClick}
+        className={cn(
+          "rounded-full border px-2.5 py-1 font-serif text-xs transition-colors",
+          active
+            ? "border-foreground bg-foreground/10 text-foreground"
+            : "border-border text-muted-foreground hover:text-foreground"
+        )}
+      >
+        {label}
+      </button>
+    );
+  }
+
+  return (
+    <div>
+      <span className="font-serif text-xs uppercase tracking-wide text-muted-foreground">
+        Context sources
+      </span>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        {FLAG_TOGGLES.map((t) =>
+          pill(Boolean(spec[t.key]), t.label, () =>
+            onChange({ ...spec, [t.key]: !spec[t.key] })
+          )
+        )}
+        {pill(spec.calendar === "recent", "Past calendar", () =>
+          onChange({
+            ...spec,
+            calendar: spec.calendar === "recent" ? "none" : "recent",
+          })
+        )}
+        {pill(spec.calendar === "ahead", "Upcoming calendar", () =>
+          onChange({
+            ...spec,
+            calendar: spec.calendar === "ahead" ? "none" : "ahead",
+          })
+        )}
+      </div>
+    </div>
   );
 }

@@ -8,6 +8,7 @@ import {
   Loader2,
   MessageSquareQuote,
   PencilLine,
+  Repeat,
 } from "lucide-react";
 import { TypingIndicator } from "@/components/journal/typing-indicator";
 import {
@@ -43,16 +44,24 @@ export function OpeningPicker({
   initialCandidates,
   initialRerollCount,
   questionTypeNames = [],
+  recurringTypeNames = [],
   initialMode,
+  forcedType,
 }: {
   entryId: string;
   initialCandidates: JournalOpeningCandidate[] | null;
   initialRerollCount: number;
   questionTypeNames?: string[];
+  /** The user's recurring-post types, surfaced as their own one-tap triggers so
+   * a recurring post can be started here on demand (not only when it's due). */
+  recurringTypeNames?: string[];
   /** Deep-link the picker straight into one way to start (from the header's
    * "New ▾" menu). "freeform" auto-starts a blog entry on mount; "quote" and
    * "recap" open their compose form directly. */
   initialMode?: "freeform" | "quote" | "recap";
+  /** Deep-link from a recurring post's "due" notification: generate the opening
+   * questions in this one type on mount, instead of the usual varied set. */
+  forcedType?: string;
 }) {
   const [candidates, setCandidates] = useState<JournalOpeningCandidate[]>(() =>
     normalizeCandidates(initialCandidates)
@@ -91,6 +100,13 @@ export function OpeningPicker({
       return;
     }
     if (initialMode === "quote" || initialMode === "recap") return;
+    // A recurring post's notification forces the whole opening set into one type.
+    if (forcedType) {
+      void fetchCandidates("/journal/api/regenerate-opening", {
+        categoryName: forcedType,
+      });
+      return;
+    }
     if (candidates.length > 0) return;
     void fetchCandidates("/journal/api/opening-candidates");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -476,6 +492,28 @@ export function OpeningPicker({
             </>
           )}
         </div>
+        {recurringTypeNames.length > 0 && (
+          <div className="mt-10">
+            <p className="font-serif text-sm uppercase tracking-[0.2em] text-muted-foreground">
+              recurring posts
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {recurringTypeNames.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => handleAskSpecific(name)}
+                  disabled={loading || !!picked}
+                  className="flex items-center gap-2 rounded-lg border border-dashed border-muted px-4 py-2.5 text-left font-serif text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground disabled:opacity-50"
+                >
+                  <Repeat className="size-4 shrink-0" aria-hidden />
+                  <span className="leading-snug">{typeLabel(name)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <p className="mt-10 font-serif text-sm uppercase tracking-[0.2em] text-muted-foreground">
           start another way
         </p>

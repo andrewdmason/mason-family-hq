@@ -32,6 +32,20 @@ export type CategoryContextSpec = {
   past: boolean;
   history: boolean;
   calendar: CalendarWindow | "none";
+  /**
+   * Recurring posts only: the user's own past closed entries *of this same type*
+   * (the "same category" source — e.g. every school recap sees the prior school
+   * recaps). When set without `history`, the history block is narrowed to just
+   * this type; with `history` it's the full recent history (which already
+   * includes this type). Absent/false on built-ins.
+   */
+  typeHistory?: boolean;
+  /**
+   * Recurring posts only: a few recent family-shared posts from other members,
+   * folded into the prompt. Generalizes the name-keyed family-followup source so
+   * any recurring type can opt into family context. Absent/false on built-ins.
+   */
+  family?: boolean;
 };
 
 /**
@@ -79,11 +93,35 @@ export function specFor(name: string | undefined): CategoryContextSpec {
   return (name && CONTEXT_SPECS[name]) || DEFAULT_SPEC;
 }
 
+/**
+ * The spec for a stored question type, honoring a recurring post's user-chosen
+ * `context_spec` when present and otherwise falling back to the name-based spec.
+ */
+export function specForRow(row: {
+  name: string;
+  context_spec?: CategoryContextSpec | null;
+}): CategoryContextSpec {
+  return row.context_spec ?? specFor(row.name);
+}
+
+/** A new recurring post's default sources: grounded in who you are now and your
+ * prior posts of the same type, nothing else (calendar off — it's the big drift
+ * source). The user tunes this in the editor. */
+export const DEFAULT_RECURRING_SPEC: CategoryContextSpec = {
+  present: true,
+  past: false,
+  history: false,
+  calendar: "none",
+  typeHistory: true,
+  family: false,
+};
+
 /** The data-source pills shown under a question type, in the order they load. */
 export type QuestionSource =
   | "user/present"
   | "user/timeline"
   | "journal/history"
+  | "journal/this-type"
   | "calendar/past"
   | "calendar/future"
   | "family"
@@ -102,14 +140,26 @@ export type QuestionSource =
  *   per-type wouldn't distinguish anything.
  */
 export function sourcesFor(name: string | undefined): QuestionSource[] {
-  const spec = specFor(name);
+  return sourcesForSpec(specFor(name), name);
+}
+
+/**
+ * The source pills for an explicit spec — used for recurring posts, whose sources
+ * come from their stored `context_spec` rather than their name. `name` still keys
+ * the two name-based special sources (family-followup, currently-reading).
+ */
+export function sourcesForSpec(
+  spec: CategoryContextSpec,
+  name?: string
+): QuestionSource[] {
   const sources: QuestionSource[] = [];
   if (spec.present) sources.push("user/present");
   if (spec.past) sources.push("user/timeline");
   if (spec.history) sources.push("journal/history");
+  if (spec.typeHistory) sources.push("journal/this-type");
   if (spec.calendar === "recent") sources.push("calendar/past");
   if (spec.calendar === "ahead") sources.push("calendar/future");
-  if (name === FAMILY_FOLLOWUP) sources.push("family");
+  if (spec.family || name === FAMILY_FOLLOWUP) sources.push("family");
   if (name === CURRENTLY_READING) sources.push("reading");
   return sources;
 }

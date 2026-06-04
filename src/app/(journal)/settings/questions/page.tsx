@@ -24,7 +24,7 @@ export default async function QuestionsSettingsPage({
     client
       .from("journal_question_types")
       .select(
-        "id, name, base_description, style_note, weight, enabled, is_builtin, sort_order, created_at, updated_at"
+        "id, name, base_description, style_note, weight, enabled, is_builtin, sort_order, recurrence_days, context_spec, created_at, updated_at"
       )
       .eq("user_id", userId)
       .order("sort_order", { ascending: true }),

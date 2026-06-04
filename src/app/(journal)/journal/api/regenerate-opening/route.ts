@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireUserId } from "@/lib/members/auth";
 import { generateCandidates } from "@/lib/journal/opening-candidates";
 import { candidateTexts } from "@/lib/journal/candidates";
+import { toErrorMessage } from "@/lib/journal/errors";
 import { localDate, resolveTimezone } from "@/lib/date-utils";
 import type { JournalOpeningCandidate } from "@/lib/types";
 
@@ -75,8 +76,8 @@ export async function POST(req: NextRequest) {
       entry.timeline_entry_id as string | null
     );
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return new Response(msg, { status: 500 });
+    console.error("[regenerate-opening] generation failed:", err);
+    return new Response(toErrorMessage(err), { status: 500 });
   }
 
   const rerollCount = entry.candidates_reroll_count + 1;
