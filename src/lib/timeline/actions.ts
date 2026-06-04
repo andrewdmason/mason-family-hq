@@ -217,17 +217,18 @@ export async function deleteTimelinePhoto(photoId: string): Promise<void> {
 }
 
 /** Signed display URLs for the pinned photos of each event. Owner signs all via
- * admin (cross-member); other members sign only their own (RLS). */
+ * admin (cross-member); other members sign only their own (RLS). Videos also get
+ * a signed URL for the original file so the lightbox can play them. */
 export async function getTimelineEntriesPhotos(
   timelineEntryIds: string[]
-): Promise<Record<string, { id: string; displayUrl: string; mediaType: JournalMediaType }[]>> {
-  const result: Record<string, { id: string; displayUrl: string; mediaType: JournalMediaType }[]> = {};
+): Promise<Record<string, { id: string; displayUrl: string; videoUrl: string | null; mediaType: JournalMediaType }[]>> {
+  const result: Record<string, { id: string; displayUrl: string; videoUrl: string | null; mediaType: JournalMediaType }[]> = {};
   if (timelineEntryIds.length === 0) return result;
   const supabase = await createClient();
   const client = (await getIsOwner(supabase)) ? createAdminClient() : supabase;
   const { data: rows } = await client
     .from("timeline_entry_photos")
-    .select("id, timeline_entry_id, display_path, media_type")
+    .select("id, timeline_entry_id, display_path, original_path, media_type")
     .in("timeline_entry_id", timelineEntryIds)
     .order("created_at", { ascending: true });
   if (!rows || rows.length === 0) return result;
@@ -236,11 +237,25 @@ export async function getTimelineEntriesPhotos(
     .from(PHOTOS_BUCKET)
     .createSignedUrls(rows.map((r) => r.display_path as string), 60 * 60);
 
+  // Videos need a signed URL for the original file so the lightbox can play it.
+  const videoRows = rows.filter((r) => r.media_type === "video");
+  const { data: signedVideo } = videoRows.length
+    ? await client.storage
+        .from(PHOTOS_BUCKET)
+        .createSignedUrls(videoRows.map((r) => r.original_path as string), 60 * 60)
+    : { data: null };
+  const videoUrlById = new Map<string, string>();
+  videoRows.forEach((r, i) => {
+    const url = signedVideo?.[i]?.signedUrl;
+    if (url) videoUrlById.set(r.id as string, url);
+  });
+
   rows.forEach((row, i) => {
     const id = row.timeline_entry_id as string;
     (result[id] ??= []).push({
       id: row.id as string,
       displayUrl: signed?.[i]?.signedUrl ?? "",
+      videoUrl: videoUrlById.get(row.id as string) ?? null,
       mediaType: (row.media_type as JournalMediaType) ?? "photo",
     });
   });

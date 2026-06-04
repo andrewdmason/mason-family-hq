@@ -1346,6 +1346,7 @@ export async function getEntriesPhotos(
     {
       id: string;
       displayUrl: string;
+      videoUrl: string | null;
       mediaType: JournalMediaType;
       source: JournalPhotoSource;
     }[]
@@ -1360,7 +1361,7 @@ export async function getEntriesPhotos(
   const client = (await getIsOwner(supabase)) ? createAdminClient() : supabase;
   const { data: rows } = await client
     .from("journal_entry_photos")
-    .select("id, entry_id, display_path, media_type, source")
+    .select("id, entry_id, display_path, original_path, media_type, source")
     .in("entry_id", entryIds)
     .order("created_at", { ascending: true });
 
@@ -1373,11 +1374,29 @@ export async function getEntriesPhotos(
       60 * 60
     );
 
+  // Videos also need a signed URL for the original file so the lightbox can
+  // play it (e.g. a timeline cover sourced from a linked journal entry).
+  const videoRows = rows.filter((r) => r.media_type === "video");
+  const { data: signedVideo } = videoRows.length
+    ? await client.storage
+        .from(PHOTOS_BUCKET)
+        .createSignedUrls(
+          videoRows.map((r) => r.original_path as string),
+          60 * 60
+        )
+    : { data: null };
+  const videoUrlById = new Map<string, string>();
+  videoRows.forEach((row, i) => {
+    const url = signedVideo?.[i]?.signedUrl;
+    if (url) videoUrlById.set(row.id as string, url);
+  });
+
   const result: Record<
     string,
     {
       id: string;
       displayUrl: string;
+      videoUrl: string | null;
       mediaType: JournalMediaType;
       source: JournalPhotoSource;
     }[]
@@ -1387,6 +1406,7 @@ export async function getEntriesPhotos(
     (result[entryId] ??= []).push({
       id: row.id as string,
       displayUrl: signed?.[i]?.signedUrl ?? "",
+      videoUrl: videoUrlById.get(row.id as string) ?? null,
       mediaType: (row.media_type as JournalMediaType) ?? "photo",
       source: (row.source as JournalPhotoSource) ?? "uploaded",
     });

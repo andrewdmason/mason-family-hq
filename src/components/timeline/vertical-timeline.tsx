@@ -21,6 +21,7 @@ import {
   Music,
   Pencil,
   Plane,
+  Play,
   Plus,
   Trash2,
   Users,
@@ -174,7 +175,7 @@ export function VerticalTimeline({
   // lightbox, and the edit modal. The popover no longer opens on hover.
   const router = useRouter();
   const [hovered, setHovered] = useState<{ entry: TimelineEntryWithPeople; rect: DOMRect } | null>(null);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ displayUrl: string; videoUrl: string | null } | null>(null);
   const [editing, setEditing] = useState<TimelineEntryWithPeople | null>(null);
   const [creating, setCreating] = useState(false);
   // Photos dropped on the dedicated drop zone open a New event modal with them
@@ -415,7 +416,7 @@ export function VerticalTimeline({
                   row={item.row}
                   upcoming={item.upcoming}
                   onActivate={(el) => showPopover(item.e, el)}
-                  onOpenPhoto={(src) => setLightboxSrc(src)}
+                  onOpenPhoto={(media) => setLightbox(media)}
                   onAddPhotos={(files) => addPhotosToEvent(item.e.id, files)}
                   uploading={uploadingId === item.e.id}
                 />
@@ -439,10 +440,10 @@ export function VerticalTimeline({
           onDelete={() => handleDelete(hovered.entry.id)}
           onAddPhotos={(files) => addPhotosToEvent(hovered.entry.id, files)}
           onRemovePhoto={removePhoto}
-          onOpenPhoto={(src) => setLightboxSrc(src)}
+          onOpenPhoto={(media) => setLightbox(media)}
         />
       )}
-      {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+      {lightbox && <Lightbox media={lightbox} onClose={() => setLightbox(null)} />}
       {editing && (
         <EntryModal entry={editing} familyPeople={people} onClose={() => setEditing(null)} />
       )}
@@ -664,7 +665,7 @@ function EventColumn({
   row: 0 | 1;
   upcoming: boolean;
   onActivate: (el: HTMLElement) => void;
-  onOpenPhoto: (src: string) => void;
+  onOpenPhoto: (media: { displayUrl: string; videoUrl: string | null }) => void;
   onAddPhotos: (files: File[]) => void;
   uploading: boolean;
 }) {
@@ -672,6 +673,7 @@ function EventColumn({
   const color = personColor(e.subjects[0]?.member_email);
   const imgH = IMG_H[e.prominence];
   const showImage = !!e.coverPhotoUrl && imgH > 0;
+  const coverIsVideo = !!e.coverVideoUrl;
   const Icon = CATEGORY_ICON[e.category];
   const rootRef = useRef<HTMLDivElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -716,12 +718,12 @@ function EventColumn({
       type="button"
       onClick={(ev) => {
         ev.stopPropagation();
-        onOpenPhoto(e.coverPhotoUrl!);
+        onOpenPhoto({ displayUrl: e.coverPhotoUrl!, videoUrl: e.coverVideoUrl });
       }}
-      aria-label="View photo"
+      aria-label={coverIsVideo ? "Play video" : "View photo"}
       style={{ transform: `rotate(${tiltFor(e.id)}deg)` }}
       className={cn(
-        "block shrink-0 cursor-zoom-in border-0 bg-transparent p-0",
+        "relative block shrink-0 cursor-zoom-in border-0 bg-transparent p-0",
         // Breathing room between the print and the caption (which sits below it on
         // the top row, above it on the bottom row).
         top ? "mb-4" : "mt-4"
@@ -737,6 +739,13 @@ function EventColumn({
           upcoming && "opacity-70"
         )}
       />
+      {coverIsVideo && (
+        <span className="absolute inset-0 flex items-center justify-center" aria-hidden>
+          <span className="rounded-full bg-black/55 p-2">
+            <Play className="h-4 w-4 fill-white text-white" />
+          </span>
+        </span>
+      )}
     </button>
   ) : null;
 
@@ -842,7 +851,7 @@ function EntryPopover({
   onDelete: () => void;
   onAddPhotos: (files: File[]) => void;
   onRemovePhoto: (photoId: string) => void;
-  onOpenPhoto: (src: string) => void;
+  onOpenPhoto: (media: { displayUrl: string; videoUrl: string | null }) => void;
 }) {
   const color = personColor(e.subjects[0]?.member_email);
   const Icon = CATEGORY_ICON[e.category];
@@ -903,12 +912,19 @@ function EntryPopover({
             <div key={photo.id} className="group/photo relative aspect-square overflow-hidden rounded-md bg-muted">
               <button
                 type="button"
-                onClick={() => onOpenPhoto(photo.displayUrl)}
-                aria-label="View photo"
+                onClick={() => onOpenPhoto({ displayUrl: photo.displayUrl, videoUrl: photo.videoUrl })}
+                aria-label={photo.mediaType === "video" ? "Play video" : "View photo"}
                 className="block h-full w-full cursor-zoom-in"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={photo.displayUrl} alt="" className="h-full w-full object-cover" />
+                {photo.mediaType === "video" && (
+                  <span className="absolute inset-0 flex items-center justify-center" aria-hidden>
+                    <span className="rounded-full bg-black/55 p-1.5">
+                      <Play className="h-3 w-3 fill-white text-white" />
+                    </span>
+                  </span>
+                )}
               </button>
               <button
                 type="button"
@@ -977,8 +993,14 @@ function EntryPopover({
   );
 }
 
-/** A full-screen modal showing a single photo at its natural size. */
-function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
+/** A full-screen modal showing a single photo at its natural size, or playing a video. */
+function Lightbox({
+  media,
+  onClose,
+}: {
+  media: { displayUrl: string; videoUrl: string | null };
+  onClose: () => void;
+}) {
   useEffect(() => {
     function onKey(ev: KeyboardEvent) {
       if (ev.key === "Escape") onClose();
@@ -992,13 +1014,24 @@ function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
       onClick={onClose}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={src}
-        alt=""
-        onClick={(ev) => ev.stopPropagation()}
-        className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
-      />
+      {media.videoUrl ? (
+        <video
+          src={media.videoUrl}
+          poster={media.displayUrl}
+          controls
+          autoPlay
+          onClick={(ev) => ev.stopPropagation()}
+          className="max-h-[90vh] max-w-[90vw] rounded-lg shadow-2xl"
+        />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={media.displayUrl}
+          alt=""
+          onClick={(ev) => ev.stopPropagation()}
+          className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
+        />
+      )}
       <button
         type="button"
         onClick={onClose}

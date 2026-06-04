@@ -572,10 +572,12 @@ export type TimelineLinkedPost = {
   authorName: string | null;
 };
 
-/** A photo pinned directly to a timeline event (no journal post). */
+/** A photo (or video) pinned directly to a timeline event (no journal post). */
 export type TimelineEntryPhoto = {
   id: string;
   displayUrl: string;
+  /** Signed URL for the original video file (videos only); null for photos. */
+  videoUrl: string | null;
   mediaType: JournalMediaType;
 };
 
@@ -592,6 +594,8 @@ export type TimelineEntryWithPeople = TimelineEntry & {
   /** A signed display URL for a representative photo — the first directly-pinned
    * photo, else one from a linked journal entry. Drives the timeline card's image. */
   coverPhotoUrl: string | null;
+  /** When the cover is a video, its signed playback URL (the poster is `coverPhotoUrl`). */
+  coverVideoUrl: string | null;
 };
 
 export type JournalMediaType = "photo" | "video";

@@ -47,7 +47,7 @@ async function fetchLinkedPosts(journalIds: string[]): Promise<Map<string, Timel
 /** Split the embedded people join into subjects and mentions. */
 function shape(
   row: RawRow
-): Omit<TimelineEntryWithPeople, "linkedCount" | "coverPhotoUrl" | "linkedPosts" | "photos"> {
+): Omit<TimelineEntryWithPeople, "linkedCount" | "coverPhotoUrl" | "coverVideoUrl" | "linkedPosts" | "photos"> {
   const subjects: TimelinePerson[] = [];
   const mentions: TimelinePerson[] = [];
   for (const tep of row.timeline_entry_people ?? []) {
@@ -177,6 +177,7 @@ export async function loadTimeline(
   // and getEntriesPhotos both handle signing (and the owner-sees-all path).
   // Avatars come along for the rendering path so cards can show whose event it is.
   const coverByEntry = new Map<string, string>();
+  const coverVideoByEntry = new Map<string, string>();
   const directByEntry = new Map<string, TimelineEntryPhoto[]>();
   const postsByEntry = new Map<string, TimelineLinkedPost[]>();
   let avatars = new Map<string, string>();
@@ -195,17 +196,21 @@ export async function loadTimeline(
 
       const journalIds = linked.get(e.id) ?? [];
       // Cover: a directly-pinned photo first, else the newest linked post's photo.
+      // A video cover keeps its poster as the display URL and carries a playback URL.
       let cover = direct[0]?.displayUrl ?? null;
+      let coverVideo = direct[0]?.videoUrl ?? null;
       if (!cover) {
         for (const jid of journalIds) {
-          const url = photos[jid]?.[0]?.displayUrl;
-          if (url) {
-            cover = url;
+          const photo = photos[jid]?.[0];
+          if (photo?.displayUrl) {
+            cover = photo.displayUrl;
+            coverVideo = photo.videoUrl;
             break;
           }
         }
       }
       if (cover) coverByEntry.set(e.id, cover);
+      if (coverVideo) coverVideoByEntry.set(e.id, coverVideo);
 
       postsByEntry.set(
         e.id,
@@ -222,6 +227,7 @@ export async function loadTimeline(
     linkedPosts: postsByEntry.get(e.id) ?? [],
     photos: directByEntry.get(e.id) ?? [],
     coverPhotoUrl: coverByEntry.get(e.id) ?? null,
+    coverVideoUrl: coverVideoByEntry.get(e.id) ?? null,
   }));
 }
 
@@ -248,6 +254,7 @@ export async function loadTimelineEntryById(
     linkedPosts: [],
     photos: [],
     coverPhotoUrl: null,
+    coverVideoUrl: null,
   };
 }
 
@@ -286,6 +293,7 @@ export async function loadTimelineEntryDetail(
       linkedPosts: [],
       photos: [],
       coverPhotoUrl: null,
+      coverVideoUrl: null,
     },
     linkedEntryIds,
   };
