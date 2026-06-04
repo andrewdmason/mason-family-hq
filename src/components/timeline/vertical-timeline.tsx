@@ -177,6 +177,20 @@ export function VerticalTimeline({
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [editing, setEditing] = useState<TimelineEntryWithPeople | null>(null);
   const [creating, setCreating] = useState(false);
+  // Photos dropped on the dedicated drop zone open a New event modal with them
+  // staged (and the first photo's EXIF date pre-filled). The zone only appears
+  // while files are being dragged over the page, so it never competes with the
+  // per-event drop targets.
+  const [creatingFiles, setCreatingFiles] = useState<File[]>([]);
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  const [dropZoneOver, setDropZoneOver] = useState(false);
+
+  function startEventFromPhotos(files: File[]) {
+    const valid = files.filter((f) => detectMediaType(f) && f.size <= MAX_UPLOAD_BYTES);
+    if (valid.length === 0) return;
+    setCreatingFiles(valid);
+    setCreating(true);
+  }
 
   function showPopover(entry: TimelineEntryWithPeople, el: HTMLElement) {
     setHovered({ entry, rect: el.getBoundingClientRect() });
@@ -241,17 +255,44 @@ export function VerticalTimeline({
     }
   }
 
-  // Swallow file drops outside a target so the browser doesn't navigate to them
-  // (preventing default on dragover is also what enables dropping at all).
+  // Track whether files are being dragged over the page (to reveal the
+  // "new event" drop zone) and swallow drops outside a target so the browser
+  // doesn't navigate to them (preventing default on dragover also enables
+  // dropping at all). Depth counting keeps the state steady as the cursor
+  // crosses child elements.
   useEffect(() => {
-    const prevent = (e: DragEvent) => {
-      if (e.dataTransfer?.types?.includes("Files")) e.preventDefault();
+    let depth = 0;
+    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    const onEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth += 1;
+      setDraggingFiles(true);
     };
-    window.addEventListener("dragover", prevent);
-    window.addEventListener("drop", prevent);
+    const onLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth -= 1;
+      if (depth <= 0) {
+        depth = 0;
+        setDraggingFiles(false);
+      }
+    };
+    const onOver = (e: DragEvent) => {
+      if (hasFiles(e)) e.preventDefault();
+    };
+    const onDrop = (e: DragEvent) => {
+      if (hasFiles(e)) e.preventDefault();
+      depth = 0;
+      setDraggingFiles(false);
+    };
+    window.addEventListener("dragenter", onEnter);
+    window.addEventListener("dragleave", onLeave);
+    window.addEventListener("dragover", onOver);
+    window.addEventListener("drop", onDrop);
     return () => {
-      window.removeEventListener("dragover", prevent);
-      window.removeEventListener("drop", prevent);
+      window.removeEventListener("dragenter", onEnter);
+      window.removeEventListener("dragleave", onLeave);
+      window.removeEventListener("dragover", onOver);
+      window.removeEventListener("drop", onDrop);
     };
   }, []);
 
@@ -287,6 +328,41 @@ export function VerticalTimeline({
 
   return (
     <div className="flex flex-1 flex-col pt-10">
+      {/* Revealed only while dragging files: a dedicated, labeled target for
+          starting a new event, well clear of the per-event drop zones. */}
+      {draggingFiles && !creating && !editing && (
+        <div
+          className={cn(
+            "fixed left-1/2 top-20 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border-2 border-dashed px-5 py-3 text-sm font-medium shadow-lg transition-colors",
+            dropZoneOver
+              ? "border-primary bg-primary/10 text-foreground"
+              : "border-foreground/30 bg-background/95 text-muted-foreground"
+          )}
+          onDragEnter={(ev) => {
+            if (ev.dataTransfer?.types?.includes("Files")) {
+              ev.preventDefault();
+              setDropZoneOver(true);
+            }
+          }}
+          onDragOver={(ev) => {
+            if (ev.dataTransfer?.types?.includes("Files")) ev.preventDefault();
+          }}
+          onDragLeave={(ev) => {
+            if (!ev.currentTarget.contains(ev.relatedTarget as Node)) setDropZoneOver(false);
+          }}
+          onDrop={(ev) => {
+            ev.preventDefault();
+            setDropZoneOver(false);
+            setDraggingFiles(false);
+            const files = Array.from(ev.dataTransfer?.files ?? []);
+            if (files.length) startEventFromPhotos(files);
+          }}
+        >
+          <ImagePlus className="h-4 w-4" />
+          Drop here to create a new event
+        </div>
+      )}
+
       {/* Filter + New entry in the reading column (the nav already labels this page). */}
       <div className="mx-auto w-full max-w-5xl px-6">
         <div className="flex items-center justify-between gap-4">
@@ -374,7 +450,11 @@ export function VerticalTimeline({
         <EntryModal
           familyPeople={people}
           defaultSubjectEmail={currentUserEmail}
-          onClose={() => setCreating(false)}
+          initialFiles={creatingFiles}
+          onClose={() => {
+            setCreating(false);
+            setCreatingFiles([]);
+          }}
         />
       )}
     </div>
