@@ -1,0 +1,192 @@
+[
+  {
+    "title": "Born in Springfield",
+    "description": "Jenny Gillespie was born in Springfield, Illinois. She grew up in a creative, introverted household environment and developed an early love of poetry and music.",
+    "start_date": "1980-08-10",
+    "end_date": null,
+    "category": "Origins",
+    "prominence": "major",
+    "location": "Springfield, IL",
+    "people": []
+  },
+  {
+    "title": "Grew up in charismatic Christian church",
+    "description": "Jenny grew up attending a charismatic Christian church, which shaped the spiritual atmosphere of her childhood and adolescence.",
+    "start_date": "1980",
+    "end_date": "1998",
+    "category": "Childhood",
+    "prominence": "medium",
+    "location": "Springfield, IL",
+    "people": []
+  },
+  {
+    "title": "Began writing poetry and songs",
+    "description": "As a teenager, Jenny became deeply interested in poetry and songwriting, developing a creative identity centered on literature and music.",
+    "start_date": "1995",
+    "end_date": null,
+    "category": "Music & Hobbies",
+    "prominence": "major",
+    "location": "Springfield, IL",
+    "people": []
+  },
+  {
+    "title": "Attended UVA creative writing workshop",
+    "description": "Jenny attended a creative writing workshop at the University of Virginia and took a songwriting workshop, an experience that catalyzed her commitment to songwriting and performance.",
+    "start_date": "1995",
+    "end_date": null,
+    "category": "Education",
+    "prominence": "medium",
+    "location": "Charlottesville, VA",
+    "people": []
+  },
+  {
+    "title": "Started recording and performing publicly",
+    "description": "Jenny began recording songs at a local studio and performing at coffeehouses and music festivals in St. Louis and Memphis while still in high school.",
+    "start_date": "1995",
+    "end_date": "1998",
+    "category": "Recognition & Creative Work",
+    "prominence": "medium",
+    "location": "Springfield, IL",
+    "people": []
+  },
+  {
+    "title": "Parents divorced",
+    "description": "Jenny's parents divorced around the time she turned eighteen, marking the end of Springfield as a lasting family home base.",
+    "start_date": "1998",
+    "end_date": null,
+    "category": "Health & Hard Times",
+    "prominence": "medium",
+    "location": "Springfield, IL",
+    "people": []
+  },
+  {
+    "title": "Started University of Virginia",
+    "description": "Jenny moved to Charlottesville to study English Literature at the University of Virginia. She focused on poetry and literature while continuing to write songs and perform at coffeehouses.",
+    "start_date": "1998",
+    "end_date": "2002",
+    "category": "Education",
+    "prominence": "major",
+    "location": "Charlottesville, VA",
+    "people": []
+  },
+  {
+    "title": "Moved to Austin for graduate school",
+    "description": "Jenny moved to Austin to pursue a master's degree in English Literature and Creative Writing. She continued writing, performing, and recording music during graduate school.",
+    "start_date": "2002",
+    "end_date": "2004",
+    "category": "Education",
+    "prominence": "major",
+    "location": "Austin, TX",
+    "people": []
+  },
+  {
+    "title": "Moved to Chicago",
+    "description": "Jenny relocated to Chicago and became immersed in the city's folk and literary communities, performing in coffeehouses and developing her songwriting.",
+    "start_date": "2004",
+    "end_date": "2013",
+    "category": "Homes & Relocation",
+    "prominence": "major",
+    "location": "Chicago, IL",
+    "people": []
+  },
+  {
+    "title": "Worked at Cricket Magazine",
+    "description": "Jenny worked as an editor at Cricket Magazine while continuing to write poetry and make music.",
+    "start_date": "2006",
+    "end_date": "2011",
+    "category": "Career",
+    "prominence": "medium",
+    "location": "Chicago, IL",
+    "people": []
+  },
+  {
+    "title": "Recorded music at Electrical Audio",
+    "description": "Jenny recorded music at Electrical Audio in Chicago as she developed a more public folk music practice.",
+    "start_date": "2006",
+    "end_date": "2011",
+    "category": "Recognition & Creative Work",
+    "prominence": "medium",
+    "location": "Chicago, IL",
+    "people": ["Andrew Mason"]
+  },
+  {
+    "title": "Left editorial work to pursue poetry and music",
+    "description": "Jenny left her editorial career to focus more fully on poetry, music, and creative work.",
+    "start_date": "2011",
+    "end_date": null,
+    "category": "Career",
+    "prominence": "major",
+    "location": "Chicago, IL",
+    "people": ["Andrew Mason"]
+  },
+  {
+    "title": "Pursued MFA in poetry",
+    "description": "Jenny pursued an MFA in poetry while deepening her commitment to creative life and music.",
+    "start_date": "2011",
+    "end_date": null,
+    "category": "Education",
+    "prominence": "medium",
+    "location": "Chicago, IL",
+    "people": []
+  },
+  {
+    "title": "Ran Native Cat Recordings",
+    "description": "Jenny ran the record label Native Cat Recordings while touring and recording as Sis.",
+    "start_date": "2018",
+    "end_date": "2020",
+    "category": "Career",
+    "prominence": "major",
+    "location": "San Francisco, CA",
+    "people": []
+  },
+  {
+    "title": "Began producing music in Ableton",
+    "description": "Jenny began producing and recording her own music at home using Ableton, marking a major creative shift toward self-production and experimentation.",
+    "start_date": "2020",
+    "end_date": null,
+    "category": "Recognition & Creative Work",
+    "prominence": "major",
+    "location": "San Francisco, CA",
+    "people": []
+  },
+  {
+    "title": "Released music across multiple projects",
+    "description": "Jenny released recordings under Sis, Ship Says Om, and Jenny Gillespie Mason, expanding into ambient, electronic, and folk forms.",
+    "start_date": "2020",
+    "end_date": "2026",
+    "category": "Recognition & Creative Work",
+    "prominence": "major",
+    "location": null,
+    "people": []
+  },
+  {
+    "title": "Discovered Integral Yoga",
+    "description": "Jenny discovered Integral Yoga and became devoted to the teachings of Sri Aurobindo and the Mother, marking a major spiritual turning point.",
+    "start_date": "2022",
+    "end_date": null,
+    "category": "Health & Hard Times",
+    "prominence": "major",
+    "location": null,
+    "people": []
+  },
+  {
+    "title": "Traveled alone to India",
+    "description": "Jenny traveled to India alone for spiritual exploration and study related to Integral Yoga.",
+    "start_date": "2024",
+    "end_date": null,
+    "category": "Travel & Adventure",
+    "prominence": "major",
+    "location": "India",
+    "people": []
+  },
+  {
+    "title": "Began publishing essays on Integral Yoga",
+    "description": "Jenny began writing and publishing essays on Integral Yoga through her Substack, integrating spirituality and creative work.",
+    "start_date": "2024",
+    "end_date": null,
+    "category": "Recognition & Creative Work",
+    "prominence": "medium",
+    "location": "Berkeley, CA",
+    "people": []
+  }
+]
