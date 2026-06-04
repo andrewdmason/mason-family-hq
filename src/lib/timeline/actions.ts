@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getIsOwner, requireUserId } from "@/lib/members/auth";
+import { requireUserId } from "@/lib/members/auth";
 import type { DatePrecision, JournalMediaType, TimelineCategory, TimelineProminence } from "@/lib/types";
 
 export type TimelineEntryInput = {
@@ -224,8 +224,13 @@ export async function getTimelineEntriesPhotos(
 ): Promise<Record<string, { id: string; displayUrl: string; videoUrl: string | null; mediaType: JournalMediaType }[]>> {
   const result: Record<string, { id: string; displayUrl: string; videoUrl: string | null; mediaType: JournalMediaType }[]> = {};
   if (timelineEntryIds.length === 0) return result;
-  const supabase = await createClient();
-  const client = (await getIsOwner(supabase)) ? createAdminClient() : supabase;
+  // The timeline is shared: the table's read policy lets any family member read
+  // every photo row, but the journal-photos bucket's per-user folder RLS only
+  // lets a member sign files in their OWN folder. So sign with admin for every
+  // viewer — otherwise a non-owner sees only the photos they personally pinned,
+  // never other members' (e.g. the owner's). Reading with admin can't widen
+  // visibility here because the rows are already family-readable.
+  const client = createAdminClient();
   const { data: rows } = await client
     .from("timeline_entry_photos")
     .select("id, timeline_entry_id, display_path, original_path, media_type")
