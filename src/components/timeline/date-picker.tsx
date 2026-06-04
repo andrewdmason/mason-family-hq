@@ -177,13 +177,24 @@ export function TimelineDatePicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, open]);
 
-  // Auto-scroll the year list to the active/selected year.
+  // Park the focus year's row at the BOTTOM of the year list when the view
+  // opens: recent years are what you usually reach for, so a fresh form lands on
+  // "now" with the long tail of old years scrolled away. Deferred to a rAF so
+  // the popover's open-zoom animation has mounted, and computed from offset*
+  // metrics (transform-independent, unlike getBoundingClientRect) so that
+  // animation can't skew the measurement.
   const yearListRef = useRef<HTMLDivElement>(null);
   const selectedYearRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (open && value.precision === "year") {
-      selectedYearRef.current?.scrollIntoView({ block: "center" });
-    }
+    if (!open || value.precision !== "year") return;
+    const id = requestAnimationFrame(() => {
+      const list = yearListRef.current;
+      const target = selectedYearRef.current;
+      if (!list || !target) return;
+      const top = target.offsetTop - list.offsetTop + target.offsetHeight - list.clientHeight;
+      list.scrollTop = Math.max(0, top);
+    });
+    return () => cancelAnimationFrame(id);
   }, [open, value.precision, focusYear]);
 
   function commit(date: string) {
