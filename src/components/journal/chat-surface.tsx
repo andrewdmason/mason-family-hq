@@ -59,6 +59,12 @@ export function ChatSurface({
   const [status] = useState<"open" | "closed">(initialStatus);
   const [error, setError] = useState<string | null>(null);
   const [hasUnsentReply, setHasUnsentReply] = useState(false);
+  // After the five-minute mark, the writer can ask for one more question at a
+  // time. This is true while that single extra question is awaiting an answer:
+  // the end glyph steps aside, and once the writer replies it's saved without
+  // a follow-up — the glyph returns, so each additional question is a fresh,
+  // deliberate ask rather than an open-ended back-and-forth.
+  const [pendingFollowup, setPendingFollowup] = useState(false);
   const [finishDialogOpen, setFinishDialogOpen] = useState(false);
   const [selectedVisibility, setSelectedVisibility] =
     useState<JournalVisibility>(initialVisibility);
@@ -236,11 +242,60 @@ export function ChatSurface({
 
     setError(null);
     setMessages((m) => m.slice(0, -1));
+    // Dismissing the one-more question returns the surface to rest.
+    setPendingFollowup(false);
     try {
       await deleteLatestQuestion(entryId);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setMessages(previous);
+    }
+  }
+
+  // Past the five-minute mark, ask the interviewer for exactly one more
+  // question off the thread as it stands. The answer to it is saved without a
+  // follow-up (see handleSubmit), so the conversation returns to rest until
+  // the writer asks again.
+  async function streamContinue() {
+    if (streaming || thinking || closing) return;
+    setPendingFollowup(true);
+    setError(null);
+    setThinking(true);
+    setStreaming(true);
+    // If the conversation ended on an unanswered question, the server replaces
+    // it; reuse that slot. Otherwise reserve a fresh assistant slot to fill.
+    const last = messages[messages.length - 1];
+    const replaceLast = last && last.role === "assistant" && last.content.trim().length > 0;
+    const restore = messages;
+    setMessages((m) => {
+      if (replaceLast) {
+        const next = [...m];
+        next[next.length - 1] = { role: "assistant", content: "" };
+        return next;
+      }
+      return [...m, { role: "assistant", content: "" }];
+    });
+    try {
+      const res = await fetch("/journal/api/continue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entryId }),
+      });
+      if (!res.ok || !res.body) {
+        const txt = await res.text().catch(() => "request failed");
+        setError(txt);
+        setMessages(restore);
+        setPendingFollowup(false);
+        return;
+      }
+      await pumpStream(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setMessages(restore);
+      setPendingFollowup(false);
+    } finally {
+      setStreaming(false);
+      setThinking(false);
     }
   }
 
@@ -258,7 +313,11 @@ export function ChatSurface({
     if (!text || streaming || closing) return;
     setMessages((m) => [...m, { role: "user", content: text }]);
     if (timerDone) {
+      // Past the timer the interviewer never volunteers a follow-up: the reply
+      // is saved, and answering the one-more question (if any) returns the
+      // surface to rest so the glyph reappears.
       void appendReply(text);
+      setPendingFollowup(false);
     } else {
       void streamReply(text);
     }
@@ -347,7 +406,7 @@ export function ChatSurface({
             !thinking &&
             !closing &&
             m.content.trim().length > 0;
-          const canRegenerate = isLiveQuestion && !timerDone;
+          const canRegenerate = isLiveQuestion && (!timerDone || pendingFollowup);
           const canDelete = isLiveQuestion;
           return (
             <div
@@ -393,9 +452,16 @@ export function ChatSurface({
         {thinking && messages.length > 0 && messages[messages.length - 1].content === "" && (
           <TypingIndicator />
         )}
-        {timerDone && !isHistoryClosed && (
+        {timerDone && !isHistoryClosed && !pendingFollowup && (
           <div className="flex justify-center pt-2">
-            <ConversationEndGlyph />
+            {showWritingControls ? (
+              <KeepGoingGlyph
+                onClick={() => void streamContinue()}
+                disabled={streaming || thinking || closing}
+              />
+            ) : (
+              <ConversationEndGlyph />
+            )}
           </div>
         )}
         <div ref={scrollRef} />
@@ -417,7 +483,7 @@ export function ChatSurface({
           placeholder={
             messages.length === 0
               ? "start writing…"
-              : timerDone
+              : timerDone && !pendingFollowup
                 ? "keep writing if you like…"
                 : "type a reply…"
           }
@@ -513,6 +579,40 @@ function ReplyBox({
         </span>
       </div>
     </div>
+  );
+}
+
+// The interactive end mark on the writer's own in-progress entry. At rest
+// it's the same quiet green dot that closes the transcript; on hover or focus
+// it morphs into a pill inviting one more question. Clicking it asks the
+// interviewer to pick the conversation back up.
+function KeepGoingGlyph({
+  onClick,
+  disabled,
+}: {
+  onClick: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label="Ask one more question"
+      title="Ask one more question"
+      className="group inline-flex items-center rounded-full border border-transparent py-1 pl-1 pr-1 font-serif text-sm italic text-muted-foreground transition-[background-color,border-color,padding] duration-300 ease-out hover:border-border hover:bg-muted/40 hover:pr-3 focus-visible:border-border focus-visible:bg-muted/40 focus-visible:pr-3 focus-visible:outline-none disabled:opacity-40"
+    >
+      <span
+        aria-hidden
+        className="h-[10px] w-[10px] shrink-0 rounded-full transition-transform duration-300 group-hover:scale-110"
+        style={{ background: TIMER_DONE_COLOR }}
+      />
+      <span className="grid grid-cols-[0fr] transition-[grid-template-columns] duration-300 ease-out group-hover:grid-cols-[1fr] group-focus-visible:grid-cols-[1fr]">
+        <span className="overflow-hidden whitespace-nowrap pl-0 opacity-0 transition-[padding,opacity] duration-300 group-hover:pl-2 group-hover:opacity-100 group-focus-visible:pl-2 group-focus-visible:opacity-100">
+          Ask one more question
+        </span>
+      </span>
+    </button>
   );
 }
 
