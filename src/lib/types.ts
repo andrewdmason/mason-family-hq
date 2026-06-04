@@ -554,12 +554,23 @@ export type TimelineEntry = {
   updated_at: string;
 };
 
+/** A journal entry that links to a timeline event (for the popover's list). */
+export type TimelineLinkedPost = {
+  id: string;
+  title: string | null;
+  summary: string | null;
+  entry_date: string;
+  authorName: string | null;
+};
+
 /** A timeline entry with its resolved people and viewer-relative metadata. */
 export type TimelineEntryWithPeople = TimelineEntry & {
   subjects: TimelinePerson[];
   mentions: TimelinePerson[];
   /** Journal entries visible to the viewer that link to this event. */
   linkedCount: number;
+  /** Those linked journal entries, newest first (for the hover popover). */
+  linkedPosts: TimelineLinkedPost[];
   /** A signed display URL for a representative photo from a linked journal entry,
    * when one exists and the viewer can see it. Drives the timeline card's image. */
   coverPhotoUrl: string | null;

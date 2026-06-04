@@ -3,6 +3,7 @@ import { getEntriesPhotos } from "@/app/(journal)/journal/actions";
 import type {
   TimelineEntry,
   TimelineEntryWithPeople,
+  TimelineLinkedPost,
   TimelinePerson,
   TimelinePersonRole,
 } from "@/lib/types";
@@ -16,8 +17,33 @@ type RawRow = TimelineEntry & {
 
 export type TimelineView = "mine" | "family";
 
+/** Look up linked journal entries' display info (title/summary/date/author). */
+async function fetchLinkedPosts(journalIds: string[]): Promise<Map<string, TimelineLinkedPost>> {
+  const map = new Map<string, TimelineLinkedPost>();
+  if (journalIds.length === 0) return map;
+  const supabase = await createClient();
+  const [{ data: posts }, { data: members }] = await Promise.all([
+    supabase.from("journal_entries").select("id, title, summary, entry_date, user_id").in("id", journalIds),
+    supabase.from("family_members").select("user_id, name, email"),
+  ]);
+  const nameByUser = new Map<string, string>();
+  for (const m of members ?? []) {
+    if (m.user_id) nameByUser.set(m.user_id as string, ((m.name as string | null)?.trim() || (m.email as string)) ?? "Family member");
+  }
+  for (const p of posts ?? []) {
+    map.set(p.id as string, {
+      id: p.id as string,
+      title: (p.title as string | null) ?? null,
+      summary: (p.summary as string | null) ?? null,
+      entry_date: p.entry_date as string,
+      authorName: nameByUser.get(p.user_id as string) ?? null,
+    });
+  }
+  return map;
+}
+
 /** Split the embedded people join into subjects and mentions. */
-function shape(row: RawRow): Omit<TimelineEntryWithPeople, "linkedCount" | "coverPhotoUrl"> {
+function shape(row: RawRow): Omit<TimelineEntryWithPeople, "linkedCount" | "coverPhotoUrl" | "linkedPosts"> {
   const subjects: TimelinePerson[] = [];
   const mentions: TimelinePerson[] = [];
   for (const tep of row.timeline_entry_people ?? []) {
@@ -145,11 +171,14 @@ export async function loadTimeline(
   // that has one. getEntriesPhotos handles signing (and the owner-sees-all path).
   // Avatars come along for the rendering path so cards can show whose event it is.
   const coverByEntry = new Map<string, string>();
+  const postsByEntry = new Map<string, TimelineLinkedPost[]>();
   let avatars = new Map<string, string>();
   if (withCovers) {
-    const [photos, avatarMap] = await Promise.all([
-      getEntriesPhotos([...new Set([...linked.values()].flat())]),
+    const allJournalIds = [...new Set([...linked.values()].flat())];
+    const [photos, avatarMap, postsInfo] = await Promise.all([
+      getEntriesPhotos(allJournalIds),
       memberAvatarUrls(),
+      fetchLinkedPosts(allJournalIds),
     ]);
     avatars = avatarMap;
     for (const [entryId, journalIds] of linked) {
@@ -160,6 +189,10 @@ export async function loadTimeline(
           break;
         }
       }
+      postsByEntry.set(
+        entryId,
+        journalIds.map((id) => postsInfo.get(id)).filter((p): p is TimelineLinkedPost => !!p)
+      );
     }
   }
 
@@ -168,6 +201,7 @@ export async function loadTimeline(
     subjects: withCovers ? withAvatars(e.subjects, avatars) : e.subjects,
     mentions: withCovers ? withAvatars(e.mentions, avatars) : e.mentions,
     linkedCount: linked.get(e.id)?.length ?? 0,
+    linkedPosts: postsByEntry.get(e.id) ?? [],
     coverPhotoUrl: coverByEntry.get(e.id) ?? null,
   }));
 }
@@ -189,7 +223,7 @@ export async function loadTimelineEntryById(
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
-  return { ...shape(data as unknown as RawRow), linkedCount: 0, coverPhotoUrl: null };
+  return { ...shape(data as unknown as RawRow), linkedCount: 0, linkedPosts: [], coverPhotoUrl: null };
 }
 
 /**
@@ -221,7 +255,7 @@ export async function loadTimelineEntryDetail(
   return {
     // The detail page renders photos via the linked entries themselves, so the
     // entry-level cover isn't needed here.
-    entry: { ...shaped, linkedCount: linkedEntryIds.length, coverPhotoUrl: null },
+    entry: { ...shaped, linkedCount: linkedEntryIds.length, linkedPosts: [], coverPhotoUrl: null },
     linkedEntryIds,
   };
 }

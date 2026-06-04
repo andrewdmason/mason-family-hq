@@ -44,6 +44,13 @@ export function isUpcoming(entry: Pick<TimelineEntry, "start_date">, today: stri
   return entry.start_date > today;
 }
 
+/** A normalized date as a fractional year (1999-06 → 1999.42), for placing an
+ * event on a true-time axis. */
+export function toFractionalYear(date: string): number {
+  const [y, m = 1, d = 1] = date.split("-").map(Number);
+  return y + (m - 1) / 12 + (d - 1) / 365;
+}
+
 /** The decade an entry sorts into, e.g. "1980s" — used for section headers. */
 export function decadeOf(entry: Pick<TimelineEntry, "start_date">): string {
   const year = Number(entry.start_date.slice(0, 4));
