@@ -1353,12 +1353,14 @@ export async function getEntriesPhotos(
   >
 > {
   if (entryIds.length === 0) return {};
-  const supabase = await createClient();
-  // In the family feed the owner sees every member's shared post; let them see
-  // those posts' photos too. entryIds are already scoped to posts the caller
-  // can see, so reading them with admin only widens visibility to other
-  // members' photos on those same posts — never to posts they can't see.
-  const client = (await getIsOwner(supabase)) ? createAdminClient() : supabase;
+  // entryIds are already scoped to posts the caller can see (own posts plus
+  // closed family-visible ones). The journal-photos bucket's per-user folder
+  // RLS, though, only lets a member sign files in their OWN folder — so a
+  // non-owner viewing the family feed would get blank URLs for other members'
+  // photos (only the owner, who signs via admin, saw them). Sign with admin for
+  // every viewer: since entryIds are pre-scoped, this only reveals photos on
+  // posts the caller can already see, never posts they can't.
+  const client = createAdminClient();
   const { data: rows } = await client
     .from("journal_entry_photos")
     .select("id, entry_id, display_path, original_path, media_type, source")
