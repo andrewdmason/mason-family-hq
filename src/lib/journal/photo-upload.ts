@@ -3,6 +3,10 @@ import {
   attachEntryPhoto,
   createPhotoUploadUrls,
 } from "@/app/(journal)/journal/actions";
+import {
+  attachTimelinePhoto,
+  createTimelinePhotoUploadUrls,
+} from "@/lib/timeline/actions";
 import type { JournalMediaType } from "@/lib/types";
 
 const PHOTOS_BUCKET = "journal-photos";
@@ -139,26 +143,41 @@ async function makeVideoPosterBlob(file: File): Promise<Blob> {
   }
 }
 
-/**
- * Upload one photo or video to an entry: signs upload URLs, pushes the
- * original plus a downscaled display copy (a poster frame for video) to
- * storage, and records the DB row. Returns the new id, the stored paths, and
- * the detected media type.
- */
-export async function uploadJournalMedia(
-  entryId: string,
-  file: File
-): Promise<{
+type SignedUploadUrls = {
+  originalPath: string;
+  originalToken: string;
+  displayPath: string;
+  displayToken: string;
+};
+
+type UploadedMedia = {
   id: string;
   displayPath: string;
   originalPath: string;
   mediaType: JournalMediaType;
-}> {
+};
+
+/**
+ * Shared upload core: classify the file, sign upload URLs via `getUrls`, push
+ * the original plus a downscaled display copy (a poster frame for video) to
+ * storage, then record the DB row via `attach`. The two public wrappers below
+ * differ only in where the photo is recorded (a journal entry vs. a timeline
+ * event).
+ */
+async function uploadMediaWith(
+  file: File,
+  getUrls: (photoId: string, ext: string) => Promise<SignedUploadUrls>,
+  attach: (
+    originalPath: string,
+    displayPath: string,
+    mediaType: JournalMediaType
+  ) => Promise<string>
+): Promise<UploadedMedia> {
   const mediaType = detectMediaType(file) ?? "photo";
   const isVideo = mediaType === "video";
   const ext = file.name.split(".").pop() ?? (isVideo ? "mp4" : "jpg");
   const photoId = crypto.randomUUID();
-  const urls = await createPhotoUploadUrls(entryId, photoId, ext);
+  const urls = await getUrls(photoId, ext);
   const displayBlob = isVideo
     ? await makeVideoPosterBlob(file)
     : await makeImageDisplayBlob(file);
@@ -178,16 +197,43 @@ export async function uploadJournalMedia(
     });
   if (display.error) throw display.error;
 
-  const id = await attachEntryPhoto(
-    entryId,
-    urls.originalPath,
-    urls.displayPath,
-    mediaType
-  );
+  const id = await attach(urls.originalPath, urls.displayPath, mediaType);
   return {
     id,
     displayPath: urls.displayPath,
     originalPath: urls.originalPath,
     mediaType,
   };
+}
+
+/**
+ * Upload one photo or video to a journal entry. Returns the new id, the stored
+ * paths, and the detected media type.
+ */
+export function uploadJournalMedia(
+  entryId: string,
+  file: File
+): Promise<UploadedMedia> {
+  return uploadMediaWith(
+    file,
+    (photoId, ext) => createPhotoUploadUrls(entryId, photoId, ext),
+    (originalPath, displayPath, mediaType) =>
+      attachEntryPhoto(entryId, originalPath, displayPath, mediaType)
+  );
+}
+
+/**
+ * Upload one photo or video pinned directly to a timeline event (no journal
+ * post). Returns the new id, the stored paths, and the detected media type.
+ */
+export function uploadTimelineMedia(
+  timelineEntryId: string,
+  file: File
+): Promise<UploadedMedia> {
+  return uploadMediaWith(
+    file,
+    (photoId, ext) => createTimelinePhotoUploadUrls(timelineEntryId, photoId, ext),
+    (originalPath, displayPath, mediaType) =>
+      attachTimelinePhoto(timelineEntryId, originalPath, displayPath, mediaType)
+  );
 }

@@ -563,6 +563,13 @@ export type TimelineLinkedPost = {
   authorName: string | null;
 };
 
+/** A photo pinned directly to a timeline event (no journal post). */
+export type TimelineEntryPhoto = {
+  id: string;
+  displayUrl: string;
+  mediaType: JournalMediaType;
+};
+
 /** A timeline entry with its resolved people and viewer-relative metadata. */
 export type TimelineEntryWithPeople = TimelineEntry & {
   subjects: TimelinePerson[];
@@ -571,8 +578,10 @@ export type TimelineEntryWithPeople = TimelineEntry & {
   linkedCount: number;
   /** Those linked journal entries, newest first (for the hover popover). */
   linkedPosts: TimelineLinkedPost[];
-  /** A signed display URL for a representative photo from a linked journal entry,
-   * when one exists and the viewer can see it. Drives the timeline card's image. */
+  /** Photos pinned directly to this event (visible to the viewer), newest last. */
+  photos: TimelineEntryPhoto[];
+  /** A signed display URL for a representative photo — the first directly-pinned
+   * photo, else one from a linked journal entry. Drives the timeline card's image. */
   coverPhotoUrl: string | null;
 };
 

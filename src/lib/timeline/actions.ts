@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireUserId } from "@/lib/members/auth";
-import type { DatePrecision, TimelineCategory, TimelineProminence } from "@/lib/types";
+import { getIsOwner, requireUserId } from "@/lib/members/auth";
+import type { DatePrecision, JournalMediaType, TimelineCategory, TimelineProminence } from "@/lib/types";
 
 export type TimelineEntryInput = {
   title: string;
@@ -133,4 +133,115 @@ export async function deleteTimelineEntry(id: string): Promise<void> {
   const { error } = await admin.from("timeline_entries").delete().eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/timeline");
+}
+
+// ---------------------------------------------------------------------------
+// Direct photos pinned to an event (no journal post). Files live in the shared
+// `journal-photos` bucket under {uid}/timeline/{eventId}/..., so a member only
+// uploads/signs their own (per-user folder storage RLS); the account owner signs
+// everyone's via the admin client (mirrors getEntriesPhotos).
+// ---------------------------------------------------------------------------
+
+const PHOTOS_BUCKET = "journal-photos";
+
+/** Sign upload URLs for a photo being pinned to a timeline event. */
+export async function createTimelinePhotoUploadUrls(
+  timelineEntryId: string,
+  photoId: string,
+  ext: string
+): Promise<{ originalPath: string; originalToken: string; displayPath: string; displayToken: string }> {
+  const supabase = await createClient();
+  const userId = await requireUserId(supabase);
+
+  const safeExt = ext.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+  const originalPath = `${userId}/timeline/${timelineEntryId}/${photoId}-original.${safeExt}`;
+  const displayPath = `${userId}/timeline/${timelineEntryId}/${photoId}-display.jpg`;
+
+  const original = await supabase.storage.from(PHOTOS_BUCKET).createSignedUploadUrl(originalPath);
+  if (original.error || !original.data) throw new Error(original.error?.message ?? "Failed to create upload URL");
+  const display = await supabase.storage.from(PHOTOS_BUCKET).createSignedUploadUrl(displayPath);
+  if (display.error || !display.data) throw new Error(display.error?.message ?? "Failed to create upload URL");
+
+  return {
+    originalPath: original.data.path,
+    originalToken: original.data.token,
+    displayPath: display.data.path,
+    displayToken: display.data.token,
+  };
+}
+
+/** Record a pinned photo row once its bytes are uploaded. */
+export async function attachTimelinePhoto(
+  timelineEntryId: string,
+  originalPath: string,
+  displayPath: string,
+  mediaType: JournalMediaType = "photo"
+): Promise<string> {
+  const supabase = await createClient();
+  const userId = await requireUserId(supabase);
+  const { data, error } = await supabase
+    .from("timeline_entry_photos")
+    .insert({
+      timeline_entry_id: timelineEntryId,
+      user_id: userId,
+      original_path: originalPath,
+      display_path: displayPath,
+      media_type: mediaType,
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "Failed to attach photo");
+  revalidatePath("/timeline");
+  return data.id as string;
+}
+
+/** Remove one of your pinned photos (its storage files too). */
+export async function deleteTimelinePhoto(photoId: string): Promise<void> {
+  const supabase = await createClient();
+  await requireUserId(supabase);
+  // RLS scopes this select/delete to the caller's own rows.
+  const { data: row } = await supabase
+    .from("timeline_entry_photos")
+    .select("original_path, display_path")
+    .eq("id", photoId)
+    .maybeSingle();
+  if (row) {
+    await supabase.storage
+      .from(PHOTOS_BUCKET)
+      .remove([row.original_path as string, row.display_path as string]);
+  }
+  const { error } = await supabase.from("timeline_entry_photos").delete().eq("id", photoId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/timeline");
+}
+
+/** Signed display URLs for the pinned photos of each event. Owner signs all via
+ * admin (cross-member); other members sign only their own (RLS). */
+export async function getTimelineEntriesPhotos(
+  timelineEntryIds: string[]
+): Promise<Record<string, { id: string; displayUrl: string; mediaType: JournalMediaType }[]>> {
+  const result: Record<string, { id: string; displayUrl: string; mediaType: JournalMediaType }[]> = {};
+  if (timelineEntryIds.length === 0) return result;
+  const supabase = await createClient();
+  const client = (await getIsOwner(supabase)) ? createAdminClient() : supabase;
+  const { data: rows } = await client
+    .from("timeline_entry_photos")
+    .select("id, timeline_entry_id, display_path, media_type")
+    .in("timeline_entry_id", timelineEntryIds)
+    .order("created_at", { ascending: true });
+  if (!rows || rows.length === 0) return result;
+
+  const { data: signed } = await client.storage
+    .from(PHOTOS_BUCKET)
+    .createSignedUrls(rows.map((r) => r.display_path as string), 60 * 60);
+
+  rows.forEach((row, i) => {
+    const id = row.timeline_entry_id as string;
+    (result[id] ??= []).push({
+      id: row.id as string,
+      displayUrl: signed?.[i]?.signedUrl ?? "",
+      mediaType: (row.media_type as JournalMediaType) ?? "photo",
+    });
+  });
+  return result;
 }

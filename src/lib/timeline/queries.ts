@@ -1,7 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { getEntriesPhotos } from "@/app/(journal)/journal/actions";
+import { getTimelineEntriesPhotos } from "@/lib/timeline/actions";
 import type {
   TimelineEntry,
+  TimelineEntryPhoto,
   TimelineEntryWithPeople,
   TimelineLinkedPost,
   TimelinePerson,
@@ -43,7 +45,9 @@ async function fetchLinkedPosts(journalIds: string[]): Promise<Map<string, Timel
 }
 
 /** Split the embedded people join into subjects and mentions. */
-function shape(row: RawRow): Omit<TimelineEntryWithPeople, "linkedCount" | "coverPhotoUrl" | "linkedPosts"> {
+function shape(
+  row: RawRow
+): Omit<TimelineEntryWithPeople, "linkedCount" | "coverPhotoUrl" | "linkedPosts" | "photos"> {
   const subjects: TimelinePerson[] = [];
   const mentions: TimelinePerson[] = [];
   for (const tep of row.timeline_entry_people ?? []) {
@@ -167,30 +171,44 @@ export async function loadTimeline(
     ownLinksOnly && userId ? userId : undefined
   );
 
-  // A representative photo per entry: the first photo on its newest linked entry
-  // that has one. getEntriesPhotos handles signing (and the owner-sees-all path).
+  // Each event's photos are the UNION of photos pinned directly to the event and
+  // photos on its linked journal reflections. The cover prefers a directly-pinned
+  // photo, falling back to the first linked-reflection photo. getTimelineEntriesPhotos
+  // and getEntriesPhotos both handle signing (and the owner-sees-all path).
   // Avatars come along for the rendering path so cards can show whose event it is.
   const coverByEntry = new Map<string, string>();
+  const directByEntry = new Map<string, TimelineEntryPhoto[]>();
   const postsByEntry = new Map<string, TimelineLinkedPost[]>();
   let avatars = new Map<string, string>();
   if (withCovers) {
     const allJournalIds = [...new Set([...linked.values()].flat())];
-    const [photos, avatarMap, postsInfo] = await Promise.all([
+    const [photos, directPhotos, avatarMap, postsInfo] = await Promise.all([
       getEntriesPhotos(allJournalIds),
+      getTimelineEntriesPhotos(entries.map((e) => e.id)),
       memberAvatarUrls(),
       fetchLinkedPosts(allJournalIds),
     ]);
     avatars = avatarMap;
-    for (const [entryId, journalIds] of linked) {
-      for (const jid of journalIds) {
-        const url = photos[jid]?.[0]?.displayUrl;
-        if (url) {
-          coverByEntry.set(entryId, url);
-          break;
+    for (const e of entries) {
+      const direct = (directPhotos[e.id] ?? []).filter((p) => p.displayUrl);
+      directByEntry.set(e.id, direct);
+
+      const journalIds = linked.get(e.id) ?? [];
+      // Cover: a directly-pinned photo first, else the newest linked post's photo.
+      let cover = direct[0]?.displayUrl ?? null;
+      if (!cover) {
+        for (const jid of journalIds) {
+          const url = photos[jid]?.[0]?.displayUrl;
+          if (url) {
+            cover = url;
+            break;
+          }
         }
       }
+      if (cover) coverByEntry.set(e.id, cover);
+
       postsByEntry.set(
-        entryId,
+        e.id,
         journalIds.map((id) => postsInfo.get(id)).filter((p): p is TimelineLinkedPost => !!p)
       );
     }
@@ -202,6 +220,7 @@ export async function loadTimeline(
     mentions: withCovers ? withAvatars(e.mentions, avatars) : e.mentions,
     linkedCount: linked.get(e.id)?.length ?? 0,
     linkedPosts: postsByEntry.get(e.id) ?? [],
+    photos: directByEntry.get(e.id) ?? [],
     coverPhotoUrl: coverByEntry.get(e.id) ?? null,
   }));
 }
@@ -223,7 +242,13 @@ export async function loadTimelineEntryById(
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
-  return { ...shape(data as unknown as RawRow), linkedCount: 0, linkedPosts: [], coverPhotoUrl: null };
+  return {
+    ...shape(data as unknown as RawRow),
+    linkedCount: 0,
+    linkedPosts: [],
+    photos: [],
+    coverPhotoUrl: null,
+  };
 }
 
 /**
@@ -255,7 +280,13 @@ export async function loadTimelineEntryDetail(
   return {
     // The detail page renders photos via the linked entries themselves, so the
     // entry-level cover isn't needed here.
-    entry: { ...shaped, linkedCount: linkedEntryIds.length, linkedPosts: [], coverPhotoUrl: null },
+    entry: {
+      ...shaped,
+      linkedCount: linkedEntryIds.length,
+      linkedPosts: [],
+      photos: [],
+      coverPhotoUrl: null,
+    },
     linkedEntryIds,
   };
 }

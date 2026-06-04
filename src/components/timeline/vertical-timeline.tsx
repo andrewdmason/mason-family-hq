@@ -8,12 +8,13 @@ import {
   Baby,
   Blocks,
   Briefcase,
-  Check,
-  ChevronDown,
   GraduationCap,
   Heart,
   HeartPulse,
   Home,
+  ImagePlus,
+  ListFilter,
+  Loader2,
   MapPin,
   MessageSquareText,
   MoreHorizontal,
@@ -23,6 +24,7 @@ import {
   Plus,
   Trash2,
   Users,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -36,7 +38,8 @@ import { TIMELINE_CATEGORIES } from "@/lib/types";
 import { CATEGORY_LABEL, personColor } from "@/lib/timeline/config";
 import { EntryModal } from "@/components/timeline/entry-modal";
 import { ReflectOnEventButton } from "@/components/timeline/reflect-on-event-button";
-import { deleteTimelineEntry } from "@/lib/timeline/actions";
+import { deleteTimelineEntry, deleteTimelinePhoto } from "@/lib/timeline/actions";
+import { MAX_UPLOAD_BYTES, detectMediaType, uploadTimelineMedia } from "@/lib/journal/photo-upload";
 
 // A representative icon per category — drawn on the axis (person-colored) and
 // shown in the category dropdown as a legend.
@@ -66,17 +69,25 @@ import { decadeOf, formatTimelineRange, isUpcoming, toFractionalYear } from "@/l
  */
 
 const COL_W = 156;
+const PHOTO_W = 236; // px — photos run wider than the column so busy stretches overlap, pinboard-style
 const PX_PER_YEAR = 46;
 const GAP_OFFSET = 34; // pulled in so close-in-time events still stagger, but less aggressively
 const MIN_GAP = -16; // cap on how much neighbors may overlap
 const MAX_GAP = 240;
 const AXIS_OFFSET = 16; // px the content sits above/below the axis, clearing the icons
-const TRACK_H = 500; // px — the content band; the scroller centers it vertically
+const TRACK_H = 730; // px — the content band; the scroller centers it vertically
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 const firstName = (name: string) => name.trim().split(/\s+/)[0];
 
-const IMG_H: Record<TimelineProminence, number> = { major: 150, medium: 104, minor: 72 };
+const IMG_H: Record<TimelineProminence, number> = { major: 256, medium: 200, minor: 152 };
+
+/** A stable small tilt (deg) per entry, so prints look scattered on a pinboard. */
+function tiltFor(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return (Math.abs(h) % 700) / 100 - 3.5; // -3.5° .. +3.5°
+}
 const TITLE: Record<TimelineProminence, string> = {
   major: "font-serif text-sm font-medium text-foreground",
   medium: "font-serif text-[13px] text-foreground",
@@ -126,8 +137,10 @@ export function VerticalTimeline({
   const presentCats = new Set(entries.map((e) => e.category));
   const categories = TIMELINE_CATEGORIES.filter((c) => presentCats.has(c));
 
-  const [onPeople, setOnPeople] = useState<Set<string>>(() => new Set(people.map((p) => p.email)));
-  const [onCats, setOnCats] = useState<Set<string>>(() => new Set(categories));
+  // Empty = no filter on that axis (show all). Selecting pills narrows down to
+  // those values: OR within a section, AND across sections (Linear-style).
+  const [selectedPeople, setSelectedPeople] = useState<Set<string>>(() => new Set());
+  const [selectedCats, setSelectedCats] = useState<Set<string>>(() => new Set());
 
   // Scroll up/down → move left/right; release at the ends so the page can scroll.
   useEffect(() => {
@@ -154,34 +167,41 @@ export function VerticalTimeline({
     apply(next);
   };
 
-  // Hover popover + edit modal state.
+  // Click-activated popover (opened from an entry's title), a full-size photo
+  // lightbox, and the edit modal. The popover no longer opens on hover.
   const router = useRouter();
-  const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hovered, setHovered] = useState<{ entry: TimelineEntryWithPeople; rect: DOMRect } | null>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [editing, setEditing] = useState<TimelineEntryWithPeople | null>(null);
   const [creating, setCreating] = useState(false);
 
-  function showPopover(entry: TimelineEntryWithPeople, el: HTMLElement, immediate = false) {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    if (openTimer.current) clearTimeout(openTimer.current);
-    const rect = el.getBoundingClientRect();
-    if (immediate) setHovered({ entry, rect });
-    else openTimer.current = setTimeout(() => setHovered({ entry, rect }), 120);
-  }
-  function scheduleClose() {
-    if (openTimer.current) clearTimeout(openTimer.current);
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(() => setHovered(null), 220);
-  }
-  function cancelClose() {
-    if (closeTimer.current) clearTimeout(closeTimer.current);
+  function showPopover(entry: TimelineEntryWithPeople, el: HTMLElement) {
+    setHovered({ entry, rect: el.getBoundingClientRect() });
   }
   function closeNow() {
-    if (openTimer.current) clearTimeout(openTimer.current);
-    if (closeTimer.current) clearTimeout(closeTimer.current);
     setHovered(null);
   }
+
+  // The popover is anchored (not hover-tracked), so close it on an outside click
+  // or Escape. Clicks on a title or inside the popover itself are ignored.
+  useEffect(() => {
+    if (!hovered) return;
+    function onDown(ev: MouseEvent) {
+      const t = ev.target as Element | null;
+      if (t?.closest("[data-timeline-popover]") || t?.closest("[data-timeline-title]")) return;
+      setHovered(null);
+    }
+    function onKey(ev: KeyboardEvent) {
+      if (ev.key === "Escape") setHovered(null);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [hovered]);
+
   async function handleDelete(id: string) {
     closeNow();
     try {
@@ -192,11 +212,53 @@ export function VerticalTimeline({
     }
   }
 
+  // Drop photos on an event → pin them directly to it (no journal post); they
+  // become part of the event's photos and its cover after refresh.
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+  async function addPhotosToEvent(timelineEntryId: string, files: File[]) {
+    const valid = files.filter((f) => detectMediaType(f) && f.size <= MAX_UPLOAD_BYTES);
+    if (valid.length === 0) return;
+    setUploadingId(timelineEntryId);
+    try {
+      await Promise.all(valid.map((f) => uploadTimelineMedia(timelineEntryId, f)));
+      router.refresh();
+    } catch (err) {
+      console.error("[timeline] photo upload failed", err);
+    } finally {
+      setUploadingId(null);
+    }
+  }
+
+  async function removePhoto(photoId: string) {
+    try {
+      await deleteTimelinePhoto(photoId);
+      router.refresh();
+    } catch (err) {
+      console.error("[timeline] photo delete failed", err);
+    }
+  }
+
+  // Swallow file drops outside a target so the browser doesn't navigate to them
+  // (preventing default on dragover is also what enables dropping at all).
+  useEffect(() => {
+    const prevent = (e: DragEvent) => {
+      if (e.dataTransfer?.types?.includes("Files")) e.preventDefault();
+    };
+    window.addEventListener("dragover", prevent);
+    window.addEventListener("drop", prevent);
+    return () => {
+      window.removeEventListener("dragover", prevent);
+      window.removeEventListener("drop", prevent);
+    };
+  }, []);
+
   const filtered = entries.filter((e) => {
-    if (!onCats.has(e.category)) return false;
-    const subjectEmails = e.subjects.map((s) => s.member_email?.toLowerCase()).filter(Boolean) as string[];
-    if (subjectEmails.length === 0) return true;
-    return subjectEmails.some((em) => onPeople.has(em));
+    if (selectedCats.size > 0 && !selectedCats.has(e.category)) return false;
+    if (selectedPeople.size > 0) {
+      const subjectEmails = e.subjects.map((s) => s.member_email?.toLowerCase()).filter(Boolean) as string[];
+      if (!subjectEmails.some((em) => selectedPeople.has(em))) return false;
+    }
+    return true;
   });
 
   // Build the ordered run of decade rules, the "now" rule, and event columns.
@@ -221,10 +283,21 @@ export function VerticalTimeline({
 
   return (
     <div className="flex flex-1 flex-col pt-10">
-      {/* Title + filters in the reading column. */}
+      {/* Filter + New entry in the reading column (the nav already labels this page). */}
       <div className="mx-auto w-full max-w-5xl px-6">
         <div className="flex items-center justify-between gap-4">
-          <h1 className="font-serif text-2xl tracking-tight text-foreground">Timeline</h1>
+          <FilterPopover
+            people={people}
+            categories={categories}
+            selectedPeople={selectedPeople}
+            selectedCats={selectedCats}
+            onTogglePerson={(email) => toggle(selectedPeople, email, setSelectedPeople)}
+            onToggleCategory={(cat) => toggle(selectedCats, cat, setSelectedCats)}
+            onClear={() => {
+              setSelectedPeople(new Set());
+              setSelectedCats(new Set());
+            }}
+          />
           <button
             type="button"
             onClick={() => setCreating(true)}
@@ -232,37 +305,6 @@ export function VerticalTimeline({
           >
             <Plus className="h-4 w-4" /> New entry
           </button>
-        </div>
-        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
-          <MultiselectDropdown
-            label="People"
-            summaryAll="Everyone"
-            items={people.map((p) => ({
-              key: p.email,
-              label: p.name,
-              leading: <span className={cn("h-2 w-2 shrink-0 rounded-full", personColor(p.email).dot)} />,
-            }))}
-            selected={onPeople}
-            onToggle={(key) => toggle(onPeople, key, setOnPeople)}
-            onAll={() => setOnPeople(new Set(people.map((p) => p.email)))}
-            onNone={() => setOnPeople(new Set())}
-          />
-          <MultiselectDropdown
-            label="Categories"
-            summaryAll="All categories"
-            items={categories.map((c) => {
-              const Icon = CATEGORY_ICON[c];
-              return {
-                key: c,
-                label: CATEGORY_LABEL[c],
-                leading: <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />,
-              };
-            })}
-            selected={onCats}
-            onToggle={(key) => toggle(onCats, key, setOnCats)}
-            onAll={() => setOnCats(new Set(categories))}
-            onNone={() => setOnCats(new Set())}
-          />
         </div>
       </div>
 
@@ -289,9 +331,10 @@ export function VerticalTimeline({
                   gap={item.gap}
                   row={item.row}
                   upcoming={item.upcoming}
-                  onEnter={(el) => showPopover(item.e, el)}
-                  onLeave={scheduleClose}
-                  onActivate={(el) => showPopover(item.e, el, true)}
+                  onActivate={(el) => showPopover(item.e, el)}
+                  onOpenPhoto={(src) => setLightboxSrc(src)}
+                  onAddPhotos={(files) => addPhotosToEvent(item.e.id, files)}
+                  uploading={uploadingId === item.e.id}
                 />
               );
             })
@@ -301,17 +344,22 @@ export function VerticalTimeline({
 
       {hovered && (
         <EntryPopover
-          entry={hovered.entry}
+          // Read the live entry by id so the photo gallery reflects adds/removes
+          // after router.refresh() (the hovered snapshot would otherwise be stale).
+          entry={entries.find((x) => x.id === hovered.entry.id) ?? hovered.entry}
           rect={hovered.rect}
-          onEnter={cancelClose}
-          onLeave={scheduleClose}
+          uploading={uploadingId === hovered.entry.id}
           onEdit={() => {
             setEditing(hovered.entry);
             closeNow();
           }}
           onDelete={() => handleDelete(hovered.entry.id)}
+          onAddPhotos={(files) => addPhotosToEvent(hovered.entry.id, files)}
+          onRemovePhoto={removePhoto}
+          onOpenPhoto={(src) => setLightboxSrc(src)}
         />
       )}
+      {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
       {editing && (
         <EntryModal entry={editing} familyPeople={people} onClose={() => setEditing(null)} />
       )}
@@ -326,23 +374,27 @@ export function VerticalTimeline({
   );
 }
 
-/** A labeled multiselect dropdown used for both the People and Categories filters. */
-function MultiselectDropdown({
-  label,
-  summaryAll,
-  items,
-  selected,
-  onToggle,
-  onAll,
-  onNone,
+/**
+ * A single Linear-style filter popover with People and Categories sections.
+ * Each section is a flow of toggle pills (Linear's "Display properties"); nothing
+ * is selected by default, and selecting pills narrows the timeline to those values.
+ */
+function FilterPopover({
+  people,
+  categories,
+  selectedPeople,
+  selectedCats,
+  onTogglePerson,
+  onToggleCategory,
+  onClear,
 }: {
-  label: string;
-  summaryAll: string;
-  items: { key: string; label: string; leading: React.ReactNode }[];
-  selected: Set<string>;
-  onToggle: (key: string) => void;
-  onAll: () => void;
-  onNone: () => void;
+  people: { email: string; name: string }[];
+  categories: TimelineCategory[];
+  selectedPeople: Set<string>;
+  selectedCats: Set<string>;
+  onTogglePerson: (email: string) => void;
+  onToggleCategory: (cat: TimelineCategory) => void;
+  onClear: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -356,68 +408,121 @@ function MultiselectDropdown({
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  const count = selected.size;
-  const total = items.length;
-  const summary = count === total ? summaryAll : count === 0 ? "None" : `${count} of ${total}`;
+  const activeCount = selectedPeople.size + selectedCats.size;
 
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-        {label}
-      </span>
-      <div ref={ref} className="relative">
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-0.5 text-xs font-medium text-foreground/80 hover:bg-accent"
-        >
-          {summary}
-          <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", open && "rotate-180")} />
-        </button>
-        {open && (
-          <div className="absolute left-0 top-full z-20 mt-1.5 w-60 rounded-lg border border-border bg-background p-1.5 shadow-lg">
-            <div className="flex items-center justify-between px-1.5 pb-1.5">
-              <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-                Show
-              </span>
-              <div className="flex gap-2 text-[11px]">
-                <button type="button" onClick={onAll} className="text-muted-foreground hover:text-foreground">
-                  All
-                </button>
-                <button type="button" onClick={onNone} className="text-muted-foreground hover:text-foreground">
-                  None
-                </button>
-              </div>
-            </div>
-            <div className="max-h-72 overflow-y-auto">
-              {items.map((it) => {
-                const on = selected.has(it.key);
-                return (
-                  <button
-                    key={it.key}
-                    type="button"
-                    onClick={() => onToggle(it.key)}
-                    className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs hover:bg-accent"
-                  >
-                    <span
-                      className={cn(
-                        "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border",
-                        on ? "border-foreground bg-foreground text-background" : "border-muted-foreground/40"
-                      )}
-                    >
-                      {on && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
-                    </span>
-                    {it.leading}
-                    <span className={cn(on ? "text-foreground" : "text-muted-foreground")}>{it.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition",
+          activeCount > 0
+            ? "border-foreground/20 bg-accent text-foreground"
+            : "border-border bg-background text-foreground/80 hover:bg-accent"
         )}
-      </div>
+      >
+        <ListFilter className="h-3.5 w-3.5" />
+        Filter
+        {activeCount > 0 && (
+          <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded bg-foreground px-1 text-[10px] font-semibold tabular-nums text-background">
+            {activeCount}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1.5 w-72 rounded-lg border border-border bg-background p-3 shadow-xl">
+          <div className="mb-2.5 flex items-center justify-between">
+            <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+              Filter
+            </span>
+            {activeCount > 0 && (
+              <button
+                type="button"
+                onClick={onClear}
+                className="text-[11px] text-muted-foreground hover:text-foreground"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          <FilterSection label="People">
+            {people.map((p) => (
+              <FilterPill
+                key={p.email}
+                selected={selectedPeople.has(p.email)}
+                onClick={() => onTogglePerson(p.email)}
+                leading={<span className={cn("h-2 w-2 shrink-0 rounded-full", personColor(p.email).dot)} />}
+              >
+                {p.name}
+              </FilterPill>
+            ))}
+          </FilterSection>
+
+          <FilterSection label="Categories">
+            {categories.map((c) => {
+              const Icon = CATEGORY_ICON[c];
+              const selected = selectedCats.has(c);
+              return (
+                <FilterPill
+                  key={c}
+                  selected={selected}
+                  onClick={() => onToggleCategory(c)}
+                  leading={
+                    <Icon className={cn("h-3.5 w-3.5 shrink-0", selected ? "text-background" : "text-muted-foreground")} />
+                  }
+                >
+                  {CATEGORY_LABEL[c]}
+                </FilterPill>
+              );
+            })}
+          </FilterSection>
+        </div>
+      )}
     </div>
+  );
+}
+
+function FilterSection({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-3 last:mb-0">
+      <div className="mb-1.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+        {label}
+      </div>
+      <div className="flex flex-wrap gap-1.5">{children}</div>
+    </div>
+  );
+}
+
+function FilterPill({
+  selected,
+  onClick,
+  leading,
+  children,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  leading: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition",
+        selected
+          ? "border-foreground bg-foreground text-background"
+          : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+      )}
+    >
+      {leading}
+      {children}
+    </button>
   );
 }
 
@@ -448,23 +553,27 @@ function EventColumn({
   gap,
   row,
   upcoming,
-  onEnter,
-  onLeave,
   onActivate,
+  onOpenPhoto,
+  onAddPhotos,
+  uploading,
 }: {
   entry: TimelineEntryWithPeople;
   gap: number;
   row: 0 | 1;
   upcoming: boolean;
-  onEnter: (el: HTMLElement) => void;
-  onLeave: () => void;
   onActivate: (el: HTMLElement) => void;
+  onOpenPhoto: (src: string) => void;
+  onAddPhotos: (files: File[]) => void;
+  uploading: boolean;
 }) {
   const top = row === 0;
   const color = personColor(e.subjects[0]?.member_email);
   const imgH = IMG_H[e.prominence];
   const showImage = !!e.coverPhotoUrl && imgH > 0;
   const Icon = CATEGORY_ICON[e.category];
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   const meta = (
     <div className="flex items-center gap-1.5 whitespace-nowrap text-[10px]">
@@ -485,30 +594,71 @@ function EventColumn({
   );
 
   const title = (
-    <div className={cn(TITLE[e.prominence], "line-clamp-2 leading-snug group-hover:underline")}>
+    <button
+      type="button"
+      data-timeline-title
+      onClick={(ev) => {
+        ev.stopPropagation();
+        if (rootRef.current) onActivate(rootRef.current);
+      }}
+      className={cn(
+        TITLE[e.prominence],
+        "line-clamp-2 cursor-pointer text-left leading-snug hover:underline"
+      )}
+    >
       {e.title}
-    </div>
+    </button>
   );
 
   const image = showImage ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={e.coverPhotoUrl!}
-      alt=""
-      style={{ height: `${imgH}px` }}
-      className={cn("w-full rounded-lg object-cover shadow-sm ring-1 ring-black/5", upcoming && "opacity-70")}
-    />
+    <button
+      type="button"
+      onClick={(ev) => {
+        ev.stopPropagation();
+        onOpenPhoto(e.coverPhotoUrl!);
+      }}
+      aria-label="View photo"
+      style={{ transform: `rotate(${tiltFor(e.id)}deg)` }}
+      className={cn(
+        "block shrink-0 cursor-zoom-in border-0 bg-transparent p-0",
+        // Breathing room between the print and the caption (which sits below it on
+        // the top row, above it on the bottom row).
+        top ? "mb-4" : "mt-4"
+      )}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={e.coverPhotoUrl!}
+        alt=""
+        style={{ height: `${imgH}px`, width: `${PHOTO_W}px` }}
+        className={cn(
+          "block max-w-none rounded-[2px] border-[6px] border-white bg-white object-cover shadow-[0_5px_18px_rgba(0,0,0,0.2)] ring-1 ring-black/10 transition-shadow duration-200 group-hover:shadow-[0_12px_34px_rgba(0,0,0,0.3)]",
+          upcoming && "opacity-70"
+        )}
+      />
+    </button>
   ) : null;
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onMouseEnter={(ev) => onEnter(ev.currentTarget)}
-      onMouseLeave={onLeave}
-      onClick={(ev) => onActivate(ev.currentTarget)}
-      onFocus={(ev) => onEnter(ev.currentTarget)}
-      className="group relative h-full shrink-0 cursor-pointer"
+      ref={rootRef}
+      onDragEnter={(ev) => {
+        if (ev.dataTransfer?.types?.includes("Files")) {
+          ev.preventDefault();
+          setDragOver(true);
+        }
+      }}
+      onDragOver={(ev) => ev.preventDefault()}
+      onDragLeave={(ev) => {
+        if (!ev.currentTarget.contains(ev.relatedTarget as Node)) setDragOver(false);
+      }}
+      onDrop={(ev) => {
+        ev.preventDefault();
+        setDragOver(false);
+        const files = Array.from(ev.dataTransfer?.files ?? []);
+        if (files.length) onAddPhotos(files);
+      }}
+      className="group relative h-full shrink-0 hover:z-20"
       style={{ width: `${COL_W}px`, marginLeft: `${gap}px` }}
     >
       {/* The datum at the LEFT edge, on the axis: the category's icon, colored
@@ -516,13 +666,19 @@ function EventColumn({
       <span className="absolute left-0 top-1/2 z-10 -translate-y-1/2" aria-hidden>
         <span
           className={cn(
-            "flex items-center justify-center rounded-full bg-background ring-1",
-            color.ring,
+            "flex items-center justify-center rounded-full bg-background ring-1 transition-all",
+            dragOver ? "scale-110 ring-2 ring-primary" : color.ring,
             ICON_BOX[e.prominence],
-            upcoming && "opacity-40"
+            upcoming && !dragOver && "opacity-40"
           )}
         >
-          <Icon className={cn(color.text, ICON_SIZE[e.prominence])} strokeWidth={2} />
+          {uploading ? (
+            <Loader2 className={cn("animate-spin text-primary", ICON_SIZE[e.prominence])} />
+          ) : dragOver ? (
+            <ImagePlus className={cn("text-primary", ICON_SIZE[e.prominence])} />
+          ) : (
+            <Icon className={cn(color.text, ICON_SIZE[e.prominence])} strokeWidth={2} />
+          )}
         </span>
       </span>
 
@@ -571,20 +727,25 @@ function Names({ subjects }: { subjects: TimelinePerson[] }) {
 function EntryPopover({
   entry: e,
   rect,
-  onEnter,
-  onLeave,
+  uploading,
   onEdit,
   onDelete,
+  onAddPhotos,
+  onRemovePhoto,
+  onOpenPhoto,
 }: {
   entry: TimelineEntryWithPeople;
   rect: DOMRect;
-  onEnter: () => void;
-  onLeave: () => void;
+  uploading: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  onAddPhotos: (files: File[]) => void;
+  onRemovePhoto: (photoId: string) => void;
+  onOpenPhoto: (src: string) => void;
 }) {
   const color = personColor(e.subjects[0]?.member_email);
   const Icon = CATEGORY_ICON[e.category];
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
   const vh = typeof window !== "undefined" ? window.innerHeight : 800;
   const W = 336;
@@ -597,10 +758,15 @@ function EntryPopover({
 
   return (
     <div
+      data-timeline-popover
       className="fixed z-40 max-h-[72vh] w-[336px] overflow-y-auto rounded-xl border border-border bg-background p-4 shadow-xl"
       style={style}
-      onMouseEnter={onEnter}
-      onMouseLeave={onLeave}
+      onDragOver={(ev) => ev.preventDefault()}
+      onDrop={(ev) => {
+        ev.preventDefault();
+        const files = Array.from(ev.dataTransfer?.files ?? []);
+        if (files.length) onAddPhotos(files);
+      }}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-start gap-2">
@@ -630,12 +796,60 @@ function EntryPopover({
 
       <p className="mt-2.5 text-sm leading-relaxed text-foreground/90">{e.description}</p>
 
-      <div className="mt-3">
+      {e.photos.length > 0 && (
+        <div className="mt-3 grid grid-cols-3 gap-1.5">
+          {e.photos.map((photo) => (
+            <div key={photo.id} className="group/photo relative aspect-square overflow-hidden rounded-md bg-muted">
+              <button
+                type="button"
+                onClick={() => onOpenPhoto(photo.displayUrl)}
+                aria-label="View photo"
+                className="block h-full w-full cursor-zoom-in"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photo.displayUrl} alt="" className="h-full w-full object-cover" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onRemovePhoto(photo.id)}
+                aria-label="Remove photo"
+                className="absolute right-1 top-1 hidden rounded-full bg-black/60 p-0.5 text-white transition group-hover/photo:block hover:bg-black/80"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-3 flex items-center gap-2">
         <ReflectOnEventButton
           timelineEntryId={e.id}
           label={e.linkedPosts.length > 0 ? "Reflect again" : "Reflect on this"}
         />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-sm text-foreground/80 hover:bg-accent disabled:opacity-60"
+        >
+          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+          {uploading ? "Adding…" : "Add photo"}
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/*"
+          multiple
+          className="hidden"
+          onChange={(ev) => {
+            const files = Array.from(ev.target.files ?? []);
+            ev.target.value = "";
+            if (files.length) onAddPhotos(files);
+          }}
+        />
       </div>
+      <p className="mt-1.5 text-[11px] text-muted-foreground">Or drop a photo on the event to attach it.</p>
 
       {e.linkedPosts.length > 0 && (
         <div className="mt-4 border-t border-border pt-3">
@@ -658,6 +872,40 @@ function EntryPopover({
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+/** A full-screen modal showing a single photo at its natural size. */
+function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
+  useEffect(() => {
+    function onKey(ev: KeyboardEvent) {
+      if (ev.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+      onClick={onClose}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt=""
+        onClick={(ev) => ev.stopPropagation()}
+        className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
+      />
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close"
+        className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white transition hover:bg-white/20"
+      >
+        <X className="h-5 w-5" />
+      </button>
     </div>
   );
 }
