@@ -141,6 +141,9 @@ export function VerticalTimeline({
   // those values: OR within a section, AND across sections (Linear-style).
   const [selectedPeople, setSelectedPeople] = useState<Set<string>>(() => new Set());
   const [selectedCats, setSelectedCats] = useState<Set<string>>(() => new Set());
+  // "Shared only" keeps just the family milestones (2+ subjects), hiding any
+  // single-person event — the inverse of what `Names` labels with a person.
+  const [sharedOnly, setSharedOnly] = useState(false);
 
   // Scroll up/down → move left/right; release at the ends so the page can scroll.
   useEffect(() => {
@@ -253,6 +256,7 @@ export function VerticalTimeline({
   }, []);
 
   const filtered = entries.filter((e) => {
+    if (sharedOnly && e.subjects.length < 2) return false;
     if (selectedCats.size > 0 && !selectedCats.has(e.category)) return false;
     if (selectedPeople.size > 0) {
       const subjectEmails = e.subjects.map((s) => s.member_email?.toLowerCase()).filter(Boolean) as string[];
@@ -291,11 +295,14 @@ export function VerticalTimeline({
             categories={categories}
             selectedPeople={selectedPeople}
             selectedCats={selectedCats}
+            sharedOnly={sharedOnly}
             onTogglePerson={(email) => toggle(selectedPeople, email, setSelectedPeople)}
             onToggleCategory={(cat) => toggle(selectedCats, cat, setSelectedCats)}
+            onToggleSharedOnly={() => setSharedOnly((v) => !v)}
             onClear={() => {
               setSelectedPeople(new Set());
               setSelectedCats(new Set());
+              setSharedOnly(false);
             }}
           />
           <button
@@ -384,16 +391,20 @@ function FilterPopover({
   categories,
   selectedPeople,
   selectedCats,
+  sharedOnly,
   onTogglePerson,
   onToggleCategory,
+  onToggleSharedOnly,
   onClear,
 }: {
   people: { email: string; name: string }[];
   categories: TimelineCategory[];
   selectedPeople: Set<string>;
   selectedCats: Set<string>;
+  sharedOnly: boolean;
   onTogglePerson: (email: string) => void;
   onToggleCategory: (cat: TimelineCategory) => void;
+  onToggleSharedOnly: () => void;
   onClear: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -408,7 +419,7 @@ function FilterPopover({
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  const activeCount = selectedPeople.size + selectedCats.size;
+  const activeCount = selectedPeople.size + selectedCats.size + (sharedOnly ? 1 : 0);
 
   return (
     <div ref={ref} className="relative">
@@ -448,6 +459,16 @@ function FilterPopover({
               </button>
             )}
           </div>
+
+          <FilterSection label="Scope">
+            <FilterPill
+              selected={sharedOnly}
+              onClick={onToggleSharedOnly}
+              leading={<Users className={cn("h-3.5 w-3.5 shrink-0", sharedOnly ? "text-background" : "text-muted-foreground")} />}
+            >
+              Shared only
+            </FilterPill>
+          </FilterSection>
 
           <FilterSection label="People">
             {people.map((p) => (
