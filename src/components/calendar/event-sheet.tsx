@@ -23,8 +23,12 @@ import {
   createManualEvent,
   updateManualEvent,
   deleteEvent,
+  markEventRsvp,
   type ManualEventInput,
 } from "@/app/(calendar)/calendar/actions";
+import { TeamAvailability } from "./team-availability";
+import { cn } from "@/lib/utils";
+import type { TeamsnapRsvp } from "@/lib/calendar/types";
 
 export type SheetMode = "detail" | "edit" | "create";
 
@@ -40,13 +44,6 @@ function fromLocalInput(value: string): string {
   return new Date(value).toISOString();
 }
 
-const RSVP_LABEL: Record<string, string> = {
-  going: "Going",
-  maybe: "Maybe",
-  not_going: "Not going",
-  no_reply: "No reply",
-};
-
 export function EventSheet({
   open,
   onOpenChange,
@@ -55,6 +52,7 @@ export function EventSheet({
   event,
   members,
   canManage,
+  canRsvp,
   sourceLabel,
 }: {
   open: boolean;
@@ -64,6 +62,7 @@ export function EventSheet({
   event: CalendarEvent | null;
   members: CalendarMember[];
   canManage: boolean;
+  canRsvp: boolean;
   sourceLabel: string | null;
 }) {
   return (
@@ -74,6 +73,7 @@ export function EventSheet({
             event={event}
             sourceLabel={sourceLabel}
             canManage={canManage}
+            canRsvp={canRsvp}
             onEdit={() => onModeChange("edit")}
             onClose={() => onOpenChange(false)}
           />
@@ -93,17 +93,20 @@ function DetailBody({
   event,
   sourceLabel,
   canManage,
+  canRsvp,
   onEdit,
   onClose,
 }: {
   event: CalendarEvent;
   sourceLabel: string | null;
   canManage: boolean;
+  canRsvp: boolean;
   onEdit: () => void;
   onClose: () => void;
 }) {
   const [pending, setPending] = useState(false);
   const isManual = event.source_type === "manual";
+  const isTeamsnap = event.source_type === "teamsnap";
   const date = new Date(event.start_time).toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -157,15 +160,16 @@ function DetailBody({
             vs. {event.teamsnap_opponent}
           </div>
         )}
-        {event.teamsnap_rsvp && event.teamsnap_rsvp !== "no_reply" && (
-          <div className="text-muted-foreground">
-            RSVP: {RSVP_LABEL[event.teamsnap_rsvp]}
-          </div>
-        )}
         {event.description && (
           <p className="whitespace-pre-wrap text-foreground">
             {event.description}
           </p>
+        )}
+        {isTeamsnap && canRsvp && (
+          <RsvpControl key={`rsvp-${event.id}`} event={event} />
+        )}
+        {isTeamsnap && (
+          <TeamAvailability key={`avail-${event.id}`} eventId={event.id} />
         )}
       </div>
       {canManage && isManual && (
@@ -185,6 +189,71 @@ function DetailBody({
         </SheetFooter>
       )}
     </>
+  );
+}
+
+const RSVP_OPTIONS: { value: Exclude<TeamsnapRsvp, "no_reply">; label: string }[] =
+  [
+    { value: "going", label: "Going" },
+    { value: "maybe", label: "Maybe" },
+    { value: "not_going", label: "Not going" },
+  ];
+
+/** Set the linked player's RSVP for a TeamSnap event. Optimistic; reverts on
+ * error. The write goes back to TeamSnap through `markEventRsvp`. */
+function RsvpControl({ event }: { event: CalendarEvent }) {
+  const [rsvp, setRsvp] = useState<TeamsnapRsvp>(
+    event.teamsnap_rsvp ?? "no_reply",
+  );
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function choose(value: Exclude<TeamsnapRsvp, "no_reply">) {
+    if (pending || value === rsvp) return;
+    const prev = rsvp;
+    setRsvp(value);
+    setPending(true);
+    setError(null);
+    const result = await markEventRsvp(event.id, value);
+    setPending(false);
+    if ("error" in result) {
+      setRsvp(prev);
+      setError(result.error);
+    }
+  }
+
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-muted-foreground">
+          Attendance
+        </span>
+        {rsvp === "no_reply" && (
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">
+            Needs RSVP
+          </span>
+        )}
+      </div>
+      <div className="inline-flex w-full rounded-lg border p-0.5">
+        {RSVP_OPTIONS.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            disabled={pending}
+            onClick={() => choose(o.value)}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-60",
+              rsvp === o.value
+                ? "bg-foreground text-background"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
   );
 }
 

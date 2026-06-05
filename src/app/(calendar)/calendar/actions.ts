@@ -11,6 +11,13 @@ import {
   getTeamsnapTeams,
 } from "@/lib/calendar/teamsnap";
 import { syncTeamEvents } from "@/lib/calendar/teamsnap-sync";
+import {
+  getEventTeamAvailability,
+  setEventRsvp,
+  listTeamPlayers,
+  type TeamAvailability,
+} from "@/lib/calendar/attendance";
+import type { TeamsnapRsvp } from "@/lib/calendar/types";
 
 /** Throw unless the caller is an owner/parent — the roles that manage calendars.
  * Returns the caller's member email (handy for connection-scoped work). */
@@ -192,11 +199,22 @@ export async function listTeamsnapTeams(): Promise<
     .map((t) => ({ id: t.id, name: t.name }));
 }
 
-/** Add a TeamSnap team as a source for a kid, then sync it immediately. */
+/** The players on a team (for picking which one this calendar belongs to). */
+export async function listTeamsnapPlayers(
+  teamId: number,
+): Promise<{ id: number; name: string }[]> {
+  const email = await requireParent();
+  return listTeamPlayers(email, teamId);
+}
+
+/** Add a TeamSnap team as a source for a kid, then sync it immediately. The
+ * player member id links the team's roster to this kid so their RSVP can be read
+ * and written back; the connection email records whose token reaches the team. */
 export async function addTeamsnapSource(input: {
   teamId: number;
   teamName: string;
   memberEmail: string | null;
+  playerMemberId: number | null;
   color: string | null;
 }): Promise<void> {
   const connectionEmail = await requireParent();
@@ -208,6 +226,8 @@ export async function addTeamsnapSource(input: {
       source_type: "teamsnap",
       teamsnap_team_id: input.teamId,
       teamsnap_team_name: input.teamName,
+      teamsnap_player_member_id: input.playerMemberId,
+      teamsnap_connection_email: connectionEmail,
       nickname: input.teamName,
       color: input.color,
     })
@@ -217,4 +237,51 @@ export async function addTeamsnapSource(input: {
   await syncTeamEvents(connectionEmail, data.id as string).catch(() => {});
   revalidatePath("/calendar");
   revalidatePath("/settings/calendars");
+}
+
+/** Link (or change) which roster player an existing TeamSnap source represents,
+ * then refresh that player's RSVP. Lets teams added before player-linking get
+ * attendance without being removed and re-added. */
+export async function relinkTeamsnapPlayer(
+  sourceId: string,
+  playerMemberId: number | null,
+): Promise<void> {
+  const connectionEmail = await requireParent();
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("calendar_sources")
+    .update({
+      teamsnap_player_member_id: playerMemberId,
+      teamsnap_connection_email: connectionEmail,
+    })
+    .eq("id", sourceId)
+    .eq("source_type", "teamsnap");
+  if (error) throw new Error(error.message);
+  // Pull the newly-linked player's RSVP onto existing events.
+  await syncTeamEvents(connectionEmail, sourceId).catch(() => {});
+  revalidatePath("/calendar");
+  revalidatePath("/settings/calendars");
+}
+
+// --- TeamSnap attendance ----------------------------------------------------
+
+/** Read the whole team's RSVP roster for an event. Any signed-in member. */
+export async function fetchEventTeamAvailability(
+  eventId: string,
+): Promise<TeamAvailability | { error: string }> {
+  await requireUserId(await createClient());
+  return getEventTeamAvailability(eventId);
+}
+
+/** Mark the linked player's RSVP for an event, writing it back to TeamSnap.
+ * Owner/parent only (kids see the calendar read-only). */
+export async function markEventRsvp(
+  eventId: string,
+  status: Exclude<TeamsnapRsvp, "no_reply">,
+): Promise<{ ok: true } | { error: string }> {
+  await requireParent();
+  const result = await setEventRsvp(eventId, status);
+  if ("error" in result) return result;
+  revalidatePath("/calendar");
+  return result;
 }

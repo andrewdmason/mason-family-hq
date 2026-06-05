@@ -3,13 +3,43 @@
 import { AlertTriangle, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatTimeRange } from "@/lib/calendar/calendar-utils";
-import type { CalendarEvent } from "@/lib/calendar/types";
+import type { CalendarEvent, TeamsnapRsvp } from "@/lib/calendar/types";
 
 export interface EventDisplay {
   event: CalendarEvent;
   color: string;
   sourceLabel: string | null;
   conflict: boolean;
+  // The player's RSVP state for a linked TeamSnap event, or null when RSVP
+  // doesn't apply (no team source, or no player linked to it).
+  rsvp: TeamsnapRsvp | null;
+}
+
+/** A small pill for an event's RSVP state. "Needs RSVP" is the actionable one;
+ * answered states are shown muted so they fade into the row. */
+function RsvpBadge({ rsvp }: { rsvp: TeamsnapRsvp }) {
+  if (rsvp === "no_reply") {
+    return (
+      <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium leading-none text-amber-700 dark:bg-amber-950 dark:text-amber-400">
+        RSVP
+      </span>
+    );
+  }
+  const styles: Record<Exclude<TeamsnapRsvp, "no_reply">, string> = {
+    going: "text-green-600",
+    maybe: "text-yellow-600",
+    not_going: "text-red-600",
+  };
+  const labels: Record<Exclude<TeamsnapRsvp, "no_reply">, string> = {
+    going: "Going",
+    maybe: "Maybe",
+    not_going: "Not going",
+  };
+  return (
+    <span className={cn("shrink-0 text-[10px] font-medium", styles[rsvp])}>
+      {labels[rsvp]}
+    </span>
+  );
 }
 
 /** A row in the agenda / day list. */
@@ -22,7 +52,7 @@ export function EventRow({
   onClick: (event: CalendarEvent) => void;
   selected?: boolean;
 }) {
-  const { event, color, sourceLabel, conflict } = display;
+  const { event, color, sourceLabel, conflict, rsvp } = display;
   return (
     <button
       type="button"
@@ -45,6 +75,7 @@ export function EventRow({
           {conflict && (
             <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
           )}
+          {rsvp && <RsvpBadge rsvp={rsvp} />}
         </span>
         <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
           <span>
@@ -71,7 +102,7 @@ export function EventPill({
   display: EventDisplay;
   onClick: (event: CalendarEvent) => void;
 }) {
-  const { event, color, conflict } = display;
+  const { event, color, conflict, rsvp } = display;
   return (
     <button
       type="button"
@@ -93,6 +124,11 @@ export function EventPill({
         </span>
       )}
       <span className="truncate text-foreground">{event.title}</span>
+      {rsvp === "no_reply" && (
+        <span className="ml-auto shrink-0 rounded-full bg-amber-100 px-1 text-[9px] font-medium leading-tight text-amber-700 dark:bg-amber-950 dark:text-amber-400">
+          RSVP
+        </span>
+      )}
       {conflict && (
         <AlertTriangle className="h-3 w-3 shrink-0 text-amber-600" />
       )}

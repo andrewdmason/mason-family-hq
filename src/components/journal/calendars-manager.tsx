@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Link2, Plus, Rss, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,8 @@ import {
   deleteSource,
   ensureFeedToken,
   listTeamsnapTeams,
+  listTeamsnapPlayers,
+  relinkTeamsnapPlayer,
 } from "@/app/(calendar)/calendar/actions";
 
 // One group per family member, plus a trailing "Family (everyone)" group whose
@@ -137,36 +139,144 @@ function SourceList({ sources }: { sources: CalendarSource[] }) {
         {sources.map((s) => (
           <li
             key={s.id}
-            className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+            className="rounded-lg border px-3 py-2 text-sm"
           >
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: s.color ?? "#64748b" }}
-              aria-hidden
-            />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium">
-                {s.nickname ?? s.teamsnap_team_name ?? "Calendar"}
+            <div className="flex items-center gap-2">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: s.color ?? "#64748b" }}
+                aria-hidden
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">
+                  {s.nickname ?? s.teamsnap_team_name ?? "Calendar"}
+                </span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {s.source_type === "teamsnap" ? "TeamSnap" : "ICS"}
+                  {s.sync_error ? ` · error: ${s.sync_error}` : ""}
+                </span>
               </span>
-              <span className="block truncate text-xs text-muted-foreground">
-                {s.source_type === "teamsnap" ? "TeamSnap" : "ICS"}
-                {s.sync_error ? ` · error: ${s.sync_error}` : ""}
-              </span>
-            </span>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => handleDelete(s.id)}
-              disabled={pending}
-              aria-label="Remove calendar"
-            >
-              <Trash2 />
-            </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => handleDelete(s.id)}
+                disabled={pending}
+                aria-label="Remove calendar"
+              >
+                <Trash2 />
+              </Button>
+            </div>
+            {s.source_type === "teamsnap" && s.teamsnap_team_id && (
+              <TeamsnapPlayerLink source={s} />
+            )}
           </li>
         ))}
       </ul>
       {error && <p className="text-sm text-destructive">{error}</p>}
     </>
+  );
+}
+
+/** Shows whether a TeamSnap source is linked to a roster player (needed for RSVP
+ * and attendance) and lets a parent set or change it inline. */
+function TeamsnapPlayerLink({ source }: { source: CalendarSource }) {
+  const [editing, setEditing] = useState(false);
+  const [players, setPlayers] = useState<
+    { id: number; name: string }[] | null
+  >(null);
+  const [playerId, setPlayerId] = useState<string>(
+    source.teamsnap_player_member_id
+      ? String(source.teamsnap_player_member_id)
+      : "",
+  );
+  const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const linkedName = players?.find(
+    (p) => String(p.id) === String(source.teamsnap_player_member_id),
+  )?.name;
+
+  async function open() {
+    setEditing(true);
+    if (players || !source.teamsnap_team_id) return;
+    setLoading(true);
+    setError(null);
+    try {
+      setPlayers(await listTeamsnapPlayers(source.teamsnap_team_id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't load the roster.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function save() {
+    setPending(true);
+    setError(null);
+    try {
+      await relinkTeamsnapPlayer(source.id, playerId ? Number(playerId) : null);
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't link the player.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div className="mt-1.5 flex items-center gap-2 pl-[18px] text-xs text-muted-foreground">
+        {source.teamsnap_player_member_id ? (
+          <span>RSVP linked{linkedName ? ` · ${linkedName}` : ""}</span>
+        ) : (
+          <span className="text-amber-700 dark:text-amber-400">
+            Not linked for RSVP
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={open}
+          className="font-medium text-foreground hover:underline"
+        >
+          {source.teamsnap_player_member_id ? "Change" : "Link player"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-2 pl-[18px]">
+      <select
+        value={playerId}
+        onChange={(e) => setPlayerId(e.target.value)}
+        disabled={loading || pending}
+        className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+      >
+        <option value="">
+          {loading ? "Loading roster…" : "Not on the roster"}
+        </option>
+        {players?.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <div className="flex items-center gap-1.5">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setEditing(false)}
+          disabled={pending}
+        >
+          Cancel
+        </Button>
+        <Button size="sm" onClick={save} disabled={loading || pending}>
+          Save
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -293,6 +403,9 @@ function TeamsnapForm({
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<{ id: number; name: string } | null>(
+    null,
+  );
 
   async function loadTeams() {
     setLoading(true);
@@ -303,21 +416,6 @@ function TeamsnapForm({
       setError(e instanceof Error ? e.message : "Couldn't load teams.");
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function add(team: { id: number; name: string }) {
-    setError(null);
-    try {
-      await addTeamsnapSource({
-        teamId: team.id,
-        teamName: team.name,
-        memberEmail: group.key,
-        color: group.color,
-      });
-      onDone();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't add the team.");
     }
   }
 
@@ -340,6 +438,19 @@ function TeamsnapForm({
     );
   }
 
+  // Once a team is picked, choose which player on its roster this calendar
+  // belongs to — that linkage is what powers RSVP and attendance.
+  if (selected) {
+    return (
+      <TeamsnapPlayerPicker
+        group={group}
+        team={selected}
+        onBack={() => setSelected(null)}
+        onDone={onDone}
+      />
+    );
+  }
+
   return (
     <div className="space-y-2">
       <Button size="sm" variant="outline" onClick={loadTeams} disabled={loading}>
@@ -354,13 +465,122 @@ function TeamsnapForm({
           {teams.map((t) => (
             <li key={t.id} className="flex items-center gap-2">
               <span className="min-w-0 flex-1 truncate text-sm">{t.name}</span>
-              <Button size="icon-sm" onClick={() => add(t)} aria-label="Add team">
+              <Button
+                size="icon-sm"
+                onClick={() => setSelected(t)}
+                aria-label="Choose team"
+              >
                 <Plus />
               </Button>
             </li>
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+function TeamsnapPlayerPicker({
+  group,
+  team,
+  onBack,
+  onDone,
+}: {
+  group: Group;
+  team: { id: number; name: string };
+  onBack: () => void;
+  onDone: () => void;
+}) {
+  const [players, setPlayers] = useState<
+    { id: number; name: string }[] | null
+  >(null);
+  const [playerId, setPlayerId] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    listTeamsnapPlayers(team.id)
+      .then((p) => {
+        if (!active) return;
+        setPlayers(p);
+        // Auto-select the player whose first name matches this member.
+        const first = group.name.split(" ")[0].toLowerCase();
+        const match = p.find((x) => x.name.toLowerCase().startsWith(first));
+        if (match) setPlayerId(String(match.id));
+      })
+      .catch((e) => {
+        if (active)
+          setError(e instanceof Error ? e.message : "Couldn't load the roster.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [team.id, group.name]);
+
+  async function add() {
+    setPending(true);
+    setError(null);
+    try {
+      await addTeamsnapSource({
+        teamId: team.id,
+        teamName: team.name,
+        memberEmail: group.key,
+        playerMemberId: playerId ? Number(playerId) : null,
+        color: group.color,
+      });
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't add the team.");
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm font-medium">{team.name}</div>
+      <div className="space-y-1.5">
+        <Label htmlFor={`ts-player-${team.id}`}>Which player is {group.name}?</Label>
+        <select
+          id={`ts-player-${team.id}`}
+          value={playerId}
+          onChange={(e) => setPlayerId(e.target.value)}
+          disabled={loading || pending}
+          className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
+          <option value="">
+            {loading ? "Loading roster…" : "Not on the roster"}
+          </option>
+          {players?.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">
+          Links the schedule to {group.name}&apos;s RSVP. Leave unset to just
+          subscribe to the games.
+        </p>
+      </div>
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div className="flex items-center gap-1.5">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onBack}
+          disabled={pending}
+        >
+          Back
+        </Button>
+        <Button size="sm" onClick={add} disabled={loading || pending}>
+          <Plus />
+          Add team
+        </Button>
+      </div>
     </div>
   );
 }
