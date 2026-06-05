@@ -158,10 +158,10 @@ export default async function EntryPage({
       {commentsEnabled && <MarkEntryViewed entryId={entry.id} />}
       <div className="mx-auto w-full max-w-2xl px-6 pt-8">
         <Link
-          href={isAuthor ? "/journal" : "/journal?feed=family"}
+          href={isFamily ? "/family" : "/journal"}
           className="font-serif text-xs text-muted-foreground hover:text-foreground"
         >
-          ← journal
+          {isFamily ? "← family" : "← journal"}
         </Link>
         <div className="mt-6 flex items-baseline gap-3">
           <p className="font-serif text-sm text-muted-foreground tabular-nums">

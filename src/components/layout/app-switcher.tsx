@@ -11,6 +11,7 @@ import {
   Music,
   NotebookPen,
   Settings,
+  Users,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -31,10 +32,24 @@ type App = {
 
 const APPS: App[] = [
   {
+    href: "/family",
+    label: "Family",
+    match: "/family",
+    description: "Shared family record",
+    icon: Users,
+  },
+  {
+    href: "/reader",
+    label: "Reader",
+    match: "/reader",
+    description: "Books & reading",
+    icon: BookOpen,
+  },
+  {
     href: "/journal",
     label: "Journal",
     match: "/journal",
-    description: "Daily entries & memories",
+    description: "Your personal journal",
     icon: NotebookPen,
   },
   {
@@ -43,13 +58,6 @@ const APPS: App[] = [
     match: "/timeline",
     description: "Family life events",
     icon: CalendarDays,
-  },
-  {
-    href: "/reader",
-    label: "Reader",
-    match: "/reader",
-    description: "Books & reading",
-    icon: BookOpen,
   },
 ];
 

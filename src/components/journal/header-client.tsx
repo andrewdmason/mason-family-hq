@@ -29,7 +29,7 @@ export function JournalHeaderClient({
         <div className="relative mx-auto flex h-14 max-w-3xl items-center justify-between px-6">
           <AppSwitcher isOwner={isOwner} />
           <div className="flex items-center gap-2">
-            <JournalNewButton />
+            <JournalNewButton audience="personal" />
             <JournalStreakBadge streak={streak} />
             {notifications.count > 0 && (
               <NotificationBell notifications={notifications} />

@@ -64,6 +64,7 @@ export function OpeningPicker({
   questionTypeNames = [],
   recurringTypeNames = [],
   initialMode,
+  initialAudience = "any",
   forcedType,
 }: {
   entryId: string;
@@ -77,6 +78,11 @@ export function OpeningPicker({
    * "New ▾" menu). "freeform" auto-starts a blog entry on mount; "quote" and
    * "recap" open their compose form directly. */
   initialMode?: "freeform" | "quote" | "recap";
+  /** Which app launched this compose. "family" (from the Family app) seeds the
+   * audience control to family and force-sets new entries to family visibility;
+   * "private" (from the Journal app) seeds private. "any" is the default mixed
+   * behavior when opened without an app context. */
+  initialAudience?: QuestionAudience;
   /** Deep-link from a recurring post's "due" notification: generate the opening
    * questions in this one type on mount, instead of the usual varied set. */
   forcedType?: string;
@@ -85,7 +91,12 @@ export function OpeningPicker({
     normalizeCandidates(initialCandidates)
   );
   const [rerollCount, setRerollCount] = useState(initialRerollCount);
-  const [audience, setAudience] = useState<QuestionAudience>("any");
+  const [audience, setAudience] = useState<QuestionAudience>(initialAudience);
+  // The visibility a new entry takes when started without picking a question
+  // (write freely, photo, quote, recap), derived from the current audience so it
+  // lands in the right app. "any" keeps today's private default.
+  const startVisibility: "private" | "family" =
+    audience === "family" ? "family" : "private";
   const [loading, setLoading] = useState(candidates.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
@@ -123,10 +134,19 @@ export function OpeningPicker({
     if (forcedType) {
       void fetchCandidates("/journal/api/regenerate-opening", {
         categoryName: forcedType,
+        audience,
       });
       return;
     }
     if (candidates.length > 0) return;
+    // Launched from an app with a chosen audience (Journal/Family): generate the
+    // first set framed for it, with each candidate's visibility force-set to
+    // match — so picking one lands the entry in the right app. "any" keeps the
+    // original mixed default via the idempotent opening-candidates endpoint.
+    if (audience !== "any") {
+      void fetchCandidates("/journal/api/regenerate-opening", { audience });
+      return;
+    }
     void fetchCandidates("/journal/api/opening-candidates");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -214,7 +234,7 @@ export function OpeningPicker({
     setError(null);
     startTransition(async () => {
       try {
-        await startFreeformEntry(entryId);
+        await startFreeformEntry(entryId, startVisibility);
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -245,7 +265,7 @@ export function OpeningPicker({
     setError(null);
     try {
       await uploadJournalMedia(entryId, file);
-      await startFreeformEntry(entryId);
+      await startFreeformEntry(entryId, startVisibility);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -260,7 +280,7 @@ export function OpeningPicker({
     setError(null);
     startTransition(async () => {
       try {
-        await saveQuoteEntry(entryId, quote, attribution);
+        await saveQuoteEntry(entryId, quote, attribution, startVisibility);
         router.push(`/journal/${entryId}`);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -276,7 +296,7 @@ export function OpeningPicker({
     setError(null);
     startTransition(async () => {
       try {
-        await saveRecapEntry(entryId, recapTitle, body);
+        await saveRecapEntry(entryId, recapTitle, body, startVisibility);
         router.push(`/journal/${entryId}`);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
