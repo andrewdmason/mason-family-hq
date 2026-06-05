@@ -228,9 +228,13 @@ function RsvpControl({ event }: { event: CalendarEvent }) {
         <span className="text-xs font-medium text-muted-foreground">
           Attendance
         </span>
-        {rsvp === "no_reply" && (
+        {rsvp === "no_reply" ? (
           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">
             Needs RSVP
+          </span>
+        ) : (
+          <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+            TeamSnap
           </span>
         )}
       </div>

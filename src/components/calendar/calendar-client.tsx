@@ -260,10 +260,10 @@ export function CalendarClient({
         canManage={canManage}
         canRsvp={
           canManage &&
-          !!(activeEvent?.calendar_source_id
-            ? sourcesById.get(activeEvent.calendar_source_id)
-                ?.teamsnap_player_member_id
-            : null)
+          (activeEvent?.calendar_source_id
+            ? sourcesById.get(activeEvent.calendar_source_id)?.source_type ===
+              "teamsnap"
+            : false)
         }
         sourceLabel={activeEvent ? display(activeEvent).sourceLabel : null}
       />
