@@ -1,5 +1,6 @@
 import { HistoryList } from "@/components/journal/history-list";
 import { JournalListDropZone } from "@/components/journal/journal-list-drop-zone";
+import { JournalNewButton } from "@/components/journal/journal-new-button";
 import { createClient } from "@/lib/supabase/server";
 import { requireUserId } from "@/lib/members/auth";
 import { FEED_COLUMNS, loadFeedEntries } from "@/lib/journal/feed";
@@ -30,6 +31,10 @@ export default async function JournalPage() {
   return (
     <div className="mx-auto w-full max-w-2xl px-6 pb-24 pt-12">
       <JournalListDropZone />
+      {/* New entry lives with the feed (the switcher already names this app). */}
+      <div className="mb-8 flex justify-end">
+        <JournalNewButton audience="personal" />
+      </div>
       <HistoryList entries={entries} emptyMessage="No entries yet." />
     </div>
   );
