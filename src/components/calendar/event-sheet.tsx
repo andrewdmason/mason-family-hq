@@ -23,12 +23,9 @@ import {
   createManualEvent,
   updateManualEvent,
   deleteEvent,
-  markEventRsvp,
   type ManualEventInput,
 } from "@/app/(calendar)/calendar/actions";
-import { TeamAvailability } from "./team-availability";
-import { cn } from "@/lib/utils";
-import type { TeamsnapRsvp } from "@/lib/calendar/types";
+import { TeamsnapAttendance } from "./team-availability";
 
 export type SheetMode = "detail" | "edit" | "create";
 
@@ -165,11 +162,12 @@ function DetailBody({
             {event.description}
           </p>
         )}
-        {isTeamsnap && canRsvp && (
-          <RsvpControl key={`rsvp-${event.id}`} event={event} />
-        )}
         {isTeamsnap && (
-          <TeamAvailability key={`avail-${event.id}`} eventId={event.id} />
+          <TeamsnapAttendance
+            key={`ts-${event.id}`}
+            eventId={event.id}
+            canRsvp={canRsvp}
+          />
         )}
       </div>
       {canManage && isManual && (
@@ -189,75 +187,6 @@ function DetailBody({
         </SheetFooter>
       )}
     </>
-  );
-}
-
-const RSVP_OPTIONS: { value: Exclude<TeamsnapRsvp, "no_reply">; label: string }[] =
-  [
-    { value: "going", label: "Going" },
-    { value: "maybe", label: "Maybe" },
-    { value: "not_going", label: "Not going" },
-  ];
-
-/** Set the linked player's RSVP for a TeamSnap event. Optimistic; reverts on
- * error. The write goes back to TeamSnap through `markEventRsvp`. */
-function RsvpControl({ event }: { event: CalendarEvent }) {
-  const [rsvp, setRsvp] = useState<TeamsnapRsvp>(
-    event.teamsnap_rsvp ?? "no_reply",
-  );
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function choose(value: Exclude<TeamsnapRsvp, "no_reply">) {
-    if (pending || value === rsvp) return;
-    const prev = rsvp;
-    setRsvp(value);
-    setPending(true);
-    setError(null);
-    const result = await markEventRsvp(event.id, value);
-    setPending(false);
-    if ("error" in result) {
-      setRsvp(prev);
-      setError(result.error);
-    }
-  }
-
-  return (
-    <div className="space-y-2 border-t pt-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-muted-foreground">
-          Attendance
-        </span>
-        {rsvp === "no_reply" ? (
-          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">
-            Needs RSVP
-          </span>
-        ) : (
-          <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-            TeamSnap
-          </span>
-        )}
-      </div>
-      <div className="inline-flex w-full rounded-lg border p-0.5">
-        {RSVP_OPTIONS.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            disabled={pending}
-            onClick={() => choose(o.value)}
-            className={cn(
-              "flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-60",
-              rsvp === o.value
-                ? "bg-foreground text-background"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
-    </div>
   );
 }
 

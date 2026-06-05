@@ -145,11 +145,17 @@ async function ensurePlayerMemberId(
 export interface TeamAvailability {
   counts: Record<TeamsnapRsvpStatus, number>;
   roster: Array<{ name: string; status: TeamsnapRsvpStatus }>;
+  // The linked player's own current RSVP (live from TeamSnap), or null when no
+  // player is linked. Lets the sheet show the true state on open, even if the
+  // background sync hasn't run since the RSVP last changed in TeamSnap.
+  myStatus: TeamsnapRsvpStatus | null;
 }
 
 // The whole team's RSVP for an event: counts plus a per-player roster. Players
 // only (non-player members — coaches, managers, parents — are excluded from the
-// roster and counts, matching how TeamSnap presents attendance).
+// roster and counts, matching how TeamSnap presents attendance). Also reads the
+// linked player's own status and mirrors it onto the local event so badges and
+// the list view stay in sync without waiting for the next background sync.
 export async function getEventTeamAvailability(
   eventId: string,
 ): Promise<TeamAvailability | { error: string }> {
@@ -157,6 +163,8 @@ export async function getEventTeamAvailability(
   const resolved = await resolveTeamsnapEvent(supabase, eventId);
   if ("error" in resolved) return resolved;
   const { tsEventId, token, source } = resolved;
+
+  const playerMemberId = await ensurePlayerMemberId(supabase, token, source);
 
   let availabilities, members;
   try {
@@ -182,13 +190,26 @@ export async function getEventTeamAvailability(
     no_reply: 0,
   };
   const roster: Array<{ name: string; status: TeamsnapRsvpStatus }> = [];
+  let myStatus: TeamsnapRsvpStatus | null = null;
 
   for (const avail of availabilities) {
+    if (playerMemberId && avail.member_id === playerMemberId) {
+      myStatus = statusCodeToRsvp(avail.status_code);
+    }
     const member = memberById.get(avail.member_id);
     if (!member || member.isNonPlayer) continue;
     const status = statusCodeToRsvp(avail.status_code);
     counts[status]++;
     roster.push({ name: member.name || "Unknown", status });
+  }
+
+  // Keep the locally-stored RSVP (used by list badges) consistent with what we
+  // just read live.
+  if (playerMemberId && myStatus !== null) {
+    await supabase
+      .from("calendar_events")
+      .update({ teamsnap_rsvp: myStatus })
+      .eq("id", eventId);
   }
 
   const order: Record<TeamsnapRsvpStatus, number> = {
@@ -199,7 +220,7 @@ export async function getEventTeamAvailability(
   };
   roster.sort((a, b) => order[a.status] - order[b.status]);
 
-  return { counts, roster };
+  return { counts, roster, myStatus };
 }
 
 // Write a player's RSVP back to TeamSnap and mirror it onto the local event.
