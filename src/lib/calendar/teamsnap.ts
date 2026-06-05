@@ -145,38 +145,6 @@ export async function teamsnapFetch(
   return res.json();
 }
 
-export async function teamsnapPut(
-  accessToken: string,
-  url: string,
-  template: Record<string, unknown>,
-): Promise<CollectionResponse> {
-  const fullUrl = url.startsWith("http") ? url : `${TEAMSNAP_API_URL}${url}`;
-  const body = {
-    template: {
-      data: Object.entries(template).map(([name, value]) => ({ name, value })),
-    },
-  };
-
-  const res = await fetch(fullUrl, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      Accept: "application/vnd.collection+json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(
-      `TeamSnap API PUT error ${res.status}: ${text.slice(0, 200)}`,
-    );
-  }
-
-  return res.json();
-}
-
 let cachedRootLinks: CollectionLink[] | null = null;
 
 async function getRootLinks(accessToken: string): Promise<CollectionLink[]> {

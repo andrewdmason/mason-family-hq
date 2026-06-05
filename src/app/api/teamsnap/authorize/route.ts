@@ -20,7 +20,8 @@ export async function GET(request: NextRequest) {
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("client_id", process.env.TEAMSNAP_CLIENT_ID!);
   authUrl.searchParams.set("redirect_uri", redirectUri);
-  authUrl.searchParams.set("scope", "read write");
+  // Read-only: we only fetch teams/events/availabilities, never write back.
+  authUrl.searchParams.set("scope", "read");
   authUrl.searchParams.set("state", state);
 
   const response = NextResponse.redirect(authUrl.toString());
