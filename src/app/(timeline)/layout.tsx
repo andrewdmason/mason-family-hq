@@ -1,4 +1,4 @@
-import { TimelineHeader } from "@/components/timeline/timeline-header";
+import { GlobalHeader } from "@/components/layout/global-header";
 import { TimezoneProvider } from "@/components/timezone-provider";
 
 export default function TimelineLayout({
@@ -9,7 +9,7 @@ export default function TimelineLayout({
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <TimezoneProvider />
-      <TimelineHeader />
+      <GlobalHeader />
       <div className="flex flex-1 flex-col">{children}</div>
     </div>
   );

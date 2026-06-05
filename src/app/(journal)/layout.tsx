@@ -1,4 +1,4 @@
-import { JournalHeader } from "@/components/journal/header";
+import { GlobalHeader } from "@/components/layout/global-header";
 import { TimezoneProvider } from "@/components/timezone-provider";
 import { ProfileSuggestionToaster } from "@/components/journal/profile-suggestion-toaster";
 import { JournalTimerProvider } from "@/components/journal/timer-context";
@@ -12,7 +12,7 @@ export default async function JournalLayout({
     <JournalTimerProvider>
       <div className="flex min-h-full flex-1 flex-col">
         <TimezoneProvider />
-        <JournalHeader />
+        <GlobalHeader />
         <div className="flex flex-1 flex-col">{children}</div>
         <ProfileSuggestionToaster />
       </div>

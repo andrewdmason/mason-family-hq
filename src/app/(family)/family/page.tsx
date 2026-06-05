@@ -1,4 +1,5 @@
 import { HistoryList } from "@/components/journal/history-list";
+import { JournalNewButton } from "@/components/journal/journal-new-button";
 import { createClient } from "@/lib/supabase/server";
 import { requireUserId } from "@/lib/members/auth";
 import { FEED_COLUMNS, loadFeedEntries } from "@/lib/journal/feed";
@@ -30,6 +31,10 @@ export default async function FamilyPage() {
 
   return (
     <div className="mx-auto w-full max-w-2xl px-6 pb-24 pt-12">
+      {/* New post lives with the feed (the switcher already names this app). */}
+      <div className="mb-8 flex justify-end">
+        <JournalNewButton audience="family" />
+      </div>
       <HistoryList
         entries={entries}
         emptyMessage="Nothing shared with the family yet."
