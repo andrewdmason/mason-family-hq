@@ -75,11 +75,17 @@ export function CalendarClient({
         source?.nickname ??
         source?.teamsnap_team_name ??
         (event.member_email ? memberNames.get(event.member_email) ?? null : null);
+      // RSVP only applies to TeamSnap events whose source is linked to a player.
+      const rsvp =
+        source?.source_type === "teamsnap" && source.teamsnap_player_member_id
+          ? event.teamsnap_rsvp ?? "no_reply"
+          : null;
       return {
         event,
         color,
         sourceLabel,
         conflict: conflictIds.has(event.id),
+        rsvp,
       };
     };
   }, [sourcesById, memberNames, conflictIds]);
@@ -252,6 +258,13 @@ export function CalendarClient({
         event={activeEvent}
         members={members}
         canManage={canManage}
+        canRsvp={
+          canManage &&
+          !!(activeEvent?.calendar_source_id
+            ? sourcesById.get(activeEvent.calendar_source_id)
+                ?.teamsnap_player_member_id
+            : null)
+        }
         sourceLabel={activeEvent ? display(activeEvent).sourceLabel : null}
       />
     </div>

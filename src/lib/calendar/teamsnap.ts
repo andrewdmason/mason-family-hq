@@ -145,6 +145,50 @@ export async function teamsnapFetch(
   return res.json();
 }
 
+// PUT a Collection+JSON template to an item href (used to update an availability
+// RSVP). TeamSnap expects { template: { data: [{ name, value }, ...] } }.
+export async function teamsnapPut(
+  accessToken: string,
+  url: string,
+  template: Record<string, unknown>,
+): Promise<void> {
+  const fullUrl = url.startsWith("http") ? url : `${TEAMSNAP_API_URL}${url}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  const body = {
+    template: {
+      data: Object.entries(template).map(([name, value]) => ({ name, value })),
+    },
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(fullUrl, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/vnd.collection+json",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeout);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(`TeamSnap API timeout after 30s: ${fullUrl}`);
+    }
+    throw err;
+  }
+  clearTimeout(timeout);
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`TeamSnap API PUT error ${res.status}: ${text.slice(0, 200)}`);
+  }
+}
+
 let cachedRootLinks: CollectionLink[] | null = null;
 
 async function getRootLinks(accessToken: string): Promise<CollectionLink[]> {
@@ -297,6 +341,29 @@ export function statusCodeToRsvp(code: number | null): TeamsnapRsvpStatus {
     default:
       return "no_reply";
   }
+}
+
+export function rsvpToStatusCode(rsvp: TeamsnapRsvpStatus): number | null {
+  switch (rsvp) {
+    case "going":
+      return 1;
+    case "not_going":
+      return 0;
+    case "maybe":
+      return 2;
+    case "no_reply":
+      return null;
+  }
+}
+
+// Update a member's RSVP for an event by PUTting the new status to their
+// availability row's href.
+export async function setTeamsnapAvailability(
+  accessToken: string,
+  availabilityHref: string,
+  statusCode: number,
+): Promise<void> {
+  await teamsnapPut(accessToken, availabilityHref, { status_code: statusCode });
 }
 
 export async function refreshTeamsnapToken(refreshToken: string): Promise<{
