@@ -23,6 +23,7 @@ import { AgendaView } from "./agenda-view";
 import { WeekView } from "./week-view";
 import { MonthView } from "./month-view";
 import { EventSheet, type SheetMode } from "./event-sheet";
+import { SyncButton } from "./sync-button";
 import type { EventDisplay } from "./event-card";
 
 type View = "agenda" | "week" | "month";
@@ -153,23 +154,26 @@ export function CalendarClient({
             </button>
           ))}
         </div>
-        {canManage && (
-          <div className="flex items-center gap-1.5">
-            <Button
-              size="sm"
-              variant="outline"
-              nativeButton={false}
-              render={<Link href="/settings/calendars" />}
-            >
-              <SlidersHorizontal />
-              Calendars
-            </Button>
-            <Button size="sm" onClick={openCreate}>
-              <Plus />
-              Event
-            </Button>
-          </div>
-        )}
+        <div className="flex items-center gap-1.5">
+          <SyncButton />
+          {canManage && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                nativeButton={false}
+                render={<Link href="/settings/calendars" />}
+              >
+                <SlidersHorizontal />
+                Calendars
+              </Button>
+              <Button size="sm" onClick={openCreate}>
+                <Plus />
+                Event
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* View switch + date nav */}

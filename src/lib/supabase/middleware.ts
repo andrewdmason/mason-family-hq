@@ -38,7 +38,11 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith("/auth") &&
     // The family-status feed is intentionally public (no login) so the family
     // assistant can read it on a schedule — see src/app/family-status/route.ts.
-    !request.nextUrl.pathname.startsWith("/family-status")
+    !request.nextUrl.pathname.startsWith("/family-status") &&
+    // The cron sync endpoint authenticates itself with a bearer secret (it's
+    // called by pg_cron, which has no session) — see
+    // src/app/api/cron/calendar-sync/route.ts.
+    !request.nextUrl.pathname.startsWith("/api/cron")
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
