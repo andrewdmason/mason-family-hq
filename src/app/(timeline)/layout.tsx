@@ -1,18 +1,15 @@
-import { TimelineHeader } from "@/components/timeline/timeline-header";
+import { GlobalHeader } from "@/components/layout/global-header";
 import { TimezoneProvider } from "@/components/timezone-provider";
-import { getIsOwner } from "@/lib/members/auth";
 
-export default async function TimelineLayout({
+export default function TimelineLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const isOwner = await getIsOwner();
-
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <TimezoneProvider />
-      <TimelineHeader isOwner={isOwner} />
+      <GlobalHeader />
       <div className="flex flex-1 flex-col">{children}</div>
     </div>
   );

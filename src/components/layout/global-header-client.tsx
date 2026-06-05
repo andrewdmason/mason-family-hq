@@ -1,7 +1,7 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { Flame, Pencil, Star, Trophy } from "lucide-react";
-import { JournalNewButton } from "@/components/journal/journal-new-button";
 import {
   Tooltip,
   TooltipContent,
@@ -11,10 +11,10 @@ import {
 import { NotificationBell } from "@/components/journal/notification-bell";
 import { AppSwitcher } from "@/components/layout/app-switcher";
 import { cn } from "@/lib/utils";
-import type { JournalStreakStats } from "@/components/journal/header";
+import type { JournalStreakStats } from "@/components/layout/global-header";
 import type { JournalNotifications } from "@/lib/types";
 
-export function JournalHeaderClient({
+export function GlobalHeaderClient({
   streak,
   notifications,
   isOwner,
@@ -23,13 +23,17 @@ export function JournalHeaderClient({
   notifications: JournalNotifications;
   isOwner: boolean;
 }) {
+  const pathname = usePathname();
+  // The distraction-free reader (/reader/[id]/read) hides all global chrome —
+  // the book's own (hover-revealed) header is the only way out.
+  if (/^\/reader\/[^/]+\/read\/?$/.test(pathname ?? "")) return null;
+
   return (
     <TooltipProvider>
       <header className="sticky top-0 z-50 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="relative mx-auto flex h-14 max-w-3xl items-center justify-between px-6">
           <AppSwitcher isOwner={isOwner} />
           <div className="flex items-center gap-2">
-            <JournalNewButton audience="personal" />
             <JournalStreakBadge streak={streak} />
             {notifications.count > 0 && (
               <NotificationBell notifications={notifications} />
@@ -114,4 +118,3 @@ function getStreakMessage(streak: JournalStreakStats): string {
   }
   return "You are building a rhythm. A few words still count.";
 }
-

@@ -1,4 +1,4 @@
-import { FamilyHeader } from "@/components/family/header";
+import { GlobalHeader } from "@/components/layout/global-header";
 import { TimezoneProvider } from "@/components/timezone-provider";
 
 export default function FamilyLayout({
@@ -9,7 +9,7 @@ export default function FamilyLayout({
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <TimezoneProvider />
-      <FamilyHeader />
+      <GlobalHeader />
       <div className="flex flex-1 flex-col">{children}</div>
     </div>
   );

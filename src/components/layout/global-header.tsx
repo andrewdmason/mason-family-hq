@@ -1,4 +1,4 @@
-import { JournalHeaderClient } from "@/components/journal/header-client";
+import { GlobalHeaderClient } from "@/components/layout/global-header-client";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { getIsOwner, requireUserId } from "@/lib/members/auth";
 import { getJournalNotifications } from "@/lib/journal/notifications";
@@ -20,7 +20,14 @@ type StreakEntry = {
   freeform_started_at: string | null;
 };
 
-export async function JournalHeader() {
+/**
+ * The global header, shared by every family-wide app (Family, Journal, Timeline,
+ * Reader, Settings). It carries the app switcher plus the two genuinely global
+ * status indicators — your journaling streak and family-post notifications — so
+ * they're always present no matter which app you're in. The "New" action is
+ * app-specific and lives in each app's own content, not here.
+ */
+export async function GlobalHeader() {
   const supabase = await createClient();
   const userId = await requireUserId(supabase);
 
@@ -31,7 +38,7 @@ export async function JournalHeader() {
   ]);
 
   return (
-    <JournalHeaderClient
+    <GlobalHeaderClient
       streak={streak}
       notifications={notifications}
       isOwner={isOwner}

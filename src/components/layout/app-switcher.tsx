@@ -35,7 +35,7 @@ const APPS: App[] = [
     href: "/family",
     label: "Family",
     match: "/family",
-    description: "Shared family record",
+    description: "Shared journal feed",
     icon: Users,
   },
   {
@@ -72,6 +72,21 @@ const PRACTICE_APP: App = {
   icon: Music,
 };
 
+// Settings is its own global "app" — settings for every app collect here as we
+// add them. It lives in the footer rather than the app list, but it's still a
+// real destination, so the switcher names it when you're in it.
+const SETTINGS: App = {
+  href: "/settings",
+  label: "Settings",
+  match: "/settings",
+  description: "App & account settings",
+  icon: Settings,
+};
+
+function isActive(pathname: string, match: string): boolean {
+  return pathname === match || pathname.startsWith(`${match}/`);
+}
+
 /**
  * App identity + switcher for the family-wide apps. The header shows only the
  * current app's name; the dropdown is a "product switcher" — each app is a
@@ -81,10 +96,11 @@ const PRACTICE_APP: App = {
 export function AppSwitcher({ isOwner = false }: { isOwner?: boolean }) {
   const pathname = usePathname();
   const apps = isOwner ? [...APPS, PRACTICE_APP] : APPS;
+  // Settings is a matchable destination too, so the trigger reads "Settings"
+  // while you're in it — even though it renders in the footer, not the list.
   const current =
-    apps.find(
-      (app) => pathname === app.match || pathname.startsWith(`${app.match}/`)
-    ) ?? apps[0];
+    [...apps, SETTINGS].find((app) => isActive(pathname, app.match)) ?? apps[0];
+  const onSettings = current.match === SETTINGS.match;
 
   return (
     <DropdownMenu>
@@ -137,11 +153,17 @@ export function AppSwitcher({ isOwner = false }: { isOwner?: boolean }) {
         })}
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          render={<Link href="/settings" />}
-          className="gap-2.5 rounded-lg px-2 py-1.5 text-muted-foreground"
+          render={<Link href={SETTINGS.href} />}
+          className={cn(
+            "gap-2.5 rounded-lg px-2 py-1.5 text-muted-foreground",
+            onSettings && "bg-accent/60 text-foreground"
+          )}
         >
           <Settings className="size-4" />
           <span className="text-sm">Settings</span>
+          {onSettings && (
+            <Check className="ml-auto size-4 shrink-0 text-primary" />
+          )}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
