@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   BookOpen,
   CalendarDays,
+  CalendarRange,
   Check,
   ChevronDown,
   Music,
@@ -58,6 +59,13 @@ const APPS: App[] = [
     match: "/timeline",
     description: "Family life events",
     icon: CalendarDays,
+  },
+  {
+    href: "/calendar",
+    label: "Calendar",
+    match: "/calendar",
+    description: "Schedules & activities",
+    icon: CalendarRange,
   },
 ];
 
