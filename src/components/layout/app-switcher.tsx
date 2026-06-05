@@ -9,6 +9,7 @@ import {
   CalendarRange,
   Check,
   ChevronDown,
+  GraduationCap,
   House,
   Music,
   NotebookPen,
@@ -74,6 +75,13 @@ const APPS: App[] = [
     match: "/calendar",
     description: "Schedules & activities",
     icon: CalendarRange,
+  },
+  {
+    href: "/assignments",
+    label: "Assignments",
+    match: "/assignments",
+    description: "School homework & due dates",
+    icon: GraduationCap,
   },
 ];
 
