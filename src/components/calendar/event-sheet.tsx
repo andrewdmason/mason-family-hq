@@ -18,7 +18,11 @@ import {
   formatTimeRange,
   googleMapsUrl,
 } from "@/lib/calendar/calendar-utils";
-import type { CalendarEvent, CalendarMember } from "@/lib/calendar/types";
+import type {
+  CalendarEvent,
+  CalendarMember,
+  CalendarSource,
+} from "@/lib/calendar/types";
 import {
   createManualEvent,
   updateManualEvent,
@@ -51,6 +55,7 @@ export function EventSheet({
   onModeChange,
   event,
   members,
+  sources,
   canManage,
   canRsvp,
   sourceLabel,
@@ -61,6 +66,7 @@ export function EventSheet({
   onModeChange: (mode: SheetMode) => void;
   event: CalendarEvent | null;
   members: CalendarMember[];
+  sources: CalendarSource[];
   canManage: boolean;
   canRsvp: boolean;
   sourceLabel: string | null;
@@ -81,6 +87,7 @@ export function EventSheet({
           <EventForm
             event={mode === "edit" ? event : null}
             members={members}
+            sources={sources}
             onDone={() => onOpenChange(false)}
           />
         )}
@@ -105,7 +112,9 @@ function DetailBody({
   onClose: () => void;
 }) {
   const [pending, setPending] = useState(false);
-  const isManual = event.source_type === "manual";
+  // Manual and Google events are editable here; ICS/TeamSnap are read-only.
+  const isEditable =
+    event.source_type === "manual" || event.source_type === "google";
   const isTeamsnap = event.source_type === "teamsnap";
   const date = new Date(event.start_time).toLocaleDateString("en-US", {
     weekday: "long",
@@ -172,7 +181,7 @@ function DetailBody({
           <TeamAvailability key={`avail-${event.id}`} eventId={event.id} />
         )}
       </div>
-      {canManage && isManual && (
+      {canManage && isEditable && (
         <SheetFooter className="flex-row justify-between">
           <Button
             variant="destructive"
@@ -264,15 +273,25 @@ function RsvpControl({ event }: { event: CalendarEvent }) {
 function EventForm({
   event,
   members,
+  sources,
   onDone,
 }: {
   event: CalendarEvent | null;
   members: CalendarMember[];
+  sources: CalendarSource[];
   onDone: () => void;
 }) {
+  // Writable targets: connected Google calendars. "" = app-only manual event.
+  const googleSources = sources.filter((s) => s.source_type === "google");
+  const isEditingExisting = !!event;
   const [title, setTitle] = useState(event?.title ?? "");
   const [memberEmail, setMemberEmail] = useState<string>(
     event?.member_email ?? "",
+  );
+  // Default new events to the first Google calendar when one exists, so the
+  // common case (event lands on your real calendar) needs no extra click.
+  const [calendarSourceId, setCalendarSourceId] = useState<string>(
+    event?.calendar_source_id ?? (event ? "" : googleSources[0]?.id ?? ""),
   );
   const [allDay, setAllDay] = useState(event?.all_day ?? false);
   const [start, setStart] = useState(
@@ -292,6 +311,7 @@ function EventForm({
     setPending(true);
     setError(null);
     const input: ManualEventInput = {
+      calendarSourceId: calendarSourceId || null,
       memberEmail: memberEmail || null,
       title,
       location: location || null,
@@ -328,22 +348,47 @@ function EventForm({
             placeholder="Soccer practice"
           />
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="ev-member">Whose calendar</Label>
-          <select
-            id="ev-member"
-            value={memberEmail}
-            onChange={(e) => setMemberEmail(e.target.value)}
-            className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-          >
-            <option value="">Family (everyone)</option>
-            {members.map((m) => (
-              <option key={m.email} value={m.email}>
-                {m.name ?? m.email}
-              </option>
-            ))}
-          </select>
-        </div>
+        {googleSources.length > 0 && (
+          <div className="space-y-1.5">
+            <Label htmlFor="ev-calendar">Calendar</Label>
+            <select
+              id="ev-calendar"
+              value={calendarSourceId}
+              onChange={(e) => setCalendarSourceId(e.target.value)}
+              // Moving an existing event between calendars isn't supported here.
+              disabled={isEditingExisting}
+              className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
+            >
+              {googleSources.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.nickname ?? "Google calendar"}
+                </option>
+              ))}
+              <option value="">App only (no Google calendar)</option>
+            </select>
+          </div>
+        )}
+
+        {/* Whose calendar only applies to app-only events; a Google event belongs
+            to whoever owns the chosen calendar. */}
+        {calendarSourceId === "" && (
+          <div className="space-y-1.5">
+            <Label htmlFor="ev-member">Whose calendar</Label>
+            <select
+              id="ev-member"
+              value={memberEmail}
+              onChange={(e) => setMemberEmail(e.target.value)}
+              className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <option value="">Family (everyone)</option>
+              {members.map((m) => (
+                <option key={m.email} value={m.email}>
+                  {m.name ?? m.email}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <Label htmlFor="ev-allday">All day</Label>
           <Switch id="ev-allday" checked={allDay} onCheckedChange={setAllDay} />

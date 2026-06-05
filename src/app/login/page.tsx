@@ -4,37 +4,37 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { DevLoginSwitcher } from "@/components/dev-login-switcher";
 
+// One Google consent grants both sign-in and Calendar read/write. access_type
+// offline + prompt consent are what make Supabase return a provider refresh
+// token, which /auth/callback stores for the calendar sync.
+const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
+
 function LoginForm() {
-  const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const authError = searchParams.get("error");
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function signInWithGoogle() {
     setLoading(true);
     setError(null);
-
     const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth/callback`,
+        scopes: CALENDAR_SCOPE,
+        queryParams: { access_type: "offline", prompt: "consent" },
       },
     });
-
     if (error) {
       setError(error.message);
-    } else {
-      setSent(true);
+      setLoading(false);
     }
-    setLoading(false);
+    // On success the browser is redirected to Google, so no further state change.
   }
 
   return (
@@ -59,44 +59,21 @@ function LoginForm() {
           </p>
         )}
 
-        {sent ? (
-          <div className="space-y-4 text-center">
-            <p className="text-sm text-muted-foreground">
-              We sent a magic link to{" "}
-              <span className="font-medium text-foreground">{email}</span>.
-              Open it on this device to come on in.
-            </p>
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-full"
-              onClick={() => setSent(false)}
-            >
-              Use a different email
-            </Button>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <p className="text-sm text-center text-muted-foreground">
-              Sign in to the family&apos;s space — journal, reading, practice,
-              and everything else under one roof.
-            </p>
-            <Input
-              type="email"
-              placeholder="Email address"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoFocus
-            />
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Sending..." : "Send magic link"}
-            </Button>
-          </form>
-        )}
+        <div className="space-y-4">
+          <p className="text-sm text-center text-muted-foreground">
+            Sign in with your family Google account — journal, reading, calendar,
+            and everything else under one roof.
+          </p>
+          <Button
+            type="button"
+            className="w-full"
+            onClick={signInWithGoogle}
+            disabled={loading}
+          >
+            {loading ? "Redirecting…" : "Sign in with Google"}
+          </Button>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
 
         {process.env.NODE_ENV === "development" && <DevLoginSwitcher />}
       </CardContent>
