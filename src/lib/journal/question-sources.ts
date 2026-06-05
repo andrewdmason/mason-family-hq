@@ -104,6 +104,39 @@ export function specForRow(row: {
   return row.context_spec ?? specFor(row.name);
 }
 
+/**
+ * Built-in types that should never be framed for a *family* audience: they're
+ * inherently introspective or personal — an intimate reflection, a private book
+ * thread, an unresolved worry — so forcing them into the family journal yields
+ * prompts no one would actually want to share. (Without this, the family
+ * audience only *softly* asked the model to substitute, then force-stamped the
+ * result `visibility: "family"` regardless — which is how a "what's this book
+ * left you with?" question ended up in the Family journal.) Custom types and
+ * anything not listed are allowed in both audiences.
+ */
+const FAMILY_UNSUITABLE = new Set([
+  "deep-introspective",
+  "currently-reading",
+  "me-topic",
+  "historical-followup",
+  "principles",
+]);
+
+/**
+ * Whether a question type is appropriate for the given audience. "any" (the
+ * default daily mix) allows everything, so that flow is unchanged. "family"
+ * drops the inherently-private types above; "private" drops family-followup,
+ * which is always a shared post and would mis-land in the personal journal.
+ */
+export function suitsAudience(
+  name: string,
+  audience: "any" | "family" | "private"
+): boolean {
+  if (audience === "family") return !FAMILY_UNSUITABLE.has(name);
+  if (audience === "private") return name !== FAMILY_FOLLOWUP;
+  return true;
+}
+
 /** A new recurring post's default sources: grounded in who you are now and your
  * prior posts of the same type, nothing else (calendar off — it's the big drift
  * source). The user tunes this in the editor. */

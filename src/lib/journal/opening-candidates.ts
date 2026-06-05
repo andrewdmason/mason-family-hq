@@ -15,6 +15,7 @@ import {
   FAMILY_FOLLOWUP,
   REMINISCENCE,
   specFor,
+  suitsAudience,
 } from "@/lib/journal/question-sources";
 import type { CategoryContextSpec } from "@/lib/journal/question-sources";
 import { formatNow, localDate, resolveTimezone } from "@/lib/date-utils";
@@ -902,6 +903,11 @@ export async function generateCandidates(
     .filter((t) => t.enabled && t.weight > 0)
     // Recurring posts are deliberate-only — never in the random daily mix.
     .filter((t) => t.recurrence_days == null)
+    // Keep types out of an audience they don't suit: inherently-private types
+    // (a book reflection, an intimate introspection) never get framed for the
+    // family journal, and the always-shared family-followup never surfaces in a
+    // private set. "any" (the default) keeps the full pool.
+    .filter((t) => suitsAudience(t.name, audience))
     // Drop family-followup from the pool entirely when no other member has
     // shared anything, so the sampler never picks a slot it can't fill.
     .filter((t) => t.name !== FAMILY_FOLLOWUP || familySource !== null)

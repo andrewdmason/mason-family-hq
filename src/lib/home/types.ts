@@ -3,14 +3,8 @@
 
 import type { CalendarEvent } from "@/lib/calendar/types";
 
-/** The audiences a journal-suggestions widget can be framed for. */
+/** Which journal a Home journal widget tracks. */
 export type HomeJournalAudience = "private" | "family";
-
-/** One cached opening-question suggestion shown in a journal widget. */
-export type HomeJournalSuggestion = {
-  text: string;
-  visibility: "private" | "family";
-};
 
 /** One family member's events for today, for the "others' day" widget. */
 export type MemberDay = {

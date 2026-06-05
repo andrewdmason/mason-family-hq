@@ -23,7 +23,7 @@ function eventDateKey(event: CalendarEvent, tz: string): string {
 /**
  * What the *rest* of the family has going on today, grouped by person — the
  * "others' day" Home widget. Excludes the viewer's own events (they have their
- * own calendar and the greeting already covers their day) and keeps family-level
+ * own calendar elsewhere) and keeps family-level
  * events (no member) under a "Family" group at the end. Members with nothing on
  * today are omitted, so the widget only shows people who actually have plans.
  */
