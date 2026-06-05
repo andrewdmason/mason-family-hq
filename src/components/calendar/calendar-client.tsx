@@ -257,6 +257,7 @@ export function CalendarClient({
         onModeChange={setSheetMode}
         event={activeEvent}
         members={members}
+        sources={sources}
         canManage={canManage}
         canRsvp={
           canManage &&

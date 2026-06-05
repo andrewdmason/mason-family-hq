@@ -5,16 +5,29 @@ import { Link2, Plus, Rss, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { CalendarMember, CalendarSource } from "@/lib/calendar/types";
+import type {
+  CalendarMember,
+  CalendarSource,
+  CalendarSourceType,
+} from "@/lib/calendar/types";
 import {
   addIcsSource,
   addTeamsnapSource,
+  addGoogleSource,
   deleteSource,
   ensureFeedToken,
   listTeamsnapTeams,
   listTeamsnapPlayers,
   relinkTeamsnapPlayer,
+  listGoogleCalendarsForConnection,
 } from "@/app/(calendar)/calendar/actions";
+
+const SOURCE_TYPE_LABELS: Record<CalendarSourceType, string> = {
+  google: "Google",
+  teamsnap: "TeamSnap",
+  ics: "ICS",
+  manual: "Manual",
+};
 
 // One group per family member, plus a trailing "Family (everyone)" group whose
 // key is null (member_email IS NULL). Each group lets an owner/parent see and
@@ -29,10 +42,14 @@ export function CalendarsManager({
   members,
   sources,
   teamsnapConnected,
+  googleConnectedEmails,
+  currentUserEmail,
 }: {
   members: CalendarMember[];
   sources: CalendarSource[];
   teamsnapConnected: boolean;
+  googleConnectedEmails: string[];
+  currentUserEmail: string;
 }) {
   const groups: Group[] = [
     ...members.map((m) => ({
@@ -51,6 +68,8 @@ export function CalendarsManager({
           group={g}
           sources={sources.filter((s) => s.member_email === g.key)}
           teamsnapConnected={teamsnapConnected}
+          googleConnectedEmails={googleConnectedEmails}
+          currentUserEmail={currentUserEmail}
         />
       ))}
     </div>
@@ -61,10 +80,14 @@ function CalendarGroup({
   group,
   sources,
   teamsnapConnected,
+  googleConnectedEmails,
+  currentUserEmail,
 }: {
   group: Group;
   sources: CalendarSource[];
   teamsnapConnected: boolean;
+  googleConnectedEmails: string[];
+  currentUserEmail: string;
 }) {
   const isFamily = group.key === null;
   const [adding, setAdding] = useState(false);
@@ -100,6 +123,8 @@ function CalendarGroup({
           <AddCalendarForm
             group={group}
             teamsnapConnected={teamsnapConnected}
+            googleConnectedEmails={googleConnectedEmails}
+            currentUserEmail={currentUserEmail}
             onDone={() => setAdding(false)}
           />
         )}
@@ -152,7 +177,7 @@ function SourceList({ sources }: { sources: CalendarSource[] }) {
                   {s.nickname ?? s.teamsnap_team_name ?? "Calendar"}
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  {s.source_type === "teamsnap" ? "TeamSnap" : "ICS"}
+                  {SOURCE_TYPE_LABELS[s.source_type]}
                   {s.sync_error ? ` · error: ${s.sync_error}` : ""}
                 </span>
               </span>
@@ -280,51 +305,183 @@ function TeamsnapPlayerLink({ source }: { source: CalendarSource }) {
   );
 }
 
+type AddTab = "google" | "ics" | "teamsnap";
+
+const TAB_LABELS: Record<AddTab, string> = {
+  google: "Google",
+  ics: "ICS link",
+  teamsnap: "TeamSnap",
+};
+
 function AddCalendarForm({
   group,
   teamsnapConnected,
+  googleConnectedEmails,
+  currentUserEmail,
   onDone,
 }: {
   group: Group;
   teamsnapConnected: boolean;
+  googleConnectedEmails: string[];
+  currentUserEmail: string;
   onDone: () => void;
 }) {
   const isFamily = group.key === null;
   // TeamSnap teams are assigned to a specific person, so the option only shows
   // for member groups — never the family-wide group.
   const showTeamsnap = !isFamily;
-  const [tab, setTab] = useState<"ics" | "teamsnap">("ics");
+  // Google calendars come from a person's own account: a member group uses that
+  // member's connection; the family group uses the signed-in parent's, to add a
+  // shared calendar family-wide.
+  const connectionEmail = isFamily ? currentUserEmail : (group.key as string);
+  const tabs: AddTab[] = ["google", "ics", ...(showTeamsnap ? ["teamsnap" as const] : [])];
+  const [tab, setTab] = useState<AddTab>("google");
 
   return (
     <div className="space-y-3 rounded-lg border border-dashed border-border p-3">
-      {showTeamsnap && (
-        <div className="inline-flex rounded-lg border p-0.5 text-xs">
-          {(["ics", "teamsnap"] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className={
-                "rounded-md px-2.5 py-1 font-medium capitalize transition-colors " +
-                (tab === t
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:text-foreground")
-              }
-            >
-              {t === "ics" ? "ICS link" : "TeamSnap"}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="inline-flex rounded-lg border p-0.5 text-xs">
+        {tabs.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTab(t)}
+            className={
+              "rounded-md px-2.5 py-1 font-medium transition-colors " +
+              (tab === t
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground")
+            }
+          >
+            {TAB_LABELS[t]}
+          </button>
+        ))}
+      </div>
 
-      {tab === "ics" || !showTeamsnap ? (
-        <IcsForm group={group} onDone={onDone} />
-      ) : (
+      {tab === "google" && (
+        <GoogleForm
+          group={group}
+          connectionEmail={connectionEmail}
+          connected={googleConnectedEmails.includes(connectionEmail)}
+          onDone={onDone}
+        />
+      )}
+      {tab === "ics" && <IcsForm group={group} onDone={onDone} />}
+      {tab === "teamsnap" && (
         <TeamsnapForm
           group={group}
           connected={teamsnapConnected}
           onDone={onDone}
         />
+      )}
+    </div>
+  );
+}
+
+function GoogleForm({
+  group,
+  connectionEmail,
+  connected,
+  onDone,
+}: {
+  group: Group;
+  connectionEmail: string;
+  connected: boolean;
+  onDone: () => void;
+}) {
+  const isFamily = group.key === null;
+  const [calendars, setCalendars] = useState<
+    { id: string; summary: string; backgroundColor: string | null }[] | null
+  >(null);
+  const [loading, setLoading] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function loadCalendars() {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await listGoogleCalendarsForConnection(connectionEmail);
+      setCalendars(
+        list.map((c) => ({
+          id: c.id,
+          summary: c.summary,
+          backgroundColor: c.backgroundColor,
+        })),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't load calendars.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function add(cal: {
+    id: string;
+    summary: string;
+    backgroundColor: string | null;
+  }) {
+    setPendingId(cal.id);
+    setError(null);
+    try {
+      await addGoogleSource({
+        memberEmail: group.key,
+        connectionEmail,
+        googleCalendarId: cal.id,
+        nickname: cal.summary,
+        color: cal.backgroundColor ?? group.color,
+      });
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't add the calendar.");
+      setPendingId(null);
+    }
+  }
+
+  if (!connected) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {isFamily
+          ? "Sign in with Google to add a shared calendar from your account."
+          : `${group.name} needs to sign in with Google to connect their calendar.`}
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={loadCalendars}
+        disabled={loading}
+      >
+        {loading ? "Loading…" : calendars ? "Refresh calendars" : "Show calendars"}
+      </Button>
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      {calendars?.length === 0 && (
+        <p className="text-sm text-muted-foreground">No calendars found.</p>
+      )}
+      {calendars && calendars.length > 0 && (
+        <ul className="space-y-1.5">
+          {calendars.map((c) => (
+            <li key={c.id} className="flex items-center gap-2">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: c.backgroundColor ?? "#64748b" }}
+                aria-hidden
+              />
+              <span className="min-w-0 flex-1 truncate text-sm">{c.summary}</span>
+              <Button
+                size="icon-sm"
+                onClick={() => add(c)}
+                disabled={pendingId !== null}
+                aria-label="Add calendar"
+              >
+                <Plus />
+              </Button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

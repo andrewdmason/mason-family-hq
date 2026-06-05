@@ -18,6 +18,15 @@ import {
   type TeamAvailability,
 } from "@/lib/calendar/attendance";
 import type { TeamsnapRsvp } from "@/lib/calendar/types";
+import {
+  listGoogleCalendars,
+  insertGoogleEvent,
+  patchGoogleEvent,
+  deleteGoogleEvent,
+  eventToGoogleBody,
+  type GoogleCalendarListEntry,
+} from "@/lib/calendar/google";
+import { syncGoogleSource } from "@/lib/calendar/google-sync";
 
 /** Throw unless the caller is an owner/parent — the roles that manage calendars.
  * Returns the caller's member email (handy for connection-scoped work). */
@@ -36,6 +45,9 @@ async function requireParent(): Promise<string> {
 }
 
 export type ManualEventInput = {
+  // The Google source to write into, or null for an app-only ("manual") event.
+  calendarSourceId: string | null;
+  // Only used for manual events — Google events belong to the source's member.
   memberEmail: string | null;
   title: string;
   location: string | null;
@@ -45,25 +57,95 @@ export type ManualEventInput = {
   allDay: boolean;
 };
 
-function eventColumns(input: ManualEventInput) {
+// Fields shared by manual and Google event rows (source_type / external_id are
+// set per source by the callers).
+function baseEventColumns(input: ManualEventInput) {
   return {
-    member_email: input.memberEmail,
     title: input.title.trim(),
     location: input.location?.trim() || null,
     description: input.description?.trim() || null,
     start_time: input.startTime,
     end_time: input.endTime,
     all_day: input.allDay,
-    source_type: "manual" as const,
+  };
+}
+
+type GoogleWriteTarget = {
+  sourceId: string;
+  memberEmail: string | null;
+  googleCalendarId: string;
+  connectionEmail: string;
+};
+
+/** Resolve a calendar source to a Google write target, or null if it isn't a
+ * (writable) Google source. */
+async function googleTarget(
+  admin: ReturnType<typeof createAdminClient>,
+  sourceId: string | null,
+): Promise<GoogleWriteTarget | null> {
+  if (!sourceId) return null;
+  const { data: src } = await admin
+    .from("calendar_sources")
+    .select(
+      "id, member_email, source_type, google_calendar_id, google_connection_email",
+    )
+    .eq("id", sourceId)
+    .maybeSingle();
+  if (
+    !src ||
+    src.source_type !== "google" ||
+    !src.google_calendar_id
+  ) {
+    return null;
+  }
+  const connectionEmail = src.google_connection_email ?? src.member_email;
+  if (!connectionEmail) return null;
+  return {
+    sourceId: src.id,
+    memberEmail: src.member_email,
+    googleCalendarId: src.google_calendar_id,
+    connectionEmail,
   };
 }
 
 export async function createManualEvent(input: ManualEventInput): Promise<string> {
   await requireParent();
   const admin = createAdminClient();
+
+  // Writing into a Google calendar: push to Google first, then mirror locally so
+  // the row carries the Google event id for later edits/deletes.
+  const target = await googleTarget(admin, input.calendarSourceId);
+  if (target) {
+    const created = await insertGoogleEvent(
+      target.connectionEmail,
+      target.googleCalendarId,
+      eventToGoogleBody(input),
+    );
+    const { data, error } = await admin
+      .from("calendar_events")
+      .insert({
+        ...baseEventColumns(input),
+        member_email: target.memberEmail,
+        calendar_source_id: target.sourceId,
+        source_type: "google" as const,
+        external_id: `google:${created.id}`,
+      })
+      .select("id")
+      .single();
+    if (error || !data)
+      throw new Error(error?.message ?? "Couldn't create the event.");
+    revalidatePath("/calendar");
+    return data.id as string;
+  }
+
+  // App-only manual event.
   const { data, error } = await admin
     .from("calendar_events")
-    .insert(eventColumns(input))
+    .insert({
+      ...baseEventColumns(input),
+      member_email: input.memberEmail,
+      source_type: "manual" as const,
+    })
     .select("id")
     .single();
   if (error || !data) throw new Error(error?.message ?? "Couldn't create the event.");
@@ -77,9 +159,42 @@ export async function updateManualEvent(
 ): Promise<void> {
   await requireParent();
   const admin = createAdminClient();
+
+  const { data: ev } = await admin
+    .from("calendar_events")
+    .select("id, source_type, calendar_source_id, external_id")
+    .eq("id", id)
+    .single();
+
+  // Editing a Google event writes back to Google (it stays on its calendar — we
+  // don't move events between calendars from here).
+  if (
+    ev?.source_type === "google" &&
+    ev.external_id?.startsWith("google:") &&
+    ev.calendar_source_id
+  ) {
+    const target = await googleTarget(admin, ev.calendar_source_id);
+    if (!target) throw new Error("This calendar is no longer connected.");
+    const googleEventId = ev.external_id.slice("google:".length);
+    await patchGoogleEvent(
+      target.connectionEmail,
+      target.googleCalendarId,
+      googleEventId,
+      eventToGoogleBody(input),
+    );
+    const { error } = await admin
+      .from("calendar_events")
+      .update(baseEventColumns(input))
+      .eq("id", id);
+    if (error) throw new Error(error.message);
+    revalidatePath("/calendar");
+    return;
+  }
+
+  // Manual event.
   const { error } = await admin
     .from("calendar_events")
-    .update(eventColumns(input))
+    .update({ ...baseEventColumns(input), member_email: input.memberEmail })
     .eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/calendar");
@@ -88,6 +203,28 @@ export async function updateManualEvent(
 export async function deleteEvent(id: string): Promise<void> {
   await requireParent();
   const admin = createAdminClient();
+
+  const { data: ev } = await admin
+    .from("calendar_events")
+    .select("id, source_type, calendar_source_id, external_id")
+    .eq("id", id)
+    .single();
+
+  if (
+    ev?.source_type === "google" &&
+    ev.external_id?.startsWith("google:") &&
+    ev.calendar_source_id
+  ) {
+    const target = await googleTarget(admin, ev.calendar_source_id);
+    if (target) {
+      await deleteGoogleEvent(
+        target.connectionEmail,
+        target.googleCalendarId,
+        ev.external_id.slice("google:".length),
+      );
+    }
+  }
+
   const { error } = await admin.from("calendar_events").delete().eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/calendar");
@@ -170,6 +307,74 @@ export async function triggerSync(): Promise<void> {
   await requireUserId(await createClient()); // any signed-in member may trigger
   await runCalendarSync();
   revalidatePath("/calendar");
+}
+
+// --- Google Calendar --------------------------------------------------------
+
+/** Emails of members who have connected their Google account (signed in with the
+ * calendar grant). Lets the settings UI show a picker vs. a "not connected" note
+ * per member. */
+export async function listGoogleConnectedEmails(): Promise<string[]> {
+  await requireParent();
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("google_connections")
+    .select("member_email");
+  return (data ?? []).map((r) => r.member_email as string);
+}
+
+/** A connected member's Google calendars (for the add picker). The token belongs
+ * to `connectionEmail` — that member's own account. */
+export async function listGoogleCalendarsForConnection(
+  connectionEmail: string,
+): Promise<GoogleCalendarListEntry[]> {
+  await requireParent();
+  return listGoogleCalendars(connectionEmail);
+}
+
+/** Add a Google calendar as a source, then sync it immediately. `connectionEmail`
+ * is whose token reaches the calendar; `memberEmail` is the group it shows under
+ * (null = family-wide, e.g. a shared calendar added from a parent's account). */
+export async function addGoogleSource(input: {
+  memberEmail: string | null;
+  connectionEmail: string;
+  googleCalendarId: string;
+  nickname: string;
+  color: string | null;
+}): Promise<void> {
+  await requireParent();
+  const admin = createAdminClient();
+
+  // Adding the same calendar from the same account twice would duplicate events.
+  const { data: existing } = await admin
+    .from("calendar_sources")
+    .select("id")
+    .eq("source_type", "google")
+    .eq("google_calendar_id", input.googleCalendarId)
+    .eq("google_connection_email", input.connectionEmail)
+    .limit(1);
+  if (existing && existing.length > 0) {
+    throw new Error("That calendar is already added.");
+  }
+
+  const { data, error } = await admin
+    .from("calendar_sources")
+    .insert({
+      member_email: input.memberEmail,
+      source_type: "google",
+      google_calendar_id: input.googleCalendarId,
+      google_connection_email: input.connectionEmail,
+      nickname: input.nickname.trim() || null,
+      color: input.color,
+    })
+    .select("id")
+    .single();
+  if (error || !data)
+    throw new Error(error?.message ?? "Couldn't add the calendar.");
+
+  await syncGoogleSource(data.id as string).catch(() => {});
+  revalidatePath("/calendar");
+  revalidatePath("/settings/calendars");
 }
 
 // --- TeamSnap ---------------------------------------------------------------

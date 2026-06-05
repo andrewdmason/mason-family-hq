@@ -5,14 +5,21 @@
 
 import { syncAllTeamsnapSources } from "./teamsnap-sync";
 import { syncAllIcsSources } from "./ics-sync";
+import { syncAllGoogleSources } from "./google-sync";
 
 export async function runCalendarSync(): Promise<{
   teamsnap: number;
   ics: number;
+  google: number;
 }> {
-  const [ts, ics] = await Promise.all([
+  const [ts, ics, google] = await Promise.all([
     syncAllTeamsnapSources().catch(() => ({ results: [] })),
     syncAllIcsSources().catch(() => ({ results: [] })),
+    syncAllGoogleSources().catch(() => ({ results: [] })),
   ]);
-  return { teamsnap: ts.results.length, ics: ics.results.length };
+  return {
+    teamsnap: ts.results.length,
+    ics: ics.results.length,
+    google: google.results.length,
+  };
 }

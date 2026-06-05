@@ -3,7 +3,7 @@
 // family member (member_email) rather than KidCalendar's separate kid/parent
 // tables.
 
-export type CalendarSourceType = "teamsnap" | "ics" | "manual";
+export type CalendarSourceType = "teamsnap" | "ics" | "manual" | "google";
 export type CalendarRecurrence = "none" | "weekly" | "biweekly";
 export type TeamsnapRsvp = "going" | "maybe" | "not_going" | "no_reply";
 
@@ -36,6 +36,8 @@ export interface CalendarSource {
   teamsnap_team_name: string | null;
   teamsnap_player_member_id: number | null;
   ics_url: string | null;
+  google_calendar_id: string | null;
+  google_connection_email: string | null;
   nickname: string | null;
   color: string | null;
   is_active: boolean;

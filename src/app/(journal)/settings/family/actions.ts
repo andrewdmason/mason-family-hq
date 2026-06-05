@@ -132,9 +132,10 @@ export async function addFamilyMember(
 }
 
 /** Edit a member's name and/or email. Owner-only. Changing the email keeps
- * their auth login in sync (when they've already signed in) so the magic-link
- * allowlist still matches, and cascades to their photo rows via the FK's
- * ON UPDATE CASCADE. The owner's own email is fixed and can't be changed here. */
+ * their auth login in sync (when they've already signed in) so the sign-in
+ * allowlist still matches, and cascades to all of their rows via the FKs'
+ * ON UPDATE CASCADE (00104). The owner's own email is fixed and can't be changed
+ * here. */
 export async function updateFamilyMember(
   originalEmailRaw: string,
   nameRaw: string,
