@@ -10,12 +10,6 @@
  */
 export type CalendarWindow = "recent" | "ahead";
 
-export type CalendarSource = {
-  id: string;
-  displayName: string;
-  feedUrl: string;
-};
-
 export type NormalizedEvent = {
   sourceId: string;
   sourceName: string;

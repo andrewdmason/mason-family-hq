@@ -8,10 +8,11 @@ const APPS = [
   { href: "/journal", label: "Journal", match: "/journal" },
   { href: "/timeline", label: "Timeline", match: "/timeline" },
   { href: "/reader", label: "Reader", match: "/reader" },
+  { href: "/calendar", label: "Calendar", match: "/calendar" },
 ] as const;
 
 /**
- * Top-level nav bar for the two family-wide apps. Each label is a link; the one
+ * Top-level nav bar for the family-wide apps. Each label is a link; the one
  * whose path is active is highlighted and underlined. Doubles as each app's
  * identity in the header, so the header doesn't repeat the app name as a title.
  */
