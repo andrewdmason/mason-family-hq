@@ -9,6 +9,7 @@ import {
   CalendarRange,
   Check,
   ChevronDown,
+  House,
   Music,
   NotebookPen,
   Settings,
@@ -32,6 +33,13 @@ type App = {
 };
 
 const APPS: App[] = [
+  {
+    href: "/home",
+    label: "Home",
+    match: "/home",
+    description: "Your daily dashboard",
+    icon: House,
+  },
   {
     href: "/family",
     label: "Family",

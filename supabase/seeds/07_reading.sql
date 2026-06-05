@@ -4,10 +4,11 @@
 -- membership rows come from 00_dev_family.sql.
 --
 -- Fixed uuids keep this idempotent. Baseline check-ins for in-progress books are
--- dated to the Sunday before the demo week (2026-05-31) so "pages read this week"
--- starts at 0 and the week's target = baseline page + goal:
---   Sebastian — The Hunger Games, on p.80, goal 50 → reach p.130 by Sunday.
---   Andrew    — Demon Copperhead, on p.0,  goal 10 → reach p.10  by Sunday.
+-- dated to the Monday before the current reset week so "pages read this week"
+-- starts at 0. Sebastian intentionally has a stale/urgent Hunger Games target
+-- and a published, unpassed check-in quiz for that stretch:
+--   Sebastian — The Hunger Games, on p.80, target p.130, quiz ready.
+--   Andrew    — Demon Copperhead, on p.0,  target p.10.
 -- Covers are Open Library by-ISBN URLs (default=false → 404 if missing, so the
 -- UI falls back to a placeholder).
 
@@ -17,7 +18,8 @@ DECLARE
   sebastian uuid := (SELECT id FROM auth.users WHERE email = 'sebastian@mason.io');
   andrew_book    uuid := 'a0000003-0001-4001-8001-000000000001';
   sebastian_book uuid := 'a0000003-0004-4001-8001-000000000001';
-  baseline date := '2026-05-31'; -- the Sunday before the demo week
+  sebastian_quiz uuid := 'a0000003-0004-4001-8002-000000000001';
+  baseline date := date_trunc('week', current_date)::date - 7; -- prior Monday
 BEGIN
   IF andrew IS NULL OR sebastian IS NULL THEN
     RAISE NOTICE 'Family members not found; skipping reading seed.';
@@ -70,11 +72,11 @@ BEGIN
 
   -- Currently reading.
   INSERT INTO reading_books
-    (id, user_id, title, author, total_pages, current_page, status, cover_image_url, started_at)
+    (id, user_id, title, author, total_pages, current_page, target_page, target_locked, status, cover_image_url, started_at)
   VALUES
-    (andrew_book, andrew, 'Demon Copperhead', 'Barbara Kingsolver', 548, 0, 'in_progress',
+    (andrew_book, andrew, 'Demon Copperhead', 'Barbara Kingsolver', 548, 0, 10, false, 'in_progress',
       'https://covers.openlibrary.org/b/isbn/9780063251922-L.jpg?default=false', baseline),
-    (sebastian_book, sebastian, 'The Hunger Games', 'Suzanne Collins', 374, 80, 'in_progress',
+    (sebastian_book, sebastian, 'The Hunger Games', 'Suzanne Collins', 374, 80, 130, true, 'in_progress',
       'https://covers.openlibrary.org/b/isbn/9780439023481-L.jpg?default=false', baseline);
 
   -- Andrew's finished shelf, with emoji ratings — the taste signal Discover uses
@@ -159,4 +161,72 @@ BEGIN
   INSERT INTO reading_checkins (user_id, book_id, checked_on, page) VALUES
     (andrew, andrew_book, baseline, 0),
     (sebastian, sebastian_book, baseline, 80);
+
+  -- Sebastian has already hit the point where the next check-in is quiz-gated:
+  -- a published, unpassed check-in quiz covers the current Hunger Games stretch.
+  -- The quiz is seeded directly rather than generated from copyrighted source
+  -- text, keeping local resets lightweight while still exercising the quiz flow.
+  INSERT INTO reading_quizzes
+    (id, user_id, book_id, from_page, through_page, status, title,
+     created_by_email, source, published_at)
+  VALUES
+    (sebastian_quiz, sebastian, sebastian_book, 80, 130, 'published',
+     'The Hunger Games: pages 80-130', 'andrew@mason.io', 'checkin', now());
+
+  INSERT INTO reading_quiz_questions
+    (id, quiz_id, user_id, position, type, prompt, options, correct_index,
+     explanation, grading_rubric, sample_answer)
+  VALUES
+    (
+      'a0000003-0004-4001-8003-000000000001',
+      sebastian_quiz,
+      sebastian,
+      0,
+      'multiple_choice',
+      'Why does Katniss need to become memorable before the Games begin?',
+      '["So sponsors and viewers will notice and support her", "So the other tributes will ignore her", "So she can avoid training", "So the Capitol will send her home"]'::jsonb,
+      0,
+      'Tributes depend on attention and sponsor support, so standing out can become a survival advantage.',
+      NULL,
+      NULL
+    ),
+    (
+      'a0000003-0004-4001-8003-000000000002',
+      sebastian_quiz,
+      sebastian,
+      1,
+      'multiple_choice',
+      'What is one reason Katniss and Peeta are careful about what they reveal in training?',
+      '["They want to keep some strengths hidden from competitors", "They are not allowed to touch any weapons", "They already know every skill perfectly", "They are trying to be eliminated early"]'::jsonb,
+      0,
+      'Training is public enough that showing too much can give rivals information they can use later.',
+      NULL,
+      NULL
+    ),
+    (
+      'a0000003-0004-4001-8003-000000000003',
+      sebastian_quiz,
+      sebastian,
+      2,
+      'multiple_choice',
+      'What does Katniss''s private session with the Gamemakers show about her?',
+      '["She is skilled but also frustrated by being ignored", "She has decided not to compete at all", "She trusts the Capitol completely", "She has forgotten how to use a bow"]'::jsonb,
+      0,
+      'The scene shows both her ability and her temper when the people judging her treat her as unimportant.',
+      NULL,
+      NULL
+    ),
+    (
+      'a0000003-0004-4001-8003-000000000004',
+      sebastian_quiz,
+      sebastian,
+      3,
+      'free_text',
+      'How do Cinna and Haymitch each help Katniss before she enters the arena? Give one example for each.',
+      NULL,
+      NULL,
+      NULL,
+      'A strong answer should explain that Cinna helps shape Katniss''s public image and confidence, while Haymitch gives strategy about sponsors, training, or survival.',
+      'Cinna helps Katniss look unforgettable and feel steadier in front of the Capitol. Haymitch helps her think strategically, especially about sponsors and how she presents herself.'
+    );
 END $$;

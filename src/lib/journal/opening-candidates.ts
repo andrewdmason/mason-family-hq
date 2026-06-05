@@ -2,6 +2,7 @@ import { anthropic, JOURNAL_MODEL } from "@/lib/journal/anthropic";
 import {
   buildSystemPrompt,
   loadAgentFiles,
+  loadCurrentUserIdentity,
   loadFamilyDoc,
   loadHistory,
   loadQuestionTypes,
@@ -698,6 +699,7 @@ export async function generateCandidates(
     familySource,
     readingSource,
     files,
+    userIdentity,
     recentlyShown,
     familyDoc,
     timelineEntries,
@@ -709,6 +711,7 @@ export async function generateCandidates(
     // picks the most recently active in-progress book.
     forcedBookId ? loadBookSource(forcedBookId) : loadCurrentlyReadingSource(),
     loadAgentFiles(),
+    loadCurrentUserIdentity(),
     loadRecentlyShown(today),
     loadFamilyDoc(),
     // The user's own timeline: serialized as life context for the prompt, and
@@ -763,11 +766,21 @@ export async function generateCandidates(
     ]);
 
     const system =
-      buildSystemPrompt(files, history, today, calendarBlock, nowLabel, familyDoc, timelineBlock, {
-        includePresent: spec.present,
-        includeTimeline: spec.past,
-        includeHistory: wantHistory,
-      }) +
+      buildSystemPrompt(
+        files,
+        history,
+        today,
+        calendarBlock,
+        nowLabel,
+        familyDoc,
+        timelineBlock,
+        {
+          includePresent: spec.present,
+          includeTimeline: spec.past,
+          includeHistory: wantHistory,
+          userIdentity,
+        }
+      ) +
       "\n" +
       buildCategoryInstruction(count, category, siblingNames, rejected, recentlyShown) +
       audienceNote(audience);

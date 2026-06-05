@@ -588,6 +588,12 @@ export async function markTargetReached(
     total_pages: (book.total_pages as number | null) ?? null,
   };
 
+  // A published, unpassed quiz is authoritative for this stretch even if the
+  // original converted book text is not present in a lightweight seed reset.
+  const active = await getActiveQuizzesByBook([bookId], memberEmail);
+  const activeQuiz = active[bookId];
+  if (activeQuiz) return { outcome: "quiz", quizId: activeQuiz.quizId };
+
   // A book "with quizzes" is one whose uploaded file has converted to ready text.
   const { data: content } = await client
     .from("reading_book_content")
@@ -604,10 +610,6 @@ export async function markTargetReached(
 
   // Quiz-gated: hand back the active (published, unpassed) stretch quiz. Passing
   // it advances the milestone; we don't advance here.
-  const active = await getActiveQuizzesByBook([bookId], memberEmail);
-  const activeQuiz = active[bookId];
-  if (activeQuiz) return { outcome: "quiz", quizId: activeQuiz.quizId };
-
   // None ready yet (generation still running or failed) — try once on demand.
   const ensured = await ensureStretchQuizInline(scope, stretchBook);
   if (ensured.quizId) return { outcome: "quiz", quizId: ensured.quizId };

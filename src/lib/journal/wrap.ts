@@ -3,6 +3,7 @@ import { anthropic, JOURNAL_MODEL } from "@/lib/journal/anthropic";
 import {
   buildSystemPrompt,
   loadAgentFiles,
+  loadCurrentUserIdentity,
   loadTimelineBlock,
   loadFamilyDoc,
   loadHistory,
@@ -106,8 +107,9 @@ export async function runWrap(entryId: string): Promise<WrapResult> {
 
   const tz = await getUserTimezone();
   const today = localDate(new Date(), tz);
-  const [files, history, calendarBlock, familyDoc, timelineBlock] = await Promise.all([
+  const [files, userIdentity, history, calendarBlock, familyDoc, timelineBlock] = await Promise.all([
     loadAgentFiles(),
+    loadCurrentUserIdentity(),
     loadHistory(today, entryId),
     loadCalendarBlock(today, tz),
     loadFamilyDoc(),
@@ -120,7 +122,8 @@ export async function runWrap(entryId: string): Promise<WrapResult> {
     calendarBlock,
     formatNow(new Date(), tz),
     familyDoc,
-    timelineBlock
+    timelineBlock,
+    { userIdentity }
   );
 
   // Recently dismissed suggestions — so the model doesn't re-raise something
