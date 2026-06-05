@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { triggerSync } from "@/app/(calendar)/calendar/actions";
+import { triggerFullSync } from "@/app/(calendar)/calendar/actions";
 
-/** Manually pull the latest from TeamSnap and ICS feeds. The same sync also runs
- * on load and every 15 minutes via cron; this is the "do it now" button. */
+/** Manually pull the latest — including every player's RSVP — from TeamSnap, ICS,
+ * and Google. The same full sync also runs every 15 minutes via cron; this is
+ * the "do it now" button. */
 export function SyncButton() {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -17,7 +18,7 @@ export function SyncButton() {
   function sync() {
     setJustSynced(false);
     startTransition(async () => {
-      await triggerSync().catch(() => {});
+      await triggerFullSync().catch(() => {});
       router.refresh();
       setJustSynced(true);
     });

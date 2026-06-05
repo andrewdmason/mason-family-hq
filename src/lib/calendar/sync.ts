@@ -7,13 +7,20 @@ import { syncAllTeamsnapSources } from "./teamsnap-sync";
 import { syncAllIcsSources } from "./ics-sync";
 import { syncAllGoogleSources } from "./google-sync";
 
-export async function runCalendarSync(): Promise<{
+export async function runCalendarSync(
+  // The page-load trigger passes { teamsnapRsvp: false } to skip the per-event
+  // RSVP fetch (a flood of TeamSnap calls that otherwise competes with the first
+  // event the user opens). The cron and manual "Sync" button run the full sync.
+  opts: { teamsnapRsvp?: boolean } = {},
+): Promise<{
   teamsnap: number;
   ics: number;
   google: number;
 }> {
   const [ts, ics, google] = await Promise.all([
-    syncAllTeamsnapSources().catch(() => ({ results: [] })),
+    syncAllTeamsnapSources({ syncRsvp: opts.teamsnapRsvp }).catch(() => ({
+      results: [],
+    })),
     syncAllIcsSources().catch(() => ({ results: [] })),
     syncAllGoogleSources().catch(() => ({ results: [] })),
   ]);
