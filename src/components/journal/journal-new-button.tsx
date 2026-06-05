@@ -31,18 +31,32 @@ import {
 } from "@/lib/journal/photo-upload";
 
 /**
- * Split "New" button for the journal header. The main segment opens today's
- * entry (the question picker) like the old "+". The dropdown jumps straight
- * into one of the four other ways to start: write freely, start with a photo,
- * save a quote, or paste a recap. Freeform/quote/recap deep-link into the
- * picker via `?start=`; the photo option is handled here because opening a
- * file dialog needs the click's user gesture, which a fresh page load lacks.
+ * Split "New" button for an app header. The main segment opens today's entry
+ * (the question picker) like the old "+". The dropdown jumps straight into one
+ * of the four other ways to start: write freely, start with a photo, save a
+ * quote, or paste a recap. Freeform/quote/recap deep-link into the picker via
+ * `?start=`; the photo option is handled here because opening a file dialog
+ * needs the click's user gesture, which a fresh page load lacks.
+ *
+ * `audience` pre-sets where the new entry goes: "family" (from the Family app)
+ * or "personal" (from the Journal app). It's threaded into the editor via
+ * `?audience=` and force-set as the new entry's visibility for the non-question
+ * starts; the picker's audience control can still change it before you commit.
  */
-export function JournalNewButton() {
+export function JournalNewButton({
+  audience,
+}: {
+  audience: "personal" | "family";
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+
+  // The editor reads "private"/"family" (the visibility values); "personal" is
+  // just the user-facing name for the private journal.
+  const visibility = audience === "family" ? "family" : "private";
+  const q = `audience=${visibility}`;
 
   // Redundant while you're already starting an entry — hide it on the editor.
   if (pathname === "/journal/new") return null;
@@ -56,8 +70,8 @@ export function JournalNewButton() {
     try {
       const entry = await getOrCreateTodayEntry();
       await uploadJournalMedia(entry.id, file);
-      await startFreeformEntry(entry.id);
-      router.push("/journal/new");
+      await startFreeformEntry(entry.id, visibility);
+      router.push(`/journal/new?${q}`);
     } catch {
       setBusy(false);
     }
@@ -66,7 +80,7 @@ export function JournalNewButton() {
   return (
     <div className="inline-flex items-center rounded-md border bg-background">
       <Link
-        href="/journal/new"
+        href={`/journal/new?${q}`}
         className="inline-flex h-8 items-center gap-1 rounded-l-md pl-2 pr-2.5 font-serif text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       >
         <Plus className="size-4" />
@@ -85,13 +99,13 @@ export function JournalNewButton() {
           <ChevronDown className="size-4" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-60 font-serif">
-          <DropdownMenuItem onClick={() => router.push("/journal/new")}>
+          <DropdownMenuItem onClick={() => router.push(`/journal/new?${q}`)}>
             <Sparkles />
             Start with a question
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            onClick={() => router.push("/journal/new?start=freeform")}
+            onClick={() => router.push(`/journal/new?${q}&start=freeform`)}
           >
             <PencilLine />
             Start with your own words
@@ -101,13 +115,13 @@ export function JournalNewButton() {
             Start with a photo
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={() => router.push("/journal/new?start=quote")}
+            onClick={() => router.push(`/journal/new?${q}&start=quote`)}
           >
             <MessageSquareQuote />
             Save a quote
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={() => router.push("/journal/new?start=recap")}
+            onClick={() => router.push(`/journal/new?${q}&start=recap`)}
           >
             <FileText />
             Paste a chatbot recap
