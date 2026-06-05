@@ -76,9 +76,9 @@ export default async function HomePage() {
     reading?.books
       .filter((b) => b.status === "in_progress")
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0] ?? null;
-  const quizWaiting = activeBook
-    ? Boolean((await getActiveQuizzesByBook([activeBook.id]))[activeBook.id])
-    : false;
+  const activeQuiz = activeBook
+    ? (await getActiveQuizzesByBook([activeBook.id]))[activeBook.id] ?? null
+    : null;
 
   // Practice is owner-only (mirrors the /practice gate); skip the queries for
   // everyone else.
@@ -107,7 +107,7 @@ export default async function HomePage() {
             <ReaderWidget
               book={activeBook}
               weeklyPageGoal={reading?.weeklyPageGoal ?? 0}
-              quizWaiting={quizWaiting}
+              activeQuiz={activeQuiz}
             />
           )}
           <JournalSuggestionsWidget

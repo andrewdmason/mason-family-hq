@@ -1,7 +1,9 @@
 import { BookOpen } from "lucide-react";
+import Link from "next/link";
 import { WidgetCard } from "./widget-card";
 import { cn } from "@/lib/utils";
-import type { ReadingBookWithProgress } from "@/lib/types";
+import { quizTakeHref } from "@/lib/reading/links";
+import type { ActiveBookQuiz, ReadingBookWithProgress } from "@/lib/types";
 
 /**
  * A window into the active book: this week's progress toward the page goal, and
@@ -11,11 +13,11 @@ import type { ReadingBookWithProgress } from "@/lib/types";
 export function ReaderWidget({
   book,
   weeklyPageGoal,
-  quizWaiting,
+  activeQuiz,
 }: {
   book: ReadingBookWithProgress;
   weeklyPageGoal: number;
-  quizWaiting: boolean;
+  activeQuiz: ActiveBookQuiz | null;
 }) {
   const pct =
     weeklyPageGoal > 0
@@ -51,10 +53,18 @@ export function ReaderWidget({
               ? `Page ${book.current_page} of ${book.total_pages}`
               : `Page ${book.current_page}`}
           </p>
-          {quizWaiting && (
-            <span className="mt-2 inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[0.7rem] font-medium text-primary">
-              Quiz ready
-            </span>
+          {activeQuiz && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[0.7rem] font-medium text-primary">
+                Quiz ready
+              </span>
+              <Link
+                href={quizTakeHref(activeQuiz.quizId)}
+                className="inline-flex items-center rounded-md border border-primary/30 px-2 py-0.5 text-[0.7rem] font-medium text-primary transition-colors hover:bg-primary/10"
+              >
+                Take quiz
+              </Link>
+            </div>
           )}
         </div>
       </div>
