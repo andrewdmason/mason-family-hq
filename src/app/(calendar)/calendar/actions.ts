@@ -109,6 +109,7 @@ export async function addIcsSource(input: IcsSourceInput): Promise<string> {
     .single();
   if (error || !data) throw new Error(error?.message ?? "Couldn't add the calendar.");
   revalidatePath("/calendar");
+  revalidatePath("/settings/calendars");
   return data.id as string;
 }
 
@@ -121,6 +122,7 @@ export async function deleteSource(id: string): Promise<void> {
   const { error } = await admin.from("calendar_sources").delete().eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/calendar");
+  revalidatePath("/settings/calendars");
 }
 
 /** Return (creating if needed) the outbound feed token for a member's calendar. */
@@ -201,4 +203,5 @@ export async function addTeamsnapSource(input: {
   if (error || !data) throw new Error(error?.message ?? "Couldn't add the team.");
   await syncTeamEvents(connectionEmail, data.id as string).catch(() => {});
   revalidatePath("/calendar");
+  revalidatePath("/settings/calendars");
 }

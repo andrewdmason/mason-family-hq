@@ -13,20 +13,10 @@ export default async function CalendarPage() {
   const userId = await requireUserId(supabase);
   const { data: me } = await supabase
     .from("family_members")
-    .select("email, role")
+    .select("role")
     .eq("user_id", userId)
     .maybeSingle();
   const canManage = me?.role === "owner" || me?.role === "parent";
-
-  // RLS lets a member read only their own TeamSnap connection row.
-  const { data: conn } = me?.email
-    ? await supabase
-        .from("teamsnap_connections")
-        .select("member_email")
-        .eq("member_email", me.email)
-        .maybeSingle()
-    : { data: null };
-  const teamsnapConnected = !!conn;
 
   const [members, sources, events] = await Promise.all([
     getCalendarMembers(),
@@ -42,7 +32,6 @@ export default async function CalendarPage() {
         sources={sources}
         events={events}
         canManage={canManage}
-        teamsnapConnected={teamsnapConnected}
       />
     </>
   );
