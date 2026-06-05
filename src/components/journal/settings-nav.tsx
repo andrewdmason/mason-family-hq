@@ -23,6 +23,13 @@ const TABS = [
       "The kinds of questions you get each morning, how often each shows up, and how many you're offered.",
   },
   {
+    label: "Calendars",
+    href: "/settings/calendars",
+    description:
+      "Manage everyone's calendars — subscribe to ICS feeds, connect TeamSnap teams, and share phone subscribe links.",
+    manageOnly: true,
+  },
+  {
     label: "Family",
     href: "/settings/family",
     description: "",
@@ -30,7 +37,13 @@ const TABS = [
   },
 ] as const;
 
-export function SettingsNav({ isOwner = false }: { isOwner?: boolean }) {
+export function SettingsNav({
+  isOwner = false,
+  canManage = false,
+}: {
+  isOwner?: boolean;
+  canManage?: boolean;
+}) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   // When editing a member's settings, every tab carries the ?member= param so
@@ -38,9 +51,13 @@ export function SettingsNav({ isOwner = false }: { isOwner?: boolean }) {
   // launcher for member mode, so it's hidden while a member is selected.
   const member = searchParams.get("member");
   const suffix = member ? `?member=${encodeURIComponent(member)}` : "";
-  const tabs = TABS.filter(
-    (t) => !("ownerOnly" in t && t.ownerOnly) || (isOwner && !member)
-  );
+  const tabs = TABS.filter((t) => {
+    // Owner-only tabs (Family) need owner role and only outside member mode.
+    if ("ownerOnly" in t && t.ownerOnly) return isOwner && !member;
+    // Manage-only tabs (Calendars) are for owners and parents.
+    if ("manageOnly" in t && t.manageOnly) return canManage;
+    return true;
+  });
   const active = tabs.find((t) => pathname.startsWith(t.href)) ?? tabs[0];
 
   return (

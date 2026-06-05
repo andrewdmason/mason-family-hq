@@ -21,6 +21,7 @@ export default async function SettingsLayout({
     .eq("user_id", userId)
     .maybeSingle();
   const isOwner = me?.role === "owner";
+  const canManage = me?.role === "owner" || me?.role === "parent";
   const { data } = await supabase
     .from("journal_agent_files")
     .select("id, name, updated_at")
@@ -34,7 +35,7 @@ export default async function SettingsLayout({
     <div className="mx-auto w-full max-w-5xl px-6 pb-24 pt-12">
       <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
         <div>
-          <SettingsNav isOwner={isOwner} />
+          <SettingsNav isOwner={isOwner} canManage={canManage} />
           {children}
         </div>
 

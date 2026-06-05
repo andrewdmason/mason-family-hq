@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { ChevronLeft, ChevronRight, Plus, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -22,7 +23,6 @@ import { AgendaView } from "./agenda-view";
 import { WeekView } from "./week-view";
 import { MonthView } from "./month-view";
 import { EventSheet, type SheetMode } from "./event-sheet";
-import { SourcesSheet } from "./sources-sheet";
 import type { EventDisplay } from "./event-card";
 
 type View = "agenda" | "week" | "month";
@@ -33,13 +33,11 @@ export function CalendarClient({
   sources,
   events,
   canManage,
-  teamsnapConnected = false,
 }: {
   members: CalendarMember[];
   sources: CalendarSource[];
   events: CalendarEvent[];
   canManage: boolean;
-  teamsnapConnected?: boolean;
 }) {
   const [view, setView] = useState<View>("agenda");
   const [anchor, setAnchor] = useState(() => new Date());
@@ -48,7 +46,6 @@ export function CalendarClient({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetMode, setSheetMode] = useState<SheetMode>("detail");
   const [activeEvent, setActiveEvent] = useState<CalendarEvent | null>(null);
-  const [sourcesOpen, setSourcesOpen] = useState(false);
 
   const sourcesById = useMemo(
     () => new Map(sources.map((s) => [s.id, s])),
@@ -152,7 +149,12 @@ export function CalendarClient({
         </div>
         {canManage && (
           <div className="flex items-center gap-1.5">
-            <Button size="sm" variant="outline" onClick={() => setSourcesOpen(true)}>
+            <Button
+              size="sm"
+              variant="outline"
+              nativeButton={false}
+              render={<Link href="/settings/calendars" />}
+            >
               <SlidersHorizontal />
               Calendars
             </Button>
@@ -252,16 +254,6 @@ export function CalendarClient({
         canManage={canManage}
         sourceLabel={activeEvent ? display(activeEvent).sourceLabel : null}
       />
-
-      {canManage && (
-        <SourcesSheet
-          open={sourcesOpen}
-          onOpenChange={setSourcesOpen}
-          sources={sources}
-          members={members}
-          teamsnapConnected={teamsnapConnected}
-        />
-      )}
     </div>
   );
 }

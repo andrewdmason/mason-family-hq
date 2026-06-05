@@ -77,15 +77,13 @@ export async function syncTeamEvents(
     return { synced: 0, error: msg };
   }
 
-  const syncedExternalIds = new Set<string>();
-
+  // One row per external_id (last wins) so the batched upsert never hits the
+  // same conflict target twice.
+  const rowByExtId = new Map<string, Record<string, unknown>>();
   for (const tsEvent of tsEvents) {
     if (!tsEvent.start_date) continue;
-
     const externalId = `ts:${tsEvent.id}`;
-    syncedExternalIds.add(externalId);
-
-    const eventData = {
+    rowByExtId.set(externalId, {
       member_email: source.member_email,
       calendar_source_id: source.id,
       title: buildEventTitle(tsEvent),
@@ -99,23 +97,19 @@ export async function syncTeamEvents(
       teamsnap_arrival_time: tsEvent.arrival_date,
       teamsnap_is_game: tsEvent.is_game,
       is_canceled: tsEvent.is_canceled,
-    };
+    });
+  }
 
-    const { data: existing } = await supabase
+  const syncedExternalIds = new Set(rowByExtId.keys());
+
+  // Idempotent on the unique (calendar_source_id, external_id) constraint, so
+  // concurrent syncs can't create duplicate rows.
+  if (rowByExtId.size > 0) {
+    await supabase
       .from("calendar_events")
-      .select("id")
-      .eq("calendar_source_id", source.id)
-      .eq("external_id", externalId)
-      .single();
-
-    if (existing) {
-      await supabase
-        .from("calendar_events")
-        .update(eventData)
-        .eq("id", existing.id);
-    } else {
-      await supabase.from("calendar_events").insert(eventData);
-    }
+      .upsert([...rowByExtId.values()], {
+        onConflict: "calendar_source_id,external_id",
+      });
   }
 
   // Cancel events no longer returned by TeamSnap.

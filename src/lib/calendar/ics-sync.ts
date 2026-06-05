@@ -133,25 +133,13 @@ export async function syncIcsSource(
     return { synced: 0, error: msg };
   }
 
-  const { data: existingEvents } = await supabase
-    .from("calendar_events")
-    .select("id, external_id, is_canceled")
-    .eq("calendar_source_id", source.id);
-
-  const existingByExtId = new Map(
-    (existingEvents ?? []).map((e) => [e.external_id, e]),
-  );
-
-  const syncedExternalIds = new Set<string>();
-  let syncedCount = 0;
-
+  // Build one row per external_id (last wins if a feed repeats a UID) so the
+  // batched upsert never tries to touch the same conflict target twice.
+  const rowByExtId = new Map<string, Record<string, unknown>>();
   for (const icsEvent of icsEvents) {
     if (!icsEvent.dtstart) continue;
-
     const externalId = `ics:${icsEvent.uid}`;
-    syncedExternalIds.add(externalId);
-
-    const eventData = {
+    rowByExtId.set(externalId, {
       member_email: source.member_email,
       calendar_source_id: source.id,
       title: icsEvent.summary ?? "Event",
@@ -163,19 +151,33 @@ export async function syncIcsSource(
       source_type: "ics" as const,
       external_id: externalId,
       is_canceled: icsEvent.status === "CANCELLED",
-    };
-
-    const existing = existingByExtId.get(externalId);
-    if (existing) {
-      await supabase
-        .from("calendar_events")
-        .update(eventData)
-        .eq("id", existing.id);
-    } else {
-      await supabase.from("calendar_events").insert(eventData);
-    }
-    syncedCount++;
+    });
   }
+
+  const syncedExternalIds = new Set(rowByExtId.keys());
+  const syncedCount = rowByExtId.size;
+
+  // Idempotent: the unique (calendar_source_id, external_id) constraint makes
+  // this a no-op insert or in-place update, so concurrent syncs can't duplicate.
+  if (rowByExtId.size > 0) {
+    const { error: upsertError } = await supabase
+      .from("calendar_events")
+      .upsert([...rowByExtId.values()], {
+        onConflict: "calendar_source_id,external_id",
+      });
+    if (upsertError) {
+      await supabase
+        .from("calendar_sources")
+        .update({ sync_error: upsertError.message })
+        .eq("id", calendarSourceId);
+      return { synced: 0, error: upsertError.message };
+    }
+  }
+
+  const { data: existingEvents } = await supabase
+    .from("calendar_events")
+    .select("id, external_id, is_canceled")
+    .eq("calendar_source_id", source.id);
 
   // Cancel events no longer present in the feed.
   const cancelOps = (existingEvents ?? [])
