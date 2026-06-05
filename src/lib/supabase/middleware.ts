@@ -47,7 +47,7 @@ export async function updateSession(request: NextRequest) {
 
   if (user && request.nextUrl.pathname.startsWith("/login")) {
     const url = request.nextUrl.clone();
-    url.pathname = "/family";
+    url.pathname = "/home";
     return NextResponse.redirect(url);
   }
 
@@ -62,7 +62,7 @@ export async function updateSession(request: NextRequest) {
       .maybeSingle();
     if (membership?.role !== "owner") {
       const url = request.nextUrl.clone();
-      url.pathname = "/family";
+      url.pathname = "/home";
       return NextResponse.redirect(url);
     }
   }

@@ -9,9 +9,37 @@ import type {
   JournalMessage,
   JournalQuestionType,
   JournalSettings,
+  MemberRole,
 } from "@/lib/types";
 
 export type AgentFiles = Record<JournalAgentFileName, string>;
+
+export type CurrentUserIdentity = {
+  name: string | null;
+  email: string | null;
+  role: MemberRole | null;
+};
+
+/**
+ * The signed-in family member. This is separate from the editable Present file:
+ * kids often have an empty Present doc, but the interviewer still needs to know
+ * exactly whose perspective it is writing from.
+ */
+export async function loadCurrentUserIdentity(): Promise<CurrentUserIdentity> {
+  const supabase = await createClient();
+  const userId = await requireUserId(supabase);
+  const { data } = await supabase
+    .from("family_members")
+    .select("name, email, role")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  return {
+    name: (data?.name as string | null) ?? null,
+    email: (data?.email as string | null) ?? null,
+    role: (data?.role as MemberRole | null) ?? null,
+  };
+}
 
 export async function loadAgentFiles(): Promise<AgentFiles> {
   const supabase = await createClient();
@@ -155,6 +183,7 @@ export type PromptScope = {
   includePresent?: boolean;
   includeTimeline?: boolean;
   includeHistory?: boolean;
+  userIdentity?: CurrentUserIdentity | null;
 };
 
 /**
@@ -192,6 +221,15 @@ export function buildSystemPrompt(
   sections.push(
     "You are the journal interviewer for a single user. A few editable files describe you and the user; everything else is internal protocol."
   );
+  if (scope.userIdentity) {
+    const identity = scope.userIdentity;
+    const name = identity.name?.trim() || identity.email || "the signed-in user";
+    const role = identity.role ? ` Their family role is ${identity.role}.` : "";
+    const email = identity.email ? ` (${identity.email})` : "";
+    sections.push(
+      `The current signed-in user is ${name}${email}.${role} Address this person directly in second person. If family or timeline context mentions ${name}, treat that as the user, not as someone else. Never write questions as if the user is Andrew, Jenny, a parent, or a sibling unless this identity says that is who they are.`
+    );
+  }
   const grounds = ["Interviewer (your voice and how you ask — not which topics to pick)"];
   if (includePresent) {
     grounds.push("Present (who the user is now — their current life, people, and projects)");

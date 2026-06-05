@@ -285,6 +285,56 @@ export async function startTimelineReflection(timelineEntryId: string): Promise<
 }
 
 /**
+ * Start a journal entry from a Home dashboard suggestion: create a fresh open
+ * entry seeded with the tapped question and hand straight off to the chat,
+ * skipping the picker. The opening question is inserted as the assistant's first
+ * message (exactly as pickOpeningQuestion does) so /journal/new?entry=<id>
+ * resolves to ChatSurface. The visibility comes from which widget was tapped —
+ * "family" from the family-journal widget, "private" from the personal one — so
+ * the finished entry lands in the right app. Returns the new entry id; the
+ * caller routes to /journal/new?entry=<id>.
+ */
+export async function startEntryWithQuestion(
+  question: string,
+  visibility: JournalVisibility = "private"
+): Promise<string> {
+  const trimmed = question.trim();
+  if (!trimmed) throw new Error("question is empty");
+
+  const supabase = await createClient();
+  const userId = await requireUserId(supabase);
+  const date = await todayLocal();
+
+  const { data: entry, error } = await supabase
+    .from("journal_entries")
+    .insert({
+      entry_date: date,
+      status: "open",
+      user_id: userId,
+      visibility,
+      opening_question: trimmed,
+    })
+    .select("id")
+    .single();
+  if (error || !entry) {
+    throw new Error(error?.message ?? "failed to create entry");
+  }
+
+  const { error: msgErr } = await supabase
+    .from("journal_messages")
+    .insert({
+      entry_id: entry.id,
+      role: "assistant",
+      content: trimmed,
+      user_id: userId,
+    });
+  if (msgErr) throw new Error(msgErr.message);
+
+  revalidatePath("/journal");
+  return entry.id as string;
+}
+
+/**
  * Set an entry's date. Used when a new entry is started from a dropped photo
  * and the user opts to date the entry to when the photo was taken.
  */
