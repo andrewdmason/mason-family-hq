@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Pencil, Settings } from "lucide-react";
+import { Pencil, Settings, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,7 +24,7 @@ import {
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import { MemberPhotoDialog } from "@/components/journal/member-photo-dialog";
 import {
-  addFamilyMember,
+  removeFamilyMember,
   updateFamilyMember,
   updateMemberProfile,
   updateMemberRole,
@@ -55,26 +55,24 @@ export function FamilyManager({
   journalStatsByUserId: Record<string, MemberJournalStats>;
   readingGoalsByEmail: Record<string, number>;
 }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState<MemberRole>("parent");
-  const [adding, setAdding] = useState(false);
   const [editingMember, setEditingMember] = useState<FamilyMember | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  function handleAdd(e: React.FormEvent) {
-    e.preventDefault();
+  function handleRemove(member: FamilyMember) {
+    if (
+      !window.confirm(
+        `Remove ${member.name || member.email}'s invitation? They haven't signed in yet.`
+      )
+    ) {
+      return;
+    }
     setError(null);
     startTransition(async () => {
       try {
-        await addFamilyMember(email, name, role);
-        setName("");
-        setEmail("");
-        setRole("parent");
-        setAdding(false);
+        await removeFamilyMember(member.email);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't add member.");
+        setError(err instanceof Error ? err.message : "Couldn't remove member.");
       }
     });
   }
@@ -152,67 +150,23 @@ export function FamilyManager({
               >
                 <Pencil className="h-4 w-4" />
               </button>
+              {m.role !== "owner" && !m.seeded_at && (
+                <button
+                  type="button"
+                  onClick={() => handleRemove(m)}
+                  disabled={pending}
+                  aria-label={`Remove ${m.name || m.email}'s invitation`}
+                  title="Remove invitation"
+                  className="text-muted-foreground transition-colors hover:text-destructive disabled:opacity-40"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
             </div>
           );
         })}
       </div>
 
-      {adding ? (
-        <form onSubmit={handleAdd} className="mt-4">
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
-              placeholder="Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="sm:max-w-[200px]"
-            />
-            <Input
-              type="email"
-              placeholder="Email address"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="flex-1"
-            />
-            <Select value={role} onValueChange={(v) => setRole(v as MemberRole)}>
-              <SelectTrigger
-                className="sm:w-[120px]"
-                aria-label="Role for the new member"
-              >
-                <SelectValue>{ROLE_LABELS[role]}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {ASSIGNABLE_ROLES.map((r) => (
-                  <SelectItem key={r} value={r}>
-                    {ROLE_LABELS[r]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button type="submit" disabled={pending}>
-              {pending ? "Adding…" : "Add member"}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setAdding(false);
-                setError(null);
-              }}
-              disabled={pending}
-            >
-              Cancel
-            </Button>
-          </div>
-        </form>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setAdding(true)}
-          className="mt-3 font-serif text-xs text-muted-foreground transition-colors hover:text-foreground"
-        >
-          + Add a family member
-        </button>
-      )}
       {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
 
       {editingMember && (
