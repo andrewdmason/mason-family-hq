@@ -11,7 +11,9 @@ import {
   getTeamsnapMe,
   getTeamsnapTeams,
   getTeamsnapEvents,
+  getTeamsnapMembers,
   getTeamsnapAvailabilities,
+  matchPlayerMember,
   statusCodeToRsvp,
   type TeamsnapEvent,
 } from "./teamsnap";
@@ -41,7 +43,7 @@ export async function syncTeamEvents(
   const { data: source, error: sourceError } = await supabase
     .from("calendar_sources")
     .select(
-      "id, member_email, teamsnap_team_id, teamsnap_team_name, nickname, teamsnap_player_member_id",
+      "id, member_email, teamsnap_team_id, teamsnap_team_name, nickname, teamsnap_player_member_id, teamsnap_connection_email",
     )
     .eq("id", calendarSourceId)
     .single();
@@ -75,6 +77,39 @@ export async function syncTeamEvents(
       .update({ sync_error: msg })
       .eq("id", calendarSourceId);
     return { synced: 0, error: msg };
+  }
+
+  // Backfill the linkage RSVP needs on sources added before it existed: the
+  // connection that just reached this team, and the kid's player row on the
+  // roster (matched by name, like the original import). This is what makes the
+  // Attendance control light up automatically for teams imported earlier.
+  let playerMemberId = source.teamsnap_player_member_id as number | null;
+  const sourceUpdates: Record<string, unknown> = {};
+  if (source.teamsnap_connection_email !== connectionEmail) {
+    sourceUpdates.teamsnap_connection_email = connectionEmail;
+  }
+  if (!playerMemberId && source.member_email) {
+    try {
+      const { data: member } = await supabase
+        .from("family_members")
+        .select("name")
+        .eq("email", source.member_email)
+        .maybeSingle();
+      const roster = await getTeamsnapMembers(accessToken, source.teamsnap_team_id);
+      const matched = matchPlayerMember(roster, member?.name ?? null);
+      if (matched) {
+        playerMemberId = matched;
+        sourceUpdates.teamsnap_player_member_id = matched;
+      }
+    } catch {
+      // Non-critical — the source still syncs events without a player link.
+    }
+  }
+  if (Object.keys(sourceUpdates).length > 0) {
+    await supabase
+      .from("calendar_sources")
+      .update(sourceUpdates)
+      .eq("id", calendarSourceId);
   }
 
   // One row per external_id (last wins) so the batched upsert never hits the
@@ -130,13 +165,14 @@ export async function syncTeamEvents(
     }
   }
 
-  // Sync the player's own RSVP (passive, read-only in our UI).
-  if (source.teamsnap_player_member_id) {
+  // Pull the player's RSVP from TeamSnap so the local copy stays in sync with
+  // any changes made in the TeamSnap app.
+  if (playerMemberId) {
     await syncRsvpStatuses(
       supabase,
       accessToken,
       source.id,
-      source.teamsnap_player_member_id,
+      playerMemberId,
       tsEvents,
     );
   }

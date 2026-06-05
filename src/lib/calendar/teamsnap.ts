@@ -343,6 +343,26 @@ export function statusCodeToRsvp(code: number | null): TeamsnapRsvpStatus {
   }
 }
 
+// Best-effort match of a family member to their player row on a team's roster,
+// by first name (the heuristic KidCalendar used when importing a team). Returns
+// the TeamSnap member id, or null if no confident match. Non-players (coaches,
+// managers, parents) are never matched.
+export function matchPlayerMember(
+  members: TeamsnapMember[],
+  fullName: string | null,
+): number | null {
+  const first = fullName?.trim().split(/\s+/)[0]?.toLowerCase();
+  if (!first) return null;
+  const players = members.filter((m) => !m.is_non_player);
+  const exact = players.find((m) => m.first_name.toLowerCase() === first);
+  if (exact) return exact.id;
+  const prefix = players.find((m) => {
+    const f = m.first_name.toLowerCase();
+    return f.startsWith(first) || first.startsWith(f);
+  });
+  return prefix?.id ?? null;
+}
+
 export function rsvpToStatusCode(rsvp: TeamsnapRsvpStatus): number | null {
   switch (rsvp) {
     case "going":

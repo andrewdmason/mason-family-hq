@@ -14,6 +14,7 @@ import {
   getTeamsnapAvailabilities,
   getTeamsnapMembers,
   setTeamsnapAvailability,
+  matchPlayerMember,
   statusCodeToRsvp,
   rsvpToStatusCode,
   type TeamsnapRsvpStatus,
@@ -23,6 +24,7 @@ type AdminClient = ReturnType<typeof createAdminClient>;
 
 interface SourceForAttendance {
   id: string;
+  member_email: string | null;
   teamsnap_team_id: number | null;
   teamsnap_player_member_id: number | null;
   teamsnap_connection_email: string | null;
@@ -46,7 +48,7 @@ async function resolveTeamsnapEvent(
   const { data: event } = await supabase
     .from("calendar_events")
     .select(
-      "external_id, source_type, source:calendar_sources(id, teamsnap_team_id, teamsnap_player_member_id, teamsnap_connection_email)",
+      "external_id, source_type, source:calendar_sources(id, member_email, teamsnap_team_id, teamsnap_player_member_id, teamsnap_connection_email)",
     )
     .eq("id", eventId)
     .single<EventForAttendance>();
@@ -106,6 +108,38 @@ async function resolveSourceToken(
     }
   }
   return null;
+}
+
+// Resolve (and persist) the player row this source represents, matching the
+// kid's name against the roster. Lets RSVP work without a prior manual link.
+async function ensurePlayerMemberId(
+  supabase: AdminClient,
+  token: string,
+  source: SourceForAttendance,
+): Promise<number | null> {
+  if (source.teamsnap_player_member_id) return source.teamsnap_player_member_id;
+  if (!source.member_email || !source.teamsnap_team_id) return null;
+
+  const { data: member } = await supabase
+    .from("family_members")
+    .select("name")
+    .eq("email", source.member_email)
+    .maybeSingle();
+
+  let roster;
+  try {
+    roster = await getTeamsnapMembers(token, source.teamsnap_team_id);
+  } catch {
+    return null;
+  }
+  const matched = matchPlayerMember(roster, member?.name ?? null);
+  if (matched) {
+    await supabase
+      .from("calendar_sources")
+      .update({ teamsnap_player_member_id: matched })
+      .eq("id", source.id);
+  }
+  return matched;
 }
 
 export interface TeamAvailability {
@@ -179,8 +213,12 @@ export async function setEventRsvp(
   if ("error" in resolved) return resolved;
   const { tsEventId, token, source } = resolved;
 
-  if (!source.teamsnap_player_member_id) {
-    return { error: "This team isn't linked to a player yet." };
+  const playerMemberId = await ensurePlayerMemberId(supabase, token, source);
+  if (!playerMemberId) {
+    return {
+      error:
+        "Couldn't tell which player to RSVP for. Link a player in Settings → Calendars.",
+    };
   }
 
   let availabilities;
@@ -190,9 +228,7 @@ export async function setEventRsvp(
     return { error: err instanceof Error ? err.message : "TeamSnap error." };
   }
 
-  const mine = availabilities.find(
-    (a) => a.member_id === source.teamsnap_player_member_id,
-  );
+  const mine = availabilities.find((a) => a.member_id === playerMemberId);
   if (!mine) {
     return { error: "No RSVP slot found for this player on the event." };
   }
