@@ -96,12 +96,25 @@ export type IcsSourceInput = {
 export async function addIcsSource(input: IcsSourceInput): Promise<string> {
   await requireParent();
   const admin = createAdminClient();
+  const icsUrl = input.icsUrl.trim();
+
+  // Subscribing the same feed twice just duplicates every event, so block it.
+  const { data: existing } = await admin
+    .from("calendar_sources")
+    .select("id")
+    .eq("source_type", "ics")
+    .eq("ics_url", icsUrl)
+    .limit(1);
+  if (existing && existing.length > 0) {
+    throw new Error("That calendar is already subscribed.");
+  }
+
   const { data, error } = await admin
     .from("calendar_sources")
     .insert({
       member_email: input.memberEmail,
       source_type: "ics",
-      ics_url: input.icsUrl.trim(),
+      ics_url: icsUrl,
       nickname: input.nickname.trim() || null,
       color: input.color,
     })
