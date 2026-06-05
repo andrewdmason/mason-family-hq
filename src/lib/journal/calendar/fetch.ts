@@ -7,7 +7,24 @@ import type { CalendarSource, FeedResult, NormalizedEvent } from "./types";
 type IcalTime = {
   toJSDate(): Date;
   isDate: boolean;
+  // Wall-clock components (month is 1-12). Present on every ical.js Time.
+  year: number;
+  month: number;
+  day: number;
 };
+
+// All-day (date-only) values are floating wall-clock dates with no timezone.
+// ical.js's toJSDate() anchors them at midnight in the *runtime's* local zone,
+// so the resulting instant — and the calendar day it lands on — depends on
+// where the server runs (UTC in prod, but Pacific locally). Pin the wall-clock
+// date to midnight UTC instead so the event's day is stable everywhere; callers
+// must then read all-day days in UTC, never the viewer's timezone.
+function toEventDate(t: IcalTime): Date {
+  if (t.isDate) {
+    return new Date(Date.UTC(t.year, t.month - 1, t.day));
+  }
+  return t.toJSDate();
+}
 
 type IcalEvent = {
   uid: string;
@@ -62,8 +79,8 @@ function normalize(
     sourceId: source.id,
     sourceName: source.displayName,
     title,
-    start: start.toJSDate(),
-    end: end ? end.toJSDate() : null,
+    start: toEventDate(start),
+    end: end ? toEventDate(end) : null,
     allDay: start.isDate,
     location: ev.location ? ev.location.trim() : null,
     tentative,
