@@ -4,35 +4,53 @@
 -- and the manual "Sync" button use — so an RSVP changed directly in TeamSnap (or
 -- an event added there) shows up here without anyone opening the page.
 --
--- pg_cron and pg_net only exist on hosted Supabase, so the whole block is
--- wrapped to no-op locally (where `supabase db reset` would otherwise fail).
+-- The app URL and shared secret are read from Supabase Vault rather than
+-- ALTER DATABASE settings: hosted Supabase denies the `postgres` role permission
+-- to set custom database parameters, but it can read/write Vault secrets. Vault
+-- also keeps the secret encrypted at rest instead of sitting in plaintext in the
+-- cron job definition.
+--
+-- pg_cron, pg_net, and Vault only exist on Supabase, so the whole block is
+-- wrapped to no-op where they're missing or the secrets aren't set (e.g. local
+-- `supabase db reset`).
 --
 -- Production setup (once):
 --   1. Dashboard > Database > Extensions: enable `pg_cron` and `pg_net`.
---   2. Point the job at the app and give it the shared secret:
---        ALTER DATABASE postgres SET app.settings.app_url = 'https://family.mason.io';
---        ALTER DATABASE postgres SET app.settings.cron_secret = '<same value as CRON_SECRET env>';
---   3. Apply this migration (re-running it just replaces the schedule).
+--   2. Store the URL and the shared secret in Vault (the secret must match the
+--      app's CRON_SECRET env var):
+--        SELECT vault.create_secret('https://family.mason.io', 'calendar_sync_app_url');
+--        SELECT vault.create_secret('<CRON_SECRET>',           'calendar_sync_cron_secret');
+--   3. Apply this migration (or just re-run the DO block) — it schedules the job
+--      once both secrets exist. Re-running replaces the schedule safely.
 
-DO $outer$ BEGIN
+DO $outer$
+DECLARE
+  app_url     text;
+  cron_secret text;
+BEGIN
   CREATE EXTENSION IF NOT EXISTS pg_cron;
   CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
 
-  -- Only schedule once the app URL is configured (production). Without it the
-  -- job would fire every 15 minutes and fail on a missing setting, so locally
-  -- (where the setting is absent) we skip scheduling entirely.
-  IF current_setting('app.settings.app_url', true) IS NULL THEN
-    RAISE NOTICE 'app.settings.app_url not set; skipping calendar sync schedule';
+  SELECT decrypted_secret INTO app_url
+    FROM vault.decrypted_secrets WHERE name = 'calendar_sync_app_url';
+  SELECT decrypted_secret INTO cron_secret
+    FROM vault.decrypted_secrets WHERE name = 'calendar_sync_cron_secret';
+
+  IF app_url IS NULL OR cron_secret IS NULL THEN
+    RAISE NOTICE 'calendar_sync Vault secrets not set; skipping cron schedule';
   ELSE
-    -- cron.schedule upserts by job name, so re-applying this migration is safe.
+    -- Read the secrets from Vault at run time too, so rotating a secret doesn't
+    -- require rescheduling. cron.schedule upserts by name, so re-applying is safe.
     PERFORM cron.schedule(
       'calendar-teamsnap-sync',
       '*/15 * * * *',
       $cron$
       SELECT net.http_post(
-        url := current_setting('app.settings.app_url') || '/api/cron/calendar-sync',
+        url := (SELECT decrypted_secret FROM vault.decrypted_secrets
+                WHERE name = 'calendar_sync_app_url') || '/api/cron/calendar-sync',
         headers := jsonb_build_object(
-          'Authorization', 'Bearer ' || current_setting('app.settings.cron_secret'),
+          'Authorization', 'Bearer ' || (SELECT decrypted_secret FROM vault.decrypted_secrets
+                                         WHERE name = 'calendar_sync_cron_secret'),
           'Content-Type', 'application/json'
         ),
         body := '{}'::jsonb
@@ -42,5 +60,5 @@ DO $outer$ BEGIN
     RAISE NOTICE 'calendar background sync job scheduled';
   END IF;
 EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE 'pg_cron/pg_net not available (expected in local dev): %', SQLERRM;
+  RAISE NOTICE 'pg_cron/pg_net/Vault not available (expected in local dev): %', SQLERRM;
 END $outer$;
