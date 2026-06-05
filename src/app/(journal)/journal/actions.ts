@@ -304,7 +304,10 @@ export async function setEntryDate(entryId: string, date: string) {
  * moment "write freely" was clicked: this both flags the entry as freeform
  * (bypassing the picker) and anchors the five-minute timer.
  */
-export async function startFreeformEntry(entryId: string) {
+export async function startFreeformEntry(
+  entryId: string,
+  visibility?: JournalVisibility
+) {
   const supabase = await createClient();
 
   const { data: entry, error: entryErr } = await supabase
@@ -327,6 +330,9 @@ export async function startFreeformEntry(entryId: string) {
     .update({
       freeform_started_at: new Date().toISOString(),
       opening_candidates: null,
+      // Compose from the Family app pre-sets the audience to "family"; from the
+      // Journal app, "private". Omitted (undefined) leaves the DB default.
+      ...(visibility ? { visibility } : {}),
     })
     .eq("id", entryId);
   if (updateErr) throw new Error(updateErr.message);
@@ -434,7 +440,8 @@ export async function pickOpeningQuestion(entryId: string, question: string) {
 export async function saveQuoteEntry(
   entryId: string,
   quote: string,
-  attribution: string
+  attribution: string,
+  visibility?: JournalVisibility
 ) {
   const trimmedQuote = quote.trim();
   if (!trimmedQuote) throw new Error("quote is empty");
@@ -466,6 +473,9 @@ export async function saveQuoteEntry(
       opening_candidates: null,
       status: "closed",
       closed_at: new Date().toISOString(),
+      // A quote saved from the Family app shares with the family; from the
+      // Journal app it stays private (the DB default when omitted).
+      ...(visibility ? { visibility } : {}),
     })
     .eq("id", entryId);
   if (updateErr) throw new Error(updateErr.message);
@@ -560,7 +570,8 @@ function recapEntryDate(title: string): string {
 export async function saveRecapEntry(
   entryId: string,
   title: string,
-  body: string
+  body: string,
+  visibility?: JournalVisibility
 ) {
   const trimmedBody = body.trim();
   if (!trimmedBody) throw new Error("recap is empty");
@@ -598,6 +609,9 @@ export async function saveRecapEntry(
       opening_candidates: null,
       status: "closed",
       closed_at: new Date().toISOString(),
+      // A recap saved from the Family app shares with the family; from the
+      // Journal app it stays private (the DB default when omitted).
+      ...(visibility ? { visibility } : {}),
     })
     .eq("id", entryId);
   if (updateErr) throw new Error(updateErr.message);

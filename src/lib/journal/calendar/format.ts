@@ -100,9 +100,12 @@ export function formatCalendarBlock(
     if (!r.ok) continue;
     for (const ev of r.events) {
       if (ev.allDay && ev.end) {
+        // All-day events are anchored at midnight UTC (see fetch's toEventDate),
+        // so read their day in UTC — the viewer's tz would shift the boundary
+        // and land a wall-clock date on the wrong calendar day.
         // iCal all-day DTEND is exclusive — list on every covered day in window.
-        const startKey = localDateKey(ev.start, tz);
-        const endKey = localDateKey(ev.end, tz);
+        const startKey = localDateKey(ev.start, "UTC");
+        const endKey = localDateKey(ev.end, "UTC");
         let cursor = startKey;
         let safety = 0;
         while (cursor < endKey && safety < 366) {
@@ -117,7 +120,9 @@ export function formatCalendarBlock(
           if (bucket) bucket.push(ev);
         }
       } else {
-        const key = localDateKey(ev.start, tz);
+        // Timed events bucket by the viewer's tz; an all-day event with no end
+        // is anchored at midnight UTC, so read it in UTC too.
+        const key = localDateKey(ev.start, ev.allDay ? "UTC" : tz);
         const bucket = buckets.get(key);
         if (bucket) bucket.push(ev);
       }

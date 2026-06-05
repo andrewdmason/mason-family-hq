@@ -5,9 +5,10 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const APPS = [
+  { href: "/family", label: "Family", match: "/family" },
+  { href: "/reader", label: "Reader", match: "/reader" },
   { href: "/journal", label: "Journal", match: "/journal" },
   { href: "/timeline", label: "Timeline", match: "/timeline" },
-  { href: "/reader", label: "Reader", match: "/reader" },
   { href: "/calendar", label: "Calendar", match: "/calendar" },
 ] as const;
 

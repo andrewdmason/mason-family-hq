@@ -196,6 +196,44 @@ const VOICE_NOTE =
   "Each question should still sound like you (see the Interviewer file): one or two sentences, warm, like a friend texting in the morning. Each question's text is exactly what the user reads — never narrate your reasoning, name the category, or explain your choice inside it. A category's extra instructions are soft preferences: if one can't be satisfied from the available context, quietly ask a natural question of that category instead — never write about the conflict or that you're skipping or substituting anything. For each question, also set its `visibility` (see the tool): \"family\" for shared/social/event questions or anything drawn from another member's shared entry, \"private\" otherwise.";
 
 /**
+ * Who the user wants today's questions aimed at. "any" (the default) leaves the
+ * model's per-question visibility guess untouched — the original behavior. The
+ * picker lets the user opt into "family" (questions worth sharing) or "private"
+ * (introspective, kept-to-themselves) instead.
+ */
+export type QuestionAudience = "any" | "family" | "private";
+
+/**
+ * The framing directive folded into a slot's prompt when the user has chosen an
+ * audience. Empty for "any" so the default flow is byte-for-byte unchanged. The
+ * visibility these ask for is also force-set on the candidate after generation
+ * (see generateSlot) so the picked entry's share toggle matches — the prompt
+ * note just keeps the *question itself* in the right register. It leans on
+ * VOICE_NOTE's "quietly substitute" convention so an awkward type↔audience pair
+ * (e.g. a deeply introspective category asked to suit the family) degrades into
+ * a natural question rather than a forced one.
+ */
+export function audienceNote(audience: QuestionAudience): string {
+  if (audience === "family") {
+    return (
+      "\n\nThe user wants today's questions aimed at their family journal — entries " +
+      "they'd happily share. Frame the question around a shared moment, a person, an " +
+      "event, or something the family would enjoy reading, and set its `visibility` to " +
+      "\"family\". If this category is inherently private and can't be framed for " +
+      "sharing, quietly ask a natural, share-friendly question instead."
+    );
+  }
+  if (audience === "private") {
+    return (
+      "\n\nThe user wants today's questions aimed at their private journal — personal, " +
+      "introspective, reflective, the kind of thing they'd keep to themselves. Set each " +
+      "question's `visibility` to \"private\"."
+    );
+  }
+  return "";
+}
+
+/**
  * Build the picker instruction for a single slot. Each slot is generated in its
  * own model call against a prompt scoped to just that category's sources, so the
  * instruction only ever describes one category (or an untyped fallback). `count`
@@ -647,7 +685,8 @@ export async function generateCandidates(
   forcedCategoryName?: string,
   clientTz?: string,
   forcedBookId?: string | null,
-  forcedTimelineEntryId?: string | null
+  forcedTimelineEntryId?: string | null,
+  audience: QuestionAudience = "any"
 ): Promise<JournalOpeningCandidate[]> {
   const tz = await resolveTimezone(clientTz);
   const today = localDate(new Date(), tz);
@@ -730,7 +769,8 @@ export async function generateCandidates(
         includeHistory: wantHistory,
       }) +
       "\n" +
-      buildCategoryInstruction(count, category, siblingNames, rejected, recentlyShown);
+      buildCategoryInstruction(count, category, siblingNames, rejected, recentlyShown) +
+      audienceNote(audience);
 
     const message = await client.messages.create({
       model: JOURNAL_MODEL,
@@ -761,11 +801,20 @@ export async function generateCandidates(
       throw new Error(`expected ${count} question candidate(s), got ${parsed.length}`);
     }
     // A family-followup question is always shared — it's about another member's
-    // family post — regardless of what the model suggested.
+    // family post — regardless of what the model suggested. Otherwise, when the
+    // user has chosen an audience, force the visibility to match so the picked
+    // entry's share toggle lines up; "any" keeps the model's per-question guess.
     return parsed.map((q) => ({
       text: q.text,
       type: category?.name ?? null,
-      visibility: category?.name === FAMILY_FOLLOWUP ? "family" : q.visibility,
+      visibility:
+        category?.name === FAMILY_FOLLOWUP
+          ? "family"
+          : audience === "family"
+            ? "family"
+            : audience === "private"
+              ? "private"
+              : q.visibility,
       // currently-reading carries the book it's grounded in, so picking it links
       // the entry to that book (withReadingSource set readingBookId).
       reading_book_id: category?.readingBookId ?? null,
