@@ -15,14 +15,24 @@ export const dynamic = "force-dynamic";
 export default async function NewEntryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ entry?: string; start?: string; type?: string }>;
+  searchParams: Promise<{
+    entry?: string;
+    start?: string;
+    type?: string;
+    audience?: string;
+  }>;
 }) {
-  const { entry: entryParam, start, type } = await searchParams;
+  const { entry: entryParam, start, type, audience } = await searchParams;
   // Deep-link from the header's "New ▾" menu into a specific way to start.
   const initialMode =
     start === "freeform" || start === "quote" || start === "recap"
       ? start
       : undefined;
+  // Which app launched this compose: the Family app's "New" sets the picker to
+  // the family audience (share-friendly questions, visibility pre-set to
+  // family); the Journal app's sets it to private. The user can still change it.
+  const initialAudience =
+    audience === "family" ? "family" : audience === "private" ? "private" : "any";
   const entry = entryParam
     ? await getEntryById(entryParam)
     : await getOrCreateTodayEntry();
@@ -106,6 +116,7 @@ export default async function NewEntryPage({
           questionTypeNames={questionTypeNames}
           recurringTypeNames={recurringTypeNames}
           initialMode={initialMode}
+          initialAudience={initialAudience}
           forcedType={forcedType}
         />
       ) : (
