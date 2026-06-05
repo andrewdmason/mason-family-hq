@@ -1,6 +1,6 @@
 import { JournalHeaderClient } from "@/components/journal/header-client";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
-import { requireUserId } from "@/lib/members/auth";
+import { getIsOwner, requireUserId } from "@/lib/members/auth";
 import { getJournalNotifications } from "@/lib/journal/notifications";
 import { createClient } from "@/lib/supabase/server";
 
@@ -24,12 +24,19 @@ export async function JournalHeader() {
   const supabase = await createClient();
   const userId = await requireUserId(supabase);
 
-  const [streak, notifications] = await Promise.all([
+  const [streak, notifications, isOwner] = await Promise.all([
     getJournalStreakStats(supabase, userId),
     getJournalNotifications(supabase, userId),
+    getIsOwner(supabase),
   ]);
 
-  return <JournalHeaderClient streak={streak} notifications={notifications} />;
+  return (
+    <JournalHeaderClient
+      streak={streak}
+      notifications={notifications}
+      isOwner={isOwner}
+    />
+  );
 }
 
 async function getJournalStreakStats(
