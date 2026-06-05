@@ -329,6 +329,7 @@ function TeamsnapForm({
         </p>
         <Button
           render={<a href="/api/teamsnap/authorize" />}
+          nativeButton={false}
           size="sm"
           variant="outline"
         >

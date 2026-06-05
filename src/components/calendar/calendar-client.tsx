@@ -152,6 +152,7 @@ export function CalendarClient({
             <Button
               size="sm"
               variant="outline"
+              nativeButton={false}
               render={<Link href="/settings/calendars" />}
             >
               <SlidersHorizontal />
