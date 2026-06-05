@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { requireUserId } from "@/lib/members/auth";
 import { generateCandidates } from "@/lib/journal/opening-candidates";
+import type { QuestionAudience } from "@/lib/journal/opening-candidates";
 import { candidateTexts } from "@/lib/journal/candidates";
 import { toErrorMessage } from "@/lib/journal/errors";
 import { localDate, resolveTimezone } from "@/lib/date-utils";
@@ -18,9 +19,16 @@ export async function POST(req: NextRequest) {
     entryId?: string;
     categoryName?: string;
     tz?: string;
+    audience?: string;
   };
   const entryId = body.entryId;
   const categoryName = body.categoryName?.trim() || undefined;
+  // The user's chosen audience for today's questions; anything unexpected falls
+  // back to the default mixed behavior.
+  const audience: QuestionAudience =
+    body.audience === "family" || body.audience === "private"
+      ? body.audience
+      : "any";
   if (!entryId) {
     return new Response("entryId required", { status: 400 });
   }
@@ -73,7 +81,8 @@ export async function POST(req: NextRequest) {
       categoryName,
       body.tz,
       entry.reading_book_id as string | null,
-      entry.timeline_entry_id as string | null
+      entry.timeline_entry_id as string | null,
+      audience
     );
   } catch (err) {
     console.error("[regenerate-opening] generation failed:", err);

@@ -6,9 +6,12 @@ import {
   Camera,
   FileText,
   Loader2,
+  Lock,
   MessageSquareQuote,
   PencilLine,
   Repeat,
+  Sparkles,
+  Users,
 } from "lucide-react";
 import { TypingIndicator } from "@/components/journal/typing-indicator";
 import {
@@ -31,6 +34,21 @@ import {
   uploadJournalMedia,
 } from "@/lib/journal/photo-upload";
 import type { JournalOpeningCandidate } from "@/lib/types";
+
+// Who the user wants today's questions aimed at. Mirrors QuestionAudience in
+// opening-candidates.ts (declared locally to keep this client module off the
+// server-only generation file). "any" is the default mixed behavior.
+type QuestionAudience = "any" | "family" | "private";
+
+const AUDIENCE_OPTIONS: {
+  value: QuestionAudience;
+  label: string;
+  icon: React.ReactNode;
+}[] = [
+  { value: "any", label: "Surprise me", icon: <Sparkles className="size-3.5" /> },
+  { value: "private", label: "Personal", icon: <Lock className="size-3.5" /> },
+  { value: "family", label: "Family", icon: <Users className="size-3.5" /> },
+];
 
 // Default recap title seeds the current month, e.g. "May Chatbot Recap". The
 // user edits it if they're pasting a recap for a different month.
@@ -67,6 +85,7 @@ export function OpeningPicker({
     normalizeCandidates(initialCandidates)
   );
   const [rerollCount, setRerollCount] = useState(initialRerollCount);
+  const [audience, setAudience] = useState<QuestionAudience>("any");
   const [loading, setLoading] = useState(candidates.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
@@ -120,7 +139,10 @@ export function OpeningPicker({
     return () => cancelAnimationFrame(id);
   }, [candidates]);
 
-  async function fetchCandidates(url: string, extra?: { categoryName?: string }) {
+  async function fetchCandidates(
+    url: string,
+    extra?: { categoryName?: string; audience?: QuestionAudience }
+  ) {
     setLoading(true);
     setError(null);
     try {
@@ -155,12 +177,21 @@ export function OpeningPicker({
 
   function handleReroll() {
     if (loading || picked) return;
-    void fetchCandidates("/journal/api/regenerate-opening");
+    void fetchCandidates("/journal/api/regenerate-opening", { audience });
   }
 
   function handleAskSpecific(categoryName: string) {
     if (loading || picked) return;
-    void fetchCandidates("/journal/api/regenerate-opening", { categoryName });
+    void fetchCandidates("/journal/api/regenerate-opening", { categoryName, audience });
+  }
+
+  function handleAudience(next: QuestionAudience) {
+    if (loading || picked || next === audience) return;
+    setAudience(next);
+    // Switching audience regenerates the set framed for it. Routing through the
+    // reroll endpoint records the just-shown questions as skipped (so they don't
+    // resurface) and avoids repeats, reusing the existing plumbing.
+    void fetchCandidates("/journal/api/regenerate-opening", { audience: next });
   }
 
   function handlePick(question: string) {
@@ -401,6 +432,19 @@ export function OpeningPicker({
         pick a question
       </p>
 
+      <div className="mt-4 inline-flex items-center gap-1 self-start rounded-full border border-muted p-0.5">
+        {AUDIENCE_OPTIONS.map((option) => (
+          <AudienceSegment
+            key={option.value}
+            active={audience === option.value}
+            disabled={loading || !!picked}
+            onClick={() => handleAudience(option.value)}
+            icon={option.icon}
+            label={option.label}
+          />
+        ))}
+      </div>
+
       <div className="mt-8 flex-1">
         {loading && candidates.length === 0 ? (
           <TypingIndicator />
@@ -585,5 +629,39 @@ export function OpeningPicker({
         </div>
       )}
     </div>
+  );
+}
+
+// One segment of the audience control. Mirrors the Segment in visibility-toggle.tsx
+// so the "Personal / Family" registers read consistently across the journal.
+function AudienceSegment({
+  active,
+  disabled,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+      className={
+        "inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-serif text-xs transition-colors disabled:opacity-50 " +
+        (active
+          ? "bg-foreground text-background"
+          : "text-muted-foreground hover:text-foreground")
+      }
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
