@@ -6,6 +6,7 @@ import type {
   WeeklyPracticeData,
   PieceBreakdownData,
   StreakData,
+  TrailingPracticeData,
   PieceKind,
   PieceWeeklyCumulativeData,
   PieceOption,
@@ -80,6 +81,48 @@ export async function getWeeklyPracticeData(
   }
 
   return result;
+}
+
+/**
+ * Practice volume as a trailing comparison: the last 7 days (today inclusive)
+ * against the 7 days before that, plus per-day totals for the last 14 days. Used
+ * by the Home practice widget so the headline and delta don't reset every Monday
+ * the way a calendar-week view does.
+ */
+export async function getTrailingPracticeData(): Promise<TrailingPracticeData> {
+  const supabase = await createClient();
+
+  const now = new Date();
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - 13); // 14-day window, today inclusive
+  const cutoffStr = localDate(cutoff);
+
+  const { data: tasks } = await supabase
+    .from("practice_tasks")
+    .select("date, timer_seconds, timer_remaining_seconds")
+    .gte("date", cutoffStr);
+
+  const byDate = new Map<string, number>();
+  for (const task of tasks ?? []) {
+    const elapsed = taskElapsed(task);
+    if (elapsed <= 0) continue;
+    byDate.set(task.date, (byDate.get(task.date) ?? 0) + elapsed);
+  }
+
+  const today = localDate(now);
+  const dailySeconds: number[] = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(today + "T00:00:00");
+    d.setDate(d.getDate() - i);
+    dailySeconds.push(byDate.get(localDate(d)) ?? 0);
+  }
+
+  const sum = (xs: number[]) => xs.reduce((s, v) => s + v, 0);
+  return {
+    currentSeconds: sum(dailySeconds.slice(7)),
+    previousSeconds: sum(dailySeconds.slice(0, 7)),
+    dailySeconds,
+  };
 }
 
 /**

@@ -170,6 +170,20 @@ export type StreakData = {
   thisWeekDays: boolean[]; // Mon-Sun
 };
 
+/**
+ * A trailing-window view of practice volume: the last 7 days versus the 7 days
+ * before that. Trailing (rather than calendar-week) so the comparison stays
+ * stable through the week instead of collapsing every Monday.
+ */
+export type TrailingPracticeData = {
+  /** Total practice seconds over the trailing 7 days, today inclusive. */
+  currentSeconds: number;
+  /** Total over the 7 days immediately before that window. */
+  previousSeconds: number;
+  /** Daily practice seconds for the last 14 days, oldest first (length 14). */
+  dailySeconds: number[];
+};
+
 export type PieceWeeklyCumulativeData = {
   weekStart: string; // YYYY-MM-DD (Monday)
   weekLabel: string; // "Mar 10"

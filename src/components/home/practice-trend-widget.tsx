@@ -2,33 +2,34 @@ import { Music, TrendingDown, TrendingUp } from "lucide-react";
 import { WidgetCard } from "./widget-card";
 import { formatMinutes } from "@/lib/timer-utils";
 import { cn } from "@/lib/utils";
-import type { StreakData, WeeklyPracticeData } from "@/lib/types";
+import type { TrailingPracticeData } from "@/lib/types";
 
 /**
- * Owner-only window into the practice log: this week's total volume versus
- * recent weeks, with a small bar trend and the current streak. The title opens
- * the full reports.
+ * Owner-only window into the practice log: practice volume over the last 7 days
+ * versus the 7 days before that (a trailing comparison, so it doesn't reset
+ * every Monday), a 14-day daily sparkline with the recent week highlighted, and
+ * the current streak. The title opens the full reports.
  */
 export function PracticeTrendWidget({
-  weekly,
-  streak,
+  trailing,
+  currentStreak,
 }: {
-  weekly: WeeklyPracticeData[];
-  streak: StreakData;
+  trailing: TrailingPracticeData;
+  currentStreak: number;
 }) {
-  const thisWeek = weekly[weekly.length - 1]?.totalSeconds ?? 0;
-  const lastWeek = weekly[weekly.length - 2]?.totalSeconds ?? 0;
+  const { currentSeconds, previousSeconds, dailySeconds } = trailing;
   const delta =
-    lastWeek > 0
-      ? Math.round(((thisWeek - lastWeek) / lastWeek) * 100)
-      : thisWeek > 0
+    previousSeconds > 0
+      ? Math.round(((currentSeconds - previousSeconds) / previousSeconds) * 100)
+      : currentSeconds > 0
         ? 100
         : 0;
-  const up = thisWeek >= lastWeek;
+  const up = currentSeconds >= previousSeconds;
 
-  // Last 8 weeks as a tiny bar sparkline, scaled to the tallest bar.
-  const recent = weekly.slice(-8);
-  const max = Math.max(1, ...recent.map((w) => w.totalSeconds));
+  // Days actually practiced in the trailing 7 (the recent half of dailySeconds).
+  const daysPracticed = dailySeconds.slice(7).filter((s) => s > 0).length;
+
+  const max = Math.max(1, ...dailySeconds);
 
   return (
     <WidgetCard
@@ -40,11 +41,11 @@ export function PracticeTrendWidget({
       <div className="flex items-end justify-between">
         <div>
           <p className="font-serif text-2xl leading-none text-foreground">
-            {formatMinutes(thisWeek)}
+            {formatMinutes(currentSeconds)}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">this week</p>
+          <p className="mt-1 text-xs text-muted-foreground">last 7 days</p>
         </div>
-        {lastWeek > 0 && (
+        {previousSeconds > 0 && (
           <span
             className={cn(
               "inline-flex items-center gap-1 text-xs font-medium",
@@ -57,31 +58,31 @@ export function PracticeTrendWidget({
               <TrendingDown className="size-3.5" />
             )}
             {delta > 0 ? "+" : ""}
-            {delta}% vs last week
+            {delta}% vs prior 7 days
           </span>
         )}
       </div>
 
       <div className="mt-4 flex h-12 items-end gap-1">
-        {recent.map((w, i) => (
+        {dailySeconds.map((seconds, i) => (
           <div
-            key={w.weekStart}
-            title={`${w.weekLabel}: ${formatMinutes(w.totalSeconds)}`}
+            key={i}
             className={cn(
               "flex-1 rounded-sm",
-              i === recent.length - 1 ? "bg-primary" : "bg-primary/30"
+              // The trailing 7 days (recent half) are emphasized; the prior week
+              // is dimmed so the comparison window reads at a glance.
+              i >= 7 ? "bg-primary" : "bg-primary/30"
             )}
             style={{
-              height: `${Math.max(4, Math.round((w.totalSeconds / max) * 100))}%`,
+              height: `${Math.max(4, Math.round((seconds / max) * 100))}%`,
             }}
           />
         ))}
       </div>
 
-      {streak.currentStreak > 0 && (
+      {currentStreak > 0 && (
         <p className="mt-3 text-xs text-muted-foreground">
-          {streak.currentStreak}-day streak · {streak.daysPracticedThisWeek}/7 days
-          this week
+          {currentStreak}-day streak · {daysPracticed}/7 days practiced
         </p>
       )}
     </WidgetCard>
