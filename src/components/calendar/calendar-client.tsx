@@ -75,6 +75,18 @@ export function CalendarClient({
     [members],
   );
 
+  // How many active calendars each owner (member, or null for family) has. When
+  // it's more than one, an event card shows its calendar name to disambiguate —
+  // a single-calendar owner doesn't need it.
+  const sourceCountByOwner = useMemo(() => {
+    const counts = new Map<string | null, number>();
+    for (const s of sources) {
+      if (!s.is_active) continue;
+      counts.set(s.member_email, (counts.get(s.member_email) ?? 0) + 1);
+    }
+    return counts;
+  }, [sources]);
+
   // A TeamSnap event the linked player has RSVP'd "Not going" to. These are the
   // events we hide by default — same logic the row's RSVP badge uses.
   const isDeclined = useMemo(() => {
@@ -141,6 +153,12 @@ export function CalendarClient({
         source?.nickname ??
         source?.teamsnap_team_name ??
         (event.member_email ? memberNames.get(event.member_email) ?? null : null);
+      // The calendar's own name (not the owner's name), shown only when this
+      // owner has more than one calendar so cards can tell them apart.
+      const calendarLabel =
+        (sourceCountByOwner.get(event.member_email) ?? 0) > 1
+          ? source?.nickname ?? source?.teamsnap_team_name ?? null
+          : null;
       // RSVP only applies to TeamSnap events whose source is linked to a player.
       const rsvp =
         source?.source_type === "teamsnap" && source.teamsnap_player_member_id
@@ -150,11 +168,12 @@ export function CalendarClient({
         event,
         color,
         sourceLabel,
+        calendarLabel,
         conflict: conflictIds.has(event.id),
         rsvp,
       };
     };
-  }, [sourcesById, memberNames, memberColors, conflictIds]);
+  }, [sourcesById, memberNames, memberColors, sourceCountByOwner, conflictIds]);
 
   function openDetail(event: CalendarEvent) {
     setActiveEvent(event);
