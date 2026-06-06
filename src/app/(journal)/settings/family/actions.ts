@@ -12,6 +12,7 @@ import type {
 } from "@/lib/types";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const HEX_COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const MEMBER_PHOTOS_BUCKET = "member-photos";
 const ROLES: readonly MemberRole[] = ["owner", "parent", "kid"];
 
@@ -302,6 +303,42 @@ export async function updateMemberRole(
     .eq("email", email);
   if (error) throw new Error(error.message);
   revalidatePath("/settings/family");
+}
+
+/** Set (or clear) a member's official display color. Owner-only.
+ *
+ * The Calendar's per-member columns, event accents, and filter chips read
+ * family_members.color (see src/lib/calendar/queries.ts); a null color falls
+ * back to the deterministic per-email hash color. Pass null to clear. */
+export async function updateMemberColor(
+  emailRaw: string,
+  colorRaw: string | null
+): Promise<void> {
+  await requireOwner();
+  const email = emailRaw.trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) throw new Error("Unknown member.");
+  const color = colorRaw?.trim().toLowerCase() || null;
+  if (color && !HEX_COLOR_RE.test(color)) {
+    throw new Error("Enter a color as a hex value like #2563eb.");
+  }
+
+  const admin = createAdminClient();
+  const { data: member } = await admin
+    .from("family_members")
+    .select("email")
+    .eq("email", email)
+    .maybeSingle();
+  if (!member) throw new Error("Member not found.");
+
+  const { error } = await admin
+    .from("family_members")
+    .update({ color })
+    .eq("email", email);
+  if (error) throw new Error(error.message);
+  // Refresh both the roster and the surfaces that render the color.
+  revalidatePath("/settings/family");
+  revalidatePath("/calendar");
+  revalidatePath("/home");
 }
 
 // ============================================================
