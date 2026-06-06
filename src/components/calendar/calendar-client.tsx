@@ -21,6 +21,7 @@ import {
   addDays,
   addMonths,
   addWeeks,
+  formatDayLabel,
   formatMonthLabel,
   formatWeekLabel,
   memberColor,
@@ -31,6 +32,7 @@ import type {
   CalendarMember,
   CalendarSource,
 } from "@/lib/calendar/types";
+import { DayView } from "./day-view";
 import { AgendaView } from "./agenda-view";
 import { WeekView } from "./week-view";
 import { MonthView } from "./month-view";
@@ -38,7 +40,7 @@ import { EventSheet, type SheetMode } from "./event-sheet";
 import { SyncButton } from "./sync-button";
 import type { EventDisplay } from "./event-card";
 
-type View = "agenda" | "week" | "month";
+type View = "day" | "feed" | "week" | "month";
 const FAMILY = "__family__";
 
 export function CalendarClient({
@@ -52,7 +54,7 @@ export function CalendarClient({
   events: CalendarEvent[];
   canManage: boolean;
 }) {
-  const [view, setView] = useState<View>("agenda");
+  const [view, setView] = useState<View>("day");
   const [anchor, setAnchor] = useState(() => new Date());
   const [filter, setFilter] = useState<string>("all");
   // TeamSnap events you've RSVP'd "Not going" to are hidden unless this is on.
@@ -193,12 +195,18 @@ export function CalendarClient({
         ? addMonths(d, dir)
         : view === "week"
           ? addWeeks(d, dir)
-          : addDays(d, dir * 7),
+          : view === "day"
+            ? addDays(d, dir)
+            : addDays(d, dir * 7),
     );
   }
 
   const periodLabel =
-    view === "month" ? formatMonthLabel(anchor) : formatWeekLabel(anchor);
+    view === "month"
+      ? formatMonthLabel(anchor)
+      : view === "day"
+        ? formatDayLabel(anchor)
+        : formatWeekLabel(anchor);
 
   const filterOptions: { key: string; label: string; color?: string }[] = [
     { key: "all", label: "All" },
@@ -260,25 +268,8 @@ export function CalendarClient({
         </div>
       </div>
 
-      {/* View switch + date nav */}
+      {/* Date nav (left) + view switch (right) */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
-        <div className="inline-flex rounded-lg border p-0.5">
-          {(["agenda", "week", "month"] as View[]).map((v) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setView(v)}
-              className={cn(
-                "rounded-md px-2.5 py-1 text-xs font-medium capitalize transition-colors",
-                view === v
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {v}
-            </button>
-          ))}
-        </div>
         <div className="flex items-center gap-1">
           <Popover>
             <PopoverTrigger
@@ -287,7 +278,7 @@ export function CalendarClient({
             >
               <Filter className="size-4" />
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-72">
+            <PopoverContent align="start" className="w-72">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex flex-col gap-0.5">
                   <label
@@ -334,15 +325,42 @@ export function CalendarClient({
           >
             <ChevronRight />
           </Button>
-          {view !== "agenda" && (
+          {view !== "feed" && (
             <span className="ml-1 text-sm font-medium">{periodLabel}</span>
           )}
+        </div>
+        <div className="inline-flex rounded-lg border p-0.5">
+          {(["day", "feed", "week", "month"] as View[]).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs font-medium capitalize transition-colors",
+                view === v
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {v}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* The view */}
       <div className="py-4">
-        {view === "agenda" && (
+        {view === "day" && (
+          <DayView
+            events={visibleEvents}
+            anchorDate={anchor}
+            members={agendaMembers}
+            display={display}
+            onEventClick={openDetail}
+            selectedEventId={sheetOpen ? activeEvent?.id ?? null : null}
+          />
+        )}
+        {view === "feed" && (
           <AgendaView
             events={visibleEvents}
             anchorDate={anchor}
