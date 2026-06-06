@@ -1,8 +1,11 @@
 "use client";
 
+import { Fragment } from "react";
 import {
   eventDayKey,
   formatDayLabel,
+  formatWeekLabel,
+  getWeekBounds,
   groupEventsByDay,
   isToday,
   toDateKey,
@@ -70,8 +73,12 @@ export function AgendaView({
   const memberEmails = new Set(members.map((m) => m.email));
   const memberByEmail = new Map(members.map((m) => [m.email, m]));
   const gridTemplateColumns = `repeat(${members.length}, minmax(0, 1fr))`;
+  // Desktop reserves a fixed left gutter so the time-of-day labels (Morning,
+  // Afternoon…) sit in their own column instead of crowding the first member.
+  const LABEL_COL_PX = 96;
+  const outerGrid = `${LABEL_COL_PX}px minmax(0, 1fr)`;
   const minWidthStyle = members.length
-    ? { minWidth: `${members.length * 160}px` }
+    ? { minWidth: `${members.length * 160 + LABEL_COL_PX}px` }
     : undefined;
 
   // An event is "family" — and renders in the shared full-width banner rather
@@ -190,12 +197,14 @@ export function AgendaView({
           const familyEvents = inBand.filter(isFamily).sort(byStart);
           const memberEvents = inBand.filter((e) => !isFamily(e));
 
-          return (
-            <div key={band.key}>
-              <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                {band.label}
-              </p>
+          const label = (
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {band.label}
+            </p>
+          );
 
+          const content = (
+            <>
               {/* Shared family events span the full width of the day. */}
               {familyEvents.length > 0 && (
                 <div className="mb-1.5 space-y-0.5 rounded-lg bg-muted/40 p-1">
@@ -214,6 +223,29 @@ export function AgendaView({
               {layout === "columns"
                 ? renderColumns(memberEvents)
                 : renderMemberList(memberEvents)}
+            </>
+          );
+
+          // Mobile: the label stacks on top of a single merged column.
+          if (layout === "list") {
+            return (
+              <div key={band.key}>
+                <div className="mb-1.5">{label}</div>
+                {content}
+              </div>
+            );
+          }
+
+          // Desktop: the label lives in the reserved left gutter, aligned to the
+          // top of its band's content so it reads as a row header.
+          return (
+            <div
+              key={band.key}
+              className="grid gap-3"
+              style={{ gridTemplateColumns: outerGrid }}
+            >
+              <div className="pt-0.5">{label}</div>
+              <div>{content}</div>
             </div>
           );
         })}
@@ -222,20 +254,37 @@ export function AgendaView({
   }
 
   function renderDays(layout: "columns" | "list") {
+    let prevWeekKey: string | null = null;
     return dayKeys.map((key) => {
       const date = new Date(key + "T12:00:00");
+      // Drop a labeled divider whenever the calendar week (Mon–Sun) rolls over,
+      // so long scrolls break into scannable weeks. Never before the first day.
+      const weekKey = toDateKey(getWeekBounds(date).start);
+      const showWeekBreak = prevWeekKey !== null && weekKey !== prevWeekKey;
+      prevWeekKey = weekKey;
       return (
-        <section key={key} className="mt-6 first:mt-3">
-          <h3
-            className={cn(
-              "mb-2 text-sm font-semibold",
-              isToday(date) ? "text-primary" : "text-foreground",
-            )}
-          >
-            {formatDayLabel(date)}
-          </h3>
-          {renderBands(byDay.get(key)!, layout)}
-        </section>
+        <Fragment key={key}>
+          {showWeekBreak && (
+            <div className="mt-8 mb-3 flex items-center gap-3">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {formatWeekLabel(date)}
+              </span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+          )}
+          <section className={showWeekBreak ? "mt-2" : "mt-6 first:mt-3"}>
+            <h3
+              className={cn(
+                "mb-3 text-lg font-semibold tracking-tight",
+                isToday(date) ? "text-primary" : "text-foreground",
+              )}
+            >
+              {formatDayLabel(date)}
+            </h3>
+            {renderBands(byDay.get(key)!, layout)}
+          </section>
+        </Fragment>
       );
     });
   }
@@ -245,25 +294,29 @@ export function AgendaView({
       {/* Desktop: per-member columns, scrolling horizontally if narrow. */}
       <div className="hidden overflow-x-auto md:block">
         <div style={minWidthStyle}>
-          {/* Member column headers. */}
+          {/* Member column headers, offset by the empty label gutter so they
+              align with the columns under each time band. */}
           {members.length > 0 && (
             <div
               className="grid gap-3 border-b pb-2"
-              style={{ gridTemplateColumns }}
+              style={{ gridTemplateColumns: outerGrid }}
             >
-              {members.map((m) => (
-                <div
-                  key={m.email}
-                  className="flex items-center gap-1.5 px-1 text-sm font-semibold text-foreground"
-                >
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: m.color ?? "#64748b" }}
-                    aria-hidden
-                  />
-                  <span className="truncate">{m.name ?? m.email}</span>
-                </div>
-              ))}
+              <div />
+              <div className="grid gap-3" style={{ gridTemplateColumns }}>
+                {members.map((m) => (
+                  <div
+                    key={m.email}
+                    className="flex items-center gap-1.5 px-1 text-sm font-semibold text-foreground"
+                  >
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: m.color ?? "#64748b" }}
+                      aria-hidden
+                    />
+                    <span className="truncate">{m.name ?? m.email}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {renderDays("columns")}

@@ -24,11 +24,16 @@ export default async function CalendarPage() {
     getCalendarEvents(),
   ]);
 
+  // getCalendarMembers returns kids-first (Oscar, Sebastian, Andrew, Jenny);
+  // the calendar reads better with adults first, so reverse for the chips and
+  // agenda columns (Jenny, Andrew, Sebastian, Oscar).
+  const calendarMembers = [...members].reverse();
+
   return (
     <>
       <SyncTrigger />
       <CalendarClient
-        members={members}
+        members={calendarMembers}
         sources={sources}
         events={events}
         canManage={canManage}
