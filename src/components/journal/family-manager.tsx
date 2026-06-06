@@ -121,6 +121,15 @@ export function FamilyManager({
               />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "h-2.5 w-2.5 shrink-0 rounded-full",
+                      !m.color && "ring-1 ring-inset ring-border",
+                    )}
+                    style={m.color ? { backgroundColor: m.color } : undefined}
+                    title={m.color ?? "No color set"}
+                    aria-hidden
+                  />
                   <span className="font-serif text-sm text-foreground">
                     {m.name || "—"}
                   </span>
@@ -388,7 +397,7 @@ function ColorField({
   const isCustom = current !== "" && !PRESET_COLORS.includes(current);
   return (
     <div className="grid gap-1.5">
-      <Label>Calendar color</Label>
+      <Label>Color</Label>
       <div className="flex flex-wrap items-center gap-2">
         {PRESET_COLORS.map((c) => {
           const active = current === c;
@@ -440,7 +449,7 @@ function ColorField({
         )}
       </div>
       <p className="text-xs text-muted-foreground">
-        Used for this person&apos;s events on the Calendar.
+        Used to identify this person across the app.
       </p>
     </div>
   );
