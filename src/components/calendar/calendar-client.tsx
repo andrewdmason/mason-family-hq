@@ -75,8 +75,6 @@ export function CalendarClient({
     [members],
   );
 
-  const conflictIds = useMemo(() => detectConflicts(events), [events]);
-
   // A TeamSnap event the linked player has RSVP'd "Not going" to. These are the
   // events we hide by default — same logic the row's RSVP badge uses.
   const isDeclined = useMemo(() => {
@@ -91,6 +89,14 @@ export function CalendarClient({
       );
     };
   }, [sourcesById]);
+
+  // Declined events don't create a scheduling conflict — you're not going, so
+  // they can't clash with anything. Scan only the events you're actually
+  // attending, regardless of whether declined events are currently shown.
+  const conflictIds = useMemo(
+    () => detectConflicts(events.filter((e) => !isDeclined(e))),
+    [events, isDeclined],
+  );
 
   const memberFiltered = useMemo(() => {
     if (filter === "all") return events;
@@ -124,9 +130,12 @@ export function CalendarClient({
       const source = event.calendar_source_id
         ? sourcesById.get(event.calendar_source_id)
         : undefined;
+      // Member identity drives the card color so a card matches its column
+      // header dot. Fall back to the source color (e.g. a family calendar with
+      // no member) and finally a hashed color.
       const color =
-        source?.color ??
         (event.member_email ? memberColors.get(event.member_email) : null) ??
+        source?.color ??
         memberColor(event.member_email);
       const sourceLabel =
         source?.nickname ??
@@ -255,18 +264,9 @@ export function CalendarClient({
           <Popover>
             <PopoverTrigger
               aria-label="Filters"
-              className={cn(
-                buttonVariants({ variant: "ghost", size: "icon-sm" }),
-                "relative",
-              )}
+              className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }))}
             >
               <Filter className="size-4" />
-              {!showDeclined && declinedCount > 0 && (
-                <span
-                  className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-primary"
-                  aria-hidden
-                />
-              )}
             </PopoverTrigger>
             <PopoverContent align="end" className="w-72">
               <div className="flex items-start justify-between gap-3">
