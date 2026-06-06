@@ -15,8 +15,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import {
+  allDayInstant,
+  formatEventDate,
   formatTimeRange,
   googleMapsUrl,
+  utcDateKey,
 } from "@/lib/calendar/calendar-utils";
 import type {
   CalendarEvent,
@@ -43,6 +46,14 @@ function toLocalInput(iso: string | null): string {
 
 function fromLocalInput(value: string): string {
   return new Date(value).toISOString();
+}
+
+// All-day events bind to a wall-clock date, so the form edits a plain
+// <input type="date"> (YYYY-MM-DD). The stored value is the date read in UTC,
+// where every all-day event is anchored.
+function toDateInput(iso: string | null): string {
+  if (!iso) return "";
+  return utcDateKey(new Date(iso));
 }
 
 export function EventSheet({
@@ -113,12 +124,7 @@ function DetailBody({
   const isEditable =
     event.source_type === "manual" || event.source_type === "google";
   const isTeamsnap = event.source_type === "teamsnap";
-  const date = new Date(event.start_time).toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
+  const date = formatEventDate(event);
 
   async function onDelete() {
     setPending(true);
@@ -223,10 +229,26 @@ function EventForm({
     event?.calendar_source_id ?? (event ? "" : googleSources[0]?.id ?? ""),
   );
   const [allDay, setAllDay] = useState(event?.all_day ?? false);
-  const [start, setStart] = useState(
-    toLocalInput(event?.start_time ?? new Date().toISOString()),
+  const [start, setStart] = useState(() =>
+    event?.all_day
+      ? toDateInput(event.start_time)
+      : toLocalInput(event?.start_time ?? new Date().toISOString()),
   );
-  const [end, setEnd] = useState(toLocalInput(event?.end_time ?? null));
+  const [end, setEnd] = useState(() =>
+    event?.all_day
+      ? toDateInput(event.end_time)
+      : toLocalInput(event?.end_time ?? null),
+  );
+
+  // Flip the start/end fields between a datetime and a bare date so they stay
+  // valid for the input type and the user keeps what they already entered.
+  function toggleAllDay(next: boolean) {
+    setStart((s) =>
+      s ? (next ? s.slice(0, 10) : `${s.slice(0, 10)}T09:00`) : s,
+    );
+    setEnd((e) => (e ? (next ? e.slice(0, 10) : `${e.slice(0, 10)}T10:00`) : e));
+    setAllDay(next);
+  }
   const [location, setLocation] = useState(event?.location ?? "");
   const [description, setDescription] = useState(event?.description ?? "");
   const [pending, setPending] = useState(false);
@@ -245,8 +267,10 @@ function EventForm({
       title,
       location: location || null,
       description: description || null,
-      startTime: fromLocalInput(start),
-      endTime: end ? fromLocalInput(end) : null,
+      // All-day events store midnight UTC of the picked wall-clock date (the
+      // canonical anchor every sync path uses); a single date, no end.
+      startTime: allDay ? allDayInstant(start) : fromLocalInput(start),
+      endTime: allDay ? null : end ? fromLocalInput(end) : null,
       allDay,
     };
     try {
@@ -320,26 +344,44 @@ function EventForm({
         )}
         <div className="flex items-center justify-between">
           <Label htmlFor="ev-allday">All day</Label>
-          <Switch id="ev-allday" checked={allDay} onCheckedChange={setAllDay} />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="ev-start">Starts</Label>
-          <Input
-            id="ev-start"
-            type="datetime-local"
-            value={start}
-            onChange={(e) => setStart(e.target.value)}
+          <Switch
+            id="ev-allday"
+            checked={allDay}
+            onCheckedChange={toggleAllDay}
           />
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="ev-end">Ends</Label>
-          <Input
-            id="ev-end"
-            type="datetime-local"
-            value={end}
-            onChange={(e) => setEnd(e.target.value)}
-          />
-        </div>
+        {allDay ? (
+          <div className="space-y-1.5">
+            <Label htmlFor="ev-date">Date</Label>
+            <Input
+              id="ev-date"
+              type="date"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+            />
+          </div>
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              <Label htmlFor="ev-start">Starts</Label>
+              <Input
+                id="ev-start"
+                type="datetime-local"
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ev-end">Ends</Label>
+              <Input
+                id="ev-end"
+                type="datetime-local"
+                value={end}
+                onChange={(e) => setEnd(e.target.value)}
+              />
+            </div>
+          </>
+        )}
         <div className="space-y-1.5">
           <Label htmlFor="ev-location">Location</Label>
           <Input
