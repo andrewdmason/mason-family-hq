@@ -37,7 +37,12 @@ export function buildEventTitle(event: TeamsnapEvent): string {
 export async function syncTeamEvents(
   connectionEmail: string,
   calendarSourceId: string,
+  // Pulling each player's RSVP costs one TeamSnap API call per event, so it's
+  // skipped on the page-load sync (which only needs the event list); the cron
+  // and the manual "Sync" button run the full sync.
+  opts: { syncRsvp?: boolean } = {},
 ): Promise<{ synced: number; error?: string }> {
+  const syncRsvp = opts.syncRsvp !== false;
   const supabase = createAdminClient();
 
   const { data: source, error: sourceError } = await supabase
@@ -167,7 +172,7 @@ export async function syncTeamEvents(
 
   // Pull the player's RSVP from TeamSnap so the local copy stays in sync with
   // any changes made in the TeamSnap app.
-  if (playerMemberId) {
+  if (syncRsvp && playerMemberId) {
     await syncRsvpStatuses(
       supabase,
       accessToken,
@@ -192,38 +197,51 @@ async function syncRsvpStatuses(
   playerMemberId: number,
   tsEvents: TeamsnapEvent[],
 ) {
-  for (const tsEvent of tsEvents) {
-    if (!tsEvent.start_date) continue;
-    const externalId = `ts:${tsEvent.id}`;
+  const dated = tsEvents.filter((e) => e.start_date);
+  if (!dated.length) return;
 
-    const { data: localEvent } = await supabase
-      .from("calendar_events")
-      .select("id")
-      .eq("calendar_source_id", calendarSourceId)
-      .eq("external_id", externalId)
-      .single();
-    if (!localEvent) continue;
+  // Resolve every external id to a local row in one query rather than per event.
+  const { data: localEvents } = await supabase
+    .from("calendar_events")
+    .select("id, external_id")
+    .eq("calendar_source_id", calendarSourceId);
+  const idByExternalId = new Map(
+    (localEvents ?? []).map((e) => [e.external_id, e.id as string]),
+  );
 
-    let availabilities;
-    try {
-      availabilities = await getTeamsnapAvailabilities(accessToken, tsEvent.id);
-    } catch {
-      continue;
-    }
+  // One availability fetch per event is unavoidable, but they're independent —
+  // run them in small concurrent batches instead of strictly serial so a full
+  // season's worth of events doesn't take tens of seconds.
+  const CONCURRENCY = 6;
+  for (let i = 0; i < dated.length; i += CONCURRENCY) {
+    await Promise.all(
+      dated.slice(i, i + CONCURRENCY).map(async (tsEvent) => {
+        const localId = idByExternalId.get(`ts:${tsEvent.id}`);
+        if (!localId) return;
 
-    const mine = availabilities.find((a) => a.member_id === playerMemberId);
-    if (!mine) continue;
+        let availabilities;
+        try {
+          availabilities = await getTeamsnapAvailabilities(accessToken, tsEvent.id);
+        } catch {
+          return;
+        }
+        const mine = availabilities.find((a) => a.member_id === playerMemberId);
+        if (!mine) return;
 
-    await supabase
-      .from("calendar_events")
-      .update({ teamsnap_rsvp: statusCodeToRsvp(mine.status_code) })
-      .eq("id", localEvent.id);
+        await supabase
+          .from("calendar_events")
+          .update({ teamsnap_rsvp: statusCodeToRsvp(mine.status_code) })
+          .eq("id", localId);
+      }),
+    );
   }
 }
 
 // Sync every active TeamSnap source, routing each through a connection that can
 // actually see its team.
-export async function syncAllTeamsnapSources(): Promise<{
+export async function syncAllTeamsnapSources(
+  opts: { syncRsvp?: boolean } = {},
+): Promise<{
   results: Array<{ sourceId: string; synced: number; error?: string }>;
 }> {
   const supabase = createAdminClient();
@@ -263,7 +281,7 @@ export async function syncAllTeamsnapSources(): Promise<{
       if (!sourceId) continue;
       remaining.delete(teamId);
       try {
-        const result = await syncTeamEvents(conn.member_email, sourceId);
+        const result = await syncTeamEvents(conn.member_email, sourceId, opts);
         results.push({ sourceId, ...result });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

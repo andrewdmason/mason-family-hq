@@ -27,6 +27,7 @@ import {
   type GoogleCalendarListEntry,
 } from "@/lib/calendar/google";
 import { syncGoogleSource } from "@/lib/calendar/google-sync";
+import { allDayInstant } from "@/lib/calendar/calendar-utils";
 
 /** Throw unless the caller is an owner/parent — the roles that manage calendars.
  * Returns the caller's member email (handy for connection-scoped work). */
@@ -64,8 +65,14 @@ function baseEventColumns(input: ManualEventInput) {
     title: input.title.trim(),
     location: input.location?.trim() || null,
     description: input.description?.trim() || null,
-    start_time: input.startTime,
-    end_time: input.endTime,
+    // All-day events are pinned to midnight UTC of their wall-clock date — the
+    // single anchor every sync path and the Calendar views agree on, so the day
+    // reads back correctly in every timezone (see calendar-utils' eventDayKey).
+    start_time: input.allDay ? allDayInstant(input.startTime) : input.startTime,
+    end_time:
+      input.allDay && input.endTime
+        ? allDayInstant(input.endTime)
+        : input.endTime,
     all_day: input.allDay,
   };
 }
@@ -302,9 +309,19 @@ export async function ensureFeedToken(memberEmail: string): Promise<string> {
   return data.token as string;
 }
 
-/** Run a sync of all sources, then refresh the calendar. Called on load. */
+/** Lightweight sync run on page load: refreshes the event list but skips the
+ * per-event TeamSnap RSVP fetch, so it doesn't compete with the first event the
+ * user opens (which loads its own availability live). */
 export async function triggerSync(): Promise<void> {
   await requireUserId(await createClient()); // any signed-in member may trigger
+  await runCalendarSync({ teamsnapRsvp: false });
+  revalidatePath("/calendar");
+}
+
+/** Full sync including every player's RSVP — used by the manual "Sync" button,
+ * where the user is explicitly asking to pull everything and waits for it. */
+export async function triggerFullSync(): Promise<void> {
+  await requireUserId(await createClient());
   await runCalendarSync();
   revalidatePath("/calendar");
 }

@@ -2,8 +2,20 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Plus, SlidersHorizontal } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  Plus,
+  SlidersHorizontal,
+} from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
   addDays,
@@ -23,6 +35,7 @@ import { AgendaView } from "./agenda-view";
 import { WeekView } from "./week-view";
 import { MonthView } from "./month-view";
 import { EventSheet, type SheetMode } from "./event-sheet";
+import { SyncButton } from "./sync-button";
 import type { EventDisplay } from "./event-card";
 
 type View = "agenda" | "week" | "month";
@@ -42,6 +55,8 @@ export function CalendarClient({
   const [view, setView] = useState<View>("agenda");
   const [anchor, setAnchor] = useState(() => new Date());
   const [filter, setFilter] = useState<string>("all");
+  // TeamSnap events you've RSVP'd "Not going" to are hidden unless this is on.
+  const [showDeclined, setShowDeclined] = useState(false);
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetMode, setSheetMode] = useState<SheetMode>("detail");
@@ -62,7 +77,22 @@ export function CalendarClient({
 
   const conflictIds = useMemo(() => detectConflicts(events), [events]);
 
-  const visibleEvents = useMemo(() => {
+  // A TeamSnap event the linked player has RSVP'd "Not going" to. These are the
+  // events we hide by default — same logic the row's RSVP badge uses.
+  const isDeclined = useMemo(() => {
+    return (event: CalendarEvent): boolean => {
+      const source = event.calendar_source_id
+        ? sourcesById.get(event.calendar_source_id)
+        : undefined;
+      return (
+        source?.source_type === "teamsnap" &&
+        source.teamsnap_player_member_id != null &&
+        event.teamsnap_rsvp === "not_going"
+      );
+    };
+  }, [sourcesById]);
+
+  const memberFiltered = useMemo(() => {
     if (filter === "all") return events;
     if (filter === FAMILY) return events.filter((e) => !e.member_email);
     return events.filter((e) => e.member_email === filter);
@@ -75,6 +105,19 @@ export function CalendarClient({
     if (filter === "all") return members;
     return members.filter((m) => m.email === filter);
   }, [filter, members]);
+
+  const declinedCount = useMemo(
+    () => memberFiltered.filter(isDeclined).length,
+    [memberFiltered, isDeclined],
+  );
+
+  const visibleEvents = useMemo(
+    () =>
+      showDeclined
+        ? memberFiltered
+        : memberFiltered.filter((e) => !isDeclined(e)),
+    [memberFiltered, showDeclined, isDeclined],
+  );
 
   const display = useMemo(() => {
     return (event: CalendarEvent): EventDisplay => {
@@ -167,23 +210,26 @@ export function CalendarClient({
             </button>
           ))}
         </div>
-        {canManage && (
-          <div className="flex items-center gap-1.5">
-            <Button
-              size="sm"
-              variant="outline"
-              nativeButton={false}
-              render={<Link href="/settings/calendars" />}
-            >
-              <SlidersHorizontal />
-              Calendars
-            </Button>
-            <Button size="sm" onClick={openCreate}>
-              <Plus />
-              Event
-            </Button>
-          </div>
-        )}
+        <div className="flex items-center gap-1.5">
+          <SyncButton />
+          {canManage && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                nativeButton={false}
+                render={<Link href="/settings/calendars" />}
+              >
+                <SlidersHorizontal />
+                Calendars
+              </Button>
+              <Button size="sm" onClick={openCreate}>
+                <Plus />
+                Event
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* View switch + date nav */}
@@ -206,6 +252,46 @@ export function CalendarClient({
           ))}
         </div>
         <div className="flex items-center gap-1">
+          <Popover>
+            <PopoverTrigger
+              aria-label="Filters"
+              className={cn(
+                buttonVariants({ variant: "ghost", size: "icon-sm" }),
+                "relative",
+              )}
+            >
+              <Filter className="size-4" />
+              {!showDeclined && declinedCount > 0 && (
+                <span
+                  className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-primary"
+                  aria-hidden
+                />
+              )}
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-72">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-col gap-0.5">
+                  <label
+                    htmlFor="show-declined"
+                    className="text-sm font-medium"
+                  >
+                    Show declined events
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    TeamSnap events you&rsquo;ve marked &ldquo;Not going&rdquo;
+                    are hidden.
+                    {declinedCount > 0 &&
+                      ` ${declinedCount} hidden right now.`}
+                  </p>
+                </div>
+                <Switch
+                  id="show-declined"
+                  checked={showDeclined}
+                  onCheckedChange={setShowDeclined}
+                />
+              </div>
+            </PopoverContent>
+          </Popover>
           <Button
             size="sm"
             variant="outline"

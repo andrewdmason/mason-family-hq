@@ -1,9 +1,11 @@
 "use client";
 
 import {
+  eventDayKey,
   formatDayLabel,
   groupEventsByDay,
   isToday,
+  toDateKey,
 } from "@/lib/calendar/calendar-utils";
 import type { CalendarEvent, CalendarMember } from "@/lib/calendar/types";
 import { EventColumnCard, EventRow, type EventDisplay } from "./event-card";
@@ -49,12 +51,11 @@ export function AgendaView({
   onEventClick: (event: CalendarEvent) => void;
   selectedEventId: string | null;
 }) {
-  const dayStart = new Date(anchorDate);
-  dayStart.setHours(0, 0, 0, 0);
-
-  const upcoming = events.filter(
-    (e) => new Date(e.start_time).getTime() >= dayStart.getTime(),
-  );
+  // Keep events on or after the anchor day, compared by calendar day (not raw
+  // instant) so an all-day event anchored at midnight UTC isn't mistaken for the
+  // day before — and so today's all-day events aren't dropped.
+  const anchorKey = toDateKey(anchorDate);
+  const upcoming = events.filter((e) => eventDayKey(e) >= anchorKey);
   const byDay = groupEventsByDay(upcoming);
   const dayKeys = [...byDay.keys()].sort();
 
