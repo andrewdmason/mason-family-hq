@@ -1,5 +1,8 @@
 import { notFound } from "next/navigation";
 import { QuizRunner } from "@/components/reading/quiz-runner";
+import { CloseQuizButton } from "@/components/reading/close-quiz-button";
+import { getIsOwner } from "@/lib/members/auth";
+import { quizResultsHref } from "@/lib/reading/links";
 import { getQuizForTaking } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +20,10 @@ export default async function TakeQuizPage({
 
   // Always takeable while published — submitting records a fresh attempt. After a
   // failed attempt, only the missed questions come back (retake: true).
-  const result = await getQuizForTaking(id, memberEmail);
+  const [result, isOwner] = await Promise.all([
+    getQuizForTaking(id, memberEmail),
+    getIsOwner(),
+  ]);
   if (!result) notFound();
 
   return (
@@ -25,6 +31,16 @@ export default async function TakeQuizPage({
       quiz={result.quiz}
       memberEmail={memberEmail}
       retake={result.retake}
+      ownerSlot={
+        isOwner ? (
+          <CloseQuizButton
+            quizId={id}
+            memberEmail={memberEmail}
+            variant="ghost"
+            redirectTo={quizResultsHref(id, memberEmail)}
+          />
+        ) : null
+      }
     />
   );
 }

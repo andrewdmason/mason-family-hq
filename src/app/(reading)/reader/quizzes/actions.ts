@@ -6,7 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireOwner } from "@/lib/members/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { resolveReadingScope } from "@/lib/reading/scope";
-import { isQuizDueWindow } from "@/lib/reading/quiz-due";
+import { isQuizDue } from "@/lib/reading/quiz-due";
 import { getTextForRange } from "@/lib/reading/extract-text";
 import { generateQuiz } from "@/lib/reading/quiz-generate";
 import { gradeFreeText, gradeMultipleChoice } from "@/lib/reading/quiz-grade";
@@ -353,7 +353,7 @@ export async function getActiveQuizzesByBook(
 
   const { data: quizzes } = await client
     .from("reading_quizzes")
-    .select("id, book_id, from_page, through_page")
+    .select("id, book_id, from_page, through_page, created_at")
     .eq("user_id", userId)
     .eq("status", "published")
     .in("book_id", bookIds)
@@ -378,11 +378,13 @@ export async function getActiveQuizzesByBook(
     subsByQuiz.set(id, list);
   }
 
-  // The weekly quiz is due every Friday — compute the due window once for the
-  // reader's local week so each card can show a "Due now" vs. "ready" state.
+  // The weekly quiz is due every Friday — but a stretch that began during this
+  // Friday window isn't due until the next one, so a just-added book doesn't read
+  // as "due now" the moment its quiz is prepared. Computed per quiz from its
+  // creation date against the reader's local week.
   const tz = await getUserTimezone();
-  const dayOfWeek = new Date(`${localDate(new Date(), tz)}T12:00:00`).getDay();
-  const dueNow = isQuizDueWindow(dayOfWeek);
+  const today = localDate(new Date(), tz);
+  const dayOfWeek = new Date(`${today}T12:00:00`).getDay();
 
   // Quizzes are newest-first; take the first unpassed one per book.
   const byBook: Record<string, ActiveBookQuiz> = {};
@@ -391,12 +393,13 @@ export async function getActiveQuizzesByBook(
     if (byBook[bookId]) continue;
     const subs = subsByQuiz.get(q.id as string) ?? [];
     if (isPassed(subs)) continue;
+    const startedOn = localDate(new Date(q.created_at as string), tz);
     byBook[bookId] = {
       quizId: q.id as string,
       fromPage: (q.from_page as number | null) ?? null,
       throughPage: q.through_page as number,
       attempted: subs.length > 0,
-      dueNow,
+      dueNow: isQuizDue(dayOfWeek, startedOn, today),
     };
   }
   return byBook;
@@ -816,9 +819,11 @@ export async function closeQuizWithoutPassing(
 }
 
 /**
- * A graded attempt with full feedback (correct answers + AI notes), plus a
- * summary of every attempt. Shows the latest attempt by default, or a specific
- * one when `submissionId` is given (and belongs to this reader's quiz).
+ * A quiz's detail view: its questions, every attempt, and (when attempted) the
+ * graded answers with full feedback for the viewed attempt — the latest by
+ * default, or a specific one when `submissionId` is given. Works before any
+ * attempt too, so the owner can open a published quiz to view it (and close it
+ * without passing). Returns null only when the quiz itself isn't found.
  */
 export async function getQuizResult(
   quizId: string,
@@ -842,12 +847,13 @@ export async function getQuizResult(
     .eq("user_id", userId)
     .order("attempt_number", { ascending: true });
   const all = (submissions ?? []) as ReadingQuizSubmission[];
-  if (all.length === 0) return null;
 
-  // The viewed attempt: the requested one if valid, else the most recent.
+  // The viewed attempt: the requested one if valid, else the most recent. Null
+  // until the quiz has been attempted (or closed) at least once.
   const viewed =
     (submissionId && all.find((s) => s.id === submissionId)) ||
-    all[all.length - 1];
+    all[all.length - 1] ||
+    null;
 
   const [{ data: questions }, { data: answers }, { data: book }] =
     await Promise.all([
@@ -857,13 +863,15 @@ export async function getQuizResult(
         .eq("quiz_id", quizId)
         .eq("user_id", userId)
         .order("position", { ascending: true }),
-      client
-        .from("reading_quiz_answers")
-        .select(
-          "id, submission_id, question_id, user_id, selected_index, response_text, is_correct, ai_notes, created_at"
-        )
-        .eq("submission_id", viewed.id)
-        .eq("user_id", userId),
+      viewed
+        ? client
+            .from("reading_quiz_answers")
+            .select(
+              "id, submission_id, question_id, user_id, selected_index, response_text, is_correct, ai_notes, created_at"
+            )
+            .eq("submission_id", viewed.id)
+            .eq("user_id", userId)
+        : Promise.resolve({ data: [] as ReadingQuizAnswer[] }),
       client
         .from("reading_books")
         .select("title, current_page, target_page, total_pages, status")

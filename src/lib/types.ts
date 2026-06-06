@@ -1071,8 +1071,8 @@ export type ReadingQuizResult = {
   bookTitle: string;
   nextAssignment: ReadingQuizNextAssignment;
   questions: ReadingQuizQuestion[];
-  /** The attempt whose answers are shown in detail. */
-  submission: ReadingQuizSubmission;
+  /** The attempt whose answers are shown in detail. Null when not yet attempted. */
+  submission: ReadingQuizSubmission | null;
   answersByQuestionId: Record<string, ReadingQuizAnswer>;
   /** Every attempt, oldest first. */
   attempts: ReadingQuizAttemptSummary[];

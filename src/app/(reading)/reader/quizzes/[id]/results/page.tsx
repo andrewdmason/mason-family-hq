@@ -59,8 +59,9 @@ export default async function QuizResultsPage({
 
   // A parent override is recorded as a perfect submission flagged with their email.
   // It shouldn't read (or celebrate) as the kid acing the quiz.
-  const closedByParent = submission.closed_by_email != null;
+  const closedByParent = submission?.closed_by_email != null;
   const viewedPerfect =
+    !!submission &&
     !closedByParent &&
     submission.score_total > 0 &&
     submission.score_correct === submission.score_total;
@@ -85,7 +86,7 @@ export default async function QuizResultsPage({
         {bookTitle} · {quizRangeLabel(quiz.from_page, quiz.through_page)}
       </p>
 
-      {attempts.length > 1 && (
+      {submission && attempts.length > 1 && (
         <AttemptHistory
           quizId={id}
           memberEmail={memberEmail}
@@ -103,25 +104,29 @@ export default async function QuizResultsPage({
         )}
       >
         <p className="text-lg font-medium text-foreground">
-          {closedByParent
-            ? "Closed by a parent."
-            : viewedPerfect
-              ? "Passed — every question right."
-              : `You got ${submission.score_correct} of ${submission.score_total} right`}
+          {!submission
+            ? "Not attempted yet."
+            : closedByParent
+              ? "Closed by a parent."
+              : viewedPerfect
+                ? "Passed — every question right."
+                : `You got ${submission.score_correct} of ${submission.score_total} right`}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          {attempts.length > 1
-            ? `Attempt ${submission.attempt_number} of ${attempts.length}`
-            : "Your first attempt"}
-          {closedByParent ? " · marked complete without passing" : ""}
-          {!viewedPerfect && !closedByParent && passed
+          {!submission
+            ? "No attempts yet — this quiz is waiting to be taken."
+            : attempts.length > 1
+              ? `Attempt ${submission.attempt_number} of ${attempts.length}`
+              : "First attempt"}
+          {submission && closedByParent ? " · marked complete without passing" : ""}
+          {submission && !viewedPerfect && !closedByParent && passed
             ? " · you passed this quiz on another try"
             : ""}
-          {!viewedPerfect && !closedByParent && !passed
+          {submission && !viewedPerfect && !closedByParent && !passed
             ? " · pass by getting every question right"
             : ""}
         </p>
-        {!submission.grading_complete && (
+        {submission && !submission.grading_complete && (
           <p className="mt-1 text-xs text-muted-foreground">
             A couple of answers couldn&apos;t be graded automatically — they&apos;re
             marked below.
@@ -134,6 +139,7 @@ export default async function QuizResultsPage({
         answersByQuestionId={answersByQuestionId}
         showByDefault={viewedPerfect}
         canReveal={isOwner}
+        attempted={!!submission}
       />
 
       <div className="mt-8 flex items-center gap-2">
@@ -142,7 +148,7 @@ export default async function QuizResultsPage({
             href={quizTakeHref(id, memberEmail)}
             className={cn(buttonVariants({ variant: "default", size: "sm" }))}
           >
-            Retake quiz
+            {submission ? "Retake quiz" : "Take quiz"}
           </Link>
         )}
         <Link

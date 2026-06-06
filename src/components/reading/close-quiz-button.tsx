@@ -16,12 +16,15 @@ export function CloseQuizButton({
   size = "sm",
   variant = "outline",
   label = "Close without passing",
+  redirectTo,
 }: {
   quizId: string;
   memberEmail?: string | null;
   size?: "xs" | "sm";
   variant?: "outline" | "ghost";
   label?: string;
+  /** Where to go after closing; falls back to refreshing in place. */
+  redirectTo?: string;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +42,8 @@ export function CloseQuizButton({
     startTransition(async () => {
       try {
         await closeQuizWithoutPassing(quizId, memberEmail);
-        router.refresh();
+        if (redirectTo) router.push(redirectTo);
+        else router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't close this quiz.");
       }
