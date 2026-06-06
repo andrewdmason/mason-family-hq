@@ -19,9 +19,12 @@ import type { ReadingQuizWithQuestions } from "@/lib/types";
 export function QuizRunner({
   quiz,
   memberEmail = null,
+  retake = false,
 }: {
   quiz: ReadingQuizWithQuestions;
   memberEmail?: string | null;
+  /** True when this is a retake showing only the questions missed last time. */
+  retake?: boolean;
 }) {
   const router = useRouter();
   const [choices, setChoices] = useState<Record<string, number>>({});
@@ -68,8 +71,9 @@ export function QuizRunner({
         {quiz.title || "Reading quiz"}
       </h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Covers {quizRangeLabel(quiz.from_page, quiz.through_page)}. Answer each
-        question, then submit to see how you did.
+        {retake
+          ? "Just the questions to try again — answer each one and resubmit. Your other answers are already counted."
+          : `Covers ${quizRangeLabel(quiz.from_page, quiz.through_page)}. Answer each question, then submit to see how you did.`}
       </p>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-6">

@@ -2,8 +2,7 @@ import { GreetingHeader } from "@/components/home/greeting-header";
 import { JournalStatusWidget } from "@/components/home/journal-status-widget";
 import { ReaderWidget } from "@/components/home/reader-widget";
 import { PracticeTrendWidget } from "@/components/home/practice-trend-widget";
-import { OthersDayWidget } from "@/components/home/others-day-widget";
-import { BirthdaysWidget } from "@/components/home/birthdays-widget";
+import { PersonStatusWidget } from "@/components/home/person-status-widget";
 import { getReadingHome } from "@/app/(reading)/reader/actions";
 import { getActiveQuizzesByBook } from "@/app/(reading)/reader/quizzes/actions";
 import { getStreakData, getTrailingPracticeData } from "@/app/practice/reports/actions";
@@ -11,8 +10,7 @@ import { getIsOwner } from "@/lib/members/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { getCurrentMember, firstName } from "@/lib/home/members";
 import { getJournalStatus } from "@/lib/home/journal";
-import { getOthersDay } from "@/lib/home/calendar";
-import { getUpcomingBirthdays } from "@/lib/home/birthdays";
+import { getHomePersonStatuses } from "@/lib/home/person-status";
 import type { ReadingBookWithProgress } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -26,22 +24,20 @@ export default async function HomePage() {
     day: "numeric",
   });
 
+  const member = await getCurrentMember();
+
   const [
-    member,
     isOwner,
     personalJournal,
     familyJournal,
     reading,
-    othersDay,
-    birthdays,
+    personStatuses,
   ] = await Promise.all([
-    getCurrentMember(),
     getIsOwner(),
     getJournalStatus("private", today),
     getJournalStatus("family", today),
     getReadingHome().catch(() => null),
-    getOthersDay(tz, null).catch(() => []),
-    getUpcomingBirthdays(tz).catch(() => []),
+    getHomePersonStatuses(tz, member.email).catch(() => []),
   ]);
 
   // The most recently active in-progress book powers the Reader widget; a
@@ -63,8 +59,7 @@ export default async function HomePage() {
       ])
     : [null, null];
 
-  // "others' day" excludes the viewer's own events.
-  const others = othersDay.filter((d) => d.email !== member.email);
+  const sidebarPeople = personStatuses.filter((p) => p.email !== member.email);
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-24 pt-12">
@@ -102,8 +97,9 @@ export default async function HomePage() {
 
         {/* Sidebar column */}
         <div className="space-y-4">
-          <OthersDayWidget days={others} />
-          {birthdays.length > 0 && <BirthdaysWidget birthdays={birthdays} />}
+          {sidebarPeople.map((person) => (
+            <PersonStatusWidget key={person.email} person={person} />
+          ))}
         </div>
       </div>
     </div>

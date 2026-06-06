@@ -3,7 +3,21 @@ import Link from "next/link";
 import { WidgetCard } from "./widget-card";
 import { cn } from "@/lib/utils";
 import { quizTakeHref } from "@/lib/reading/links";
+import { activeQuizState } from "@/lib/reading/quiz-due";
 import type { ActiveBookQuiz, ReadingBookWithProgress } from "@/lib/types";
+
+/** The pill label + classes for an active quiz's state. */
+const QUIZ_BADGE = {
+  ready: { label: "Quiz ready", className: "bg-primary/10 text-primary" },
+  due: {
+    label: "Due now",
+    className: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+  },
+  retake: {
+    label: "Needs retake",
+    className: "bg-destructive/15 text-destructive",
+  },
+} as const;
 
 /**
  * A window into the active book: this week's progress toward the page goal, and
@@ -53,19 +67,32 @@ export function ReaderWidget({
               ? `Page ${book.current_page} of ${book.total_pages}`
               : `Page ${book.current_page}`}
           </p>
-          {activeQuiz && (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[0.7rem] font-medium text-primary">
-                Quiz ready
-              </span>
-              <Link
-                href={quizTakeHref(activeQuiz.quizId)}
-                className="inline-flex items-center rounded-md border border-primary/30 px-2 py-0.5 text-[0.7rem] font-medium text-primary transition-colors hover:bg-primary/10"
-              >
-                Take quiz
-              </Link>
-            </div>
-          )}
+          {activeQuiz &&
+            (() => {
+              const state = activeQuizState(
+                activeQuiz.attempted,
+                activeQuiz.dueNow
+              );
+              const badge = QUIZ_BADGE[state];
+              return (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-[0.7rem] font-medium",
+                      badge.className
+                    )}
+                  >
+                    {badge.label}
+                  </span>
+                  <Link
+                    href={quizTakeHref(activeQuiz.quizId)}
+                    className="inline-flex items-center rounded-md border border-primary/30 px-2 py-0.5 text-[0.7rem] font-medium text-primary transition-colors hover:bg-primary/10"
+                  >
+                    {state === "retake" ? "Retake quiz" : "Take quiz"}
+                  </Link>
+                </div>
+              );
+            })()}
         </div>
       </div>
 

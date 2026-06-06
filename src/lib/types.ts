@@ -1028,6 +1028,15 @@ export type ReadingQuizAttemptSummary = {
   gradingComplete: boolean;
 };
 
+/** The reading assignment after a passed quiz advances the book. */
+export type ReadingQuizNextAssignment = {
+  bookTitle: string;
+  currentPage: number;
+  targetPage: number | null;
+  totalPages: number | null;
+  finished: boolean;
+};
+
 /** One graded answer within a submission. */
 export type ReadingQuizAnswer = {
   id: string;
@@ -1058,6 +1067,7 @@ export type ReadingQuizWithQuestions = ReadingQuiz & {
 export type ReadingQuizResult = {
   quiz: ReadingQuiz;
   bookTitle: string;
+  nextAssignment: ReadingQuizNextAssignment;
   questions: ReadingQuizQuestion[];
   /** The attempt whose answers are shown in detail. */
   submission: ReadingQuizSubmission;
@@ -1075,6 +1085,8 @@ export type ActiveBookQuiz = {
   throughPage: number;
   /** True once the kid has attempted it at least once (failed, not passed). */
   attempted: boolean;
+  /** True during this week's Friday due window (Fri–Sun) — drives "Due now". */
+  dueNow: boolean;
 };
 
 /** One row of the owner's cross-kid quizzes list. */

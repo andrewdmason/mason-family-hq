@@ -2,8 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { getIsOwner } from "@/lib/members/auth";
+import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { quizEditHref, quizResultsHref, readingHomeHref } from "@/lib/reading/links";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
+import { isQuizDueWindow } from "@/lib/reading/quiz-due";
 import type { OwnerQuizListItem } from "@/lib/types";
 import { listAllQuizzes } from "./actions";
 
@@ -16,7 +18,11 @@ function firstName(name: string | null, email: string): string {
 export default async function QuizzesListPage() {
   if (!(await getIsOwner())) redirect("/reader");
 
-  const quizzes = await listAllQuizzes();
+  const [quizzes, tz] = await Promise.all([listAllQuizzes(), getUserTimezone()]);
+  // The weekly quiz is due every Friday — an unattempted published quiz reads as
+  // "Due now" from Friday through the weekend.
+  const dayOfWeek = new Date(`${localDate(new Date(), tz)}T12:00:00`).getDay();
+  const dueNow = isQuizDueWindow(dayOfWeek);
 
   // Group by reader so each kid's quizzes sit together.
   const byMember = new Map<string, OwnerQuizListItem[]>();
@@ -54,7 +60,7 @@ export default async function QuizzesListPage() {
               </h2>
               <div className="mt-3 space-y-2">
                 {items.map((q) => (
-                  <QuizRow key={q.id} quiz={q} />
+                  <QuizRow key={q.id} quiz={q} dueNow={dueNow} />
                 ))}
               </div>
             </section>
@@ -65,7 +71,13 @@ export default async function QuizzesListPage() {
   );
 }
 
-function QuizRow({ quiz }: { quiz: OwnerQuizListItem }) {
+function QuizRow({
+  quiz,
+  dueNow,
+}: {
+  quiz: OwnerQuizListItem;
+  dueNow: boolean;
+}) {
   const href =
     quiz.status === "draft"
       ? quizEditHref(quiz.id, quiz.memberEmail)
@@ -86,8 +98,15 @@ function QuizRow({ quiz }: { quiz: OwnerQuizListItem }) {
           <Badge variant="secondary">Draft</Badge>
         ) : quiz.latest ? (
           <div className="flex items-center gap-2">
-            {quiz.passed && (
+            {quiz.passed ? (
               <Badge className="bg-emerald-600 text-white">Passed</Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="border-destructive/40 text-destructive"
+              >
+                Needs retake
+              </Badge>
             )}
             <div className="text-right">
               <span className="text-sm tabular-nums text-foreground">
@@ -103,6 +122,8 @@ function QuizRow({ quiz }: { quiz: OwnerQuizListItem }) {
               </p>
             </div>
           </div>
+        ) : dueNow ? (
+          <Badge className="bg-amber-500 text-white">Due now</Badge>
         ) : (
           <Badge variant="outline">Awaiting submission</Badge>
         )}

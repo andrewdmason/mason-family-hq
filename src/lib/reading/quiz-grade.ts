@@ -39,8 +39,11 @@ const GRADE_ANSWER_TOOL = {
       notes: {
         type: "string",
         description:
-          "1-2 warm sentences, addressed to the child (\"you\"), on what they got " +
-          "right and what (if anything) would make the answer stronger.",
+          "1-2 warm sentences addressed to the child (\"you\"). If the answer is " +
+          "correct, say what they got right. If it falls short, give a gentle, " +
+          "specific hint that points them in the right direction — name the part of " +
+          "the story or the idea to think about again — but do NOT state or reveal " +
+          "the correct answer, so they can rework it themselves on a retake.",
       },
     },
     required: ["correct", "notes"],
@@ -80,7 +83,10 @@ export async function gradeFreeText(input: {
         "You are a kind, encouraging reading teacher grading a child's short " +
         "written answer about a book. Judge correctness generously against the " +
         "rubric — reward genuine understanding over exact wording, grammar, or " +
-        "spelling. Then write a short, warm note addressed directly to the child.",
+        "spelling. Then write a short, warm note addressed directly to the child. " +
+        "When the answer falls short, coach rather than correct: point them toward " +
+        "the part of the book or the idea they missed so they can try again, but " +
+        "never give away the answer itself.",
       tools: [GRADE_ANSWER_TOOL],
       tool_choice: { type: "tool", name: GRADE_ANSWER_TOOL.name },
       messages: [
