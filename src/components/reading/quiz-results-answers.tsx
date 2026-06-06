@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Eye, EyeOff, HelpCircle, X } from "lucide-react";
+import { Check, Eye, EyeOff, HelpCircle, Lightbulb, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -169,10 +169,21 @@ function QuestionResult({
               <span className="italic text-muted-foreground">(left blank)</span>
             )}
           </div>
-          {/* Feedback can hint at the answer, so it's gated behind reveal too. */}
-          {reveal && answer?.ai_notes && (
-            <p className="text-sm text-muted-foreground">{answer.ai_notes}</p>
-          )}
+          {/* On a wrong answer the note is a directional hint (it never reveals the
+              answer), so we show it even when hidden — it's exactly what helps them
+              retake. The affirming note on a correct answer can restate the idea, so
+              it stays gated behind reveal. */}
+          {answer?.ai_notes &&
+            (answer.is_correct === false ? (
+              <div className="flex gap-2 rounded-md bg-amber-500/10 px-3 py-2 text-sm text-foreground">
+                <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                <span>{answer.ai_notes}</span>
+              </div>
+            ) : (
+              reveal && (
+                <p className="text-sm text-muted-foreground">{answer.ai_notes}</p>
+              )
+            ))}
         </div>
       )}
     </div>

@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireOwner } from "@/lib/members/auth";
+import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { resolveReadingScope } from "@/lib/reading/scope";
+import { isQuizDueWindow } from "@/lib/reading/quiz-due";
 import { getTextForRange } from "@/lib/reading/extract-text";
 import { generateQuiz } from "@/lib/reading/quiz-generate";
 import { gradeFreeText, gradeMultipleChoice } from "@/lib/reading/quiz-grade";
@@ -376,6 +378,12 @@ export async function getActiveQuizzesByBook(
     subsByQuiz.set(id, list);
   }
 
+  // The weekly quiz is due every Friday — compute the due window once for the
+  // reader's local week so each card can show a "Due now" vs. "ready" state.
+  const tz = await getUserTimezone();
+  const dayOfWeek = new Date(`${localDate(new Date(), tz)}T12:00:00`).getDay();
+  const dueNow = isQuizDueWindow(dayOfWeek);
+
   // Quizzes are newest-first; take the first unpassed one per book.
   const byBook: Record<string, ActiveBookQuiz> = {};
   for (const q of quizzes) {
@@ -388,20 +396,104 @@ export async function getActiveQuizzesByBook(
       fromPage: (q.from_page as number | null) ?? null,
       throughPage: q.through_page as number,
       attempted: subs.length > 0,
+      dueNow,
     };
   }
   return byBook;
 }
 
+type ScopedClient = Awaited<ReturnType<typeof resolveReadingScope>>["client"];
+
+/** One question's graded outcome from a prior attempt, for carry-forward. */
+type PriorAnswer = {
+  selected_index: number | null;
+  response_text: string | null;
+  is_correct: boolean | null;
+  ai_notes: string | null;
+};
+
+/**
+ * The reader's most recent attempt at a quiz: its attempt number, whether it was
+ * perfect, and each question's graded outcome. This is what lets a retake re-ask
+ * only the questions they missed and carry their right answers forward. Null when
+ * they haven't attempted the quiz yet.
+ */
+async function latestAttempt(
+  client: ScopedClient,
+  userId: string,
+  quizId: string
+): Promise<{
+  attemptNumber: number;
+  perfect: boolean;
+  answers: Map<string, PriorAnswer>;
+} | null> {
+  const { data: sub } = await client
+    .from("reading_quiz_submissions")
+    .select("id, attempt_number, score_correct, score_total")
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId)
+    .order("attempt_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!sub) return null;
+
+  const { data: rows } = await client
+    .from("reading_quiz_answers")
+    .select("question_id, selected_index, response_text, is_correct, ai_notes")
+    .eq("submission_id", sub.id)
+    .eq("user_id", userId);
+
+  const answers = new Map<string, PriorAnswer>();
+  for (const r of rows ?? []) {
+    answers.set(r.question_id as string, {
+      selected_index: (r.selected_index as number | null) ?? null,
+      response_text: (r.response_text as string | null) ?? null,
+      is_correct: (r.is_correct as boolean | null) ?? null,
+      ai_notes: (r.ai_notes as string | null) ?? null,
+    });
+  }
+  const total = (sub.score_total as number | null) ?? 0;
+  const correct = (sub.score_correct as number | null) ?? 0;
+  return {
+    attemptNumber: sub.attempt_number as number,
+    perfect: total > 0 && correct === total,
+    answers,
+  };
+}
+
+/**
+ * Split a quiz's questions into the ones this attempt re-asks and the ones it
+ * carries forward. A first attempt — or a full retake of an already-passed quiz —
+ * asks them all. After a failed attempt, only the questions that weren't right last
+ * time are re-asked; the rest carry their previous correct answer forward, so
+ * "passed" still means a perfect set across the whole quiz.
+ */
+function partitionForAttempt<Q extends { id: string }>(
+  questions: Q[],
+  latest: { perfect: boolean; answers: Map<string, PriorAnswer> } | null
+): { ask: Q[]; carry: Q[] } {
+  if (!latest || latest.perfect) return { ask: questions, carry: [] };
+  const ask: Q[] = [];
+  const carry: Q[] = [];
+  for (const q of questions) {
+    if (latest.answers.get(q.id)?.is_correct === true) carry.push(q);
+    else ask.push(q);
+  }
+  // Defensive: never present an empty quiz — fall back to asking everything.
+  if (ask.length === 0) return { ask: questions, carry: [] };
+  return { ask, carry };
+}
+
 /**
  * A published quiz ready to take (or retake) — with answer keys stripped so
- * nothing is leaked to the browser. Returns null only if it's not published or
- * not found. Submitting always records a fresh attempt.
+ * nothing is leaked to the browser. After a failed attempt only the missed
+ * questions are returned (`retake: true`); a first attempt or a full replay
+ * returns them all. Returns null only if it's not published or not found.
  */
 export async function getQuizForTaking(
   quizId: string,
   memberEmail?: string | null
-): Promise<ReadingQuizWithQuestions | null> {
+): Promise<{ quiz: ReadingQuizWithQuestions; retake: boolean } | null> {
   const { client, userId } = await resolveReadingScope(memberEmail);
 
   const { data: quiz } = await client
@@ -435,7 +527,12 @@ export async function getQuizForTaking(
     created_at: q.created_at as string,
   }));
 
-  return { ...(quiz as ReadingQuiz), questions: stripped };
+  // On a failed retake, only re-ask what they missed last time.
+  const latest = await latestAttempt(client, userId, quizId);
+  const { ask } = partitionForAttempt(stripped, latest);
+  const retake = ask.length < stripped.length;
+
+  return { quiz: { ...(quiz as ReadingQuiz), questions: ask }, retake };
 }
 
 /**
@@ -467,16 +564,10 @@ export async function submitQuiz(
     .maybeSingle();
   if (!quiz) throw new Error("This quiz isn't available.");
 
-  // This attempt is the next number after any prior attempts on this quiz.
-  const { data: prior } = await client
-    .from("reading_quiz_submissions")
-    .select("attempt_number")
-    .eq("quiz_id", quizId)
-    .eq("user_id", userId)
-    .order("attempt_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const attemptNumber = ((prior?.attempt_number as number | undefined) ?? 0) + 1;
+  // The prior attempt drives both this attempt's number and which questions a
+  // failed retake re-asks (the rest carry their right answers forward).
+  const prior = await latestAttempt(client, userId, quizId);
+  const attemptNumber = (prior?.attemptNumber ?? 0) + 1;
 
   const { data: submission, error: subError } = await client
     .from("reading_quiz_submissions")
@@ -505,13 +596,17 @@ export async function submitQuiz(
     .order("position", { ascending: true });
   const qs = (questions ?? []) as ReadingQuizQuestion[];
 
+  // After a failed attempt, only grade the questions being re-asked; the ones
+  // they already got right carry their prior answer into this attempt so the
+  // submission stays a complete, comparable snapshot of the whole quiz.
+  const { ask, carry } = partitionForAttempt(qs, prior);
   const byId = new Map(answers.map((a) => [a.questionId, a]));
   const age = await readerAge(email);
 
-  // Grade everything (free-text calls run in parallel; each is independently
-  // resilient inside gradeFreeText).
-  const graded = await Promise.all(
-    qs.map(async (q) => {
+  // Grade the re-asked questions (free-text calls run in parallel; each is
+  // independently resilient inside gradeFreeText).
+  const gradedAsk = await Promise.all(
+    ask.map(async (q) => {
       const submitted = byId.get(q.id);
       if (q.type === "multiple_choice") {
         const selectedIndex = submitted?.selectedIndex ?? null;
@@ -546,6 +641,23 @@ export async function submitQuiz(
     })
   );
 
+  // Carry the previously-correct answers forward verbatim (prior is non-null
+  // whenever carry is non-empty).
+  const carried = carry.map((q) => {
+    const previous = prior!.answers.get(q.id)!;
+    return {
+      question_id: q.id,
+      user_id: userId,
+      submission_id: submissionId,
+      selected_index: previous.selected_index,
+      response_text: previous.response_text,
+      is_correct: true as boolean | null,
+      ai_notes: previous.ai_notes,
+    };
+  });
+
+  const graded = [...gradedAsk, ...carried];
+
   if (graded.length) {
     const { error: ansError } = await client
       .from("reading_quiz_answers")
@@ -554,13 +666,14 @@ export async function submitQuiz(
   }
 
   const scoreCorrect = graded.filter((g) => g.is_correct === true).length;
+  const scoreTotal = qs.length;
   const gradingComplete = graded.every((g) => g.is_correct !== null);
 
   await client
     .from("reading_quiz_submissions")
     .update({
       score_correct: scoreCorrect,
-      score_total: graded.length,
+      score_total: scoreTotal,
       grading_complete: gradingComplete,
     })
     .eq("id", submissionId)
@@ -571,7 +684,7 @@ export async function submitQuiz(
   // ground beyond the current page, so retaking an already-passed stretch is a no-op.
   let advanced = false;
   let finished = false;
-  const passed = graded.length > 0 && scoreCorrect === graded.length;
+  const passed = scoreTotal > 0 && scoreCorrect === scoreTotal;
   if (passed) {
     const throughPage = quiz.through_page as number | null;
     const { data: book } = await client
@@ -654,7 +767,7 @@ export async function getQuizResult(
         .eq("user_id", userId),
       client
         .from("reading_books")
-        .select("title")
+        .select("title, current_page, target_page, total_pages, status")
         .eq("id", (quiz as ReadingQuiz).book_id)
         .eq("user_id", userId)
         .maybeSingle(),
@@ -668,6 +781,13 @@ export async function getQuizResult(
   return {
     quiz: quiz as ReadingQuiz,
     bookTitle: (book?.title as string) ?? "this book",
+    nextAssignment: {
+      bookTitle: (book?.title as string) ?? "this book",
+      currentPage: (book?.current_page as number | null) ?? 0,
+      targetPage: (book?.target_page as number | null) ?? null,
+      totalPages: (book?.total_pages as number | null) ?? null,
+      finished: book?.status === "archive",
+    },
     questions: (questions ?? []) as ReadingQuizQuestion[],
     submission: viewed,
     answersByQuestionId,

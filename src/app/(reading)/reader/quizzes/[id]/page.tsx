@@ -15,9 +15,16 @@ export default async function TakeQuizPage({
   const { member } = await searchParams;
   const memberEmail = member?.trim().toLowerCase() || null;
 
-  // Always takeable while published — submitting records a fresh attempt.
-  const quiz = await getQuizForTaking(id, memberEmail);
-  if (!quiz) notFound();
+  // Always takeable while published — submitting records a fresh attempt. After a
+  // failed attempt, only the missed questions come back (retake: true).
+  const result = await getQuizForTaking(id, memberEmail);
+  if (!result) notFound();
 
-  return <QuizRunner quiz={quiz} memberEmail={memberEmail} />;
+  return (
+    <QuizRunner
+      quiz={result.quiz}
+      memberEmail={memberEmail}
+      retake={result.retake}
+    />
+  );
 }

@@ -2,7 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button-variants";
 import { QuizResultsAnswers } from "@/components/reading/quiz-results-answers";
+import { QuizSuccessModal } from "@/components/reading/quiz-success-modal";
 import { getIsOwner } from "@/lib/members/auth";
+import { addDays, getUserTimezone, localDate } from "@/lib/date-utils";
 import {
   quizResultsHref,
   quizTakeHref,
@@ -14,6 +16,17 @@ import type { ReadingQuizAttemptSummary } from "@/lib/types";
 import { getQuizResult } from "../../actions";
 
 export const dynamic = "force-dynamic";
+
+function nextFridayLabel(today: string): string {
+  const dayOfWeek = new Date(`${today}T12:00:00`).getDay();
+  const daysUntil = ((5 - dayOfWeek + 7) % 7) || 7;
+  const due = addDays(today, daysUntil);
+  return new Date(`${due}T12:00:00`).toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+}
 
 export default async function QuizResultsPage({
   params,
@@ -35,6 +48,7 @@ export default async function QuizResultsPage({
   const {
     quiz,
     bookTitle,
+    nextAssignment,
     questions,
     submission,
     answersByQuestionId,
@@ -45,9 +59,20 @@ export default async function QuizResultsPage({
   const viewedPerfect =
     submission.score_total > 0 &&
     submission.score_correct === submission.score_total;
+  const tz = await getUserTimezone();
+  const dueDateLabel = nextFridayLabel(localDate(new Date(), tz));
+  const readingHref = readingHomeHref(memberEmail);
 
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-8">
+      {viewedPerfect && (
+        <QuizSuccessModal
+          assignment={nextAssignment}
+          dueDateLabel={dueDateLabel}
+          readingHref={readingHref}
+        />
+      )}
+
       <h1 className="font-serif text-2xl tracking-tight text-foreground">
         {quiz.title || "Quiz results"}
       </h1>
@@ -74,7 +99,7 @@ export default async function QuizResultsPage({
       >
         <p className="text-lg font-medium text-foreground">
           {viewedPerfect
-            ? "Passed — every question right! 🎉"
+            ? "Passed — every question right."
             : `You got ${submission.score_correct} of ${submission.score_total} right`}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
@@ -104,14 +129,16 @@ export default async function QuizResultsPage({
       />
 
       <div className="mt-8 flex items-center gap-2">
+        {!passed && (
+          <Link
+            href={quizTakeHref(id, memberEmail)}
+            className={cn(buttonVariants({ variant: "default", size: "sm" }))}
+          >
+            Retake quiz
+          </Link>
+        )}
         <Link
-          href={quizTakeHref(id, memberEmail)}
-          className={cn(buttonVariants({ variant: "default", size: "sm" }))}
-        >
-          Retake quiz
-        </Link>
-        <Link
-          href={readingHomeHref(memberEmail)}
+          href={readingHref}
           className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
         >
           Back to reading
@@ -162,4 +189,3 @@ function AttemptHistory({
     </div>
   );
 }
-

@@ -33,6 +33,7 @@ import { removeBook } from "@/app/(reading)/reader/actions";
 import { startBookReflection } from "@/app/(journal)/journal/actions";
 import { bookReaderHref } from "@/lib/reading/links";
 import { amazonHref, koboHref } from "@/lib/reading/store-links";
+import { readingTargetDueLabel } from "@/lib/reading/target-due";
 import { useBookFileActions } from "@/lib/reading/use-book-file-actions";
 import type { ActiveBookQuiz, ReadingBookWithProgress } from "@/lib/types";
 
@@ -173,7 +174,8 @@ export function BookCard({
             <p className="mt-2 text-xs text-muted-foreground">
               <span className="text-foreground">
                 Aim for page {book.target_page}
-              </span>
+              </span>{" "}
+              · {readingTargetDueLabel()}
             </p>
           )}
 
@@ -197,7 +199,7 @@ export function BookCard({
             <MarkReachedButton
               bookId={book.id}
               targetPage={book.target_page}
-              hasActiveQuiz={!!activeQuiz}
+              activeQuiz={activeQuiz}
               emphasize={emphasizeCheckIn}
               memberEmail={memberEmail}
             />

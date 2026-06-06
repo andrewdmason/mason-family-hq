@@ -7,8 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "seed:photos": "node supabase/seed-journal-photos.mjs",
-    "db:reset": "supabase db reset && node supabase/seed-journal-photos.mjs"
+    "seed:media": "node supabase/seed-journal-photos.mjs",
+    "seed:photos": "npm run seed:media",
+    "db:reset": "supabase db reset && npm run seed:media"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
