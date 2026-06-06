@@ -1,7 +1,10 @@
 import "server-only";
 
 import { getCalendarEvents, getCalendarMembers } from "@/lib/calendar/queries";
-import { memberColor } from "@/lib/calendar/calendar-utils";
+import {
+  isDeclinedTeamsnapEvent,
+  memberColor,
+} from "@/lib/calendar/calendar-utils";
 import { localDate } from "@/lib/date-utils";
 import type { CalendarEvent } from "@/lib/calendar/types";
 import type { MemberDay } from "./types";
@@ -46,6 +49,7 @@ export async function getOthersDay(
   const FAMILY_KEY = "__family__";
   const byMember = new Map<string, CalendarEvent[]>();
   for (const event of events) {
+    if (isDeclinedTeamsnapEvent(event)) continue;
     if (eventDateKey(event, tz) !== today) continue;
     if (event.member_email && event.member_email === viewerEmail) continue;
     const key = event.member_email ?? FAMILY_KEY;

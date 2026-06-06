@@ -24,6 +24,15 @@ export function memberColor(email: string | null): string {
   return MEMBER_PALETTE[Math.abs(hash) % MEMBER_PALETTE.length];
 }
 
+// A TeamSnap event the linked player has RSVP'd "Not going" to. These are
+// hidden by default across the app (the Calendar view, agenda widgets) — you're
+// not attending, so it shouldn't clutter the agenda. Mirrors the Calendar
+// client's own `isDeclined` check, but keyed on the event's own source_type so
+// callers don't need the sources map.
+export function isDeclinedTeamsnapEvent(event: CalendarEvent): boolean {
+  return event.source_type === "teamsnap" && event.teamsnap_rsvp === "not_going";
+}
+
 export function getWeekBounds(anchor: Date): { start: Date; end: Date } {
   const d = new Date(anchor);
   const day = d.getDay();
