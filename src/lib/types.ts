@@ -1015,6 +1015,8 @@ export type ReadingQuizSubmission = {
   score_total: number;
   /** False when an AI free-text grade failed, leaving an ungraded answer. */
   grading_complete: boolean;
+  /** The parent's email when this is an override (closed without passing); else null. */
+  closed_by_email: string | null;
   created_at: string;
 };
 
@@ -1103,6 +1105,8 @@ export type OwnerQuizListItem = {
   attemptCount: number;
   /** True once any attempt got every question right. */
   passed: boolean;
+  /** True when a parent closed it without passing, rather than the kid passing it. */
+  closedByParent: boolean;
   /** The kid's most recent attempt, once they've taken it. */
   latest: {
     attemptNumber: number;

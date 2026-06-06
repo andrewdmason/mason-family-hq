@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import { CloseQuizButton } from "@/components/reading/close-quiz-button";
 import { getIsOwner } from "@/lib/members/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { quizEditHref, quizResultsHref, readingHomeHref } from "@/lib/reading/links";
@@ -84,9 +85,11 @@ function QuizRow({
       : quiz.latest
         ? quizResultsHref(quiz.id, quiz.memberEmail)
         : null;
+  // A published quiz that hasn't been passed (or closed) can be closed by a parent.
+  const canClose = quiz.status === "published" && !quiz.passed;
 
-  const inner = (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-4 py-3">
+  const details = (
+    <div className="flex flex-1 flex-wrap items-center justify-between gap-2">
       <div>
         <p className="text-sm text-foreground">{quiz.bookTitle}</p>
         <p className="text-xs capitalize text-muted-foreground">
@@ -99,7 +102,11 @@ function QuizRow({
         ) : quiz.latest ? (
           <div className="flex items-center gap-2">
             {quiz.passed ? (
-              <Badge className="bg-emerald-600 text-white">Passed</Badge>
+              quiz.closedByParent ? (
+                <Badge variant="secondary">Closed by parent</Badge>
+              ) : (
+                <Badge className="bg-emerald-600 text-white">Passed</Badge>
+              )
             ) : (
               <Badge
                 variant="outline"
@@ -131,10 +138,25 @@ function QuizRow({
     </div>
   );
 
-  if (!href) return inner;
   return (
-    <Link href={href} className="block transition-colors hover:opacity-90">
-      {inner}
-    </Link>
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border px-4 py-3">
+      {href ? (
+        <Link
+          href={href}
+          className="flex flex-1 transition-colors hover:opacity-90"
+        >
+          {details}
+        </Link>
+      ) : (
+        details
+      )}
+      {canClose && (
+        <CloseQuizButton
+          quizId={quiz.id}
+          memberEmail={quiz.memberEmail}
+          size="xs"
+        />
+      )}
+    </div>
   );
 }

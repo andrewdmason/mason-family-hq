@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button-variants";
 import { QuizResultsAnswers } from "@/components/reading/quiz-results-answers";
 import { QuizSuccessModal } from "@/components/reading/quiz-success-modal";
+import { CloseQuizButton } from "@/components/reading/close-quiz-button";
 import { getIsOwner } from "@/lib/members/auth";
 import { addDays, getUserTimezone, localDate } from "@/lib/date-utils";
 import {
@@ -56,7 +57,11 @@ export default async function QuizResultsPage({
     passed,
   } = result;
 
+  // A parent override is recorded as a perfect submission flagged with their email.
+  // It shouldn't read (or celebrate) as the kid acing the quiz.
+  const closedByParent = submission.closed_by_email != null;
   const viewedPerfect =
+    !closedByParent &&
     submission.score_total > 0 &&
     submission.score_correct === submission.score_total;
   const tz = await getUserTimezone();
@@ -98,18 +103,21 @@ export default async function QuizResultsPage({
         )}
       >
         <p className="text-lg font-medium text-foreground">
-          {viewedPerfect
-            ? "Passed — every question right."
-            : `You got ${submission.score_correct} of ${submission.score_total} right`}
+          {closedByParent
+            ? "Closed by a parent."
+            : viewedPerfect
+              ? "Passed — every question right."
+              : `You got ${submission.score_correct} of ${submission.score_total} right`}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
           {attempts.length > 1
             ? `Attempt ${submission.attempt_number} of ${attempts.length}`
             : "Your first attempt"}
-          {!viewedPerfect && passed
+          {closedByParent ? " · marked complete without passing" : ""}
+          {!viewedPerfect && !closedByParent && passed
             ? " · you passed this quiz on another try"
             : ""}
-          {!viewedPerfect && !passed
+          {!viewedPerfect && !closedByParent && !passed
             ? " · pass by getting every question right"
             : ""}
         </p>
@@ -143,6 +151,9 @@ export default async function QuizResultsPage({
         >
           Back to reading
         </Link>
+        {isOwner && !passed && (
+          <CloseQuizButton quizId={id} memberEmail={memberEmail} />
+        )}
       </div>
     </main>
   );
