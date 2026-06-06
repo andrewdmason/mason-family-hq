@@ -5,7 +5,10 @@ import { getCalendarEvents } from "@/lib/calendar/queries";
 import { memberColor } from "@/lib/calendar/calendar-utils";
 import { getWeekStart, localDate } from "@/lib/date-utils";
 import { activeQuizState, isQuizDue } from "@/lib/reading/quiz-due";
-import { readingTargetDueLabelFromDateKey } from "@/lib/reading/target-due";
+import {
+  readingDueLabelFromKeys,
+  readingTargetDueLabelFromDateKey,
+} from "@/lib/reading/target-due";
 import type { CalendarEvent } from "@/lib/calendar/types";
 import type {
   HomePersonReadingStatus,
@@ -31,6 +34,7 @@ type BookRow = {
   author: string | null;
   current_page: number;
   target_page: number | null;
+  target_due: string | null;
   total_pages: number | null;
 };
 
@@ -149,7 +153,7 @@ async function readingByMember(
       .in("member_email", emails),
     admin
       .from("reading_books")
-      .select("id, user_id, title, author, current_page, target_page, total_pages")
+      .select("id, user_id, title, author, current_page, target_page, target_due, total_pages")
       .in("user_id", userIds)
       .eq("status", "in_progress")
       .order("created_at", { ascending: true }),
@@ -241,7 +245,11 @@ async function readingByMember(
       targetPage: book.target_page,
       totalPages: book.total_pages,
       pagesReadThisWeek,
-      dueLabel,
+      // Each book's own deadline; fall back to the shared day-of-week label for
+      // books that predate stored due dates.
+      dueLabel: book.target_due
+        ? readingDueLabelFromKeys(book.target_due, today)
+        : dueLabel,
       quiz: quizIdsByBook.get(book.id) ?? null,
     });
   }

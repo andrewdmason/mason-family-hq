@@ -20,6 +20,8 @@ DECLARE
   sebastian_book uuid := 'a0000003-0004-4001-8001-000000000001';
   sebastian_quiz uuid := 'a0000003-0004-4001-8002-000000000001';
   baseline date := date_trunc('week', current_date)::date - 7; -- prior Monday
+  next_friday date := current_date
+    + ((((5 - extract(dow FROM current_date)::int + 6) % 7) + 1)); -- first Friday after today
 BEGIN
   IF andrew IS NULL OR sebastian IS NULL THEN
     RAISE NOTICE 'Family members not found; skipping reading seed.';
@@ -72,11 +74,11 @@ BEGIN
 
   -- Currently reading.
   INSERT INTO reading_books
-    (id, user_id, title, author, total_pages, current_page, target_page, target_locked, status, cover_image_url, started_at)
+    (id, user_id, title, author, total_pages, current_page, target_page, target_locked, target_due, status, cover_image_url, started_at)
   VALUES
-    (andrew_book, andrew, 'Demon Copperhead', 'Barbara Kingsolver', 548, 0, 10, false, 'in_progress',
+    (andrew_book, andrew, 'Demon Copperhead', 'Barbara Kingsolver', 548, 0, 10, false, next_friday, 'in_progress',
       'https://covers.openlibrary.org/b/isbn/9780063251922-L.jpg?default=false', baseline),
-    (sebastian_book, sebastian, 'The Hunger Games', 'Suzanne Collins', 374, 80, 130, true, 'in_progress',
+    (sebastian_book, sebastian, 'The Hunger Games', 'Suzanne Collins', 374, 80, 130, true, next_friday, 'in_progress',
       'https://covers.openlibrary.org/b/isbn/9780439023481-L.jpg?default=false', baseline);
 
   -- Andrew's finished shelf, with emoji ratings — the taste signal Discover uses

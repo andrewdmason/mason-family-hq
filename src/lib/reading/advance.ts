@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ReadingScope } from "@/lib/reading/scope";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { defaultTargetPage } from "@/lib/reading/targets";
+import { readingTargetDueDateKey } from "@/lib/reading/target-due";
 import {
   ensureStretchQuiz,
   type EnsureStretchResult,
@@ -93,6 +94,8 @@ export async function advanceStretch(
       current_page: newCurrent,
       target_page: nextTarget,
       target_locked: false,
+      // A fresh stretch is due the Friday after today, granting a new week.
+      target_due: nextTarget != null ? readingTargetDueDateKey(today) : null,
       status: finished ? "archive" : "in_progress",
       finished_at: finished ? today : null,
     })

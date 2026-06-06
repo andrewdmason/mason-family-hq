@@ -11,6 +11,7 @@ import {
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
 import { capTarget, defaultTargetPage } from "@/lib/reading/targets";
+import { readingTargetDueDateKey } from "@/lib/reading/target-due";
 import {
   advanceStretch,
   ensureStretchQuizInline,
@@ -29,7 +30,7 @@ import type {
 } from "@/lib/types";
 
 const BOOK_COLUMNS =
-  "id, user_id, title, author, total_pages, current_page, target_page, target_locked, status, cover_image_url, openlibrary_key, isbn, published_year, started_at, finished_at, rating, recommended_by_email, recommended_by_label, recommendation_note, created_at, updated_at";
+  "id, user_id, title, author, total_pages, current_page, target_page, target_locked, target_due, status, cover_image_url, openlibrary_key, isbn, published_year, started_at, finished_at, rating, recommended_by_email, recommended_by_label, recommendation_note, created_at, updated_at";
 
 function firstName(name: string | null | undefined, fallback: string): string {
   return name?.trim().split(/\s+/)[0] || fallback;
@@ -348,6 +349,7 @@ export async function addBook(input: {
       total_pages: totalPages,
       current_page: finished && totalPages ? totalPages : 0,
       target_page: targetPage,
+      target_due: targetPage != null ? readingTargetDueDateKey(today) : null,
       status,
       cover_image_url: input.coverImageUrl ?? null,
       openlibrary_key: openlibraryKey,
@@ -396,7 +398,7 @@ export async function updateBook(
 
   const { data: existing, error: fetchError } = await client
     .from("reading_books")
-    .select("status, total_pages, current_page, target_page, target_locked, started_at")
+    .select("status, total_pages, current_page, target_page, target_locked, target_due, started_at")
     .eq("id", bookId)
     .eq("user_id", userId)
     .single();
@@ -486,6 +488,18 @@ export async function updateBook(
   if (finalStatus !== "in_progress") {
     update.target_page = null;
     update.target_locked = false;
+  }
+
+  // Keep the due date in step with the target: cleared targets lose it, and a
+  // target that actually changed (or a legacy book with no due date yet) gets a
+  // fresh deadline — the Friday after today. An unchanged target keeps its date.
+  if ("target_page" in update) {
+    const newTarget = update.target_page as number | null;
+    if (newTarget == null) {
+      update.target_due = null;
+    } else if (newTarget !== existing.target_page || existing.target_due == null) {
+      update.target_due = readingTargetDueDateKey(today);
+    }
   }
 
   if (Object.keys(update).length === 0) return;
