@@ -9,6 +9,11 @@ export interface EventDisplay {
   event: CalendarEvent;
   color: string;
   sourceLabel: string | null;
+  // The source calendar's name, set only when this event's owner has more than
+  // one calendar — so a card can disambiguate which one it came from (e.g.
+  // "NOLL12: Scrimmage…"). Null when the owner has a single calendar, where the
+  // name would just be noise.
+  calendarLabel: string | null;
   conflict: boolean;
   // The player's RSVP state for a linked TeamSnap event, or null when RSVP
   // doesn't apply (no team source, or no player linked to it).
@@ -123,7 +128,7 @@ export function EventColumnCard({
   onClick: (event: CalendarEvent) => void;
   selected?: boolean;
 }) {
-  const { event, color, conflict, rsvp } = display;
+  const { event, color, conflict, rsvp, calendarLabel } = display;
   const time = event.all_day
     ? "All day"
     : new Date(event.start_time).toLocaleTimeString("en-US", {
@@ -134,7 +139,7 @@ export function EventColumnCard({
     <button
       type="button"
       onClick={() => onClick(event)}
-      title={event.title}
+      title={calendarLabel ? `${calendarLabel}: ${event.title}` : event.title}
       style={{ borderLeftColor: color }}
       className={cn(
         "block w-full rounded-md border border-border/70 border-l-[3px] bg-card px-2 py-1.5 text-left shadow-sm transition-colors hover:bg-muted/50",
@@ -153,6 +158,9 @@ export function EventColumnCard({
         )}
       </span>
       <span className="mt-0.5 line-clamp-2 text-xs font-medium leading-snug text-foreground">
+        {calendarLabel && (
+          <span className="text-muted-foreground">{calendarLabel}: </span>
+        )}
         {event.title}
       </span>
     </button>
