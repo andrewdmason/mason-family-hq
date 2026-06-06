@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Pencil, Settings, Trash2 } from "lucide-react";
+import { Pencil, Plus, Settings, Trash2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +27,7 @@ import { MemberPhotoDialog } from "@/components/journal/member-photo-dialog";
 import {
   removeFamilyMember,
   updateFamilyMember,
+  updateMemberColor,
   updateMemberProfile,
   updateMemberRole,
   updateReadingGoal,
@@ -43,6 +45,21 @@ const ROLE_LABELS: Record<MemberRole, string> = {
   kid: "Kid",
 };
 const ASSIGNABLE_ROLES: MemberRole[] = ["parent", "kid"];
+
+// Quick-pick swatches for a member's calendar color; any other hex is still
+// reachable through the custom picker. Kept in sync with the dev seed defaults.
+const PRESET_COLORS = [
+  "#2563eb", // blue
+  "#7c3aed", // purple
+  "#16a34a", // green
+  "#ea580c", // orange
+  "#db2777", // pink
+  "#0891b2", // cyan
+  "#d97706", // amber
+  "#dc2626", // red
+  "#0d9488", // teal
+  "#64748b", // slate
+];
 
 export function FamilyManager({
   members,
@@ -104,6 +121,15 @@ export function FamilyManager({
               />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "h-2.5 w-2.5 shrink-0 rounded-full",
+                      !m.color && "ring-1 ring-inset ring-border",
+                    )}
+                    style={m.color ? { backgroundColor: m.color } : undefined}
+                    title={m.color ?? "No color set"}
+                    aria-hidden
+                  />
                   <span className="font-serif text-sm text-foreground">
                     {m.name || "—"}
                   </span>
@@ -201,6 +227,7 @@ function EditMemberDialog({
   const [role, setRole] = useState<MemberRole>(member.role);
   const [goal, setGoal] = useState(String(initialGoal));
   const [birthdate, setBirthdate] = useState(member.birthdate ?? "");
+  const [color, setColor] = useState(member.color ?? "");
   const [motherEmail, setMotherEmail] = useState(member.mother_email ?? NO_PARENT);
   const [fatherEmail, setFatherEmail] = useState(member.father_email ?? NO_PARENT);
   const [error, setError] = useState<string | null>(null);
@@ -234,6 +261,10 @@ function EditMemberDialog({
           motherEmail: motherEmail === NO_PARENT ? null : motherEmail,
           fatherEmail: fatherEmail === NO_PARENT ? null : fatherEmail,
         });
+        const newColor = color.trim().toLowerCase() || null;
+        if (newColor !== (member.color ?? null)) {
+          await updateMemberColor(newEmail, newColor);
+        }
         onClose();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't save changes.");
@@ -303,6 +334,7 @@ function EditMemberDialog({
               </Select>
             )}
           </div>
+          <ColorField value={color} onChange={setColor} />
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
               <Label htmlFor="edit-birthdate">Birthdate</Label>
@@ -351,6 +383,75 @@ function EditMemberDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ColorField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const current = value.toLowerCase();
+  const isCustom = current !== "" && !PRESET_COLORS.includes(current);
+  return (
+    <div className="grid gap-1.5">
+      <Label>Color</Label>
+      <div className="flex flex-wrap items-center gap-2">
+        {PRESET_COLORS.map((c) => {
+          const active = current === c;
+          return (
+            <button
+              key={c}
+              type="button"
+              onClick={() => onChange(c)}
+              aria-label={`Use ${c}`}
+              aria-pressed={active}
+              className={cn(
+                "h-6 w-6 rounded-full transition",
+                active
+                  ? "ring-2 ring-foreground ring-offset-2 ring-offset-background"
+                  : "ring-1 ring-border hover:ring-foreground/40",
+              )}
+              style={{ backgroundColor: c }}
+            />
+          );
+        })}
+        {/* Custom color: shows the picked color when it isn't a preset. */}
+        <label
+          title="Custom color"
+          className={cn(
+            "relative inline-flex h-6 w-6 cursor-pointer items-center justify-center overflow-hidden rounded-full transition",
+            isCustom
+              ? "ring-2 ring-foreground ring-offset-2 ring-offset-background"
+              : "ring-1 ring-border hover:ring-foreground/40",
+          )}
+          style={isCustom ? { backgroundColor: current } : undefined}
+        >
+          <input
+            type="color"
+            value={current || "#888888"}
+            onChange={(e) => onChange(e.target.value)}
+            aria-label="Custom color"
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          />
+          {!isCustom && <Plus className="h-3.5 w-3.5 text-muted-foreground" />}
+        </label>
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+          >
+            Reset
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Used to identify this person across the app.
+      </p>
+    </div>
   );
 }
 
