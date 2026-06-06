@@ -27,6 +27,7 @@ import {
   type GoogleCalendarListEntry,
 } from "@/lib/calendar/google";
 import { syncGoogleSource } from "@/lib/calendar/google-sync";
+import { allDayInstant } from "@/lib/calendar/calendar-utils";
 
 /** Throw unless the caller is an owner/parent — the roles that manage calendars.
  * Returns the caller's member email (handy for connection-scoped work). */
@@ -64,8 +65,14 @@ function baseEventColumns(input: ManualEventInput) {
     title: input.title.trim(),
     location: input.location?.trim() || null,
     description: input.description?.trim() || null,
-    start_time: input.startTime,
-    end_time: input.endTime,
+    // All-day events are pinned to midnight UTC of their wall-clock date — the
+    // single anchor every sync path and the Calendar views agree on, so the day
+    // reads back correctly in every timezone (see calendar-utils' eventDayKey).
+    start_time: input.allDay ? allDayInstant(input.startTime) : input.startTime,
+    end_time:
+      input.allDay && input.endTime
+        ? allDayInstant(input.endTime)
+        : input.endTime,
     all_day: input.allDay,
   };
 }

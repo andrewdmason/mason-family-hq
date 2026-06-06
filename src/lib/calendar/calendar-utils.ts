@@ -76,6 +76,43 @@ export function toDateKey(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+// ============================================================
+// All-day events: the one place the wall-clock-date contract lives.
+//
+// An all-day event has no time and no timezone — it's a floating wall-clock
+// date. Every storage path (ICS, Google, manual) pins it to MIDNIGHT UTC of
+// that date (e.g. 2026-06-06T00:00:00Z) so the stored instant is identical for
+// everyone. The catch: that instant must then be READ BACK IN UTC. Reading it
+// in the viewer's local zone shifts midnight UTC onto the previous day west of
+// UTC (Pacific), which is the recurring "tomorrow's all-day event shows today"
+// bug. Timed events are real instants and are read in the viewer's local zone.
+//
+// Route ALL event-day logic through eventDayKey / allDayInstant so no call site
+// can forget the rule again.
+// ============================================================
+
+// The wall-clock date (YYYY-MM-DD) of a Date read in UTC.
+export function utcDateKey(date: Date): string {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// The calendar day an event belongs to, as a YYYY-MM-DD key: all-day events in
+// UTC (where they're anchored), timed events in the viewer's local zone. This is
+// the canonical "what day is this event on?" used by every Calendar view.
+export function eventDayKey(event: CalendarEvent): string {
+  const d = new Date(event.start_time);
+  return event.all_day ? utcDateKey(d) : toDateKey(d);
+}
+
+// A wall-clock date (YYYY-MM-DD) as the canonical all-day instant: midnight UTC.
+// Every all-day event is stored this way so eventDayKey reads it back correctly.
+export function allDayInstant(ymd: string): string {
+  return `${ymd.slice(0, 10)}T00:00:00.000Z`;
+}
+
 export function isSameDay(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&
@@ -97,7 +134,7 @@ export function groupEventsByDay(
 ): Map<string, CalendarEvent[]> {
   const map = new Map<string, CalendarEvent[]>();
   for (const event of events) {
-    const key = toDateKey(new Date(event.start_time));
+    const key = eventDayKey(event);
     const arr = map.get(key) ?? [];
     arr.push(event);
     map.set(key, arr);
@@ -115,6 +152,18 @@ export function formatDayLabel(date: Date): string {
     weekday: "long",
     month: "short",
     day: "numeric",
+  });
+}
+
+// The long, human date for an event ("Saturday, June 6, 2026"). All-day events
+// are read in UTC (where they're anchored); timed events in the viewer's zone.
+export function formatEventDate(event: CalendarEvent): string {
+  return new Date(event.start_time).toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    ...(event.all_day ? { timeZone: "UTC" } : {}),
   });
 }
 
