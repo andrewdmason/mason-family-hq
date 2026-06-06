@@ -1015,6 +1015,8 @@ export type ReadingQuizSubmission = {
   score_total: number;
   /** False when an AI free-text grade failed, leaving an ungraded answer. */
   grading_complete: boolean;
+  /** The parent's email when this is an override (closed without passing); else null. */
+  closed_by_email: string | null;
   created_at: string;
 };
 
@@ -1069,8 +1071,8 @@ export type ReadingQuizResult = {
   bookTitle: string;
   nextAssignment: ReadingQuizNextAssignment;
   questions: ReadingQuizQuestion[];
-  /** The attempt whose answers are shown in detail. */
-  submission: ReadingQuizSubmission;
+  /** The attempt whose answers are shown in detail. Null when not yet attempted. */
+  submission: ReadingQuizSubmission | null;
   answersByQuestionId: Record<string, ReadingQuizAnswer>;
   /** Every attempt, oldest first. */
   attempts: ReadingQuizAttemptSummary[];
@@ -1103,6 +1105,8 @@ export type OwnerQuizListItem = {
   attemptCount: number;
   /** True once any attempt got every question right. */
   passed: boolean;
+  /** True when a parent closed it without passing, rather than the kid passing it. */
+  closedByParent: boolean;
   /** The kid's most recent attempt, once they've taken it. */
   latest: {
     attemptNumber: number;

@@ -166,12 +166,16 @@ BEGIN
   -- a published, unpassed check-in quiz covers the current Hunger Games stretch.
   -- The quiz is seeded directly rather than generated from copyrighted source
   -- text, keeping local resets lightweight while still exercising the quiz flow.
+  -- created_at is backdated to the prior week so the stretch counts as begun
+  -- before this week's Friday and the quiz reads as "Due now" in the Fri-Sun
+  -- window (a stretch begun this week isn't due until the next Friday — see
+  -- lib/reading/quiz-due.ts).
   INSERT INTO reading_quizzes
     (id, user_id, book_id, from_page, through_page, status, title,
-     created_by_email, source, published_at)
+     created_by_email, source, published_at, created_at)
   VALUES
     (sebastian_quiz, sebastian, sebastian_book, 80, 130, 'published',
-     'The Hunger Games: pages 80-130', 'andrew@mason.io', 'checkin', now());
+     'The Hunger Games: pages 80-130', 'andrew@mason.io', 'checkin', now(), baseline);
 
   INSERT INTO reading_quiz_questions
     (id, quiz_id, user_id, position, type, prompt, options, correct_index,

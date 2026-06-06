@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCalendarEvents } from "@/lib/calendar/queries";
 import { memberColor } from "@/lib/calendar/calendar-utils";
 import { getWeekStart, localDate } from "@/lib/date-utils";
-import { activeQuizState, isQuizDueWindow } from "@/lib/reading/quiz-due";
+import { activeQuizState, isQuizDue } from "@/lib/reading/quiz-due";
 import { readingTargetDueLabelFromDateKey } from "@/lib/reading/target-due";
 import type { CalendarEvent } from "@/lib/calendar/types";
 import type {
@@ -43,6 +43,7 @@ type CheckinRow = {
 type QuizRow = {
   id: string;
   book_id: string;
+  created_at: string;
 };
 
 type SubmissionRow = {
@@ -108,16 +109,19 @@ function pagesReadByBook(
 function activeQuizByBook(
   quizzes: QuizRow[],
   submissionsByQuiz: Map<string, SubmissionRow[]>,
-  dueNow: boolean
+  dayOfWeek: number,
+  today: string,
+  tz: string
 ): Map<string, HomeReadingBookStatus["quiz"]> {
   const out = new Map<string, HomeReadingBookStatus["quiz"]>();
   for (const quiz of quizzes) {
     if (out.has(quiz.book_id)) continue;
     const subs = submissionsByQuiz.get(quiz.id) ?? [];
     if (isPassed(subs)) continue;
+    const startedOn = localDate(new Date(quiz.created_at), tz);
     out.set(quiz.book_id, {
       id: quiz.id,
-      state: activeQuizState(subs.length > 0, dueNow),
+      state: activeQuizState(subs.length > 0, isQuizDue(dayOfWeek, startedOn, today)),
     });
   }
   return out;
@@ -126,7 +130,9 @@ function activeQuizByBook(
 async function readingByMember(
   members: MemberRow[],
   weekStart: string,
-  dueNow: boolean,
+  dayOfWeek: number,
+  today: string,
+  tz: string,
   dueLabel: string
 ): Promise<Map<string, HomePersonReadingStatus>> {
   const admin = createAdminClient();
@@ -162,7 +168,7 @@ async function readingByMember(
         .in("book_id", bookIds),
       admin
         .from("reading_quizzes")
-        .select("id, book_id")
+        .select("id, book_id, created_at")
         .in("book_id", bookIds)
         .eq("status", "published")
         .order("published_at", { ascending: false }),
@@ -192,7 +198,9 @@ async function readingByMember(
     for (const [bookId, quiz] of activeQuizByBook(
       quizRows,
       submissionsByQuiz,
-      dueNow
+      dayOfWeek,
+      today,
+      tz
     )) {
       quizIdsByBook.set(bookId, quiz);
     }
@@ -251,7 +259,6 @@ export async function getHomePersonStatuses(
   const today = localDate(new Date(now), tz);
   const weekStart = getWeekStart(today);
   const dayOfWeek = new Date(`${today}T12:00:00`).getDay();
-  const dueNow = isQuizDueWindow(dayOfWeek);
   const dueLabel = readingTargetDueLabelFromDateKey(today);
 
   const [{ data: memberRows }, events] = await Promise.all([
@@ -275,7 +282,9 @@ export async function getHomePersonStatuses(
   const readingByEmail = await readingByMember(
     targets,
     weekStart,
-    dueNow,
+    dayOfWeek,
+    today,
+    tz,
     dueLabel
   );
 

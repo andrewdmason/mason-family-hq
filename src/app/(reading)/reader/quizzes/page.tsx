@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { getIsOwner } from "@/lib/members/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { quizEditHref, quizResultsHref, readingHomeHref } from "@/lib/reading/links";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
-import { isQuizDueWindow } from "@/lib/reading/quiz-due";
+import { isQuizDue } from "@/lib/reading/quiz-due";
 import type { OwnerQuizListItem } from "@/lib/types";
 import { listAllQuizzes } from "./actions";
 
@@ -20,9 +21,10 @@ export default async function QuizzesListPage() {
 
   const [quizzes, tz] = await Promise.all([listAllQuizzes(), getUserTimezone()]);
   // The weekly quiz is due every Friday — an unattempted published quiz reads as
-  // "Due now" from Friday through the weekend.
-  const dayOfWeek = new Date(`${localDate(new Date(), tz)}T12:00:00`).getDay();
-  const dueNow = isQuizDueWindow(dayOfWeek);
+  // "Due now" from Friday through the weekend, but only once its stretch began
+  // before this window's Friday (a just-prepared quiz isn't due the same week).
+  const today = localDate(new Date(), tz);
+  const dayOfWeek = new Date(`${today}T12:00:00`).getDay();
 
   // Group by reader so each kid's quizzes sit together.
   const byMember = new Map<string, OwnerQuizListItem[]>();
@@ -60,7 +62,15 @@ export default async function QuizzesListPage() {
               </h2>
               <div className="mt-3 space-y-2">
                 {items.map((q) => (
-                  <QuizRow key={q.id} quiz={q} dueNow={dueNow} />
+                  <QuizRow
+                    key={q.id}
+                    quiz={q}
+                    dueNow={isQuizDue(
+                      dayOfWeek,
+                      localDate(new Date(q.createdAt), tz),
+                      today
+                    )}
+                  />
                 ))}
               </div>
             </section>
@@ -78,16 +88,21 @@ function QuizRow({
   quiz: OwnerQuizListItem;
   dueNow: boolean;
 }) {
+  // Every quiz opens to a detail view: drafts to the editor, published quizzes to
+  // their detail/results page (where the owner can view it and close it without
+  // passing) — including ones the kid hasn't attempted yet.
   const href =
     quiz.status === "draft"
       ? quizEditHref(quiz.id, quiz.memberEmail)
-      : quiz.latest
-        ? quizResultsHref(quiz.id, quiz.memberEmail)
-        : null;
+      : quizResultsHref(quiz.id, quiz.memberEmail);
+  const action = quiz.status === "draft" ? "Review draft" : "View quiz";
 
-  const inner = (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-4 py-3">
-      <div>
+  return (
+    <Link
+      href={href}
+      className="flex flex-wrap items-center gap-3 rounded-lg border border-border px-4 py-3 transition-colors hover:bg-accent"
+    >
+      <div className="min-w-0 flex-1">
         <p className="text-sm text-foreground">{quiz.bookTitle}</p>
         <p className="text-xs capitalize text-muted-foreground">
           {quizRangeLabel(quiz.fromPage, quiz.throughPage)}
@@ -99,7 +114,11 @@ function QuizRow({
         ) : quiz.latest ? (
           <div className="flex items-center gap-2">
             {quiz.passed ? (
-              <Badge className="bg-emerald-600 text-white">Passed</Badge>
+              quiz.closedByParent ? (
+                <Badge variant="secondary">Closed by parent</Badge>
+              ) : (
+                <Badge className="bg-emerald-600 text-white">Passed</Badge>
+              )
             ) : (
               <Badge
                 variant="outline"
@@ -127,14 +146,11 @@ function QuizRow({
         ) : (
           <Badge variant="outline">Awaiting submission</Badge>
         )}
+        <span className="flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground">
+          {action}
+          <ChevronRight className="h-4 w-4" />
+        </span>
       </div>
-    </div>
-  );
-
-  if (!href) return inner;
-  return (
-    <Link href={href} className="block transition-colors hover:opacity-90">
-      {inner}
     </Link>
   );
 }

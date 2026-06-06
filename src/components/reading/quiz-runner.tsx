@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { type ReactNode, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -20,11 +20,14 @@ export function QuizRunner({
   quiz,
   memberEmail = null,
   retake = false,
+  ownerSlot = null,
 }: {
   quiz: ReadingQuizWithQuestions;
   memberEmail?: string | null;
   /** True when this is a retake showing only the questions missed last time. */
   retake?: boolean;
+  /** Owner-only controls (e.g. close without passing), shown in the header. */
+  ownerSlot?: ReactNode;
 }) {
   const router = useRouter();
   const [choices, setChoices] = useState<Record<string, number>>({});
@@ -128,9 +131,12 @@ export function QuizRunner({
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        <Button type="submit" disabled={pending || quiz.questions.length === 0}>
-          {pending ? "Submitting…" : "Submit quiz"}
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button type="submit" disabled={pending || quiz.questions.length === 0}>
+            {pending ? "Submitting…" : "Submit quiz"}
+          </Button>
+          {ownerSlot}
+        </div>
       </form>
     </main>
   );

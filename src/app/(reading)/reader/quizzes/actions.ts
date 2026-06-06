@@ -6,7 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireOwner } from "@/lib/members/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { resolveReadingScope } from "@/lib/reading/scope";
-import { isQuizDueWindow } from "@/lib/reading/quiz-due";
+import { isQuizDue } from "@/lib/reading/quiz-due";
 import { getTextForRange } from "@/lib/reading/extract-text";
 import { generateQuiz } from "@/lib/reading/quiz-generate";
 import { gradeFreeText, gradeMultipleChoice } from "@/lib/reading/quiz-grade";
@@ -353,7 +353,7 @@ export async function getActiveQuizzesByBook(
 
   const { data: quizzes } = await client
     .from("reading_quizzes")
-    .select("id, book_id, from_page, through_page")
+    .select("id, book_id, from_page, through_page, created_at")
     .eq("user_id", userId)
     .eq("status", "published")
     .in("book_id", bookIds)
@@ -378,11 +378,13 @@ export async function getActiveQuizzesByBook(
     subsByQuiz.set(id, list);
   }
 
-  // The weekly quiz is due every Friday — compute the due window once for the
-  // reader's local week so each card can show a "Due now" vs. "ready" state.
+  // The weekly quiz is due every Friday — but a stretch that began during this
+  // Friday window isn't due until the next one, so a just-added book doesn't read
+  // as "due now" the moment its quiz is prepared. Computed per quiz from its
+  // creation date against the reader's local week.
   const tz = await getUserTimezone();
-  const dayOfWeek = new Date(`${localDate(new Date(), tz)}T12:00:00`).getDay();
-  const dueNow = isQuizDueWindow(dayOfWeek);
+  const today = localDate(new Date(), tz);
+  const dayOfWeek = new Date(`${today}T12:00:00`).getDay();
 
   // Quizzes are newest-first; take the first unpassed one per book.
   const byBook: Record<string, ActiveBookQuiz> = {};
@@ -391,12 +393,13 @@ export async function getActiveQuizzesByBook(
     if (byBook[bookId]) continue;
     const subs = subsByQuiz.get(q.id as string) ?? [];
     if (isPassed(subs)) continue;
+    const startedOn = localDate(new Date(q.created_at as string), tz);
     byBook[bookId] = {
       quizId: q.id as string,
       fromPage: (q.from_page as number | null) ?? null,
       throughPage: q.through_page as number,
       attempted: subs.length > 0,
-      dueNow,
+      dueNow: isQuizDue(dayOfWeek, startedOn, today),
     };
   }
   return byBook;
@@ -714,12 +717,113 @@ export async function submitQuiz(
 }
 
 const SUBMISSION_COLUMNS =
-  "id, quiz_id, user_id, attempt_number, submitted_at, score_correct, score_total, grading_complete, created_at";
+  "id, quiz_id, user_id, attempt_number, submitted_at, score_correct, score_total, grading_complete, closed_by_email, created_at";
 
 /**
- * A graded attempt with full feedback (correct answers + AI notes), plus a
- * summary of every attempt. Shows the latest attempt by default, or a specific
- * one when `submissionId` is given (and belongs to this reader's quiz).
+ * Close a published quiz without the kid passing it (a parent override). Owner-only.
+ *
+ * Records a synthetic, perfect submission flagged with the parent's email, so every
+ * "is it passed?" check, badge, and the active-quiz filter treat the stretch as done —
+ * then advances the book exactly like a real pass (only when the quiz covers ground
+ * beyond the current page, so closing a stale quiz settles it without regressing). No
+ * answer rows are written: the kid never answered, and the results view labels it
+ * "Closed by a parent" rather than showing a fabricated perfect score.
+ */
+export async function closeQuizWithoutPassing(
+  quizId: string,
+  memberEmail?: string | null
+): Promise<{ advanced: boolean; finished: boolean }> {
+  await requireOwner();
+  const closedBy = await callerEmail();
+  const scope = await resolveReadingScope(memberEmail);
+  const { client, userId } = scope;
+
+  const { data: quiz } = await client
+    .from("reading_quizzes")
+    .select("id, status, book_id, through_page")
+    .eq("id", quizId)
+    .eq("user_id", userId)
+    .eq("status", "published")
+    .maybeSingle();
+  if (!quiz) throw new Error("This quiz isn't available to close.");
+
+  // Don't double-close: if any attempt already passed (a real pass or a prior
+  // override), there's nothing to settle.
+  const { data: existing } = await client
+    .from("reading_quiz_submissions")
+    .select("score_correct, score_total")
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId);
+  if (isPassed(existing ?? [])) {
+    throw new Error("This quiz is already complete.");
+  }
+
+  const { count } = await client
+    .from("reading_quiz_questions")
+    .select("id", { count: "exact", head: true })
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId);
+  const scoreTotal = count ?? 0;
+  if (scoreTotal < 1) throw new Error("This quiz has no questions to close.");
+
+  const prior = await latestAttempt(client, userId, quizId);
+  const attemptNumber = (prior?.attemptNumber ?? 0) + 1;
+
+  const { error: subError } = await client
+    .from("reading_quiz_submissions")
+    .insert({
+      quiz_id: quizId,
+      user_id: userId,
+      attempt_number: attemptNumber,
+      score_correct: scoreTotal,
+      score_total: scoreTotal,
+      grading_complete: true,
+      closed_by_email: closedBy,
+    });
+  if (subError) {
+    if (subError.code === "23505") {
+      throw new Error("That didn't go through — please try again.");
+    }
+    throw new Error(subError.message);
+  }
+
+  // Advance the book just as a real pass would — but only when the quiz reaches
+  // beyond the current page, so closing a stale quiz never moves it backward.
+  let advanced = false;
+  let finished = false;
+  const throughPage = quiz.through_page as number | null;
+  const { data: book } = await client
+    .from("reading_books")
+    .select("id, current_page, target_page, total_pages")
+    .eq("id", quiz.book_id as string)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (book && throughPage != null && throughPage > (book.current_page as number)) {
+    const res = await advanceStretch(
+      scope,
+      {
+        id: book.id as string,
+        current_page: book.current_page as number,
+        target_page: (book.target_page as number | null) ?? null,
+        total_pages: (book.total_pages as number | null) ?? null,
+      },
+      throughPage
+    );
+    advanced = true;
+    finished = res.finished;
+  }
+
+  revalidateQuizzes();
+  revalidatePath(`/reader/quizzes/${quizId}/results`);
+  return { advanced, finished };
+}
+
+/**
+ * A quiz's detail view: its questions, every attempt, and (when attempted) the
+ * graded answers with full feedback for the viewed attempt — the latest by
+ * default, or a specific one when `submissionId` is given. Works before any
+ * attempt too, so the owner can open a published quiz to view it (and close it
+ * without passing). Returns null only when the quiz itself isn't found.
  */
 export async function getQuizResult(
   quizId: string,
@@ -743,12 +847,13 @@ export async function getQuizResult(
     .eq("user_id", userId)
     .order("attempt_number", { ascending: true });
   const all = (submissions ?? []) as ReadingQuizSubmission[];
-  if (all.length === 0) return null;
 
-  // The viewed attempt: the requested one if valid, else the most recent.
+  // The viewed attempt: the requested one if valid, else the most recent. Null
+  // until the quiz has been attempted (or closed) at least once.
   const viewed =
     (submissionId && all.find((s) => s.id === submissionId)) ||
-    all[all.length - 1];
+    all[all.length - 1] ||
+    null;
 
   const [{ data: questions }, { data: answers }, { data: book }] =
     await Promise.all([
@@ -758,13 +863,15 @@ export async function getQuizResult(
         .eq("quiz_id", quizId)
         .eq("user_id", userId)
         .order("position", { ascending: true }),
-      client
-        .from("reading_quiz_answers")
-        .select(
-          "id, submission_id, question_id, user_id, selected_index, response_text, is_correct, ai_notes, created_at"
-        )
-        .eq("submission_id", viewed.id)
-        .eq("user_id", userId),
+      viewed
+        ? client
+            .from("reading_quiz_answers")
+            .select(
+              "id, submission_id, question_id, user_id, selected_index, response_text, is_correct, ai_notes, created_at"
+            )
+            .eq("submission_id", viewed.id)
+            .eq("user_id", userId)
+        : Promise.resolve({ data: [] as ReadingQuizAnswer[] }),
       client
         .from("reading_books")
         .select("title, current_page, target_page, total_pages, status")
@@ -840,7 +947,7 @@ export async function listAllQuizzes(): Promise<OwnerQuizListItem[]> {
     admin
       .from("reading_quiz_submissions")
       .select(
-        "quiz_id, attempt_number, submitted_at, score_correct, score_total, grading_complete"
+        "quiz_id, attempt_number, submitted_at, score_correct, score_total, grading_complete, closed_by_email"
       )
       .in("quiz_id", quizIds)
       .order("attempt_number", { ascending: true }),
@@ -873,6 +980,8 @@ export async function listAllQuizzes(): Promise<OwnerQuizListItem[]> {
       memberName: member?.name ?? null,
       attemptCount: attempts.length,
       passed: isPassed(attempts),
+      // True when the completing attempt was a parent override, not a real pass.
+      closedByParent: attempts.some((s) => s.closed_by_email != null),
       latest: last
         ? {
             attemptNumber: last.attempt_number as number,

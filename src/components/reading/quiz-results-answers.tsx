@@ -18,6 +18,7 @@ export function QuizResultsAnswers({
   answersByQuestionId,
   showByDefault,
   canReveal,
+  attempted = true,
 }: {
   questions: ReadingQuizQuestion[];
   answersByQuestionId: Record<string, ReadingQuizAnswer>;
@@ -25,6 +26,8 @@ export function QuizResultsAnswers({
   showByDefault: boolean;
   /** True for the owner — they may reveal the answers. */
   canReveal: boolean;
+  /** False when the quiz hasn't been taken — show only the questions. */
+  attempted?: boolean;
 }) {
   const [revealed, setRevealed] = useState(false);
   const reveal = showByDefault || revealed;
@@ -36,7 +39,9 @@ export function QuizResultsAnswers({
           <p className="text-xs text-muted-foreground">
             {reveal
               ? "Answers shown."
-              : "Correct answers are hidden so they can retake this."}
+              : attempted
+                ? "Correct answers are hidden so they can retake this."
+                : "Correct answers are hidden until it's taken."}
           </p>
           {canReveal && (
             <Button
@@ -67,6 +72,7 @@ export function QuizResultsAnswers({
             question={q}
             answer={answersByQuestionId[q.id]}
             reveal={reveal}
+            attempted={attempted}
           />
         ))}
       </div>
@@ -101,11 +107,14 @@ function QuestionResult({
   question,
   answer,
   reveal,
+  attempted,
 }: {
   index: number;
   question: ReadingQuizQuestion;
   answer: ReadingQuizAnswer | undefined;
   reveal: boolean;
+  /** False when the quiz hasn't been taken — hide the verdict and answer block. */
+  attempted: boolean;
 }) {
   return (
     <div className="rounded-lg border border-border px-4 py-3">
@@ -114,7 +123,7 @@ function QuestionResult({
           <span className="tabular-nums text-muted-foreground">{index + 1}.</span>{" "}
           {question.prompt}
         </p>
-        <Verdict isCorrect={answer?.is_correct ?? null} />
+        {attempted && <Verdict isCorrect={answer?.is_correct ?? null} />}
       </div>
 
       {question.type === "multiple_choice" ? (
@@ -162,7 +171,7 @@ function QuestionResult({
             </p>
           )}
         </>
-      ) : (
+      ) : !attempted ? null : (
         <div className="mt-3 space-y-2">
           <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-foreground">
             {answer?.response_text?.trim() || (
