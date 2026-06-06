@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { AlertTriangle, Flag, MapPin } from "lucide-react";
 import {
   eventDayKey,
@@ -19,6 +20,8 @@ const GUTTER = 44; // px reserved for the hour labels
 const MIN_BLOCK = 26; // px floor so a short event's label still fits
 const FAMILY_KEY = "__family__";
 const FAMILY_COLOR = "#64748b";
+// A subtle blue wash marking the signed-in user's own column.
+const ME_TINT = "bg-blue-50/70 dark:bg-blue-500/10";
 
 const localMin = (iso: string) => {
   const d = new Date(iso);
@@ -84,6 +87,7 @@ export function DayView({
   display,
   onEventClick,
   selectedEventId,
+  currentMemberEmail,
 }: {
   events: CalendarEvent[];
   anchorDate: Date;
@@ -91,7 +95,18 @@ export function DayView({
   display: (event: CalendarEvent) => EventDisplay;
   onEventClick: (event: CalendarEvent) => void;
   selectedEventId: string | null;
+  currentMemberEmail: string | null;
 }) {
+  // A live clock so the "now" line tracks the real time. Minute granularity is
+  // plenty for an hour-scale axis; the interval is cleared on unmount.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const isToday = toDateKey(anchorDate) === toDateKey(now);
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+
   const dayKey = toDateKey(anchorDate);
   const dayEvents = events.filter((e) => eventDayKey(e) === dayKey);
   const allDay = dayEvents.filter((e) => e.all_day).sort(byStart);
@@ -117,6 +132,11 @@ export function DayView({
     minH = Math.min(minH, Math.floor(startMin(e) / 60));
     maxH = Math.max(maxH, Math.ceil(endMin(e) / 60));
   }
+  // Keep the current-time line on the axis when we're looking at today.
+  if (isToday) {
+    minH = Math.min(minH, Math.floor(nowMin / 60));
+    maxH = Math.max(maxH, Math.ceil(nowMin / 60) + 1);
+  }
   minH = Math.max(0, minH);
   maxH = Math.min(24, maxH);
   const totalH = (maxH - minH) * PX_PER_HOUR;
@@ -132,6 +152,7 @@ export function DayView({
     color: string;
     events: CalendarEvent[];
     allDay: CalendarEvent[];
+    isMe: boolean;
   };
   const columns: Column[] = members.map((m) => ({
     key: m.email,
@@ -139,6 +160,7 @@ export function DayView({
     color: m.color ?? FAMILY_COLOR,
     events: timed.filter((e) => e.member_email === m.email),
     allDay: allDay.filter((e) => e.member_email === m.email),
+    isMe: m.email === currentMemberEmail,
   }));
   const familyTimed = timed.filter(isFamily);
   const familyAllDay = allDay.filter(isFamily);
@@ -149,8 +171,13 @@ export function DayView({
       color: FAMILY_COLOR,
       events: familyTimed,
       allDay: familyAllDay,
+      isMe: false,
     });
   }
+
+  // The signed-in user always leads, so their day is the first thing read.
+  const meIndex = columns.findIndex((c) => c.isMe);
+  if (meIndex > 0) columns.unshift(columns.splice(meIndex, 1)[0]);
 
   const hasAllDay = columns.some((c) => c.allDay.length > 0);
 
@@ -244,6 +271,28 @@ export function DayView({
     );
   }
 
+  // Fantastical-style current-time marker: a thin red rule across the axis with
+  // a dot anchored in the hour gutter. Only on today, only when in the window.
+  function nowLine() {
+    if (!isToday || nowMin < minH * 60 || nowMin > maxH * 60) return null;
+    return (
+      <div
+        className="pointer-events-none absolute inset-x-0 z-20"
+        style={{ top: y(nowMin) }}
+        aria-hidden
+      >
+        <div
+          className="absolute h-2 w-2 -translate-y-1/2 rounded-full bg-red-500"
+          style={{ left: GUTTER - 4 }}
+        />
+        <div
+          className="absolute border-t border-red-500"
+          style={{ left: GUTTER, right: 0 }}
+        />
+      </div>
+    );
+  }
+
   function axisLines() {
     return hourMarks.map((h) => (
       <div key={h}>
@@ -273,7 +322,10 @@ export function DayView({
           {columns.map((c) => (
             <div
               key={c.key}
-              className="flex min-w-0 flex-1 items-center gap-1.5 px-2 pb-2 text-sm font-semibold text-foreground"
+              className={cn(
+                "flex min-w-0 flex-1 items-center gap-1.5 px-2 pb-2 pt-1 text-sm font-semibold text-foreground",
+                c.isMe && ME_TINT,
+              )}
             >
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
@@ -298,7 +350,10 @@ export function DayView({
               {columns.map((c) => (
                 <div
                   key={c.key}
-                  className="min-w-0 flex-1 space-y-0.5 border-l border-border/40 px-1 py-1"
+                  className={cn(
+                    "min-w-0 flex-1 space-y-0.5 border-l border-border/40 px-1 py-1",
+                    c.isMe && ME_TINT,
+                  )}
                 >
                   {c.allDay.map((event) => allDayItem(event))}
                 </div>
@@ -317,7 +372,10 @@ export function DayView({
             {columns.map((c) => (
               <div
                 key={c.key}
-                className="relative min-w-0 flex-1 border-l border-border/60"
+                className={cn(
+                  "relative min-w-0 flex-1 border-l border-border/60",
+                  c.isMe && ME_TINT,
+                )}
               >
                 {pack(c.events).map((p) => (
                   <Block key={p.event.id} placed={p} />
@@ -325,6 +383,7 @@ export function DayView({
               </div>
             ))}
           </div>
+          {nowLine()}
         </div>
       </div>
 
@@ -345,6 +404,7 @@ export function DayView({
               <Block key={p.event.id} placed={p} showMember />
             ))}
           </div>
+          {nowLine()}
         </div>
       </div>
     </>

@@ -48,11 +48,13 @@ export function CalendarClient({
   sources,
   events,
   canManage,
+  currentMemberEmail,
 }: {
   members: CalendarMember[];
   sources: CalendarSource[];
   events: CalendarEvent[];
   canManage: boolean;
+  currentMemberEmail: string | null;
 }) {
   const [view, setView] = useState<View>("day");
   const [anchor, setAnchor] = useState(() => new Date());
@@ -358,6 +360,7 @@ export function CalendarClient({
             display={display}
             onEventClick={openDetail}
             selectedEventId={sheetOpen ? activeEvent?.id ?? null : null}
+            currentMemberEmail={currentMemberEmail}
           />
         )}
         {view === "feed" && (
