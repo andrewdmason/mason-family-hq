@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { Link2, Plus, Rss, Trash2 } from "lucide-react";
+import { Link2, Pencil, Plus, Rss, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +15,7 @@ import {
   addTeamsnapSource,
   addGoogleSource,
   deleteSource,
+  renameSource,
   ensureFeedToken,
   listTeamsnapTeams,
   listTeamsnapPlayers,
@@ -162,43 +163,138 @@ function SourceList({ sources }: { sources: CalendarSource[] }) {
     <>
       <ul className="space-y-1.5">
         {sources.map((s) => (
-          <li
+          <SourceRow
             key={s.id}
-            className="rounded-lg border px-3 py-2 text-sm"
-          >
-            <div className="flex items-center gap-2">
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: s.color ?? "#64748b" }}
-                aria-hidden
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">
-                  {s.nickname ?? s.teamsnap_team_name ?? "Calendar"}
-                </span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {SOURCE_TYPE_LABELS[s.source_type]}
-                  {s.sync_error ? ` · error: ${s.sync_error}` : ""}
-                </span>
-              </span>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => handleDelete(s.id)}
-                disabled={pending}
-                aria-label="Remove calendar"
-              >
-                <Trash2 />
-              </Button>
-            </div>
-            {s.source_type === "teamsnap" && s.teamsnap_team_id && (
-              <TeamsnapPlayerLink source={s} />
-            )}
-          </li>
+            source={s}
+            onDelete={() => handleDelete(s.id)}
+            deleting={pending}
+          />
         ))}
       </ul>
       {error && <p className="text-sm text-destructive">{error}</p>}
     </>
+  );
+}
+
+/** One calendar in a group's list. The display name is editable inline — clicking
+ * the pencil swaps the name for an input so a parent can rename the calendar
+ * (e.g. a cryptic TeamSnap team name into something readable). */
+function SourceRow({
+  source,
+  onDelete,
+  deleting,
+}: {
+  source: CalendarSource;
+  onDelete: () => void;
+  deleting: boolean;
+}) {
+  const currentName =
+    source.nickname ?? source.teamsnap_team_name ?? "Calendar";
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(currentName);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function startEditing() {
+    setName(currentName);
+    setError(null);
+    setEditing(true);
+  }
+
+  function cancel() {
+    setName(currentName);
+    setError(null);
+    setEditing(false);
+  }
+
+  async function save() {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError("A name is required.");
+      return;
+    }
+    if (trimmed === currentName) {
+      setEditing(false);
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await renameSource(source.id, trimmed);
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't rename the calendar.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <li className="rounded-lg border px-3 py-2 text-sm">
+      {editing ? (
+        <div className="space-y-2">
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={pending}
+            autoFocus
+            aria-label="Calendar name"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                save();
+              } else if (e.key === "Escape") {
+                cancel();
+              }
+            }}
+          />
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={cancel}
+              disabled={pending}
+            >
+              Cancel
+            </Button>
+            <Button size="sm" onClick={save} disabled={pending}>
+              Save
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium">{currentName}</span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {SOURCE_TYPE_LABELS[source.source_type]}
+              {source.sync_error ? ` · error: ${source.sync_error}` : ""}
+            </span>
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={startEditing}
+            aria-label="Rename calendar"
+          >
+            <Pencil />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onDelete}
+            disabled={deleting}
+            aria-label="Remove calendar"
+          >
+            <Trash2 />
+          </Button>
+        </div>
+      )}
+      {source.source_type === "teamsnap" && source.teamsnap_team_id && (
+        <TeamsnapPlayerLink source={source} />
+      )}
+    </li>
   );
 }
 
@@ -251,7 +347,7 @@ function TeamsnapPlayerLink({ source }: { source: CalendarSource }) {
 
   if (!editing) {
     return (
-      <div className="mt-1.5 flex items-center gap-2 pl-[18px] text-xs text-muted-foreground">
+      <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
         {source.teamsnap_player_member_id ? (
           <span>RSVP linked{linkedName ? ` · ${linkedName}` : ""}</span>
         ) : (
@@ -271,7 +367,7 @@ function TeamsnapPlayerLink({ source }: { source: CalendarSource }) {
   }
 
   return (
-    <div className="mt-2 space-y-2 pl-[18px]">
+    <div className="mt-2 space-y-2">
       <select
         value={playerId}
         onChange={(e) => setPlayerId(e.target.value)}

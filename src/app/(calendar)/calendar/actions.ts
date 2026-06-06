@@ -277,6 +277,22 @@ export async function addIcsSource(input: IcsSourceInput): Promise<string> {
   return data.id as string;
 }
 
+/** Rename a calendar source — sets the nickname shown wherever the calendar
+ * appears. Owner/parent only. */
+export async function renameSource(id: string, nickname: string): Promise<void> {
+  await requireParent();
+  const trimmed = nickname.trim();
+  if (!trimmed) throw new Error("A name is required.");
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("calendar_sources")
+    .update({ nickname: trimmed })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/calendar");
+  revalidatePath("/settings/calendars");
+}
+
 export async function deleteSource(id: string): Promise<void> {
   await requireParent();
   const admin = createAdminClient();
