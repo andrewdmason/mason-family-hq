@@ -16,12 +16,17 @@
 //   npm run seed:photos
 
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 
 const PHOTOS_BUCKET = "journal-photos";
 const MEMBER_PHOTOS_BUCKET = "member-photos";
 const READING_BOOKS_BUCKET = "reading-books";
 const READING_GENERATE_BOOK_ID = "a0000003-0004-4001-8001-000000000011";
+// Oscar's public-domain demo book (Project Gutenberg #43), seeded with a real
+// page map + an active check-in quiz from 07_reading_oscar_jekyll.sql. Its
+// converted text lives in supabase/fixtures/jekyll-hyde-pages.json.
+const JEKYLL_BOOK_ID = "a0000003-0005-4001-8001-000000000001";
 
 // Entries to attach photos to, by fixed id (from the SQL seeds). The owning
 // user_id is resolved per entry from the DB, so paths land under the right member
@@ -217,7 +222,7 @@ function escapeHtml(text) {
     .replace(/>/g, "&gt;");
 }
 
-function buildPagedHtml(pages) {
+function buildPagedHtml(pages, title) {
   let charOffset = 0;
   const pageRows = [];
   const blocks = pages.map((text, index) => {
@@ -240,7 +245,7 @@ function buildPagedHtml(pages) {
       "<html>",
       "<head>",
       '<meta charset="utf-8">',
-      "<title>The Mapmaker's Lantern</title>",
+      `<title>${escapeHtml(title)}</title>`,
       "</head>",
       "<body>",
       ...blocks,
@@ -252,21 +257,24 @@ function buildPagedHtml(pages) {
   };
 }
 
-async function seedReadingDemoBookContent(supabase) {
+// Seed one converted book's storage objects (source placeholder + content.html)
+// and its content/page-map rows, so the quiz flows have ready, page-scoped text.
+// The book row itself comes from the SQL seeds; this fills in what storage can't.
+async function seedConvertedBook(supabase, { bookId, title, pages }) {
   const { data: book } = await supabase
     .from("reading_books")
     .select("id, user_id")
-    .eq("id", READING_GENERATE_BOOK_ID)
+    .eq("id", bookId)
     .maybeSingle();
   if (!book?.user_id) {
-    console.log("  skipped The Mapmaker's Lantern content (no such book)");
+    console.log(`  skipped "${title}" content (no such book)`);
     return;
   }
 
   const userId = book.user_id;
-  const sourcePath = `${userId}/${READING_GENERATE_BOOK_ID}/source.epub`;
-  const contentPath = `${userId}/${READING_GENERATE_BOOK_ID}/content.html`;
-  const { html, pageRows, charCount } = buildPagedHtml(MAPMAKER_PAGES);
+  const sourcePath = `${userId}/${bookId}/source.epub`;
+  const contentPath = `${userId}/${bookId}/content.html`;
+  const { html, pageRows, charCount } = buildPagedHtml(pages, title);
 
   const source = Buffer.from(
     "Synthetic local-dev EPUB placeholder. Converted content is seeded as content.html.\n",
@@ -290,44 +298,41 @@ async function seedReadingDemoBookContent(supabase) {
 
   const { error: contentErr } = await supabase.from("reading_book_content").upsert(
     {
-      book_id: READING_GENERATE_BOOK_ID,
+      book_id: bookId,
       user_id: userId,
       source_format: "epub",
       source_path: sourcePath,
       content_path: contentPath,
       status: "ready",
       error_message: null,
-      page_count: MAPMAKER_PAGES.length,
+      page_count: pages.length,
       has_real_pages: true,
       char_count: charCount,
-      toc: [
-        {
-          title: "The Mapmaker's Lantern",
-          anchorId: "page-1",
-          level: 1,
-          page: 1,
-        },
-      ],
+      toc: [{ title, anchorId: "page-1", level: 1, page: 1 }],
     },
     { onConflict: "book_id" }
   );
   if (contentErr) throw contentErr;
 
-  await supabase
-    .from("reading_book_pages")
-    .delete()
-    .eq("book_id", READING_GENERATE_BOOK_ID);
+  await supabase.from("reading_book_pages").delete().eq("book_id", bookId);
 
   const { error: pagesErr } = await supabase.from("reading_book_pages").insert(
-    pageRows.map((page) => ({
-      book_id: READING_GENERATE_BOOK_ID,
-      user_id: userId,
-      ...page,
-    }))
+    pageRows.map((page) => ({ book_id: bookId, user_id: userId, ...page }))
   );
   if (pagesErr) throw pagesErr;
 
-  console.log("  uploaded converted content for The Mapmaker's Lantern");
+  console.log(`  uploaded converted content for "${title}" (${pages.length} pages)`);
+}
+
+// The paginated public-domain text of Jekyll & Hyde, committed as a fixture so
+// resets need no network for the book (see scripts/build-jekyll-fixture.mjs).
+function jekyllPages() {
+  return JSON.parse(
+    readFileSync(
+      new URL("./fixtures/jekyll-hyde-pages.json", import.meta.url),
+      "utf8"
+    )
+  );
 }
 
 async function main() {
@@ -339,7 +344,16 @@ async function main() {
   console.log("Seeding member avatars…");
   await seedMemberAvatars(supabase);
   console.log("Seeding reading demo content…");
-  await seedReadingDemoBookContent(supabase);
+  await seedConvertedBook(supabase, {
+    bookId: READING_GENERATE_BOOK_ID,
+    title: "The Mapmaker's Lantern",
+    pages: MAPMAKER_PAGES,
+  });
+  await seedConvertedBook(supabase, {
+    bookId: JEKYLL_BOOK_ID,
+    title: "The Strange Case of Dr. Jekyll and Mr. Hyde",
+    pages: jekyllPages(),
+  });
 
   console.log("Done seeding dev media.");
 }
