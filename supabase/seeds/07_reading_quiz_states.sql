@@ -51,6 +51,8 @@ DECLARE
   bridge_sub uuid := 'a0000003-0004-4001-8004-000000000002';
 
   baseline date := date_trunc('week', current_date)::date - 7; -- prior Monday
+  next_friday date := current_date
+    + ((((5 - extract(dow FROM current_date)::int + 6) % 7) + 1)); -- first Friday after today
 BEGIN
   IF andrew IS NULL OR sebastian IS NULL THEN
     RAISE NOTICE 'Family members not found; skipping reading-quiz states seed.';
@@ -66,13 +68,13 @@ BEGIN
   -- Three more in-progress books for Sebastian to hang the remaining states and
   -- the owner generation flow on.
   INSERT INTO reading_books
-    (id, user_id, title, author, total_pages, current_page, target_page, target_locked, status, cover_image_url, started_at)
+    (id, user_id, title, author, total_pages, current_page, target_page, target_locked, target_due, status, cover_image_url, started_at)
   VALUES
-    (wonder_book, sebastian, 'Wonder', 'R.J. Palacio', 315, 95, 140, true, 'in_progress',
+    (wonder_book, sebastian, 'Wonder', 'R.J. Palacio', 315, 95, 140, true, next_friday, 'in_progress',
       'https://covers.openlibrary.org/b/isbn/9780375869020-L.jpg?default=false', baseline),
-    (bridge_book, sebastian, 'Bridge to Terabithia', 'Katherine Paterson', 190, 120, 160, true, 'in_progress',
+    (bridge_book, sebastian, 'Bridge to Terabithia', 'Katherine Paterson', 190, 120, 160, true, next_friday, 'in_progress',
       'https://covers.openlibrary.org/b/isbn/9780064401845-L.jpg?default=false', baseline),
-    (generate_book, sebastian, 'The Mapmaker''s Lantern', 'Mason Demo Library', 24, 1, 20, true, 'in_progress',
+    (generate_book, sebastian, 'The Mapmaker''s Lantern', 'Mason Demo Library', 24, 1, 20, true, next_friday, 'in_progress',
       NULL, baseline);
 
   -- Baseline check-ins so "pages read this week" anchors at 0 for each.

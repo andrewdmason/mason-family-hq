@@ -33,7 +33,10 @@ import { removeBook } from "@/app/(reading)/reader/actions";
 import { startBookReflection } from "@/app/(journal)/journal/actions";
 import { bookReaderHref } from "@/lib/reading/links";
 import { amazonHref, koboHref } from "@/lib/reading/store-links";
-import { readingTargetDueLabel } from "@/lib/reading/target-due";
+import {
+  readingDueLabelFromKeys,
+  readingTargetDueLabel,
+} from "@/lib/reading/target-due";
 import { useBookFileActions } from "@/lib/reading/use-book-file-actions";
 import type { ActiveBookQuiz, ReadingBookWithProgress } from "@/lib/types";
 
@@ -112,10 +115,13 @@ export function BookCard({
   const inProgress = book.status === "in_progress";
   // Recommended by a real family member (AI picks carry a label but no email).
   const fromPerson = !!book.recommended_by_email && !!book.recommended_by_label;
-  const pct =
-    book.total_pages && book.total_pages > 0
-      ? Math.min(100, Math.round((book.current_page / book.total_pages) * 100))
-      : null;
+  // The stored due date wins; fall back to the day-of-week label for any book
+  // that predates it (e.g. before its next save).
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const dueLabel = book.target_due
+    ? readingDueLabelFromKeys(book.target_due, todayKey)
+    : readingTargetDueLabel();
 
   return (
     <div className="rounded-lg border border-border px-4 py-3">
@@ -145,39 +151,20 @@ export function BookCard({
             </div>
           )}
 
-          {/* Queued books haven't been opened — page/progress would just read 0. */}
-          {book.status !== "queued" && (
-            <>
-              <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="tabular-nums">
-                  Page {book.current_page}
-                  {book.total_pages ? ` of ${book.total_pages}` : ""}
-                </span>
-                {pct != null && <span aria-hidden>· {pct}%</span>}
-              </div>
-
-              {pct != null && (
-                <div
-                  className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted"
-                  aria-hidden
-                >
-                  <div
-                    className="h-full rounded-full bg-primary"
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-              )}
-            </>
-          )}
-
-          {inProgress && book.target_page != null && (
+          {/* An in-progress book shows just its weekly goal and when it's due.
+              Other opened books (e.g. paused) show where they left off; queued
+              books haven't been opened, so page/progress would only read 0. */}
+          {inProgress && book.target_page != null ? (
             <p className="mt-2 text-xs text-muted-foreground">
-              <span className="text-foreground">
-                Aim for page {book.target_page}
-              </span>{" "}
-              · {readingTargetDueLabel()}
+              <span className="text-foreground">Goal: Page {book.target_page}</span>{" "}
+              · {dueLabel}
             </p>
-          )}
+          ) : (book.status === "in_progress" || book.status === "paused") ? (
+            <p className="mt-2 text-xs tabular-nums text-muted-foreground">
+              Page {book.current_page}
+              {book.total_pages ? ` of ${book.total_pages}` : ""}
+            </p>
+          ) : null}
 
           {book.status === "archive" && (
             <div className="mt-2 flex items-center gap-2">

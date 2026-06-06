@@ -803,6 +803,8 @@ export type ReadingBook = {
   target_page: number | null;
   /** True when the owner manually set target_page; blocks auto-tracking until the next advance. */
   target_locked: boolean;
+  /** When the current target is due (YYYY-MM-DD): the Friday after it was set. Null = no target. */
+  target_due: string | null;
   status: ReadingBookStatus;
   cover_image_url: string | null;
   /** Open Library work key (e.g. "/works/OL12345W"), when added via typeahead. */

@@ -21,6 +21,8 @@ DECLARE
   jekyll_book uuid := 'a0000003-0005-4001-8001-000000000001';
   jekyll_quiz uuid := 'a0000003-0005-4001-8002-000000000001';
   baseline date := date_trunc('week', current_date)::date - 7; -- prior Monday
+  next_friday date := current_date
+    + ((((5 - extract(dow FROM current_date)::int + 6) % 7) + 1)); -- first Friday after today
 BEGIN
   IF andrew IS NULL OR oscar IS NULL THEN
     RAISE NOTICE 'Family members not found; skipping Oscar reading seed.';
@@ -37,10 +39,10 @@ BEGIN
 
   INSERT INTO reading_books
     (id, user_id, title, author, total_pages, current_page, target_page,
-     target_locked, status, cover_image_url, started_at)
+     target_locked, target_due, status, cover_image_url, started_at)
   VALUES
     (jekyll_book, oscar, 'The Strange Case of Dr. Jekyll and Mr. Hyde',
-     'Robert Louis Stevenson', 148, 40, 90, false, 'in_progress',
+     'Robert Louis Stevenson', 148, 40, 90, false, next_friday, 'in_progress',
      'https://covers.openlibrary.org/b/isbn/9780553212778-L.jpg?default=false',
      baseline);
 
