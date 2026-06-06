@@ -49,11 +49,9 @@ function readingStatus(book: HomeReadingBookStatus): {
 }
 
 function pageLine(book: HomeReadingBookStatus): string {
-  const current = `Page ${book.currentPage}`;
+  if (book.targetPage != null) return `Goal: Page ${book.targetPage}`;
   const total = book.totalPages ? ` of ${book.totalPages}` : "";
-  const target =
-    book.targetPage != null ? ` · aim for ${book.targetPage}` : "";
-  return `${current}${total}${target}`;
+  return `Page ${book.currentPage}${total}`;
 }
 
 function ReadingBookRow({
@@ -79,19 +77,16 @@ function ReadingBookRow({
           {status.label}
         </Badge>
       </div>
-      <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>
-          {book.pagesReadThisWeek} pages this week · {book.dueLabel}
-        </span>
-        {book.quiz && (
+      {book.quiz && (
+        <div className="mt-1 flex items-center justify-end gap-2 text-xs">
           <Link
             href={quizTakeHref(book.quiz.id, memberEmail)}
             className="font-medium text-primary transition-colors hover:text-primary/75"
           >
-            {book.quiz.state === "retake" ? "Retake" : "Take quiz"}
+            View quiz
           </Link>
-        )}
-      </div>
+        </div>
+      )}
     </li>
   );
 }
