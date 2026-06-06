@@ -729,6 +729,20 @@ function TeamsnapForm({
           ))}
         </ul>
       )}
+      {/* Re-running the OAuth flow refreshes the stored token in place (the
+          callback upserts on member_email) without touching the teams or player
+          links already set up — needed to upgrade an old read-only token so
+          RSVPs can be written back. */}
+      <p className="border-t border-border pt-2 text-xs text-muted-foreground">
+        RSVP not saving?{" "}
+        <a
+          href="/api/teamsnap/authorize"
+          className="font-medium text-foreground hover:underline"
+        >
+          Reconnect TeamSnap
+        </a>{" "}
+        — your teams and player links stay as they are.
+      </p>
     </div>
   );
 }
