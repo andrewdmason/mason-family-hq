@@ -15,7 +15,7 @@ export async function getCalendarMembers(): Promise<CalendarMember[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("family_members")
-    .select("email, name, role")
+    .select("email, name, role, color")
     .order("role", { ascending: true })
     .order("name", { ascending: true });
 
@@ -23,7 +23,8 @@ export async function getCalendarMembers(): Promise<CalendarMember[]> {
     email: m.email,
     name: m.name,
     role: m.role,
-    color: memberColor(m.email),
+    // Official color when set, else a deterministic per-email hash color.
+    color: m.color ?? memberColor(m.email),
   }));
 }
 

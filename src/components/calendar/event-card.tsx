@@ -47,10 +47,12 @@ export function EventRow({
   display,
   onClick,
   selected,
+  showLocation = true,
 }: {
   display: EventDisplay;
   onClick: (event: CalendarEvent) => void;
   selected?: boolean;
+  showLocation?: boolean;
 }) {
   const { event, color, sourceLabel, conflict, rsvp } = display;
   return (
@@ -82,13 +84,62 @@ export function EventRow({
             {formatTimeRange(event.start_time, event.end_time, event.all_day)}
           </span>
           {sourceLabel && <span className="truncate">· {sourceLabel}</span>}
-          {event.location && (
+          {showLocation && event.location && (
             <span className="inline-flex items-center gap-0.5 truncate">
               <MapPin className="h-3 w-3" />
               {event.location}
             </span>
           )}
         </span>
+      </span>
+    </button>
+  );
+}
+
+/** A discrete card for the per-member columns agenda. Reads as its own card
+ * (border, surface, member-colored left accent) so a column of these never looks
+ * like a rigid grid that should line up row-for-row across members. The start
+ * time lives inside the card. */
+export function EventColumnCard({
+  display,
+  onClick,
+  selected,
+}: {
+  display: EventDisplay;
+  onClick: (event: CalendarEvent) => void;
+  selected?: boolean;
+}) {
+  const { event, color, conflict, rsvp } = display;
+  const time = event.all_day
+    ? "All day"
+    : new Date(event.start_time).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+      });
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(event)}
+      title={event.title}
+      style={{ borderLeftColor: color }}
+      className={cn(
+        "block w-full rounded-md border border-border/70 border-l-[3px] bg-card px-2 py-1.5 text-left shadow-sm transition-colors hover:bg-muted/50",
+        selected && "ring-1 ring-ring",
+      )}
+    >
+      <span className="flex items-center gap-1 text-[11px] tabular-nums text-muted-foreground">
+        <span>{time}</span>
+        {conflict && (
+          <AlertTriangle className="h-3 w-3 shrink-0 text-amber-600" />
+        )}
+        {rsvp === "no_reply" && (
+          <span className="ml-auto shrink-0 rounded-full bg-amber-100 px-1 text-[9px] font-medium leading-tight text-amber-700 dark:bg-amber-950 dark:text-amber-400">
+            RSVP
+          </span>
+        )}
+      </span>
+      <span className="mt-0.5 line-clamp-2 text-xs font-medium leading-snug text-foreground">
+        {event.title}
       </span>
     </button>
   );

@@ -428,6 +428,8 @@ export type FamilyMember = {
   /** Email of this member's mother / father (another member), or null. */
   mother_email: string | null;
   father_email: string | null;
+  /** Official display color (CSS hex), set in Family settings. Null = unset. */
+  color: string | null;
 };
 
 /** A profile photo for a family member, with a short-lived signed display URL. */

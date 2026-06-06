@@ -55,6 +55,10 @@ export function CalendarClient({
     () => new Map(members.map((m) => [m.email, m.name ?? m.email])),
     [members],
   );
+  const memberColors = useMemo(
+    () => new Map(members.map((m) => [m.email, m.color])),
+    [members],
+  );
 
   const conflictIds = useMemo(() => detectConflicts(events), [events]);
 
@@ -64,13 +68,23 @@ export function CalendarClient({
     return events.filter((e) => e.member_email === filter);
   }, [events, filter]);
 
+  // Which members get a column in the agenda. "Family" collapses to no
+  // columns (only the shared banner); a single-member filter shows just them.
+  const agendaMembers = useMemo(() => {
+    if (filter === FAMILY) return [];
+    if (filter === "all") return members;
+    return members.filter((m) => m.email === filter);
+  }, [filter, members]);
+
   const display = useMemo(() => {
     return (event: CalendarEvent): EventDisplay => {
       const source = event.calendar_source_id
         ? sourcesById.get(event.calendar_source_id)
         : undefined;
       const color =
-        source?.color ?? memberColor(event.member_email);
+        source?.color ??
+        (event.member_email ? memberColors.get(event.member_email) : null) ??
+        memberColor(event.member_email);
       const sourceLabel =
         source?.nickname ??
         source?.teamsnap_team_name ??
@@ -88,7 +102,7 @@ export function CalendarClient({
         rsvp,
       };
     };
-  }, [sourcesById, memberNames, conflictIds]);
+  }, [sourcesById, memberNames, memberColors, conflictIds]);
 
   function openDetail(event: CalendarEvent) {
     setActiveEvent(event);
@@ -120,7 +134,7 @@ export function CalendarClient({
     ...members.map((m) => ({
       key: m.email,
       label: m.name ?? m.email,
-      color: memberColor(m.email),
+      color: m.color ?? memberColor(m.email),
     })),
     { key: FAMILY, label: "Family", color: memberColor(null) },
   ];
@@ -227,6 +241,7 @@ export function CalendarClient({
           <AgendaView
             events={visibleEvents}
             anchorDate={anchor}
+            members={agendaMembers}
             display={display}
             onEventClick={openDetail}
             selectedEventId={sheetOpen ? activeEvent?.id ?? null : null}

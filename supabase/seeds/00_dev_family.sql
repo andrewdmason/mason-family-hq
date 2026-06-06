@@ -22,12 +22,14 @@ DECLARE
   resolved uuid;
 BEGIN
   FOR m IN
+    -- Official per-member colors (00105): Andrew blue, Jenny purple, Oscar green,
+    -- Sebastian orange. These are what the Calendar columns/accents key off.
     SELECT * FROM (VALUES
-      ('andrew@mason.io',    'Andrew',    'owner',  'a0000000-0000-4000-8000-000000000001'::uuid),
-      ('jenny@mason.io',     'Jenny',     'parent', 'a0000000-0000-4000-8000-000000000002'::uuid),
-      ('oscar@mason.io',     'Oscar',     'kid',    'a0000000-0000-4000-8000-000000000003'::uuid),
-      ('sebastian@mason.io', 'Sebastian', 'kid',    'a0000000-0000-4000-8000-000000000004'::uuid)
-    ) AS v(email, name, role, uid)
+      ('andrew@mason.io',    'Andrew',    'owner',  'a0000000-0000-4000-8000-000000000001'::uuid, '#2563eb'),
+      ('jenny@mason.io',     'Jenny',     'parent', 'a0000000-0000-4000-8000-000000000002'::uuid, '#7c3aed'),
+      ('oscar@mason.io',     'Oscar',     'kid',    'a0000000-0000-4000-8000-000000000003'::uuid, '#16a34a'),
+      ('sebastian@mason.io', 'Sebastian', 'kid',    'a0000000-0000-4000-8000-000000000004'::uuid, '#ea580c')
+    ) AS v(email, name, role, uid, color)
   LOOP
     IF NOT EXISTS (SELECT 1 FROM auth.users WHERE email = m.email) THEN
       -- GoTrue scans these token columns into non-nullable Go strings, so they must
@@ -62,11 +64,12 @@ BEGIN
     -- (renamed to family_members in 00086; NULL user_id on a fresh DB); the others
     -- are inserted. seeded_at is
     -- left untouched so each member's first dev-login still provisions their journal.
-    INSERT INTO family_members (email, user_id, name, role)
-    VALUES (m.email, resolved, m.name, m.role)
+    INSERT INTO family_members (email, user_id, name, role, color)
+    VALUES (m.email, resolved, m.name, m.role, m.color)
     ON CONFLICT (email) DO UPDATE
       SET user_id = EXCLUDED.user_id,
           name = EXCLUDED.name,
-          role = EXCLUDED.role;
+          role = EXCLUDED.role,
+          color = EXCLUDED.color;
   END LOOP;
 END $$;
