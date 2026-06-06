@@ -42,17 +42,21 @@ function RsvpBadge({ rsvp }: { rsvp: TeamsnapRsvp }) {
   );
 }
 
-/** A row in the agenda / day list. */
+/** A row in the agenda / day list. The optional member badge stamps the row
+ * with who the event belongs to — used by the single-column mobile agenda, where
+ * there are no per-member column headers to carry that identity. */
 export function EventRow({
   display,
   onClick,
   selected,
   showLocation = true,
+  memberBadge,
 }: {
   display: EventDisplay;
   onClick: (event: CalendarEvent) => void;
   selected?: boolean;
   showLocation?: boolean;
+  memberBadge?: { name: string; color: string } | null;
 }) {
   const { event, color, sourceLabel, conflict, rsvp } = display;
   return (
@@ -80,6 +84,16 @@ export function EventRow({
           {rsvp && <RsvpBadge rsvp={rsvp} />}
         </span>
         <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+          {memberBadge && (
+            <span className="inline-flex items-center gap-1 font-medium text-foreground">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: memberBadge.color }}
+                aria-hidden
+              />
+              {memberBadge.name}
+            </span>
+          )}
           <span>
             {formatTimeRange(event.start_time, event.end_time, event.all_day)}
           </span>

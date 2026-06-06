@@ -68,10 +68,30 @@ export function AgendaView({
   }
 
   const memberEmails = new Set(members.map((m) => m.email));
+  const memberByEmail = new Map(members.map((m) => [m.email, m]));
   const gridTemplateColumns = `repeat(${members.length}, minmax(0, 1fr))`;
   const minWidthStyle = members.length
     ? { minWidth: `${members.length * 160}px` }
     : undefined;
+
+  // An event is "family" — and renders in the shared full-width banner rather
+  // than a member column — when it has no member, or its member isn't shown.
+  const isFamily = (e: CalendarEvent) =>
+    !e.member_email || !memberEmails.has(e.member_email);
+
+  // The member identity stamped onto a single-column (mobile) row: first name
+  // plus the member's color, matching the desktop column headers. fullName lets
+  // the caller drop a redundant "· name" source label.
+  function memberBadgeFor(event: CalendarEvent) {
+    const m = event.member_email ? memberByEmail.get(event.member_email) : null;
+    if (!m) return null;
+    const fullName = m.name ?? m.email;
+    return {
+      name: fullName.split(" ")[0] || fullName,
+      color: m.color ?? "#64748b",
+      fullName,
+    };
+  }
 
   // The member columns for one time band. Cards are aligned into rows by their
   // exact start time: events at the same time share a row (so a shared line
@@ -124,85 +144,134 @@ export function AgendaView({
     );
   }
 
-  return (
-    <div className="overflow-x-auto">
-      <div style={minWidthStyle}>
-        {/* Member column headers. */}
-        {members.length > 0 && (
-          <div
-            className="grid gap-3 border-b pb-2"
-            style={{ gridTemplateColumns }}
-          >
-            {members.map((m) => (
-              <div
-                key={m.email}
-                className="flex items-center gap-1.5 px-1 text-sm font-semibold text-foreground"
-              >
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: m.color ?? "#64748b" }}
-                  aria-hidden
-                />
-                <span className="truncate">{m.name ?? m.email}</span>
-              </div>
-            ))}
-          </div>
-        )}
+  // A single merged column for narrow viewports: every member event sorted by
+  // time and stamped with its member, so identity survives without column
+  // headers. This is the Cozi-style "one timeline, color-dot per person" view.
+  function renderMemberList(memberEvents: CalendarEvent[]) {
+    if (memberEvents.length === 0) return null;
+    const sorted = [...memberEvents].sort(byStart);
 
-        {dayKeys.map((key) => {
-          const date = new Date(key + "T12:00:00");
-          const dayEvents = byDay.get(key)!;
-          const isFamily = (e: CalendarEvent) =>
-            !e.member_email || !memberEmails.has(e.member_email);
-
+    return (
+      <div className="space-y-0.5">
+        {sorted.map((event) => {
+          const d = display(event);
+          const badge = memberBadgeFor(event);
+          // The badge already names who it's for, so drop a source label that's
+          // just the member's own name — otherwise it reads "Oscar · Oscar".
+          const rowDisplay =
+            badge && d.sourceLabel === badge.fullName
+              ? { ...d, sourceLabel: null }
+              : d;
           return (
-            <section key={key} className="mt-6 first:mt-3">
-              <h3
-                className={cn(
-                  "mb-2 text-sm font-semibold",
-                  isToday(date) ? "text-primary" : "text-foreground",
-                )}
-              >
-                {formatDayLabel(date)}
-              </h3>
-
-              <div className="space-y-4">
-                {BANDS.map((band) => {
-                  const inBand = dayEvents.filter((e) => bandOf(e) === band.key);
-                  if (inBand.length === 0) return null;
-                  const familyEvents = inBand.filter(isFamily).sort(byStart);
-                  const memberEvents = inBand.filter((e) => !isFamily(e));
-
-                  return (
-                    <div key={band.key}>
-                      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                        {band.label}
-                      </p>
-
-                      {/* Shared family events span the full width of the day. */}
-                      {familyEvents.length > 0 && (
-                        <div className="mb-1.5 space-y-0.5 rounded-lg bg-muted/40 p-1">
-                          {familyEvents.map((event) => (
-                            <EventRow
-                              key={event.id}
-                              display={display(event)}
-                              onClick={onEventClick}
-                              selected={event.id === selectedEventId}
-                              showLocation={false}
-                            />
-                          ))}
-                        </div>
-                      )}
-
-                      {renderColumns(memberEvents)}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
+            <EventRow
+              key={event.id}
+              display={rowDisplay}
+              onClick={onEventClick}
+              selected={event.id === selectedEventId}
+              memberBadge={badge && { name: badge.name, color: badge.color }}
+            />
           );
         })}
       </div>
-    </div>
+    );
+  }
+
+  // The time bands for one day. The member events render as columns (desktop) or
+  // a single merged list (mobile); the shared family banner is the same in both.
+  function renderBands(
+    dayEvents: CalendarEvent[],
+    layout: "columns" | "list",
+  ) {
+    return (
+      <div className="space-y-4">
+        {BANDS.map((band) => {
+          const inBand = dayEvents.filter((e) => bandOf(e) === band.key);
+          if (inBand.length === 0) return null;
+          const familyEvents = inBand.filter(isFamily).sort(byStart);
+          const memberEvents = inBand.filter((e) => !isFamily(e));
+
+          return (
+            <div key={band.key}>
+              <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                {band.label}
+              </p>
+
+              {/* Shared family events span the full width of the day. */}
+              {familyEvents.length > 0 && (
+                <div className="mb-1.5 space-y-0.5 rounded-lg bg-muted/40 p-1">
+                  {familyEvents.map((event) => (
+                    <EventRow
+                      key={event.id}
+                      display={display(event)}
+                      onClick={onEventClick}
+                      selected={event.id === selectedEventId}
+                      showLocation={false}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {layout === "columns"
+                ? renderColumns(memberEvents)
+                : renderMemberList(memberEvents)}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderDays(layout: "columns" | "list") {
+    return dayKeys.map((key) => {
+      const date = new Date(key + "T12:00:00");
+      return (
+        <section key={key} className="mt-6 first:mt-3">
+          <h3
+            className={cn(
+              "mb-2 text-sm font-semibold",
+              isToday(date) ? "text-primary" : "text-foreground",
+            )}
+          >
+            {formatDayLabel(date)}
+          </h3>
+          {renderBands(byDay.get(key)!, layout)}
+        </section>
+      );
+    });
+  }
+
+  return (
+    <>
+      {/* Desktop: per-member columns, scrolling horizontally if narrow. */}
+      <div className="hidden overflow-x-auto md:block">
+        <div style={minWidthStyle}>
+          {/* Member column headers. */}
+          {members.length > 0 && (
+            <div
+              className="grid gap-3 border-b pb-2"
+              style={{ gridTemplateColumns }}
+            >
+              {members.map((m) => (
+                <div
+                  key={m.email}
+                  className="flex items-center gap-1.5 px-1 text-sm font-semibold text-foreground"
+                >
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: m.color ?? "#64748b" }}
+                    aria-hidden
+                  />
+                  <span className="truncate">{m.name ?? m.email}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {renderDays("columns")}
+        </div>
+      </div>
+
+      {/* Mobile: a single merged column, each row stamped with its member. */}
+      <div className="md:hidden">{renderDays("list")}</div>
+    </>
   );
 }
