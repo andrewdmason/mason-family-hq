@@ -45,7 +45,7 @@ export async function listFamilyMembers(): Promise<FamilyMember[]> {
   const { data, error } = await admin
     .from("family_members")
     .select(
-      "email, name, role, user_id, seeded_at, birthdate, mother_email, father_email"
+      "email, name, role, user_id, seeded_at, birthdate, mother_email, father_email, color"
     )
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
