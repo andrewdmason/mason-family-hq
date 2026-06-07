@@ -13,6 +13,7 @@ import { materializeSession } from "@/lib/workouts/materialize";
 import { computeSetE1rm } from "@/lib/workouts/e1rm";
 import { getWorkoutEventById, stripCfoPrefix } from "@/lib/workouts/calendar";
 import { findSessionByEvent } from "@/lib/workouts/queries";
+import { pushSessionToWhoop, markSessionWhoopDirty } from "@/lib/whoop/push";
 import type { WorkoutRxLevel } from "@/lib/workouts/types";
 
 type SupabaseServer = Awaited<ReturnType<typeof createClient>>;
@@ -227,6 +228,8 @@ export async function updateSet(
   }
 
   await supabase.from("workout_sets").update(update).eq("id", setId);
+  // Reps/load changed → any prior WHOOP push is now stale.
+  await markSessionWhoopDirty(sessionId);
   revalidatePath(`/workouts/${sessionId}`);
 }
 
@@ -335,6 +338,8 @@ export async function swapEntryMovement(
       .eq("id", s.id);
   }
 
+  // The movement (and thus its WHOOP exercise mapping) changed.
+  await markSessionWhoopDirty(sessionId);
   revalidatePath(`/workouts/${sessionId}`);
 }
 
@@ -353,7 +358,9 @@ export async function updateEntry(
   revalidatePath(`/workouts/${sessionId}`);
 }
 
-/** Mark a session done (or reopen it). Drives the home widget's focus shift. */
+/** Mark a session done (or reopen it). Drives the home widget's focus shift.
+ * Sending to WHOOP is a separate, manual step (the "Send to WHOOP" chip) rather
+ * than automatic on completion — see resendToWhoop. */
 export async function setSessionCompleted(
   sessionId: string,
   completed: boolean
@@ -367,6 +374,22 @@ export async function setSessionCompleted(
   revalidatePath(`/workouts/${sessionId}`);
   revalidatePath("/workouts");
   revalidatePath("/home");
+}
+
+/** Manually (re-)push a session to WHOOP — the chip's "send"/"retry"/"re-send"
+ * action. Returns nothing; the refreshed sync chip reflects the outcome. */
+export async function resendToWhoop(sessionId: string): Promise<void> {
+  const supabase = await createClient();
+  await requireUserId(supabase);
+  // Confirm the caller owns the session (RLS-scoped read) before pushing.
+  const { data } = await supabase
+    .from("workout_sessions")
+    .select("id")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (!data) throw new Error("Session not found");
+  await pushSessionToWhoop(sessionId);
+  revalidatePath(`/workouts/${sessionId}`);
 }
 
 export async function saveSessionNotes(

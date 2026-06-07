@@ -88,12 +88,16 @@ export type SessionDetail = {
   rpe: number | null;
   parsedAt: string | null;
   completedAt: string | null;
+  whoopSyncStatus: "synced" | "dirty" | "failed" | "syncing" | null;
+  whoopSyncedAt: string | null;
+  whoopSyncError: string | null;
   blocks: BlockView[];
 };
 
 const SESSION_SELECT = `
   id, session_date, title, source, calendar_event_id, raw_description, notes, rpe,
   parsed_at, completed_at,
+  whoop_sync_status, whoop_synced_at, whoop_sync_error,
   workout_blocks (
     id, position, block_type, title, group_label, score_type, score_seconds, score_rounds,
     score_reps, score_load, score_distance, score_calories, rx_level, rpe, notes,
@@ -212,6 +216,9 @@ export async function getSessionDetail(
     rpe: d.rpe,
     parsedAt: d.parsed_at,
     completedAt: d.completed_at,
+    whoopSyncStatus: d.whoop_sync_status,
+    whoopSyncedAt: d.whoop_synced_at,
+    whoopSyncError: d.whoop_sync_error,
     blocks: ((d.workout_blocks ?? []) as any[])
       .map(mapBlock)
       .sort((a, b) => a.position - b.position),

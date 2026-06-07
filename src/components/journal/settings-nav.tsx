@@ -30,6 +30,13 @@ const TABS = [
     manageOnly: true,
   },
   {
+    label: "WHOOP",
+    href: "/settings/whoop",
+    description:
+      "Connect WHOOP, then press “Send to WHOOP” on a workout to push its strength work into WHOOP's Strength Trainer (muscular load). One-way; Family HQ stays the source of truth.",
+    ownerOnly: true,
+  },
+  {
     label: "Family",
     href: "/settings/family",
     description: "",
