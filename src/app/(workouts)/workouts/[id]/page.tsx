@@ -29,6 +29,9 @@ import { SessionNotes } from "@/components/workouts/session-notes";
 import { SessionEffort } from "@/components/workouts/session-effort";
 import { ReparseButton } from "@/components/workouts/reparse-button";
 import { CompleteToggle } from "@/components/workouts/complete-toggle";
+import { WhoopSyncChip } from "@/components/workouts/whoop-sync-chip";
+import { requireUserId } from "@/lib/members/auth";
+import { hasWhoopConnection } from "@/lib/whoop/auth";
 import { CalendarSourcePopover } from "@/components/workouts/calendar-source-popover";
 import { SwapSuggestion } from "@/components/workouts/swap-button";
 import { EditEntryButton } from "@/components/workouts/edit-entry-button";
@@ -48,6 +51,15 @@ export default async function WorkoutDetailPage({
 
   const tz = await getUserTimezone();
   const today = localDate(new Date(), tz);
+
+  // Whether the owner has a WHOOP connection — gates the sync chip below.
+  const userId = await requireUserId(supabase);
+  const { data: me } = await supabase
+    .from("family_members")
+    .select("email")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const whoopConnected = me?.email ? await hasWhoopConnection(me.email as string) : false;
 
   // Fetch per-movement history (loaded movements) and benchmark attempts in
   // parallel — this is the comparison data the gym view leans on.
@@ -202,7 +214,18 @@ export default async function WorkoutDetailPage({
       <div className="mt-6 flex flex-col gap-4">
         <SessionEffort sessionId={session.id} initial={session.rpe} />
         <SessionNotes sessionId={session.id} initial={session.notes} />
-        <div className="flex justify-end border-t border-border/60 pt-4">
+        <div className="flex items-center justify-between border-t border-border/60 pt-4">
+          {whoopConnected ? (
+            <WhoopSyncChip
+              sessionId={session.id}
+              connected={whoopConnected}
+              status={session.whoopSyncStatus}
+              syncedAt={session.whoopSyncedAt}
+              error={session.whoopSyncError}
+            />
+          ) : (
+            <span />
+          )}
           <CompleteToggle
             sessionId={session.id}
             completed={session.completedAt !== null}
