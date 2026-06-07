@@ -33,6 +33,8 @@ import {
   type ManualEventInput,
 } from "@/app/(calendar)/calendar/actions";
 import { TeamsnapAttendance } from "./team-availability";
+import { MemberAvatar } from "@/components/journal/member-avatar";
+import { cn } from "@/lib/utils";
 
 export type SheetMode = "detail" | "edit" | "create";
 
@@ -67,6 +69,8 @@ export function EventSheet({
   canManage,
   canRsvp,
   sourceLabel,
+  going,
+  onToggleGoing,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -78,6 +82,12 @@ export function EventSheet({
   canManage: boolean;
   canRsvp: boolean;
   sourceLabel: string | null;
+  going: string[];
+  onToggleGoing: (
+    eventId: string,
+    email: string,
+    willGo: boolean,
+  ) => Promise<{ warning?: string }>;
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -85,9 +95,12 @@ export function EventSheet({
         {mode === "detail" && event ? (
           <DetailBody
             event={event}
+            members={members}
             sourceLabel={sourceLabel}
             canManage={canManage}
             canRsvp={canRsvp}
+            going={going}
+            onToggleGoing={onToggleGoing}
             onEdit={() => onModeChange("edit")}
             onClose={() => onOpenChange(false)}
           />
@@ -106,16 +119,26 @@ export function EventSheet({
 
 function DetailBody({
   event,
+  members,
   sourceLabel,
   canManage,
   canRsvp,
+  going,
+  onToggleGoing,
   onEdit,
   onClose,
 }: {
   event: CalendarEvent;
+  members: CalendarMember[];
   sourceLabel: string | null;
   canManage: boolean;
   canRsvp: boolean;
+  going: string[];
+  onToggleGoing: (
+    eventId: string,
+    email: string,
+    willGo: boolean,
+  ) => Promise<{ warning?: string }>;
   onEdit: () => void;
   onClose: () => void;
 }) {
@@ -184,6 +207,14 @@ function DetailBody({
             canRsvp={canRsvp}
           />
         )}
+        <GoingRow
+          key={`going-${event.id}`}
+          event={event}
+          members={members}
+          going={going}
+          canManage={canManage}
+          onToggleGoing={onToggleGoing}
+        />
       </div>
       {canManage && isEditable && (
         <SheetFooter className="flex-row justify-between">
@@ -205,6 +236,90 @@ function DetailBody({
   );
 }
 
+// "Who's going" toggles: one avatar per family member other than the event owner.
+// Tap to mark going (full color + ring), tap again to clear (dimmed). For a
+// materialized event this adds/removes them as a native Google guest so the event
+// lands on their own calendar; for any event it records who's attending.
+function GoingRow({
+  event,
+  members,
+  going,
+  canManage,
+  onToggleGoing,
+}: {
+  event: CalendarEvent;
+  members: CalendarMember[];
+  going: string[];
+  canManage: boolean;
+  onToggleGoing: (
+    eventId: string,
+    email: string,
+    willGo: boolean,
+  ) => Promise<{ warning?: string }>;
+}) {
+  const others = members.filter((m) => m.email !== event.member_email);
+  const [pending, setPending] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+
+  if (others.length === 0) return null;
+  // App-only manual events have no real Google event to invite guests to, so the
+  // toggle couldn't deliver anything — don't offer it. (Manual events written to
+  // a Google calendar are source_type "google" and keep the row.)
+  if (event.source_type === "manual") return null;
+  // Driven by the `going` prop, which lives in the calendar client (mounted
+  // across drawer open/close) — so the state survives reopening the drawer.
+  const goingSet = new Set(going);
+
+  async function toggle(email: string) {
+    const willGo = !goingSet.has(email);
+    setPending(email);
+    setWarning(null);
+    try {
+      const res = await onToggleGoing(event.id, email, willGo);
+      if (res.warning) setWarning(res.warning);
+    } catch {
+      // The parent reverts its optimistic state on failure.
+    } finally {
+      setPending(null);
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="text-xs font-medium text-muted-foreground">Going</div>
+      <div className="flex flex-wrap gap-2">
+        {others.map((m) => {
+          const isGoing = goingSet.has(m.email);
+          return (
+            <button
+              key={m.email}
+              type="button"
+              disabled={!canManage || pending === m.email}
+              onClick={() => toggle(m.email)}
+              aria-pressed={isGoing}
+              title={`${m.name ?? m.email}${isGoing ? " is going" : ""}`}
+              className={cn(
+                "rounded-full transition-opacity disabled:cursor-not-allowed",
+                isGoing ? "opacity-100" : "opacity-35 hover:opacity-60",
+              )}
+              style={
+                isGoing
+                  ? {
+                      boxShadow: `0 0 0 2px var(--background), 0 0 0 4px ${m.color ?? "currentColor"}`,
+                    }
+                  : undefined
+              }
+            >
+              <MemberAvatar name={m.name} size="md" />
+            </button>
+          );
+        })}
+      </div>
+      {warning && <p className="text-xs text-muted-foreground">{warning}</p>}
+    </div>
+  );
+}
+
 function EventForm({
   event,
   members,
@@ -221,7 +336,7 @@ function EventForm({
   const isEditingExisting = !!event;
   const [title, setTitle] = useState(event?.title ?? "");
   const [memberEmail, setMemberEmail] = useState<string>(
-    event?.member_email ?? "",
+    event?.member_email ?? members[0]?.email ?? "",
   );
   // Default new events to the first Google calendar when one exists, so the
   // common case (event lands on your real calendar) needs no extra click.
@@ -333,7 +448,6 @@ function EventForm({
               onChange={(e) => setMemberEmail(e.target.value)}
               className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             >
-              <option value="">Family (everyone)</option>
               {members.map((m) => (
                 <option key={m.email} value={m.email}>
                   {m.name ?? m.email}

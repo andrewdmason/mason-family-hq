@@ -4,6 +4,7 @@ import {
   getCalendarMembers,
   getCalendarSources,
   getCalendarEvents,
+  getEventAttendees,
 } from "@/lib/calendar/queries";
 import { CalendarClient } from "@/components/calendar/calendar-client";
 import { SyncTrigger } from "@/components/calendar/sync-trigger";
@@ -13,16 +14,18 @@ export default async function CalendarPage() {
   const userId = await requireUserId(supabase);
   const { data: me } = await supabase
     .from("family_members")
-    .select("role")
+    .select("role, email")
     .eq("user_id", userId)
     .maybeSingle();
   const canManage = me?.role === "owner" || me?.role === "parent";
+  const currentMemberEmail = me?.email ?? null;
 
   const [members, sources, events] = await Promise.all([
     getCalendarMembers(),
     getCalendarSources(),
     getCalendarEvents(),
   ]);
+  const goingByEvent = await getEventAttendees(events.map((e) => e.id));
 
   // getCalendarMembers returns kids-first (Oscar, Sebastian, Andrew, Jenny);
   // the calendar reads better with adults first, so reverse for the chips and
@@ -36,7 +39,9 @@ export default async function CalendarPage() {
         members={calendarMembers}
         sources={sources}
         events={events}
+        goingByEvent={goingByEvent}
         canManage={canManage}
+        currentMemberEmail={currentMemberEmail}
       />
     </>
   );

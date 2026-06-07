@@ -19,6 +19,12 @@ export interface CalendarEvent {
   all_day: boolean;
   source_type: CalendarSourceType;
   external_id: string | null;
+  // The real Google event id when this row was materialized by the importer.
+  // Used to collapse an event and its guest copies into one logical event.
+  google_event_id: string | null;
+  // The Google event's organizer (read sync only) — picks the owner column for a
+  // shared event.
+  organizer_email: string | null;
   teamsnap_opponent: string | null;
   teamsnap_arrival_time: string | null;
   teamsnap_is_game: boolean | null;
@@ -26,6 +32,9 @@ export interface CalendarEvent {
   recurrence: CalendarRecurrence;
   recurrence_parent_id: string | null;
   is_canceled: boolean;
+  // Set when the user deleted the materialized event off their Google calendar:
+  // treated as a decline (hidden, not recreated). Survives re-sync.
+  dismissed: boolean;
 }
 
 export interface CalendarSource {
@@ -45,11 +54,18 @@ export interface CalendarSource {
   sync_error: string | null;
 }
 
+export type PrimaryCalendarMode = "managed" | "connected";
+
 // A trimmed family member as the calendar needs it: who calendars/events belong
-// to, plus a display color. Sourced from family_members (00090).
+// to, plus a display color and their primary calendar config (00112).
 export interface CalendarMember {
   email: string;
   name: string | null;
   role: "owner" | "parent" | "kid";
   color: string | null;
+  // The one Google calendar everything imports into. Null until set up.
+  primary_calendar_id: string | null;
+  primary_calendar_connection: string | null;
+  primary_calendar_mode: PrimaryCalendarMode | null;
+  primary_calendar_summary: string | null; // human-readable calendar title
 }

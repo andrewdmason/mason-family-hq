@@ -4,7 +4,12 @@
 // load; writes back to Google are handled by the calendar actions, not here.
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { listGoogleEvents, googleTimesToEvent } from "./google";
+import {
+  listGoogleEvents,
+  googleTimesToEvent,
+  FAMILYHQ_MARKER,
+  type GoogleCredential,
+} from "./google";
 
 // How far back/forward to pull. A year ahead covers school years and seasons; a
 // month back keeps recently-passed events visible.
@@ -47,13 +52,24 @@ export async function syncGoogleSource(
     return { synced: 0, error: "No Google connection for this calendar" };
   }
 
+  // Managed members (kids, or an adult an owner set up) have no OAuth token of
+  // their own — read their calendar via delegation. Everyone else uses their
+  // stored OAuth token.
+  const { data: mem } = source.member_email
+    ? await supabase
+        .from("family_members")
+        .select("primary_calendar_mode")
+        .eq("email", source.member_email)
+        .maybeSingle()
+    : { data: null };
+  const cred: GoogleCredential =
+    mem?.primary_calendar_mode === "managed"
+      ? { kind: "dwd", subjectEmail: connectionEmail }
+      : { kind: "oauth", memberEmail: connectionEmail };
+
   let events;
   try {
-    events = await listGoogleEvents(
-      connectionEmail,
-      source.google_calendar_id,
-      syncWindow(),
-    );
+    events = await listGoogleEvents(cred, source.google_calendar_id, syncWindow());
   } catch (err) {
     const msg =
       err instanceof Error ? err.message : "Failed to fetch Google events";
@@ -68,6 +84,10 @@ export async function syncGoogleSource(
   // same conflict target twice.
   const rowByExtId = new Map<string, Record<string, unknown>>();
   for (const ev of events) {
+    // Feedback-loop guard: if this calendar is also an import destination, skip
+    // the events our own importer materialized here — otherwise we'd re-ingest
+    // them as separate google:{id} rows that never reconcile against TeamSnap.
+    if (ev.extendedProperties?.private?.[FAMILYHQ_MARKER]) continue;
     const { start_time, end_time, all_day } = googleTimesToEvent(ev);
     if (!start_time) continue;
     const externalId = `google:${ev.id}`;
@@ -82,6 +102,7 @@ export async function syncGoogleSource(
       all_day,
       source_type: "google" as const,
       external_id: externalId,
+      organizer_email: ev.organizer?.email?.toLowerCase() ?? null,
       is_canceled: ev.status === "cancelled",
     });
   }
@@ -125,12 +146,94 @@ export async function syncGoogleSource(
     );
   if (cancelOps.length > 0) await Promise.all(cancelOps);
 
+  await reconcileMaterializedOnCalendar(
+    supabase,
+    source.google_calendar_id,
+    events,
+    syncWindow(),
+  );
+
   await supabase
     .from("calendar_sources")
     .update({ last_synced_at: new Date().toISOString(), sync_error: null })
     .eq("id", calendarSourceId);
 
   return { synced: syncedCount };
+}
+
+// Reconcile the TeamSnap/ICS events the importer materialized onto THIS calendar
+// against what's actually there now (keyed by the real Google event id):
+//   * deleted/cancelled by the user  → mark dismissed (hide, treated as a decline,
+//     and materializeRow won't recreate it); restore if it reappears.
+//   * a guest who declined in Google → clear their "going" (Case A).
+// Scoped to the fetched window so events that merely aged out aren't dismissed.
+async function reconcileMaterializedOnCalendar(
+  supabase: ReturnType<typeof createAdminClient>,
+  calendarId: string,
+  events: Array<{
+    id: string;
+    status?: string;
+    attendees?: Array<{ email?: string; responseStatus?: string }>;
+  }>,
+  window: { timeMin: string; timeMax: string },
+): Promise<void> {
+  const googleById = new Map(events.map((e) => [e.id, e]));
+
+  const { data: materialized } = await supabase
+    .from("calendar_events")
+    .select("id, google_event_id, dismissed")
+    .eq("google_calendar_id", calendarId)
+    .not("google_event_id", "is", null)
+    .gte("start_time", window.timeMin)
+    .lte("start_time", window.timeMax);
+  if (!materialized?.length) return;
+
+  const dismiss: string[] = [];
+  const undismiss: string[] = [];
+  const attendeesByEventId = new Map<
+    string,
+    Array<{ email?: string; responseStatus?: string }>
+  >();
+  for (const m of materialized) {
+    const g = googleById.get(m.google_event_id as string);
+    const present = !!g && g.status !== "cancelled";
+    if (!present && !m.dismissed) dismiss.push(m.id as string);
+    else if (present && m.dismissed) undismiss.push(m.id as string);
+    if (present) attendeesByEventId.set(m.id as string, g!.attendees ?? []);
+  }
+
+  if (dismiss.length) {
+    await supabase.from("calendar_events").update({ dismissed: true }).in("id", dismiss);
+  }
+  if (undismiss.length) {
+    await supabase
+      .from("calendar_events")
+      .update({ dismissed: false })
+      .in("id", undismiss);
+  }
+
+  // Case A: drop "going" for any guest who declined in Google.
+  const presentIds = [...attendeesByEventId.keys()];
+  if (presentIds.length) {
+    const { data: going } = await supabase
+      .from("event_attendees")
+      .select("event_id, member_email")
+      .eq("going", true)
+      .in("event_id", presentIds);
+    for (const a of going ?? []) {
+      const att = attendeesByEventId.get(a.event_id as string) ?? [];
+      const declined = att.some(
+        (x) => x.email === a.member_email && x.responseStatus === "declined",
+      );
+      if (declined) {
+        await supabase
+          .from("event_attendees")
+          .update({ going: false })
+          .eq("event_id", a.event_id)
+          .eq("member_email", a.member_email);
+      }
+    }
+  }
 }
 
 export async function syncAllGoogleSources(): Promise<{

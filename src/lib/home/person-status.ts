@@ -2,10 +2,7 @@ import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCalendarEvents } from "@/lib/calendar/queries";
-import {
-  isDeclinedTeamsnapEvent,
-  memberColor,
-} from "@/lib/calendar/calendar-utils";
+import { isHiddenEvent, memberColor } from "@/lib/calendar/calendar-utils";
 import { getWeekStart, localDate } from "@/lib/date-utils";
 import { activeQuizState, isQuizDue } from "@/lib/reading/quiz-due";
 import {
@@ -302,7 +299,7 @@ export async function getHomePersonStatuses(
   const eventsByEmail = new Map<string, CalendarEvent[]>();
   for (const event of events) {
     if (!event.member_email) continue;
-    if (isDeclinedTeamsnapEvent(event)) continue;
+    if (isHiddenEvent(event)) continue;
     if (eventDateKey(event, tz) !== today) continue;
     if (!eventStillUpcoming(event, now)) continue;
     const list = eventsByEmail.get(event.member_email) ?? [];

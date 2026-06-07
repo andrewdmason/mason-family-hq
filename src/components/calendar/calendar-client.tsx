@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ChevronLeft,
@@ -25,6 +25,7 @@ import {
   formatMonthLabel,
   formatWeekLabel,
   memberColor,
+  toLogicalEvents,
 } from "@/lib/calendar/calendar-utils";
 import { detectConflicts } from "@/lib/calendar/conflicts";
 import type {
@@ -39,20 +40,24 @@ import { MonthView } from "./month-view";
 import { EventSheet, type SheetMode } from "./event-sheet";
 import { SyncButton } from "./sync-button";
 import type { EventDisplay } from "./event-card";
+import { setEventGoing } from "@/app/(calendar)/calendar/actions";
 
 type View = "day" | "feed" | "week" | "month";
-const FAMILY = "__family__";
 
 export function CalendarClient({
   members,
   sources,
   events,
+  goingByEvent,
   canManage,
+  currentMemberEmail,
 }: {
   members: CalendarMember[];
   sources: CalendarSource[];
   events: CalendarEvent[];
+  goingByEvent: Record<string, string[]>;
   canManage: boolean;
+  currentMemberEmail: string | null;
 }) {
   const [view, setView] = useState<View>("day");
   const [anchor, setAnchor] = useState(() => new Date());
@@ -63,6 +68,33 @@ export function CalendarClient({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetMode, setSheetMode] = useState<SheetMode>("detail");
   const [activeEvent, setActiveEvent] = useState<CalendarEvent | null>(null);
+  // Optimistic per-event "going" overrides (email -> going). The base attendee
+  // set is derived from server data (event_attendees + members who already have
+  // the event on their calendar as a guest); these overrides layer the user's
+  // pending toggles on top, so the agenda avatars/ghosts and the drawer's "Going"
+  // highlights stay in sync from a single source without a round-trip.
+  const [overrides, setOverrides] = useState<
+    Record<string, Record<string, boolean>>
+  >({});
+
+  async function toggleGoing(
+    eventId: string,
+    email: string,
+    willGo: boolean,
+  ): Promise<{ warning?: string }> {
+    const set = (going: boolean) =>
+      setOverrides((prev) => ({
+        ...prev,
+        [eventId]: { ...(prev[eventId] ?? {}), [email]: going },
+      }));
+    set(willGo); // optimistic
+    const res = await setEventGoing(eventId, email, willGo);
+    if ("error" in res) {
+      set(!willGo); // revert
+      throw new Error(res.error);
+    }
+    return { warning: res.warning };
+  }
 
   const sourcesById = useMemo(
     () => new Map(sources.map((s) => [s.id, s])),
@@ -93,6 +125,8 @@ export function CalendarClient({
   // events we hide by default — same logic the row's RSVP badge uses.
   const isDeclined = useMemo(() => {
     return (event: CalendarEvent): boolean => {
+      // Deleted off the owner's Google calendar → treated as declined (hidden).
+      if (event.dismissed) return true;
       const source = event.calendar_source_id
         ? sourcesById.get(event.calendar_source_id)
         : undefined;
@@ -104,24 +138,49 @@ export function CalendarClient({
     };
   }, [sourcesById]);
 
+  // Collapse the same underlying event (a shared Google event read from several
+  // members' calendars, or our materialized event + its guest copies) into one
+  // logical event owned by a single member, with the others as attendees. This is
+  // what stops a family event rendering as four separate cards.
+  const base = useMemo(
+    () => toLogicalEvents(events, goingByEvent, members.map((m) => m.email)),
+    [events, goingByEvent, members],
+  );
+
+  // Effective attendee emails for a logical event = server base ± optimistic
+  // overrides. Used by both the agenda (avatars/ghosts) and the drawer toggles.
+  const attendeesFor = useCallback(
+    (eventId: string, ownerEmail: string | null): string[] => {
+      const set = new Set(base.attendeesById.get(eventId) ?? []);
+      const ov = overrides[eventId];
+      if (ov) {
+        for (const [email, going] of Object.entries(ov)) {
+          if (going) set.add(email);
+          else set.delete(email);
+        }
+      }
+      if (ownerEmail) set.delete(ownerEmail);
+      return [...set];
+    },
+    [base, overrides],
+  );
+
   // Declined events don't create a scheduling conflict — you're not going, so
   // they can't clash with anything. Scan only the events you're actually
   // attending, regardless of whether declined events are currently shown.
   const conflictIds = useMemo(
-    () => detectConflicts(events.filter((e) => !isDeclined(e))),
-    [events, isDeclined],
+    () => detectConflicts(base.events.filter((e) => !isDeclined(e))),
+    [base, isDeclined],
   );
 
   const memberFiltered = useMemo(() => {
-    if (filter === "all") return events;
-    if (filter === FAMILY) return events.filter((e) => !e.member_email);
-    return events.filter((e) => e.member_email === filter);
-  }, [events, filter]);
+    if (filter === "all") return base.events;
+    return base.events.filter((e) => e.member_email === filter);
+  }, [base, filter]);
 
   // Which members get a column in the agenda. "Family" collapses to no
   // columns (only the shared banner); a single-member filter shows just them.
   const agendaMembers = useMemo(() => {
-    if (filter === FAMILY) return [];
     if (filter === "all") return members;
     return members.filter((m) => m.email === filter);
   }, [filter, members]);
@@ -166,6 +225,13 @@ export function CalendarClient({
         source?.source_type === "teamsnap" && source.teamsnap_player_member_id
           ? event.teamsnap_rsvp ?? "no_reply"
           : null;
+      const attendees = attendeesFor(event.id, event.member_email).map(
+        (email) => ({
+          email,
+          name: memberNames.get(email) ?? email,
+          color: memberColors.get(email) ?? memberColor(email),
+        }),
+      );
       return {
         event,
         color,
@@ -173,9 +239,17 @@ export function CalendarClient({
         calendarLabel,
         conflict: conflictIds.has(event.id),
         rsvp,
+        attendees,
       };
     };
-  }, [sourcesById, memberNames, memberColors, sourceCountByOwner, conflictIds]);
+  }, [
+    sourcesById,
+    memberNames,
+    memberColors,
+    sourceCountByOwner,
+    conflictIds,
+    attendeesFor,
+  ]);
 
   function openDetail(event: CalendarEvent) {
     setActiveEvent(event);
@@ -215,7 +289,6 @@ export function CalendarClient({
       label: m.name ?? m.email,
       color: m.color ?? memberColor(m.email),
     })),
-    { key: FAMILY, label: "Family", color: memberColor(null) },
   ];
 
   return (
@@ -285,11 +358,12 @@ export function CalendarClient({
                     htmlFor="show-declined"
                     className="text-sm font-medium"
                   >
-                    Show declined events
+                    Show hidden events
                   </label>
                   <p className="text-xs text-muted-foreground">
-                    TeamSnap events you&rsquo;ve marked &ldquo;Not going&rdquo;
-                    are hidden.
+                    Events you&rsquo;ve declined are hidden — a TeamSnap
+                    &ldquo;Not going,&rdquo; or one removed from its Google
+                    calendar.
                     {declinedCount > 0 &&
                       ` ${declinedCount} hidden right now.`}
                   </p>
@@ -358,6 +432,7 @@ export function CalendarClient({
             display={display}
             onEventClick={openDetail}
             selectedEventId={sheetOpen ? activeEvent?.id ?? null : null}
+            currentMemberEmail={currentMemberEmail}
           />
         )}
         {view === "feed" && (
@@ -405,6 +480,12 @@ export function CalendarClient({
             : false)
         }
         sourceLabel={activeEvent ? display(activeEvent).sourceLabel : null}
+        going={
+          activeEvent
+            ? attendeesFor(activeEvent.id, activeEvent.member_email)
+            : []
+        }
+        onToggleGoing={toggleGoing}
       />
     </div>
   );

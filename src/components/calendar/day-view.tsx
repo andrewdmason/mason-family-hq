@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { AlertTriangle, Flag, MapPin } from "lucide-react";
 import {
   eventDayKey,
@@ -8,6 +9,7 @@ import {
 } from "@/lib/calendar/calendar-utils";
 import type { CalendarEvent, CalendarMember } from "@/lib/calendar/types";
 import type { EventDisplay } from "./event-card";
+import { MemberAvatar } from "@/components/journal/member-avatar";
 import { cn } from "@/lib/utils";
 
 // A true vertical time axis: position encodes when, height encodes how long.
@@ -19,6 +21,8 @@ const GUTTER = 44; // px reserved for the hour labels
 const MIN_BLOCK = 26; // px floor so a short event's label still fits
 const FAMILY_KEY = "__family__";
 const FAMILY_COLOR = "#64748b";
+// A subtle blue wash marking the signed-in user's own column.
+const ME_TINT = "bg-blue-50/70 dark:bg-blue-500/10";
 
 const localMin = (iso: string) => {
   const d = new Date(iso);
@@ -84,6 +88,7 @@ export function DayView({
   display,
   onEventClick,
   selectedEventId,
+  currentMemberEmail,
 }: {
   events: CalendarEvent[];
   anchorDate: Date;
@@ -91,7 +96,18 @@ export function DayView({
   display: (event: CalendarEvent) => EventDisplay;
   onEventClick: (event: CalendarEvent) => void;
   selectedEventId: string | null;
+  currentMemberEmail: string | null;
 }) {
+  // A live clock so the "now" line tracks the real time. Minute granularity is
+  // plenty for an hour-scale axis; the interval is cleared on unmount.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const isToday = toDateKey(anchorDate) === toDateKey(now);
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+
   const dayKey = toDateKey(anchorDate);
   const dayEvents = events.filter((e) => eventDayKey(e) === dayKey);
   const allDay = dayEvents.filter((e) => e.all_day).sort(byStart);
@@ -117,6 +133,11 @@ export function DayView({
     minH = Math.min(minH, Math.floor(startMin(e) / 60));
     maxH = Math.max(maxH, Math.ceil(endMin(e) / 60));
   }
+  // Keep the current-time line on the axis when we're looking at today.
+  if (isToday) {
+    minH = Math.min(minH, Math.floor(nowMin / 60));
+    maxH = Math.max(maxH, Math.ceil(nowMin / 60) + 1);
+  }
   minH = Math.max(0, minH);
   maxH = Math.min(24, maxH);
   const totalH = (maxH - minH) * PX_PER_HOUR;
@@ -131,14 +152,27 @@ export function DayView({
     label: string;
     color: string;
     events: CalendarEvent[];
+    // Events owned by someone else that this member is attending — drawn as muted
+    // "busy" ghosts so a shared event blocks everyone's time without duplicating.
+    ghosts: CalendarEvent[];
     allDay: CalendarEvent[];
+    isMe: boolean;
   };
   const columns: Column[] = members.map((m) => ({
     key: m.email,
     label: m.name ?? m.email,
     color: m.color ?? FAMILY_COLOR,
     events: timed.filter((e) => e.member_email === m.email),
+    ghosts:
+      members.length > 1
+        ? timed.filter(
+            (e) =>
+              e.member_email !== m.email &&
+              display(e).attendees.some((a) => a.email === m.email),
+          )
+        : [],
     allDay: allDay.filter((e) => e.member_email === m.email),
+    isMe: m.email === currentMemberEmail,
   }));
   const familyTimed = timed.filter(isFamily);
   const familyAllDay = allDay.filter(isFamily);
@@ -148,9 +182,15 @@ export function DayView({
       label: "Family",
       color: FAMILY_COLOR,
       events: familyTimed,
+      ghosts: [],
       allDay: familyAllDay,
+      isMe: false,
     });
   }
+
+  // The signed-in user always leads, so their day is the first thing read.
+  const meIndex = columns.findIndex((c) => c.isMe);
+  if (meIndex > 0) columns.unshift(columns.splice(meIndex, 1)[0]);
 
   const hasAllDay = columns.some((c) => c.allDay.length > 0);
 
@@ -159,9 +199,11 @@ export function DayView({
   function Block({
     placed,
     showMember,
+    ghost,
   }: {
     placed: Placed;
     showMember?: boolean;
+    ghost?: boolean;
   }) {
     const { event } = placed;
     const d = display(event);
@@ -190,6 +232,8 @@ export function DayView({
         }}
         className={cn(
           "absolute overflow-hidden rounded-md border border-border/70 border-l-[3px] bg-card px-1.5 py-0.5 text-left shadow-sm transition-colors hover:bg-muted/50",
+          ghost &&
+            "border-dashed bg-muted/30 opacity-70 shadow-none hover:opacity-100",
           event.id === selectedEventId && "ring-1 ring-ring",
         )}
       >
@@ -200,8 +244,22 @@ export function DayView({
           {d.conflict && (
             <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-amber-600" />
           )}
+          {!ghost && d.attendees.length > 0 && (
+            <span className="ml-auto flex shrink-0 -space-x-1">
+              {d.attendees.slice(0, 3).map((a) => (
+                <span key={a.email} title={a.name ?? a.email} className="inline-flex">
+                  <MemberAvatar name={a.name} size="xs" className="ring-1 ring-card" />
+                </span>
+              ))}
+            </span>
+          )}
         </span>
-        <span className="mt-0.5 line-clamp-2 text-[11px] font-medium leading-tight text-foreground">
+        <span
+          className={cn(
+            "mt-0.5 line-clamp-2 text-[11px] font-medium leading-tight text-foreground",
+            ghost && "italic text-muted-foreground",
+          )}
+        >
           {memberName && (
             <span className="text-muted-foreground">{memberName} · </span>
           )}
@@ -210,7 +268,7 @@ export function DayView({
           )}
           {event.title}
         </span>
-        {height >= 46 && event.location && (
+        {!ghost && height >= 46 && event.location && (
           <span className="mt-0.5 flex items-center gap-0.5 truncate text-[10px] text-muted-foreground">
             <MapPin className="h-2.5 w-2.5 shrink-0" />
             {event.location}
@@ -244,6 +302,28 @@ export function DayView({
     );
   }
 
+  // Fantastical-style current-time marker: a thin red rule across the axis with
+  // a dot anchored in the hour gutter. Only on today, only when in the window.
+  function nowLine() {
+    if (!isToday || nowMin < minH * 60 || nowMin > maxH * 60) return null;
+    return (
+      <div
+        className="pointer-events-none absolute inset-x-0 z-20"
+        style={{ top: y(nowMin) }}
+        aria-hidden
+      >
+        <div
+          className="absolute h-2 w-2 -translate-y-1/2 rounded-full bg-red-500"
+          style={{ left: GUTTER - 4 }}
+        />
+        <div
+          className="absolute border-t border-red-500"
+          style={{ left: GUTTER, right: 0 }}
+        />
+      </div>
+    );
+  }
+
   function axisLines() {
     return hourMarks.map((h) => (
       <div key={h}>
@@ -273,7 +353,10 @@ export function DayView({
           {columns.map((c) => (
             <div
               key={c.key}
-              className="flex min-w-0 flex-1 items-center gap-1.5 px-2 pb-2 text-sm font-semibold text-foreground"
+              className={cn(
+                "flex min-w-0 flex-1 items-center gap-1.5 px-2 pb-2 pt-1 text-sm font-semibold text-foreground",
+                c.isMe && ME_TINT,
+              )}
             >
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
@@ -298,7 +381,10 @@ export function DayView({
               {columns.map((c) => (
                 <div
                   key={c.key}
-                  className="min-w-0 flex-1 space-y-0.5 border-l border-border/40 px-1 py-1"
+                  className={cn(
+                    "min-w-0 flex-1 space-y-0.5 border-l border-border/40 px-1 py-1",
+                    c.isMe && ME_TINT,
+                  )}
                 >
                   {c.allDay.map((event) => allDayItem(event))}
                 </div>
@@ -314,17 +400,28 @@ export function DayView({
             className="absolute inset-y-0 flex"
             style={{ left: GUTTER, right: 0 }}
           >
-            {columns.map((c) => (
-              <div
-                key={c.key}
-                className="relative min-w-0 flex-1 border-l border-border/60"
-              >
-                {pack(c.events).map((p) => (
-                  <Block key={p.event.id} placed={p} />
-                ))}
-              </div>
-            ))}
+            {columns.map((c) => {
+              const ghostIds = new Set(c.ghosts.map((e) => e.id));
+              return (
+                <div
+                  key={c.key}
+                  className={cn(
+                    "relative min-w-0 flex-1 border-l border-border/60",
+                    c.isMe && ME_TINT,
+                  )}
+                >
+                  {pack([...c.events, ...c.ghosts]).map((p) => (
+                    <Block
+                      key={p.event.id}
+                      placed={p}
+                      ghost={ghostIds.has(p.event.id)}
+                    />
+                  ))}
+                </div>
+              );
+            })}
           </div>
+          {nowLine()}
         </div>
       </div>
 
@@ -345,6 +442,7 @@ export function DayView({
               <Block key={p.event.id} placed={p} showMember />
             ))}
           </div>
+          {nowLine()}
         </div>
       </div>
     </>
