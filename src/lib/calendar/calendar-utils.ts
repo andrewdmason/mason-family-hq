@@ -33,6 +33,13 @@ export function isDeclinedTeamsnapEvent(event: CalendarEvent): boolean {
   return event.source_type === "teamsnap" && event.teamsnap_rsvp === "not_going";
 }
 
+// An event hidden by default across the app: a TeamSnap event you've RSVP'd "Not
+// going" to, OR a materialized event you deleted off your Google calendar (which
+// we treat as a decline). Both are reversible (toggle "show declined").
+export function isHiddenEvent(event: CalendarEvent): boolean {
+  return isDeclinedTeamsnapEvent(event) || event.dismissed;
+}
+
 export function getWeekBounds(anchor: Date): { start: Date; end: Date } {
   const d = new Date(anchor);
   const day = d.getDay();

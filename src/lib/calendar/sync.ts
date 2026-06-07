@@ -8,20 +8,23 @@ import { syncAllIcsSources } from "./ics-sync";
 import { syncAllGoogleSources } from "./google-sync";
 
 export async function runCalendarSync(
-  // The page-load trigger passes { teamsnapRsvp: false } to skip the per-event
-  // RSVP fetch (a flood of TeamSnap calls that otherwise competes with the first
-  // event the user opens). The cron and manual "Sync" button run the full sync.
-  opts: { teamsnapRsvp?: boolean } = {},
+  // The page-load trigger passes { teamsnapRsvp: false, materialize: false } to
+  // skip the per-event RSVP fetch (a flood of TeamSnap calls that otherwise
+  // competes with the first event the user opens) and to avoid writing to Google
+  // on the frequent, concurrent page-load path. The cron and manual "Sync" button
+  // run the full sync, which materializes events onto the kids' Google calendars.
+  opts: { teamsnapRsvp?: boolean; materialize?: boolean } = {},
 ): Promise<{
   teamsnap: number;
   ics: number;
   google: number;
 }> {
+  const materialize = opts.materialize !== false;
   const [ts, ics, google] = await Promise.all([
-    syncAllTeamsnapSources({ syncRsvp: opts.teamsnapRsvp }).catch(() => ({
-      results: [],
-    })),
-    syncAllIcsSources().catch(() => ({ results: [] })),
+    syncAllTeamsnapSources({ syncRsvp: opts.teamsnapRsvp, materialize }).catch(
+      () => ({ results: [] }),
+    ),
+    syncAllIcsSources({ materialize }).catch(() => ({ results: [] })),
     syncAllGoogleSources().catch(() => ({ results: [] })),
   ]);
   return {

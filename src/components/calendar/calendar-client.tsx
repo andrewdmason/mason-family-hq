@@ -37,6 +37,7 @@ import { MonthView } from "./month-view";
 import { EventSheet, type SheetMode } from "./event-sheet";
 import { SyncButton } from "./sync-button";
 import type { EventDisplay } from "./event-card";
+import { setEventGoing } from "@/app/(calendar)/calendar/actions";
 
 type View = "agenda" | "week" | "month";
 const FAMILY = "__family__";
@@ -45,11 +46,13 @@ export function CalendarClient({
   members,
   sources,
   events,
+  goingByEvent,
   canManage,
 }: {
   members: CalendarMember[];
   sources: CalendarSource[];
   events: CalendarEvent[];
+  goingByEvent: Record<string, string[]>;
   canManage: boolean;
 }) {
   const [view, setView] = useState<View>("agenda");
@@ -61,6 +64,31 @@ export function CalendarClient({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetMode, setSheetMode] = useState<SheetMode>("detail");
   const [activeEvent, setActiveEvent] = useState<CalendarEvent | null>(null);
+  // Who's "going" per event, owned here so it survives the drawer opening/closing
+  // (seeded from the server, updated optimistically on toggle).
+  const [goingMap, setGoingMap] =
+    useState<Record<string, string[]>>(goingByEvent);
+
+  async function toggleGoing(
+    eventId: string,
+    email: string,
+    willGo: boolean,
+  ): Promise<{ warning?: string }> {
+    const apply = (add: boolean) =>
+      setGoingMap((prev) => {
+        const cur = new Set(prev[eventId] ?? []);
+        if (add) cur.add(email);
+        else cur.delete(email);
+        return { ...prev, [eventId]: [...cur] };
+      });
+    apply(willGo); // optimistic
+    const res = await setEventGoing(eventId, email, willGo);
+    if ("error" in res) {
+      apply(!willGo); // revert
+      throw new Error(res.error);
+    }
+    return { warning: res.warning };
+  }
 
   const sourcesById = useMemo(
     () => new Map(sources.map((s) => [s.id, s])),
@@ -91,6 +119,8 @@ export function CalendarClient({
   // events we hide by default — same logic the row's RSVP badge uses.
   const isDeclined = useMemo(() => {
     return (event: CalendarEvent): boolean => {
+      // Deleted off the owner's Google calendar → treated as declined (hidden).
+      if (event.dismissed) return true;
       const source = event.calendar_source_id
         ? sourcesById.get(event.calendar_source_id)
         : undefined;
@@ -387,6 +417,8 @@ export function CalendarClient({
             : false)
         }
         sourceLabel={activeEvent ? display(activeEvent).sourceLabel : null}
+        going={activeEvent ? goingMap[activeEvent.id] ?? [] : []}
+        onToggleGoing={toggleGoing}
       />
     </div>
   );

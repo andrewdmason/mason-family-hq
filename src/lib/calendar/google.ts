@@ -5,9 +5,28 @@
 // provider tokens, so refresh is owned here (getValidGoogleToken).
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { mintDelegatedToken } from "./google-dwd";
 
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const GOOGLE_CALENDAR_API = "https://www.googleapis.com/calendar/v3";
+
+// How a Google API call is authenticated. "oauth" replays a member's own stored
+// token (parents, who sign in); "dwd" mints a delegated token that acts AS the
+// given @mason.io user via the service account (kids' calendars, which the
+// importer writes to without the kid ever signing in — see google-dwd.ts).
+export type GoogleCredential =
+  | { kind: "oauth"; memberEmail: string }
+  | { kind: "dwd"; subjectEmail: string };
+
+async function resolveToken(cred: GoogleCredential): Promise<string> {
+  return cred.kind === "oauth"
+    ? getValidGoogleToken(cred.memberEmail)
+    : mintDelegatedToken(cred.subjectEmail);
+}
+
+// Optional write controls. sendUpdates governs guest notifications: "none" for
+// silent guest-list churn, "all" when a time/location change should notify.
+type WriteOpts = { sendUpdates?: "all" | "externalOnly" | "none" };
 
 // ---------------------------------------------------------------------------
 // Types (only the fields we use).
@@ -34,7 +53,16 @@ export interface GoogleEvent {
   location?: string;
   start?: GoogleEventDate;
   end?: GoogleEventDate;
+  // Set on events our importer authored, so a calendar that is both an import
+  // destination and a read source can filter its own materialized events out.
+  extendedProperties?: { private?: Record<string, string> };
+  // Guests + their RSVP, used to detect a guest who declined (Case A).
+  attendees?: Array<{ email?: string; responseStatus?: string }>;
 }
+
+// The private extended-property key the importer stamps on every event it
+// materializes. listGoogleEvents readers skip events carrying it.
+export const FAMILYHQ_MARKER = "familyhq";
 
 // ---------------------------------------------------------------------------
 // Low-level fetch with timeout + clear errors (mirrors teamsnapFetch).
@@ -164,9 +192,9 @@ export async function getValidGoogleToken(memberEmail: string): Promise<string> 
 // the UI can use accessRole to decide which are writable.
 // ---------------------------------------------------------------------------
 export async function listGoogleCalendars(
-  memberEmail: string,
+  cred: GoogleCredential,
 ): Promise<GoogleCalendarListEntry[]> {
-  const token = await getValidGoogleToken(memberEmail);
+  const token = await resolveToken(cred);
   const out: GoogleCalendarListEntry[] = [];
   let pageToken: string | undefined;
 
@@ -208,11 +236,11 @@ export async function listGoogleCalendars(
 // rows mirror how ICS feeds are already flattened.
 // ---------------------------------------------------------------------------
 export async function listGoogleEvents(
-  memberEmail: string,
+  cred: GoogleCredential,
   calendarId: string,
   range: { timeMin: string; timeMax: string },
 ): Promise<GoogleEvent[]> {
-  const token = await getValidGoogleToken(memberEmail);
+  const token = await resolveToken(cred);
   const out: GoogleEvent[] = [];
   let pageToken: string | undefined;
 
@@ -238,51 +266,92 @@ export async function listGoogleEvents(
   return out;
 }
 
+// Append ?sendUpdates= to an events path when notification control is requested.
+function withSendUpdates(path: string, opts?: WriteOpts): string {
+  if (!opts?.sendUpdates) return path;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}sendUpdates=${opts.sendUpdates}`;
+}
+
 export async function insertGoogleEvent(
-  memberEmail: string,
+  cred: GoogleCredential,
   calendarId: string,
   body: Record<string, unknown>,
+  opts?: WriteOpts,
 ): Promise<GoogleEvent> {
-  const token = await getValidGoogleToken(memberEmail);
+  const token = await resolveToken(cred);
   const res = await googleFetch(
     token,
-    `/calendars/${encodeURIComponent(calendarId)}/events`,
+    withSendUpdates(`/calendars/${encodeURIComponent(calendarId)}/events`, opts),
     { method: "POST", body: JSON.stringify(body) },
   );
   return res.json();
 }
 
 export async function patchGoogleEvent(
-  memberEmail: string,
+  cred: GoogleCredential,
   calendarId: string,
   eventId: string,
   body: Record<string, unknown>,
+  opts?: WriteOpts,
 ): Promise<GoogleEvent> {
-  const token = await getValidGoogleToken(memberEmail);
+  const token = await resolveToken(cred);
   const res = await googleFetch(
     token,
-    `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    withSendUpdates(
+      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+      opts,
+    ),
     { method: "PATCH", body: JSON.stringify(body) },
   );
   return res.json();
 }
 
 export async function deleteGoogleEvent(
-  memberEmail: string,
+  cred: GoogleCredential,
   calendarId: string,
   eventId: string,
+  opts?: WriteOpts,
 ): Promise<void> {
-  const token = await getValidGoogleToken(memberEmail);
+  const token = await resolveToken(cred);
   // 404/410 mean it's already gone — treat as success.
   try {
     await googleFetch(
       token,
-      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+      withSendUpdates(
+        `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+        opts,
+      ),
       { method: "DELETE" },
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";
     if (!/error 40[049]/.test(msg)) throw err;
+  }
+}
+
+// Grant a family member read access to a calendar (acl.insert), so they see it
+// natively with its own color and can be a guest on its events. Run as the
+// calendar's owner. Notifications suppressed; already-shared (409) is success.
+export async function shareCalendar(
+  cred: GoogleCredential,
+  calendarId: string,
+  granteeEmail: string,
+  role: "reader" | "writer" = "reader",
+): Promise<void> {
+  const token = await resolveToken(cred);
+  try {
+    await googleFetch(
+      token,
+      `/calendars/${encodeURIComponent(calendarId)}/acl?sendNotifications=false`,
+      {
+        method: "POST",
+        body: JSON.stringify({ role, scope: { type: "user", value: granteeEmail } }),
+      },
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    if (!/error 409/.test(msg)) throw err;
   }
 }
 
