@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
@@ -25,6 +26,8 @@ import {
   formatMonthLabel,
   formatWeekLabel,
   memberColor,
+  parseAnchorDate,
+  toDateKey,
   toLogicalEvents,
 } from "@/lib/calendar/calendar-utils";
 import { detectConflicts } from "@/lib/calendar/conflicts";
@@ -44,6 +47,12 @@ import { setEventGoing } from "@/app/(calendar)/calendar/actions";
 
 type View = "day" | "feed" | "week" | "month";
 
+const VIEWS: View[] = ["day", "feed", "week", "month"];
+
+function parseView(value: string | null): View {
+  return VIEWS.includes(value as View) ? (value as View) : "day";
+}
+
 export function CalendarClient({
   members,
   sources,
@@ -59,9 +68,28 @@ export function CalendarClient({
   canManage: boolean;
   currentMemberEmail: string | null;
 }) {
-  const [view, setView] = useState<View>("day");
-  const [anchor, setAnchor] = useState(() => new Date());
+  // View + anchored date live in the URL (?view=…&date=YYYY-MM-DD) so a refresh
+  // (or a shared link) lands on the same day and view instead of resetting to
+  // today/Day. We seed state from the URL on mount and write changes back below.
+  const searchParams = useSearchParams();
+  const [view, setView] = useState<View>(() =>
+    parseView(searchParams.get("view")),
+  );
+  const [anchor, setAnchor] = useState(() =>
+    parseAnchorDate(searchParams.get("date") ?? undefined),
+  );
   const [filter, setFilter] = useState<string>("all");
+
+  // Keep the URL in sync with view/date. We use the History API directly rather
+  // than router.replace so navigating days doesn't trigger a server round-trip
+  // (the page fetches all events regardless of date); Next still reads these
+  // params on a full reload to restore state.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("view", view);
+    params.set("date", toDateKey(anchor));
+    window.history.replaceState(null, "", `?${params.toString()}`);
+  }, [view, anchor]);
   // TeamSnap events you've RSVP'd "Not going" to are hidden unless this is on.
   const [showDeclined, setShowDeclined] = useState(false);
 
