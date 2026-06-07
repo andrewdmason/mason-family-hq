@@ -309,11 +309,25 @@ export function buildSystemPrompt(
   return sections.join("\n");
 }
 
+/**
+ * Map the stored thread to Anthropic turns, coalescing consecutive same-role
+ * messages into one turn (joined with a blank line). With question mode off the
+ * writer can save several user blocks in a row before the interviewer ever
+ * replies, and the API rejects consecutive turns of the same role — merging them
+ * keeps a quietly-written, then question-mode-on, thread valid.
+ */
 export function messagesAsAnthropicTurns(
   messages: Pick<JournalMessage, "role" | "content">[]
 ) {
-  return messages.map((m) => ({
-    role: m.role as "user" | "assistant",
-    content: m.content,
-  }));
+  const turns: { role: "user" | "assistant"; content: string }[] = [];
+  for (const m of messages) {
+    const role = m.role as "user" | "assistant";
+    const last = turns[turns.length - 1];
+    if (last && last.role === role) {
+      last.content = `${last.content}\n\n${m.content}`;
+    } else {
+      turns.push({ role, content: m.content });
+    }
+  }
+  return turns;
 }

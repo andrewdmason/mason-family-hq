@@ -86,7 +86,7 @@ async function pruneAbandonedEntries(
   }
 }
 
-export async function getOrCreateTodayEntry(): Promise<{
+type EditorEntry = {
   id: string;
   status: "open" | "closed";
   visibility: JournalVisibility;
@@ -95,11 +95,18 @@ export async function getOrCreateTodayEntry(): Promise<{
   candidates_reroll_count: number;
   freeform_started_at: string | null;
   title: string | null;
-}> {
+  question_mode: boolean;
+  timer_flipped_off: boolean;
+  draft_reply: string | null;
+};
+
+const EDITOR_ENTRY_COLUMNS =
+  "id, status, visibility, opening_question, opening_candidates, candidates_reroll_count, freeform_started_at, title, question_mode, timer_flipped_off, draft_reply";
+
+export async function getOrCreateTodayEntry(): Promise<EditorEntry> {
   const supabase = await createClient();
   const date = await todayLocal();
-  const columns =
-    "id, status, visibility, opening_question, opening_candidates, candidates_reroll_count, freeform_started_at, title";
+  const columns = EDITOR_ENTRY_COLUMNS;
 
   await pruneAbandonedEntries(supabase, date);
 
@@ -126,6 +133,9 @@ export async function getOrCreateTodayEntry(): Promise<{
       candidates_reroll_count: existing.candidates_reroll_count,
       freeform_started_at: existing.freeform_started_at,
       title: existing.title,
+      question_mode: existing.question_mode,
+      timer_flipped_off: existing.timer_flipped_off,
+      draft_reply: existing.draft_reply,
     };
   }
 
@@ -147,6 +157,9 @@ export async function getOrCreateTodayEntry(): Promise<{
     candidates_reroll_count: created.candidates_reroll_count,
     freeform_started_at: created.freeform_started_at,
     title: created.title,
+    question_mode: created.question_mode,
+    timer_flipped_off: created.timer_flipped_off,
+    draft_reply: created.draft_reply,
   };
 }
 
@@ -155,22 +168,11 @@ export async function getOrCreateTodayEntry(): Promise<{
  * opened for a specific entry (e.g. one started from a dropped photo whose
  * date was moved into the past, so it no longer matches "today's entry").
  */
-export async function getEntryById(entryId: string): Promise<{
-  id: string;
-  status: "open" | "closed";
-  visibility: JournalVisibility;
-  opening_question: string | null;
-  opening_candidates: JournalOpeningCandidate[] | null;
-  candidates_reroll_count: number;
-  freeform_started_at: string | null;
-  title: string | null;
-}> {
+export async function getEntryById(entryId: string): Promise<EditorEntry> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("journal_entries")
-    .select(
-      "id, status, visibility, opening_question, opening_candidates, candidates_reroll_count, freeform_started_at, title"
-    )
+    .select(EDITOR_ENTRY_COLUMNS)
     .eq("id", entryId)
     .single();
   if (error || !data) throw new Error(error?.message ?? "entry not found");
@@ -183,6 +185,9 @@ export async function getEntryById(entryId: string): Promise<{
     candidates_reroll_count: data.candidates_reroll_count,
     freeform_started_at: data.freeform_started_at,
     title: data.title,
+    question_mode: data.question_mode,
+    timer_flipped_off: data.timer_flipped_off,
+    draft_reply: data.draft_reply,
   };
 }
 
@@ -201,6 +206,9 @@ export async function createFreeformEntry(): Promise<string> {
       entry_date: date,
       status: "open",
       freeform_started_at: new Date().toISOString(),
+      // A blank post starts quiet — the writer turns question mode on if they
+      // want the interviewer to respond.
+      question_mode: false,
       user_id: userId,
     })
     .select("id")
@@ -313,6 +321,8 @@ export async function startEntryWithQuestion(
       user_id: userId,
       visibility,
       opening_question: trimmed,
+      // Seeded with an opening question, so the conversation starts live.
+      question_mode: true,
     })
     .select("id")
     .single();
@@ -380,6 +390,9 @@ export async function startFreeformEntry(
     .update({
       freeform_started_at: new Date().toISOString(),
       opening_candidates: null,
+      // A blank post starts quiet — question mode stays off until the writer
+      // turns it on.
+      question_mode: false,
       // Compose from the Family app pre-sets the audience to "family"; from the
       // Journal app, "private". Omitted (undefined) leaves the DB default.
       ...(visibility ? { visibility } : {}),
@@ -447,6 +460,13 @@ export async function pickOpeningQuestion(entryId: string, question: string) {
     .update({
       opening_question: question,
       opening_candidates: null,
+      // Picking a question starts the conversation live — the writer can turn it
+      // off whenever they like.
+      question_mode: true,
+      // Pre-fill the editable title with the candidate's concise version, so the
+      // writer sees a sensible title the moment they land in the post. A stale
+      // pick (no candidate metadata) leaves the title blank to write themselves.
+      title: picked?.conciseTitle?.trim() || null,
       // The picked candidate's question type tags the entry so the feed can show
       // its category label. Null for untyped fallback questions (and for a stale
       // pick whose candidate metadata we no longer have).
@@ -762,8 +782,9 @@ export async function updateEntryContent(
 
 /**
  * Append a user message to an entry without generating an interviewer reply.
- * Used once the five-minute timer is done: the user can keep writing, but the
- * conversation is over — the agent is no longer asked to respond.
+ * This is what the per-message "Save" button does when question mode is off:
+ * the writer's words are committed as a block, but the interviewer isn't asked
+ * to respond.
  */
 export async function appendUserMessage(entryId: string, content: string) {
   const trimmed = content.trim();
@@ -787,18 +808,10 @@ export async function appendUserMessage(entryId: string, content: string) {
 }
 
 /**
- * Persist a freeform blog post's draft: its user-written title and body. The
- * body is kept as the entry's single user message (inserted the first time,
- * updated thereafter) so it flows through the same transcript, edit, and wrap
- * paths as any other entry — the only difference is there's no AI conversation.
- * Called as a debounced autosave from the composer and once more on finish, so
- * leaving the page mid-post never loses writing.
+ * Flip an open entry's question mode on or off. ON, the per-message button asks
+ * the interviewer for a follow-up; OFF, it just saves the writer's text.
  */
-export async function saveFreeformDraft(
-  entryId: string,
-  title: string,
-  body: string
-) {
+export async function setEntryQuestionMode(entryId: string, on: boolean) {
   const supabase = await createClient();
 
   const { data: entry, error: entryErr } = await supabase
@@ -809,38 +822,57 @@ export async function saveFreeformDraft(
   if (entryErr || !entry) throw new Error("entry not found");
   if (entry.status !== "open") throw new Error("entry is closed");
 
-  const trimmedTitle = title.trim();
-  const { error: titleErr } = await supabase
+  const { error } = await supabase
     .from("journal_entries")
-    .update({ title: trimmedTitle || null })
+    .update({ question_mode: on })
     .eq("id", entryId);
-  if (titleErr) throw new Error(titleErr.message);
+  if (error) throw new Error(error.message);
+}
 
-  // A freeform entry has at most one message — the body. Update it in place if
-  // it exists; otherwise insert it (only once there's something to save).
-  const { data: existing, error: existingErr } = await supabase
-    .from("journal_messages")
-    .select("id")
-    .eq("entry_id", entryId)
-    .eq("role", "user")
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (existingErr) throw new Error(existingErr.message);
+/**
+ * The five-minute timer's one gentle nudge: flip question mode off, exactly
+ * once. The `timer_flipped_off` guard makes a re-fire (a refresh, a second tab)
+ * a no-op, so once it's spent the writer stays in full manual control and can
+ * turn question mode back on without it flipping off again.
+ */
+export async function flipQuestionModeOffOnce(entryId: string) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("journal_entries")
+    .update({ question_mode: false, timer_flipped_off: true })
+    .eq("id", entryId)
+    .eq("status", "open")
+    .eq("timer_flipped_off", false);
+  if (error) throw new Error(error.message);
+}
 
-  if (existing) {
-    const { error } = await supabase
-      .from("journal_messages")
-      .update({ content: body })
-      .eq("id", existing.id);
-    if (error) throw new Error(error.message);
-  } else if (body.trim().length > 0) {
-    const userId = await requireUserId(supabase);
-    const { error } = await supabase
-      .from("journal_messages")
-      .insert({ entry_id: entryId, role: "user", content: body, user_id: userId });
-    if (error) throw new Error(error.message);
-  }
+/**
+ * Autosave the unsent reply draft so leaving mid-sentence loses nothing. Stored
+ * on the entry (not as a message) and cleared once the text is committed via
+ * Send/Save. An empty string clears it.
+ */
+export async function saveReplyDraft(entryId: string, draft: string) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("journal_entries")
+    .update({ draft_reply: draft.length > 0 ? draft : null })
+    .eq("id", entryId)
+    .eq("status", "open");
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Save the writer's own title for an open entry (debounced autosave from the
+ * composer). The wrap pass never overwrites this — the title is the writer's.
+ */
+export async function saveEntryTitle(entryId: string, title: string) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("journal_entries")
+    .update({ title: title.trim() || null })
+    .eq("id", entryId)
+    .eq("status", "open");
+  if (error) throw new Error(error.message);
 }
 
 /**
@@ -881,9 +913,10 @@ export async function deleteLatestQuestion(entryId: string) {
 }
 
 /**
- * Mark an entry closed. The wrap pass (summary/title/pull_quote) is generated
+ * Mark an entry closed. The wrap pass (summary/pull_quote) is generated
  * separately via /journal/api/close — flipping status here first means the
- * journal list can immediately show the entry in its "generating" state.
+ * journal list can immediately show the entry in its "generating" state. The
+ * title is the writer's own and is never touched by the wrap.
  */
 export async function closeEntry(entryId: string): Promise<void> {
   const supabase = await createClient();
@@ -897,9 +930,9 @@ export async function closeEntry(entryId: string): Promise<void> {
 }
 
 /**
- * Re-run the wrap pass (summary/title/pull_quote) for a closed entry. Used to
- * recover entries whose original fire-and-forget wrap never landed — e.g. the
- * close request failed silently or the Claude call errored.
+ * Re-run the wrap pass (summary/pull_quote) for a closed entry. Used to recover
+ * entries whose original fire-and-forget wrap never landed, and to regenerate
+ * the summary subtitle (e.g. backfilling older posts). Never touches the title.
  */
 export async function regenerateEntryWrap(entryId: string): Promise<void> {
   const result = await runWrap(entryId);
