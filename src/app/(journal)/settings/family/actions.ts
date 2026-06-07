@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { requireOwner } from "@/lib/members/auth";
+import {
+  backfillEntrySummary,
+  backfillQuestionTitle,
+} from "@/lib/journal/backfill";
 import type {
   FamilyMember,
   MemberJournalStats,
@@ -572,4 +576,75 @@ function addDays(date: string, days: number): string {
   const d = new Date(`${date}T12:00:00`);
   d.setDate(d.getDate() + days);
   return localDate(d);
+}
+
+// ============================================================
+// Journal content backfill (owner-only maintenance)
+//
+// One-off regeneration the owner runs after a prompt change: re-wrap every
+// closed entry's subtitle in the new style, and re-title every question post.
+// It spans all members (service role), so each entry is regenerated in its own
+// author's context (see backfill.ts). Work is done in small client-driven
+// batches so a family with many entries doesn't hit a request timeout.
+// ============================================================
+
+export type JournalBackfillJobs = {
+  /** Entry ids whose subtitle should be re-wrapped (all closed standard posts). */
+  summaryIds: string[];
+  /** Entry ids whose title should be regenerated (question posts only). */
+  titleIds: string[];
+};
+
+/** List the entries to regenerate, oldest first. Owner-only; spans all members. */
+export async function listJournalBackfillJobs(): Promise<JournalBackfillJobs> {
+  await requireOwner();
+  const admin = createAdminClient();
+
+  const { data: summaries } = await admin
+    .from("journal_entries")
+    .select("id")
+    .eq("status", "closed")
+    .eq("entry_type", "standard")
+    .order("created_at", { ascending: true });
+
+  const { data: titles } = await admin
+    .from("journal_entries")
+    .select("id")
+    .eq("status", "closed")
+    .eq("entry_type", "standard")
+    .not("opening_question", "is", null)
+    .order("created_at", { ascending: true });
+
+  return {
+    summaryIds: (summaries ?? []).map((r) => r.id as string),
+    titleIds: (titles ?? []).map((r) => r.id as string),
+  };
+}
+
+export type JournalBackfillBatchResult = { ok: number; failed: number };
+
+/**
+ * Regenerate one batch of entries. `kind` selects the pass; `ids` is a small
+ * slice of the list from listJournalBackfillJobs that the client walks through.
+ * Each entry is processed independently so one failure doesn't sink the batch.
+ */
+export async function runJournalBackfillBatch(
+  kind: "summary" | "title",
+  ids: string[]
+): Promise<JournalBackfillBatchResult> {
+  await requireOwner();
+  if (ids.length === 0) return { ok: 0, failed: 0 };
+
+  const run = kind === "summary" ? backfillEntrySummary : backfillQuestionTitle;
+  const results = await Promise.allSettled(ids.map((id) => run(id)));
+
+  let ok = 0;
+  let failed = 0;
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value) ok += 1;
+    else failed += 1;
+  }
+
+  revalidatePath("/journal");
+  return { ok, failed };
 }
