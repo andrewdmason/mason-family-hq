@@ -29,6 +29,10 @@ function nextFridayLabel(today: string): string {
   });
 }
 
+export const metadata = {
+  title: "Quiz Results",
+};
+
 export default async function QuizResultsPage({
   params,
   searchParams,

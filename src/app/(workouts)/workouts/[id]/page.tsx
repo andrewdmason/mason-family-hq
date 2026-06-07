@@ -39,6 +39,10 @@ import { getSiblingHints, type SiblingHint } from "@/lib/workouts/sibling";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Workout",
+};
+
 export default async function WorkoutDetailPage({
   params,
 }: {

@@ -10,6 +10,10 @@ import { createClient } from "@/lib/supabase/server";
 import { getTodaySummary } from "@/app/practice/timer/actions";
 import type { Piece } from "@/lib/types";
 
+export const metadata = {
+  title: "Practice Log",
+};
+
 export default async function AppLayout({
   children,
 }: {

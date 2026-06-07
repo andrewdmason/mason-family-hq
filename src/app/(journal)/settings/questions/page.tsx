@@ -6,6 +6,10 @@ import type { JournalQuestionType, JournalSettings } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Question Settings",
+};
+
 export default async function QuestionsSettingsPage({
   searchParams,
 }: {

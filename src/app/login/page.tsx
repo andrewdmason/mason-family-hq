@@ -2,6 +2,10 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { DevLoginSwitcher } from "@/components/dev-login-switcher";
 import { GoogleSignIn } from "@/components/google-sign-in";
 
+export const metadata = {
+  title: "Sign In",
+};
+
 export default async function LoginPage({
   searchParams,
 }: {

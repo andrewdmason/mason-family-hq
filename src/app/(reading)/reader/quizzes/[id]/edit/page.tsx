@@ -5,6 +5,10 @@ import { getQuizForEditing } from "../../actions";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Edit Quiz",
+};
+
 export default async function EditQuizPage({
   params,
   searchParams,

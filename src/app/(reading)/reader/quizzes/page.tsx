@@ -16,6 +16,10 @@ function firstName(name: string | null, email: string): string {
   return name?.trim().split(/\s+/)[0] || email;
 }
 
+export const metadata = {
+  title: "Reading Quizzes",
+};
+
 export default async function QuizzesListPage() {
   if (!(await getIsOwner())) redirect("/reader");
 

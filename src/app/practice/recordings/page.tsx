@@ -1,6 +1,10 @@
 import { RecordingsList } from "@/components/recordings/recordings-list";
 import { getRecordings } from "./actions";
 
+export const metadata = {
+  title: "Recordings",
+};
+
 export default async function RecordingsPage() {
   const recordings = await getRecordings();
 

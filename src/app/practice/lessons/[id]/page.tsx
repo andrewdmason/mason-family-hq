@@ -5,6 +5,10 @@ import { SingleLessonView } from "@/components/lessons/single-lesson-view";
 import { LessonFocusPanel } from "@/components/lessons/lesson-focus-panel";
 import { LessonViewProvider } from "@/components/lessons/lesson-view-context";
 
+export const metadata = {
+  title: "Lesson",
+};
+
 export default async function LessonPage({
   params,
 }: {

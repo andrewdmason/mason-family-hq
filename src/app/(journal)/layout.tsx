@@ -3,6 +3,10 @@ import { TimezoneProvider } from "@/components/timezone-provider";
 import { ProfileSuggestionToaster } from "@/components/journal/profile-suggestion-toaster";
 import { JournalTimerProvider } from "@/components/journal/timer-context";
 
+export const metadata = {
+  title: "Journal",
+};
+
 export default async function JournalLayout({
   children,
 }: {

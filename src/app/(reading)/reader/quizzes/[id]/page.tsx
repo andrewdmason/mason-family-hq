@@ -7,6 +7,10 @@ import { getQuizForTaking } from "../actions";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Quiz",
+};
+
 export default async function TakeQuizPage({
   params,
   searchParams,

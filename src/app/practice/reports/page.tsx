@@ -14,6 +14,10 @@ const PieceBreakdown = dynamic(() =>
   import("@/components/reports/piece-breakdown").then((m) => m.PieceBreakdown)
 );
 
+export const metadata = {
+  title: "Reports",
+};
+
 export default async function ReportsPage() {
   const [weeklyData, breakdownData, streakData] = await Promise.all([
     getWeeklyPracticeData(),

@@ -7,6 +7,10 @@ import { getBookReaderData } from "../../actions";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Reading",
+};
+
 export default async function ReadBookPage({
   params,
   searchParams,

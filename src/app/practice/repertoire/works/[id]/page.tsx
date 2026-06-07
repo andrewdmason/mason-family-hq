@@ -12,6 +12,10 @@ import { getPerformances } from "@/app/practice/repertoire/performance-actions";
 import { PerformancesPanel } from "@/components/repertoire/performances-panel";
 import type { Work, Piece } from "@/lib/types";
 
+export const metadata = {
+  title: "Work",
+};
+
 export default async function WorkDetailPage({
   params,
 }: {

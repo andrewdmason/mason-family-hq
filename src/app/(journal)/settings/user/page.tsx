@@ -10,6 +10,10 @@ import { matchTemplateId } from "@/lib/journal/seeds/interviewer-templates";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Account Settings",
+};
+
 export default async function UserSettingsPage({
   searchParams,
 }: {

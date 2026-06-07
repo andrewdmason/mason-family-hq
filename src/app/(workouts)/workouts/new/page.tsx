@@ -5,6 +5,10 @@ import { NewSessionForm } from "@/components/workouts/new-session-form";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "New Workout",
+};
+
 export default async function NewWorkoutPage() {
   const tz = await getUserTimezone();
   const today = localDate(new Date(), tz);

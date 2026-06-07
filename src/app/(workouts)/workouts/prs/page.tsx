@@ -11,6 +11,10 @@ export const dynamic = "force-dynamic";
 
 const RX_LABEL = { scaled: "Scaled", rx: "Rx", rx_plus: "Rx+" } as const;
 
+export const metadata = {
+  title: "Personal Records",
+};
+
 export default async function PRsPage() {
   const supabase = await createClient();
   const tz = await getUserTimezone();

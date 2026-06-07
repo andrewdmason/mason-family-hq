@@ -21,6 +21,10 @@ export const dynamic = "force-dynamic";
 const ENTRY_COLUMNS =
   "id, entry_date, user_id, status, entry_type, visibility, opening_question, question_type, freeform_started_at, summary, title, pull_quote, quote_attribution, summary_stale, closed_at, created_at, updated_at";
 
+export const metadata = {
+  title: "Timeline Event",
+};
+
 export default async function TimelineEntryPage({
   params,
 }: {
