@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ImagePlus, Loader2, Lock, Play } from "lucide-react";
+import { ImagePlus, Loader2, Play } from "lucide-react";
 import type {
   JournalEntry,
   JournalMediaType,
@@ -69,15 +69,6 @@ export function HistoryList({
     <ul className="space-y-10">
       {entries.map((e) => {
         const awaitingWrap = isAwaitingWrap(e);
-        // Closed personal posts get a lock beside the title so they read as
-        // private at a glance (no lock = shared). Drafts keep their own badge.
-        const personal = e.status === "closed" && e.visibility === "private";
-        const lockIcon = personal ? (
-          <Lock
-            aria-label="Personal"
-            className="mr-2 inline-block size-4 shrink-0 align-[-0.15em] text-muted-foreground"
-          />
-        ) : null;
         // The category this entry was answered from, shown above the title with
         // the same small uppercase label as the opening-question picker. Only
         // picked-question entries carry a type; freeform/quote/recap show none.
@@ -122,7 +113,6 @@ export function HistoryList({
                 // around them.
                 <>
                   <p className="mt-2 font-serif text-2xl italic leading-tight text-foreground group-hover:underline group-hover:underline-offset-4 group-hover:decoration-foreground/30">
-                    {lockIcon}
                     <span
                       aria-hidden
                       className="mr-1 align-[-0.2em] font-serif text-4xl not-italic leading-none text-muted-foreground/40"
@@ -142,7 +132,6 @@ export function HistoryList({
                 // summarizing the month's threads.
                 <>
                   <p className="mt-2 font-serif text-2xl leading-tight text-foreground group-hover:underline group-hover:underline-offset-4 group-hover:decoration-foreground/30">
-                    {lockIcon}
                     {displayTitle(e)}
                   </p>
                   {e.summary && (
@@ -154,7 +143,6 @@ export function HistoryList({
               ) : (
                 <>
                   <p className="mt-2 font-serif text-2xl leading-tight text-foreground group-hover:underline group-hover:underline-offset-4 group-hover:decoration-foreground/30">
-                    {lockIcon}
                     {displayTitle(e)}
                   </p>
                   {e.summary ? (
