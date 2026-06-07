@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ImagePlus, Loader2, Lock, Play } from "lucide-react";
+import { ImagePlus, Loader2, Play } from "lucide-react";
 import type {
   JournalEntry,
   JournalMediaType,
@@ -29,26 +29,13 @@ type HistoryEntry = JournalEntry & {
   unread?: boolean;
 };
 
-// A just-closed entry whose wrap pass (title/summary/pull_quote) hasn't landed
-// yet. Bounded to 60s after closing so a failed or abandoned wrap stops
-// showing the generating state instead of spinning forever.
-function isGenerating(e: JournalEntry): boolean {
-  if (e.status !== "closed") return false;
-  // Only standard entries run a wrap pass; quote and recap entries get their
-  // title on save, so a titleless one of those isn't "generating".
-  if (e.entry_type !== "standard") return false;
-  if (e.title && e.title.trim().length > 0) return false;
-  if (!e.closed_at) return false;
-  return Date.now() - Date.parse(e.closed_at) < 60_000;
-}
-
-// A standard entry whose wrap pass (summary/pull_quote) hasn't landed yet,
-// bounded to 60s after closing. Covers freeform blog posts, which close with a
-// user-written title already in place (so isGenerating is false) but still wait
-// on the AI pull quote — we poll until it arrives without showing the
-// "summing up…" placeholder over the title.
+// A just-closed standard entry whose wrap pass (the summary subtitle) hasn't
+// landed yet. Titles are the writer's own and set from the start, so the only
+// thing a finished entry waits on is the summary. Bounded to 60s after closing
+// so a failed or abandoned wrap stops showing the placeholder forever.
 function isAwaitingWrap(e: JournalEntry): boolean {
   if (e.status !== "closed") return false;
+  // Only standard entries run a wrap pass; quote/recap get their text on save.
   if (e.entry_type !== "standard") return false;
   if (e.summary && e.summary.trim().length > 0) return false;
   if (!e.closed_at) return false;
@@ -66,11 +53,7 @@ export function HistoryList({
 
   // While any entry is mid-wrap, poll the server until its AI fields land.
   useEffect(() => {
-    if (
-      !entries.some(
-        (e) => isGenerating(e) || isAwaitingWrap(e) || e.photoGenerationStatus
-      )
-    )
+    if (!entries.some((e) => isAwaitingWrap(e) || e.photoGenerationStatus))
       return;
     const id = setInterval(() => router.refresh(), 1500);
     return () => clearInterval(id);
@@ -85,16 +68,7 @@ export function HistoryList({
   return (
     <ul className="space-y-10">
       {entries.map((e) => {
-        const generating = isGenerating(e);
-        // Closed personal posts get a lock beside the title so they read as
-        // private at a glance (no lock = shared). Drafts keep their own badge.
-        const personal = e.status === "closed" && e.visibility === "private";
-        const lockIcon = personal ? (
-          <Lock
-            aria-label="Personal"
-            className="mr-2 inline-block size-4 shrink-0 align-[-0.15em] text-muted-foreground"
-          />
-        ) : null;
+        const awaitingWrap = isAwaitingWrap(e);
         // The category this entry was answered from, shown above the title with
         // the same small uppercase label as the opening-question picker. Only
         // picked-question entries carry a type; freeform/quote/recap show none.
@@ -132,18 +106,13 @@ export function HistoryList({
                   {categoryLabel}
                 </span>
               )}
-              {generating ? (
-                <p className="mt-2 font-serif text-2xl italic leading-tight text-muted-foreground/50 animate-pulse">
-                  summing up…
-                </p>
-              ) : e.entry_type === "quote" ? (
+              {e.entry_type === "quote" ? (
                 // Quote entries read as a pulled quote: italic heading with an
                 // oversized hanging quotation mark, then an em-dashed
                 // attribution — visually distinct from the upright titles
                 // around them.
                 <>
                   <p className="mt-2 font-serif text-2xl italic leading-tight text-foreground group-hover:underline group-hover:underline-offset-4 group-hover:decoration-foreground/30">
-                    {lockIcon}
                     <span
                       aria-hidden
                       className="mr-1 align-[-0.2em] font-serif text-4xl not-italic leading-none text-muted-foreground/40"
@@ -163,7 +132,6 @@ export function HistoryList({
                 // summarizing the month's threads.
                 <>
                   <p className="mt-2 font-serif text-2xl leading-tight text-foreground group-hover:underline group-hover:underline-offset-4 group-hover:decoration-foreground/30">
-                    {lockIcon}
                     {displayTitle(e)}
                   </p>
                   {e.summary && (
@@ -175,16 +143,17 @@ export function HistoryList({
               ) : (
                 <>
                   <p className="mt-2 font-serif text-2xl leading-tight text-foreground group-hover:underline group-hover:underline-offset-4 group-hover:decoration-foreground/30">
-                    {lockIcon}
                     {displayTitle(e)}
                   </p>
-                  {e.pull_quote && (
-                    <p className="mt-3 font-serif text-base italic leading-relaxed text-muted-foreground">
-                      <span className="mr-1 text-muted-foreground/60">“</span>
-                      {e.pull_quote}
-                      <span className="ml-0.5 text-muted-foreground/60">”</span>
+                  {e.summary ? (
+                    <p className="mt-3 line-clamp-2 font-serif text-base italic leading-relaxed text-muted-foreground">
+                      {e.summary}
                     </p>
-                  )}
+                  ) : awaitingWrap ? (
+                    <p className="mt-3 font-serif text-base italic leading-relaxed text-muted-foreground/50 animate-pulse">
+                      summing up…
+                    </p>
+                  ) : null}
                 </>
               )}
               {(e.photos.length > 0 || e.photoGenerationStatus) && (

@@ -37,7 +37,7 @@ export default async function EntryPage({
   const { data: entryRow } = await supabase
     .from("journal_entries")
     .select(
-      "id, entry_date, user_id, status, entry_type, visibility, opening_question, freeform_started_at, summary, title, pull_quote, quote_attribution, recap_body, summary_stale, closed_at, created_at, updated_at"
+      "id, entry_date, user_id, status, entry_type, visibility, opening_question, freeform_started_at, question_mode, timer_flipped_off, draft_reply, summary, title, pull_quote, quote_attribution, recap_body, summary_stale, closed_at, created_at, updated_at"
     )
     .eq("id", id)
     .maybeSingle();
@@ -122,7 +122,6 @@ export default async function EntryPage({
 
   const blocks = getEntryBlocks({
     entryType: entry.entry_type,
-    isFreeform: entry.freeform_started_at != null,
     messages,
     pullQuote: entry.pull_quote,
     recapBody: entry.recap_body,
@@ -235,6 +234,12 @@ export default async function EntryPage({
             initialVisibility={entry.visibility}
             initialMessages={messages}
             viewMode="history"
+            timerStartedAt={
+              entry.freeform_started_at ?? msgs?.[0]?.created_at ?? null
+            }
+            initialQuestionMode={entry.question_mode}
+            initialTimerFlippedOff={entry.timer_flipped_off}
+            initialDraft={entry.draft_reply ?? ""}
             readOnly={!isAuthor}
           />
         ))}

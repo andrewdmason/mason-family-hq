@@ -1,5 +1,4 @@
 import { ChatSurface } from "@/components/journal/chat-surface";
-import { FreeformComposer } from "@/components/journal/freeform-composer";
 import { OpeningPicker } from "@/components/journal/opening-picker";
 import { JournalPhotoGallery } from "@/components/journal/journal-photo-gallery";
 import { createClient } from "@/lib/supabase/server";
@@ -77,38 +76,23 @@ export default async function NewEntryPage({
   const photos = await getEntryPhotos(entry.id);
 
   // A fresh open entry with no messages starts in the three-question picker;
-  // picking one inserts the opening message and hands off to the chat. Once
-  // "write freely" is clicked the picker is bypassed straight to the freeform
-  // blog composer; picking a question hands off to the AI-interview chat.
+  // picking one inserts the opening message and hands off to the chat. A blank
+  // ("write freely") start skips the picker straight into an empty chat surface
+  // with question mode off — the writer can turn it on whenever they like.
   const showPicker = messages.length === 0 && !entry.freeform_started_at;
-  const isFreeform = !showPicker && Boolean(entry.freeform_started_at);
 
-  // The freeform composer renders and positions its own photos inline (a blog
-  // post, not a floating attach action), so the page-level gallery is only for
-  // the picker and the AI-interview chat.
-  if (isFreeform) {
-    const body =
-      messageRows.find((m) => m.role === "user")?.content ?? "";
+  // The picker shows the page-level gallery above it (photos only, no attach
+  // action). The chat flow renders its own gallery inside ChatSurface so the
+  // attach action and chat toggle share one hover-revealed row above the title.
+  if (showPicker) {
     return (
-      <FreeformComposer
-        entryId={entry.id}
-        initialTitle={entry.title ?? ""}
-        initialBody={body}
-        initialVisibility={entry.visibility}
-        initialPhotos={photos}
-      />
-    );
-  }
-
-  return (
-    <>
-      <JournalPhotoGallery
-        entryId={entry.id}
-        initialPhotos={photos}
-        editable
-        showAttachAction={!showPicker}
-      />
-      {showPicker ? (
+      <>
+        <JournalPhotoGallery
+          entryId={entry.id}
+          initialPhotos={photos}
+          editable
+          showAttachAction={false}
+        />
         <OpeningPicker
           entryId={entry.id}
           initialCandidates={entry.opening_candidates}
@@ -119,15 +103,22 @@ export default async function NewEntryPage({
           initialAudience={initialAudience}
           forcedType={forcedType}
         />
-      ) : (
-        <ChatSurface
-          entryId={entry.id}
-          initialStatus={entry.status}
-          initialVisibility={entry.visibility}
-          initialMessages={messages}
-          timerStartedAt={timerStartedAt}
-        />
-      )}
-    </>
+      </>
+    );
+  }
+
+  return (
+    <ChatSurface
+      entryId={entry.id}
+      initialStatus={entry.status}
+      initialVisibility={entry.visibility}
+      initialMessages={messages}
+      timerStartedAt={timerStartedAt}
+      initialQuestionMode={entry.question_mode}
+      initialTimerFlippedOff={entry.timer_flipped_off}
+      initialTitle={entry.title ?? ""}
+      initialDraft={entry.draft_reply ?? ""}
+      initialPhotos={photos}
+    />
   );
 }

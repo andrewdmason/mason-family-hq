@@ -35,6 +35,19 @@ import type {
 export const OPENING_CANDIDATES_TOOL_NAME = "propose_questions";
 
 /**
+ * How to write the short title a question post gets (the line the writer sees at
+ * the top of the entry). Shared between the live picker tool and the title
+ * backfill so both stay in the same voice. Sentence case — the writer doesn't
+ * care for the all-lowercase look.
+ */
+export const CONCISE_TITLE_GUIDANCE =
+  "A concise 2–5 word, sentence-case noun-phrase title for an entry answering " +
+  "this question — what the writer might jot at the top of the page. Capitalize " +
+  "the first word and any proper nouns; no end punctuation, no quotation marks. " +
+  'Concrete over abstract. e.g. for "What did the morning after the permit feel ' +
+  'like?" → "The morning after the permit".';
+
+/**
  * The candidate tool's shape depends on how many questions the user wants each
  * day, so we build it per request rather than as a module constant.
  */
@@ -60,6 +73,10 @@ export function buildOpeningCandidatesTool(n: number) {
                 description:
                   "ONLY the question itself as the user will read it, in your voice — one or two sentences. Never include your reasoning, the category name, or any explanation of how or why you chose it or whether a constraint could be met.",
               },
+              conciseTitle: {
+                type: "string",
+                description: CONCISE_TITLE_GUIDANCE,
+              },
               visibility: {
                 type: "string",
                 enum: ["private", "family"],
@@ -67,7 +84,7 @@ export function buildOpeningCandidatesTool(n: number) {
                   "Where an entry answering this question would most naturally go: \"family\" if it's about a shared moment, event, or something the family would enjoy seeing (always for family-followup questions); \"private\" for intimate, introspective, or sensitive reflections. This only pre-selects a toggle the user can change — default to \"private\" when unsure.",
               },
             },
-            required: ["text", "visibility"],
+            required: ["text", "conciseTitle", "visibility"],
           },
         },
       },
@@ -800,11 +817,16 @@ export async function generateCandidates(
       throw new Error("model did not return question candidates");
     }
     const input = toolUse.input as {
-      questions?: { text?: unknown; visibility?: unknown }[];
+      questions?: { text?: unknown; conciseTitle?: unknown; visibility?: unknown }[];
     };
     const parsed = (input.questions ?? [])
       .map((q) => ({
         text: typeof q.text === "string" ? q.text.trim() : "",
+        // A short title for the entry, stripped of any stray trailing punctuation.
+        conciseTitle:
+          typeof q.conciseTitle === "string"
+            ? q.conciseTitle.trim().replace(/[.!?]+$/, "")
+            : null,
         // Sharing is opt-in: any unexpected value falls back to private.
         visibility: (q.visibility === "family" ? "family" : "private") as
           | "family"
@@ -820,6 +842,7 @@ export async function generateCandidates(
     // entry's share toggle lines up; "any" keeps the model's per-question guess.
     return parsed.map((q) => ({
       text: q.text,
+      conciseTitle: q.conciseTitle,
       type: category?.name ?? null,
       visibility:
         category?.name === FAMILY_FOLLOWUP

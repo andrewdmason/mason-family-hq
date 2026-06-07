@@ -1,6 +1,4 @@
-"use client";
-
-import { useEffect, useState } from "react";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { MemberRole } from "@/lib/types";
@@ -9,30 +7,34 @@ type Member = { email: string; name: string | null; role: MemberRole };
 
 /**
  * Dev-only sign-in helper: pick an existing family member from the dropdown, or
- * type any email to provision a fresh one, and dev-login as them — no URL
- * editing. Renders nothing in production.
+ * type any email to provision a fresh one, then dev-login as them.
+ *
+ * Server-rendered with native GET forms (no client JS): the member list and the
+ * default email are filled in on the server, and submitting navigates straight
+ * to /auth/dev-login?email=…. This works in any browser — including embedded /
+ * built-in ones where the client-side fetch or button handlers don't run.
+ * Renders nothing in production.
  */
-export function DevLoginSwitcher() {
-  const [members, setMembers] = useState<Member[]>([]);
-  const [email, setEmail] = useState("");
-
-  useEffect(() => {
-    fetch("/auth/dev-members")
-      .then((r) => (r.ok ? r.json() : { members: [] }))
-      .then((d: { members?: Member[] }) => {
-        const list = d.members ?? [];
-        setMembers(list);
-        if (list[0]) setEmail(list[0].email);
-      })
-      .catch(() => {});
-  }, []);
-
-  function devLogin() {
-    const target = email.trim();
-    window.location.href = target
-      ? `/auth/dev-login?email=${encodeURIComponent(target)}`
-      : "/auth/dev-login";
+export async function DevLoginSwitcher() {
+  if (
+    process.env.NODE_ENV !== "development" ||
+    process.env.NEXT_PUBLIC_SUPABASE_ENV === "production"
+  ) {
+    return null;
   }
+
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("family_members")
+    .select("email, name, role")
+    .order("created_at", { ascending: true });
+
+  // Owner first, then creation order (text role doesn't sort owner-first in SQL).
+  const members = ((data ?? []) as Member[]).sort(
+    (a, b) => Number(b.role === "owner") - Number(a.role === "owner")
+  );
+  const defaultEmail =
+    members[0]?.email ?? process.env.AUTHORIZED_EMAIL?.toLowerCase().trim() ?? "";
 
   return (
     <>
@@ -47,29 +49,36 @@ export function DevLoginSwitcher() {
 
       <div className="space-y-2">
         {members.length > 0 && (
-          <select
-            value={members.some((m) => m.email === email) ? email : ""}
-            onChange={(e) => setEmail(e.target.value)}
-            className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm"
-          >
-            {members.map((m) => (
-              <option key={m.email} value={m.email}>
-                {(m.name ? `${m.name} — ${m.email}` : m.email) +
-                  ` (${m.role})`}
-              </option>
-            ))}
-            <option value="">Custom email…</option>
-          </select>
+          <form method="get" action="/auth/dev-login" className="flex gap-2">
+            <select
+              name="email"
+              defaultValue={defaultEmail}
+              className="h-9 min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 text-sm shadow-sm"
+            >
+              {members.map((m) => (
+                <option key={m.email} value={m.email}>
+                  {(m.name ? `${m.name} — ${m.email}` : m.email) + ` (${m.role})`}
+                </option>
+              ))}
+            </select>
+            <Button type="submit" variant="outline">
+              Dev login
+            </Button>
+          </form>
         )}
-        <Input
-          type="email"
-          placeholder="or type an email to provision"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <Button variant="outline" className="w-full" onClick={devLogin}>
-          Dev login
-        </Button>
+
+        <form method="get" action="/auth/dev-login" className="flex gap-2">
+          <Input
+            type="email"
+            name="email"
+            placeholder="or type an email to provision"
+            defaultValue={members.length === 0 ? defaultEmail : ""}
+            className="min-w-0 flex-1"
+          />
+          <Button type="submit" variant="outline">
+            {members.length === 0 ? "Dev login" : "Provision"}
+          </Button>
+        </form>
       </div>
     </>
   );

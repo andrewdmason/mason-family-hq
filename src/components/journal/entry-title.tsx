@@ -63,7 +63,7 @@ export function EntryTitle({
     <div className="mt-2">
       <div className="group/title flex items-start gap-2">
         <h1 className="font-serif text-3xl leading-tight text-foreground">
-          {isRegenerating ? "summing up…" : title}
+          {title}
         </h1>
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -107,6 +107,11 @@ export function EntryTitle({
         </DropdownMenu>
       </div>
 
+      {isRegenerating && (
+        <p className="mt-2 text-sm italic text-muted-foreground animate-pulse">
+          summing up…
+        </p>
+      )}
       {regenerateError && (
         <p className="mt-2 text-sm text-destructive">
           Couldn&apos;t regenerate: {regenerateError}

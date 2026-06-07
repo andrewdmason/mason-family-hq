@@ -13,24 +13,37 @@ import { loadCalendarBlock } from "@/lib/journal/calendar";
 import { formatNow, getUserTimezone, localDate } from "@/lib/date-utils";
 import type { JournalMessage } from "@/lib/types";
 
-const TOOLS = [
-  {
-    name: "write_wrap",
-    description:
-      "Wrap today's entry. Produces three things at once:\n\n" +
-      "• `summary`: a single concise sentence, past tense, factual — describes what was discussed. e.g. 'Talked about feeling stuck on the second movement of the Bach.' Not a quote, not a feeling-label.\n\n" +
-      "• `title`: a short evocative noun-phrase title, 2–5 words, lowercase, no trailing punctuation. Reads like the user could have written it themselves at the top of a notebook page. Concrete is better than abstract. Examples: 'the morning after the permit', 'what waiting feels like', 'maya's first violin lesson', 'a quick check-in'. Avoid adjectives doing too much work ('a profound conversation about life'); prefer the actual subject.\n\n" +
-      "• `pull_quote` (optional): a short verbatim line — 5 to 18 words — taken from something the user actually said in the conversation. Pick the most striking, vulnerable, or specific moment. Do not paraphrase. Do not include attribution. Skip entirely if the user didn't say anything worth pulling (e.g. mostly one-word answers, dismissed without engaging).",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        summary: { type: "string" },
-        title: { type: "string" },
-        pull_quote: { type: "string" },
-      },
-      required: ["summary", "title"],
+/**
+ * One line telling the wrap model which summary style to use, branched on who
+ * the entry is for. Shared with the backfill so a re-wrap matches a live one.
+ */
+export function summaryStyleLine(visibility: string): string {
+  return visibility === "family"
+    ? "This entry is SHARED with the family — write its `summary` in the SHARED style (a New Yorker-style subtitle)."
+    : "This entry is PERSONAL to the writer — write its `summary` in the PERSONAL style (a semicolon-separated list of topics).";
+}
+
+export const WRITE_WRAP_TOOL = {
+  name: "write_wrap",
+  description:
+      "Wrap today's entry. Produces two things at once:\n\n" +
+      "• `summary`: the entry's subtitle in the journal list — make it read well at a glance. Its STYLE depends on whether this entry is SHARED with the family or PERSONAL to the writer (you are told which in the wrap instructions below):\n" +
+      "    – SHARED → one evocative sentence in the spirit of a New Yorker article's subtitle. Set the scene, or name the turning point of what happened; present or timeless tense. Do NOT narrate the conversation ('Talked about…', 'Described…', 'Reflected on…', 'Recounted…'). Use people's real first names — never 'a boy', 'an engineer', 'a fifth grader'. One sentence; leave a little unsaid. e.g. \"The umpire never showed, so Sebastian and Theo stepped behind the plate — and an ordinary Saturday turned into the season's best.\"\n" +
+      "    – PERSONAL → a short, semicolon-separated list of the topics and ideas the writer moved through. NOT a sentence — a list. Sentence case (capitalize the first word of each item; keep proper nouns). At most 4 items. Use real first names. e.g. \"Saying 'retired' out loud; The fear of the label; Fading anxiety about unproductive days; A growing allergy to busywork\".\n\n" +
+      "• `pull_quote` (optional): a short verbatim line — 5 to 18 words — taken from something the user actually said in the conversation. Pick the most striking, vulnerable, or specific moment. Do not paraphrase. Do not include attribution. Skip entirely if the user didn't say anything worth pulling (e.g. mostly one-word answers, dismissed without engaging).\n\n" +
+      "Do NOT write a title — the writer titles the entry themselves.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      summary: { type: "string" },
+      pull_quote: { type: "string" },
     },
+    required: ["summary"],
   },
+};
+
+const TOOLS = [
+  WRITE_WRAP_TOOL,
   {
     name: "suggest_profile_update",
     description:
@@ -71,16 +84,17 @@ export type WrapResult =
   | { ok: false; error: string; status: number };
 
 /**
- * Generate the summary/title/pull_quote wrap for a closed entry and write it
- * to the DB. Idempotent — safe to re-run, which is how the regenerate action
- * recovers entries whose original fire-and-forget wrap never landed.
+ * Generate the summary/pull_quote wrap for a closed entry and write it to the
+ * DB. The title is the writer's own and is never touched. Idempotent — safe to
+ * re-run, which is how the regenerate action recovers entries whose original
+ * fire-and-forget wrap never landed (and backfills summaries on older posts).
  */
 export async function runWrap(entryId: string): Promise<WrapResult> {
   const supabase = await createClient();
 
   const { data: entry, error: entryErr } = await supabase
     .from("journal_entries")
-    .select("id, entry_date, status, summary, title, user_id")
+    .select("id, entry_date, status, summary, title, user_id, visibility")
     .eq("id", entryId)
     .single();
   if (entryErr || !entry) {
@@ -141,12 +155,15 @@ export async function runWrap(entryId: string): Promise<WrapResult> {
           .join("\n")}`
       : "";
 
+  // The summary's style branches on who the entry is for: a SHARED entry gets a
+  // New Yorker-style scene/turn subtitle; a PERSONAL one gets a semicolon list of
+  // topics. Tell the model which this is so it picks the right style.
   const system =
     baseSystem +
     `\n\n=== Wrap pass ===
-The user has finished today's entry.
+The user has finished today's entry. ${summaryStyleLine(entry.visibility)}
 
-1. Call \`write_wrap\` exactly once. It produces a summary, a short evocative title, and (optionally) a verbatim pull quote from something the user said. See the tool description for the bar on each.
+1. Call \`write_wrap\` exactly once. It produces a summary and (optionally) a verbatim pull quote from something the user said. See the tool description for the bar on each. Do not write a title — the user titles the entry themselves.
 
 2. Then, only if warranted, call \`suggest_profile_update\` exactly once to propose a single change to the user's Present doc (their current life). The bar is high — see the tool description. Most entries warrant no suggestion. You never edit any file yourself; the user reviews the suggestion as a toast and decides. Never propose Interviewer changes. Do not propose anything already captured in the Present doc.${dismissedBlock}
 
@@ -182,7 +199,6 @@ After your tool calls, you may stop. The user does not see the wrap output.`;
   }
 
   let summary: string | null = null;
-  let title: string | null = null;
   let pullQuote: string | null = null;
   let suggestion: {
     target_doc: "Present";
@@ -197,9 +213,6 @@ After your tool calls, you may stop. The user does not see the wrap output.`;
     const input = block.input as Record<string, unknown>;
     if (block.name === "write_wrap") {
       if (typeof input.summary === "string") summary = input.summary.trim();
-      if (typeof input.title === "string") {
-        title = input.title.trim().replace(/[.!?]+$/, "");
-      }
       if (typeof input.pull_quote === "string") {
         const q = input.pull_quote.trim().replace(/^["“]|["”]$/g, "");
         pullQuote = q.length > 0 ? q : null;
@@ -234,10 +247,10 @@ After your tool calls, you may stop. The user does not see the wrap output.`;
     }
   }
 
-  // write_wrap requires summary and title, so missing both means the model
-  // never called it. Treat that as a failure rather than silently writing
-  // nothing — otherwise the entry stays untitled with no signal to the user.
-  if (!summary && !title) {
+  // write_wrap requires a summary, so a missing one means the model never called
+  // it. Treat that as a failure rather than silently writing nothing — otherwise
+  // the entry lands in the list with no subtitle and no signal to the user.
+  if (!summary) {
     console.error(
       "[journal/wrap] model returned no write_wrap call for entry",
       entryId
@@ -249,14 +262,10 @@ After your tool calls, you may stop. The user does not see the wrap output.`;
     };
   }
 
+  // The title is the writer's own — the wrap never touches it. We only write the
+  // summary (the list subtitle) and the optional pull quote.
   const update: Record<string, unknown> = { summary_stale: false };
   if (summary !== null) update.summary = summary;
-  // Freeform blog posts carry a user-written title — never overwrite it. The
-  // wrap still runs to produce the summary and pull quote; only AI-interview
-  // entries (which close untitled) take the model's generated title.
-  const hasUserTitle =
-    typeof entry.title === "string" && entry.title.trim().length > 0;
-  if (title !== null && !hasUserTitle) update.title = title;
   // pull_quote can be set to null explicitly when the AI chose not to surface one
   update.pull_quote = pullQuote;
   await supabase.from("journal_entries").update(update).eq("id", entryId);

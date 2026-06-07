@@ -461,6 +461,12 @@ export type JournalOpeningCandidate = {
   type: string | null;
   visibility: JournalVisibility;
   /**
+   * A concise (2–5 word) version of the question, generated alongside it, used to
+   * pre-fill the entry's editable title the moment the writer picks this question.
+   * Null/absent for legacy rows and untyped fallbacks.
+   */
+  conciseTitle?: string | null;
+  /**
    * Set only for currently-reading candidates: the in-progress book the question
    * is about. Picking the candidate links the entry to this book. Null/absent for
    * every other type.
@@ -501,6 +507,14 @@ export type JournalEntry = {
   question_type: string | null;
   candidates_reroll_count: number;
   freeform_started_at: string | null;
+  /** The manual AI-chat toggle. ON: submitting a reply also asks the interviewer
+   * a follow-up question. OFF: replies are just saved. Defaults false. */
+  question_mode: boolean;
+  /** Whether the five-minute timer's one-time flip of question_mode to OFF has
+   * already happened, so it fires exactly once. */
+  timer_flipped_off: boolean;
+  /** The unsent in-progress reply draft, autosaved; cleared on commit. */
+  draft_reply: string | null;
   summary: string | null;
   title: string | null;
   pull_quote: string | null;

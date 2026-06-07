@@ -110,6 +110,13 @@ export function toLogicalEvents(
   return { events: owners, attendeesById };
 }
 
+// Desaturate a member color toward the warm gray ground — the calendar's earthy
+// Day/Feed palette. Used wherever a member color is drawn in those views, leaving
+// vivid colors elsewhere (avatars, home) untouched.
+export function mutedColor(color: string): string {
+  return `color-mix(in srgb, ${color} 60%, #6f6a5f)`;
+}
+
 export function getWeekBounds(anchor: Date): { start: Date; end: Date } {
   const d = new Date(anchor);
   const day = d.getDay();

@@ -20,9 +20,17 @@ const PX_PER_HOUR = 48;
 const GUTTER = 44; // px reserved for the hour labels
 const MIN_BLOCK = 26; // px floor so a short event's label still fits
 const FAMILY_KEY = "__family__";
-const FAMILY_COLOR = "#64748b";
-// A subtle blue wash marking the signed-in user's own column.
-const ME_TINT = "bg-blue-50/70 dark:bg-blue-500/10";
+// Warm taupe-gray for shared/family events (the prototype's #8a8a80), so "ours"
+// reads neutral-but-warm against the cream ground rather than a cool slate.
+const FAMILY_COLOR = "#8a8a80";
+// A faint wash marking the signed-in user's own column — derived from their own
+// color (like the prototype's Andrew-blue at low alpha) so it stays warm and on
+// theme, rather than a fixed cool blue. color-mix works for hex or oklch alike.
+// Desaturate a member color toward the warm gray ground — the prototype's earthy
+// palette. Scoped to this view, so vivid member colors elsewhere (avatars, home)
+// are untouched.
+const mute = (color: string) => `color-mix(in srgb, ${color} 60%, #6f6a5f)`;
+const meTint = (color: string) => `color-mix(in srgb, ${color} 7%, transparent)`;
 
 const localMin = (iso: string) => {
   const d = new Date(iso);
@@ -98,15 +106,22 @@ export function DayView({
   selectedEventId: string | null;
   currentMemberEmail: string | null;
 }) {
-  // A live clock so the "now" line tracks the real time. Minute granularity is
-  // plenty for an hour-scale axis; the interval is cleared on unmount.
-  const [now, setNow] = useState(() => new Date());
+  // A live clock so the "now" line tracks the real time. Starts null so the
+  // server and the first client render agree (no Date-dependent output during
+  // SSR, which would hydrate-mismatch across timezones); the effect fills it in
+  // on mount and refreshes every minute.
+  const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(id);
+    const update = () => setNow(new Date());
+    const initial = setTimeout(update, 0); // client-only, after first paint
+    const id = setInterval(update, 60_000);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(id);
+    };
   }, []);
-  const isToday = toDateKey(anchorDate) === toDateKey(now);
-  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const isToday = now != null && toDateKey(anchorDate) === toDateKey(now);
+  const nowMin = now ? now.getHours() * 60 + now.getMinutes() : -1;
 
   const dayKey = toDateKey(anchorDate);
   const dayEvents = events.filter((e) => eventDayKey(e) === dayKey);
@@ -144,6 +159,36 @@ export function DayView({
   const y = (min: number) => ((min - minH * 60) / 60) * PX_PER_HOUR;
   const hourMarks = Array.from({ length: maxH - minH + 1 }, (_, i) => minH + i);
 
+  // The shown members attending an event — its owner (when shown) plus any guest
+  // members. The set, not an owner, is what a shared event really is.
+  const attendingMembersOf = (e: CalendarEvent): string[] => {
+    const set = new Set<string>();
+    if (e.member_email && memberEmails.has(e.member_email))
+      set.add(e.member_email);
+    for (const a of display(e).attendees)
+      if (memberEmails.has(a.email)) set.add(a.email);
+    return [...set];
+  };
+
+  // Classify timed events. A multi-attendee event is drawn ONCE as a shared
+  // object tied across its attendees' columns (below); a single-attendee event is
+  // a solo block in its owner's column. Ownerless events fall to the Family column.
+  const familyTimed = timed.filter(isFamily);
+  const soloByEmail = new Map<string, CalendarEvent[]>();
+  const sharedEvents: CalendarEvent[] = [];
+  for (const e of timed) {
+    if (isFamily(e)) continue;
+    const attending = attendingMembersOf(e);
+    if (attending.length >= 2) {
+      sharedEvents.push(e);
+    } else {
+      const owner = attending[0] ?? e.member_email!;
+      const arr = soloByEmail.get(owner) ?? [];
+      arr.push(e);
+      soloByEmail.set(owner, arr);
+    }
+  }
+
   // The columns on the axis: one per shown member, plus a shared "Family" column
   // when the day has any ownerless events. A family-only filter (no members)
   // collapses to that single Family column.
@@ -151,10 +196,7 @@ export function DayView({
     key: string;
     label: string;
     color: string;
-    events: CalendarEvent[];
-    // Events owned by someone else that this member is attending — drawn as muted
-    // "busy" ghosts so a shared event blocks everyone's time without duplicating.
-    ghosts: CalendarEvent[];
+    solo: CalendarEvent[];
     allDay: CalendarEvent[];
     isMe: boolean;
   };
@@ -162,27 +204,17 @@ export function DayView({
     key: m.email,
     label: m.name ?? m.email,
     color: m.color ?? FAMILY_COLOR,
-    events: timed.filter((e) => e.member_email === m.email),
-    ghosts:
-      members.length > 1
-        ? timed.filter(
-            (e) =>
-              e.member_email !== m.email &&
-              display(e).attendees.some((a) => a.email === m.email),
-          )
-        : [],
+    solo: soloByEmail.get(m.email) ?? [],
     allDay: allDay.filter((e) => e.member_email === m.email),
     isMe: m.email === currentMemberEmail,
   }));
-  const familyTimed = timed.filter(isFamily);
   const familyAllDay = allDay.filter(isFamily);
   if (familyTimed.length > 0 || familyAllDay.length > 0) {
     columns.push({
       key: FAMILY_KEY,
       label: "Family",
       color: FAMILY_COLOR,
-      events: familyTimed,
-      ghosts: [],
+      solo: familyTimed,
       allDay: familyAllDay,
       isMe: false,
     });
@@ -192,18 +224,57 @@ export function DayView({
   const meIndex = columns.findIndex((c) => c.isMe);
   if (meIndex > 0) columns.unshift(columns.splice(meIndex, 1)[0]);
 
+  // Map each shared event to the column indices it spans (computed after the
+  // me-first reorder so positions are final).
+  const colIndexByKey = new Map(columns.map((c, i) => [c.key, i]));
+  const memberColumns = columns.filter((c) => c.key !== FAMILY_KEY);
+  const sharedTimed = sharedEvents
+    .map((event) => ({
+      event,
+      cols: attendingMembersOf(event)
+        .map((email) => colIndexByKey.get(email))
+        .filter((i): i is number => i != null)
+        .sort((a, b) => a - b),
+    }))
+    .filter((s) => s.cols.length >= 2);
+
   const hasAllDay = columns.some((c) => c.allDay.length > 0);
+
+  // A row of dots, one per member column in left-to-right order, filled for the
+  // members attending — so the exact combination reads at a glance, including
+  // non-contiguous sets the bracket alone can't disambiguate.
+  function AttendanceGlyph({ attending }: { attending: Set<string> }) {
+    return (
+      <span className="inline-flex items-center gap-[2px]" aria-hidden>
+        {memberColumns.map((c) => {
+          const on = attending.has(c.key);
+          return (
+            <span
+              key={c.key}
+              className={cn(
+                "h-1.5 w-1.5 rounded-full border",
+                !on && "border-muted-foreground/40",
+              )}
+              style={
+                on
+                  ? { backgroundColor: mute(c.color), borderColor: mute(c.color) }
+                  : undefined
+              }
+            />
+          );
+        })}
+      </span>
+    );
+  }
 
   // One positioned event block. `showMember` stamps the owner's name — used only
   // in the merged mobile lane, where columns don't carry identity.
   function Block({
     placed,
     showMember,
-    ghost,
   }: {
     placed: Placed;
     showMember?: boolean;
-    ghost?: boolean;
   }) {
     const { event } = placed;
     const d = display(event);
@@ -216,6 +287,9 @@ export function DayView({
         ? (members.find((m) => m.email === event.member_email)?.name ?? "")
             .split(" ")[0]
         : null;
+    // The start time is already encoded by the card's position on the axis, so
+    // it's the first thing to drop when a short card can't fit it and the title.
+    const showTime = height >= 46;
     return (
       <button
         type="button"
@@ -228,47 +302,44 @@ export function DayView({
           height,
           left: `calc(${leftPct}% + 1px)`,
           width: `calc(${widthPct}% - 3px)`,
-          borderLeftColor: d.color,
+          borderLeftColor: mute(d.color),
         }}
         className={cn(
-          "absolute overflow-hidden rounded-md border border-border/70 border-l-[3px] bg-card px-1.5 py-0.5 text-left shadow-sm transition-colors hover:bg-muted/50",
-          ghost &&
-            "border-dashed bg-muted/30 opacity-70 shadow-none hover:opacity-100",
+          "absolute flex flex-col overflow-hidden rounded-sm border border-border/70 border-l-[3px] bg-white px-1.5 py-0.5 text-left transition-colors hover:bg-muted/40 dark:bg-card",
           event.id === selectedEventId && "ring-1 ring-ring",
         )}
       >
-        <span className="flex items-center gap-1 text-[10px] tabular-nums leading-tight text-muted-foreground">
-          <span className="truncate">
-            {formatTimeRange(event.start_time, event.end_time, false)}
+        {showTime && (
+          <span className="flex items-center gap-1 text-[10px] italic tabular-nums leading-tight text-muted-foreground">
+            <span className="truncate">
+              {formatTimeRange(event.start_time, event.end_time, false)}
+            </span>
+            {d.attendees.length > 0 && (
+              <span className="ml-auto flex shrink-0 -space-x-1">
+                {d.attendees.slice(0, 3).map((a) => (
+                  <span key={a.email} title={a.name ?? a.email} className="inline-flex">
+                    <MemberAvatar name={a.name} size="xs" className="ring-1 ring-card" />
+                  </span>
+                ))}
+              </span>
+            )}
+          </span>
+        )}
+        <span className={cn("flex items-start gap-1", showTime && "mt-0.5")}>
+          <span className="line-clamp-2 min-w-0 text-[11px] leading-tight text-foreground">
+            {memberName && (
+              <span className="text-muted-foreground">{memberName} · </span>
+            )}
+            {d.calendarLabel && (
+              <span className="text-muted-foreground">{d.calendarLabel}: </span>
+            )}
+            {event.title}
           </span>
           {d.conflict && (
-            <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-amber-600" />
-          )}
-          {!ghost && d.attendees.length > 0 && (
-            <span className="ml-auto flex shrink-0 -space-x-1">
-              {d.attendees.slice(0, 3).map((a) => (
-                <span key={a.email} title={a.name ?? a.email} className="inline-flex">
-                  <MemberAvatar name={a.name} size="xs" className="ring-1 ring-card" />
-                </span>
-              ))}
-            </span>
+            <AlertTriangle className="mt-px h-2.5 w-2.5 shrink-0 text-amber-600" />
           )}
         </span>
-        <span
-          className={cn(
-            "mt-0.5 line-clamp-2 text-[11px] font-medium leading-tight text-foreground",
-            ghost && "italic text-muted-foreground",
-          )}
-        >
-          {memberName && (
-            <span className="text-muted-foreground">{memberName} · </span>
-          )}
-          {d.calendarLabel && (
-            <span className="text-muted-foreground">{d.calendarLabel}: </span>
-          )}
-          {event.title}
-        </span>
-        {!ghost && height >= 46 && event.location && (
+        {height >= 60 && event.location && (
           <span className="mt-0.5 flex items-center gap-0.5 truncate text-[10px] text-muted-foreground">
             <MapPin className="h-2.5 w-2.5 shrink-0" />
             {event.location}
@@ -278,9 +349,110 @@ export function DayView({
     );
   }
 
+  // A shared (multi-attendee) event drawn as ONE card frame spanning from its
+  // first to its last attending column. The card is filled (a normal white card)
+  // only over the columns that ARE attending; any column it jumps over is left as
+  // an open "window" — the frame's top and bottom edges bridge across it, but its
+  // interior is transparent, so the column beneath (its separators, its tint, its
+  // free time) shows through. That reads as "these two are one event, and the
+  // people in between simply aren't in it" rather than "their time is blocked."
+  function renderSpanningEvent({
+    event,
+    cols,
+  }: {
+    event: CalendarEvent;
+    cols: number[];
+  }) {
+    const d = display(event);
+    const n = columns.length;
+    const first = cols[0];
+    const last = cols[cols.length - 1];
+    const span = last + 1 - first;
+    const top = y(startMin(event));
+    const height = Math.max(y(endMin(event)) - top, MIN_BLOCK);
+    const everyone = cols.length === memberColumns.length;
+    const selected = event.id === selectedEventId;
+    const showTime = height >= 46;
+    // Contiguous runs of attending columns — each gets a filled segment; the gaps
+    // between runs are the open windows.
+    const runs: Array<[number, number]> = [];
+    for (const i of cols) {
+      const r = runs[runs.length - 1];
+      if (r && i === r[1] + 1) r[1] = i;
+      else runs.push([i, i]);
+    }
+    // Text lives in the leading run so a long title truncates instead of running
+    // across the windows.
+    const leadCols = runs[0][1] + 1 - first;
+    // Positions are fractions of the frame's own width (the full span).
+    const fillLeft = (a: number) => ((a - first) / span) * 100;
+    const fillWidth = (a: number, b: number) => ((b + 1 - a) / span) * 100;
+    return (
+      <button
+        key={event.id}
+        type="button"
+        onClick={() => onEventClick(event)}
+        title={event.title}
+        style={{
+          top,
+          height,
+          left: `calc(${(first / n) * 100}% + 1px)`,
+          width: `calc(${(span / n) * 100}% - 3px)`,
+          borderLeftColor: mute(d.color),
+        }}
+        className={cn(
+          "group pointer-events-auto absolute overflow-hidden rounded-sm border border-border/70 border-l-[3px] bg-transparent text-left",
+          selected && "ring-1 ring-ring",
+        )}
+      >
+        {/* Filled card segments over the attending columns. */}
+        {runs.map(([a, b]) => (
+          <span
+            key={`fill-${a}`}
+            aria-hidden
+            className="absolute inset-y-0 bg-white transition-colors group-hover:bg-muted/40 dark:bg-card"
+            style={{ left: `${fillLeft(a)}%`, width: `${fillWidth(a, b)}%` }}
+          />
+        ))}
+        {/* Content, in the leading run. */}
+        <span
+          className="absolute inset-y-0 left-0 flex flex-col overflow-hidden px-1.5 py-0.5"
+          style={{ width: `${(leadCols / span) * 100}%` }}
+        >
+          {showTime && (
+            <span className="flex items-center gap-1 text-[10px] italic tabular-nums leading-tight text-muted-foreground">
+              <span className="truncate">
+                {formatTimeRange(event.start_time, event.end_time, false)}
+              </span>
+              {everyone && (
+                <span className="shrink-0 not-italic">· Everyone</span>
+              )}
+            </span>
+          )}
+          <span className={cn("flex items-start gap-1", showTime && "mt-0.5")}>
+            <span className="line-clamp-2 min-w-0 text-[11px] leading-tight text-foreground">
+              {event.title}
+            </span>
+            {d.conflict && (
+              <AlertTriangle className="mt-px h-2.5 w-2.5 shrink-0 text-amber-600" />
+            )}
+          </span>
+          {height >= 60 && event.location && (
+            <span className="mt-0.5 flex items-center gap-0.5 truncate text-[10px] text-muted-foreground">
+              <MapPin className="h-2.5 w-2.5 shrink-0" />
+              {event.location}
+            </span>
+          )}
+        </span>
+      </button>
+    );
+  }
+
   // An all-day marker: a flag plus the title, matching the agenda's treatment.
+  // A shared all-day event carries the same attendance glyph as the timed ones.
   function allDayItem(event: CalendarEvent) {
     const d = display(event);
+    const attending = attendingMembersOf(event);
     return (
       <button
         key={event.id}
@@ -295,6 +467,9 @@ export function DayView({
         <span className="truncate font-medium text-foreground">
           {event.title}
         </span>
+        {attending.length >= 2 && (
+          <AttendanceGlyph attending={new Set(attending)} />
+        )}
         {d.conflict && (
           <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-amber-600" />
         )}
@@ -334,7 +509,7 @@ export function DayView({
         />
         {h < maxH && (
           <div
-            className="absolute -translate-y-1/2 pr-1 text-right text-[10px] tabular-nums text-muted-foreground"
+            className="absolute -translate-y-1/2 pr-1 text-right text-[10px] italic tabular-nums text-muted-foreground/80"
             style={{ top: y(h * 60), left: 0, width: GUTTER }}
           >
             {hourLabel(h)}
@@ -345,7 +520,10 @@ export function DayView({
   }
 
   return (
-    <>
+    // Serif (Lora) for the view's text — the prototype's editorial voice — while
+    // the header controls stay sans. Warm cream ground and hairlines come from the
+    // app theme already.
+    <div className="font-serif">
       {/* Desktop: a column per person on a shared axis. */}
       <div className="hidden md:block">
         {/* Column headers */}
@@ -353,14 +531,14 @@ export function DayView({
           {columns.map((c) => (
             <div
               key={c.key}
-              className={cn(
-                "flex min-w-0 flex-1 items-center gap-1.5 px-2 pb-2 pt-1 text-sm font-semibold text-foreground",
-                c.isMe && ME_TINT,
-              )}
+              className="flex min-w-0 flex-1 items-center gap-1.5 px-2 pb-2 pt-1 text-sm font-medium text-foreground"
+              style={
+                c.isMe ? { backgroundColor: meTint(mute(c.color)) } : undefined
+              }
             >
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: c.color }}
+                style={{ backgroundColor: mute(c.color) }}
                 aria-hidden
               />
               <span className="truncate">{c.label}</span>
@@ -381,10 +559,10 @@ export function DayView({
               {columns.map((c) => (
                 <div
                   key={c.key}
-                  className={cn(
-                    "min-w-0 flex-1 space-y-0.5 border-l border-border/40 px-1 py-1",
-                    c.isMe && ME_TINT,
-                  )}
+                  className="min-w-0 flex-1 space-y-0.5 border-l border-border/40 px-1 py-1"
+                  style={
+                c.isMe ? { backgroundColor: meTint(mute(c.color)) } : undefined
+              }
                 >
                   {c.allDay.map((event) => allDayItem(event))}
                 </div>
@@ -400,27 +578,29 @@ export function DayView({
             className="absolute inset-y-0 flex"
             style={{ left: GUTTER, right: 0 }}
           >
-            {columns.map((c) => {
-              const ghostIds = new Set(c.ghosts.map((e) => e.id));
-              return (
-                <div
-                  key={c.key}
-                  className={cn(
-                    "relative min-w-0 flex-1 border-l border-border/60",
-                    c.isMe && ME_TINT,
-                  )}
-                >
-                  {pack([...c.events, ...c.ghosts]).map((p) => (
-                    <Block
-                      key={p.event.id}
-                      placed={p}
-                      ghost={ghostIds.has(p.event.id)}
-                    />
-                  ))}
-                </div>
-              );
-            })}
+            {columns.map((c) => (
+              <div
+                key={c.key}
+                className="relative min-w-0 flex-1 border-l border-border/60"
+                style={
+                c.isMe ? { backgroundColor: meTint(mute(c.color)) } : undefined
+              }
+              >
+                {pack(c.solo).map((p) => (
+                  <Block key={p.event.id} placed={p} />
+                ))}
+              </div>
+            ))}
           </div>
+          {/* Shared events tie across columns in an overlay above them. */}
+          {sharedTimed.length > 0 && (
+            <div
+              className="pointer-events-none absolute inset-y-0"
+              style={{ left: GUTTER, right: 0 }}
+            >
+              {sharedTimed.map((s) => renderSpanningEvent(s))}
+            </div>
+          )}
           {nowLine()}
         </div>
       </div>
@@ -445,6 +625,6 @@ export function DayView({
           {nowLine()}
         </div>
       </div>
-    </>
+    </div>
   );
 }

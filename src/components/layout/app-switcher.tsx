@@ -9,6 +9,7 @@ import {
   CalendarRange,
   Check,
   ChevronDown,
+  Dumbbell,
   GraduationCap,
   House,
   Music,
@@ -82,6 +83,13 @@ const APPS: App[] = [
     match: "/assignments",
     description: "School homework & due dates",
     icon: GraduationCap,
+  },
+  {
+    href: "/workouts",
+    label: "Workouts",
+    match: "/workouts",
+    description: "Training log & progress",
+    icon: Dumbbell,
   },
 ];
 

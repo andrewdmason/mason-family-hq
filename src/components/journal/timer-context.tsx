@@ -11,9 +11,6 @@ import {
 
 const DURATION_MS = 5 * 60 * 1000;
 
-/** A muted, pleasant green shown once the five-minute minimum is reached. */
-export const TIMER_DONE_COLOR = "oklch(0.72 0.07 150)";
-
 type Ctx = {
   running: boolean;
   done: boolean;
@@ -25,14 +22,15 @@ type Ctx = {
 const JournalTimerContext = createContext<Ctx | null>(null);
 
 /**
- * Holds the five-minute zen-timer state for the journal. The chat surface
- * drives when it starts, renders its progress as the "Finish post" button's
- * leading icon (a pie that fills, then settles into a checkmark), and reads
- * when it's done — completion is the cue to stop asking follow-up questions.
+ * Holds the five-minute zen-timer state for the journal — a quiet "time spent on
+ * this post" counter. The chat surface drives when it starts, renders its
+ * progress as a small pie that fills then settles into a checkmark, and reads
+ * when it's done: completion gently flips question mode off once (the timer no
+ * longer gates the conversation).
  *
  * The timer is anchored to a wall-clock timestamp (the moment the entry's
- * opening question appeared) rather than counted from page load, so its
- * progress and completion survive refreshes and reopens.
+ * opening question appeared, or when a blank post was started) rather than
+ * counted from page load, so its progress and completion survive refreshes.
  */
 export function JournalTimerProvider({
   children,

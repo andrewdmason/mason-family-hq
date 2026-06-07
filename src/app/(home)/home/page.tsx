@@ -3,6 +3,8 @@ import { JournalStatusWidget } from "@/components/home/journal-status-widget";
 import { ReaderWidget } from "@/components/home/reader-widget";
 import { PracticeTrendWidget } from "@/components/home/practice-trend-widget";
 import { PersonStatusWidget } from "@/components/home/person-status-widget";
+import { WorkoutWidget } from "@/components/home/workout-widget";
+import { getHomeWorkout } from "@/lib/home/workouts";
 import { getReadingHome } from "@/app/(reading)/reader/actions";
 import { getActiveQuizzesByBook } from "@/app/(reading)/reader/quizzes/actions";
 import { getStreakData, getTrailingPracticeData } from "@/app/practice/reports/actions";
@@ -32,12 +34,14 @@ export default async function HomePage() {
     familyJournal,
     reading,
     personStatuses,
+    workout,
   ] = await Promise.all([
     getIsOwner(),
     getJournalStatus("private", today),
     getJournalStatus("family", today),
     getReadingHome().catch(() => null),
     getHomePersonStatuses(tz, member.email).catch(() => []),
+    getHomeWorkout().catch(() => null),
   ]);
 
   // The most recently active in-progress book powers the Reader widget; a
@@ -87,6 +91,7 @@ export default async function HomePage() {
               activeQuiz={activeQuiz}
             />
           )}
+          <WorkoutWidget workout={workout} today={today} />
           {isOwner && trailing && streak && (
             <PracticeTrendWidget
               trailing={trailing}

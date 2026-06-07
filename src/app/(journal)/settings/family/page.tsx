@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { FamilyManager } from "@/components/journal/family-manager";
 import { SingleFileEditor } from "@/components/journal/agent-file-editor";
+import { JournalBackfillButton } from "@/components/journal/journal-backfill-button";
 import { getIsOwner } from "@/lib/members/auth";
 import { loadFamilyDoc } from "@/lib/journal/context";
 import {
@@ -44,6 +45,17 @@ export default async function FamilySettingsPage() {
           &ldquo;build your profile&rdquo; prompt. Only you can edit it.
         </p>
         <SingleFileEditor target={{ kind: "family" }} initialMarkdown={familyDoc} />
+      </div>
+      <div className="mt-10 border-t border-border pt-6">
+        <h3 className="font-serif text-xs uppercase tracking-wide text-muted-foreground">
+          Maintenance
+        </h3>
+        <p className="mt-1 font-serif text-xs italic text-muted-foreground">
+          Regenerate every post&apos;s subtitle in the current style, and
+          re-title every question post. Run this once after a prompt change —
+          it covers all members&apos; posts.
+        </p>
+        <JournalBackfillButton />
       </div>
     </>
   );
