@@ -899,6 +899,67 @@ export type ReadingHome = {
   checkedInThisWeek: boolean;
 };
 
+/** Where a challenge is in its lifecycle. One 'active' per kid; the rest archived. */
+export type ReadingChallengeStatus = "active" | "archived";
+
+/**
+ * A parent-created, time-boxed reading challenge for one kid. The prize structure
+ * lives entirely in `description` (markdown); the app derives progress from
+ * reading check-ins. Keyed by kid_email so it can be set up before sign-in.
+ */
+export type ReadingChallenge = {
+  id: string;
+  kid_email: string;
+  created_by_email: string;
+  title: string;
+  /** Markdown (tiptap-markdown) — the prizes/rules write-up the parent edits. */
+  description: string;
+  start_date: string;
+  end_date: string;
+  /** Total pages target that drives the main progress bar. */
+  page_goal: number;
+  /** Pages per batting-cage token (0 = tokens off). */
+  pages_per_token: number;
+  status: ReadingChallengeStatus;
+  created_at: string;
+  updated_at: string;
+};
+
+/** One week of the challenge window, with pages read vs. the weekly baseline. */
+export type ChallengeWeek = {
+  /** Monday of the week (YYYY-MM-DD). */
+  weekStart: string;
+  /** Sunday of the week (YYYY-MM-DD), clamped to the challenge end. */
+  weekEnd: string;
+  /** 1-based index within the challenge window. */
+  index: number;
+  /** Pages read during this week, derived from check-ins. */
+  pages: number;
+  /** True once this week beats the weekly baseline (e.g. 50). */
+  beatBaseline: boolean;
+  /** True for the week containing "today" (in-progress). */
+  isCurrent: boolean;
+  /** True for weeks that haven't started yet. */
+  isFuture: boolean;
+};
+
+/** A challenge plus everything derived from the kid's reading for display. */
+export type ReadingChallengeProgress = {
+  challenge: ReadingChallenge;
+  /** Total pages read within [start_date, end_date], from check-ins. */
+  totalPages: number;
+  /** 0–100, totalPages / page_goal clamped. */
+  percent: number;
+  /** Batting-cage tokens earned: floor(totalPages / pages_per_token). */
+  tokens: number;
+  /** The weekly baseline this kid is measured against (their weekly_page_goal). */
+  weeklyBaseline: number;
+  /** Per-week breakdown across the window. */
+  weeks: ChallengeWeek[];
+  /** Whole days left until end_date (0 once it's over). */
+  daysRemaining: number;
+};
+
 /** Lifecycle of an uploaded book file as it converts into the reading experience. */
 export type ReadingBookContentStatus =
   | "uploaded"

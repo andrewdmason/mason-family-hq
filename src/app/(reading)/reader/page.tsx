@@ -1,13 +1,15 @@
 import Link from "next/link";
-import { GraduationCap } from "lucide-react";
+import { GraduationCap, Trophy } from "lucide-react";
 import { AddBookDialog } from "@/components/reading/add-book-dialog";
 import { MemberViewSwitcher } from "@/components/reading/member-view-switcher";
 import { ReadingList } from "@/components/reading/reading-list";
+import { ChallengeCard } from "@/components/reading/challenge-card";
 import { listFamilyMembers } from "@/app/(journal)/settings/family/actions";
-import { getIsOwner } from "@/lib/members/auth";
+import { getIsOwner, getIsParentOrOwner } from "@/lib/members/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
-import { quizzesHref } from "@/lib/reading/links";
+import { challengeHref, challengesHref, quizzesHref } from "@/lib/reading/links";
 import { getReadingHome, listRecommendRecipients } from "./actions";
+import { getChallengeForKid } from "./challenges/actions";
 import { getDiscover } from "./discover/actions";
 import { getActiveQuizzesByBook } from "./quizzes/actions";
 
@@ -38,9 +40,11 @@ export default async function ReadingPage({
       : null;
   const viewingEmail = viewedMember?.email ?? null;
 
-  const [home, discover] = await Promise.all([
+  const [home, discover, challenge, canManageChallenges] = await Promise.all([
     getReadingHome(viewingEmail),
     getDiscover(viewingEmail),
+    getChallengeForKid(viewingEmail),
+    getIsParentOrOwner(),
   ]);
 
   // Per-book check-in quizzes (published, not yet passed) — drive the
@@ -71,6 +75,15 @@ export default async function ReadingPage({
           {heading}
         </h1>
         <div className="flex items-center gap-2">
+          {canManageChallenges && (
+            <Link
+              href={challengesHref()}
+              className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Trophy className="h-4 w-4" />
+              Challenges
+            </Link>
+          )}
           {isOwner && (
             <Link
               href={quizzesHref(viewingEmail)}
@@ -99,6 +112,15 @@ export default async function ReadingPage({
           </span>
           &apos;s reading. Anything you add or check in is saved to their account.
         </p>
+      )}
+
+      {challenge && (
+        <div className="mt-6">
+          <ChallengeCard
+            progress={challenge}
+            href={challengeHref(viewingEmail)}
+          />
+        </div>
       )}
 
       <ReadingList

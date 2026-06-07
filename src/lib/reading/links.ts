@@ -37,3 +37,23 @@ export function quizTakeHref(quizId: string, memberEmail?: string | null): strin
 export function quizResultsHref(quizId: string, memberEmail?: string | null): string {
   return withMember(`/reader/quizzes/${quizId}/results`, memberEmail);
 }
+
+/** The kid-facing reading-challenge page. */
+export function challengeHref(memberEmail?: string | null): string {
+  return withMember("/reader/challenge", memberEmail);
+}
+
+/** The owner/parent list of all kids' challenges. */
+export function challengesHref(): string {
+  return "/reader/challenges";
+}
+
+/** The owner/parent create-a-challenge screen. */
+export function challengeNewHref(): string {
+  return "/reader/challenges/new";
+}
+
+/** The owner/parent edit screen for one challenge. */
+export function challengeEditHref(challengeId: string): string {
+  return `/reader/challenges/${challengeId}/edit`;
+}
