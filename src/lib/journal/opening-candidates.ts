@@ -35,6 +35,19 @@ import type {
 export const OPENING_CANDIDATES_TOOL_NAME = "propose_questions";
 
 /**
+ * How to write the short title a question post gets (the line the writer sees at
+ * the top of the entry). Shared between the live picker tool and the title
+ * backfill so both stay in the same voice. Sentence case — the writer doesn't
+ * care for the all-lowercase look.
+ */
+export const CONCISE_TITLE_GUIDANCE =
+  "A concise 2–5 word, sentence-case noun-phrase title for an entry answering " +
+  "this question — what the writer might jot at the top of the page. Capitalize " +
+  "the first word and any proper nouns; no end punctuation, no quotation marks. " +
+  'Concrete over abstract. e.g. for "What did the morning after the permit feel ' +
+  'like?" → "The morning after the permit".';
+
+/**
  * The candidate tool's shape depends on how many questions the user wants each
  * day, so we build it per request rather than as a module constant.
  */
@@ -62,8 +75,7 @@ export function buildOpeningCandidatesTool(n: number) {
               },
               conciseTitle: {
                 type: "string",
-                description:
-                  "A concise 2–5 word, lowercase noun-phrase title for an entry answering this question — what the writer might jot at the top of the page. No punctuation, no quotation marks. Concrete over abstract. e.g. for \"What did the morning after the permit feel like?\" → \"the morning after the permit\".",
+                description: CONCISE_TITLE_GUIDANCE,
               },
               visibility: {
                 type: "string",
