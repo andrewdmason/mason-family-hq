@@ -14,7 +14,9 @@ export function normalizeCandidates(raw: unknown): JournalOpeningCandidate[] {
         text?: unknown;
         type?: unknown;
         visibility?: unknown;
+        conciseTitle?: unknown;
         reading_book_id?: unknown;
+        timeline_entry_id?: unknown;
       };
       return {
         text: typeof obj.text === "string" ? obj.text : "",
@@ -22,9 +24,17 @@ export function normalizeCandidates(raw: unknown): JournalOpeningCandidate[] {
         // Legacy rows (and any unexpected value) default to private — sharing is
         // always an explicit, opt-in act.
         visibility: obj.visibility === "family" ? "family" : "private",
+        // A short title pre-filled when this question is picked. Null on legacy rows.
+        conciseTitle:
+          typeof obj.conciseTitle === "string" ? obj.conciseTitle : null,
         // Preserved so a picked currently-reading candidate can link its book.
         reading_book_id:
           typeof obj.reading_book_id === "string" ? obj.reading_book_id : null,
+        // Preserved so a picked reminiscence candidate can link its timeline event.
+        timeline_entry_id:
+          typeof obj.timeline_entry_id === "string"
+            ? obj.timeline_entry_id
+            : null,
       };
     })
     .filter((c) => c.text.length > 0);

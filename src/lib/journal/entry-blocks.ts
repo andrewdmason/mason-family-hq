@@ -39,9 +39,11 @@ function splitParagraphs(text: string): string[] {
  * what "block N" is.
  *
  * Per type:
- *   - Freeform blog post (standard + freeform_started_at): one block per
- *     paragraph of the single user message.
- *   - AI-interview (standard, not freeform): one block per message, in order.
+ *   - Standard, no AI replies (all messages are the writer's own — a post
+ *     written with question mode off, or a legacy freeform body): one block per
+ *     paragraph, so the writing reads as flowing prose.
+ *   - Standard with AI replies: one block per message, in order (interleaved
+ *     writer/interviewer turns).
  *   - Quote: a single block (the pull quote).
  *   - Recap: a single block (the whole markdown body). Recaps are imported
  *     documents; we keep them as one unit rather than splitting markdown, so
@@ -49,12 +51,11 @@ function splitParagraphs(text: string): string[] {
  */
 export function getEntryBlocks(args: {
   entryType: JournalEntryType;
-  isFreeform: boolean;
   messages: { role: JournalMessageRole; content: string }[];
   pullQuote: string | null;
   recapBody: string | null;
 }): EntryBlock[] {
-  const { entryType, isFreeform, messages, pullQuote, recapBody } = args;
+  const { entryType, messages, pullQuote, recapBody } = args;
 
   if (entryType === "quote") {
     return [{ index: 0, kind: "quote", content: pullQuote ?? "" }];
@@ -65,13 +66,19 @@ export function getEntryBlocks(args: {
   }
 
   // standard
-  if (isFreeform) {
-    const body = messages.find((m) => m.role === "user")?.content ?? "";
-    return splitParagraphs(body).map((content, index) => ({
-      index,
-      kind: "freeform",
-      content,
-    }));
+  // A post with no interviewer turns (question mode stayed off, or a legacy
+  // freeform body saved as one or more user messages) reads as flowing prose:
+  // split every message into paragraph blocks. A single empty entry yields none.
+  const allUser = messages.length > 0 && messages.every((m) => m.role === "user");
+  if (allUser) {
+    let index = 0;
+    const blocks: EntryBlock[] = [];
+    for (const m of messages) {
+      for (const content of splitParagraphs(m.content)) {
+        blocks.push({ index: index++, kind: "user", content });
+      }
+    }
+    return blocks;
   }
 
   return messages.map((m, index) => ({

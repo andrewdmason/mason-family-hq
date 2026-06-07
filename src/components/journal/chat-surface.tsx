@@ -2,22 +2,36 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Send } from "lucide-react";
+import { CheckCircle2, MessageCircle, Send } from "lucide-react";
 import { TypingIndicator } from "@/components/journal/typing-indicator";
 import { FinishPostDialog } from "@/components/journal/finish-post-dialog";
+import { JournalPhotoGallery } from "@/components/journal/journal-photo-gallery";
 import {
   appendUserMessage,
   closeEntry,
   deleteLatestQuestion,
+  flipQuestionModeOffOnce,
+  saveEntryTitle,
+  saveReplyDraft,
+  setEntryQuestionMode,
   setEntryVisibility,
 } from "@/app/(journal)/journal/actions";
-import {
-  TIMER_DONE_COLOR,
-  useJournalTimer,
-} from "@/components/journal/timer-context";
-import type { JournalMessageRole, JournalVisibility } from "@/lib/types";
+import { useJournalTimer } from "@/components/journal/timer-context";
+import type {
+  JournalMediaType,
+  JournalMessageRole,
+  JournalPhotoSource,
+  JournalVisibility,
+} from "@/lib/types";
 
 type Msg = { role: JournalMessageRole; content: string };
+type GalleryMedia = {
+  id: string;
+  mediaType: JournalMediaType;
+  source: JournalPhotoSource;
+  displayUrl: string;
+  videoUrl: string | null;
+};
 
 export function ChatSurface({
   entryId,
@@ -26,6 +40,11 @@ export function ChatSurface({
   initialMessages,
   viewMode = "today",
   timerStartedAt = null,
+  initialQuestionMode = false,
+  initialTimerFlippedOff = false,
+  initialTitle = "",
+  initialDraft = "",
+  initialPhotos = [],
   readOnly = false,
 }: {
   entryId: string;
@@ -42,10 +61,24 @@ export function ChatSurface({
   viewMode?: "today" | "history";
   /**
    * ISO timestamp the zen timer is anchored to (the opening question's
-   * created_at). Wall-clock based, so the timer's progress and completion
-   * survive refreshes.
+   * created_at, or when a blank post was started). Wall-clock based, so the
+   * timer's progress and completion survive refreshes.
    */
   timerStartedAt?: string | null;
+  /** Whether AI question mode is on: a reply also asks for a follow-up. */
+  initialQuestionMode?: boolean;
+  /** Whether the timer's one-time flip of question mode to off already fired. */
+  initialTimerFlippedOff?: boolean;
+  /** The writer's own title, shown in an editable field at the top. */
+  initialTitle?: string;
+  /** The unsent reply draft, restored into the reply box. */
+  initialDraft?: string;
+  /**
+   * The entry's photos, for the in-composer gallery rendered in the today flow
+   * (so the attach action and chat toggle share one hover-revealed row above the
+   * title). History/read views render their own gallery, so this is unused there.
+   */
+  initialPhotos?: GalleryMedia[];
   /**
    * A family member reading another member's shared entry: show the transcript
    * only — no reply box, no edit controls (writes are theirs alone).
@@ -59,12 +92,10 @@ export function ChatSurface({
   const [status] = useState<"open" | "closed">(initialStatus);
   const [error, setError] = useState<string | null>(null);
   const [hasUnsentReply, setHasUnsentReply] = useState(false);
-  // After the five-minute mark, the writer can ask for one more question at a
-  // time. This is true while that single extra question is awaiting an answer:
-  // the end glyph steps aside, and once the writer replies it's saved without
-  // a follow-up — the glyph returns, so each additional question is a fresh,
-  // deliberate ask rather than an open-ended back-and-forth.
-  const [pendingFollowup, setPendingFollowup] = useState(false);
+  // The manual AI-chat toggle. ON, a reply streams an interviewer follow-up;
+  // OFF, the reply is just saved as a block.
+  const [questionMode, setQuestionMode] = useState(initialQuestionMode);
+  const [timerFlippedOff, setTimerFlippedOff] = useState(initialTimerFlippedOff);
   const [finishDialogOpen, setFinishDialogOpen] = useState(false);
   const [selectedVisibility, setSelectedVisibility] =
     useState<JournalVisibility>(initialVisibility);
@@ -79,9 +110,18 @@ export function ChatSurface({
   } = useJournalTimer();
   const isHistoryClosed = status === "closed" && viewMode === "history";
   const showWritingControls = !readOnly && !isHistoryClosed;
+  // The /journal/new flow renders the Notion-style header here: the photo gallery
+  // (with the attach action and chat toggle on one hover-revealed row) plus the
+  // editable title. The read page renders its own gallery + title, so we skip it.
+  const showComposerHeader = showWritingControls && viewMode === "today";
   // A finished post being read (a shared entry, or a closed entry in history)
   // is view-only: open it at the top like any article, never jump to the end.
   const isViewingOnly = readOnly || isHistoryClosed;
+
+  // When chat is off the writing area is a blog-style continuation of the post
+  // with no Send button — its text lives as an autosaved draft and is committed
+  // when the post is finished. ReplyBox sets this so Finish can pull that text.
+  const flushBlogDraftRef = useRef<(() => string) | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // Whether the reader is sitting at the bottom of the page. We only follow new
@@ -109,8 +149,8 @@ export function ChatSurface({
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streaming, isViewingOnly]);
 
-  // Anchor the zen timer to the opening question's timestamp. beginTimer is
-  // idempotent for the same anchor, so it's safe to call on every render.
+  // Anchor the zen timer to its wall-clock start. beginTimer is idempotent for
+  // the same anchor, so it's safe to call on every render.
   useEffect(() => {
     if (viewMode !== "today" || status !== "open") return;
     if (!timerStartedAt) return;
@@ -123,6 +163,26 @@ export function ChatSurface({
     if (status === "closed") stopTimer();
     return () => stopTimer();
   }, [status, stopTimer]);
+
+  // The timer's one gentle nudge: when the five minutes complete, flip question
+  // mode off exactly once. After that the writer is in full manual control and
+  // can turn it back on without the timer flipping it again.
+  useEffect(() => {
+    if (viewMode !== "today" || status !== "open") return;
+    if (!timerDone || timerFlippedOff) return;
+    setTimerFlippedOff(true);
+    setQuestionMode(false);
+    void flipQuestionModeOffOnce(entryId).catch(() => {});
+  }, [timerDone, timerFlippedOff, viewMode, status, entryId]);
+
+  function toggleQuestionMode(next: boolean) {
+    if (streaming || closing) return;
+    setQuestionMode(next);
+    void setEntryQuestionMode(entryId, next).catch((err) => {
+      setQuestionMode(!next);
+      setError(err instanceof Error ? err.message : String(err));
+    });
+  }
 
   // Read a streamed text response, appending each chunk to the trailing
   // (empty) assistant slot reserved by the caller.
@@ -232,8 +292,8 @@ export function ChatSurface({
     }
   }
 
-  // Remove the trailing question entirely — for questions left unanswered
-  // (e.g. the timer ran out before the user replied).
+  // Remove the trailing question entirely — for a question left unanswered
+  // (e.g. the writer turned question mode off and doesn't want it hanging there).
   async function handleDeleteQuestion() {
     if (streaming || thinking || closing) return;
     const last = messages[messages.length - 1];
@@ -242,8 +302,6 @@ export function ChatSurface({
 
     setError(null);
     setMessages((m) => m.slice(0, -1));
-    // Dismissing the one-more question returns the surface to rest.
-    setPendingFollowup(false);
     try {
       await deleteLatestQuestion(entryId);
     } catch (err) {
@@ -252,55 +310,8 @@ export function ChatSurface({
     }
   }
 
-  // Past the five-minute mark, ask the interviewer for exactly one more
-  // question off the thread as it stands. The answer to it is saved without a
-  // follow-up (see handleSubmit), so the conversation returns to rest until
-  // the writer asks again.
-  async function streamContinue() {
-    if (streaming || thinking || closing) return;
-    setPendingFollowup(true);
-    setError(null);
-    setThinking(true);
-    setStreaming(true);
-    // If the conversation ended on an unanswered question, the server replaces
-    // it; reuse that slot. Otherwise reserve a fresh assistant slot to fill.
-    const last = messages[messages.length - 1];
-    const replaceLast = last && last.role === "assistant" && last.content.trim().length > 0;
-    const restore = messages;
-    setMessages((m) => {
-      if (replaceLast) {
-        const next = [...m];
-        next[next.length - 1] = { role: "assistant", content: "" };
-        return next;
-      }
-      return [...m, { role: "assistant", content: "" }];
-    });
-    try {
-      const res = await fetch("/journal/api/continue", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entryId }),
-      });
-      if (!res.ok || !res.body) {
-        const txt = await res.text().catch(() => "request failed");
-        setError(txt);
-        setMessages(restore);
-        setPendingFollowup(false);
-        return;
-      }
-      await pumpStream(res);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setMessages(restore);
-      setPendingFollowup(false);
-    } finally {
-      setStreaming(false);
-      setThinking(false);
-    }
-  }
-
-  // Once the timer is done the conversation is over: the user's words are
-  // still saved, but the interviewer is no longer asked to respond.
+  // Question mode off: the writer's words are saved, but the interviewer is not
+  // asked to respond.
   async function appendReply(text: string) {
     try {
       await appendUserMessage(entryId, text);
@@ -312,25 +323,37 @@ export function ChatSurface({
   function handleSubmit(text: string) {
     if (!text || streaming || closing) return;
     setMessages((m) => [...m, { role: "user", content: text }]);
-    if (timerDone) {
-      // Past the timer the interviewer never volunteers a follow-up: the reply
-      // is saved, and answering the one-more question (if any) returns the
-      // surface to rest so the glyph reappears.
-      void appendReply(text);
-      setPendingFollowup(false);
-    } else {
+    if (questionMode) {
       void streamReply(text);
+    } else {
+      void appendReply(text);
     }
   }
 
+  // Whether there's anything to finish: a committed turn, or — in blog mode —
+  // unsent writing in the box (which Finish commits for you).
+  const canFinish = messages.length > 0 || (!questionMode && hasUnsentReply);
+
   // Closing flips the entry to "closed" right away, then kicks off the wrap
-  // pass (summary/title/pull_quote) in the background and hands off to the
-  // journal list, where the entry appears with its AI fields generating.
+  // pass (summary/pull_quote) in the background and hands off to the journal
+  // list, where the entry appears with its AI fields generating.
   async function handleClose(visibility: JournalVisibility) {
-    if (closing || streaming || messages.length === 0) return;
+    if (closing || streaming) return;
+    // Blog mode has no Send button — commit whatever's in the writing box as the
+    // post's closing words before we wrap.
+    let pendingBlog = "";
+    if (!questionMode && flushBlogDraftRef.current) {
+      pendingBlog = flushBlogDraftRef.current().trim();
+    }
+    if (messages.length === 0 && pendingBlog.length === 0) return;
     setClosing(true);
     setError(null);
     try {
+      if (pendingBlog) {
+        setMessages((m) => [...m, { role: "user", content: pendingBlog }]);
+        await appendUserMessage(entryId, pendingBlog);
+        await saveReplyDraft(entryId, "");
+      }
       await setEntryVisibility(entryId, visibility);
       await closeEntry(entryId);
     } catch (err) {
@@ -339,7 +362,7 @@ export function ChatSurface({
       return;
     }
     setFinishDialogOpen(false);
-    // Fire-and-forget: the wrap writes summary/title to the DB on its own. We
+    // Fire-and-forget: the wrap writes summary to the DB on its own. We
     // navigate away without waiting; the list polls until the fields land.
     void fetch("/journal/api/close", {
       method: "POST",
@@ -353,26 +376,36 @@ export function ChatSurface({
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pb-24 pt-12">
       {showWritingControls && (
-        <div className="mb-8 flex justify-end">
-          <button
-            type="button"
-            onClick={() => setFinishDialogOpen(true)}
-            disabled={closing || streaming || messages.length === 0}
-            className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-border bg-background px-3 font-serif text-sm text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground disabled:opacity-40"
-          >
-            {timerRunning && !timerDone ? (
-              <span
-                aria-hidden
-                className="h-4 w-4 rounded-full shadow-[0_0_0_1px_var(--muted)]"
-                style={{
-                  background: `conic-gradient(oklch(0.68 0.02 50) ${timerDegrees}deg, var(--muted) 0deg)`,
-                }}
-              />
-            ) : (
-              <CheckCircle2 className="h-4 w-4" aria-hidden />
-            )}
-            {closing ? "Wrapping..." : "Finish post"}
-          </button>
+        <div
+          className={
+            "mb-6 flex items-center gap-3 " +
+            (viewMode === "history" ? "justify-between" : "justify-end")
+          }
+        >
+          {/* In history (an open draft opened from the list) the chat toggle
+              rides in this row; the today flow puts it up by "Attach a photo". */}
+          {viewMode === "history" && (
+            <QuestionModeToggle
+              on={questionMode}
+              disabled={streaming || closing}
+              onChange={toggleQuestionMode}
+            />
+          )}
+          <div className="flex items-center gap-3">
+            <TimerGlyph
+              running={timerRunning}
+              done={timerDone}
+              degrees={timerDegrees}
+            />
+            <button
+              type="button"
+              onClick={() => setFinishDialogOpen(true)}
+              disabled={closing || streaming || !canFinish}
+              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-border bg-background px-3 font-serif text-sm text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground disabled:opacity-40"
+            >
+              {closing ? "Wrapping..." : "Finish post"}
+            </button>
+          </div>
           <FinishPostDialog
             open={finishDialogOpen}
             onOpenChange={(open) => {
@@ -380,23 +413,50 @@ export function ChatSurface({
             }}
             selectedVisibility={selectedVisibility}
             onSelectedVisibilityChange={setSelectedVisibility}
-            hasUnsentReply={hasUnsentReply}
+            hasUnsentReply={questionMode && hasUnsentReply}
             closing={closing}
             onFinish={() => void handleClose(selectedVisibility)}
           />
         </div>
       )}
-      <div className="flex-1 space-y-6 font-serif text-lg leading-relaxed">
+      {showComposerHeader && (
+        // Notion-style header: the attach action and the chat toggle sit on one
+        // row that fades in when you hover the title region, with the editable
+        // title beneath. The gallery inherits this surface's width/padding.
+        <div className="group mb-8">
+          <JournalPhotoGallery
+            entryId={entryId}
+            initialPhotos={initialPhotos}
+            editable={!closing}
+            showAttachAction
+            actionSlot={
+              <QuestionModeToggle
+                on={questionMode}
+                disabled={streaming || closing}
+                onChange={toggleQuestionMode}
+              />
+            }
+            containerClassName=""
+            attachActionClassName="pointer-events-none opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+          />
+          <TitleField entryId={entryId} initialTitle={initialTitle} disabled={closing} />
+        </div>
+      )}
+      {/* Chat mode anchors the reply box to the bottom of the page (a chat
+          input); blog mode lets the writing area sit right after the post so it
+          reads as continuing to write. */}
+      <div
+        className={
+          "space-y-6 font-serif text-lg leading-relaxed" +
+          (questionMode ? " flex-1" : "")
+        }
+      >
         {messages.map((m, i) => {
           const isLast = i === messages.length - 1;
-          // The regenerate icon swaps the current question for a different
-          // one. It's offered only on a live follow-up question — the last
-          // assistant turn, before it's answered. The opening question (i=0)
-          // is excluded since it was already chosen from the picker, and it's
-          // hidden once the timer elapses and the agent stops asking.
-          // Delete removes the trailing question — useful when the timer ran
-          // out before the user answered. Available whenever regenerate is,
-          // plus after the timer (when the agent has stopped asking).
+          // The regenerate/delete icons act on a live follow-up question — the
+          // last assistant turn, before it's answered. The opening question
+          // (i=0) of a picked-question entry is excluded: it was chosen from the
+          // picker, not generated here.
           const isLiveQuestion =
             isLast &&
             i > 0 &&
@@ -406,8 +466,6 @@ export function ChatSurface({
             !thinking &&
             !closing &&
             m.content.trim().length > 0;
-          const canRegenerate = isLiveQuestion && (!timerDone || pendingFollowup);
-          const canDelete = isLiveQuestion;
           return (
             <div
               key={i}
@@ -419,30 +477,26 @@ export function ChatSurface({
             >
               <p className="whitespace-pre-wrap">
                 {m.content}
-                {(canRegenerate || canDelete) && (
+                {isLiveQuestion && (
                   <span className="ml-1.5 inline-flex translate-y-[0.15em] gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                    {canRegenerate && (
-                      <button
-                        type="button"
-                        onClick={handleRegenerate}
-                        aria-label="Ask a different question"
-                        title="Ask a different question"
-                        className="inline-flex text-muted-foreground/40 transition-colors hover:text-foreground"
-                      >
-                        <RegenerateIcon />
-                      </button>
-                    )}
-                    {canDelete && (
-                      <button
-                        type="button"
-                        onClick={handleDeleteQuestion}
-                        aria-label="Delete this question"
-                        title="Delete this question"
-                        className="inline-flex text-muted-foreground/40 transition-colors hover:text-destructive"
-                      >
-                        <TrashIcon />
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={handleRegenerate}
+                      aria-label="Ask a different question"
+                      title="Ask a different question"
+                      className="inline-flex text-muted-foreground/40 transition-colors hover:text-foreground"
+                    >
+                      <RegenerateIcon />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDeleteQuestion}
+                      aria-label="Delete this question"
+                      title="Delete this question"
+                      className="inline-flex text-muted-foreground/40 transition-colors hover:text-destructive"
+                    >
+                      <TrashIcon />
+                    </button>
                   </span>
                 )}
               </p>
@@ -451,18 +505,6 @@ export function ChatSurface({
         })}
         {thinking && messages.length > 0 && messages[messages.length - 1].content === "" && (
           <TypingIndicator />
-        )}
-        {timerDone && !isHistoryClosed && !pendingFollowup && (
-          <div className="flex justify-center pt-2">
-            {showWritingControls ? (
-              <KeepGoingGlyph
-                onClick={() => void streamContinue()}
-                disabled={streaming || thinking || closing}
-              />
-            ) : (
-              <ConversationEndGlyph />
-            )}
-          </div>
         )}
         <div ref={scrollRef} />
       </div>
@@ -477,15 +519,19 @@ export function ChatSurface({
           or any message happens through the post's overflow menu ("Edit"). */}
       {readOnly || isHistoryClosed ? null : (
         <ReplyBox
+          entryId={entryId}
+          initialDraft={initialDraft}
+          questionMode={questionMode}
+          flushRef={flushBlogDraftRef}
           active={status === "open" && !streaming && !closing}
           disabled={streaming || closing}
           streaming={streaming}
           placeholder={
             messages.length === 0
               ? "start writing…"
-              : timerDone && !pendingFollowup
-                ? "keep writing if you like…"
-                : "type a reply…"
+              : questionMode
+                ? "type a reply…"
+                : "keep writing…"
           }
           onSubmit={handleSubmit}
           onDraftPresenceChange={setHasUnsentReply}
@@ -496,11 +542,153 @@ export function ChatSurface({
 }
 
 /**
+ * The editable post title. Owns its own draft state and debounced autosave so
+ * keystrokes don't re-render the transcript above it. Pre-filled with a concise
+ * version of the opening question for picked posts; empty for blank ones.
+ */
+function TitleField({
+  entryId,
+  initialTitle,
+  disabled,
+}: {
+  entryId: string;
+  initialTitle: string;
+  disabled: boolean;
+}) {
+  const [title, setTitle] = useState(initialTitle);
+  const latest = useRef(initialTitle);
+  const saved = useRef(initialTitle);
+
+  useEffect(() => {
+    latest.current = title;
+  }, [title]);
+
+  function flush() {
+    if (latest.current.trim() === saved.current.trim()) return;
+    saved.current = latest.current;
+    void saveEntryTitle(entryId, latest.current).catch(() => {});
+  }
+
+  // Debounced autosave a beat after the writer pauses.
+  useEffect(() => {
+    if (title.trim() === saved.current.trim()) return;
+    const id = setTimeout(() => flush(), 800);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title]);
+
+  return (
+    <input
+      type="text"
+      value={title}
+      onChange={(e) => setTitle(e.target.value)}
+      onBlur={flush}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+      placeholder="Title"
+      disabled={disabled}
+      className="mt-2 w-full border-0 bg-transparent font-serif text-3xl font-normal leading-tight text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-60"
+    />
+  );
+}
+
+/**
+ * The chat toggle — styled like the "Attach a photo" link it sits beside: a
+ * muted serif control with a speech-bubble icon and a small switch (no text).
+ * On, a reply also asks the interviewer a follow-up; off, you're just writing.
+ */
+function QuestionModeToggle({
+  on,
+  disabled,
+  onChange,
+}: {
+  on: boolean;
+  disabled: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label="Chat with the interviewer"
+      title={
+        on
+          ? "Chat is on — sending also asks a follow-up question. Tap to just write."
+          : "Chat is off — you're just writing. Tap to chat with the interviewer."
+      }
+      onClick={() => onChange(!on)}
+      disabled={disabled}
+      className="inline-flex items-center gap-2 font-serif text-sm text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+    >
+      <MessageCircle className="size-4" aria-hidden />
+      <span
+        aria-hidden
+        className={
+          "relative h-4 w-7 rounded-full transition-colors " +
+          (on ? "bg-foreground" : "bg-muted")
+        }
+      >
+        <span
+          className={
+            "absolute top-0.5 size-3 rounded-full bg-background transition-[left] " +
+            (on ? "left-3.5" : "left-0.5")
+          }
+        />
+      </span>
+    </button>
+  );
+}
+
+/**
+ * The time-spent-on-this-post indicator: a pie that fills over five minutes,
+ * then settles into a checkmark. It no longer gates anything — it's a quiet zen
+ * timer that, on completion, nudges question mode off once.
+ */
+function TimerGlyph({
+  running,
+  done,
+  degrees,
+}: {
+  running: boolean;
+  done: boolean;
+  degrees: number;
+}) {
+  if (done) {
+    return (
+      <span title="Five minutes on this post." className="inline-flex">
+        <CheckCircle2 aria-hidden className="size-4 text-muted-foreground" />
+      </span>
+    );
+  }
+  if (!running) return null;
+  return (
+    <span
+      aria-hidden
+      title="Time spent on this post"
+      className="size-4 rounded-full shadow-[0_0_0_1px_var(--muted)]"
+      style={{
+        background: `conic-gradient(oklch(0.68 0.02 50) ${degrees}deg, var(--muted) 0deg)`,
+      }}
+    />
+  );
+}
+
+/**
  * Isolated reply input. Keeps `draft` state local so keystrokes only
  * re-render this small subtree, not the message transcript above it —
- * which otherwise blocks the main thread and tanks INP.
+ * which otherwise blocks the main thread and tanks INP. Also debounce-saves the
+ * unsent draft so leaving mid-sentence loses nothing.
  */
 function ReplyBox({
+  entryId,
+  initialDraft,
+  questionMode,
+  flushRef,
   active,
   disabled,
   streaming,
@@ -508,6 +696,12 @@ function ReplyBox({
   onSubmit,
   onDraftPresenceChange,
 }: {
+  entryId: string;
+  initialDraft: string;
+  questionMode: boolean;
+  /** Set to a getter that returns the current draft and clears the box, so
+   * Finish can commit blog-mode writing that has no Send button. */
+  flushRef: React.MutableRefObject<(() => string) | null>;
   active: boolean;
   disabled: boolean;
   streaming: boolean;
@@ -515,9 +709,32 @@ function ReplyBox({
   onSubmit: (text: string) => void;
   onDraftPresenceChange: (hasDraft: boolean) => void;
 }) {
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(initialDraft);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const hasDraft = draft.trim().length > 0;
+
+  // The latest draft and what's persisted, so autosave skips no-op writes.
+  const latest = useRef(initialDraft);
+  const saved = useRef(initialDraft);
+  useEffect(() => {
+    latest.current = draft;
+  }, [draft]);
+
+  // Let the parent pull (and clear) the current draft when finishing a
+  // blog-mode post, where there's no Send button to commit it.
+  flushRef.current = () => {
+    const text = latest.current;
+    setDraft("");
+    onDraftPresenceChange(false);
+    saved.current = "";
+    return text;
+  };
+
+  function flushDraft() {
+    if (latest.current === saved.current) return;
+    saved.current = latest.current;
+    void saveReplyDraft(entryId, latest.current).catch(() => {});
+  }
 
   // Auto-grow textarea
   useEffect(() => {
@@ -525,6 +742,20 @@ function ReplyBox({
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
+  }, [draft]);
+
+  // Seed presence from a restored draft, and focus on mount.
+  useEffect(() => {
+    onDraftPresenceChange(initialDraft.trim().length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounced autosave of the unsent draft.
+  useEffect(() => {
+    if (draft === saved.current) return;
+    const id = setTimeout(() => flushDraft(), 800);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft]);
 
   // Keep the reply box focused on mount and after streaming ends.
@@ -537,6 +768,9 @@ function ReplyBox({
     if (!text || disabled) return;
     setDraft("");
     onDraftPresenceChange(false);
+    // Clear the persisted draft now that it's been committed.
+    saved.current = "";
+    void saveReplyDraft(entryId, "").catch(() => {});
     onSubmit(text);
   }
 
@@ -546,87 +780,45 @@ function ReplyBox({
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    // Only chat mode submits on ⌘/Ctrl+Enter; blog mode is plain writing.
+    if (questionMode && e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       submit();
     }
   }
 
   return (
-    <div className="mt-12 flex flex-col gap-3">
+    <div className={(questionMode ? "mt-12" : "mt-6") + " flex flex-col gap-3"}>
       <textarea
         ref={textareaRef}
         value={draft}
         onChange={(e) => updateDraft(e.target.value)}
         onKeyDown={onKeyDown}
+        onBlur={flushDraft}
         disabled={disabled}
         rows={1}
         placeholder={placeholder}
         className="min-h-10 w-full resize-none overflow-hidden border-0 bg-transparent py-1 font-serif text-lg leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-60"
       />
-      <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-2">
-        <button
-          type="button"
-          onClick={submit}
-          disabled={disabled || !hasDraft}
-          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-md bg-foreground px-4 font-serif text-sm text-background transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-30"
-        >
-          <Send className="h-4 w-4" aria-hidden />
-          Send
-        </button>
-        <span className="text-xs text-muted-foreground">
-          {streaming ? "" : hasDraft ? "⌘+enter to send · enter for newline" : ""}
-        </span>
-      </div>
+      {/* Chat mode has a Send button; blog mode commits when you finish the
+          post, so it shows no button — just keep writing. */}
+      {questionMode && (
+        <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-2">
+          <button
+            type="button"
+            onClick={submit}
+            disabled={disabled || !hasDraft}
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-md bg-foreground px-4 font-serif text-sm text-background transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-30"
+          >
+            <Send className="h-4 w-4" aria-hidden />
+            Send
+          </button>
+          <span className="text-xs text-muted-foreground">
+            {streaming ? "" : hasDraft ? "⌘+enter to send · enter for newline" : ""}
+          </span>
+        </div>
+      )}
     </div>
-  );
-}
-
-// The interactive end mark on the writer's own in-progress entry. At rest
-// it's the same quiet green dot that closes the transcript; on hover or focus
-// it morphs into a pill inviting one more question. Clicking it asks the
-// interviewer to pick the conversation back up.
-function KeepGoingGlyph({
-  onClick,
-  disabled,
-}: {
-  onClick: () => void;
-  disabled: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label="Ask one more question"
-      title="Ask one more question"
-      className="group inline-flex items-center rounded-full border border-transparent py-1 pl-1 pr-1 font-serif text-sm italic text-muted-foreground transition-[background-color,border-color,padding] duration-300 ease-out hover:border-border hover:bg-muted/40 hover:pr-3 focus-visible:border-border focus-visible:bg-muted/40 focus-visible:pr-3 focus-visible:outline-none disabled:opacity-40"
-    >
-      <span
-        aria-hidden
-        className="h-[10px] w-[10px] shrink-0 rounded-full transition-transform duration-300 group-hover:scale-110"
-        style={{ background: TIMER_DONE_COLOR }}
-      />
-      <span className="grid grid-cols-[0fr] transition-[grid-template-columns] duration-300 ease-out group-hover:grid-cols-[1fr] group-focus-visible:grid-cols-[1fr]">
-        <span className="overflow-hidden whitespace-nowrap pl-0 opacity-0 transition-[padding,opacity] duration-300 group-hover:pl-2 group-hover:opacity-100 group-focus-visible:pl-2 group-focus-visible:opacity-100">
-          Ask one more question
-        </span>
-      </span>
-    </button>
-  );
-}
-
-// A small filled mark that echoes the completed zen timer — it stands at the
-// end of the transcript once the five minutes are up to show the
-// conversation is over and the interviewer has signed off.
-function ConversationEndGlyph() {
-  return (
-    <div
-      aria-hidden
-      title="Five minutes done — the conversation is complete."
-      className="h-[10px] w-[10px] rounded-full"
-      style={{ background: TIMER_DONE_COLOR }}
-    />
   );
 }
 
