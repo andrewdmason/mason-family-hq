@@ -9,15 +9,12 @@ import {
   getWeekBounds,
   groupEventsByDay,
   isToday,
+  mutedColor,
   toDateKey,
 } from "@/lib/calendar/calendar-utils";
 import type { CalendarEvent, CalendarMember } from "@/lib/calendar/types";
-import {
-  EventColumnCard,
-  EventGhost,
-  EventRow,
-  type EventDisplay,
-} from "./event-card";
+import { MemberAvatar } from "@/components/journal/member-avatar";
+import { EventColumnCard, EventRow, type EventDisplay } from "./event-card";
 import { cn } from "@/lib/utils";
 
 const byStart = (a: CalendarEvent, b: CalendarEvent) =>
@@ -105,12 +102,103 @@ export function AgendaView({
     };
   }
 
+  // The shown member columns an event touches: its owner plus any guest members.
+  const memberIndexByEmail = new Map(members.map((m, i) => [m.email, i]));
+  const attendingIdxs = (e: CalendarEvent): number[] => {
+    const set = new Set<number>();
+    const own = e.member_email ? memberIndexByEmail.get(e.member_email) : undefined;
+    if (own != null) set.add(own);
+    for (const a of display(e).attendees) {
+      const i = memberIndexByEmail.get(a.email);
+      if (i != null) set.add(i);
+    }
+    return [...set].sort((x, y) => x - y);
+  };
+
+  // A multi-attendee event in the columns: one card spanning its first→last
+  // attending column, filled only over attending columns, with the jumped-over
+  // ones left as open windows — the same "joined, the others just aren't in it"
+  // treatment as the Day view, rather than ghost copies.
+  function SharedSpanCard({
+    event,
+    cols,
+  }: {
+    event: CalendarEvent;
+    cols: number[];
+  }) {
+    const d = display(event);
+    const first = cols[0];
+    const last = cols[cols.length - 1];
+    const span = last - first + 1;
+    const runs: Array<[number, number]> = [];
+    for (const i of cols) {
+      const r = runs[runs.length - 1];
+      if (r && i === r[1] + 1) r[1] = i;
+      else runs.push([i, i]);
+    }
+    const leadCols = runs[0][1] - first + 1;
+    const time = new Date(event.start_time).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    return (
+      <button
+        type="button"
+        onClick={() => onEventClick(event)}
+        title={event.title}
+        className={cn(
+          // A faint recessed base shows through in the jumped-over columns, so the
+          // white "attending" segments read as raised against the open windows.
+          "group grid h-full gap-x-3 overflow-hidden rounded-sm border border-border/70 border-l-[3px] bg-muted/40 text-left",
+          event.id === selectedEventId && "ring-1 ring-ring",
+        )}
+        style={{
+          gridColumn: `${first + 1} / ${last + 2}`,
+          gridTemplateColumns: `repeat(${span}, minmax(0, 1fr))`,
+          borderLeftColor: mutedColor(d.color),
+        }}
+      >
+        {runs.map(([a, b]) => (
+          <span
+            key={a}
+            aria-hidden
+            className="bg-white transition-colors group-hover:bg-muted/40 dark:bg-card"
+            style={{ gridColumn: `${a - first + 1} / ${b - first + 2}`, gridRow: 1 }}
+          />
+        ))}
+        <span
+          className="relative z-10 flex min-w-0 flex-col px-2 py-1.5"
+          style={{ gridColumn: `1 / ${leadCols + 1}`, gridRow: 1 }}
+        >
+          <span className="flex items-center gap-1 text-[11px] italic tabular-nums text-muted-foreground">
+            <span className="truncate">{time}</span>
+            {d.conflict && (
+              <AlertTriangle className="h-3 w-3 shrink-0 text-amber-600" />
+            )}
+          </span>
+          <span className="mt-0.5 line-clamp-2 text-xs font-medium leading-snug text-foreground">
+            {event.title}
+          </span>
+          <span className="mt-1 flex -space-x-1">
+            {cols.map((i) => (
+              <MemberAvatar
+                key={members[i].email}
+                name={members[i].name}
+                size="sm"
+                className="ring-1 ring-white dark:ring-card"
+              />
+            ))}
+          </span>
+        </span>
+      </button>
+    );
+  }
+
   // The member columns for one time band. Cards are aligned into rows by their
   // exact start time: events at the same time share a row (so a shared line
-  // genuinely means simultaneous), and events at different times never do (so
-  // 4:30 can't sit beside 1:00). It's ordinal, not linear — one compact row per
-  // distinct time, no proportional gaps and no left-hand time axis — so it reads
-  // like a calendar without pretending vertical space is clock time.
+  // genuinely means simultaneous), and events at different times never do. Solo
+  // events sit in their owner's column; multi-attendee events span their
+  // attending columns as one card.
   function renderColumns(memberEvents: CalendarEvent[]) {
     if (members.length === 0 || memberEvents.length === 0) return null;
 
@@ -125,48 +213,30 @@ export function AgendaView({
     return (
       <div className="space-y-1.5">
         {times.map((time) => {
-          const rowEvents = byTime.get(time)!;
+          const rowEvents = byTime.get(time)!.slice().sort(byStart);
           return (
             <div
               key={time}
-              className="grid gap-3"
-              style={{ gridTemplateColumns }}
+              className="grid gap-x-3 gap-y-1.5"
+              style={{ gridTemplateColumns, gridAutoFlow: "dense" }}
             >
-              {members.map((m) => {
-                const cards = rowEvents
-                  .filter((e) => e.member_email === m.email)
-                  .sort(byStart);
-                // Events owned by someone else that this member is attending show
-                // as a muted "busy" ghost here (only meaningful with >1 column).
-                const ghosts =
-                  members.length > 1
-                    ? rowEvents
-                        .filter(
-                          (e) =>
-                            e.member_email !== m.email &&
-                            display(e).attendees.some((a) => a.email === m.email),
-                        )
-                        .sort(byStart)
-                    : [];
-                return (
-                  <div key={m.email} className="space-y-1.5">
-                    {cards.map((event) => (
+              {rowEvents.map((event) => {
+                const cols = attendingIdxs(event);
+                if (cols.length >= 2)
+                  return (
+                    <SharedSpanCard key={event.id} event={event} cols={cols} />
+                  );
+                if (cols.length === 1)
+                  return (
+                    <div key={event.id} style={{ gridColumn: cols[0] + 1 }}>
                       <EventColumnCard
-                        key={event.id}
                         display={display(event)}
                         onClick={onEventClick}
                         selected={event.id === selectedEventId}
                       />
-                    ))}
-                    {ghosts.map((event) => (
-                      <EventGhost
-                        key={`ghost-${event.id}`}
-                        display={display(event)}
-                        onClick={onEventClick}
-                      />
-                    ))}
-                  </div>
-                );
+                    </div>
+                  );
+                return null;
               })}
             </div>
           );
@@ -427,7 +497,7 @@ export function AgendaView({
   }
 
   return (
-    <>
+    <div className="font-serif">
       {/* Desktop: per-member columns, scrolling horizontally if narrow. */}
       <div className="hidden overflow-x-auto md:block">
         <div style={minWidthStyle}>
@@ -447,7 +517,7 @@ export function AgendaView({
                   >
                     <span
                       className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: m.color ?? "#64748b" }}
+                      style={{ backgroundColor: mutedColor(m.color ?? "#64748b") }}
                       aria-hidden
                     />
                     <span className="truncate">{m.name ?? m.email}</span>
@@ -462,6 +532,6 @@ export function AgendaView({
 
       {/* Mobile: a single merged column, each row stamped with its member. */}
       <div className="md:hidden">{renderDays("list")}</div>
-    </>
+    </div>
   );
 }

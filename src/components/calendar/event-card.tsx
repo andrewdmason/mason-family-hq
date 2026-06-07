@@ -2,7 +2,7 @@
 
 import { AlertTriangle, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatTimeRange } from "@/lib/calendar/calendar-utils";
+import { formatTimeRange, mutedColor } from "@/lib/calendar/calendar-utils";
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import type { CalendarEvent, TeamsnapRsvp } from "@/lib/calendar/types";
 
@@ -100,7 +100,7 @@ export function EventRow({
     >
       <span
         className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full"
-        style={{ backgroundColor: color }}
+        style={{ backgroundColor: mutedColor(color) }}
         aria-hidden
       />
       <span className="min-w-0 flex-1">
@@ -121,13 +121,13 @@ export function EventRow({
             <span className="inline-flex items-center gap-1 font-medium text-foreground">
               <span
                 className="h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: memberBadge.color }}
+                style={{ backgroundColor: mutedColor(memberBadge.color) }}
                 aria-hidden
               />
               {memberBadge.name}
             </span>
           )}
-          <span>
+          <span className="italic">
             {formatTimeRange(event.start_time, event.end_time, event.all_day)}
           </span>
           {sourceLabel && <span className="truncate">· {sourceLabel}</span>}
@@ -169,13 +169,13 @@ export function EventColumnCard({
       type="button"
       onClick={() => onClick(event)}
       title={calendarLabel ? `${calendarLabel}: ${event.title}` : event.title}
-      style={{ borderLeftColor: color }}
+      style={{ borderLeftColor: mutedColor(color) }}
       className={cn(
-        "block w-full rounded-md border border-border/70 border-l-[3px] bg-card px-2 py-1.5 text-left shadow-sm transition-colors hover:bg-muted/50",
+        "block w-full rounded-sm border border-border/70 border-l-[3px] bg-white px-2 py-1.5 text-left transition-colors hover:bg-muted/40 dark:bg-card",
         selected && "ring-1 ring-ring",
       )}
     >
-      <span className="flex items-center gap-1 text-[11px] tabular-nums text-muted-foreground">
+      <span className="flex items-center gap-1 text-[11px] italic tabular-nums text-muted-foreground">
         <span>{time}</span>
         {conflict && (
           <AlertTriangle className="h-3 w-3 shrink-0 text-amber-600" />
