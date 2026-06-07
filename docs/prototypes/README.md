@@ -8,40 +8,47 @@ point of view?
   plumbing). It renders with realistic Mason-family sample data.
 - **`tufte-calendar.png`** — a rendered screenshot for quick reference.
 
-## What it shows
+## Current focus: the shared-event problem
 
-Two views stacked, sharing one data model:
+The live Day view (`day-view.tsx`) already restored a true time axis with a
+column per person. The open question this prototype now tackles: **how do you draw
+one event attended by some _combination_ of the four people?** Today's build draws
+a shared event up to four times — a full card in an arbitrary "owner's" column plus
+a dashed *ghost* in each attendee's column.
 
-1. **Week at a glance (macro)** — a small-multiples matrix, four people (rows) ×
-   seven days (columns). Each cell is one person's day on a shared 6 a.m.–10 p.m.
-   axis; bar position is the real start time, bar length the real duration. Read
-   across a row for one person's week, down a column for the whole family's day.
-   The macro rhythm (empty mornings, the Monday pile-up, the open weekend) appears
-   without reading a word.
-2. **Day in detail (micro)** — the same data on a true vertical time axis.
-   Position encodes when; height encodes how long. Two bars that overlap in one
-   column *are* a conflict — no warning icon required.
+The prototype argues that an event is really *one interval + a set of attendees*
+(a subset of four, so one of sixteen combinations), and shows Tufte's response:
 
-## The information-design moves (what Tufte would change)
+- **Solo time stays in person-colored columns** (what columns are good at).
+- **Shared time is drawn once**, as a neutral object: faint blocks under *exactly*
+  the attending columns, joined by a labeled bracket, with a four-cell attendance
+  glyph (●●●○). No ghosts, no owner, no duplication; non-contiguous sets
+  (Jenny + Oscar) read honestly.
+- A **head-to-head** panel contrasts three treatments on the hardest case
+  (a non-contiguous pair): current ghosts (drawn 2×), the tied-bracket
+  (drawn 1×), and an alternative shared "Together" lane (drawn 1×).
 
-1. **Restore a real time axis.** The current agenda is deliberately ordinal
-   (Morning/Afternoon/Evening bands). Time and duration are data we already have —
-   encode them as position and length.
-2. **Duration as length.** A 15-minute standup and a 4-hour workshop should not be
-   the same-size card.
-3. **Conflicts as geometry, not iconography.** Overlap is visible; the amber ⚠
-   becomes redundant.
-4. **Erase chartjunk.** No card borders, fills, shadows, or rounded boxes. What
-   remains is hour hairlines and text — data-ink ratio way up.
-5. **Small multiples for comparison.** Four people as parallel columns on a shared
-   axis; days as repeated frames. "Above all else, show comparisons."
-6. **Direct labeling over legends.** Kill the top color-key chips; label in place.
-7. **Macro + micro on one screen.** The week overview and the detailed day, both
-   visible, reader chooses depth.
+### What Tufte changes about shared events
+
+1. **Draw it once** — one labeled object, not an owner card plus ghosts.
+2. **Kill the "owner"** — the owner/attendee split isn't in the data; a shared
+   event is symmetric. Neutral = "ours," person color = "mine."
+3. **Make the combination legible** — which columns are filled *is* the attendee
+   set, backed by the glyph for certainty.
+4. **Keep columns only for what they're good at** — solo scanning down a column;
+   shared events become a relation drawn *across* columns, not copies sitting *in*
+   them.
+5. **Layer "ours" behind "mine"** — shared events recede in warm gray so each
+   person's own commitments pop.
+
+## Earlier ideas (still unbuilt)
+
+The first version of this prototype also explored a **week-at-a-glance
+small-multiples matrix** (four people × seven days, each cell a day-sparkline on a
+shared axis) — the macro view that answers "who's free Thursday?" at a glance.
+That remains the highest-value idea not yet pulled into the product.
 
 ## Status
 
-Exploration only — not wired to live data. The first production step already
-taken on a separate branch is the **time-axis Day view** (`day-view.tsx`). The
-remaining high-value idea to pull in is the **week-at-a-glance small-multiples
-matrix**, which answers questions ("who's free Thursday?") the current UI can't.
+Exploration only — not wired to live data. Open `tufte-calendar.html` to interact;
+`tufte-calendar.png` is a snapshot.

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Tufte — Mason Family Calendar</title>
+<title>Tufte — Mason Family Calendar · the shared-event problem</title>
 <style>
   :root {
     --bg: #fffff8;
@@ -16,7 +16,8 @@
     --andrew: #356185;
     --sebastian: #b06236;
     --oscar: #4c764c;
-    --shared: #565650;
+    --shared: #8a8a80;
+    --me: rgba(53,97,133,.07);
   }
   * { box-sizing: border-box; }
   html, body {
@@ -24,238 +25,262 @@
     font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
     -webkit-font-smoothing: antialiased;
   }
-  .page { max-width: 1080px; margin: 0 auto; padding: 56px 48px 80px; }
-  h1 { font-size: 28px; font-weight: 400; letter-spacing: .2px; margin: 0 0 2px; }
+  .page { max-width: 1100px; margin: 0 auto; padding: 56px 48px 90px; }
+  h1 { font-size: 27px; font-weight: 400; letter-spacing: .2px; margin: 0 0 2px; }
   .sub { color: var(--muted); font-size: 14px; font-style: italic; margin: 0 0 4px; }
   .rule { height: 1px; background: var(--ink); margin: 18px 0 26px; opacity: .85; }
   h2 { font-size: 13px; font-weight: 400; text-transform: uppercase; letter-spacing: 1.6px;
-       color: var(--muted); margin: 40px 0 14px; }
-  .note { font-size: 13px; color: var(--muted); font-style: italic; max-width: 60ch; line-height: 1.5; margin: 6px 0 18px; }
+       color: var(--muted); margin: 44px 0 12px; }
+  .note { font-size: 13.5px; color: #3b3b36; max-width: 64ch; line-height: 1.55; margin: 6px 0 18px; }
+  .note em { color: var(--ink); font-style: italic; }
+  .small { font-size: 12px; color: var(--muted); font-style: italic; }
 
-  /* ---------- Week small-multiples matrix ---------- */
-  .matrix { border-collapse: collapse; width: 100%; }
-  .matrix th { font-weight: 400; font-size: 12px; color: var(--muted); text-align: left;
-               padding: 0 8px 6px; vertical-align: bottom; }
-  .matrix th.dayhead { text-align: center; letter-spacing: .3px; }
-  .matrix th.dayhead .dom { display:block; font-size: 15px; color: var(--ink); }
-  .matrix th.today .dom { font-weight: 700; }
-  .matrix td { padding: 7px 8px; border-top: 1px solid var(--hair); vertical-align: middle; }
-  .matrix td.name { font-size: 14px; white-space: nowrap; padding-right: 14px; border-top: none; }
-  .matrix tr td:first-child { border-top: none; }
-  .dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:7px; vertical-align: 1px; }
-  .strip { position: relative; height: 16px; }
-  .strip .base { position:absolute; left:0; right:0; top:50%; height:1px; background: var(--hair2); }
-  .strip .noon { position:absolute; top:3px; bottom:3px; width:1px; background: var(--hair2); }
-  .ev { position:absolute; top:5px; height:6px; border-radius:1px; }
-  .allday-week { position:absolute; left:0; right:0; top:1px; bottom:1px; opacity:.10; border-radius:2px; }
+  /* attendance glyph: four cells in column order, filled = attending */
+  .glyph { display: inline-flex; gap: 2px; vertical-align: 1px; }
+  .gd { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--hair2); display: inline-block; }
 
-  /* ---------- Day detail: real time axis ---------- */
-  .day { display: grid; grid-template-columns: 42px repeat(4, 1fr); gap: 0; margin-top: 6px; }
-  .day .colhead { font-size: 13px; padding: 0 0 8px 10px; }
-  .day .colhead .nm { display:flex; align-items:center; }
-  .day .colhead .ct { color: var(--faint); font-size: 11px; font-style: italic; margin-top: 1px; padding-left: 14px; }
-  .axiswrap { position: relative; }
-  .axis { position: relative; height: 560px; }
-  .hour { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--hair); }
-  .hour.major { border-top: 1px solid var(--hair2); }
-  .hourlab { position:absolute; left: 0; transform: translateY(-50%); font-size: 11px; color: var(--faint); }
-  .col { position: relative; border-left: 1px solid var(--hair); }
-  .alldaystrip { height: 26px; border-left: 1px solid var(--hair); position: relative; }
-  .alldaystrip.first, .col.first { border-left: none; }
-  .ad { position:absolute; left:8px; right:6px; top:4px; font-size: 11.5px; line-height:1.25;
-        padding-left:8px; }
-  .ad .flag { position:absolute; left:0; top:1px; color: var(--faint); }
-  .block { position: absolute; left: 8px; right: 6px; padding-left: 9px; }
-  .block .bar { position:absolute; left:0; top:0; bottom:0; width:2px; }
-  .block .t { font-size: 10.5px; color: var(--faint); font-style: italic; }
-  .block .ttl { font-size: 12.5px; line-height: 1.2; }
-  .block .loc { font-size: 10.5px; color: var(--faint); }
-  .conflict-note { position:absolute; font-size:10px; color:#9a3b2f; font-style:italic; }
+  /* axis */
+  .axis { position: relative; }
+  .colhead { position: absolute; top: 0; font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+  .colhead .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .hour { position: absolute; border-top: 1px solid var(--hair); }
+  .hourlab { position: absolute; transform: translateY(-50%); font-size: 10px; color: var(--faint); text-align: right; }
+  .colsep { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--hair); }
+  .metint { position: absolute; top: 0; bottom: 0; background: var(--me); }
 
-  .legendline { font-size: 12px; color: var(--muted); margin-top: 10px; font-style: italic; }
-  .kbd { font-style: normal; color: var(--ink); }
+  .blk { position: absolute; border-radius: 3px; padding: 2px 5px; overflow: hidden;
+         font-size: 11px; line-height: 1.18; cursor: default; }
+  .blk .t { font-size: 9.5px; color: var(--faint); font-style: italic; }
+  .blk.solo { background: #fff; border: 1px solid var(--hair2); }
+  .blk.solo .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 2px; }
+  .blk.ghost { background: repeating-linear-gradient(135deg,#f3f3ec,#f3f3ec 4px,#fbfbf4 4px,#fbfbf4 8px);
+               border: 1px dashed var(--hair2); color: var(--faint); font-style: italic; }
+  .blk.sharefill { background: rgba(138,138,128,.13); border: 1px solid rgba(138,138,128,.30); }
+  .blk.lanecard { background: #fff; border: 1px solid var(--hair2); border-left: 2px solid var(--shared); }
+
+  /* bracket that ties a shared event across its attendees' columns */
+  .brk { position: absolute; height: 0; border-top: 1.5px solid var(--shared); }
+  .brk .tick { position: absolute; top: 0; width: 0; height: 5px; border-left: 1.5px solid var(--shared); }
+  .brklab { position: absolute; font-size: 11px; color: #45443e; white-space: nowrap;
+            display: flex; align-items: center; gap: 6px; }
+
+  .nowline { position: absolute; z-index: 5; }
+  .nowline .l { position: absolute; border-top: 1px solid #c0392b; }
+  .nowline .d { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: #c0392b; transform: translate(-50%,-50%); }
+
+  .compare { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; align-items: start; }
+  .compare h3 { font-size: 12px; font-weight: 700; margin: 0 0 2px; }
+  .compare .cap { font-size: 11.5px; color: var(--muted); font-style: italic; line-height: 1.4; margin: 8px 0 0; min-height: 3.6em; }
+  .verdict { font-size: 11px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; }
+  .verdict.bad { color: #9a3b2f; }
+  .verdict.ok { color: #4c764c; }
+  .legrow { font-size: 12px; color: var(--muted); margin-top: 10px; display:flex; gap:18px; flex-wrap:wrap; }
 </style>
 </head>
 <body>
 <div class="page">
-  <h1>The Mason Week</h1>
-  <p class="sub">June 8 – 14, 2026 · four people, one shared time</p>
+  <h1>The Mason Week · the shared-event problem</h1>
+  <p class="sub">How would Tufte draw one event attended by some combination of four people?</p>
   <div class="rule"></div>
 
-  <h2>The week at a glance — who is busy, and when</h2>
-  <p class="note">Each strip is one person's day on a shared 6 a.m.–10 p.m. axis. Bar position is the real start time; bar length is the real duration. Read across a row for one person's week; read down a column for the whole family's day. The macro pattern — empty mornings, the Monday pile-up, the open weekend — appears without reading a single word.</p>
-  <table class="matrix" id="matrix"></table>
+  <p class="note">
+    The four-column day view is excellent for the question <em>“what is each person doing?”</em> —
+    position is time, height is duration, one column per person. It breaks on the question
+    <em>“who is doing this <u>together</u>?”</em> The current build answers it by drawing a shared
+    event up to four times: a full card in an arbitrary “owner’s” column and a dashed
+    <em>ghost</em> in every attendee’s column. Tufte’s objection isn’t aesthetic — it’s that this
+    <em>duplicates data ink</em>, makes the eye reconcile four boxes into one fact, and invents an
+    “owner” distinction that isn’t in the data. A shared dinner has no owner.
+  </p>
+  <p class="note">
+    The data is really one interval plus a <em>set</em> of attendees — a subset of four people,
+    so one of sixteen combinations. Tufte would keep the columns for solo time but draw each shared
+    event <em>once</em>, and make the combination itself the thing you read. Below: the recommended
+    treatment, then a head-to-head on the hardest case (a non-contiguous pair).
+  </p>
 
-  <h2>Monday, June 8 — the day in detail</h2>
-  <p class="note">The same data, expanded onto a true vertical time axis. Position encodes when; height encodes how long. Two bars that overlap in one column <em>are</em> a conflict — no warning icon required; you see it.</p>
-  <div class="day" id="day"></div>
-  <p class="legendline">Hairlines mark every hour; labels every three. No boxes, no shadows, no fills — the ink that remains is the data.</p>
+  <h2>Today — solo time in columns, shared time tied across them</h2>
+  <p class="note" style="margin-bottom:22px">
+    Personal events keep their person-colored column block. A shared event is one neutral object:
+    faint blocks under <em>exactly</em> the attending columns, joined by a labeled bracket, with a
+    four-cell attendance glyph (●●●○ = Jenny, Andrew, Sebastian, not Oscar). No ghosts, no owner,
+    no duplication — and a non-contiguous pair like Jenny + Oscar reads honestly.
+  </p>
+  <div class="axis" id="main"></div>
+  <div class="legrow">
+    <span>■ person column = solo time</span>
+    <span style="color:var(--shared)">▭ neutral block + bracket = shared time</span>
+    <span>● filled glyph cell = attending</span>
+    <span style="color:#c0392b">— now</span>
+  </div>
+
+  <h2>The hard case, three ways — Dentist, 5:15 p.m., Jenny + Oscar only</h2>
+  <div class="compare" id="compare"></div>
+
+  <h2>What Tufte changes about shared events</h2>
+  <p class="note">
+    <strong>1. Draw it once.</strong> One event, one labeled object — not an owner card plus three
+    ghosts. Erase the redundant ink.<br/>
+    <strong>2. Kill the “owner.”</strong> The owner/attendee split isn’t in the data; a shared event
+    is symmetric. Neutral color says “ours,” person color says “mine.”<br/>
+    <strong>3. Make the combination legible.</strong> Which columns are filled <em>is</em> the
+    attendee set — including non-contiguous sets — backed by the four-cell glyph for certainty.<br/>
+    <strong>4. Keep the columns, but only for what they’re good at.</strong> Solo events still scan
+    down a person’s column; shared events become a relation drawn <em>across</em> columns, not copies
+    sitting <em>in</em> them.<br/>
+    <strong>5. Layer “ours” behind “mine.”</strong> Shared events recede in a warm gray so each
+    person’s own commitments pop — macro (the family’s shared spine) and micro (my day) at once.
+  </p>
+  <p class="small">
+    Tradeoff: the bracket’s tie-line crosses over non-attending columns, which could imply inclusion;
+    the empty columns and the glyph keep it honest, but in a crowded hour the “shared lane” variant
+    (third panel above) trades the spatial tie for a cleaner separation of <em>mine</em> vs <em>ours</em>.
+  </p>
 </div>
 
 <script>
-const DAY_START = 6*60, DAY_END = 22*60, RANGE = DAY_END - DAY_START;
 const people = [
-  {id:'jenny',     name:'Jenny',     color:'var(--jenny)'},
-  {id:'andrew',    name:'Andrew',    color:'var(--andrew)'},
-  {id:'sebastian', name:'Sebastian', color:'var(--sebastian)'},
-  {id:'oscar',     name:'Oscar',     color:'var(--oscar)'},
+  {id:'jenny',     name:'Jenny',     color:'#6d5594'},
+  {id:'andrew',    name:'Andrew',    color:'#356185', me:true},
+  {id:'sebastian', name:'Sebastian', color:'#b06236'},
+  {id:'oscar',     name:'Oscar',     color:'#4c764c'},
 ];
-const colorOf = id => (people.find(p=>p.id===id)||{color:'var(--shared)'}).color;
-const t = (h,m=0) => h*60+m;
+const SHARED = '#8a8a80';
+const idx = id => people.findIndex(p=>p.id===id);
+const t = (h,m=0)=>h*60+m;
+const fmt = min => { let h=Math.floor(min/60),m=min%60,ap=h<12?'a':'p',hh=h%12||12; return hh+(m?':'+String(m).padStart(2,'0'):'')+ap; };
+const glyph = who => '<span class="glyph">'+people.map(p=>{
+  const on = who.includes(p.id);
+  return `<span class="gd" style="${on?`background:${p.color};border-color:${p.color}`:''}"></span>`;
+}).join('')+'</span>';
 
-// dow: 0=Mon ... 6=Sun ; dom = date number
-const days = [
-  {dow:0, dom:8,  label:'Mon', today:true},
-  {dow:1, dom:9,  label:'Tue'},
-  {dow:2, dom:10, label:'Wed'},
-  {dow:3, dom:11, label:'Thu'},
-  {dow:4, dom:12, label:'Fri'},
-  {dow:5, dom:13, label:'Sat'},
-  {dow:6, dom:14, label:'Sun'},
-];
-
-// events: {dow, person|'shared', title, s, e, loc, allDay}
-const events = [
-  // Monday — the dense day
-  {dow:0, person:'andrew',    title:'CrossFit',           s:t(6),    e:t(7),     loc:'CFO'},
-  {dow:0, person:'sebastian', title:'Picture day',        s:t(8,30), e:t(9),     loc:'Berkeley Elem.'},
-  {dow:0, person:'andrew',    title:'Standup',            s:t(9,30), e:t(9,45)},
-  {dow:0, person:'jenny',     title:'Client workshop',    s:t(13),   e:t(17),    loc:'Urban Air'},
-  {dow:0, person:'andrew',    title:'Budget review',      s:t(14),   e:t(15)},
-  {dow:0, person:'jenny',     title:'Pick up kids',       s:t(14,30),e:t(15),    loc:'school'},
-  {dow:0, person:'sebastian', title:'Baseball practice',  s:t(16),   e:t(17,30), loc:'Bay Bombers'},
-  {dow:0, person:'oscar',     title:'Piano lesson',       s:t(17),   e:t(17,45), loc:'Ms. Tanaka'},
-  {dow:0, person:'andrew',    title:"Oscar's birthday",   allDay:true},
-  {dow:0, person:'shared',    title:'Half-day · early release', allDay:true},
-
-  // Tuesday
-  {dow:1, person:'andrew',    title:'1:1 with Priya',     s:t(11),   e:t(11,30)},
-  {dow:1, person:'jenny',     title:'OB-GYN',             s:t(9,30), e:t(10,15)},
-  {dow:1, person:'oscar',     title:'Piano',              s:t(17),   e:t(17,45)},
-  {dow:1, person:'shared',    title:'Family dinner',      s:t(18),   e:t(19,30)},
-  // Wednesday
-  {dow:2, person:'andrew',    title:'Quarterly board',    s:t(10),   e:t(11,30)},
-  {dow:2, person:'sebastian', title:'Swim',               s:t(16,30),e:t(17,15)},
-  // Thursday
-  {dow:3, person:'jenny',     title:'Dentist',            s:t(15,30),e:t(16,15)},
-  {dow:3, person:'andrew',    title:'Standup',            s:t(9,30), e:t(9,45)},
-  {dow:3, person:'sebastian', title:'Spring concert',     s:t(18,30),e:t(19,30)},
-  // Friday
-  {dow:4, person:'andrew',    title:'Standup',            s:t(9,30), e:t(9,45)},
-  {dow:4, person:'shared',    title:'School holiday',     allDay:true},
-  {dow:4, person:'oscar',     title:'Playdate',           s:t(15),   e:t(17)},
-  // Saturday
-  {dow:5, person:'sebastian', title:'Baseball game',      s:t(10),   e:t(12)},
-  {dow:5, person:'jenny',     title:'Anniversary',        allDay:true},
-  // Sunday — open
-  {dow:6, person:'shared',    title:'Memorial BBQ',       s:t(12),   e:t(16),    loc:'Backyard'},
+// who: array of person ids. one id = solo/personal; many = shared.
+const todayEvents = [
+  {title:'CrossFit',         s:t(6,30), e:t(7,15),  who:['andrew']},
+  {title:'Family breakfast', s:t(8),    e:t(8,30),  who:['jenny','andrew','sebastian','oscar']},
+  {title:'School run',       s:t(8,30), e:t(9),     who:['jenny','andrew','sebastian']},
+  {title:'Client workshop',  s:t(13),   e:t(17),    who:['jenny']},
+  {title:'Math tutor',       s:t(16),   e:t(16,45), who:['sebastian']},
+  {title:'Dentist',          s:t(17,15),e:t(18),    who:['jenny','oscar']},
+  {title:'Family dinner',    s:t(18),   e:t(18,45), who:['jenny','andrew','sebastian','oscar']},
+  {title:'Date night',       s:t(19),   e:t(20,30), who:['jenny','andrew']},
+  {title:'Reading',          s:t(19,30),e:t(20),    who:['oscar']},
 ];
 
-/* ---------------- Week matrix ---------------- */
-(function(){
-  const tbl = document.getElementById('matrix');
-  // header row
-  let head = '<tr><th></th>';
-  for (const d of days) head += `<th class="dayhead ${d.today?'today':''}">${d.label}<span class="dom">${d.dom}</span></th>`;
-  head += '</tr>';
-  let rows = '';
-  for (const p of people) {
-    rows += `<tr><td class="name"><span class="dot" style="background:${p.color}"></span>${p.name}</td>`;
-    for (const d of days) {
-      const evs = events.filter(e=>e.dow===d.dow && e.person===p.id);
-      let cell = '<div class="strip"><div class="base"></div><div class="noon" style="left:'+(((12*60-DAY_START)/RANGE)*100)+'%"></div>';
-      for (const e of evs) {
-        if (e.allDay) { cell += `<div class="allday-week" style="background:${p.color}"></div>`; continue; }
-        const left = ((e.s-DAY_START)/RANGE)*100;
-        const w = Math.max(((e.e-e.s)/RANGE)*100, 1.2);
-        cell += `<div class="ev" style="left:${left}%;width:${w}%;background:${p.color}"></div>`;
+// Generic axis renderer. mode: 'recommended' | 'ghosts' | 'lane'
+function drawAxis(mount, events, opts){
+  const o = Object.assign({ gutter:46, colW:172, pxh:52, padTop:34, mode:'recommended', nowMin:null, mini:false }, opts);
+  let lo = Infinity, hi = -Infinity;
+  for(const e of events){ lo=Math.min(lo,e.s); hi=Math.max(hi,e.e); }
+  if(o.nowMin!=null){ lo=Math.min(lo,o.nowMin); hi=Math.max(hi,o.nowMin); }
+  const startH = Math.floor(lo/60), endH = Math.ceil(hi/60);
+  const y = min => o.padTop + ((min-startH*60)/60)*o.pxh;
+  const totalH = o.padTop + (endH-startH)*o.pxh + 6;
+
+  // columns: people (+ Together for lane mode)
+  const cols = people.map(p=>({id:p.id,name:p.name,color:p.color,me:p.me}));
+  if(o.mode==='lane') cols.push({id:'together',name:'Together',color:SHARED});
+  const colX = i => o.gutter + i*o.colW;
+  const colCenter = i => colX(i) + o.colW/2;
+  const width = o.gutter + cols.length*o.colW;
+
+  let h = '';
+  // me tint
+  if(!o.mini){ const mi = cols.findIndex(c=>c.me); if(mi>=0) h+=`<div class="metint" style="left:${colX(mi)}px;width:${o.colW}px"></div>`; }
+  // hour lines + labels
+  for(let hr=startH; hr<=endH; hr++){
+    h += `<div class="hour" style="top:${y(hr*60)}px;left:${o.gutter}px;width:${cols.length*o.colW}px"></div>`;
+    if(hr<endH) h += `<div class="hourlab" style="top:${y(hr*60)}px;left:0;width:${o.gutter-6}px">${fmt(hr*60)}</div>`;
+  }
+  // column separators + headers
+  cols.forEach((c,i)=>{
+    h += `<div class="colsep" style="left:${colX(i)}px"></div>`;
+    h += `<div class="colhead" style="left:${colX(i)+6}px"><span class="dot" style="background:${c.color}"></span>${c.name}${c.me?' <span class="small">· me</span>':''}</div>`;
+  });
+
+  const blk = (left,w,top,height,cls,inner,extra='') =>
+    `<div class="blk ${cls}" style="left:${left}px;width:${w}px;top:${top}px;height:${height}px;${extra}">${inner}</div>`;
+
+  const soloInner = (e,color)=> `<div class="bar" style="background:${color}"></div><div class="t">${fmt(e.s)}</div><div>${e.title}</div>`;
+
+  for(const e of events){
+    const top = y(e.s), height = Math.max(y(e.e)-y(e.s), o.mini?20:26);
+    const solo = e.who.length===1;
+
+    if(solo){
+      const i = idx(e.who[0]); const color = people[i].color;
+      h += blk(colX(i)+2, o.colW-5, top, height, 'solo', soloInner(e,color));
+      continue;
+    }
+
+    // shared event
+    if(o.mode==='ghosts'){
+      const owner = idx(e.who[0]);
+      const avatars = '<span class="glyph" style="margin-left:auto">'+e.who.slice(0,4).map(id=>`<span class="gd" style="background:${people[idx(id)].color};border-color:${people[idx(id)].color}"></span>`).join('')+'</span>';
+      h += blk(colX(owner)+2, o.colW-5, top, height, 'solo',
+        `<div class="bar" style="background:${people[owner].color}"></div><div class="t" style="display:flex;align-items:center">${fmt(e.s)} ${avatars}</div><div>${e.title}</div>`);
+      for(const id of e.who.slice(1)){ const gi=idx(id);
+        h += blk(colX(gi)+2, o.colW-5, top, height, 'ghost', `<div class="t">${fmt(e.s)}</div><div>${e.title}</div>`);
       }
-      cell += '</div>';
-      rows += `<td>${cell}</td>`;
+      continue;
     }
-    rows += '</tr>';
-  }
-  tbl.innerHTML = head + rows;
-})();
 
-/* ---------------- Day detail ---------------- */
-(function(){
-  const wrap = document.getElementById('day');
-  const dayEvents = events.filter(e=>e.dow===0);
-  const y = min => ((min-DAY_START)/RANGE)*560;
-
-  // column 0: axis labels header + spacer
-  let html = '<div class="colhead">&nbsp;</div>';
-  for (const p of people) {
-    const count = dayEvents.filter(e=>e.person===p.id && !e.allDay).length;
-    html += `<div class="colhead"><span class="nm"><span class="dot" style="background:${p.color}"></span>${p.name}</span>`+
-            `<span class="ct">${count} event${count===1?'':'s'}</span></div>`;
-  }
-
-  // all-day strip row
-  html += '<div class="alldaystrip first"></div>';
-  for (let i=0;i<people.length;i++){
-    const p = people[i];
-    const ad = dayEvents.filter(e=>e.allDay && (e.person===p.id || (e.person==='shared' && i===0)));
-    let s = `<div class="alldaystrip ${i===0?'':''}">`;
-    let top = 2;
-    for (const e of ad) {
-      const c = e.person==='shared' ? 'var(--shared)' : p.color;
-      s += `<div class="ad" style="top:${top}px;color:${c}"><span class="flag">⚑</span>${e.title}</div>`;
-      top += 14;
+    if(o.mode==='lane'){
+      const li = cols.length-1; // Together column
+      h += blk(colX(li)+2, o.colW-5, top, height, 'lanecard',
+        `<div class="t">${fmt(e.s)}</div><div style="display:flex;align-items:center;gap:5px">${glyph(e.who)} ${e.title}</div>`);
+      continue;
     }
-    s += '</div>';
-    html += s;
-  }
 
-  // axis column
-  let axis = '<div class="axiswrap"><div class="axis">';
-  for (let h=6; h<=22; h++){
-    const major = (h-6)%3===0;
-    axis += `<div class="hour ${major?'major':''}" style="top:${y(h*60)}px"></div>`;
-    if (major){
-      const lab = h===12 ? '12p' : h<12 ? h+'a' : (h-12)+'p';
-      axis += `<div class="hourlab" style="top:${y(h*60)}px">${lab}</div>`;
+    // recommended: faint blocks under attendees + bracket + glyph label
+    const ai = e.who.map(idx).sort((a,b)=>a-b);
+    for(const i of ai){
+      h += blk(colX(i)+2, o.colW-5, top, height, 'sharefill', o.mini?'':`<div class="t">${fmt(e.s)}</div>`);
     }
-  }
-  axis += '</div></div>';
-  html += axis;
-
-  // person columns
-  for (let i=0;i<people.length;i++){
-    const p = people[i];
-    const evs = dayEvents.filter(e=>e.person===p.id && !e.allDay).sort((a,b)=>a.s-b.s);
-    let col = `<div class="col ${i===0?'':''}" style="height:560px">`;
-    // detect overlaps (conflicts) within this person
-    for (let a=0;a<evs.length;a++){
-      const e = evs[a];
-      const top = y(e.s), h = Math.max(y(e.e)-y(e.s), 13);
-      const time = fmt(e.s);
-      col += `<div class="block" style="top:${top}px;height:${h}px">`+
-             `<div class="bar" style="background:${p.color}"></div>`+
-             `<div class="t">${time}</div>`+
-             `<div class="ttl">${e.title}</div>`+
-             (e.loc?`<div class="loc">${e.loc}</div>`:'')+
-             `</div>`;
-    }
-    // conflict marker
-    for (let a=0;a<evs.length;a++) for (let b=a+1;b<evs.length;b++){
-      if (evs[a].s < evs[b].e && evs[b].s < evs[a].e){
-        col += `<div class="conflict-note" style="top:${y(evs[b].s)-12}px;left:9px">overlap ↕</div>`;
-      }
-    }
-    col += '</div>';
-    html += col;
+    const l = colCenter(ai[0]), r = colCenter(ai[ai.length-1]);
+    h += `<div class="brk" style="left:${l}px;width:${r-l}px;top:${top-1}px">`+
+         ai.map(i=>`<span class="tick" style="left:${colCenter(i)-l}px"></span>`).join('')+`</div>`;
+    h += `<div class="brklab" style="left:${l+4}px;top:${top-16}px">${glyph(e.who)} <span>${e.title}</span> <span class="small">${fmt(e.s)}</span></div>`;
   }
 
-  wrap.innerHTML = html;
-
-  function fmt(min){
-    let h = Math.floor(min/60), m = min%60;
-    const ap = h<12?'a':'p'; let hh = h%12; if(hh===0) hh=12;
-    return hh + (m? (':'+String(m).padStart(2,'0')) : '') + ap;
+  // now line
+  if(o.nowMin!=null){
+    h += `<div class="nowline" style="top:${y(o.nowMin)}px;left:0;right:0">`+
+         `<div class="d" style="left:${o.gutter}px"></div>`+
+         `<div class="l" style="left:${o.gutter}px;width:${cols.length*o.colW}px"></div></div>`;
   }
-})();
+
+  mount.style.height = totalH+'px';
+  mount.style.width = width+'px';
+  mount.innerHTML = h;
+}
+
+drawAxis(document.getElementById('main'), todayEvents, { nowMin: t(14,20) });
+
+// Compare panel: one non-contiguous shared event (Dentist: Jenny+Oscar) + a solo
+// for context, drawn three ways.
+const cmp = [
+  {title:'Math tutor', s:t(17,15), e:t(18), who:['sebastian']},
+  {title:'Dentist',    s:t(17,15), e:t(18), who:['jenny','oscar']},
+];
+const panels = [
+  {mode:'ghosts',      h3:'Current — owner card + ghosts', verdict:['bad','Drawn 2×'],
+   cap:'One event becomes a card in Jenny’s column and a dashed ghost in Oscar’s. Picks an arbitrary owner; the eye must merge two boxes into one fact.'},
+  {mode:'recommended', h3:'Tufte — tied across columns', verdict:['ok','Drawn 1×'],
+   cap:'One neutral object: faint blocks under Jenny and Oscar only, joined by a bracket that skips the two non-attendees. Glyph ●○○● confirms the set.'},
+  {mode:'lane',        h3:'Alt — a shared “Together” lane', verdict:['ok','Drawn 1×'],
+   cap:'Personal columns stay purely personal; every shared event lives once in a Together lane, labeled by its glyph. Cleanest when hours get crowded.'},
+];
+const cmpMount = document.getElementById('compare');
+cmpMount.innerHTML = panels.map((p,i)=>
+  `<div><h3>${p.h3} &nbsp;<span class="verdict ${p.verdict[0]}">${p.verdict[1]}</span></h3>`+
+  `<div class="axis" id="cmp${i}" style="overflow-x:auto"></div>`+
+  `<p class="cap">${p.cap}</p></div>`
+).join('');
+panels.forEach((p,i)=>{
+  drawAxis(document.getElementById('cmp'+i), cmp,
+    { mode:p.mode, gutter:30, colW: p.mode==='lane'?56:72, pxh:64, padTop:30, mini:true });
+});
 </script>
 </body>
 </html>
