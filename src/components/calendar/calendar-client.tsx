@@ -214,10 +214,14 @@ export function CalendarClient({
         source?.nickname ??
         source?.teamsnap_team_name ??
         (event.member_email ? memberNames.get(event.member_email) ?? null : null);
-      // The calendar's own name (not the owner's name), shown only when this
-      // owner has more than one calendar so cards can tell them apart.
+      // The calendar's own name, shown as a "Name: Title" prefix. Always shown
+      // for imported (TeamSnap/ICS) events so you can tell which team/feed an
+      // event came from; for other calendars only when the owner has more than
+      // one (to disambiguate) so it isn't redundant noise.
+      const isImported =
+        source?.source_type === "teamsnap" || source?.source_type === "ics";
       const calendarLabel =
-        (sourceCountByOwner.get(event.member_email) ?? 0) > 1
+        isImported || (sourceCountByOwner.get(event.member_email) ?? 0) > 1
           ? source?.nickname ?? source?.teamsnap_team_name ?? null
           : null;
       // RSVP only applies to TeamSnap events whose source is linked to a player.

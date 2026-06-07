@@ -87,7 +87,8 @@ export function EventRow({
   showLocation?: boolean;
   memberBadge?: { name: string; color: string } | null;
 }) {
-  const { event, color, sourceLabel, conflict, rsvp, attendees } = display;
+  const { event, color, sourceLabel, conflict, rsvp, attendees, calendarLabel } =
+    display;
   return (
     <button
       type="button"
@@ -105,6 +106,9 @@ export function EventRow({
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
           <span className="truncate font-medium text-foreground">
+            {calendarLabel && (
+              <span className="text-muted-foreground">{calendarLabel}: </span>
+            )}
             {event.title}
           </span>
           {conflict && (
@@ -240,12 +244,12 @@ export function EventPill({
   display: EventDisplay;
   onClick: (event: CalendarEvent) => void;
 }) {
-  const { event, color, conflict, rsvp } = display;
+  const { event, color, conflict, rsvp, calendarLabel } = display;
   return (
     <button
       type="button"
       onClick={() => onClick(event)}
-      title={event.title}
+      title={calendarLabel ? `${calendarLabel}: ${event.title}` : event.title}
       className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[11px] leading-tight transition-colors hover:bg-muted"
     >
       <span
@@ -261,7 +265,12 @@ export function EventPill({
           })}
         </span>
       )}
-      <span className="truncate text-foreground">{event.title}</span>
+      <span className="truncate text-foreground">
+        {calendarLabel && (
+          <span className="text-muted-foreground">{calendarLabel}: </span>
+        )}
+        {event.title}
+      </span>
       {rsvp === "no_reply" && (
         <span className="ml-auto shrink-0 rounded-full bg-amber-100 px-1 text-[9px] font-medium leading-tight text-amber-700 dark:bg-amber-950 dark:text-amber-400">
           RSVP
