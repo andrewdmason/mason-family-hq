@@ -588,7 +588,7 @@ function addDays(date: string, days: number): string {
 // batches so a family with many entries doesn't hit a request timeout.
 // ============================================================
 
-export type JournalBackfillJobs = {
+type JournalBackfillJobs = {
   /** Entry ids whose subtitle should be re-wrapped (all closed standard posts). */
   summaryIds: string[];
   /** Entry ids whose title should be regenerated (question posts only). */
@@ -621,7 +621,7 @@ export async function listJournalBackfillJobs(): Promise<JournalBackfillJobs> {
   };
 }
 
-export type JournalBackfillBatchResult = { ok: number; failed: number };
+type JournalBackfillBatchResult = { ok: number; failed: number };
 
 /**
  * Regenerate one batch of entries. `kind` selects the pass; `ids` is a small
