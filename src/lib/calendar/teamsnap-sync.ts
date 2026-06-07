@@ -17,6 +17,12 @@ import {
   statusCodeToRsvp,
   type TeamsnapEvent,
 } from "./teamsnap";
+import {
+  importerEnabled,
+  getMemberPrimary,
+  reconcileAbsentEvents,
+  materializeSource,
+} from "./materialize";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -39,8 +45,9 @@ export async function syncTeamEvents(
   calendarSourceId: string,
   // Pulling each player's RSVP costs one TeamSnap API call per event, so it's
   // skipped on the page-load sync (which only needs the event list); the cron
-  // and the manual "Sync" button run the full sync.
-  opts: { syncRsvp?: boolean } = {},
+  // and the manual "Sync" button run the full sync. `materialize` (full sync
+  // only) additionally writes events to the kid's Google calendar.
+  opts: { syncRsvp?: boolean; materialize?: boolean } = {},
 ): Promise<{ synced: number; error?: string }> {
   const syncRsvp = opts.syncRsvp !== false;
   const supabase = createAdminClient();
@@ -152,22 +159,18 @@ export async function syncTeamEvents(
       });
   }
 
-  // Cancel events no longer returned by TeamSnap.
+  // Cancel events no longer returned by TeamSnap — window-scoped + miss-counted
+  // so a transient drop or an aged-out past event isn't wrongly cancelled. Only
+  // act when the fetch returned something (an empty payload is treated as a blip,
+  // not "everything was deleted").
   if (syncedExternalIds.size > 0) {
-    const { data: localEvents } = await supabase
-      .from("calendar_events")
-      .select("id, external_id")
-      .eq("calendar_source_id", source.id)
-      .eq("is_canceled", false);
+    await reconcileAbsentEvents(supabase, source.id, syncedExternalIds);
+  }
 
-    for (const e of localEvents ?? []) {
-      if (e.external_id && !syncedExternalIds.has(e.external_id)) {
-        await supabase
-          .from("calendar_events")
-          .update({ is_canceled: true })
-          .eq("id", e.id);
-      }
-    }
+  // Materialize to the member's primary calendar (full sync only, importer on).
+  if (opts.materialize && importerEnabled()) {
+    const dest = await getMemberPrimary(supabase, source.member_email);
+    if (dest) await materializeSource(supabase, source.id, dest);
   }
 
   // Pull the player's RSVP from TeamSnap so the local copy stays in sync with
@@ -240,7 +243,7 @@ async function syncRsvpStatuses(
 // Sync every active TeamSnap source, routing each through a connection that can
 // actually see its team.
 export async function syncAllTeamsnapSources(
-  opts: { syncRsvp?: boolean } = {},
+  opts: { syncRsvp?: boolean; materialize?: boolean } = {},
 ): Promise<{
   results: Array<{ sourceId: string; synced: number; error?: string }>;
 }> {

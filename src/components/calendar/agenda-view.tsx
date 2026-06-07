@@ -12,7 +12,12 @@ import {
   toDateKey,
 } from "@/lib/calendar/calendar-utils";
 import type { CalendarEvent, CalendarMember } from "@/lib/calendar/types";
-import { EventColumnCard, EventRow, type EventDisplay } from "./event-card";
+import {
+  EventColumnCard,
+  EventGhost,
+  EventRow,
+  type EventDisplay,
+} from "./event-card";
 import { cn } from "@/lib/utils";
 
 const byStart = (a: CalendarEvent, b: CalendarEvent) =>
@@ -131,6 +136,18 @@ export function AgendaView({
                 const cards = rowEvents
                   .filter((e) => e.member_email === m.email)
                   .sort(byStart);
+                // Events owned by someone else that this member is attending show
+                // as a muted "busy" ghost here (only meaningful with >1 column).
+                const ghosts =
+                  members.length > 1
+                    ? rowEvents
+                        .filter(
+                          (e) =>
+                            e.member_email !== m.email &&
+                            display(e).attendees.some((a) => a.email === m.email),
+                        )
+                        .sort(byStart)
+                    : [];
                 return (
                   <div key={m.email} className="space-y-1.5">
                     {cards.map((event) => (
@@ -139,6 +156,13 @@ export function AgendaView({
                         display={display(event)}
                         onClick={onEventClick}
                         selected={event.id === selectedEventId}
+                      />
+                    ))}
+                    {ghosts.map((event) => (
+                      <EventGhost
+                        key={`ghost-${event.id}`}
+                        display={display(event)}
+                        onClick={onEventClick}
                       />
                     ))}
                   </div>

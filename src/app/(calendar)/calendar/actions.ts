@@ -23,10 +23,16 @@ import {
   insertGoogleEvent,
   patchGoogleEvent,
   deleteGoogleEvent,
+  shareCalendar,
   eventToGoogleBody,
   type GoogleCalendarListEntry,
 } from "@/lib/calendar/google";
 import { syncGoogleSource } from "@/lib/calendar/google-sync";
+import {
+  cancelSourceMaterializations,
+  syncEventGuests,
+  importerEnabled,
+} from "@/lib/calendar/materialize";
 import { allDayInstant } from "@/lib/calendar/calendar-utils";
 
 /** Throw unless the caller is an owner/parent — the roles that manage calendars.
@@ -124,7 +130,7 @@ export async function createManualEvent(input: ManualEventInput): Promise<string
   const target = await googleTarget(admin, input.calendarSourceId);
   if (target) {
     const created = await insertGoogleEvent(
-      target.connectionEmail,
+      { kind: "oauth", memberEmail: target.connectionEmail },
       target.googleCalendarId,
       eventToGoogleBody(input),
     );
@@ -184,7 +190,7 @@ export async function updateManualEvent(
     if (!target) throw new Error("This calendar is no longer connected.");
     const googleEventId = ev.external_id.slice("google:".length);
     await patchGoogleEvent(
-      target.connectionEmail,
+      { kind: "oauth", memberEmail: target.connectionEmail },
       target.googleCalendarId,
       googleEventId,
       eventToGoogleBody(input),
@@ -225,7 +231,7 @@ export async function deleteEvent(id: string): Promise<void> {
     const target = await googleTarget(admin, ev.calendar_source_id);
     if (target) {
       await deleteGoogleEvent(
-        target.connectionEmail,
+        { kind: "oauth", memberEmail: target.connectionEmail },
         target.googleCalendarId,
         ev.external_id.slice("google:".length),
       );
@@ -296,6 +302,17 @@ export async function renameSource(id: string, nickname: string): Promise<void> 
 export async function deleteSource(id: string): Promise<void> {
   await requireParent();
   const admin = createAdminClient();
+
+  // If this source materialized events onto a kid's Google calendar, delete those
+  // real events first — otherwise removing the source orphans them on Google with
+  // no record to find them by.
+  const { data: source } = await admin
+    .from("calendar_sources")
+    .select("id, member_email")
+    .eq("id", id)
+    .maybeSingle();
+  if (source) await cancelSourceMaterializations(admin, source);
+
   // Its events go to calendar_source_id NULL (ON DELETE SET NULL); clear them so
   // synced rows don't linger as orphans.
   await admin.from("calendar_events").delete().eq("calendar_source_id", id);
@@ -305,32 +322,13 @@ export async function deleteSource(id: string): Promise<void> {
   revalidatePath("/settings/calendars");
 }
 
-/** Return (creating if needed) the outbound feed token for a member's calendar. */
-export async function ensureFeedToken(memberEmail: string): Promise<string> {
-  await requireParent();
-  const admin = createAdminClient();
-  const { data: existing } = await admin
-    .from("ical_feed_tokens")
-    .select("token")
-    .eq("member_email", memberEmail)
-    .maybeSingle();
-  if (existing?.token) return existing.token as string;
-
-  const { data, error } = await admin
-    .from("ical_feed_tokens")
-    .insert({ member_email: memberEmail })
-    .select("token")
-    .single();
-  if (error || !data) throw new Error(error?.message ?? "Couldn't create the feed.");
-  return data.token as string;
-}
-
 /** Lightweight sync run on page load: refreshes the event list but skips the
  * per-event TeamSnap RSVP fetch, so it doesn't compete with the first event the
  * user opens (which loads its own availability live). */
 export async function triggerSync(): Promise<void> {
   await requireUserId(await createClient()); // any signed-in member may trigger
-  await runCalendarSync({ teamsnapRsvp: false });
+  // Page-load: light + no Google writes (those run on the cron/full sync only).
+  await runCalendarSync({ teamsnapRsvp: false, materialize: false });
   revalidatePath("/calendar");
 }
 
@@ -362,7 +360,7 @@ export async function listGoogleCalendarsForConnection(
   connectionEmail: string,
 ): Promise<GoogleCalendarListEntry[]> {
   await requireParent();
-  return listGoogleCalendars(connectionEmail);
+  return listGoogleCalendars({ kind: "oauth", memberEmail: connectionEmail });
 }
 
 /** Add a Google calendar as a source, then sync it immediately. `connectionEmail`
@@ -408,6 +406,159 @@ export async function addGoogleSource(input: {
   await syncGoogleSource(data.id as string).catch(() => {});
   revalidatePath("/calendar");
   revalidatePath("/settings/calendars");
+}
+
+// --- Primary calendar setup -------------------------------------------------
+
+/** Set up a member's primary calendar in "managed" mode: the app acts AS them via
+ * domain-wide delegation (no login from them). Auto-detects their primary Google
+ * calendar and shares it with the other parents so the family sees it natively.
+ * Owner/parent only — this is how an admin sets up the kids (and other adults). */
+export async function setupManagedPrimary(
+  memberEmail: string,
+  // Optional explicit calendar; omit to auto-pick their account's primary.
+  override?: { calendarId: string; summary: string },
+): Promise<{ ok: true; calendarId: string } | { error: string }> {
+  await requireParent();
+  const admin = createAdminClient();
+
+  let calendarId: string;
+  let summary: string | null;
+  if (override) {
+    calendarId = override.calendarId;
+    summary = override.summary;
+  } else {
+    let calendars: GoogleCalendarListEntry[];
+    try {
+      calendars = await listGoogleCalendars({ kind: "dwd", subjectEmail: memberEmail });
+    } catch (e) {
+      return {
+        error:
+          e instanceof Error
+            ? `Couldn't reach ${memberEmail}'s Google account: ${e.message}`
+            : "Couldn't reach their Google account.",
+      };
+    }
+    // Their primary calendar (id is normally their email); fall back gracefully.
+    const primary =
+      calendars.find((c) => c.primary) ??
+      calendars.find((c) => c.id === memberEmail) ??
+      calendars[0];
+    if (!primary) return { error: `No Google calendar found for ${memberEmail}.` };
+    calendarId = primary.id;
+    summary = primary.summary;
+  }
+
+  const { error } = await admin
+    .from("family_members")
+    .update({
+      primary_calendar_id: calendarId,
+      primary_calendar_connection: memberEmail,
+      primary_calendar_mode: "managed",
+      primary_calendar_summary: summary,
+    })
+    .eq("email", memberEmail);
+  if (error) return { error: error.message };
+
+  // Read this calendar's existing events into the app (via delegation, since the
+  // member never signs in) by ensuring a Google source for it, then syncing.
+  const { data: existing } = await admin
+    .from("calendar_sources")
+    .select("id")
+    .eq("source_type", "google")
+    .eq("member_email", memberEmail)
+    .eq("google_calendar_id", calendarId)
+    .maybeSingle();
+  let sourceId = existing?.id as string | undefined;
+  if (!sourceId) {
+    const { data: ins } = await admin
+      .from("calendar_sources")
+      .insert({
+        member_email: memberEmail,
+        source_type: "google",
+        google_calendar_id: calendarId,
+        google_connection_email: memberEmail,
+        nickname: summary,
+      })
+      .select("id")
+      .single();
+    sourceId = ins?.id as string | undefined;
+  }
+  if (sourceId) await syncGoogleSource(sourceId).catch(() => {});
+
+  // Share it (read-only) with the other parents so they see it natively and can
+  // be guests on its events. Best-effort: a failed share doesn't fail setup.
+  const { data: parents } = await admin
+    .from("family_members")
+    .select("email")
+    .in("role", ["owner", "parent"])
+    .neq("email", memberEmail);
+  for (const p of parents ?? []) {
+    try {
+      await shareCalendar(
+        { kind: "dwd", subjectEmail: memberEmail },
+        calendarId,
+        p.email as string,
+      );
+    } catch {
+      // ignore — the parent can be shared manually if this fails
+    }
+  }
+
+  revalidatePath("/settings/calendars");
+  revalidatePath("/calendar");
+  return { ok: true, calendarId };
+}
+
+/** A managed member's calendars (writable ones), so an owner can pick which is
+ * their primary instead of accepting the auto-detected one. */
+export async function listManagedCalendars(
+  memberEmail: string,
+): Promise<GoogleCalendarListEntry[]> {
+  await requireParent();
+  const all = await listGoogleCalendars({ kind: "dwd", subjectEmail: memberEmail });
+  return all.filter((c) => c.accessRole === "owner" || c.accessRole === "writer");
+}
+
+/** Set a member's primary calendar in "connected" mode: written via that person's
+ * own Google OAuth token (an adult who signed in and picked one of their own
+ * calendars). */
+export async function setConnectedPrimary(
+  memberEmail: string,
+  calendarId: string,
+  summary: string,
+): Promise<{ ok: true } | { error: string }> {
+  await requireParent();
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("family_members")
+    .update({
+      primary_calendar_id: calendarId,
+      primary_calendar_connection: memberEmail,
+      primary_calendar_mode: "connected",
+      primary_calendar_summary: summary,
+    })
+    .eq("email", memberEmail);
+  if (error) return { error: error.message };
+  revalidatePath("/settings/calendars");
+  revalidatePath("/calendar");
+  return { ok: true };
+}
+
+/** Clear a member's primary calendar (stops imports until set up again). */
+export async function clearPrimaryCalendar(memberEmail: string): Promise<void> {
+  await requireParent();
+  const admin = createAdminClient();
+  await admin
+    .from("family_members")
+    .update({
+      primary_calendar_id: null,
+      primary_calendar_connection: null,
+      primary_calendar_mode: null,
+    })
+    .eq("email", memberEmail);
+  revalidatePath("/settings/calendars");
+  revalidatePath("/calendar");
 }
 
 // --- TeamSnap ---------------------------------------------------------------
@@ -499,6 +650,48 @@ export async function relinkTeamsnapPlayer(
   await syncTeamEvents(connectionEmail, sourceId).catch(() => {});
   revalidatePath("/calendar");
   revalidatePath("/settings/calendars");
+}
+
+// --- "Going" (who's attending) ----------------------------------------------
+
+/** Toggle whether a family member is "going" to an event. Stored in
+ * event_attendees (the durable source of truth, survives re-sync) and reconciled
+ * to the event's real Google guest list when it's a materialized event. Binary —
+ * distinct from TeamSnap's player RSVP. Owner/parent only. */
+export async function setEventGoing(
+  eventId: string,
+  memberEmail: string,
+  going: boolean,
+): Promise<{ ok: true; warning?: string } | { error: string }> {
+  await requireParent();
+  const admin = createAdminClient();
+
+  const { error } = await admin
+    .from("event_attendees")
+    .upsert(
+      { event_id: eventId, member_email: memberEmail, going },
+      { onConflict: "event_id,member_email" },
+    );
+  if (error) return { error: error.message };
+
+  let warning: string | undefined;
+  if (importerEnabled()) {
+    try {
+      await syncEventGuests(admin, eventId);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      // Google forbids guests on events it auto-created from Gmail (and some
+      // other special types). Save the in-app state but tell the user why no
+      // invite went out.
+      if (/eventtyperestriction|fromgmail/i.test(msg)) {
+        warning =
+          "Saved here, but Google won't add guests to this event (it was created from Gmail).";
+      }
+      // Other failures are best-effort: state is saved and re-asserted on sync.
+    }
+  }
+  revalidatePath("/calendar");
+  return warning ? { ok: true, warning } : { ok: true };
 }
 
 // --- TeamSnap attendance ----------------------------------------------------

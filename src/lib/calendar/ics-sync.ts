@@ -4,6 +4,12 @@
 // client. The lightweight RFC 5545 parser is unchanged (no external dependency).
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  importerEnabled,
+  getMemberPrimary,
+  reconcileAbsentEvents,
+  materializeSource,
+} from "./materialize";
 
 interface IcsEvent {
   uid: string;
@@ -97,6 +103,7 @@ function toIsoDate(value: string | null): string | null {
 
 export async function syncIcsSource(
   calendarSourceId: string,
+  opts: { materialize?: boolean } = {},
 ): Promise<{ synced: number; error?: string }> {
   const supabase = createAdminClient();
 
@@ -174,26 +181,17 @@ export async function syncIcsSource(
     }
   }
 
-  const { data: existingEvents } = await supabase
-    .from("calendar_events")
-    .select("id, external_id, is_canceled")
-    .eq("calendar_source_id", source.id);
+  // Cancel events no longer present in the feed — window-scoped + miss-counted so
+  // an aged-out past event or a transient feed hiccup isn't wrongly cancelled.
+  if (syncedExternalIds.size > 0) {
+    await reconcileAbsentEvents(supabase, source.id, syncedExternalIds);
+  }
 
-  // Cancel events no longer present in the feed.
-  const cancelOps = (existingEvents ?? [])
-    .filter(
-      (e) =>
-        !e.is_canceled &&
-        e.external_id &&
-        !syncedExternalIds.has(e.external_id),
-    )
-    .map((e) =>
-      supabase
-        .from("calendar_events")
-        .update({ is_canceled: true })
-        .eq("id", e.id),
-    );
-  if (cancelOps.length > 0) await Promise.all(cancelOps);
+  // Materialize to the member's primary calendar (full sync only, importer on).
+  if (opts.materialize && importerEnabled()) {
+    const dest = await getMemberPrimary(supabase, source.member_email);
+    if (dest) await materializeSource(supabase, source.id, dest);
+  }
 
   await supabase
     .from("calendar_sources")
@@ -207,7 +205,9 @@ export async function syncIcsSource(
 // Sync all active ICS sources
 // ============================================================
 
-export async function syncAllIcsSources(): Promise<{
+export async function syncAllIcsSources(
+  opts: { materialize?: boolean } = {},
+): Promise<{
   results: Array<{ sourceId: string; synced: number; error?: string }>;
 }> {
   const supabase = createAdminClient();
@@ -223,7 +223,7 @@ export async function syncAllIcsSources(): Promise<{
   const results = [];
   for (const source of sources) {
     try {
-      const result = await syncIcsSource(source.id);
+      const result = await syncIcsSource(source.id, opts);
       results.push({ sourceId: source.id, ...result });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

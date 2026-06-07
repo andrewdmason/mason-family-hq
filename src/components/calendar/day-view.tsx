@@ -9,6 +9,7 @@ import {
 } from "@/lib/calendar/calendar-utils";
 import type { CalendarEvent, CalendarMember } from "@/lib/calendar/types";
 import type { EventDisplay } from "./event-card";
+import { MemberAvatar } from "@/components/journal/member-avatar";
 import { cn } from "@/lib/utils";
 
 // A true vertical time axis: position encodes when, height encodes how long.
@@ -151,6 +152,9 @@ export function DayView({
     label: string;
     color: string;
     events: CalendarEvent[];
+    // Events owned by someone else that this member is attending — drawn as muted
+    // "busy" ghosts so a shared event blocks everyone's time without duplicating.
+    ghosts: CalendarEvent[];
     allDay: CalendarEvent[];
     isMe: boolean;
   };
@@ -159,6 +163,14 @@ export function DayView({
     label: m.name ?? m.email,
     color: m.color ?? FAMILY_COLOR,
     events: timed.filter((e) => e.member_email === m.email),
+    ghosts:
+      members.length > 1
+        ? timed.filter(
+            (e) =>
+              e.member_email !== m.email &&
+              display(e).attendees.some((a) => a.email === m.email),
+          )
+        : [],
     allDay: allDay.filter((e) => e.member_email === m.email),
     isMe: m.email === currentMemberEmail,
   }));
@@ -170,6 +182,7 @@ export function DayView({
       label: "Family",
       color: FAMILY_COLOR,
       events: familyTimed,
+      ghosts: [],
       allDay: familyAllDay,
       isMe: false,
     });
@@ -186,9 +199,11 @@ export function DayView({
   function Block({
     placed,
     showMember,
+    ghost,
   }: {
     placed: Placed;
     showMember?: boolean;
+    ghost?: boolean;
   }) {
     const { event } = placed;
     const d = display(event);
@@ -217,6 +232,8 @@ export function DayView({
         }}
         className={cn(
           "absolute overflow-hidden rounded-md border border-border/70 border-l-[3px] bg-card px-1.5 py-0.5 text-left shadow-sm transition-colors hover:bg-muted/50",
+          ghost &&
+            "border-dashed bg-muted/30 opacity-70 shadow-none hover:opacity-100",
           event.id === selectedEventId && "ring-1 ring-ring",
         )}
       >
@@ -227,8 +244,22 @@ export function DayView({
           {d.conflict && (
             <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-amber-600" />
           )}
+          {!ghost && d.attendees.length > 0 && (
+            <span className="ml-auto flex shrink-0 -space-x-1">
+              {d.attendees.slice(0, 3).map((a) => (
+                <span key={a.email} title={a.name ?? a.email} className="inline-flex">
+                  <MemberAvatar name={a.name} size="xs" className="ring-1 ring-card" />
+                </span>
+              ))}
+            </span>
+          )}
         </span>
-        <span className="mt-0.5 line-clamp-2 text-[11px] font-medium leading-tight text-foreground">
+        <span
+          className={cn(
+            "mt-0.5 line-clamp-2 text-[11px] font-medium leading-tight text-foreground",
+            ghost && "italic text-muted-foreground",
+          )}
+        >
           {memberName && (
             <span className="text-muted-foreground">{memberName} · </span>
           )}
@@ -237,7 +268,7 @@ export function DayView({
           )}
           {event.title}
         </span>
-        {height >= 46 && event.location && (
+        {!ghost && height >= 46 && event.location && (
           <span className="mt-0.5 flex items-center gap-0.5 truncate text-[10px] text-muted-foreground">
             <MapPin className="h-2.5 w-2.5 shrink-0" />
             {event.location}
@@ -369,19 +400,26 @@ export function DayView({
             className="absolute inset-y-0 flex"
             style={{ left: GUTTER, right: 0 }}
           >
-            {columns.map((c) => (
-              <div
-                key={c.key}
-                className={cn(
-                  "relative min-w-0 flex-1 border-l border-border/60",
-                  c.isMe && ME_TINT,
-                )}
-              >
-                {pack(c.events).map((p) => (
-                  <Block key={p.event.id} placed={p} />
-                ))}
-              </div>
-            ))}
+            {columns.map((c) => {
+              const ghostIds = new Set(c.ghosts.map((e) => e.id));
+              return (
+                <div
+                  key={c.key}
+                  className={cn(
+                    "relative min-w-0 flex-1 border-l border-border/60",
+                    c.isMe && ME_TINT,
+                  )}
+                >
+                  {pack([...c.events, ...c.ghosts]).map((p) => (
+                    <Block
+                      key={p.event.id}
+                      placed={p}
+                      ghost={ghostIds.has(p.event.id)}
+                    />
+                  ))}
+                </div>
+              );
+            })}
           </div>
           {nowLine()}
         </div>

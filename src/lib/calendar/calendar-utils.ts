@@ -33,6 +33,83 @@ export function isDeclinedTeamsnapEvent(event: CalendarEvent): boolean {
   return event.source_type === "teamsnap" && event.teamsnap_rsvp === "not_going";
 }
 
+// An event hidden by default across the app: a TeamSnap event you've RSVP'd "Not
+// going" to, OR a materialized event you deleted off your Google calendar (which
+// we treat as a decline). Both are reversible (toggle "show declined").
+export function isHiddenEvent(event: CalendarEvent): boolean {
+  return isDeclinedTeamsnapEvent(event) || event.dismissed;
+}
+
+export interface LogicalEventResult {
+  events: CalendarEvent[]; // one "owner" row per logical event
+  attendeesById: Map<string, string[]>; // owner event id -> attendee member emails
+}
+
+// Collapse rows that represent the SAME underlying event into one logical event
+// with an attendee list. Duplicates arise two ways: a shared Google event read
+// from several members' calendars (same google id), and our materialized event
+// plus the guest copies it created. Attendees also include anyone toggled
+// "going". `memberOrder` ranks members so ownership is deterministic when no
+// materialized row pins it. The owner row is what renders (in the owner's
+// column); the attendees show as avatars + ghost blocks elsewhere.
+export function toLogicalEvents(
+  events: CalendarEvent[],
+  goingByEvent: Record<string, string[]>,
+  memberOrder: string[],
+): LogicalEventResult {
+  const googleId = (e: CalendarEvent): string | null => {
+    if (e.google_event_id) return e.google_event_id;
+    if (e.external_id && e.external_id.startsWith("google:")) {
+      return e.external_id.slice("google:".length);
+    }
+    return null;
+  };
+
+  const groups = new Map<string, CalendarEvent[]>();
+  for (const e of events) {
+    const g = googleId(e);
+    const key = g ? `g:${g}` : `s:${e.id}`;
+    const arr = groups.get(key);
+    if (arr) arr.push(e);
+    else groups.set(key, [e]);
+  }
+
+  const rank = new Map(memberOrder.map((m, i) => [m, i]));
+  const owners: CalendarEvent[] = [];
+  const attendeesById = new Map<string, string[]>();
+
+  for (const rows of groups.values()) {
+    // Ownership: our materialized row pins it; else the row whose member is the
+    // Google organizer; else the earliest-ranked member (deterministic).
+    const organizer = rows.find(
+      (r) => r.organizer_email && r.member_email === r.organizer_email,
+    );
+    const owner =
+      rows.find((r) => r.google_event_id) ??
+      organizer ??
+      [...rows].sort(
+        (a, b) =>
+          (rank.get(a.member_email ?? "") ?? 999) -
+          (rank.get(b.member_email ?? "") ?? 999),
+      )[0];
+
+    const attendees = new Set<string>();
+    for (const r of rows) {
+      if (r.member_email && r.member_email !== owner.member_email) {
+        attendees.add(r.member_email);
+      }
+    }
+    for (const m of goingByEvent[owner.id] ?? []) {
+      if (m !== owner.member_email) attendees.add(m);
+    }
+
+    owners.push(owner);
+    attendeesById.set(owner.id, [...attendees]);
+  }
+
+  return { events: owners, attendeesById };
+}
+
 export function getWeekBounds(anchor: Date): { start: Date; end: Date } {
   const d = new Date(anchor);
   const day = d.getDay();

@@ -234,3 +234,9 @@ FROM (VALUES
   ('sebastian@mason.io', 'c0000109-0000-4001-8001-000000000007', 'Baseball Game vs Oakland Oaks', 'Bushrod Park', 7, time '11:00', time '13:00', time '10:00', 'Oakland Oaks', 'no_reply', 'seeddev:s-game1'),
   ('sebastian@mason.io', 'c0000109-0000-4001-8001-000000000007', 'Baseball Game vs Richmond Rockets', 'Nicholl Park', 14, time '12:00', time '14:00', time '11:00', 'Richmond Rockets', 'going', 'seeddev:s-game2')
 ) v(m, src, title, loc, d, cs, ce, ca, opp, rsvp, ext);
+
+-- The family-wide ("everyone") calendar concept was removed; every event belongs
+-- to a member now. Drop the family-level rows seeded above so dev resets match
+-- the app (which no longer creates or shows member_email IS NULL events).
+DELETE FROM calendar_events WHERE member_email IS NULL;
+DELETE FROM calendar_sources WHERE member_email IS NULL;
