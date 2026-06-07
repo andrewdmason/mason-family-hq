@@ -20,8 +20,9 @@ export async function GET(request: NextRequest) {
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("client_id", process.env.TEAMSNAP_CLIENT_ID!);
   authUrl.searchParams.set("redirect_uri", redirectUri);
-  // Read-only: we only fetch teams/events/availabilities, never write back.
-  authUrl.searchParams.set("scope", "read");
+  // We read teams/events/availabilities and write RSVPs back (attendance), so we
+  // need both scopes. A read-only token makes the availability PUT fail with 403.
+  authUrl.searchParams.set("scope", "read write");
   authUrl.searchParams.set("state", state);
 
   const response = NextResponse.redirect(authUrl.toString());

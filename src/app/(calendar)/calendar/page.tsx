@@ -14,10 +14,11 @@ export default async function CalendarPage() {
   const userId = await requireUserId(supabase);
   const { data: me } = await supabase
     .from("family_members")
-    .select("role")
+    .select("role, email")
     .eq("user_id", userId)
     .maybeSingle();
   const canManage = me?.role === "owner" || me?.role === "parent";
+  const currentMemberEmail = me?.email ?? null;
 
   const [members, sources, events] = await Promise.all([
     getCalendarMembers(),
@@ -40,6 +41,7 @@ export default async function CalendarPage() {
         events={events}
         goingByEvent={goingByEvent}
         canManage={canManage}
+        currentMemberEmail={currentMemberEmail}
       />
     </>
   );
