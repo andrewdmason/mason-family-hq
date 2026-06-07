@@ -130,18 +130,21 @@ function sha12(input: string): string {
   return createHash("sha256").update(input).digest("hex").slice(0, 12);
 }
 
-function hashes(row: CoreFields): { timeLoc: string; combined: string } {
+function hashes(
+  row: CoreFields,
+  title: string,
+): { timeLoc: string; combined: string } {
   const timeLoc = sha12(
     JSON.stringify([row.start_time, row.end_time, row.all_day, row.location ?? null]),
   );
-  const rest = sha12(JSON.stringify([row.title, row.description ?? null]));
+  const rest = sha12(JSON.stringify([title, row.description ?? null]));
   return { timeLoc, combined: `${timeLoc}.${rest}` };
 }
 
-function bodyFromRow(row: CoreFields): Record<string, unknown> {
+function bodyFromRow(row: CoreFields, title: string): Record<string, unknown> {
   return {
     ...eventToGoogleBody({
-      title: row.title,
+      title,
       location: row.location,
       description: row.description,
       startTime: row.start_time,
@@ -150,6 +153,22 @@ function bodyFromRow(row: CoreFields): Record<string, unknown> {
     }),
     status: "confirmed",
   };
+}
+
+// Imported (TeamSnap/ICS) events get the calendar/team name prefixed onto their
+// materialized title — e.g. "Ballers: Practice" — so they're distinguishable on a
+// member's primary calendar in Google/Fantastical, where everything merges into
+// one calendar with one color.
+export function importTitlePrefix(source: {
+  source_type?: string | null;
+  nickname?: string | null;
+  teamsnap_team_name?: string | null;
+} | null): string | null {
+  if (!source) return null;
+  if (source.source_type === "teamsnap" || source.source_type === "ics") {
+    return source.nickname ?? source.teamsnap_team_name ?? null;
+  }
+  return null;
 }
 
 function isHttp(err: unknown, code: number): boolean {
@@ -195,6 +214,7 @@ async function materializeRow(
   cred: GoogleCredential,
   dest: ImportDest,
   row: LedgerRow,
+  titlePrefix: string | null,
 ): Promise<void> {
   if (!row.external_id) return;
   // The user deleted this materialized event off their calendar — respect it:
@@ -229,13 +249,14 @@ async function materializeRow(
     return;
   }
 
-  const h = hashes(row);
+  const title = titlePrefix ? `${titlePrefix}: ${row.title}` : row.title;
+  const h = hashes(row, title);
 
   if (!row.google_event_id) {
     // CREATE with the deterministic id. Include the stamp + current guest list;
     // a 409 means a concurrent run / retry already created it, so patch instead.
     const createBody = {
-      ...bodyFromRow(row),
+      ...bodyFromRow(row, title),
       id: googleId,
       extendedProperties: { private: { [FAMILYHQ_MARKER]: row.id } },
       attendees: await guestList(supabase, row.id),
@@ -246,9 +267,13 @@ async function materializeRow(
       });
     } catch (err) {
       if (isHttp(err, 409)) {
-        await patchGoogleEvent(cred, dest.calendarId, googleId, bodyFromRow(row), {
-          sendUpdates: "none",
-        });
+        await patchGoogleEvent(
+          cred,
+          dest.calendarId,
+          googleId,
+          bodyFromRow(row, title),
+          { sendUpdates: "none" },
+        );
       } else {
         throw err;
       }
@@ -258,9 +283,13 @@ async function materializeRow(
     // Notify guests only when the time/location moved.
     const prevTimeLoc = (row.google_sync_hash ?? "").split(".")[0];
     const notify = !!prevTimeLoc && prevTimeLoc !== CANCELLED_HASH && prevTimeLoc !== h.timeLoc;
-    await patchGoogleEvent(cred, dest.calendarId, row.google_event_id, bodyFromRow(row), {
-      sendUpdates: notify ? "all" : "none",
-    });
+    await patchGoogleEvent(
+      cred,
+      dest.calendarId,
+      row.google_event_id,
+      bodyFromRow(row, title),
+      { sendUpdates: notify ? "all" : "none" },
+    );
   } else {
     return; // unchanged — no API call
   }
@@ -337,14 +366,15 @@ export async function reconcileAbsentEvents(
 /** Claim a short lease on the source so only one run materializes it at a time.
  * Returns false if another run currently holds it. */
 async function claimSource(supabase: AdminClient, sourceId: string): Promise<boolean> {
-  const staleBefore = new Date(Date.now() - LEASE_MS).toISOString();
-  const { data } = await supabase
-    .from("calendar_sources")
-    .update({ materialize_claimed_at: new Date().toISOString() })
-    .eq("id", sourceId)
-    .or(`materialize_claimed_at.is.null,materialize_claimed_at.lt.${staleBefore}`)
-    .select("id");
-  return !!data && data.length > 0;
+  // Done via an RPC (a SECURITY DEFINER UPDATE … WHERE) rather than a supabase-js
+  // conditional update: PostgREST rejects an `or=()` filter on a mutation, so the
+  // null-or-stale check has to live in SQL. The function returns true only when it
+  // actually took the lease.
+  const { data } = await supabase.rpc("claim_calendar_source", {
+    p_source_id: sourceId,
+    p_lease_seconds: Math.round(LEASE_MS / 1000),
+  });
+  return data === true;
 }
 
 async function releaseSource(supabase: AdminClient, sourceId: string): Promise<void> {
@@ -365,6 +395,13 @@ export async function materializeSource(
   // every sync mode. Here we just take the lease and write to Google.
   if (!(await claimSource(supabase, sourceId))) return { errors: 0 };
 
+  const { data: src } = await supabase
+    .from("calendar_sources")
+    .select("source_type, nickname, teamsnap_team_name")
+    .eq("id", sourceId)
+    .maybeSingle();
+  const titlePrefix = importTitlePrefix(src);
+
   let errors = 0;
   try {
     const now = Date.now();
@@ -384,7 +421,7 @@ export async function materializeSource(
       await Promise.all(
         list.slice(i, i + WRITE_CONCURRENCY).map(async (row) => {
           try {
-            await materializeRow(supabase, cred, dest, row);
+            await materializeRow(supabase, cred, dest, row, titlePrefix);
           } catch {
             errors += 1; // isolate: one bad event doesn't abort the rest
           }
@@ -516,16 +553,24 @@ async function materializeEventById(
 ): Promise<void> {
   const { data: row } = await supabase
     .from("calendar_events")
-    .select(`${LEDGER_COLUMNS}, member_email`)
+    .select(`${LEDGER_COLUMNS}, member_email, calendar_source_id`)
     .eq("id", eventId)
     .maybeSingle();
   if (!row) return;
-  const dest = await getMemberPrimary(
-    supabase,
-    (row as { member_email: string | null }).member_email,
-  );
+  const typed = row as { member_email: string | null; calendar_source_id: string | null };
+  const dest = await getMemberPrimary(supabase, typed.member_email);
   if (!dest) return;
-  await materializeRow(supabase, dest.cred, dest, row as unknown as LedgerRow);
+
+  let titlePrefix: string | null = null;
+  if (typed.calendar_source_id) {
+    const { data: src } = await supabase
+      .from("calendar_sources")
+      .select("source_type, nickname, teamsnap_team_name")
+      .eq("id", typed.calendar_source_id)
+      .maybeSingle();
+    titlePrefix = importTitlePrefix(src);
+  }
+  await materializeRow(supabase, dest.cred, dest, row as unknown as LedgerRow, titlePrefix);
 }
 
 /** Apply the saved "going" list to Google for one event: materialize it first if
