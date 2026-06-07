@@ -358,11 +358,12 @@ export function CalendarClient({
                     htmlFor="show-declined"
                     className="text-sm font-medium"
                   >
-                    Show declined events
+                    Show hidden events
                   </label>
                   <p className="text-xs text-muted-foreground">
-                    TeamSnap events you&rsquo;ve marked &ldquo;Not going&rdquo;
-                    are hidden.
+                    Events you&rsquo;ve declined are hidden — a TeamSnap
+                    &ldquo;Not going,&rdquo; or one removed from its Google
+                    calendar.
                     {declinedCount > 0 &&
                       ` ${declinedCount} hidden right now.`}
                   </p>

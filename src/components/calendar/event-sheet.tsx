@@ -262,6 +262,10 @@ function GoingRow({
   const [warning, setWarning] = useState<string | null>(null);
 
   if (others.length === 0) return null;
+  // App-only manual events have no real Google event to invite guests to, so the
+  // toggle couldn't deliver anything — don't offer it. (Manual events written to
+  // a Google calendar are source_type "google" and keep the row.)
+  if (event.source_type === "manual") return null;
   // Driven by the `going` prop, which lives in the calendar client (mounted
   // across drawer open/close) — so the state survives reopening the drawer.
   const goingSet = new Set(going);

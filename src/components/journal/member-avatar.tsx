@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 
 const SIZES = {
+  xs: "h-4 w-4 text-[8px]",
   sm: "h-5 w-5 text-[9px]",
   md: "h-10 w-10 text-xs",
   lg: "h-11 w-11 text-sm",

@@ -22,6 +22,9 @@ export interface CalendarEvent {
   // The real Google event id when this row was materialized by the importer.
   // Used to collapse an event and its guest copies into one logical event.
   google_event_id: string | null;
+  // The Google event's organizer (read sync only) — picks the owner column for a
+  // shared event.
+  organizer_email: string | null;
   teamsnap_opponent: string | null;
   teamsnap_arrival_time: string | null;
   teamsnap_is_game: boolean | null;

@@ -58,6 +58,8 @@ export interface GoogleEvent {
   extendedProperties?: { private?: Record<string, string> };
   // Guests + their RSVP, used to detect a guest who declined (Case A).
   attendees?: Array<{ email?: string; responseStatus?: string }>;
+  // Who owns the event — used to pick the owner column for a shared event.
+  organizer?: { email?: string; self?: boolean };
 }
 
 // The private extended-property key the importer stamps on every event it

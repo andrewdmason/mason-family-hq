@@ -79,9 +79,14 @@ export function toLogicalEvents(
   const attendeesById = new Map<string, string[]>();
 
   for (const rows of groups.values()) {
-    // Our materialized row pins ownership; otherwise the earliest-ranked member.
+    // Ownership: our materialized row pins it; else the row whose member is the
+    // Google organizer; else the earliest-ranked member (deterministic).
+    const organizer = rows.find(
+      (r) => r.organizer_email && r.member_email === r.organizer_email,
+    );
     const owner =
       rows.find((r) => r.google_event_id) ??
+      organizer ??
       [...rows].sort(
         (a, b) =>
           (rank.get(a.member_email ?? "") ?? 999) -

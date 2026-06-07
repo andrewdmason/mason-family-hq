@@ -102,6 +102,7 @@ export async function syncGoogleSource(
       all_day,
       source_type: "google" as const,
       external_id: externalId,
+      organizer_email: ev.organizer?.email?.toLowerCase() ?? null,
       is_canceled: ev.status === "cancelled",
     });
   }

@@ -9,6 +9,7 @@ import {
 } from "@/lib/calendar/calendar-utils";
 import type { CalendarEvent, CalendarMember } from "@/lib/calendar/types";
 import type { EventDisplay } from "./event-card";
+import { MemberAvatar } from "@/components/journal/member-avatar";
 import { cn } from "@/lib/utils";
 
 // A true vertical time axis: position encodes when, height encodes how long.
@@ -242,6 +243,15 @@ export function DayView({
           </span>
           {d.conflict && (
             <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-amber-600" />
+          )}
+          {!ghost && d.attendees.length > 0 && (
+            <span className="ml-auto flex shrink-0 -space-x-1">
+              {d.attendees.slice(0, 3).map((a) => (
+                <span key={a.email} title={a.name ?? a.email} className="inline-flex">
+                  <MemberAvatar name={a.name} size="xs" className="ring-1 ring-card" />
+                </span>
+              ))}
+            </span>
           )}
         </span>
         <span
