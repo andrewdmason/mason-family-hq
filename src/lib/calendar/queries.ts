@@ -65,6 +65,7 @@ export async function getCalendarEvents(
     .from("calendar_events")
     .select(EVENT_COLUMNS)
     .eq("is_canceled", false)
+    .not("member_email", "is", null) // every event belongs to a member
     .gte("start_time", rangeStart.toISOString())
     .lte("start_time", rangeEnd.toISOString())
     .order("start_time", { ascending: true });

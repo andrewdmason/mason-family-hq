@@ -46,16 +46,15 @@ export async function getOthersDay(
     getCalendarMembers(),
   ]);
 
-  const FAMILY_KEY = "__family__";
   const byMember = new Map<string, CalendarEvent[]>();
   for (const event of events) {
+    if (!event.member_email) continue; // events always belong to a member
     if (isHiddenEvent(event)) continue;
     if (eventDateKey(event, tz) !== today) continue;
-    if (event.member_email && event.member_email === viewerEmail) continue;
-    const key = event.member_email ?? FAMILY_KEY;
-    const list = byMember.get(key) ?? [];
+    if (event.member_email === viewerEmail) continue;
+    const list = byMember.get(event.member_email) ?? [];
     list.push(event);
-    byMember.set(key, list);
+    byMember.set(event.member_email, list);
   }
 
   const sortByStart = (a: CalendarEvent, b: CalendarEvent) =>
@@ -65,8 +64,7 @@ export async function getOthersDay(
         ? -1
         : 1;
 
-  // Members first (in the order getCalendarMembers returns — owner/parent/kid,
-  // then name), the family bucket last.
+  // Members in the order getCalendarMembers returns (owner/parent/kid, then name).
   const result: MemberDay[] = [];
   for (const member of members) {
     if (member.email === viewerEmail) continue;
@@ -77,15 +75,6 @@ export async function getOthersDay(
       name: member.name ?? member.email,
       color: member.color ?? memberColor(member.email),
       events: list.sort(sortByStart),
-    });
-  }
-  const familyEvents = byMember.get(FAMILY_KEY);
-  if (familyEvents && familyEvents.length > 0) {
-    result.push({
-      email: "",
-      name: "Family",
-      color: memberColor(null),
-      events: familyEvents.sort(sortByStart),
     });
   }
   return result;

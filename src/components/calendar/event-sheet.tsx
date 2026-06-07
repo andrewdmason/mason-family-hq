@@ -332,7 +332,7 @@ function EventForm({
   const isEditingExisting = !!event;
   const [title, setTitle] = useState(event?.title ?? "");
   const [memberEmail, setMemberEmail] = useState<string>(
-    event?.member_email ?? "",
+    event?.member_email ?? members[0]?.email ?? "",
   );
   // Default new events to the first Google calendar when one exists, so the
   // common case (event lands on your real calendar) needs no extra click.
@@ -444,7 +444,6 @@ function EventForm({
               onChange={(e) => setMemberEmail(e.target.value)}
               className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             >
-              <option value="">Family (everyone)</option>
               {members.map((m) => (
                 <option key={m.email} value={m.email}>
                   {m.name ?? m.email}

@@ -40,7 +40,6 @@ import type { EventDisplay } from "./event-card";
 import { setEventGoing } from "@/app/(calendar)/calendar/actions";
 
 type View = "agenda" | "week" | "month";
-const FAMILY = "__family__";
 
 export function CalendarClient({
   members,
@@ -142,14 +141,12 @@ export function CalendarClient({
 
   const memberFiltered = useMemo(() => {
     if (filter === "all") return events;
-    if (filter === FAMILY) return events.filter((e) => !e.member_email);
     return events.filter((e) => e.member_email === filter);
   }, [events, filter]);
 
   // Which members get a column in the agenda. "Family" collapses to no
   // columns (only the shared banner); a single-member filter shows just them.
   const agendaMembers = useMemo(() => {
-    if (filter === FAMILY) return [];
     if (filter === "all") return members;
     return members.filter((m) => m.email === filter);
   }, [filter, members]);
@@ -237,7 +234,6 @@ export function CalendarClient({
       label: m.name ?? m.email,
       color: m.color ?? memberColor(m.email),
     })),
-    { key: FAMILY, label: "Family", color: memberColor(null) },
   ];
 
   return (

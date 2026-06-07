@@ -74,13 +74,6 @@ export function CalendarsManager({
           currentUserEmail={currentUserEmail}
         />
       ))}
-      <CalendarGroup
-        member={null}
-        sources={sources.filter((s) => s.member_email === null)}
-        teamsnapConnected={teamsnapConnected}
-        googleConnectedEmails={googleConnectedEmails}
-        currentUserEmail={currentUserEmail}
-      />
     </div>
   );
 }
@@ -92,15 +85,14 @@ function CalendarGroup({
   googleConnectedEmails,
   currentUserEmail,
 }: {
-  member: CalendarMember | null;
+  member: CalendarMember;
   sources: CalendarSource[];
   teamsnapConnected: boolean;
   googleConnectedEmails: string[];
   currentUserEmail: string;
 }) {
-  const isFamily = member === null;
-  const name = member?.name ?? member?.email ?? "Family (everyone)";
-  const color = member?.color ?? "#64748b";
+  const name = member.name ?? member.email;
+  const color = member.color ?? "#64748b";
   const [adding, setAdding] = useState(false);
 
   // The primary calendar isn't an "import" of itself — hide a Google source that
@@ -108,7 +100,7 @@ function CalendarGroup({
   const importSources = sources.filter(
     (s) =>
       !(
-        member?.primary_calendar_id &&
+        member.primary_calendar_id &&
         s.source_type === "google" &&
         s.google_calendar_id === member.primary_calendar_id
       ),
@@ -126,18 +118,16 @@ function CalendarGroup({
       </header>
 
       <div className="space-y-3 px-4 pb-4">
-        {!isFamily && (
-          <PrimaryCalendar
-            member={member}
-            isCurrentUser={member.email === currentUserEmail}
-            googleConnected={googleConnectedEmails.includes(member.email)}
-          />
-        )}
+        <PrimaryCalendar
+          member={member}
+          isCurrentUser={member.email === currentUserEmail}
+          googleConnected={googleConnectedEmails.includes(member.email)}
+        />
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-muted-foreground">
-              {isFamily ? "Shared calendars" : "Imports into this calendar"}
+              Imports into this calendar
             </span>
             <Button
               size="sm"
@@ -146,7 +136,7 @@ function CalendarGroup({
               aria-expanded={adding}
             >
               <Plus />
-              {isFamily ? "Add calendar" : "Add import"}
+              Add import
             </Button>
           </div>
 
@@ -156,8 +146,6 @@ function CalendarGroup({
             <AddCalendarForm
               member={member}
               teamsnapConnected={teamsnapConnected}
-              googleConnectedEmails={googleConnectedEmails}
-              currentUserEmail={currentUserEmail}
               onDone={() => setAdding(false)}
             />
           )}
@@ -683,10 +671,9 @@ function TeamsnapPlayerLink({ source }: { source: CalendarSource }) {
   );
 }
 
-type AddTab = "ics" | "teamsnap" | "google";
+type AddTab = "ics" | "teamsnap";
 
 const TAB_LABELS: Record<AddTab, string> = {
-  google: "Google",
   ics: "ICS link",
   teamsnap: "TeamSnap",
 };
@@ -694,22 +681,15 @@ const TAB_LABELS: Record<AddTab, string> = {
 function AddCalendarForm({
   member,
   teamsnapConnected,
-  googleConnectedEmails,
-  currentUserEmail,
   onDone,
 }: {
-  member: CalendarMember | null;
+  member: CalendarMember;
   teamsnapConnected: boolean;
-  googleConnectedEmails: string[];
-  currentUserEmail: string;
   onDone: () => void;
 }) {
-  const isFamily = member === null;
-  // Members import ICS feeds and TeamSnap teams (Google is their primary, set up
-  // separately). The family group can add a shared Google calendar or an ICS feed.
-  const tabs: AddTab[] = isFamily ? ["ics", "google"] : ["ics", "teamsnap"];
+  // Imports feed into the member's primary calendar: ICS feeds and TeamSnap teams.
+  const tabs: AddTab[] = ["ics", "teamsnap"];
   const [tab, setTab] = useState<AddTab>("ics");
-  const connectionEmail = isFamily ? currentUserEmail : member.email;
 
   return (
     <div className="space-y-3 rounded-lg border border-dashed border-border p-3">
@@ -732,116 +712,8 @@ function AddCalendarForm({
       </div>
 
       {tab === "ics" && <IcsForm member={member} onDone={onDone} />}
-      {tab === "teamsnap" && !isFamily && (
+      {tab === "teamsnap" && (
         <TeamsnapForm member={member} connected={teamsnapConnected} onDone={onDone} />
-      )}
-      {tab === "google" && isFamily && (
-        <GoogleForm
-          connectionEmail={connectionEmail}
-          connected={googleConnectedEmails.includes(connectionEmail)}
-          onDone={onDone}
-        />
-      )}
-    </div>
-  );
-}
-
-// Adds a shared Google calendar family-wide (member_email null).
-function GoogleForm({
-  connectionEmail,
-  connected,
-  onDone,
-}: {
-  connectionEmail: string;
-  connected: boolean;
-  onDone: () => void;
-}) {
-  const [calendars, setCalendars] = useState<
-    { id: string; summary: string; backgroundColor: string | null }[] | null
-  >(null);
-  const [loading, setLoading] = useState(false);
-  const [pendingId, setPendingId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  async function loadCalendars() {
-    setLoading(true);
-    setError(null);
-    try {
-      const list = await listGoogleCalendarsForConnection(connectionEmail);
-      setCalendars(
-        list.map((c) => ({
-          id: c.id,
-          summary: c.summary,
-          backgroundColor: c.backgroundColor,
-        })),
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't load calendars.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function add(cal: {
-    id: string;
-    summary: string;
-    backgroundColor: string | null;
-  }) {
-    setPendingId(cal.id);
-    setError(null);
-    try {
-      await addGoogleSource({
-        memberEmail: null,
-        connectionEmail,
-        googleCalendarId: cal.id,
-        nickname: cal.summary,
-        color: cal.backgroundColor,
-      });
-      onDone();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't add the calendar.");
-      setPendingId(null);
-    }
-  }
-
-  if (!connected) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Sign in with Google to add a shared calendar from your account.
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      <Button size="sm" variant="outline" onClick={loadCalendars} disabled={loading}>
-        {loading ? "Loading…" : calendars ? "Refresh calendars" : "Show calendars"}
-      </Button>
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      {calendars?.length === 0 && (
-        <p className="text-sm text-muted-foreground">No calendars found.</p>
-      )}
-      {calendars && calendars.length > 0 && (
-        <ul className="space-y-1.5">
-          {calendars.map((c) => (
-            <li key={c.id} className="flex items-center gap-2">
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: c.backgroundColor ?? "#64748b" }}
-                aria-hidden
-              />
-              <span className="min-w-0 flex-1 truncate text-sm">{c.summary}</span>
-              <Button
-                size="icon-sm"
-                onClick={() => add(c)}
-                disabled={pendingId !== null}
-                aria-label="Add calendar"
-              >
-                <Plus />
-              </Button>
-            </li>
-          ))}
-        </ul>
       )}
     </div>
   );
