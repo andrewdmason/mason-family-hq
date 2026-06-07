@@ -3,7 +3,14 @@
 import { AlertTriangle, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatTimeRange } from "@/lib/calendar/calendar-utils";
+import { MemberAvatar } from "@/components/journal/member-avatar";
 import type { CalendarEvent, TeamsnapRsvp } from "@/lib/calendar/types";
+
+export interface EventAttendee {
+  email: string;
+  name: string | null;
+  color: string;
+}
 
 export interface EventDisplay {
   event: CalendarEvent;
@@ -18,6 +25,23 @@ export interface EventDisplay {
   // The player's RSVP state for a linked TeamSnap event, or null when RSVP
   // doesn't apply (no team source, or no player linked to it).
   rsvp: TeamsnapRsvp | null;
+  // Family members (besides the owner) on this event — rendered as avatars on
+  // the card, and as ghost blocks in their own columns.
+  attendees: EventAttendee[];
+}
+
+/** Overlapping avatars for the other family members on an event. */
+function AttendeeAvatars({ attendees }: { attendees: EventAttendee[] }) {
+  if (attendees.length === 0) return null;
+  return (
+    <span className="flex items-center -space-x-1">
+      {attendees.slice(0, 4).map((a) => (
+        <span key={a.email} title={a.name ?? a.email} className="inline-flex">
+          <MemberAvatar name={a.name} size="sm" className="ring-1 ring-card" />
+        </span>
+      ))}
+    </span>
+  );
 }
 
 /** A small pill for an event's RSVP state. "Needs RSVP" is the actionable one;
@@ -63,7 +87,7 @@ export function EventRow({
   showLocation?: boolean;
   memberBadge?: { name: string; color: string } | null;
 }) {
-  const { event, color, sourceLabel, conflict, rsvp } = display;
+  const { event, color, sourceLabel, conflict, rsvp, attendees } = display;
   return (
     <button
       type="button"
@@ -109,6 +133,7 @@ export function EventRow({
               {event.location}
             </span>
           )}
+          {attendees.length > 0 && <AttendeeAvatars attendees={attendees} />}
         </span>
       </span>
     </button>
@@ -128,7 +153,7 @@ export function EventColumnCard({
   onClick: (event: CalendarEvent) => void;
   selected?: boolean;
 }) {
-  const { event, color, conflict, rsvp, calendarLabel } = display;
+  const { event, color, conflict, rsvp, calendarLabel, attendees } = display;
   const time = event.all_day
     ? "All day"
     : new Date(event.start_time).toLocaleTimeString("en-US", {
@@ -161,6 +186,46 @@ export function EventColumnCard({
         {calendarLabel && (
           <span className="text-muted-foreground">{calendarLabel}: </span>
         )}
+        {event.title}
+      </span>
+      {attendees.length > 0 && (
+        <span className="mt-1 flex">
+          <AttendeeAvatars attendees={attendees} />
+        </span>
+      )}
+    </button>
+  );
+}
+
+/** A muted "busy" placeholder shown in an attendee's column for an event owned by
+ * someone else — so a shared event reads as one card in the owner's column while
+ * still blocking the attendees' time. Clickable to open the same event. */
+export function EventGhost({
+  display,
+  onClick,
+}: {
+  display: EventDisplay;
+  onClick: (event: CalendarEvent) => void;
+}) {
+  const { event, color } = display;
+  const time = event.all_day
+    ? "All day"
+    : new Date(event.start_time).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+      });
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(event)}
+      title={`${event.title} (you're going)`}
+      style={{ borderLeftColor: color }}
+      className="block w-full rounded-md border border-dashed border-border/60 border-l-[3px] bg-muted/30 px-2 py-1.5 text-left opacity-70 transition-opacity hover:opacity-100"
+    >
+      <span className="text-[11px] tabular-nums text-muted-foreground">
+        {time}
+      </span>
+      <span className="mt-0.5 line-clamp-2 text-xs italic leading-snug text-muted-foreground">
         {event.title}
       </span>
     </button>

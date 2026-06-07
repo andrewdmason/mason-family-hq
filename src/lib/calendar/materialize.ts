@@ -22,6 +22,7 @@ import {
   insertGoogleEvent,
   patchGoogleEvent,
   deleteGoogleEvent,
+  getGoogleEvent,
   eventToGoogleBody,
   FAMILYHQ_MARKER,
   type GoogleCredential,
@@ -473,10 +474,35 @@ export async function reconcileEventGuests(
 
   if (!googleEventId || !calendarId || !cred) return;
 
-  const attendees = await guestList(supabase, eventId);
-  await patchGoogleEvent(cred, calendarId, googleEventId, { attendees }, {
-    sendUpdates: "none",
-  });
+  // Merge our "going" toggles into the event's CURRENT guest list rather than
+  // replacing it — so guests we don't track (someone invited directly in Google,
+  // a coach) are never wiped when a family member toggles going.
+  const currentEvent = await getGoogleEvent(cred, calendarId, googleEventId);
+  if (!currentEvent) return;
+  const byEmail = new Map<string, { email: string; responseStatus?: string }>();
+  for (const a of currentEvent.attendees ?? []) {
+    if (a.email) byEmail.set(a.email, { email: a.email, responseStatus: a.responseStatus });
+  }
+  const { data: rows } = await supabase
+    .from("event_attendees")
+    .select("member_email, going")
+    .eq("event_id", eventId);
+  for (const r of rows ?? []) {
+    const email = r.member_email as string;
+    if (r.going) {
+      if (!byEmail.has(email)) byEmail.set(email, { email, responseStatus: "accepted" });
+    } else {
+      byEmail.delete(email);
+    }
+  }
+
+  await patchGoogleEvent(
+    cred,
+    calendarId,
+    googleEventId,
+    { attendees: [...byEmail.values()] },
+    { sendUpdates: "none" },
+  );
 }
 
 /** Materialize a single event on demand (its owning member's primary calendar),

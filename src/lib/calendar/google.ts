@@ -330,6 +330,28 @@ export async function deleteGoogleEvent(
   }
 }
 
+// Fetch a single event (for merging guest changes without clobbering others).
+// Returns null if it's gone (404/410).
+export async function getGoogleEvent(
+  cred: GoogleCredential,
+  calendarId: string,
+  eventId: string,
+): Promise<GoogleEvent | null> {
+  const token = await resolveToken(cred);
+  try {
+    const res = await googleFetch(
+      token,
+      `/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+      { method: "GET" },
+    );
+    return res.json();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    if (/error 40[049]/.test(msg)) return null;
+    throw err;
+  }
+}
+
 // Grant a family member read access to a calendar (acl.insert), so they see it
 // natively with its own color and can be a guest on its events. Run as the
 // calendar's owner. Notifications suppressed; already-shared (409) is success.

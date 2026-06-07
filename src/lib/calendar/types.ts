@@ -19,6 +19,9 @@ export interface CalendarEvent {
   all_day: boolean;
   source_type: CalendarSourceType;
   external_id: string | null;
+  // The real Google event id when this row was materialized by the importer.
+  // Used to collapse an event and its guest copies into one logical event.
+  google_event_id: string | null;
   teamsnap_opponent: string | null;
   teamsnap_arrival_time: string | null;
   teamsnap_is_game: boolean | null;
