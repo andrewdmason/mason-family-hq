@@ -18,7 +18,9 @@ const TOOLS = [
     name: "write_wrap",
     description:
       "Wrap today's entry. Produces two things at once:\n\n" +
-      "• `summary`: a single concise sentence, past tense, factual — describes what was discussed. e.g. 'Talked about feeling stuck on the second movement of the Bach.' Not a quote, not a feeling-label. This becomes the entry's subtitle in the journal list, so make it read well at a glance.\n\n" +
+      "• `summary`: the entry's subtitle in the journal list — make it read well at a glance. Its STYLE depends on whether this entry is SHARED with the family or PERSONAL to the writer (you are told which in the wrap instructions below):\n" +
+      "    – SHARED → one evocative sentence in the spirit of a New Yorker article's subtitle. Set the scene, or name the turning point of what happened; present or timeless tense. Do NOT narrate the conversation ('Talked about…', 'Described…', 'Reflected on…', 'Recounted…'). Use people's real first names — never 'a boy', 'an engineer', 'a fifth grader'. One sentence; leave a little unsaid. e.g. \"The umpire never showed, so Sebastian and Theo stepped behind the plate — and an ordinary Saturday turned into the season's best.\"\n" +
+      "    – PERSONAL → a short, semicolon-separated list of the topics and ideas the writer moved through. NOT a sentence — a list. Sentence case (capitalize the first word of each item; keep proper nouns). At most 4 items. Use real first names. e.g. \"Saying 'retired' out loud; The fear of the label; Fading anxiety about unproductive days; A growing allergy to busywork\".\n\n" +
       "• `pull_quote` (optional): a short verbatim line — 5 to 18 words — taken from something the user actually said in the conversation. Pick the most striking, vulnerable, or specific moment. Do not paraphrase. Do not include attribution. Skip entirely if the user didn't say anything worth pulling (e.g. mostly one-word answers, dismissed without engaging).\n\n" +
       "Do NOT write a title — the writer titles the entry themselves.",
     input_schema: {
@@ -80,7 +82,7 @@ export async function runWrap(entryId: string): Promise<WrapResult> {
 
   const { data: entry, error: entryErr } = await supabase
     .from("journal_entries")
-    .select("id, entry_date, status, summary, title, user_id")
+    .select("id, entry_date, status, summary, title, user_id, visibility")
     .eq("id", entryId)
     .single();
   if (entryErr || !entry) {
@@ -141,10 +143,18 @@ export async function runWrap(entryId: string): Promise<WrapResult> {
           .join("\n")}`
       : "";
 
+  // The summary's style branches on who the entry is for: a SHARED entry gets a
+  // New Yorker-style scene/turn subtitle; a PERSONAL one gets a semicolon list of
+  // topics. Tell the model which this is so it picks the right style.
+  const styleLine =
+    entry.visibility === "family"
+      ? "This entry is SHARED with the family — write its `summary` in the SHARED style (a New Yorker-style subtitle)."
+      : "This entry is PERSONAL to the writer — write its `summary` in the PERSONAL style (a semicolon-separated list of topics).";
+
   const system =
     baseSystem +
     `\n\n=== Wrap pass ===
-The user has finished today's entry.
+The user has finished today's entry. ${styleLine}
 
 1. Call \`write_wrap\` exactly once. It produces a summary and (optionally) a verbatim pull quote from something the user said. See the tool description for the bar on each. Do not write a title — the user titles the entry themselves.
 
