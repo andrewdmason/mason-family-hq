@@ -8,6 +8,10 @@ import { WorkoutsHeader } from "@/components/workouts/workouts-header";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Movements",
+};
+
 export default async function MovementsPage() {
   const supabase = await createClient();
   // The library is shared vocabulary; curating it is owner-only.

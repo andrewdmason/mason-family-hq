@@ -25,6 +25,10 @@ import type {
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Journal Entry",
+};
+
 export default async function EntryPage({
   params,
 }: {

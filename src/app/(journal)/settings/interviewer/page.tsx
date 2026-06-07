@@ -5,6 +5,10 @@ import { resolveSettingsScope, type SettingsScope } from "@/lib/journal/scope";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Interviewer Settings",
+};
+
 export default async function InterviewerSettingsPage({
   searchParams,
 }: {

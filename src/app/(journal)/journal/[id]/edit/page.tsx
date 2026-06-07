@@ -7,6 +7,10 @@ import type { JournalEntry, JournalMessage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Edit Entry",
+};
+
 export default async function EditEntryPage({
   params,
 }: {

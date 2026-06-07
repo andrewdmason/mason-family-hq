@@ -1,6 +1,10 @@
 import { GlobalHeader } from "@/components/layout/global-header";
 import { TimezoneProvider } from "@/components/timezone-provider";
 
+export const metadata = {
+  title: "Calendar",
+};
+
 export default function CalendarLayout({
   children,
 }: {

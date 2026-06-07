@@ -11,6 +11,10 @@ import type { JournalMessage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "New Entry",
+};
+
 export default async function NewEntryPage({
   searchParams,
 }: {

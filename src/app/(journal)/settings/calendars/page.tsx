@@ -10,6 +10,10 @@ import { CalendarsManager } from "@/components/journal/calendars-manager";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Calendar Settings",
+};
+
 export default async function CalendarsSettingsPage() {
   // Owner/parent only — the roles that manage calendars. Kids are bounced to
   // the first settings tab.

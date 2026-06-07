@@ -13,6 +13,10 @@ import {
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "Family Settings",
+};
+
 export default async function FamilySettingsPage() {
   // Owner-only. Non-owners are bounced to the first settings tab.
   if (!(await getIsOwner())) {

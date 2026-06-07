@@ -6,6 +6,10 @@ import { WhoopConnect } from "@/components/journal/whoop-connect";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = {
+  title: "WHOOP Settings",
+};
+
 export default async function WhoopSettingsPage() {
   // Owner-only — the workouts logger is the owner's private app.
   const supabase = await createClient();

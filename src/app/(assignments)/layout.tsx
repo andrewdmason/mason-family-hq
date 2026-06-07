@@ -1,5 +1,9 @@
 import { GlobalHeader } from "@/components/layout/global-header";
 
+export const metadata = {
+  title: "Assignments",
+};
+
 export default function AssignmentsLayout({
   children,
 }: {

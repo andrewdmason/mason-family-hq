@@ -2,6 +2,10 @@ import { createClient } from "@/lib/supabase/server";
 import { RepertoireList } from "@/components/repertoire/repertoire-list";
 import type { Piece, WorkWithPieces } from "@/lib/types";
 
+export const metadata = {
+  title: "Repertoire",
+};
+
 export default async function RepertoirePage() {
   const supabase = await createClient();
 

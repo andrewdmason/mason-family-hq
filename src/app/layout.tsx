@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Lora } from "next/font/google";
 import "./globals.css";
@@ -14,8 +14,38 @@ const lora = Lora({
 });
 
 export const metadata: Metadata = {
-  title: "Mason Family HQ",
+  // Every page sets its own title (its app/view name); the template appends the
+  // product name so a browser tab or home-screen launch reads e.g. "Reader ·
+  // Mason Family HQ". Pages with no title fall back to the default.
+  title: {
+    default: "Mason Family HQ",
+    template: "%s · Mason Family HQ",
+  },
   description: "The Mason family's private home base",
+  applicationName: "Mason Family HQ",
+  // Makes the iPhone home-screen launch run standalone (no Safari chrome) with
+  // a translucent status bar and the right home-screen label.
+  appleWebApp: {
+    capable: true,
+    title: "Family HQ",
+    statusBarStyle: "default",
+  },
+  // Next emits the modern `mobile-web-app-capable`; older iOS still looks for the
+  // apple-prefixed tag, so set it too for maximum standalone compatibility.
+  other: {
+    "apple-mobile-web-app-capable": "yes",
+  },
+  // A private family app — keep it out of search indexes.
+  robots: { index: false, follow: false },
+};
+
+export const viewport: Viewport = {
+  // Cover the notch/safe areas so standalone mode fills the screen, and pin the
+  // browser/status-bar tint to the warm terracotta theme.
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#7f4327",
 };
 
 export default function RootLayout({

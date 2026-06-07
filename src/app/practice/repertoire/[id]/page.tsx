@@ -28,6 +28,10 @@ import { PerformancesPanel } from "@/components/repertoire/performances-panel";
 import { getPieceCumulativeData, getPieceCompletionByWeek } from "@/app/practice/reports/actions";
 import type { Piece, Work } from "@/lib/types";
 
+export const metadata = {
+  title: "Piece",
+};
+
 export default async function PieceDetailPage({
   params,
 }: {
