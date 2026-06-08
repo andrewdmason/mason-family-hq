@@ -10,7 +10,7 @@ import { parseWorkoutDescription } from "@/lib/workouts/parse";
 import { loadMovementVocabulary } from "@/lib/workouts/canonicalize";
 import { materializeSession } from "@/lib/workouts/materialize";
 import { computeSetE1rm } from "@/lib/workouts/e1rm";
-import { pushSessionToWhoop, markSessionWhoopDirty } from "@/lib/whoop/push";
+import { pushSessionToWhoop, markSessionWhoopDirty, type PushResult } from "@/lib/whoop/push";
 import { ensureSessionForEvent } from "@/lib/workouts/session";
 import type { WorkoutRxLevel } from "@/lib/workouts/types";
 
@@ -310,9 +310,10 @@ export async function setSessionCompleted(
   revalidatePath("/home");
 }
 
-/** Manually (re-)push a session to WHOOP — the chip's "send"/"retry"/"re-send"
- * action. Returns nothing; the refreshed sync chip reflects the outcome. */
-export async function resendToWhoop(sessionId: string): Promise<void> {
+/** Manually (re-)push a session to WHOOP — the panel's "send"/"retry"/"re-send"
+ * action. Returns the push result so the panel can show an immediate status
+ * readout; the revalidated panel also reflects the persisted outcome. */
+export async function resendToWhoop(sessionId: string): Promise<PushResult> {
   const supabase = await createClient();
   await requireUserId(supabase);
   // Confirm the caller owns the session (RLS-scoped read) before pushing.
@@ -322,8 +323,9 @@ export async function resendToWhoop(sessionId: string): Promise<void> {
     .eq("id", sessionId)
     .maybeSingle();
   if (!data) throw new Error("Session not found");
-  await pushSessionToWhoop(sessionId);
+  const result = await pushSessionToWhoop(sessionId);
   revalidatePath(`/workouts/${sessionId}`);
+  return result;
 }
 
 export async function saveSessionNotes(

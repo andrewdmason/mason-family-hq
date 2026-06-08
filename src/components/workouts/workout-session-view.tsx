@@ -27,9 +27,17 @@ import { SessionNotes } from "@/components/workouts/session-notes";
 import { SessionEffort } from "@/components/workouts/session-effort";
 import { ReparseButton } from "@/components/workouts/reparse-button";
 import { CompleteToggle } from "@/components/workouts/complete-toggle";
-import { WhoopSyncChip } from "@/components/workouts/whoop-sync-chip";
+import { WhoopSyncPanel } from "@/components/workouts/whoop-sync-panel";
+import {
+  SessionEditProvider,
+  EditingOnly,
+  LockedOnly,
+} from "@/components/workouts/session-edit-context";
+import { WorkoutSummary } from "@/components/workouts/workout-summary";
+import { SessionActionsMenu } from "@/components/workouts/session-actions-menu";
 import { requireUserId } from "@/lib/members/auth";
 import { hasWhoopConnection } from "@/lib/whoop/auth";
+import { buildSessionDryRun } from "@/lib/whoop/push";
 import { CalendarSourcePopover } from "@/components/workouts/calendar-source-popover";
 import { SwapSuggestion } from "@/components/workouts/swap-button";
 import { EditEntryButton } from "@/components/workouts/edit-entry-button";
@@ -61,6 +69,13 @@ export async function WorkoutSessionView({ sessionId }: { sessionId: string }) {
     .eq("user_id", userId)
     .maybeSingle();
   const whoopConnected = me?.email ? await hasWhoopConnection(me.email as string) : false;
+
+  // A completed session locks to a read-only "done" view (Edit reopens it). The
+  // WHOOP follow-up — with a preview of exactly what's sent — is offered once the
+  // workout is done and a connection exists.
+  const completed = session.completedAt !== null;
+  const whoopPreview =
+    whoopConnected && completed ? await buildSessionDryRun(session.id) : null;
 
   // Fetch per-movement history (loaded movements) and benchmark attempts in
   // parallel — this is the comparison data the gym view leans on.
@@ -132,7 +147,7 @@ export async function WorkoutSessionView({ sessionId }: { sessionId: string }) {
   const isUnparsed = session.parsedAt === null && session.blocks.length === 0;
 
   return (
-    <>
+    <SessionEditProvider completed={completed}>
       <header className="mb-5">
         {session.rawDescription ? (
           <CalendarSourcePopover
@@ -153,9 +168,13 @@ export async function WorkoutSessionView({ sessionId }: { sessionId: string }) {
             {session.source === "calendar" ? "From calendar" : "Logged"}
           </div>
         )}
-        <h1 className="mt-1 font-serif text-2xl tracking-tight text-foreground">
-          {session.title ?? "Workout"}
-        </h1>
+        <div className="mt-1 flex items-start justify-between gap-2">
+          <h1 className="font-serif text-2xl tracking-tight text-foreground">
+            {session.title ?? "Workout"}
+          </h1>
+          {/* Edit / Reopen live here, next to the title, in the completed state. */}
+          <SessionActionsMenu sessionId={session.id} completed={completed} />
+        </div>
       </header>
 
       {isUnparsed && (
@@ -174,56 +193,70 @@ export async function WorkoutSessionView({ sessionId }: { sessionId: string }) {
         </div>
       )}
 
-      <div className="flex flex-col gap-5">
-        {groupBlocks(session.blocks).map((group) =>
-          group.blocks.length > 1 ? (
-            <WodGroupCard
-              key={group.key}
-              group={group}
-              sessionId={session.id}
-              entryHistory={entryHistory}
-              hintByEntry={hintByEntry}
-              subByEntry={subByEntry}
-              benchmarkAttempts={benchmarkAttempts}
-              today={today}
-            />
-          ) : (
-            <BlockCard
-              key={group.blocks[0].id}
-              block={group.blocks[0]}
-              sessionId={session.id}
-              entryHistory={entryHistory}
-              hintByEntry={hintByEntry}
-              subByEntry={subByEntry}
-              benchmarkAttempts={benchmarkAttempts.get(group.blocks[0].id) ?? []}
-              today={today}
-            />
-          )
-        )}
-      </div>
+      {/* Completed + locked: one green recap card, with the WHOOP follow-up inside. */}
+      <LockedOnly>
+        <WorkoutSummary
+          session={session}
+          whoop={
+            whoopConnected ? (
+              <WhoopSyncPanel
+                sessionId={session.id}
+                status={session.whoopSyncStatus}
+                syncedAt={session.whoopSyncedAt}
+                error={session.whoopSyncError}
+                preview={whoopPreview}
+              />
+            ) : null
+          }
+        />
+      </LockedOnly>
 
-      <div className="mt-6 flex flex-col gap-4">
-        <SessionEffort sessionId={session.id} initial={session.rpe} />
-        <SessionNotes sessionId={session.id} initial={session.notes} />
-        <div className="flex items-center justify-between border-t border-border/60 pt-4">
-          {whoopConnected ? (
-            <WhoopSyncChip
-              sessionId={session.id}
-              connected={whoopConnected}
-              status={session.whoopSyncStatus}
-              syncedAt={session.whoopSyncedAt}
-              error={session.whoopSyncError}
-            />
-          ) : (
-            <span />
+      {/* Incomplete, or completed + "Edit": the full editable logging form. */}
+      <EditingOnly>
+        <div className="flex flex-col gap-5">
+          {groupBlocks(session.blocks).map((group) =>
+            group.blocks.length > 1 ? (
+              <WodGroupCard
+                key={group.key}
+                group={group}
+                sessionId={session.id}
+                entryHistory={entryHistory}
+                hintByEntry={hintByEntry}
+                subByEntry={subByEntry}
+                benchmarkAttempts={benchmarkAttempts}
+                today={today}
+              />
+            ) : (
+              <BlockCard
+                key={group.blocks[0].id}
+                block={group.blocks[0]}
+                sessionId={session.id}
+                entryHistory={entryHistory}
+                hintByEntry={hintByEntry}
+                subByEntry={subByEntry}
+                benchmarkAttempts={benchmarkAttempts.get(group.blocks[0].id) ?? []}
+                today={today}
+              />
+            )
           )}
-          <CompleteToggle
-            sessionId={session.id}
-            completed={session.completedAt !== null}
-          />
         </div>
-      </div>
-    </>
+
+        <div className="mt-6 flex flex-col gap-4">
+          <SessionEffort sessionId={session.id} initial={session.rpe} />
+          <SessionNotes sessionId={session.id} initial={session.notes} />
+        </div>
+
+        {/* Incomplete only: the primary "Mark done" CTA. (A completed session
+            being edited uses the ⋯ menu's Done editing / Reopen instead.) */}
+        {!completed && (
+          <div className="mt-6 flex border-t border-border/60 pt-4">
+            <div className="ml-auto">
+              <CompleteToggle sessionId={session.id} />
+            </div>
+          </div>
+        )}
+      </EditingOnly>
+    </SessionEditProvider>
   );
 }
 

@@ -7,7 +7,12 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasWhoopConnection, getValidWhoopConnection } from "./auth";
 import { whoopApi } from "./client";
-import { buildLiftBody, type InputExercise, type LiftBody } from "./build-lift-body";
+import {
+  buildLiftBody,
+  type InputExercise,
+  type LiftBody,
+  type UnknownExercise,
+} from "./build-lift-body";
 import { toKg } from "./units";
 
 const LIFT_PATH = "/weightlifting-service/v2/weightlifting-workout/activity";
@@ -126,6 +131,8 @@ async function gatherExercises(
         .map((s) => ({
           reps: s.actual_reps as number,
           weightKg: s.metric_type === "load_reps" && s.actual_load ? toKg(s.actual_load, s.actual_unit) : 0,
+          weight: s.metric_type === "load_reps" ? s.actual_load : null,
+          unit: s.actual_unit,
         }));
 
       if (sets.length === 0) {
@@ -176,24 +183,34 @@ async function writeState(
  * Build the payload without sending — for safe inspection/verification. Uses a
  * placeholder timezone since no token/connection is needed.
  */
-export async function buildSessionDryRun(sessionId: string): Promise<{
+export interface DryRunResult {
   body: LiftBody | null;
   setCount: number;
   exerciseCount: number;
   skipped: string[];
-  unknownExercises: string[];
-}> {
+  unknownExercises: UnknownExercise[];
+  /** The exercises that will actually be sent (catalog-known), in send order. */
+  exercises: InputExercise[];
+}
+
+export async function buildSessionDryRun(sessionId: string): Promise<DryRunResult> {
   const admin = createAdminClient();
   const meta = await loadSessionMeta(admin, sessionId);
-  if (!meta) return { body: null, setCount: 0, exerciseCount: 0, skipped: [], unknownExercises: [] };
+  if (!meta) {
+    return { body: null, setCount: 0, exerciseCount: 0, skipped: [], unknownExercises: [], exercises: [] };
+  }
   const { exercises, skipped } = await gatherExercises(admin, sessionId);
   const built = buildForSession(meta, exercises, "America/Los_Angeles");
+  // Drop the ones the catalog couldn't resolve so the preview matches what's sent.
+  const unknownIds = new Set(built.unknownExercises.map((u) => u.exerciseId));
+  const willSend = exercises.filter((e) => !unknownIds.has(e.exerciseId));
   return {
     body: built.body,
     setCount: built.setCount,
     exerciseCount: built.exerciseCount,
     skipped,
     unknownExercises: built.unknownExercises,
+    exercises: willSend,
   };
 }
 

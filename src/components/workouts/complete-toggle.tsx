@@ -1,44 +1,29 @@
 "use client";
 
 import { useTransition } from "react";
-import { Loader2, CheckCircle2, Circle } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Loader2, CheckCircle2 } from "lucide-react";
 import { setSessionCompleted } from "@/app/(workouts)/workouts/actions";
 
 /**
- * Marks a session done. While today's workout is incomplete the home widget keeps
- * it in focus; completing it shifts focus to the next scheduled workout.
+ * The primary "Mark done" CTA for an incomplete session. Completing it shifts the
+ * home widget's focus to the next scheduled workout. Reopening a completed
+ * session lives in the title's "⋯" menu (SessionActionsMenu), not here.
  */
-export function CompleteToggle({
-  sessionId,
-  completed,
-}: {
-  sessionId: string;
-  completed: boolean;
-}) {
+export function CompleteToggle({ sessionId }: { sessionId: string }) {
   const [pending, startTransition] = useTransition();
   return (
     <button
       type="button"
       disabled={pending}
-      onClick={() =>
-        startTransition(() => setSessionCompleted(sessionId, !completed))
-      }
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors disabled:opacity-60",
-        completed
-          ? "border-primary/30 bg-primary/10 text-primary"
-          : "border-input text-muted-foreground hover:bg-accent hover:text-foreground"
-      )}
+      onClick={() => startTransition(() => setSessionCompleted(sessionId, true))}
+      className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
     >
       {pending ? (
         <Loader2 className="size-4 animate-spin" />
-      ) : completed ? (
-        <CheckCircle2 className="size-4" />
       ) : (
-        <Circle className="size-4" />
+        <CheckCircle2 className="size-4" />
       )}
-      {completed ? "Completed" : "Mark done"}
+      Mark done
     </button>
   );
 }
