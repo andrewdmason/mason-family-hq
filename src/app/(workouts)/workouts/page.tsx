@@ -5,13 +5,18 @@ import { requireUserId, getIsOwner } from "@/lib/members/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { listWorkoutEvents } from "@/lib/workouts/calendar";
 import { getWorkoutTrend } from "@/lib/workouts/progress";
+import { getTodayWorkout, type FocusItem } from "@/lib/home/workouts";
+import { ensureSessionForEvent } from "@/lib/workouts/session";
 import { dayLabel, formatSessionDate, relativeDays } from "@/lib/workouts/format";
 import { OpenEventButton } from "@/components/workouts/open-event-button";
 import { WorkoutsHeader } from "@/components/workouts/workouts-header";
 import { WorkoutTrendWidget } from "@/components/workouts/workout-trend-widget";
+import { WorkoutSessionView } from "@/components/workouts/workout-session-view";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
+
+type View = "today" | "upcoming" | "history";
 
 type TodoRow =
   | { kind: "event"; date: string; title: string; eventId: string }
@@ -36,10 +41,17 @@ export default async function WorkoutsPage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const { tab } = await searchParams;
-  const activeTab = tab === "completed" ? "completed" : "todo";
+  const view: View =
+    tab === "completed" ? "history" : tab === "upcoming" ? "upcoming" : "today";
 
   const supabase = await createClient();
   const userId = await requireUserId(supabase);
+  const isOwner = await getIsOwner(supabase);
+
+  if (view === "today") {
+    return <TodayView supabase={supabase} userId={userId} isOwner={isOwner} />;
+  }
+
   const tz = await getUserTimezone();
   const today = localDate(new Date(), tz);
 
@@ -47,7 +59,7 @@ export default async function WorkoutsPage({
   const fromIso = new Date(now.getTime() - 12 * 3600_000).toISOString();
   const toIso = new Date(now.getTime() + 21 * 86_400_000).toISOString();
 
-  const [{ data: sessionRows }, events, isOwner] = await Promise.all([
+  const [{ data: sessionRows }, events] = await Promise.all([
     supabase
       .from("workout_sessions")
       .select(
@@ -55,7 +67,6 @@ export default async function WorkoutsPage({
       )
       .order("session_date", { ascending: false }),
     listWorkoutEvents(supabase, userId, { fromIso, toIso }).catch(() => []),
-    getIsOwner(supabase),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -104,17 +115,13 @@ export default async function WorkoutsPage({
     .map((s) => ({ date: s.date, title: s.title, blockCount: s.blockCount, id: s.id }))
     .sort((a, b) => b.date.localeCompare(a.date));
 
-  const trend =
-    activeTab === "completed" ? null : await getWorkoutTrend(supabase, today);
+  const trend = view === "history" ? null : await getWorkoutTrend(supabase, today);
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 sm:px-6">
-      <WorkoutsHeader
-        active={activeTab === "completed" ? "history" : "home"}
-        isOwner={isOwner}
-      />
+      <WorkoutsHeader active={view} isOwner={isOwner} />
 
-      {activeTab === "completed" ? (
+      {view === "history" ? (
         <DoneTable rows={doneRows} today={today} />
       ) : (
         <>
@@ -130,6 +137,92 @@ export default async function WorkoutsPage({
         </>
       )}
     </main>
+  );
+}
+
+/**
+ * The default Today tab: today's workout, opened and ready to log inline. An
+ * unopened calendar workout is parsed on first render (idempotent — only the
+ * first visit pays the AI parse). A perpetually-unparseable event resolves to a
+ * session row instead and shows its raw description + re-parse button, so we
+ * never re-fire the parse on every load.
+ */
+async function TodayView({
+  supabase,
+  userId,
+  isOwner,
+}: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  userId: string;
+  isOwner: boolean;
+}) {
+  const tz = await getUserTimezone();
+  const today = localDate(new Date(), tz);
+  const { today: focus, todayCompleted, next } = await getTodayWorkout();
+
+  let sessionId: string | null = null;
+  if (focus?.kind === "session") {
+    sessionId = focus.sessionId;
+  } else if (focus?.kind === "event") {
+    sessionId = await ensureSessionForEvent(supabase, userId, focus.eventId);
+  }
+
+  return (
+    <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-6 sm:px-6">
+      <WorkoutsHeader active="today" isOwner={isOwner} />
+
+      {sessionId ? (
+        <>
+          <WorkoutSessionView sessionId={sessionId} />
+          {todayCompleted && next && <NextUpNote next={next} today={today} />}
+        </>
+      ) : (
+        <RestDayState />
+      )}
+    </main>
+  );
+}
+
+function NextUpNote({ next, today }: { next: FocusItem; today: string }) {
+  return (
+    <div className="mt-6 flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/20 p-4">
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Next up · {dayLabel(next.date, today)}
+        </p>
+        <p className="mt-0.5 font-medium text-foreground">{next.title}</p>
+      </div>
+      {next.kind === "session" ? (
+        <Link
+          href={`/workouts/${next.sessionId}`}
+          className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+        >
+          Open
+          <ChevronRight className="size-4" />
+        </Link>
+      ) : (
+        <OpenEventButton eventId={next.eventId} label="Open" />
+      )}
+    </div>
+  );
+}
+
+function RestDayState() {
+  return (
+    <div className="rounded-xl border border-border bg-card p-10 text-center">
+      <Dumbbell className="mx-auto size-7 text-muted-foreground" />
+      <h2 className="mt-3 font-serif text-xl text-foreground">Rest day</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Nothing scheduled today. Enjoy the recovery.
+      </p>
+      <Link
+        href="/workouts?tab=upcoming"
+        className="mt-4 inline-flex items-center gap-1 text-sm text-primary hover:underline"
+      >
+        See upcoming workouts
+        <ChevronRight className="size-4" />
+      </Link>
+    </div>
   );
 }
 

@@ -25,9 +25,25 @@ export type HomeWorkout = {
   todayCompleted: boolean;
 } | null;
 
+/** Today's workout, plus the next one — the building blocks for the Today tab. */
+export type TodayWorkout = {
+  /** Today's workout: an opened session (any state) or an unopened CFO event. */
+  today: FocusItem | null;
+  /** True when today's workout is an opened session that's been completed. */
+  todayCompleted: boolean;
+  /** The soonest workout strictly after today, if any. */
+  next: FocusItem | null;
+};
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export async function getHomeWorkout(): Promise<HomeWorkout> {
+/**
+ * Shared resolver: partition the user's upcoming workouts into today's focus and
+ * the next scheduled item. Opened sessions take priority over unopened calendar
+ * events on the same day; an event only surfaces here when no session row exists
+ * for it yet (so the Today tab knows it still needs a parse-on-open).
+ */
+async function resolveFocus(): Promise<TodayWorkout> {
   const supabase = await createClient();
   const userId = await requireUserId(supabase);
   const tz = await getUserTimezone();
@@ -37,10 +53,11 @@ export async function getHomeWorkout(): Promise<HomeWorkout> {
   const { data: sessionRows } = await supabase
     .from("workout_sessions")
     .select(
-      "id, title, session_date, completed_at, calendar_event_id, workout_blocks(count)"
+      "id, title, session_date, completed_at, created_at, calendar_event_id, workout_blocks(count)"
     )
     .gte("session_date", today)
-    .order("session_date", { ascending: true });
+    .order("session_date", { ascending: true })
+    .order("created_at", { ascending: false });
 
   const sessions = ((sessionRows ?? []) as any[]).map((s) => ({
     kind: "session" as const,
@@ -78,11 +95,18 @@ export async function getHomeWorkout(): Promise<HomeWorkout> {
     }
   );
 
-  // Today: prefer an opened session over an unopened event.
-  const todaySession = sessionItems.find(
-    (i) => i.kind === "session" && i.date === today
-  );
-  const todayEvent = eventItems.find((e) => e.date === today);
+  // Today: prefer an opened session over an unopened event. Among same-day
+  // sessions, prefer one that's still open, then the most recently created
+  // (rows are ordered created_at desc, so the first match wins).
+  const todaySessions = sessions.filter((s) => s.date === today);
+  const todaySessionPick =
+    todaySessions.find((s) => !s.completed) ?? todaySessions[0] ?? null;
+  const todaySession = todaySessionPick
+    ? (sessionItems.find(
+        (i) => i.kind === "session" && i.sessionId === todaySessionPick.sessionId
+      ) ?? null)
+    : null;
+  const todayEvent = eventItems.find((e) => e.date === today) ?? null;
   const todayItem = todaySession ?? todayEvent ?? null;
   const todayCompleted =
     todayItem?.kind === "session" ? todayItem.completed : false;
@@ -93,6 +117,12 @@ export async function getHomeWorkout(): Promise<HomeWorkout> {
     ...eventItems.filter((e) => e.date > today),
   ].sort((a, b) => a.date.localeCompare(b.date));
   const nextItem = future[0] ?? null;
+
+  return { today: todayItem, todayCompleted, next: nextItem };
+}
+
+export async function getHomeWorkout(): Promise<HomeWorkout> {
+  const { today: todayItem, todayCompleted, next: nextItem } = await resolveFocus();
 
   // Focus rules.
   if (todayItem && !todayCompleted) {
@@ -106,5 +136,10 @@ export async function getHomeWorkout(): Promise<HomeWorkout> {
     return { focus: nextItem, todayCompleted: false };
   }
   return null;
+}
+
+/** Resolve today's workout and the next one for the Workouts "Today" tab. */
+export async function getTodayWorkout(): Promise<TodayWorkout> {
+  return resolveFocus();
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
