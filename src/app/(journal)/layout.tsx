@@ -2,10 +2,9 @@ import { GlobalHeader } from "@/components/layout/global-header";
 import { TimezoneProvider } from "@/components/timezone-provider";
 import { ProfileSuggestionToaster } from "@/components/journal/profile-suggestion-toaster";
 import { JournalTimerProvider } from "@/components/journal/timer-context";
+import { appMetadata } from "@/lib/pwa/apps";
 
-export const metadata = {
-  title: "Journal",
-};
+export const metadata = appMetadata("journal");
 
 export default async function JournalLayout({
   children,

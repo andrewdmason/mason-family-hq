@@ -30,6 +30,10 @@ export const metadata: Metadata = {
     title: "Family HQ",
     statusBarStyle: "default",
   },
+  // The default manifest (used on routes outside a route group, e.g. /login).
+  // Each app's own layout overrides this with its per-app manifest so installs
+  // get that section's name, start URL, and icon. See src/lib/pwa/apps.ts.
+  manifest: "/app-manifest?app=home",
   // Next emits the modern `mobile-web-app-capable`; older iOS still looks for the
   // apple-prefixed tag, so set it too for maximum standalone compatibility.
   other: {

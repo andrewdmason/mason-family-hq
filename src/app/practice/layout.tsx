@@ -9,10 +9,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { createClient } from "@/lib/supabase/server";
 import { getTodaySummary } from "@/app/practice/timer/actions";
 import type { Piece } from "@/lib/types";
+import { appMetadata } from "@/lib/pwa/apps";
 
-export const metadata = {
-  title: "Practice Log",
-};
+export const metadata = appMetadata("practice");
 
 export default async function AppLayout({
   children,
