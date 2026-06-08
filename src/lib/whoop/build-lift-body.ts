@@ -10,7 +10,11 @@ import { getWhoopExercise } from "./exercise-catalog";
 
 export interface InputSet {
   reps: number;
-  weightKg: number; // 0 for bodyweight movements
+  weightKg: number; // 0 for bodyweight movements — what WHOOP receives
+  // Original logged load + unit, kept only for human-readable preview/display
+  // (e.g. "135 lb"). Ignored when building the WHOOP body.
+  weight?: number | null;
+  unit?: "lb" | "kg" | null;
 }
 
 export interface InputExercise {
@@ -30,11 +34,16 @@ export interface LiftBody {
   workout_groups: unknown[];
 }
 
+export interface UnknownExercise {
+  exerciseId: string; // exercise_id not in the bundled catalog
+  label: string; // our movement name, for readable reporting
+}
+
 export interface BuildResult {
   body: LiftBody;
   setCount: number;
   exerciseCount: number;
-  unknownExercises: string[]; // exercise_ids not in the bundled catalog
+  unknownExercises: UnknownExercise[]; // exercises dropped — not in the bundled catalog
   hash: string; // stable hash of the logged content, for idempotent re-sends
 }
 
@@ -56,7 +65,7 @@ export function buildLiftBody(args: {
   exercises: InputExercise[];
 }): BuildResult {
   const groups: unknown[] = [];
-  const unknown: string[] = [];
+  const unknown: UnknownExercise[] = [];
   const hashParts: string[] = [];
   let cursor = args.startMs;
   let setCount = 0;
@@ -65,7 +74,7 @@ export function buildLiftBody(args: {
   for (const ex of args.exercises) {
     const meta = getWhoopExercise(ex.exerciseId);
     if (!meta) {
-      unknown.push(ex.exerciseId);
+      unknown.push({ exerciseId: ex.exerciseId, label: ex.label });
       continue;
     }
     exerciseCount++;
