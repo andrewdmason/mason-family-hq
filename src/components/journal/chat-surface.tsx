@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, MessageCircle, Send } from "lucide-react";
+import { CheckCircle2, Lock, MessageCircle, Send, Users } from "lucide-react";
 import { TypingIndicator } from "@/components/journal/typing-indicator";
-import { FinishPostDialog } from "@/components/journal/finish-post-dialog";
 import { JournalPhotoGallery } from "@/components/journal/journal-photo-gallery";
 import {
   appendUserMessage,
@@ -96,8 +95,10 @@ export function ChatSurface({
   // OFF, the reply is just saved as a block.
   const [questionMode, setQuestionMode] = useState(initialQuestionMode);
   const [timerFlippedOff, setTimerFlippedOff] = useState(initialTimerFlippedOff);
-  const [finishDialogOpen, setFinishDialogOpen] = useState(false);
-  const [selectedVisibility, setSelectedVisibility] =
+  // Who can read the post once it's finished. Chosen inline via the lock toggle
+  // in the composer header (no longer a confirm step on finish), so it's
+  // persisted as it changes and read straight off when wrapping up.
+  const [visibility, setVisibility] =
     useState<JournalVisibility>(initialVisibility);
 
   const router = useRouter();
@@ -180,6 +181,17 @@ export function ChatSurface({
     setQuestionMode(next);
     void setEntryQuestionMode(entryId, next).catch((err) => {
       setQuestionMode(!next);
+      setError(err instanceof Error ? err.message : String(err));
+    });
+  }
+
+  function chooseVisibility(next: JournalVisibility) {
+    if (streaming || closing || next === visibility) return;
+    const previous = visibility;
+    setVisibility(next);
+    setError(null);
+    void setEntryVisibility(entryId, next).catch((err) => {
+      setVisibility(previous);
       setError(err instanceof Error ? err.message : String(err));
     });
   }
@@ -337,7 +349,7 @@ export function ChatSurface({
   // Closing flips the entry to "closed" right away, then kicks off the wrap
   // pass (summary/pull_quote) in the background and hands off to the journal
   // list, where the entry appears with its AI fields generating.
-  async function handleClose(visibility: JournalVisibility) {
+  async function handleClose() {
     if (closing || streaming) return;
     // Blog mode has no Send button — commit whatever's in the writing box as the
     // post's closing words before we wrap.
@@ -361,7 +373,6 @@ export function ChatSurface({
       setClosing(false);
       return;
     }
-    setFinishDialogOpen(false);
     // Fire-and-forget: the wrap writes summary to the DB on its own. We
     // navigate away without waiting; the list polls until the fields land.
     void fetch("/journal/api/close", {
@@ -382,14 +393,22 @@ export function ChatSurface({
             (viewMode === "history" ? "justify-between" : "justify-end")
           }
         >
-          {/* In history (an open draft opened from the list) the chat toggle
-              rides in this row; the today flow puts it up by "Attach a photo". */}
+          {/* In history (an open draft opened from the list) the chat and lock
+              toggles ride in this row; the today flow puts them up by
+              "Attach a photo". */}
           {viewMode === "history" && (
-            <QuestionModeToggle
-              on={questionMode}
-              disabled={streaming || closing}
-              onChange={toggleQuestionMode}
-            />
+            <div className="flex items-center gap-4">
+              <VisibilityModeToggle
+                visibility={visibility}
+                disabled={streaming || closing}
+                onChange={chooseVisibility}
+              />
+              <QuestionModeToggle
+                on={questionMode}
+                disabled={streaming || closing}
+                onChange={toggleQuestionMode}
+              />
+            </div>
           )}
           <div className="flex items-center gap-3">
             <TimerGlyph
@@ -399,24 +418,13 @@ export function ChatSurface({
             />
             <button
               type="button"
-              onClick={() => setFinishDialogOpen(true)}
+              onClick={() => void handleClose()}
               disabled={closing || streaming || !canFinish}
               className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-border bg-background px-3 font-serif text-sm text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground disabled:opacity-40"
             >
               {closing ? "Wrapping..." : "Finish post"}
             </button>
           </div>
-          <FinishPostDialog
-            open={finishDialogOpen}
-            onOpenChange={(open) => {
-              if (!closing) setFinishDialogOpen(open);
-            }}
-            selectedVisibility={selectedVisibility}
-            onSelectedVisibilityChange={setSelectedVisibility}
-            hasUnsentReply={questionMode && hasUnsentReply}
-            closing={closing}
-            onFinish={() => void handleClose(selectedVisibility)}
-          />
         </div>
       )}
       {showComposerHeader && (
@@ -430,11 +438,18 @@ export function ChatSurface({
             editable={!closing}
             showAttachAction
             actionSlot={
-              <QuestionModeToggle
-                on={questionMode}
-                disabled={streaming || closing}
-                onChange={toggleQuestionMode}
-              />
+              <div className="flex items-center gap-4">
+                <VisibilityModeToggle
+                  visibility={visibility}
+                  disabled={streaming || closing}
+                  onChange={chooseVisibility}
+                />
+                <QuestionModeToggle
+                  on={questionMode}
+                  disabled={streaming || closing}
+                  onChange={toggleQuestionMode}
+                />
+              </div>
             }
             containerClassName=""
             attachActionClassName="pointer-events-none opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
@@ -637,6 +652,61 @@ function QuestionModeToggle({
           className={
             "absolute top-0.5 size-3 rounded-full bg-background transition-[left] " +
             (on ? "left-3.5" : "left-0.5")
+          }
+        />
+      </span>
+    </button>
+  );
+}
+
+/**
+ * The personal ↔ family lock — styled like the chat toggle it sits beside: a
+ * muted serif control with an icon and a small switch (no text). Off (locked),
+ * the post stays personal; on, it's shared with the family once finished.
+ * Replaces the old finish-time confirm dialog: you pick the audience inline
+ * while writing.
+ */
+function VisibilityModeToggle({
+  visibility,
+  disabled,
+  onChange,
+}: {
+  visibility: JournalVisibility;
+  disabled: boolean;
+  onChange: (next: JournalVisibility) => void;
+}) {
+  const isFamily = visibility === "family";
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={isFamily}
+      aria-label="Share with family"
+      title={
+        isFamily
+          ? "Shared with family — they can read it once you finish. Tap to keep it personal."
+          : "Personal — only you can read it. Tap to share with the family."
+      }
+      onClick={() => onChange(isFamily ? "private" : "family")}
+      disabled={disabled}
+      className="inline-flex items-center gap-2 font-serif text-sm text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+    >
+      {isFamily ? (
+        <Users className="size-4" aria-hidden />
+      ) : (
+        <Lock className="size-4" aria-hidden />
+      )}
+      <span
+        aria-hidden
+        className={
+          "relative h-4 w-7 rounded-full transition-colors " +
+          (isFamily ? "bg-foreground" : "bg-muted")
+        }
+      >
+        <span
+          className={
+            "absolute top-0.5 size-3 rounded-full bg-background transition-[left] " +
+            (isFamily ? "left-3.5" : "left-0.5")
           }
         />
       </span>
