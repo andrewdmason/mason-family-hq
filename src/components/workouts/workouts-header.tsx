@@ -2,11 +2,12 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type WorkoutsTab = "home" | "prs" | "history" | "library";
+export type WorkoutsTab = "today" | "upcoming" | "prs" | "history" | "library";
 
 /**
- * The shared title + tab bar across the Workouts section. "History" is the
- * completed view (a query param on the home route); Library is owner-only.
+ * The shared title + tab bar across the Workouts section. "Today" is the default
+ * landing view (today's workout, ready to log); "Upcoming" and "History" are
+ * query params on the same route; Library is owner-only.
  */
 export function WorkoutsHeader({
   active,
@@ -16,7 +17,8 @@ export function WorkoutsHeader({
   isOwner: boolean;
 }) {
   const tabs: { key: WorkoutsTab; label: string; href: string }[] = [
-    { key: "home", label: "Home", href: "/workouts" },
+    { key: "today", label: "Today", href: "/workouts" },
+    { key: "upcoming", label: "Upcoming", href: "/workouts?tab=upcoming" },
     { key: "prs", label: "PRs", href: "/workouts/prs" },
     { key: "history", label: "History", href: "/workouts?tab=completed" },
   ];
