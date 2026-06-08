@@ -1,8 +1,7 @@
 import { GlobalHeader } from "@/components/layout/global-header";
+import { appMetadata } from "@/lib/pwa/apps";
 
-export const metadata = {
-  title: "Assignments",
-};
+export const metadata = appMetadata("assignments");
 
 export default function AssignmentsLayout({
   children,

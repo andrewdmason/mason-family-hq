@@ -1,9 +1,8 @@
 import { GlobalHeader } from "@/components/layout/global-header";
 import { TimezoneProvider } from "@/components/timezone-provider";
+import { appMetadata } from "@/lib/pwa/apps";
 
-export const metadata = {
-  title: "Home",
-};
+export const metadata = appMetadata("home");
 
 export default function HomeLayout({
   children,

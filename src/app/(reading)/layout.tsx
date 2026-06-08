@@ -1,9 +1,8 @@
 import { GlobalHeader } from "@/components/layout/global-header";
 import { TimezoneProvider } from "@/components/timezone-provider";
+import { appMetadata } from "@/lib/pwa/apps";
 
-export const metadata = {
-  title: "Reader",
-};
+export const metadata = appMetadata("reader");
 
 export default function ReadingLayout({
   children,
