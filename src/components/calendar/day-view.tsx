@@ -19,9 +19,12 @@ import { cn } from "@/lib/utils";
 const PX_PER_HOUR = 48;
 const GUTTER = 44; // px reserved for the hour labels
 const MIN_BLOCK = 26; // px floor so a short event's label still fits
-// On the textless mobile view, a block only carries its time/baseball glyph once
-// it's tall enough to fit them; below this it stays a bare colored rectangle.
+// On the phone layout a thin column's block only carries its baseball glyph once
+// it's tall enough to fit it; below this it stays a bare colored rectangle.
 const TALL = 34;
+// On the phone layout the signed-in user's column is this many times as wide as
+// the others, so it has room for event titles while the rest stay thin ticks.
+const ME_WEIGHT = 3;
 const FAMILY_KEY = "__family__";
 // Warm taupe-gray for shared/family events (the prototype's #8a8a80), so "ours"
 // reads neutral-but-warm against the cream ground rather than a cool slate.
@@ -146,6 +149,20 @@ export function DayView({
   const isToday = now != null && toDateKey(anchorDate) === toDateKey(now);
   const nowMin = now ? now.getHours() * 60 + now.getMinutes() : -1;
 
+  // The phone layout gives the signed-in user a wide, titled column and keeps the
+  // others as thin ticks. We resolve the breakpoint in JS (not just CSS) because
+  // the weighted column widths AND the shared-event overlay need the real column
+  // geometry to line up. Start desktop (equal columns) so SSR/first paint stay
+  // hydration-stable, like the clock above; the effect corrects it on mount.
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
   const dayKey = toDateKey(anchorDate);
   const dayEvents = events.filter((e) => eventDayKey(e) === dayKey);
   const allDay = dayEvents.filter((e) => e.all_day).sort(byStart);
@@ -251,6 +268,21 @@ export function DayView({
   // me-first reorder so positions are final).
   const colIndexByKey = new Map(columns.map((c, i) => [c.key, i]));
   const memberColumns = columns.filter((c) => c.key !== FAMILY_KEY);
+
+  // Column widths. On the phone layout the signed-in user's column is ME_WEIGHT
+  // times as wide as the others (room for titles); every other column is a thin
+  // tick. Desktop keeps them equal. The shared-event overlay positions off these
+  // same weights so it stays aligned with the columns underneath.
+  const meColIndex = columns.findIndex((c) => c.isMe);
+  const weights = columns.map((c) => (isMobile && c.isMe ? ME_WEIGHT : 1));
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+  // Left edge of column i as a fraction of the axis width: edge(0) === 0 and
+  // edge(columns.length) === 1.
+  const edge = (i: number) =>
+    weights.slice(0, i).reduce((sum, w) => sum + w, 0) / totalWeight;
+  // A column renders full (titled) blocks on desktop, or when it's the signed-in
+  // user's wide column on the phone; the other phone columns render thin ticks.
+  const isFull = (i: number) => !isMobile || i === meColIndex;
   const sharedTimed = sharedEvents
     .map((event) => ({
       event,
@@ -290,17 +322,44 @@ export function DayView({
     );
   }
 
-  // One positioned event block. On desktop it's a white card with time/title/etc.;
-  // on mobile (the narrow per-person columns) it collapses to a bare member-colored
-  // rectangle — position alone says when, the column says who — with a tiny time
-  // and a baseball glyph only when it's tall enough to carry them.
-  function Block({ placed }: { placed: Placed }) {
+  // One positioned event block. A "full" block — every column on desktop, and the
+  // signed-in user's wide column on the phone — is a white card with time/title/
+  // location. A thin block — the other columns on the phone — is a bare member-
+  // colored tick: position already says when and the column says who, so it shows
+  // only a baseball glyph for TeamSnap games (when tall enough), no text.
+  function Block({ placed, full }: { placed: Placed; full: boolean }) {
     const { event } = placed;
     const d = display(event);
     const top = y(startMin(event));
     const height = Math.max(y(endMin(event)) - top, MIN_BLOCK);
     const widthPct = 100 / placed.lanes;
     const leftPct = placed.lane * widthPct;
+    const pos = {
+      top,
+      height,
+      left: `calc(${leftPct}% + 1px)`,
+      width: `calc(${widthPct}% - 3px)`,
+    };
+    if (!full) {
+      return (
+        <button
+          type="button"
+          onClick={() => onEventClick(event)}
+          title={
+            d.calendarLabel ? `${d.calendarLabel}: ${event.title}` : event.title
+          }
+          style={{ ...pos, backgroundColor: mute(d.color) }}
+          className={cn(
+            "absolute flex items-start justify-end overflow-hidden rounded-sm px-0.5 py-0.5",
+            event.id === selectedEventId && "ring-1 ring-ring",
+          )}
+        >
+          {d.isTeamsnap && height >= TALL && (
+            <BaseballGlyph className="h-2.5 w-2.5 shrink-0 text-white/90" />
+          )}
+        </button>
+      );
+    }
     // The start time is already encoded by the card's position on the axis, so
     // it's the first thing to drop when a short card can't fit it and the title.
     const showTime = height >= 46;
@@ -311,68 +370,45 @@ export function DayView({
         title={
           d.calendarLabel ? `${d.calendarLabel}: ${event.title}` : event.title
         }
-        style={{
-          top,
-          height,
-          left: `calc(${leftPct}% + 1px)`,
-          width: `calc(${widthPct}% - 3px)`,
-          borderLeftColor: mute(d.color),
-          ["--block-color" as string]: mute(d.color),
-        }}
+        style={{ ...pos, borderLeftColor: mute(d.color) }}
         className={cn(
-          "absolute flex flex-col overflow-hidden rounded-sm px-1.5 py-0.5 text-left transition-colors",
-          "bg-[var(--block-color)]",
-          "md:border md:border-l-[3px] md:border-border/70 md:bg-white md:hover:bg-muted/40 md:dark:bg-card",
+          "absolute flex flex-col overflow-hidden rounded-sm border border-border/70 border-l-[3px] bg-white px-1.5 py-0.5 text-left transition-colors hover:bg-muted/40 dark:bg-card",
           event.id === selectedEventId && "ring-1 ring-ring",
         )}
       >
-        {/* Mobile: just a time + baseball glyph, once the block is tall enough. */}
-        {height >= TALL && (
-          <span className="flex items-start gap-1 text-[8px] leading-none tabular-nums text-white/90 md:hidden">
+        {showTime && (
+          <span className="flex items-center gap-1 text-[10px] italic tabular-nums leading-tight text-muted-foreground">
             <span className="truncate">
               {formatTimeRange(event.start_time, event.end_time, false)}
             </span>
-            {d.isTeamsnap && (
-              <BaseballGlyph className="ml-auto h-2.5 w-2.5 shrink-0 text-white/90" />
+            {d.attendees.length > 0 && (
+              <span className="ml-auto flex shrink-0 -space-x-1">
+                {d.attendees.slice(0, 3).map((a) => (
+                  <span key={a.email} title={a.name ?? a.email} className="inline-flex">
+                    <MemberAvatar name={a.name} size="xs" className="ring-1 ring-card" />
+                  </span>
+                ))}
+              </span>
             )}
           </span>
         )}
-        {/* Desktop: the full card body. */}
-        <span className="hidden flex-col md:flex">
-          {showTime && (
-            <span className="flex items-center gap-1 text-[10px] italic tabular-nums leading-tight text-muted-foreground">
-              <span className="truncate">
-                {formatTimeRange(event.start_time, event.end_time, false)}
-              </span>
-              {d.attendees.length > 0 && (
-                <span className="ml-auto flex shrink-0 -space-x-1">
-                  {d.attendees.slice(0, 3).map((a) => (
-                    <span key={a.email} title={a.name ?? a.email} className="inline-flex">
-                      <MemberAvatar name={a.name} size="xs" className="ring-1 ring-card" />
-                    </span>
-                  ))}
-                </span>
-              )}
-            </span>
-          )}
-          <span className={cn("flex items-start gap-1", showTime && "mt-0.5")}>
-            <span className="line-clamp-2 min-w-0 text-[11px] leading-tight text-foreground">
-              {d.calendarLabel && (
-                <span className="text-muted-foreground">{d.calendarLabel}: </span>
-              )}
-              {event.title}
-            </span>
-            {d.conflict && (
-              <AlertTriangle className="mt-px h-2.5 w-2.5 shrink-0 text-amber-600" />
+        <span className={cn("flex items-start gap-1", showTime && "mt-0.5")}>
+          <span className="line-clamp-2 min-w-0 text-[11px] leading-tight text-foreground">
+            {d.calendarLabel && (
+              <span className="text-muted-foreground">{d.calendarLabel}: </span>
             )}
+            {event.title}
           </span>
-          {height >= 60 && event.location && (
-            <span className="mt-0.5 flex items-center gap-0.5 truncate text-[10px] text-muted-foreground">
-              <MapPin className="h-2.5 w-2.5 shrink-0" />
-              {event.location}
-            </span>
+          {d.conflict && (
+            <AlertTriangle className="mt-px h-2.5 w-2.5 shrink-0 text-amber-600" />
           )}
         </span>
+        {height >= 60 && event.location && (
+          <span className="mt-0.5 flex items-center gap-0.5 truncate text-[10px] text-muted-foreground">
+            <MapPin className="h-2.5 w-2.5 shrink-0" />
+            {event.location}
+          </span>
+        )}
       </button>
     );
   }
@@ -392,15 +428,20 @@ export function DayView({
     cols: number[];
   }) {
     const d = display(event);
-    const n = columns.length;
     const first = cols[0];
     const last = cols[cols.length - 1];
-    const span = last + 1 - first;
     const top = y(startMin(event));
     const height = Math.max(y(endMin(event)) - top, MIN_BLOCK);
     const everyone = cols.length === memberColumns.length;
     const selected = event.id === selectedEventId;
     const showTime = height >= 46;
+    // The frame spans from the first to the last attending column, positioned off
+    // the same weights as the columns (so it lines up when the me column is wide).
+    const frameL = edge(first);
+    const frameW = edge(last + 1) - frameL;
+    // It renders full (titled) when it leads in the wide me column, or on desktop;
+    // otherwise it's thin colored fills with just a glyph, like the solo ticks.
+    const full = !isMobile || first === meColIndex;
     // Contiguous runs of attending columns — each gets a filled segment; the gaps
     // between runs are the open windows.
     const runs: Array<[number, number]> = [];
@@ -409,12 +450,12 @@ export function DayView({
       if (r && i === r[1] + 1) r[1] = i;
       else runs.push([i, i]);
     }
-    // Text lives in the leading run so a long title truncates instead of running
-    // across the windows.
-    const leadCols = runs[0][1] + 1 - first;
-    // Positions are fractions of the frame's own width (the full span).
-    const fillLeft = (a: number) => ((a - first) / span) * 100;
-    const fillWidth = (a: number, b: number) => ((b + 1 - a) / span) * 100;
+    // Content lives in the leading run so a long title truncates instead of
+    // running across the windows. Positions are fractions of the frame's width.
+    const fillLeft = (a: number) => ((edge(a) - frameL) / frameW) * 100;
+    const fillWidth = (a: number, b: number) =>
+      ((edge(b + 1) - edge(a)) / frameW) * 100;
+    const leadWidthPct = ((edge(runs[0][1] + 1) - frameL) / frameW) * 100;
     return (
       <button
         key={event.id}
@@ -424,115 +465,120 @@ export function DayView({
         style={{
           top,
           height,
-          left: `calc(${(first / n) * 100}% + 1px)`,
-          width: `calc(${(span / n) * 100}% - 3px)`,
+          left: `calc(${frameL * 100}% + 1px)`,
+          width: `calc(${frameW * 100}% - 3px)`,
           borderLeftColor: mute(d.color),
-          ["--block-color" as string]: mute(d.color),
         }}
         className={cn(
           "group pointer-events-auto absolute overflow-hidden rounded-sm bg-transparent text-left",
-          "md:border md:border-l-[3px] md:border-border/70",
+          full && "border border-border/70 border-l-[3px]",
           selected && "ring-1 ring-ring",
         )}
       >
-        {/* Filled segments over the attending columns: member-colored rectangles
-            on mobile, white cards on desktop. */}
+        {/* Filled segments over the attending columns; the gaps between runs stay
+            open windows. White cards when full, member-colored ticks when thin. */}
         {runs.map(([a, b]) => (
           <span
             key={`fill-${a}`}
             aria-hidden
-            className="absolute inset-y-0 bg-[var(--block-color)] transition-colors md:bg-white md:group-hover:bg-muted/40 md:dark:bg-card"
-            style={{ left: `${fillLeft(a)}%`, width: `${fillWidth(a, b)}%` }}
+            className={cn(
+              "absolute inset-y-0 transition-colors",
+              full && "bg-white group-hover:bg-muted/40 dark:bg-card",
+            )}
+            style={{
+              left: `${fillLeft(a)}%`,
+              width: `${fillWidth(a, b)}%`,
+              ...(full ? null : { backgroundColor: mute(d.color) }),
+            }}
           />
         ))}
-        {/* Mobile: time + baseball glyph in the leading run, once tall enough. */}
-        {height >= TALL && (
+        {/* Thin: just a baseball glyph in the leading run, once tall enough. */}
+        {!full && d.isTeamsnap && height >= TALL && (
           <span
-            className="absolute inset-y-0 left-0 flex items-start gap-1 px-1 py-0.5 text-[8px] leading-none tabular-nums text-white/90 md:hidden"
-            style={{ width: `${(leadCols / span) * 100}%` }}
+            className="absolute inset-y-0 left-0 flex items-start justify-end px-0.5 py-0.5"
+            style={{ width: `${leadWidthPct}%` }}
           >
-            <span className="truncate">
-              {formatTimeRange(event.start_time, event.end_time, false)}
+            <BaseballGlyph className="h-2.5 w-2.5 shrink-0 text-white/90" />
+          </span>
+        )}
+        {/* Full content, in the leading run. */}
+        {full && (
+          <span
+            className="absolute inset-y-0 left-0 flex flex-col overflow-hidden px-1.5 py-0.5"
+            style={{ width: `${leadWidthPct}%` }}
+          >
+            {showTime && (
+              <span className="flex items-center gap-1 text-[10px] italic tabular-nums leading-tight text-muted-foreground">
+                <span className="truncate">
+                  {formatTimeRange(event.start_time, event.end_time, false)}
+                </span>
+                {everyone && (
+                  <span className="shrink-0 not-italic">· Everyone</span>
+                )}
+              </span>
+            )}
+            <span className={cn("flex items-start gap-1", showTime && "mt-0.5")}>
+              <span className="line-clamp-2 min-w-0 text-[11px] leading-tight text-foreground">
+                {event.title}
+              </span>
+              {d.conflict && (
+                <AlertTriangle className="mt-px h-2.5 w-2.5 shrink-0 text-amber-600" />
+              )}
             </span>
-            {d.isTeamsnap && (
-              <BaseballGlyph className="ml-auto h-2.5 w-2.5 shrink-0 text-white/90" />
+            {height >= 60 && event.location && (
+              <span className="mt-0.5 flex items-center gap-0.5 truncate text-[10px] text-muted-foreground">
+                <MapPin className="h-2.5 w-2.5 shrink-0" />
+                {event.location}
+              </span>
             )}
           </span>
         )}
-        {/* Desktop content, in the leading run. */}
-        <span
-          className="absolute inset-y-0 left-0 hidden flex-col overflow-hidden px-1.5 py-0.5 md:flex"
-          style={{ width: `${(leadCols / span) * 100}%` }}
-        >
-          {showTime && (
-            <span className="flex items-center gap-1 text-[10px] italic tabular-nums leading-tight text-muted-foreground">
-              <span className="truncate">
-                {formatTimeRange(event.start_time, event.end_time, false)}
-              </span>
-              {everyone && (
-                <span className="shrink-0 not-italic">· Everyone</span>
-              )}
-            </span>
-          )}
-          <span className={cn("flex items-start gap-1", showTime && "mt-0.5")}>
-            <span className="line-clamp-2 min-w-0 text-[11px] leading-tight text-foreground">
-              {event.title}
-            </span>
-            {d.conflict && (
-              <AlertTriangle className="mt-px h-2.5 w-2.5 shrink-0 text-amber-600" />
-            )}
-          </span>
-          {height >= 60 && event.location && (
-            <span className="mt-0.5 flex items-center gap-0.5 truncate text-[10px] text-muted-foreground">
-              <MapPin className="h-2.5 w-2.5 shrink-0" />
-              {event.location}
-            </span>
-          )}
-        </span>
       </button>
     );
   }
 
-  // An all-day marker: a flag plus the title on desktop, matching the agenda's
-  // treatment; a textless member-colored chip on the narrow mobile columns. A
-  // shared all-day event carries the same attendance glyph as the timed ones.
-  function allDayItem(event: CalendarEvent) {
+  // An all-day marker: a flag plus the title in a full (titled) column, matching
+  // the agenda's treatment; a textless member-colored chip in a thin phone column.
+  // A shared all-day event carries the same attendance glyph as the timed ones.
+  function allDayItem(event: CalendarEvent, full: boolean) {
     const d = display(event);
     const attending = attendingMembersOf(event);
+    if (!full) {
+      return (
+        <button
+          key={event.id}
+          type="button"
+          onClick={() => onEventClick(event)}
+          title={event.title}
+          style={{ backgroundColor: mute(d.color) }}
+          className={cn(
+            "block h-2.5 w-full rounded-sm transition-colors",
+            event.id === selectedEventId && "ring-1 ring-ring",
+          )}
+        />
+      );
+    }
     return (
       <button
         key={event.id}
         type="button"
         onClick={() => onEventClick(event)}
         title={event.title}
-        style={{ ["--block-color" as string]: mute(d.color) }}
-        className="block w-full rounded text-left transition-colors"
+        className={cn(
+          "flex w-full items-center gap-1 rounded px-0.5 text-left text-[11px] transition-colors hover:text-foreground",
+          event.id === selectedEventId && "underline",
+        )}
       >
-        {/* Mobile: a textless colored chip. */}
-        <span
-          className={cn(
-            "block h-2.5 rounded-sm bg-[var(--block-color)] md:hidden",
-            event.id === selectedEventId && "ring-1 ring-ring",
-          )}
-        />
-        {/* Desktop: flag + title. */}
-        <span
-          className={cn(
-            "hidden items-center gap-1 px-0.5 text-[11px] hover:text-foreground md:flex",
-            event.id === selectedEventId && "underline",
-          )}
-        >
-          <Flag className="h-2.5 w-2.5 shrink-0 text-muted-foreground" aria-hidden />
-          <span className="truncate font-medium text-foreground">
-            {event.title}
-          </span>
-          {attending.length >= 2 && (
-            <AttendanceGlyph attending={new Set(attending)} />
-          )}
-          {d.conflict && (
-            <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-amber-600" />
-          )}
+        <Flag className="h-2.5 w-2.5 shrink-0 text-muted-foreground" aria-hidden />
+        <span className="truncate font-medium text-foreground">
+          {event.title}
         </span>
+        {attending.length >= 2 && (
+          <AttendanceGlyph attending={new Set(attending)} />
+        )}
+        {d.conflict && (
+          <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-amber-600" />
+        )}
       </button>
     );
   }
@@ -590,13 +636,17 @@ export function DayView({
       <div>
         {/* Column headers — first name only on mobile to fit the narrow columns. */}
         <div className="flex" style={{ paddingLeft: GUTTER }}>
-          {columns.map((c) => (
+          {columns.map((c, i) => (
             <div
               key={c.key}
-              className="flex min-w-0 flex-1 items-center gap-1 px-1 pb-1.5 pt-1 text-[11px] font-medium text-foreground md:gap-1.5 md:px-2 md:pb-2 md:text-sm"
-              style={
-                c.isMe ? { backgroundColor: meTint(mute(c.color)) } : undefined
-              }
+              className="flex min-w-0 items-center gap-1 px-1 pb-1.5 pt-1 text-[11px] font-medium text-foreground md:gap-1.5 md:px-2 md:pb-2 md:text-sm"
+              style={{
+                flexGrow: weights[i],
+                flexBasis: 0,
+                ...(c.isMe
+                  ? { backgroundColor: meTint(mute(c.color)) }
+                  : null),
+              }}
             >
               <span
                 className="h-2 w-2 shrink-0 rounded-full md:h-2.5 md:w-2.5"
@@ -619,15 +669,19 @@ export function DayView({
               All day
             </div>
             <div className="flex min-w-0 flex-1">
-              {columns.map((c) => (
+              {columns.map((c, i) => (
                 <div
                   key={c.key}
-                  className="min-w-0 flex-1 space-y-0.5 border-l border-border/40 px-1 py-1"
-                  style={
-                c.isMe ? { backgroundColor: meTint(mute(c.color)) } : undefined
-              }
+                  className="min-w-0 space-y-0.5 border-l border-border/40 px-1 py-1"
+                  style={{
+                    flexGrow: weights[i],
+                    flexBasis: 0,
+                    ...(c.isMe
+                      ? { backgroundColor: meTint(mute(c.color)) }
+                      : null),
+                  }}
                 >
-                  {c.allDay.map((event) => allDayItem(event))}
+                  {c.allDay.map((event) => allDayItem(event, isFull(i)))}
                 </div>
               ))}
             </div>
@@ -641,16 +695,20 @@ export function DayView({
             className="absolute inset-y-0 flex"
             style={{ left: GUTTER, right: 0 }}
           >
-            {columns.map((c) => (
+            {columns.map((c, i) => (
               <div
                 key={c.key}
-                className="relative min-w-0 flex-1 border-l border-border/60"
-                style={
-                c.isMe ? { backgroundColor: meTint(mute(c.color)) } : undefined
-              }
+                className="relative min-w-0 border-l border-border/60"
+                style={{
+                  flexGrow: weights[i],
+                  flexBasis: 0,
+                  ...(c.isMe
+                    ? { backgroundColor: meTint(mute(c.color)) }
+                    : null),
+                }}
               >
                 {pack(c.solo).map((p) => (
-                  <Block key={p.event.id} placed={p} />
+                  <Block key={p.event.id} placed={p} full={isFull(i)} />
                 ))}
               </div>
             ))}
