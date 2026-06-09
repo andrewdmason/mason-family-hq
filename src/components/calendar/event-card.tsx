@@ -25,6 +25,9 @@ export interface EventDisplay {
   // The player's RSVP state for a linked TeamSnap event, or null when RSVP
   // doesn't apply (no team source, or no player linked to it).
   rsvp: TeamsnapRsvp | null;
+  // True when this event's calendar source is a TeamSnap feed — drives the
+  // baseball glyph on the textless mobile day view.
+  isTeamsnap: boolean;
   // Family members (besides the owner) on this event — rendered as avatars on
   // the card, and as ghost blocks in their own columns.
   attendees: EventAttendee[];

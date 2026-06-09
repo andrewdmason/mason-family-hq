@@ -271,6 +271,7 @@ export function CalendarClient({
         calendarLabel,
         conflict: conflictIds.has(event.id),
         rsvp,
+        isTeamsnap: source?.source_type === "teamsnap",
         attendees,
       };
     };
