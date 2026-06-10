@@ -53,6 +53,12 @@ export const viewport: Viewport = {
   // browser/status-bar tint to the warm terracotta theme.
   width: "device-width",
   initialScale: 1,
+  // iOS auto-zooms the page when a focused input's font-size is under 16px,
+  // which leaves a standalone PWA cropped/panned with no pinch-out chrome to
+  // recover. maximum-scale=1 suppresses that focus zoom; since iOS 10 Safari
+  // still honours user-initiated pinch zoom regardless, so accessibility zoom
+  // keeps working.
+  maximumScale: 1,
   viewportFit: "cover",
   themeColor: "#7f4327",
 };
