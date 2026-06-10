@@ -166,6 +166,29 @@ async function getDelegatedTasks(
   return ((data ?? []) as TodoTaskRow[]).map(taskFromRow);
 }
 
+/**
+ * Every task the views shell can show for a member, in one read: active
+ * (not completed/deleted) tasks they're assigned (the buckets + Snoozed) or
+ * created for someone else (Delegated). The client derives each sidebar view
+ * from this set (lib/todos/derive.ts) so switching views never waits on the
+ * server. A family's active set is small — this is barely more data than any
+ * single view's query returned.
+ */
+export async function getMemberActiveTasks(
+  supabase: Supabase,
+  memberEmail: string
+): Promise<TodoTask[]> {
+  const { data } = await supabase
+    .from("todo_tasks")
+    .select(TASK_COLUMNS)
+    .or(`assignee_email.eq.${memberEmail},creator_email.eq.${memberEmail}`)
+    .is("completed_at", null)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+  return ((data ?? []) as TodoTaskRow[]).map(taskFromRow);
+}
+
 const LOGBOOK_PAGE = 100;
 
 /** Completed tasks, newest first (the Logbook groups them by local date). */
