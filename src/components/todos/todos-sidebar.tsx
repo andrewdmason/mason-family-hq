@@ -56,6 +56,7 @@ import { withAs } from "@/lib/todos/member-context";
 import { useReconciler } from "@/lib/todos/reconcile";
 import { sortBetween } from "@/lib/todos/sort";
 import type {
+  SidebarCounts,
   TodoArea,
   TodoMember,
   TodoProject,
@@ -99,8 +100,7 @@ type SidebarSize = "sm" | "lg";
 export function TodosSidebar({
   active,
   activeProjectId = null,
-  inboxCount,
-  delegatedCount = 0,
+  counts,
   viewedEmail,
   selfEmail,
   members,
@@ -110,8 +110,7 @@ export function TodosSidebar({
 }: {
   active: TodoView | null;
   activeProjectId?: string | null;
-  inboxCount: number;
-  delegatedCount?: number;
+  counts: SidebarCounts;
   viewedEmail: string;
   selfEmail: string;
   members: TodoMember[];
@@ -147,13 +146,7 @@ export function TodosSidebar({
               iconClass={item.iconClass}
               label={item.label}
               active={active === item.view}
-              badge={
-                item.view === "inbox"
-                  ? inboxCount
-                  : item.view === "delegated"
-                    ? delegatedCount
-                    : 0
-              }
+              badge={counts[item.view] ?? 0}
               href={href(`/todos/${item.view}`)}
               hint={`${item.label} (${item.chord})`}
               chordHint={chordHints ? item.chord.split(" ")[1] : null}

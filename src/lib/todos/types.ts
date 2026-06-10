@@ -39,6 +39,9 @@ export function viewLabel(view: TodoView): string {
   return VIEW_LABELS[view];
 }
 
+/** Sidebar badge counts by view; views without a badge are simply absent. */
+export type SidebarCounts = Partial<Record<TodoView, number>>;
+
 export type TodoMember = {
   email: string;
   name: string | null;
