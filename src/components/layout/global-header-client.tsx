@@ -14,6 +14,12 @@ import { cn } from "@/lib/utils";
 import type { JournalStreakStats } from "@/components/layout/global-header";
 import type { JournalNotifications } from "@/lib/types";
 
+// The distraction-free reader (/reader/[id]/read) hides all global chrome —
+// the book's own (hover-revealed) header is the only way out.
+function hidesGlobalChrome(pathname: string | null) {
+  return /^\/reader\/[^/]+\/read\/?$/.test(pathname ?? "");
+}
+
 export function GlobalHeaderClient({
   streak,
   notifications,
@@ -24,9 +30,7 @@ export function GlobalHeaderClient({
   isOwner: boolean;
 }) {
   const pathname = usePathname();
-  // The distraction-free reader (/reader/[id]/read) hides all global chrome —
-  // the book's own (hover-revealed) header is the only way out.
-  if (/^\/reader\/[^/]+\/read\/?$/.test(pathname ?? "")) return null;
+  if (hidesGlobalChrome(pathname)) return null;
 
   return (
     <TooltipProvider>
@@ -42,6 +46,32 @@ export function GlobalHeaderClient({
         </div>
       </header>
     </TooltipProvider>
+  );
+}
+
+/**
+ * Instant-paint stand-in shown while GlobalHeader's data streams in: the same
+ * frame and app switcher (neither needs data), with a pulsing pill where the
+ * streak badge will land so nothing shifts when it arrives. The switcher
+ * assumes non-owner until the real header replaces it — the only difference is
+ * an extra dropdown item, visible only if the menu is opened in that moment.
+ */
+export function GlobalHeaderShell() {
+  const pathname = usePathname();
+  if (hidesGlobalChrome(pathname)) return null;
+
+  return (
+    <header className="sticky top-0 z-50 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="relative mx-auto flex h-14 max-w-3xl items-center justify-between px-6">
+        <AppSwitcher isOwner={false} />
+        <div className="flex items-center gap-2">
+          <div
+            aria-hidden
+            className="h-8 w-14 animate-pulse rounded-full bg-muted/70"
+          />
+        </div>
+      </div>
+    </header>
   );
 }
 
