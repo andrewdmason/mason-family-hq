@@ -53,7 +53,17 @@ export function QuickAddHost({
       if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
       if (isTypingTarget(e.target) || inOpenOverlay(e.target)) return;
       e.preventDefault();
-      setDefaults(undefined);
+      // Like Things' quick entry, the When defaults to where you're standing:
+      // `c` on /todos/anytime preselects Anytime; the ?as= member carries
+      // over too. Anywhere else falls back to Inbox capture.
+      const match = window.location.pathname.match(
+        /^\/todos\/(inbox|today|anytime|someday)$/
+      );
+      const as = new URLSearchParams(window.location.search).get("as");
+      setDefaults({
+        bucket: (match?.[1] as NewTaskDefaults["bucket"]) ?? undefined,
+        assigneeEmail: as ?? undefined,
+      });
       setOpen(true);
     };
     window.addEventListener(QUICK_ADD_EVENT, onEvent);

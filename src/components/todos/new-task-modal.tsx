@@ -5,10 +5,8 @@ import {
   Check,
   ChevronDown,
   FileText,
-  Inbox,
   Loader2,
   Paperclip,
-  Star,
   X,
 } from "lucide-react";
 import { createTask } from "@/app/(todos)/todos/actions";
@@ -21,13 +19,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import { TodoNotesEditor } from "@/components/todos/todo-notes-editor";
+import { WhenPicker } from "@/components/todos/when-picker";
 import { isImageFile, uploadTaskAttachment } from "@/lib/todos/attachment-upload";
 import type { TodoBucket, TodoMember } from "@/lib/todos/types";
 import { cn } from "@/lib/utils";
 
 export type NewTaskDefaults = {
   assigneeEmail?: string;
-  bucket?: Extract<TodoBucket, "inbox" | "today">;
+  bucket?: TodoBucket;
 };
 
 type PendingFile = {
@@ -64,6 +63,7 @@ export function NewTaskModal({
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [assignee, setAssignee] = useState(selfEmail);
   const [bucket, setBucket] = useState<TodoBucket>("inbox");
+  const [snoozedUntil, setSnoozedUntil] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
   // Remounts the Tiptap editor so each summon starts blank.
   const [session, setSession] = useState(0);
@@ -81,12 +81,12 @@ export function NewTaskModal({
       });
       setAssignee(defaults?.assigneeEmail ?? selfEmail);
       setBucket(defaults?.bucket ?? "inbox");
+      setSnoozedUntil(null);
       setSession((s) => s + 1);
     }
   }, [open, defaults, selfEmail]);
 
   const assigneeMember = members.find((m) => m.email === assignee);
-  const BucketIcon = bucket === "today" ? Star : Inbox;
 
   const queueFiles = (files: File[]) => {
     if (files.length === 0) return;
@@ -117,7 +117,9 @@ export function NewTaskModal({
         title: trimmed,
         notesHtml: notesHtml || undefined,
         assigneeEmail: assignee,
-        bucket,
+        // A snoozed creation wakes into Today; the bucket rides along.
+        bucket: snoozedUntil ? "today" : bucket,
+        snoozedUntil: snoozedUntil?.toISOString(),
       });
       // Attachments upload after the row exists (storage paths are task-scoped).
       await Promise.allSettled(
@@ -222,45 +224,16 @@ export function NewTaskModal({
         </div>
 
         <div className="flex items-center gap-1 border-t border-border/60 bg-muted/40 px-3 py-2.5">
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-foreground hover:bg-accent/60"
-                />
-              }
-            >
-              <BucketIcon
-                className={cn(
-                  "size-4",
-                  bucket === "today" ? "text-amber-500" : "text-sky-700"
-                )}
-              />
-              {bucket === "today" ? "Today" : "Inbox"}
-              <ChevronDown className="size-3.5 text-muted-foreground" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-36">
-              {(
-                [
-                  { bucket: "inbox", label: "Inbox", icon: Inbox, iconClass: "text-sky-700" },
-                  { bucket: "today", label: "Today", icon: Star, iconClass: "text-amber-500" },
-                ] as const
-              ).map((option) => (
-                <DropdownMenuItem
-                  key={option.bucket}
-                  onClick={() => setBucket(option.bucket)}
-                  className="gap-2"
-                >
-                  <option.icon className={cn("size-4", option.iconClass)} />
-                  <span className="flex-1">{option.label}</span>
-                  {bucket === option.bucket && (
-                    <Check className="size-4 text-primary" />
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <WhenPicker
+            bucket={bucket}
+            snoozedUntil={snoozedUntil ? snoozedUntil.toISOString() : null}
+            onSetBucket={(next) => {
+              setBucket(next);
+              setSnoozedUntil(null);
+            }}
+            onSnooze={(when) => setSnoozedUntil(when)}
+            triggerClassName="rounded-md bg-transparent px-2 py-1 hover:bg-accent/60"
+          />
 
           <DropdownMenu>
             <DropdownMenuTrigger

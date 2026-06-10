@@ -42,6 +42,8 @@ export async function createTask(input: {
   notes?: string;
   /** Rich HTML (the quick-add modal's Tiptap notes) — sanitized like edits. */
   notesHtml?: string;
+  /** Snooze straight from creation (the quick-add modal's When picker). */
+  snoozedUntil?: string;
   /** Inline "New" creates an untitled draft, opened for editing in place
    * (discarded by the client if it's closed still empty). */
   draft?: boolean;
@@ -84,6 +86,7 @@ export async function createTask(input: {
       assignee_email: input.assigneeEmail,
       creator_email: selfEmail,
       project_id: input.projectId ?? null,
+      snoozed_until: input.snoozedUntil ?? null,
       sort_order: (last?.sort_order ?? 0) + 1,
       // Your own captures never need an "unseen" state.
       assignee_seen_at: input.assigneeEmail === selfEmail ? new Date().toISOString() : null,

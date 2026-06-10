@@ -24,7 +24,7 @@ import {
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import { AssigneePicker } from "@/components/todos/assignee-picker";
 import { firstNameOf } from "@/components/todos/member-name";
-import { SnoozeMenu } from "@/components/todos/snooze-menu";
+import { WhenPicker } from "@/components/todos/when-picker";
 import {
   TaskAttachments,
   type UploadingAttachment,
@@ -383,45 +383,16 @@ function ExpandedEditor({
       />
 
       <div className="flex flex-wrap items-center gap-1">
-        {/* When: one segmented control — the four buckets plus Snooze, which
-            is the same dimension ("when does this surface?") and opens its
-            preset picker in place. Bucket moves clear any snooze. */}
-        <div className="flex items-center rounded-lg border border-border/70 p-0.5">
-          {BUCKET_OPTIONS.map((option) => {
-            const Icon = option.icon;
-            const active = task.bucket === option.bucket && !task.snoozedUntil;
-            return (
-              <button
-                key={option.bucket}
-                type="button"
-                onClick={() => {
-                  if (!active) handlers.onSetBucket(task, option.bucket);
-                }}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs",
-                  active
-                    ? "bg-accent font-medium text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <Icon className={cn("size-3.5", option.iconClass)} />
-                {option.label}
-              </button>
-            );
-          })}
-          <SnoozeMenu
-            label={task.snoozedUntil ? formatWake(task.snoozedUntil) : "Snooze"}
-            triggerClassName={cn(
-              "gap-1.5 rounded-md px-2 py-1 text-xs",
-              task.snoozedUntil
-                ? "bg-accent font-medium text-foreground"
-                : "text-muted-foreground hover:bg-transparent hover:text-foreground"
-            )}
-            onSnooze={(when) => handlers.onSnooze(task, when)}
-            open={openMenu === "snooze"}
-            onOpenChange={(open) => onMenuOpenChange("snooze", open)}
-          />
-        </div>
+        {/* When: one Things-style chip naming the current state, opening the
+            unified picker (Today, snooze moments, Anytime, Someday, Inbox). */}
+        <WhenPicker
+          bucket={task.bucket}
+          snoozedUntil={task.snoozedUntil}
+          onSetBucket={(bucket) => handlers.onSetBucket(task, bucket)}
+          onSnooze={(when) => handlers.onSnooze(task, when)}
+          open={openMenu === "snooze"}
+          onOpenChange={(open) => onMenuOpenChange("snooze", open)}
+        />
 
         {context.mode === "view" && context.view === "snoozed" && (
           <button
