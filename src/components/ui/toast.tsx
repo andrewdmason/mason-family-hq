@@ -4,8 +4,9 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Minimal, dependency-free toast surface. Toasts here are deliberate prompts
- * that wait for an explicit action — there is no auto-dismiss timer.
+ * Minimal, dependency-free toast surface. There is no built-in auto-dismiss
+ * timer: most toasts are deliberate prompts that wait for an explicit action;
+ * transient confirmations (e.g. quick-add's "Added to …") own their own timer.
  */
 function ToastViewport({ className, ...props }: React.ComponentProps<"div">) {
   return (

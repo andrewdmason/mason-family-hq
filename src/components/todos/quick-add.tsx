@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import {
   NewTaskModal,
   type NewTaskDefaults,
 } from "@/components/todos/new-task-modal";
+import { Toast, ToastViewport } from "@/components/ui/toast";
 import { inOpenOverlay, isTypingTarget } from "@/lib/todos/keyboard";
-import type { TodoMember } from "@/lib/todos/types";
+import { withAs } from "@/lib/todos/member-context";
+import { viewLabel, type TodoMember, type TodoTask } from "@/lib/todos/types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -31,6 +34,15 @@ export function emitQuickAdd(defaults?: NewTaskDefaults): void {
   );
 }
 
+type CreatedToast = {
+  /** Bumped per create so back-to-back captures replay the entrance. */
+  key: number;
+  title: string;
+  /** "Inbox", "Becca’s Today", … — where the task actually landed. */
+  destination: string;
+  href: string;
+};
+
 /** Mounted once; listens for the key + event and hosts the modal. */
 export function QuickAddHost({
   members,
@@ -42,6 +54,7 @@ export function QuickAddHost({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [defaults, setDefaults] = useState<NewTaskDefaults | undefined>();
+  const [toast, setToast] = useState<CreatedToast | null>(null);
 
   useEffect(() => {
     const onEvent = (e: Event) => {
@@ -74,15 +87,65 @@ export function QuickAddHost({
     };
   }, []);
 
+  // Confirmation toasts are transient — unlike the toast surface's default
+  // wait-for-action prompts, these dismiss themselves.
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const onCreated = (task: TodoTask) => {
+    router.refresh();
+    // The capture modal can file a task anywhere — another person's list, a
+    // snooze, a different bucket — so confirm where it landed, with a way
+    // there. Snoozed creations ride bucket=today but render in Snoozed.
+    const view = task.snoozedUntil ? "snoozed" : task.bucket;
+    const mine = task.assigneeEmail === selfEmail;
+    const member = members.find((m) => m.email === task.assigneeEmail);
+    const first =
+      member?.name?.trim().split(/\s+/)[0] ?? task.assigneeEmail.split("@")[0];
+    setToast({
+      key: Date.now(),
+      // Ellipsize the title here rather than CSS-truncating the line — the
+      // destination is the message and must never be the part clipped off.
+      title:
+        task.title.length > 40 ? `${task.title.slice(0, 40).trimEnd()}…` : task.title,
+      destination: mine ? viewLabel(view) : `${first}’s ${viewLabel(view)}`,
+      href: withAs(`/todos/${view}`, task.assigneeEmail, selfEmail),
+    });
+  };
+
   return (
-    <NewTaskModal
-      open={open}
-      onOpenChange={setOpen}
-      members={members}
-      selfEmail={selfEmail}
-      defaults={defaults}
-      onCreated={() => router.refresh()}
-    />
+    <>
+      <NewTaskModal
+        open={open}
+        onOpenChange={setOpen}
+        members={members}
+        selfEmail={selfEmail}
+        defaults={defaults}
+        onCreated={onCreated}
+      />
+      {toast && (
+        <ToastViewport>
+          <Toast
+            key={toast.key}
+            className="flex items-baseline justify-between gap-3"
+          >
+            <span className="min-w-0 text-muted-foreground">
+              Added “{toast.title}” to {toast.destination}
+            </span>
+            <Link
+              href={toast.href}
+              onClick={() => setToast(null)}
+              className="shrink-0 font-medium text-primary hover:underline"
+            >
+              View
+            </Link>
+          </Toast>
+        </ToastViewport>
+      )}
+    </>
   );
 }
 
