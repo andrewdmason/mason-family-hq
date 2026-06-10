@@ -37,8 +37,10 @@ import { detectConflicts } from "@/lib/calendar/conflicts";
 import {
   driveBlockWindow,
   driveEventTitle,
+  clusterDriveBlocks,
   FALLBACK_DRIVE_MINUTES,
   COMBINE_GAP_MINUTES,
+  type PlannedDriveBlock,
 } from "@/lib/calendar/drive-window";
 import type { LogisticsHints } from "@/lib/calendar/queries";
 import type {
@@ -272,9 +274,11 @@ export function CalendarClient({
   // Ghost drive blocks: the server creates/moves/deletes the real mirror rows
   // AFTER its response (the taps are non-blocking), so the calendar would lag
   // a tap by seconds. Instead, derive what the blocks SHOULD be from the
-  // optimistic duty state using the server's exact window math — show a ghost
-  // where a block is coming, and hide a mirror whose duty was just cleared or
-  // reassigned. When refreshed props deliver the real rows, ghosts dissolve.
+  // optimistic duty state using the server's exact math — per-event windows,
+  // the same-event ↔ combine, AND the cross-event multi-stop merge — then
+  // diff against the real mirror rows: show a ghost where a block is coming,
+  // hide a mirror whose duty was just cleared, reassigned, or folded into a
+  // merged block. When refreshed props deliver the real rows, ghosts dissolve.
   const driveAdjusted = useMemo(() => {
     const hidden = new Set<string>();
     const extra: CalendarEvent[] = [];
@@ -284,6 +288,12 @@ export function CalendarClient({
         mirrorByKey.set(`${e.drive_source_event_id}:${e.drive_duty}`, e);
       }
     }
+    // Pass 1: per event + duty, the same per-event math as the server.
+    const planned: PlannedDriveBlock[] = [];
+    const sourceByKey = new Map<
+      string,
+      { ev: CalendarEvent; duty: "dropoff" | "pickup" }
+    >();
     for (const ev of events) {
       if (ev.drive_source_event_id || ev.all_day) continue;
       if (!ev.member_email || !kidEmails.has(ev.member_email)) continue;
@@ -321,50 +331,84 @@ export function CalendarClient({
       for (const duty of ["dropoff", "pickup"] as const) {
         const assignee = d[duty]?.assignee ?? null;
         const shouldExist = !!assignee && !(combined && duty === "pickup");
-        const mirror = mirrorByKey.get(`${ev.id}:${duty}`);
         if (!shouldExist) {
-          if (mirror) hidden.add(mirror.id);
+          const m = mirrorByKey.get(`${ev.id}:${duty}`);
+          if (m) hidden.add(m.id);
           continue;
         }
-        if (mirror && mirror.member_email === assignee) continue; // real & right
-        if (mirror) hidden.add(mirror.id); // reassigned — old parent's copy
-        const window = combined
-          ? { start: dropW.start, end: pickW.end }
-          : duty === "dropoff"
-            ? dropW
-            : pickW;
-        extra.push({
-          id: `pending-drive:${ev.id}:${duty}`,
-          member_email: assignee,
-          calendar_source_id: null,
+        const key = `${ev.id}:${duty}`;
+        planned.push({
+          key,
+          assignee,
+          duty: combined ? "combined" : duty,
+          kidName,
+          location: ev.location,
+          window: combined
+            ? { start: dropW.start, end: pickW.end }
+            : duty === "dropoff"
+              ? dropW
+              : pickW,
           title: driveEventTitle({
             duty: combined ? "combined" : duty,
             kidName,
             driveMinutes,
             isEstimate,
           }),
-          description: null,
-          location: ev.location,
-          start_time: window.start,
-          end_time: window.end,
-          all_day: false,
-          source_type: "manual",
-          external_id: null,
-          google_event_id: null,
-          organizer_email: null,
-          teamsnap_opponent: null,
-          teamsnap_arrival_time: null,
-          teamsnap_is_game: null,
-          teamsnap_rsvp: null,
-          recurrence: "none",
-          recurrence_parent_id: null,
-          is_canceled: false,
-          dismissed: false,
-          drive_source_event_id: ev.id,
-          drive_duty: duty,
-          drive_minutes: null,
+          anchor:
+            duty === "pickup"
+              ? ev.end_time ?? ev.start_time
+              : ev.teamsnap_arrival_time ?? ev.start_time,
+          isEstimate,
         });
+        sourceByKey.set(key, { ev, duty });
       }
+    }
+    // Pass 2: cluster (the server's cross-event merge rule), then diff each
+    // cluster against the real mirror rows. The title encodes everything
+    // user-visible (duty arrow, membership, minutes), so a mirror on the right
+    // parent with the right title IS the desired block, already in place.
+    for (const cluster of clusterDriveBlocks(planned)) {
+      const owner = cluster.members[0];
+      for (const m of cluster.members.slice(1)) {
+        const mirror = mirrorByKey.get(m.key);
+        if (mirror) hidden.add(mirror.id); // folded into the owner's block
+      }
+      const mirror = mirrorByKey.get(owner.key);
+      if (
+        mirror &&
+        mirror.member_email === owner.assignee &&
+        mirror.title === cluster.title
+      ) {
+        continue; // real & right
+      }
+      if (mirror) hidden.add(mirror.id); // reassigned or reshaped — stale copy
+      const src = sourceByKey.get(owner.key)!;
+      extra.push({
+        id: `pending-drive:${src.ev.id}:${src.duty}`,
+        member_email: owner.assignee,
+        calendar_source_id: null,
+        title: cluster.title,
+        description: null,
+        location: cluster.location,
+        start_time: cluster.window.start,
+        end_time: cluster.window.end,
+        all_day: false,
+        source_type: "manual",
+        external_id: null,
+        google_event_id: null,
+        organizer_email: null,
+        teamsnap_opponent: null,
+        teamsnap_arrival_time: null,
+        teamsnap_is_game: null,
+        teamsnap_rsvp: null,
+        recurrence: "none",
+        recurrence_parent_id: null,
+        is_canceled: false,
+        dismissed: false,
+        drive_source_event_id: src.ev.id,
+        drive_duty: src.duty,
+        drive_minutes: null,
+      });
     }
     return { hidden, extra };
   }, [events, dutiesFor, kidEmails, memberNames, logistics]);
