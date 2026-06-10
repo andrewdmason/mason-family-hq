@@ -12,19 +12,21 @@ import { SyncTrigger } from "@/components/calendar/sync-trigger";
 export default async function CalendarPage() {
   const supabase = await createClient();
   const userId = await requireUserId(supabase);
-  const { data: me } = await supabase
-    .from("family_members")
-    .select("role, email")
-    .eq("user_id", userId)
-    .maybeSingle();
-  const canManage = me?.role === "owner" || me?.role === "parent";
-  const currentMemberEmail = me?.email ?? null;
 
-  const [members, sources, events] = await Promise.all([
+  // One round trip for everything that only needs the user id; only the
+  // attendee lookup (keyed by event ids) has to wait for a prior result.
+  const [{ data: me }, members, sources, events] = await Promise.all([
+    supabase
+      .from("family_members")
+      .select("role, email")
+      .eq("user_id", userId)
+      .maybeSingle(),
     getCalendarMembers(),
     getCalendarSources(),
     getCalendarEvents(),
   ]);
+  const canManage = me?.role === "owner" || me?.role === "parent";
+  const currentMemberEmail = me?.email ?? null;
   const goingByEvent = await getEventAttendees(events.map((e) => e.id));
 
   // getCalendarMembers returns kids-first (Oscar, Sebastian, Andrew, Jenny);

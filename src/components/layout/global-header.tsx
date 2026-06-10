@@ -1,4 +1,8 @@
-import { GlobalHeaderClient } from "@/components/layout/global-header-client";
+import { Suspense } from "react";
+import {
+  GlobalHeaderClient,
+  GlobalHeaderShell,
+} from "@/components/layout/global-header-client";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { getIsOwner, requireUserId } from "@/lib/members/auth";
 import { getJournalNotifications } from "@/lib/journal/notifications";
@@ -26,8 +30,22 @@ type StreakEntry = {
  * status indicators — your journaling streak and family-post notifications — so
  * they're always present no matter which app you're in. The "New" action is
  * app-specific and lives in each app's own content, not here.
+ *
+ * The data-bearing part streams in behind Suspense: the streak/notification
+ * queries take real time, and the header sits in every layout — without the
+ * boundary they'd hold up the first byte of every page, so a cold PWA launch
+ * sat on a blank screen until the slowest header query finished. The shell
+ * paints immediately; the badges stream in place.
  */
-export async function GlobalHeader() {
+export function GlobalHeader() {
+  return (
+    <Suspense fallback={<GlobalHeaderShell />}>
+      <GlobalHeaderData />
+    </Suspense>
+  );
+}
+
+async function GlobalHeaderData() {
   const supabase = await createClient();
   const userId = await requireUserId(supabase);
 

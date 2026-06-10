@@ -16,7 +16,7 @@
 //
 // Run: node scripts/generate-icons.mjs
 import { createCanvas, Path2D } from "@napi-rs/canvas";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createElement } from "react";
@@ -289,6 +289,56 @@ for (const app of APPS) {
     writeFileSync(join(root, `src/app/${app.group}/icon1.png`), appPng(32, app, { rounded: true }));
     console.log(`wrote src/app/${app.group}/{apple-icon.png,icon0.svg,icon1.png}`);
   }
+}
+
+// --- iOS launch screens --------------------------------------------------------
+// iOS shows plain white on a standalone launch unless an apple-touch-startup-
+// image exactly matching the device's pixel size is linked, so we draw one per
+// app per device: the app's rounded home-screen tile centred on the app's cream
+// background. Mirrors SPLASH_SIZES in src/lib/pwa/apps.ts — keep in sync.
+const SPLASH_BG = "#faf7f0"; // matches --background and the manifest background_color
+const SPLASH_SIZES = [
+  // iPhones (CSS points + device pixel ratio, portrait)
+  { w: 440, h: 956, r: 3 },
+  { w: 430, h: 932, r: 3 },
+  { w: 428, h: 926, r: 3 },
+  { w: 414, h: 896, r: 3 },
+  { w: 414, h: 896, r: 2 },
+  { w: 402, h: 874, r: 3 },
+  { w: 393, h: 852, r: 3 },
+  { w: 390, h: 844, r: 3 },
+  { w: 375, h: 812, r: 3 },
+  { w: 375, h: 667, r: 2 },
+  // iPads
+  { w: 1024, h: 1366, r: 2 },
+  { w: 834, h: 1194, r: 2 },
+  { w: 820, h: 1180, r: 2 },
+  { w: 810, h: 1080, r: 2 },
+  { w: 768, h: 1024, r: 2 },
+  { w: 744, h: 1133, r: 2 },
+];
+
+function splashPng(app, pw, ph) {
+  const canvas = createCanvas(pw, ph);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = SPLASH_BG;
+  ctx.fillRect(0, 0, pw, ph);
+  // The home-screen tile, dead centre — sized like a native app's launch icon.
+  const tile = Math.round(Math.min(pw, ph) * 0.3);
+  const icon = appCanvas(tile, app, { rounded: true });
+  ctx.drawImage(icon, Math.round((pw - tile) / 2), Math.round((ph - tile) / 2));
+  return canvas.toBuffer("image/png");
+}
+
+mkdirSync(join(root, "public/app-splash"), { recursive: true });
+for (const app of APPS) {
+  for (const { w, h, r } of SPLASH_SIZES) {
+    writeFileSync(
+      join(root, `public/app-splash/${app.key}-${w * r}x${h * r}.png`),
+      splashPng(app, w * r, h * r)
+    );
+  }
+  console.log(`wrote public/app-splash/${app.key}-* (${SPLASH_SIZES.length} sizes)`);
 }
 
 // --- Master house assets (favicon + default apple-touch-icon) ----------------
