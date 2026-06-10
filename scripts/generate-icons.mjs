@@ -1,6 +1,7 @@
-// Generates the Mason Family HQ app icons + favicon, plus a distinct icon for
+// Generates the Mason Family HQ app icons + favicons, plus a distinct icon for
 // each "app" (route group) so a PWA installed from /workouts gets a dumbbell
-// tile, /reader a book, and so on.
+// tile, /reader a book, and so on — and the browser tab favicon matches too
+// (each route group gets its own icon0.svg/icon1.png pair).
 //
 // The master mark is a warm cream house (with a heart window) on a terracotta
 // gradient — drawn entirely with canvas primitives so it stays crisp at every
@@ -192,7 +193,7 @@ function strokeSvgElement(ctx, el) {
   }
 }
 
-function strokeRoundRect(ctx, x, y, w, h, r) {
+function roundRectPath(ctx, x, y, w, h, r) {
   r = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -201,6 +202,10 @@ function strokeRoundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
+}
+
+function strokeRoundRect(ctx, x, y, w, h, r) {
+  roundRectPath(ctx, x, y, w, h, r);
   ctx.stroke();
 }
 
@@ -221,27 +226,68 @@ function drawGlyph(ctx, size, IconComponent) {
 }
 
 // --- Compose -----------------------------------------------------------------
-function appCanvas(size, app) {
+// Favicons aren't masked by the platform (unlike maskable PWA tiles), so they
+// get their corners rounded here, at the icon.svg's 112/512 radius.
+const CORNER = 112 / 512;
+
+function appCanvas(size, app, { rounded = false } = {}) {
   const canvas = createCanvas(size, size);
   const ctx = canvas.getContext("2d");
+  if (rounded) {
+    roundRectPath(ctx, 0, 0, size, size, size * CORNER);
+    ctx.clip();
+  }
   drawBackground(ctx, size, app.top, app.bottom);
   if (app.glyph) drawGlyph(ctx, size, app.glyph);
   else drawHouse(ctx, size, app.top, app.bottom);
   return canvas;
 }
 
-const appPng = (size, app) => appCanvas(size, app).toBuffer("image/png");
+const appPng = (size, app, opts) => appCanvas(size, app, opts).toBuffer("image/png");
+
+// --- Favicons (SVG) ------------------------------------------------------------
+// A crisp vector favicon: the app's tile art with rounded corners. Modern
+// browsers (Chrome, Firefox) prefer this over the .ico/.png fallbacks.
+function appSvg(app) {
+  // Same geometry as drawGlyph: a 24×24 Lucide viewBox scaled to ~46% of the
+  // tile, centred. We inline the icon's rendered child elements (bare paths
+  // that inherit stroke styling from the wrapping <g>).
+  const art = app.glyph
+    ? `<g transform="translate(138.24 138.24) scale(${(512 * 0.46) / 24})" fill="none" stroke="${CREAM}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${renderToStaticMarkup(createElement(app.glyph))
+        .replace(/^<svg[^>]*>/, "")
+        .replace(/<\/svg>$/, "")}</g>`
+    : `<path d="M256 102 L430 235 L82 235 Z" fill="${CREAM}" stroke="${CREAM}" stroke-width="28" stroke-linejoin="round"/>
+  <rect x="131" y="235" width="250" height="185" rx="15" fill="${CREAM}"/>
+  <path d="M256 349
+           C 331 290, 290 221, 256 259
+           C 222 221, 181 290, 256 349 Z" fill="url(#bg)"/>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="${app.top}"/>
+      <stop offset="1" stop-color="${app.bottom}"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="${512 * CORNER}" fill="url(#bg)"/>
+  ${art}
+</svg>
+`;
+}
 
 // --- Per-app outputs ---------------------------------------------------------
-// Manifest icons (any + maskable) for every app; apple-touch-icons for each
-// route group except home, which inherits the root house apple-icon.
+// Manifest icons (any + maskable) for every app; apple-touch-icons and favicons
+// (icon0.svg + icon1.png — Safari doesn't load SVG favicons) for each route
+// group except home, which inherits the root house assets. Next serves the
+// most-leaf segment's icon files, so each section's browser tab gets its own.
 for (const app of APPS) {
   writeFileSync(join(root, `public/app-icons/${app.key}-192.png`), appPng(192, app));
   writeFileSync(join(root, `public/app-icons/${app.key}-512.png`), appPng(512, app));
   console.log(`wrote public/app-icons/${app.key}-{192,512}.png`);
   if (app.key !== "home") {
     writeFileSync(join(root, `src/app/${app.group}/apple-icon.png`), appPng(180, app));
-    console.log(`wrote src/app/${app.group}/apple-icon.png (180x180)`);
+    writeFileSync(join(root, `src/app/${app.group}/icon0.svg`), appSvg(app));
+    writeFileSync(join(root, `src/app/${app.group}/icon1.png`), appPng(32, app, { rounded: true }));
+    console.log(`wrote src/app/${app.group}/{apple-icon.png,icon0.svg,icon1.png}`);
   }
 }
 
@@ -281,20 +327,5 @@ writeFileSync(join(root, "src/app/favicon.ico"), buildIco([16, 32, 48]));
 console.log("wrote src/app/favicon.ico (16,32,48)");
 
 // icon.svg (crisp vector favicon for modern browsers).
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="${TERRA_TOP}"/>
-      <stop offset="1" stop-color="${TERRA_BOTTOM}"/>
-    </linearGradient>
-  </defs>
-  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <path d="M256 102 L430 235 L82 235 Z" fill="${CREAM}" stroke="${CREAM}" stroke-width="28" stroke-linejoin="round"/>
-  <rect x="131" y="235" width="250" height="185" rx="15" fill="${CREAM}"/>
-  <path d="M256 349
-           C 331 290, 290 221, 256 259
-           C 222 221, 181 290, 256 349 Z" fill="url(#bg)"/>
-</svg>
-`;
-writeFileSync(join(root, "src/app/icon.svg"), svg);
+writeFileSync(join(root, "src/app/icon.svg"), appSvg(house));
 console.log("wrote src/app/icon.svg");
