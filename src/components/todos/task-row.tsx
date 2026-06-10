@@ -168,6 +168,14 @@ export function TaskRow({
     (inProjectMode || inDelegated) &&
     !task.snoozedUntil &&
     task.bucket !== "anytime";
+  // Views that don't group by project (Anytime and Someday do, and a project
+  // page *is* the project) name the task's project under the title, like
+  // Things' Today view.
+  const groupedByProject =
+    context.mode === "view" &&
+    (context.view === "anytime" || context.view === "someday");
+  const project = projects.find((p) => p.id === task.projectId);
+  const showProjectLine = !inProjectMode && !groupedByProject && !!project;
   const BucketIcon = bucketIcon(task.bucket);
   const hasNotes = !!task.notesHtml;
 
@@ -230,14 +238,21 @@ export function TaskRow({
           />
         ) : (
           <>
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate text-sm text-foreground transition-all select-none",
-                !task.title.trim() && "text-muted-foreground/60",
-                completing && "text-muted-foreground line-through"
+            <span className="min-w-0 flex-1 select-none">
+              <span
+                className={cn(
+                  "block truncate text-sm text-foreground transition-all",
+                  !task.title.trim() && "text-muted-foreground/60",
+                  completing && "text-muted-foreground line-through"
+                )}
+              >
+                {task.title.trim() || "New To-Do"}
+              </span>
+              {showProjectLine && project && (
+                <span className="block truncate text-xs leading-4 text-muted-foreground/60">
+                  {project.name}
+                </span>
               )}
-            >
-              {task.title.trim() || "New To-Do"}
             </span>
             {hasNotes && (
               <FileText className="size-3.5 shrink-0 text-muted-foreground/60" />

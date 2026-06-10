@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import sanitizeHtml from "sanitize-html";
 import { createClient } from "@/lib/supabase/server";
 import { plainTextToNotesHtml } from "@/lib/todos/notes";
-import { getSelfEmail } from "@/lib/todos/queries";
+import { getSelfEmail, markInboxSeen } from "@/lib/todos/queries";
 import {
   TASK_COLUMNS,
   taskFromRow,
@@ -32,6 +32,17 @@ async function ctx() {
   const supabase = await createClient();
   const selfEmail = await getSelfEmail(supabase);
   return { supabase, selfEmail };
+}
+
+/**
+ * Opening your own Inbox acknowledges the tasks others put there (clears the
+ * bell). Full page loads handle this server-side ([view]/page.tsx); the views
+ * shell calls this on instant client-side switches, which never re-run the
+ * page.
+ */
+export async function acknowledgeInbox(): Promise<void> {
+  const { supabase, selfEmail } = await ctx();
+  await markInboxSeen(supabase, selfEmail);
 }
 
 export async function createTask(input: {

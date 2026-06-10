@@ -94,11 +94,41 @@ export function TeamsnapAttendance({
   }
 
   if (!data) {
+    // Skeleton with the same shape and height as the loaded content, so the
+    // rows below (Going, drop-off/pick-up) don't jump when the fetch resolves.
     return (
-      <div className="flex items-center gap-2 border-t pt-3 text-xs text-muted-foreground">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        Loading attendance…
-      </div>
+      <>
+        {canRsvp && (
+          <div className="space-y-2 border-t pt-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground">
+                Attendance
+              </span>
+              <span className="h-6 w-20 animate-pulse rounded-full bg-muted" />
+            </div>
+            <div className="inline-flex w-full rounded-lg border p-0.5">
+              {RSVP_OPTIONS.map((o) => (
+                <span
+                  key={o.value}
+                  className="flex-1 rounded-md px-2 py-1 text-center text-xs font-medium text-muted-foreground/40"
+                >
+                  {o.label}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="space-y-2 border-t pt-3">
+          <div className="text-xs font-medium text-muted-foreground">
+            TeamSnap attendance
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Users className="h-3.5 w-3.5 shrink-0" />
+            <span className="h-3.5 w-44 animate-pulse rounded bg-muted" />
+            <Loader2 className="ml-auto h-3.5 w-3.5 animate-spin" />
+          </div>
+        </div>
+      </>
     );
   }
 

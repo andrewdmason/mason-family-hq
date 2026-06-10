@@ -187,24 +187,41 @@ export function TaskList({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
+  // Merge an incoming task set in, keeping the open editor's draft fields —
+  // the user may still be mid-typing when it lands (a snapshot) or when the
+  // list re-targets (an instant view switch carries the open draft along).
+  const withEditingCarried = (prev: TodoTask[], next: TodoTask[]) => {
+    const editing = expandedId ? prev.find((t) => t.id === expandedId) : undefined;
+    if (!editing) return next;
+    return next.some((t) => t.id === editing.id)
+      ? next.map((t) =>
+          t.id === editing.id
+            ? { ...t, title: editing.title, notesHtml: editing.notesHtml }
+            : t
+        )
+      : [editing, ...next];
+  };
+
+  // Instant view switches re-target this same mounted list (the views shell
+  // swaps context + initialTasks in one render). Reset during render — not in
+  // an effect — so the new view never paints a frame of the old view's rows,
+  // and unconditionally: unlike snapshot adoption below, waiting for idle()
+  // here would leave the wrong view on screen.
+  const contextKey = context.mode === "view" ? context.view : context.projectId;
+  const [renderedContextKey, setRenderedContextKey] = useState(contextKey);
+  if (renderedContextKey !== contextKey) {
+    setRenderedContextKey(contextKey);
+    setTasks((prev) => withEditingCarried(prev, initialTasks));
+    setSelectedIds(new Set());
+    anchorId.current = null;
+  }
+
   // Server snapshots are the source of truth, but only between mutations
   // (idle): a snapshot rendered before a later optimistic change committed
-  // would resurrect its old row — the drain refresh re-syncs afterwards. The
-  // open editor's draft fields also survive the swap (the user may still be
-  // mid-typing when a snapshot lands).
+  // would resurrect its old row — the drain refresh re-syncs afterwards.
   useEffect(() => {
     if (!idle()) return;
-    setTasks((prev) => {
-      const editing = expandedId ? prev.find((t) => t.id === expandedId) : undefined;
-      if (!editing) return initialTasks;
-      return initialTasks.some((t) => t.id === editing.id)
-        ? initialTasks.map((t) =>
-            t.id === editing.id
-              ? { ...t, title: editing.title, notesHtml: editing.notesHtml }
-              : t
-          )
-        : [editing, ...initialTasks];
-    });
+    setTasks((prev) => withEditingCarried(prev, initialTasks));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTasks]);
   useEffect(() => {
@@ -738,7 +755,8 @@ export function TaskList({
   // Gmail-style list keys: j/k (or arrows) walk the list, enter/o opens the
   // selected task, e completes, c creates an inline draft below the
   // selection, s/m/a summon the snooze/project/assignee
-  // menus, Delete/⌫/# asks then removes, w wakes a snoozed task, z undoes a
+  // menus (⇧⌘S summons snooze even mid-typing), Delete/⌫/# asks then
+  // removes, w wakes a snoozed task, z undoes a
   // delete, ⌘Z/⇧⌘Z undo/redo check-offs, ⌘A selects every task in the view,
   // and Escape closes the open task before clearing the selection. All of them stay quiet while typing
   // or while a menu/dialog is open; the ref keeps one stable window listener
@@ -767,6 +785,23 @@ export function TaskList({
       e.preventDefault();
       if (e.shiftKey) handleRedoComplete();
       else handleUndoComplete();
+      return;
+    }
+    // ⇧⌘S: jump to the When type-ahead. Unlike the plain `s` below it works
+    // mid-typing, so editing a title can flow straight into scheduling.
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      e.shiftKey &&
+      !e.altKey &&
+      e.key.toLowerCase() === "s"
+    ) {
+      if (inOpenOverlay(e.target)) return;
+      const targetId =
+        expandedId ?? (selectedIds.size === 1 ? [...selectedIds][0] : null);
+      if (!targetId) return;
+      e.preventDefault();
+      setExpandedId(targetId);
+      setOpenMenu("snooze");
       return;
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
