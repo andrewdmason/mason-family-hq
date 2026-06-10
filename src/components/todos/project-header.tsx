@@ -107,8 +107,9 @@ export function ProjectHeader({
   const doComplete = async () => {
     setConfirmComplete(false);
     await completeProject(project.id);
+    // No refresh() after push — it would cancel the navigation (the todos
+    // pages are force-dynamic, so the push alone fetches fresh data).
     router.push(logbookHref);
-    router.refresh();
   };
 
   const handleRemoveMember = async (email: string) => {
@@ -121,8 +122,7 @@ export function ProjectHeader({
     const { deletedAt } = await deleteProject(project.id);
     setPendingDelete({ deletedAt });
     deleteTimer.current = setTimeout(() => {
-      router.push(homeHref);
-      router.refresh();
+      router.push(homeHref); // refresh() here would cancel the push
     }, UNDO_WINDOW_MS);
   };
 

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { resolveViewedMember } from "@/lib/todos/member-context";
+import { resolveViewedMember, withAs } from "@/lib/todos/member-context";
 import {
   getAreas,
   getDelegatedCount,
@@ -15,6 +15,7 @@ import {
   sweepElapsedSnoozes,
 } from "@/lib/todos/queries";
 import { isTodoView, viewLabel } from "@/lib/todos/types";
+import { BackToLists } from "@/components/todos/back-to-lists";
 import { InlineNewButton } from "@/components/todos/inline-new-button";
 import { LogbookList } from "@/components/todos/logbook-list";
 import { QuickAddButton } from "@/components/todos/quick-add";
@@ -79,6 +80,8 @@ export default async function TodoViewPage({
         />
 
         <div className="min-w-0 flex-1">
+          <BackToLists href={withAs("/todos/browse", viewed.email, selfEmail)} />
+
           {viewed.email !== selfEmail && <ViewingBanner viewed={viewed} />}
 
           <div className="mb-4 flex items-center justify-between gap-3">

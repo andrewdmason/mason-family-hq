@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
  * The person switcher: swaps the whole app to another member's perspective
  * (their views, their projects, fully interactive). Rides on ?as=, so a plain
  * visit to /todos always resets to you. Deliberately quiet — it lives at the
- * bottom of the sidebar (and as a trailing pill on mobile), since peeking at
+ * bottom of the sidebar (and of the mobile lists screen), since peeking at
  * someone else's lists is an occasional act; the "Viewing X" banner is the
  * loud part once you're in.
  */
@@ -24,12 +24,10 @@ export function MemberSwitcher({
   members,
   viewedEmail,
   selfEmail,
-  variant = "sidebar",
 }: {
   members: TodoMember[];
   viewedEmail: string;
   selfEmail: string;
-  variant?: "sidebar" | "mobile";
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -55,9 +53,7 @@ export function MemberSwitcher({
             type="button"
             aria-label="View another family member's lists"
             className={cn(
-              variant === "sidebar"
-                ? "flex w-full cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground/70 hover:bg-accent/40 hover:text-foreground"
-                : "inline-flex cursor-default items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-sm whitespace-nowrap text-muted-foreground",
+              "flex w-full cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground/70 hover:bg-accent/40 hover:text-foreground",
               viewingOther && "text-primary"
             )}
           />
@@ -66,11 +62,7 @@ export function MemberSwitcher({
         <Users className="size-4" />
         Family
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        side={variant === "sidebar" ? "top" : "bottom"}
-        className="w-48"
-      >
+      <DropdownMenuContent align="start" side="top" className="w-48">
         {members.map((member) => (
           <DropdownMenuItem
             key={member.email}

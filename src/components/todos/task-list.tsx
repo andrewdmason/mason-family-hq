@@ -35,6 +35,7 @@ import {
   setTaskProject,
   setTaskSortOrder,
   snoozeTask,
+  uncompleteTask,
   updateTaskNotes,
   updateTaskTitle,
 } from "@/app/(todos)/todos/actions";
@@ -84,6 +85,9 @@ import type {
 import { cn } from "@/lib/utils";
 
 const COMPLETE_ANIMATION_MS = 600;
+// After the crossed-out beat, the row collapses and the list closes around
+// it (see SortableTaskRow). Keep in sync with its duration-[250ms] classes.
+const REMOVE_ANIMATION_MS = 250;
 const UNDO_WINDOW_MS = 6_000;
 
 const EMPTY_STATES: Record<string, { icon: typeof Star; text: string }> = {
@@ -134,6 +138,8 @@ export function TaskList({
   const { run, idle } = useReconciler();
   const [tasks, setTasks] = useState(initialTasks);
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
+  // Completed rows mid-collapse (phase two of the check-off animation).
+  const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
   // Things' interaction model: click selects (shift extends a range,
   // cmd/ctrl toggles), double click opens, Delete asks then removes.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -149,6 +155,15 @@ export function TaskList({
     Record<string, UploadingAttachment[]>
   >({});
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ⌘Z history for check-offs: every completion pushes the task here, ⌘Z pops
+  // (one task at a time, most recent first) and ⇧⌘Z replays. A completion
+  // still riding its two-beat animation hasn't hit the server yet, so its
+  // timers live here too — undoing one just cancels them.
+  const completeUndoStack = useRef<TodoTask[]>([]);
+  const completeRedoStack = useRef<TodoTask[]>([]);
+  const pendingCompleteTimers = useRef(
+    new Map<string, ReturnType<typeof setTimeout>[]>()
+  );
 
   // Drag-to-sidebar: the tasks riding the active drag (the whole selection
   // when the dragged row belongs to it), the valid sidebar target under the
@@ -319,19 +334,39 @@ export function TaskList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandedId]);
 
-  const handlers: TaskRowHandlers = {
-    onComplete: (task) => {
-      if (completingIds.has(task.id)) return;
-      setCompletingIds((prev) => new Set(prev).add(task.id));
-      setTimeout(() => {
+  const completeWithAnimation = (task: TodoTask) => {
+    if (completingIds.has(task.id)) return;
+    completeUndoStack.current.push(task);
+    // Like Things, in two beats: the row sits crossed-out for a moment,
+    // then collapses while the list closes up around it.
+    setCompletingIds((prev) => new Set(prev).add(task.id));
+    const crossOut = setTimeout(() => {
+      const collapse = setTimeout(() => {
+        pendingCompleteTimers.current.delete(task.id);
         removeLocally(task.id);
         setCompletingIds((prev) => {
           const next = new Set(prev);
           next.delete(task.id);
           return next;
         });
+        setRemovingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(task.id);
+          return next;
+        });
         run(completeTask(task.id));
-      }, COMPLETE_ANIMATION_MS);
+      }, REMOVE_ANIMATION_MS);
+      pendingCompleteTimers.current.set(task.id, [collapse]);
+      setRemovingIds((prev) => new Set(prev).add(task.id));
+    }, COMPLETE_ANIMATION_MS);
+    pendingCompleteTimers.current.set(task.id, [crossOut]);
+  };
+
+  const handlers: TaskRowHandlers = {
+    onComplete: (task) => {
+      // A fresh completion starts a new history; ⇧⌘Z only replays undos.
+      completeRedoStack.current = [];
+      completeWithAnimation(task);
     },
     onDelete: (task) => {
       removeLocally(task.id);
@@ -484,6 +519,57 @@ export function TaskList({
     run(restoreTask(task.id));
   };
 
+  // ⌘Z: bring back the last checked-off task. Caught mid-animation it never
+  // reached the server — cancel the timers and un-cross the row; otherwise
+  // restore the row and uncomplete it server-side. Selects what came back.
+  const handleUndoComplete = () => {
+    const task = completeUndoStack.current.pop();
+    if (!task) return;
+    completeRedoStack.current.push(task);
+    const timers = pendingCompleteTimers.current.get(task.id);
+    if (timers) {
+      timers.forEach(clearTimeout);
+      pendingCompleteTimers.current.delete(task.id);
+      setCompletingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(task.id);
+        return next;
+      });
+      setRemovingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(task.id);
+        return next;
+      });
+    } else {
+      setTasks((prev) =>
+        prev.some((t) => t.id === task.id)
+          ? prev
+          : [...prev, task].sort((a, b) => a.sortOrder - b.sortOrder)
+      );
+      run(uncompleteTask(task.id));
+    }
+    setSelectedIds(new Set([task.id]));
+    anchorId.current = task.id;
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-task-id="${task.id}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    });
+  };
+
+  // ⇧⌘Z: re-complete the last ⌘Z'd task. If a reconcile swept the row out of
+  // this view meanwhile, skip the animation and just tell the server.
+  const handleRedoComplete = () => {
+    const task = completeRedoStack.current.pop();
+    if (!task) return;
+    if (tasksRef.current.some((t) => t.id === task.id)) {
+      completeWithAnimation(task);
+    } else {
+      completeUndoStack.current.push(task);
+      run(completeTask(task.id));
+    }
+  };
+
   // Anytime and Someday group by project (loose tasks first), like Things;
   // Delegated groups by who holds the task.
   const grouped = view === "anytime" || view === "someday";
@@ -613,8 +699,8 @@ export function TaskList({
   // Gmail-style list keys: j/k (or arrows) walk the list, enter/o opens the
   // selected task, e completes, s/m/a summon the snooze/project/assignee
   // menus, Delete/⌫/# asks then removes, w wakes a snoozed task, z undoes a
-  // delete, ⌘A selects every task in the view, and Escape closes the open
-  // task before clearing the selection. All of them stay quiet while typing
+  // delete, ⌘Z/⇧⌘Z undo/redo check-offs, ⌘A selects every task in the view,
+  // and Escape closes the open task before clearing the selection. All of them stay quiet while typing
   // or while a menu/dialog is open; the ref keeps one stable window listener
   // over fresh state.
   const onListKeyDown = (e: KeyboardEvent) => {
@@ -631,6 +717,16 @@ export function TaskList({
       e.preventDefault();
       setSelectedIds(new Set(visibleOrder));
       anchorId.current = visibleOrder[0];
+      return;
+    }
+    // ⌘Z / ⇧⌘Z: undo / redo the last check-off — unless typing (or a task is
+    // open for editing), where native text undo wins.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "z") {
+      if (isTypingTarget(e.target) || inOpenOverlay(e.target) || expandedId)
+        return;
+      e.preventDefault();
+      if (e.shiftKey) handleRedoComplete();
+      else handleUndoComplete();
       return;
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -1012,6 +1108,7 @@ export function TaskList({
                         key={stableKey(task.id)}
                         id={task.id}
                         dragCount={dragCount}
+                        removing={removingIds.has(task.id)}
                       >
                         <TaskContextMenu
                           task={task}
@@ -1243,11 +1340,14 @@ export function TaskList({
 function SortableTaskRow({
   id,
   dragCount,
+  removing = false,
   children,
 }: {
   id: string;
   /** Size of the drag set — badges the floating row when > 1. */
   dragCount: number;
+  /** Phase two of check-off: collapse the row so the list closes around it. */
+  removing?: boolean;
   children: React.ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -1262,7 +1362,17 @@ function SortableTaskRow({
       {...attributes}
       {...listeners}
     >
-      {children}
+      {/* The 1fr→0fr grid row animates the collapse without measuring. */}
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows,opacity] duration-[250ms] ease-in",
+          removing ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr]"
+        )}
+      >
+        <div className={cn("min-h-0", removing && "pointer-events-none overflow-hidden")}>
+          {children}
+        </div>
+      </div>
       {isDragging && dragCount > 1 && (
         <span className="pointer-events-none absolute -top-2 -right-2 z-20 flex size-5 items-center justify-center rounded-full bg-primary text-[11px] font-medium tabular-nums text-primary-foreground shadow-sm">
           {dragCount}

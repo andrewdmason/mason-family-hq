@@ -24,15 +24,9 @@ export default function TodosLoading() {
           </div>
         </div>
 
-        {/* Mobile pills */}
-        <div className="-mx-4 mb-4 flex gap-1.5 overflow-hidden px-4 md:hidden">
-          {[24, 20, 24, 24].map((w, i) => (
-            <div
-              key={i}
-              className="h-8 shrink-0 animate-pulse rounded-full bg-muted/50"
-              style={{ width: `${w * 4}px` }}
-            />
-          ))}
+        {/* Mobile back chevron (views are full-screen on phones) */}
+        <div className="mb-2 md:hidden">
+          <div className="size-6 animate-pulse rounded-md bg-muted/50" />
         </div>
 
         <div className="min-w-0 flex-1">

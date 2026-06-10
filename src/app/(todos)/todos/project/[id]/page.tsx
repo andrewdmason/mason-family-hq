@@ -13,6 +13,7 @@ import {
   getTodoMembers,
   sweepElapsedSnoozes,
 } from "@/lib/todos/queries";
+import { BackToLists } from "@/components/todos/back-to-lists";
 import { InlineNewButton } from "@/components/todos/inline-new-button";
 import { ProjectHeader } from "@/components/todos/project-header";
 import { ProjectLogged } from "@/components/todos/project-logged";
@@ -77,6 +78,8 @@ export default async function ProjectPage({
         />
 
         <div className="min-w-0 flex-1">
+          <BackToLists href={withAs("/todos/browse", viewed.email, selfEmail)} />
+
           {viewed.email !== selfEmail && <ViewingBanner viewed={viewed} />}
 
           <ProjectHeader

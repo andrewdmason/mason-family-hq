@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
+  MeasuringStrategy,
   PointerSensor,
   closestCenter,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragOverEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -34,6 +36,7 @@ import {
 import {
   createProject,
   setAreaSortOrder,
+  setProjectArea,
   setProjectSortOrder,
 } from "@/app/(todos)/todos/actions";
 import {
@@ -42,6 +45,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { MemberSwitcher } from "@/components/todos/member-switcher";
+import { onChordHints } from "@/lib/todos/chord-hints";
 import {
   DROP_TARGET_ATTR,
   onDropTarget,
@@ -79,11 +83,18 @@ const VIEW_ITEMS: ViewItem[] = [
   { view: "logbook", label: "Logbook", icon: BookCheck, iconClass: "text-emerald-700", chord: "g l" },
 ];
 
+type SidebarSize = "sm" | "lg";
+
 /**
  * Sidebar: fixed views, then the viewed member's projects grouped by area.
  * Membership = decluttering — only projects the viewed member belongs to show
  * here (and only areas containing at least one of those). Areas and projects
  * drag-reorder; the ordering is family-global since they're shared objects.
+ *
+ * Two variants, like Things: "rail" is the desktop column beside the list
+ * (hidden on phones); "page" renders the same content as a full-screen lists
+ * page (/todos/browse) with touch-sized rows — on phones each view is its own
+ * screen and a back chevron returns here.
  */
 export function TodosSidebar({
   active,
@@ -95,6 +106,7 @@ export function TodosSidebar({
   members,
   projects,
   areas,
+  variant = "rail",
 }: {
   active: TodoView | null;
   activeProjectId?: string | null;
@@ -105,8 +117,10 @@ export function TodosSidebar({
   members: TodoMember[];
   projects: TodoProject[];
   areas: TodoArea[];
+  variant?: "rail" | "page";
 }) {
   const href = (path: string) => withAs(path, viewedEmail, selfEmail);
+  const size: SidebarSize = variant === "page" ? "lg" : "sm";
 
   const myProjects = useMemo(
     () => projects.filter((p) => p.memberEmails.includes(viewedEmail)),
@@ -118,123 +132,77 @@ export function TodosSidebar({
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   useEffect(() => onDropTarget(setDropTarget), []);
 
-  return (
+  // Holding `g` for a beat decorates each view with its chord's follow-up
+  // key (see chord-hints.ts) — a reminder for half-learned shortcuts.
+  const [chordHints, setChordHints] = useState(false);
+  useEffect(() => onChordHints(setChordHints), []);
+
+  const content = (
     <>
-      {/* Desktop rail */}
-      <nav className="hidden w-52 shrink-0 md:block">
-        <div className="sticky top-20">
-          <ul className="space-y-0.5">
-            {VIEW_ITEMS.map((item) => (
-              <li key={item.view}>
-                <SidebarLink
-                  icon={item.icon}
-                  iconClass={item.iconClass}
-                  label={item.label}
-                  active={active === item.view}
-                  badge={
-                    item.view === "inbox"
-                      ? inboxCount
-                      : item.view === "delegated"
-                        ? delegatedCount
-                        : 0
-                  }
-                  href={href(`/todos/${item.view}`)}
-                  hint={`${item.label} (${item.chord})`}
-                  dropKey={viewDropKey(item.view)}
-                  dropActive={dropTarget === viewDropKey(item.view)}
-                />
-              </li>
-            ))}
-          </ul>
-
-          <ProjectsSection
-            projects={myProjects}
-            areas={areas}
-            activeProjectId={activeProjectId}
-            dropTarget={dropTarget}
-            href={href}
-          />
-
-          <NewProjectButton hrefFor={href} />
-
-          {/* Footer: occasional destinations, kept quiet. "Family" swaps the
-              whole app to another member's perspective. */}
-          <div className="mt-1">
-            <MemberSwitcher
-              members={members}
-              viewedEmail={viewedEmail}
-              selfEmail={selfEmail}
-              variant="sidebar"
+      <ul className={size === "lg" ? "space-y-1" : "space-y-0.5"}>
+        {VIEW_ITEMS.map((item) => (
+          <li key={item.view}>
+            <SidebarLink
+              icon={item.icon}
+              iconClass={item.iconClass}
+              label={item.label}
+              active={active === item.view}
+              badge={
+                item.view === "inbox"
+                  ? inboxCount
+                  : item.view === "delegated"
+                    ? delegatedCount
+                    : 0
+              }
+              href={href(`/todos/${item.view}`)}
+              hint={`${item.label} (${item.chord})`}
+              chordHint={chordHints ? item.chord.split(" ")[1] : null}
+              dropKey={viewDropKey(item.view)}
+              dropActive={dropTarget === viewDropKey(item.view)}
+              size={size}
             />
-            <Link
-              href="/todos/settings"
-              className="flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground/70 hover:bg-accent/40 hover:text-foreground"
-            >
-              <KeyRound className="size-4" />
-              Integrations
-            </Link>
-          </div>
-        </div>
-      </nav>
+          </li>
+        ))}
+      </ul>
 
-      {/* Mobile pills */}
-      <nav className="-mx-4 mb-4 overflow-x-auto px-4 md:hidden">
-        <div className="flex w-max items-center gap-1.5">
-          {VIEW_ITEMS.map((item) => {
-            const Icon = item.icon;
-            const isActive = active === item.view;
-            return (
-              <Link
-                key={item.view}
-                href={href(`/todos/${item.view}`)}
-                className={cn(
-                  "relative inline-flex cursor-default items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap",
-                  isActive
-                    ? "border-primary/30 bg-primary/10 text-foreground"
-                    : "border-border bg-card text-muted-foreground"
-                )}
-              >
-                <LinkPendingHighlight rounded="rounded-full" />
-                <Icon className={cn("size-3.5", item.iconClass)} />
-                {item.label}
-                {item.view === "inbox" && inboxCount > 0 && (
-                  <span className="rounded-full bg-primary/15 px-1.5 text-xs tabular-nums text-primary">
-                    {inboxCount}
-                  </span>
-                )}
-                {item.view === "delegated" && delegatedCount > 0 && (
-                  <span className="rounded-full bg-primary/15 px-1.5 text-xs tabular-nums text-primary">
-                    {delegatedCount}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-          {myProjects.map((project) => (
-            <Link
-              key={project.id}
-              href={href(`/todos/project/${project.id}`)}
-              className={cn(
-                "relative inline-flex cursor-default items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap",
-                activeProjectId === project.id
-                  ? "border-primary/30 bg-primary/10 text-foreground"
-                  : "border-border bg-card text-muted-foreground"
-              )}
-            >
-              <LinkPendingHighlight rounded="rounded-full" />
-              <CircleDashed className="size-3.5 text-primary/70" />
-              {project.name}
-            </Link>
-          ))}
-          <MemberSwitcher
-            members={members}
-            viewedEmail={viewedEmail}
-            selfEmail={selfEmail}
-            variant="mobile"
-          />
-        </div>
-      </nav>
+      <ProjectsSection
+        projects={myProjects}
+        areas={areas}
+        activeProjectId={activeProjectId}
+        dropTarget={dropTarget}
+        href={href}
+        size={size}
+      />
+
+      <NewProjectButton hrefFor={href} size={size} />
+
+      {/* Footer: occasional destinations, kept quiet. "Family" swaps the
+          whole app to another member's perspective. */}
+      <div className={size === "lg" ? "mt-4 border-t border-border pt-2" : "mt-1"}>
+        <MemberSwitcher
+          members={members}
+          viewedEmail={viewedEmail}
+          selfEmail={selfEmail}
+        />
+        <Link
+          href="/todos/settings"
+          className="flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground/70 hover:bg-accent/40 hover:text-foreground"
+        >
+          <KeyRound className="size-4" />
+          Integrations
+        </Link>
+      </div>
     </>
+  );
+
+  if (variant === "page") {
+    return <nav className="w-full">{content}</nav>;
+  }
+
+  return (
+    <nav className="hidden w-52 shrink-0 md:block">
+      <div className="sticky top-20">{content}</div>
+    </nav>
   );
 }
 
@@ -266,8 +234,10 @@ function SidebarLink({
   badge,
   href,
   hint,
+  chordHint,
   dropKey,
   dropActive = false,
+  size = "sm",
 }: {
   icon: LucideIcon;
   iconClass: string;
@@ -276,32 +246,56 @@ function SidebarLink({
   badge: number;
   href: string;
   hint?: string;
+  /** While `g` is held: the chord's follow-up key, shown in place of the badge. */
+  chordHint?: string | null;
   /** Marks this item as a task-drag drop target (see drop-targets.ts). */
   dropKey?: string;
   dropActive?: boolean;
+  /** "lg" = touch-sized rows for the full-screen lists page. */
+  size?: SidebarSize;
 }) {
   return (
     <Link
       href={href}
       title={hint}
+      // Anchors are natively draggable; a native drag's dragstart makes
+      // dnd-kit cancel the row's sort, so rows would never reorder.
+      draggable={false}
       {...(dropKey ? { [DROP_TARGET_ATTR]: dropKey } : {})}
       className={cn(
         // Like Things: sidebar rows keep the normal arrow cursor.
-        "relative flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors",
+        "relative flex cursor-default items-center transition-colors",
+        size === "lg"
+          ? "gap-3 rounded-xl px-3 py-2.5 text-[15px] font-medium"
+          : "gap-2.5 rounded-lg px-2.5 py-1.5 text-sm",
         active
           ? "bg-accent/70 font-medium text-foreground"
-          : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+          : size === "lg"
+            ? "text-foreground active:bg-accent/50"
+            : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
         // A live task drag hovering this item.
         dropActive && "bg-primary/15 text-foreground ring-1 ring-primary/40 ring-inset"
       )}
     >
-      <LinkPendingHighlight />
-      <Icon className={cn("relative size-4 shrink-0", iconClass)} />
+      <LinkPendingHighlight rounded={size === "lg" ? "rounded-xl" : "rounded-lg"} />
+      <Icon
+        className={cn(
+          "relative shrink-0",
+          size === "lg" ? "size-5" : "size-4",
+          iconClass
+        )}
+      />
       <span className="relative flex-1 truncate">{label}</span>
-      {badge > 0 && (
-        <span className="relative rounded-full bg-primary/15 px-1.5 py-0.5 text-xs tabular-nums text-primary">
-          {badge}
-        </span>
+      {chordHint ? (
+        <kbd className="relative rounded border border-border bg-muted px-1.5 py-0.5 font-sans text-xs leading-none text-muted-foreground animate-in fade-in-0 duration-150">
+          {chordHint}
+        </kbd>
+      ) : (
+        badge > 0 && (
+          <span className="relative rounded-full bg-primary/15 px-1.5 py-0.5 text-xs tabular-nums text-primary">
+            {badge}
+          </span>
+        )
       )}
     </Link>
   );
@@ -309,8 +303,10 @@ function SidebarLink({
 
 /**
  * The member's projects: loose ones first, then one group per area (areas with
- * none of their projects are hidden). Projects drag within their group; areas
- * drag among themselves.
+ * none of their projects are hidden). One DndContext covers everything so a
+ * project drags within its group, between areas, and in/out of the loose
+ * group (dropping on an area's header files it there); areas drag among
+ * themselves by their headers.
  */
 function ProjectsSection({
   projects,
@@ -318,12 +314,14 @@ function ProjectsSection({
   activeProjectId,
   dropTarget,
   href,
+  size = "sm",
 }: {
   projects: TodoProject[];
   areas: TodoArea[];
   activeProjectId: string | null;
   dropTarget: string | null;
   href: (path: string) => string;
+  size?: SidebarSize;
 }) {
   // Local copies for optimistic drag reorder; server snapshots win once no
   // reorder is in flight (a snapshot raced by a drag would snap items back).
@@ -350,115 +348,188 @@ function ProjectsSection({
 
   if (orderedProjects.length === 0) return null;
 
-  const handleProjectDragEnd = (event: DragEndEvent, group: TodoProject[]) => {
+  const groupOf = (areaId: string | null) =>
+    orderedProjects.filter((p) => (p.areaId ?? null) === areaId);
+
+  /** The area a droppable belongs to: the area itself, or a project's home. */
+  const areaIdOf = (id: string, type: string | undefined): string | null =>
+    type === "area"
+      ? id
+      : (orderedProjects.find((p) => p.id === id)?.areaId ?? null);
+
+  // While a project drag hovers another group, reparent it locally so that
+  // group opens up and the sort transforms track the right neighbors. The
+  // server isn't told until the drop; Escape rewinds to the server snapshot.
+  const handleDragOver = ({ active, over }: DragOverEvent) => {
+    if (active.data.current?.type !== "project" || !over) return;
+    const dragged = orderedProjects.find((p) => p.id === active.id);
+    if (!dragged) return;
+    const overType = over.data.current?.type as string | undefined;
+    if (overType !== "project" && overType !== "area") return;
+    const targetAreaId = areaIdOf(String(over.id), overType);
+    if ((dragged.areaId ?? null) === targetAreaId) return;
+    setOrderedProjects((prev) =>
+      prev.map((p) =>
+        p.id === active.id ? { ...p, areaId: targetAreaId } : p
+      )
+    );
+  };
+
+  const handleDragCancel = () => {
+    setOrderedProjects(projects);
+    setOrderedAreas(areas);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
     const { active: dragged, over } = event;
-    if (!over || dragged.id === over.id) return;
+    if (!over) {
+      handleDragCancel();
+      return;
+    }
+    if (dragged.data.current?.type === "area") {
+      // Reorder areas; a drop on a project counts as its area.
+      const overAreaId = areaIdOf(String(over.id), over.data.current?.type as string | undefined);
+      if (!overAreaId || overAreaId === dragged.id) return;
+      const oldIndex = visibleAreas.findIndex((a) => a.id === dragged.id);
+      const newIndex = visibleAreas.findIndex((a) => a.id === overAreaId);
+      if (oldIndex < 0 || newIndex < 0) return;
+      const next = arrayMove(visibleAreas, oldIndex, newIndex);
+      const sortOrder = sortBetween(
+        next[newIndex - 1]?.sortOrder ?? null,
+        next[newIndex + 1]?.sortOrder ?? null
+      );
+      setOrderedAreas((prev) =>
+        prev
+          .map((a) => (a.id === dragged.id ? { ...a, sortOrder } : a))
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+      );
+      void run(setAreaSortOrder(String(dragged.id), sortOrder));
+      return;
+    }
+
+    // Project drop: it already sits in its final group (handleDragOver moved
+    // it); place it at the slot `over` marks and persist group + position.
+    const project = orderedProjects.find((p) => p.id === dragged.id);
+    if (!project) return;
+    const targetAreaId = project.areaId ?? null;
+    const group = groupOf(targetAreaId);
     const oldIndex = group.findIndex((p) => p.id === dragged.id);
-    const newIndex = group.findIndex((p) => p.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) return;
+    let newIndex = group.findIndex((p) => p.id === over.id);
+    if (newIndex < 0) newIndex = oldIndex; // dropped on the area header / itself
     const next = arrayMove(group, oldIndex, newIndex);
-    const moved = next[newIndex];
     const sortOrder = sortBetween(
       next[newIndex - 1]?.sortOrder ?? null,
       next[newIndex + 1]?.sortOrder ?? null
     );
+    const serverAreaId =
+      projects.find((p) => p.id === dragged.id)?.areaId ?? null;
+    const areaChanged = serverAreaId !== targetAreaId;
+    if (!areaChanged && dragged.id === over.id) return;
     setOrderedProjects((prev) =>
       prev
-        .map((p) => (p.id === moved.id ? { ...p, sortOrder } : p))
+        .map((p) => (p.id === dragged.id ? { ...p, sortOrder } : p))
         .sort((a, b) => a.sortOrder - b.sortOrder)
     );
-    void run(setProjectSortOrder(moved.id, sortOrder));
+    void run(
+      (async () => {
+        if (areaChanged) await setProjectArea(String(dragged.id), targetAreaId);
+        await setProjectSortOrder(String(dragged.id), sortOrder);
+      })()
+    );
   };
 
-  const handleAreaDragEnd = (event: DragEndEvent) => {
-    const { active: dragged, over } = event;
-    if (!over || dragged.id === over.id) return;
-    const oldIndex = visibleAreas.findIndex((a) => a.id === dragged.id);
-    const newIndex = visibleAreas.findIndex((a) => a.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) return;
-    const next = arrayMove(visibleAreas, oldIndex, newIndex);
-    const moved = next[newIndex];
-    const sortOrder = sortBetween(
-      next[newIndex - 1]?.sortOrder ?? null,
-      next[newIndex + 1]?.sortOrder ?? null
-    );
-    setOrderedAreas((prev) =>
-      prev
-        .map((a) => (a.id === moved.id ? { ...a, sortOrder } : a))
-        .sort((a, b) => a.sortOrder - b.sortOrder)
-    );
-    void run(setAreaSortOrder(moved.id, sortOrder));
-  };
-
-  const projectList = (groupKey: string, group: TodoProject[]) => (
-    <DndContext
-      id={`todos-sidebar-${groupKey}`}
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragEnd={(e) => handleProjectDragEnd(e, group)}
+  const projectList = (group: TodoProject[]) => (
+    <SortableContext
+      items={group.map((p) => p.id)}
+      strategy={verticalListSortingStrategy}
     >
-      <SortableContext
-        items={group.map((p) => p.id)}
-        strategy={verticalListSortingStrategy}
-      >
-        <div className="space-y-0.5">
-          {group.map((project) => (
-            <SortableRow key={project.id} id={project.id}>
-              <SidebarLink
-                icon={CircleDashed}
-                iconClass="text-primary/70"
-                label={project.name}
-                active={activeProjectId === project.id}
-                badge={0}
-                href={href(`/todos/project/${project.id}`)}
-                dropKey={projectDropKey(project.id)}
-                dropActive={dropTarget === projectDropKey(project.id)}
-              />
-            </SortableRow>
-          ))}
-        </div>
-      </SortableContext>
-    </DndContext>
+      <div className={size === "lg" ? "space-y-1" : "space-y-0.5"}>
+        {group.map((project) => (
+          <SortableRow key={project.id} id={project.id} type="project">
+            <SidebarLink
+              icon={CircleDashed}
+              iconClass="text-primary/70"
+              label={project.name}
+              active={activeProjectId === project.id}
+              badge={0}
+              href={href(`/todos/project/${project.id}`)}
+              dropKey={projectDropKey(project.id)}
+              dropActive={dropTarget === projectDropKey(project.id)}
+              size={size}
+            />
+          </SortableRow>
+        ))}
+      </div>
+    </SortableContext>
   );
 
   return (
-    <div className="mt-5 space-y-4">
-      {looseProjects.length > 0 && projectList("loose", looseProjects)}
+    <DndContext
+      id="todos-sidebar-lists"
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
+      <div className="mt-5 space-y-4">
+        {looseProjects.length > 0 && projectList(looseProjects)}
 
-      <DndContext
-        id="todos-sidebar-areas"
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleAreaDragEnd}
-      >
         <SortableContext
           items={visibleAreas.map((a) => a.id)}
           strategy={verticalListSortingStrategy}
         >
           <div className="space-y-4">
             {visibleAreas.map((area) => (
-              <SortableRow key={area.id} id={area.id}>
+              <SortableRow key={area.id} id={area.id} type="area">
                 <div>
-                  <h3 className="px-2.5 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <h3
+                    className={cn(
+                      "pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground",
+                      size === "lg" ? "px-3" : "px-2.5"
+                    )}
+                  >
                     {area.name}
                   </h3>
-                  {projectList(
-                    area.id,
-                    orderedProjects.filter((p) => p.areaId === area.id)
-                  )}
+                  {projectList(groupOf(area.id))}
                 </div>
               </SortableRow>
             ))}
           </div>
         </SortableContext>
-      </DndContext>
-    </div>
+      </div>
+    </DndContext>
   );
 }
 
-function SortableRow({ id, children }: { id: string; children: React.ReactNode }) {
+function SortableRow({
+  id,
+  type,
+  children,
+}: {
+  id: string;
+  /** Tags the draggable so the shared-context handlers can tell rows apart. */
+  type: "project" | "area";
+  children: React.ReactNode;
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id });
+    useSortable({ id, data: { type } });
+
+  // A drop lands on the row's <Link>, and the browser follows the click that
+  // trails the pointerup — suppress the first click right after a drag.
+  const wasDragging = useRef(false);
+  useEffect(() => {
+    if (isDragging) {
+      wasDragging.current = true;
+      return;
+    }
+    const timer = setTimeout(() => {
+      wasDragging.current = false;
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [isDragging]);
+
   return (
     <div
       ref={setNodeRef}
@@ -466,13 +537,32 @@ function SortableRow({ id, children }: { id: string; children: React.ReactNode }
       className={cn(isDragging && "z-10 opacity-70")}
       {...attributes}
       {...listeners}
+      onPointerDown={(e) => {
+        // Project rows nest inside their area's row; without this both
+        // sortables arm on the same pointerdown and fight over the drag.
+        e.stopPropagation();
+        listeners?.onPointerDown?.(e);
+      }}
+      onClickCapture={(e) => {
+        if (wasDragging.current) {
+          e.preventDefault();
+          e.stopPropagation();
+          wasDragging.current = false;
+        }
+      }}
     >
       {children}
     </div>
   );
 }
 
-function NewProjectButton({ hrefFor }: { hrefFor: (path: string) => string }) {
+function NewProjectButton({
+  hrefFor,
+  size = "sm",
+}: {
+  hrefFor: (path: string) => string;
+  size?: SidebarSize;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -486,8 +576,10 @@ function NewProjectButton({ hrefFor }: { hrefFor: (path: string) => string }) {
       const { id } = await createProject(trimmed);
       setOpen(false);
       setName("");
+      // No refresh() here: a refresh racing a just-issued push cancels the
+      // navigation (the new project page is force-dynamic, so the push alone
+      // carries fresh data — sidebar included).
       router.push(hrefFor(`/todos/project/${id}`));
-      router.refresh();
     } finally {
       setCreating(false);
     }
@@ -499,7 +591,12 @@ function NewProjectButton({ hrefFor }: { hrefFor: (path: string) => string }) {
         render={
           <button
             type="button"
-            className="mt-4 flex w-full cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+            className={cn(
+              "mt-4 flex w-full cursor-default items-center text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+              size === "lg"
+                ? "gap-3 rounded-xl px-3 py-2.5 text-[15px]"
+                : "gap-2.5 rounded-lg px-2.5 py-1.5 text-sm"
+            )}
           />
         }
       >
