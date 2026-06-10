@@ -21,7 +21,6 @@ import type { GoogleCalendarListEntry } from "@/lib/calendar/google";
 import {
   addIcsSource,
   addTeamsnapSource,
-  addGoogleSource,
   deleteSource,
   renameSource,
   listTeamsnapTeams,
@@ -351,20 +350,14 @@ function ConnectOwnPrimary({
     setPendingId(cal.id);
     setError(null);
     try {
-      // Ensure the calendar is also a synced source (so its events show in the
-      // app and manual events write back); ignore "already added".
-      try {
-        await addGoogleSource({
-          memberEmail: member.email,
-          connectionEmail: member.email,
-          googleCalendarId: cal.id,
-          nickname: cal.summary,
-          color: cal.backgroundColor ?? member.color,
-        });
-      } catch (e) {
-        if (!(e instanceof Error && /already added/i.test(e.message))) throw e;
-      }
-      const r = await setConnectedPrimary(member.email, cal.id, cal.summary);
+      // The action also ensures the calendar is a synced source (so its events
+      // show in the app and manual events write back).
+      const r = await setConnectedPrimary(
+        member.email,
+        cal.id,
+        cal.summary,
+        cal.backgroundColor ?? member.color,
+      );
       if ("error" in r) throw new Error(r.error);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't set the calendar.");
