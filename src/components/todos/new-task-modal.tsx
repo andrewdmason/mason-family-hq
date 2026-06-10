@@ -21,7 +21,7 @@ import { MemberAvatar } from "@/components/journal/member-avatar";
 import { TodoNotesEditor } from "@/components/todos/todo-notes-editor";
 import { WhenPicker } from "@/components/todos/when-picker";
 import { isImageFile, uploadTaskAttachment } from "@/lib/todos/attachment-upload";
-import type { TodoBucket, TodoMember } from "@/lib/todos/types";
+import type { TodoBucket, TodoMember, TodoTask } from "@/lib/todos/types";
 import { cn } from "@/lib/utils";
 
 export type NewTaskDefaults = {
@@ -56,7 +56,7 @@ export function NewTaskModal({
   members: TodoMember[];
   selfEmail: string;
   defaults?: NewTaskDefaults;
-  onCreated: () => void;
+  onCreated: (task: TodoTask) => void;
 }) {
   const [title, setTitle] = useState("");
   const [notesHtml, setNotesHtml] = useState("");
@@ -128,7 +128,7 @@ export function NewTaskModal({
       pendingFiles.forEach((p) => p.objectUrl && URL.revokeObjectURL(p.objectUrl));
       setPendingFiles([]);
       onOpenChange(false);
-      onCreated();
+      onCreated(created);
     } finally {
       setSaving(false);
     }
