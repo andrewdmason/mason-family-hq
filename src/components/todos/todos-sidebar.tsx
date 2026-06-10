@@ -55,6 +55,7 @@ import {
 import { withAs } from "@/lib/todos/member-context";
 import { useReconciler } from "@/lib/todos/reconcile";
 import { sortBetween } from "@/lib/todos/sort";
+import { requestViewSwitch } from "@/lib/todos/view-switch";
 import type {
   SidebarCounts,
   TodoArea,
@@ -148,6 +149,7 @@ export function TodosSidebar({
               active={active === item.view}
               badge={counts[item.view] ?? 0}
               href={href(`/todos/${item.view}`)}
+              view={item.view}
               hint={`${item.label} (${item.chord})`}
               chordHint={chordHints ? item.chord.split(" ")[1] : null}
               dropKey={viewDropKey(item.view)}
@@ -226,6 +228,7 @@ function SidebarLink({
   active,
   badge,
   href,
+  view,
   hint,
   chordHint,
   dropKey,
@@ -238,6 +241,8 @@ function SidebarLink({
   active: boolean;
   badge: number;
   href: string;
+  /** A fixed view's link switches instantly when the views shell is mounted. */
+  view?: TodoView;
   hint?: string;
   /** While `g` is held: the chord's follow-up key, shown in place of the badge. */
   chordHint?: string | null;
@@ -251,6 +256,13 @@ function SidebarLink({
     <Link
       href={href}
       title={hint}
+      onClick={(e) => {
+        // Plain left-clicks switch views client-side when the shell is up
+        // (todos-views.tsx) — instant. Modified clicks (new tab) and pages
+        // without the shell (projects, browse) keep the real navigation.
+        if (!view || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        if (requestViewSwitch(view)) e.preventDefault();
+      }}
       // Anchors are natively draggable; a native drag's dragstart makes
       // dnd-kit cancel the row's sort, so rows would never reorder.
       draggable={false}

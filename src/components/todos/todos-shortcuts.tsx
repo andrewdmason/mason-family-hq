@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/dialog";
 import { emitChordHints } from "@/lib/todos/chord-hints";
 import { inOpenOverlay, isTypingTarget } from "@/lib/todos/keyboard";
+import type { TodoView } from "@/lib/todos/types";
+import { requestViewSwitch } from "@/lib/todos/view-switch";
 
 /**
  * Gmail-style `g` navigation chords for the whole Todos app (mounted in the
@@ -24,7 +26,7 @@ import { inOpenOverlay, isTypingTarget } from "@/lib/todos/keyboard";
 const CHORD_WINDOW_MS = 1_000;
 const HINT_DELAY_MS = 450;
 
-const GO_TARGETS: Record<string, string> = {
+const GO_TARGETS: Record<string, TodoView> = {
   i: "inbox",
   t: "today",
   a: "anytime",
@@ -97,6 +99,9 @@ export function TodosShortcuts() {
         e.stopPropagation();
         const view = GO_TARGETS[e.key.toLowerCase()];
         if (view) {
+          // Instant client-side switch when the views shell is mounted; a
+          // real navigation otherwise (project pages, browse, settings).
+          if (requestViewSwitch(view)) return;
           router.push(
             asParam
               ? `/todos/${view}?as=${encodeURIComponent(asParam)}`
