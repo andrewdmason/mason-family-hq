@@ -2,7 +2,6 @@ import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
 import {
-  getInboxCount,
   getSelfEmail,
   getViewTasks,
   sweepElapsedSnoozes,
@@ -12,13 +11,13 @@ import type { TodoTask } from "@/lib/todos/types";
 export type HomeTodos = {
   selfEmail: string;
   todayTasks: TodoTask[];
-  inboxCount: number;
+  inboxTasks: TodoTask[];
 };
 
 /**
  * The home dashboard's window into Todos: your Today list and the Inbox
- * count. Runs the snooze wake sweep first so a task snoozed until this
- * morning is already in Today by the time the dashboard renders.
+ * tasks awaiting triage. Runs the snooze wake sweep first so a task snoozed
+ * until this morning is already in Today by the time the dashboard renders.
  */
 export async function getHomeTodos(): Promise<HomeTodos | null> {
   const supabase = await createClient();
@@ -30,10 +29,10 @@ export async function getHomeTodos(): Promise<HomeTodos | null> {
   }
 
   await sweepElapsedSnoozes(supabase);
-  const [todayTasks, inboxCount] = await Promise.all([
+  const [todayTasks, inboxTasks] = await Promise.all([
     getViewTasks(supabase, selfEmail, "today"),
-    getInboxCount(supabase, selfEmail),
+    getViewTasks(supabase, selfEmail, "inbox"),
   ]);
 
-  return { selfEmail, todayTasks, inboxCount };
+  return { selfEmail, todayTasks, inboxTasks };
 }
