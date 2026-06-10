@@ -1,5 +1,6 @@
 // Background drive-time cache refresh, ported from KidCalendar. Geocodes event
-// locations (Nominatim, paced at 1 req/sec) and computes home→event drive times
+// locations (Google Places, falling back to Nominatim — pacing below covers
+// the fallback's 1 req/sec limit) and computes home→event drive times
 // (Google Routes API), caching both on the calendar_events row. Runs inside the
 // cron sync tick, after the source syncs land new times/locations and before
 // the drive blocks reconcile (drive-events.ts), so a moved/relocated event gets
@@ -19,7 +20,7 @@ const NOMINATIM_DELAY_MS = 1100;
 const MAX_GEOCODES_PER_RUN = 20;
 const SKIP_LOCATIONS = new Set(["tbd", "tba", "n/a", "unknown", "home"]);
 // A bare venue name ("Albany High") can geocode to a same-named place across
-// the country — the viewbox bias prefers local but doesn't enforce it. Any
+// the country — the home bias prefers local but doesn't enforce it. Any
 // drive past this is almost certainly a mis-geocode for this family's events,
 // so treat it as unknown (the block falls back to the marked estimate).
 const MAX_DRIVE_MINUTES = 240;
