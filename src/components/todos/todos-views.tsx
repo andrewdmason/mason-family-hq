@@ -17,6 +17,7 @@ import { useReconciler } from "@/lib/todos/reconcile";
 import {
   isTodoView,
   viewLabel,
+  type SidebarCounts,
   type TodoArea,
   type TodoMember,
   type TodoProject,
@@ -108,13 +109,15 @@ export function TodosViews({
     [swept, view, viewed.email]
   );
   // The sidebar badges are the same filters as their views — derived, so the
-  // page doesn't need the count queries.
-  const inboxCount = useMemo(
-    () => deriveViewTasks(swept, "inbox", viewed.email).length,
-    [swept, viewed.email]
-  );
-  const delegatedCount = useMemo(
-    () => deriveViewTasks(swept, "delegated", viewed.email).length,
+  // page doesn't need getSidebarCounts.
+  const counts = useMemo<SidebarCounts>(
+    () =>
+      Object.fromEntries(
+        (["inbox", "today", "snoozed", "delegated"] as const).map((badged) => [
+          badged,
+          deriveViewTasks(swept, badged, viewed.email).length,
+        ])
+      ),
     [swept, viewed.email]
   );
 
@@ -123,8 +126,7 @@ export function TodosViews({
       <div className="md:flex md:gap-8">
         <TodosSidebar
           active={view}
-          inboxCount={inboxCount}
-          delegatedCount={delegatedCount}
+          counts={counts}
           viewedEmail={viewed.email}
           selfEmail={selfEmail}
           members={members}

@@ -3,6 +3,8 @@
  * client-side from the snooze menu). Snooze replaces Things' start date: the
  * task hides everywhere until the moment passes, then pops into Today via the
  * lazy sweep — so a preset is just "the next sensible wake-up timestamp".
+ * Day-level presets wake at midnight (in Today first thing that morning);
+ * only "This evening" carries a real time of day.
  */
 
 export type SnoozePreset = {
@@ -14,7 +16,9 @@ export type SnoozePreset = {
 };
 
 const EVENING_HOUR = 17; // "This evening" = 5pm today
-const MORNING_HOUR = 9; // day-level presets wake at 9am
+// Day-level presets wake at midnight: the task is in Today first thing that
+// morning, not whenever some arbitrary mid-morning hour rolls around.
+const DAY_START_HOUR = 0;
 
 function at(date: Date, hour: number): Date {
   const d = new Date(date);
@@ -45,7 +49,7 @@ export function snoozePresets(now: Date = new Date()): SnoozePreset[] {
     });
   }
 
-  const tomorrow = at(addDays(now, 1), MORNING_HOUR);
+  const tomorrow = at(addDays(now, 1), DAY_START_HOUR);
   presets.push({
     key: "tomorrow",
     label: "Tomorrow",
@@ -55,7 +59,7 @@ export function snoozePresets(now: Date = new Date()): SnoozePreset[] {
 
   // Next Saturday (skipped if that's also "tomorrow" — no duplicate rows).
   const daysToSaturday = (6 - now.getDay() + 7) % 7 || 7;
-  const weekend = at(addDays(now, daysToSaturday), MORNING_HOUR);
+  const weekend = at(addDays(now, daysToSaturday), DAY_START_HOUR);
   if (daysToSaturday > 1) {
     presets.push({
       key: "weekend",
@@ -67,7 +71,7 @@ export function snoozePresets(now: Date = new Date()): SnoozePreset[] {
 
   // Next Monday.
   const daysToMonday = (1 - now.getDay() + 7) % 7 || 7;
-  const nextWeek = at(addDays(now, daysToMonday), MORNING_HOUR);
+  const nextWeek = at(addDays(now, daysToMonday), DAY_START_HOUR);
   if (daysToMonday > 1) {
     presets.push({
       key: "next-week",
@@ -80,9 +84,14 @@ export function snoozePresets(now: Date = new Date()): SnoozePreset[] {
   return presets;
 }
 
-/** "Tomorrow 9:00 AM", "Sat 9:00 AM", "Jun 24, 5:00 PM" — for snoozed chips. */
+/**
+ * "Tomorrow", "Sat", "Jun 24" — for snoozed chips. Day-level snoozes wake at
+ * midnight, so the time is noise and gets dropped; an explicit time (like
+ * "This evening") keeps it: "Tomorrow 5:00 PM".
+ */
 export function formatWake(iso: string, now: Date = new Date()): string {
   const when = new Date(iso);
+  const atMidnight = when.getHours() === 0 && when.getMinutes() === 0;
   const time = when.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -93,15 +102,13 @@ export function formatWake(iso: string, now: Date = new Date()): string {
     (startOfDay(when) - startOfDay(now)) / 86_400_000
   );
 
-  if (dayDiff === 0) return time;
-  if (dayDiff === 1) return `Tomorrow ${time}`;
-  if (dayDiff > 1 && dayDiff < 7) return `${weekday(when)} ${time}`;
-  return `${when.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${time}`;
-}
-
-/** Local value for <input type="datetime-local"> default: tomorrow 9am. */
-export function defaultCustomSnooze(now: Date = new Date()): string {
-  const d = at(addDays(now, 1), MORNING_HOUR);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  if (dayDiff <= 0) return atMidnight ? "Today" : time;
+  if (dayDiff === 1) return atMidnight ? "Tomorrow" : `Tomorrow ${time}`;
+  if (dayDiff < 7)
+    return atMidnight ? weekday(when) : `${weekday(when)} ${time}`;
+  const date = when.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+  return atMidnight ? date : `${date}, ${time}`;
 }

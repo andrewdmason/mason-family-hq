@@ -22,13 +22,14 @@ export type PwaApp = {
   shortName: string;
   // Where the installed app opens (and the manifest scope anchor).
   startUrl: string;
-  // The browser tab <title> for this section (kept distinct from `name`: the
-  // home dashboard's app is branded "Family HQ" but its tab still reads "Home").
+  // The browser tab <title> for this section. Each app reads as a standalone
+  // product ("Todos", "Calendar") — only the home dashboard carries the family
+  // brand.
   pageTitle: string;
 };
 
 export const PWA_APPS: PwaApp[] = [
-  { key: "home", name: "Family HQ", shortName: "Family HQ", startUrl: "/home", pageTitle: "Home" },
+  { key: "home", name: "Family HQ", shortName: "Family HQ", startUrl: "/home", pageTitle: "Mason Family HQ" },
   { key: "family", name: "Family", shortName: "Family", startUrl: "/family", pageTitle: "Family" },
   { key: "todos", name: "Todos", shortName: "Todos", startUrl: "/todos", pageTitle: "Todos" },
   { key: "reader", name: "Reader", shortName: "Reader", startUrl: "/reader", pageTitle: "Reader" },
@@ -83,15 +84,20 @@ export function appleStartupImages(key: string) {
 }
 
 // Metadata for a route group's layout: gives this section its own home-screen
-// name and points the manifest link at its per-app manifest. The page <title>
-// stays per-section too (the root template appends "· Mason Family HQ"). We
-// re-state appleWebApp.capable/statusBarStyle because a child's appleWebApp
-// replaces the root's wholesale rather than merging field-by-field.
+// name and points the manifest link at its per-app manifest. Each app titles
+// itself like a standalone product: `absolute` escapes the root layout's
+// "%s · Mason Family HQ" template so the tab reads just "Todos", and the app's
+// own template suffixes its subpages ("Snoozed · Todos"). We re-state
+// appleWebApp.capable/statusBarStyle because a child's appleWebApp replaces
+// the root's wholesale rather than merging field-by-field.
 export function appMetadata(key: string): Metadata {
   const app = getPwaApp(key);
   if (!app) return {};
   return {
-    title: app.pageTitle,
+    title: {
+      absolute: app.pageTitle,
+      template: `%s · ${app.pageTitle}`,
+    },
     applicationName: app.name,
     appleWebApp: {
       capable: true,

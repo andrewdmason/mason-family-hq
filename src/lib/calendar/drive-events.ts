@@ -3,6 +3,15 @@
 // primary calendar plus a local mirror row (rendered in the kid's color, tap-
 // through to the kid's event).
 //
+// Reconciliation is scope-based, not per-assignment, because blocks interact
+// at two levels: within one event, the same parent holding both duties with no
+// real time at home between them gets ONE combined (↔) block; and ACROSS
+// events, the same parent's same-direction blocks that overlap or nearly touch
+// (dropping two kids at different practices) merge into one multi-stop block
+// (drive-window.ts clusterDriveBlocks) owned by the earliest stop's
+// assignment, first stop in the location field and the full stop list in the
+// description.
+//
 // Same hardening as the importer (materialize.ts): deterministic Google ids
 // (concurrent reconciles 409 → patch), an extendedProperties stamp so the
 // parent's own read sync never re-ingests the block, and a sync hash so the
@@ -24,9 +33,12 @@ import { getLogisticsSettings, type LogisticsSettings } from "./drive-time";
 import {
   driveBlockWindow,
   driveEventTitle,
+  clusterDriveBlocks,
   FALLBACK_DRIVE_MINUTES,
   COMBINE_GAP_MINUTES,
   type Duty,
+  type DriveCluster,
+  type PlannedDriveBlock,
 } from "./drive-window";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
@@ -86,18 +98,18 @@ function isHttp(err: unknown, codes: RegExp): boolean {
 // ---------------------------------------------------------------------------
 // Lookups.
 // ---------------------------------------------------------------------------
-async function kidFirstName(
+/** First names for every member at once — a reconcile scope spans several
+ * kids' events, and the table is tiny. */
+async function loadFirstNames(
   supabase: AdminClient,
-  memberEmail: string | null,
-): Promise<string> {
-  if (!memberEmail) return "kid";
-  const { data: m } = await supabase
-    .from("family_members")
-    .select("name")
-    .eq("email", memberEmail)
-    .maybeSingle();
-  const name = (m?.name as string | null) ?? memberEmail.split("@")[0];
-  return name.split(" ")[0];
+): Promise<Map<string, string>> {
+  const { data } = await supabase.from("family_members").select("email, name");
+  return new Map(
+    ((data ?? []) as { email: string; name: string | null }[]).map((m) => [
+      m.email,
+      (m.name ?? m.email.split("@")[0]).split(" ")[0],
+    ]),
+  );
 }
 
 /** The credential to delete a block from a calendar we previously wrote to —
@@ -155,17 +167,26 @@ export async function deleteDriveEvent(
 }
 
 // ---------------------------------------------------------------------------
-// Reconcile: compute each duty's desired block, then write it. Computed per
-// EVENT (not per assignment) because the two duties interact — the same parent
-// doing both with no real time at home in between gets ONE combined block
-// (they're effectively attending the event), not two overlapping round trips.
+// Reconcile: compute each duty's desired block, then write it. Computed over a
+// SCOPE of events (not per assignment) because blocks interact — within one
+// event, the same parent doing both duties with no real time at home in
+// between gets ONE combined block (they're effectively attending the event);
+// across events, the same parent's overlapping same-direction blocks merge
+// into one multi-stop block.
 // ---------------------------------------------------------------------------
 type DesiredBlock =
   | { exists: false }
   | {
       exists: true;
+      kind: Duty | "combined";
       window: { start: string; end: string };
+      /** Stop instant (drop-off arrival anchor / pick-up end) — feeds the
+       * merged block's stop-list description. */
+      anchor: string;
       title: string;
+      location: string | null;
+      description: string | null;
+      kidName: string;
       isEstimate: boolean;
     };
 
@@ -199,6 +220,9 @@ function desiredFor(
     bufferMinutes,
   };
 
+  const dropAnchor = ev.teamsnap_arrival_time ?? ev.start_time;
+  const pickAnchor = ev.end_time ?? ev.start_time;
+
   // Same parent on both duties: if the time at home between returning from
   // drop-off and leaving for pick-up is under the threshold, combine.
   if (sibling?.assignee_email && sibling.assignee_email === a.assignee_email) {
@@ -214,13 +238,18 @@ function desiredFor(
       const window = { start: dropW.start, end: pickW.end };
       return {
         exists: true,
+        kind: "combined",
         window,
+        anchor: dropAnchor,
         title: driveEventTitle({
           duty: "combined",
           kidName,
           driveMinutes,
           isEstimate,
         }),
+        location: ev.location,
+        description: null,
+        kidName,
         isEstimate,
       };
     }
@@ -229,13 +258,18 @@ function desiredFor(
   const window = driveBlockWindow({ duty: a.duty, ...windowArgs });
   return {
     exists: true,
+    kind: a.duty,
     window,
+    anchor: a.duty === "dropoff" ? dropAnchor : pickAnchor,
     title: driveEventTitle({
       duty: a.duty,
       kidName,
       driveMinutes,
       isEstimate,
     }),
+    location: ev.location,
+    description: null,
+    kidName,
     isEstimate,
   };
 }
@@ -243,20 +277,18 @@ function desiredFor(
 async function writeDesired(
   supabase: AdminClient,
   a: DutyAssignmentRow,
-  event: SourceEventRow | null,
   desired: DesiredBlock,
 ): Promise<void> {
   if (!desired.exists) {
-    // Unset/N/A, folded into the combined block, or the source event went
-    // away — tear this duty's block down. The assignment row survives a
+    // Unset/N/A, folded into a combined or merged block, or the source event
+    // went away — tear this duty's block down. The assignment row survives a
     // soft-cancel, so a restored event re-creates it.
     if (a.drive_google_event_id || a.drive_event_id) {
       await deleteDriveEvent(supabase, a);
     }
     return;
   }
-  const ev = event as SourceEventRow;
-  const { window, title, isEstimate } = desired;
+  const { window, title, location, description, isEstimate } = desired;
 
   const dest = a.assignee_email
     ? await getMemberPrimary(supabase, a.assignee_email)
@@ -264,7 +296,15 @@ async function writeDesired(
   const destCalendarId = dest?.calendarId ?? null;
 
   const hash = sha12(
-    JSON.stringify([window.start, window.end, title, destCalendarId, a.assignee_email]),
+    JSON.stringify([
+      window.start,
+      window.end,
+      title,
+      location,
+      description,
+      destCalendarId,
+      a.assignee_email,
+    ]),
   );
   if (hash === a.drive_sync_hash) return; // unchanged — no API calls
 
@@ -302,7 +342,10 @@ async function writeDesired(
   if (dest && googleId) {
     const body: Record<string, unknown> = {
       summary: title,
-      location: ev.location ?? undefined,
+      // Explicit nulls (not undefined): a merged block that reverts to solo
+      // must CLEAR the stop-list description on patch, not keep the stale one.
+      location,
+      description,
       start: { dateTime: window.start },
       end: { dateTime: window.end },
       // Explicit, so patching a tombstoned id (same parent unset → re-set)
@@ -355,8 +398,8 @@ async function writeDesired(
         member_email: a.assignee_email,
         source_type: "manual",
         title,
-        description: null,
-        location: ev.location,
+        description,
+        location,
         start_time: window.start,
         end_time: window.end,
         all_day: false,
@@ -385,69 +428,216 @@ async function writeDesired(
     .eq("id", a.id);
 }
 
-/** Reconcile both of an event's duty assignments together (combination is a
- * property of the pair, not of either duty alone). */
-async function reconcileEventLoaded(
-  supabase: AdminClient,
-  rows: DutyAssignmentRow[],
-  ev: SourceEventRow | null,
-  settings: LogisticsSettings | null,
-): Promise<void> {
-  if (!rows.length) return;
-  const kidName = ev ? await kidFirstName(supabase, ev.member_email) : "";
-  for (const a of rows) {
-    const sibling = rows.find((r) => r.duty !== a.duty) ?? null;
-    const desired = desiredFor(a, sibling, ev, settings, kidName);
-    await writeDesired(supabase, a, ev, desired);
-  }
+// Stop-list description for a merged multi-stop block — read in Google
+// Calendar, where the location field only fits the first stop. Times are
+// formatted in the family's home timezone (every stop is local).
+const FAMILY_TZ = process.env.FAMILY_TIMEZONE || "America/Los_Angeles";
+
+function stopsDescription(cluster: DriveCluster): string {
+  const label =
+    cluster.members[0].duty === "dropoff" ? "Drop-offs" : "Pick-ups";
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: FAMILY_TZ,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const lines = cluster.members.map(
+    (m, i) =>
+      `${i + 1}. ${fmt.format(new Date(m.anchor))} ${m.kidName}${
+        m.location ? ` — ${m.location}` : ""
+      }`,
+  );
+  return [`${label}:`, ...lines].join("\n");
 }
 
-// Per-event serialization for the deferred (after()) drive work. Duty taps are
-// non-blocking, so several reconciles for one event can be in flight at once;
-// chaining them prevents interleaved Google writes from orphaning a block.
-// Each queued run re-reads current assignment state, so intermediate clicks
-// collapse into the final one. In-process only — concurrent serverless
-// instances still rely on the deterministic-id/409 hardening + the cron sweep.
-const driveWorkQueues = new Map<string, Promise<void>>();
+interface ScopeItem {
+  a: DutyAssignmentRow;
+  ev: SourceEventRow | null;
+}
 
-export function queueDriveWork(
-  eventId: string,
-  fn: () => Promise<void>,
-): Promise<void> {
-  const prev = driveWorkQueues.get(eventId) ?? Promise.resolve();
-  const next = prev.then(fn, fn); // run regardless of the predecessor's fate
-  driveWorkQueues.set(eventId, next);
-  void next.finally(() => {
-    if (driveWorkQueues.get(eventId) === next) driveWorkQueues.delete(eventId);
-  });
+/** Reconcile a scope of assignments together: the per-event pass first (the
+ * drop/pick combine is a property of the event's pair), then the cross-event
+ * merge pass (same parent, same direction, windows that overlap or nearly
+ * touch → one multi-stop block, owned by the earliest stop's assignment),
+ * then the writes. Hash short-circuits make untouched assignments free, so a
+ * scope can be generous. */
+async function reconcileScope(
+  supabase: AdminClient,
+  items: ScopeItem[],
+  settings: LogisticsSettings | null,
+): Promise<{ reconciled: number; errors: number }> {
+  if (!items.length) return { reconciled: 0, errors: 0 };
+  const names = await loadFirstNames(supabase);
+
+  const byEvent = new Map<string, ScopeItem[]>();
+  for (const it of items) {
+    const list = byEvent.get(it.a.event_id);
+    if (list) list.push(it);
+    else byEvent.set(it.a.event_id, [it]);
+  }
+
+  const desired = new Map<string, DesiredBlock>();
+  for (const group of byEvent.values()) {
+    for (const it of group) {
+      const sibling = group.find((o) => o.a.duty !== it.a.duty)?.a ?? null;
+      const kidName =
+        (it.ev?.member_email && names.get(it.ev.member_email)) ||
+        it.ev?.member_email?.split("@")[0] ||
+        "kid";
+      desired.set(it.a.id, desiredFor(it.a, sibling, it.ev, settings, kidName));
+    }
+  }
+
+  // Cross-event merge: fold each multi-stop cluster into its owner's desired
+  // block; the other members materialize nothing (their ledgers tear down,
+  // and they re-expand to solo blocks whenever the cluster breaks up).
+  const planned: PlannedDriveBlock[] = [];
+  for (const it of items) {
+    const d = desired.get(it.a.id);
+    if (!d?.exists || !it.a.assignee_email) continue;
+    planned.push({
+      key: it.a.id,
+      assignee: it.a.assignee_email,
+      duty: d.kind,
+      kidName: d.kidName,
+      location: d.location,
+      window: d.window,
+      title: d.title,
+      anchor: d.anchor,
+      isEstimate: d.isEstimate,
+    });
+  }
+  for (const cluster of clusterDriveBlocks(planned)) {
+    if (cluster.members.length < 2) continue;
+    const owner = cluster.members[0];
+    const od = desired.get(owner.key);
+    if (!od?.exists) continue; // owners only come from exists blocks
+    desired.set(owner.key, {
+      ...od,
+      window: cluster.window,
+      title: cluster.title,
+      location: cluster.location,
+      description: stopsDescription(cluster),
+      isEstimate: cluster.isEstimate,
+    });
+    for (const m of cluster.members.slice(1)) {
+      desired.set(m.key, { exists: false });
+    }
+  }
+
+  let reconciled = 0;
+  let errors = 0;
+  for (let i = 0; i < items.length; i += SWEEP_CONCURRENCY) {
+    await Promise.all(
+      items.slice(i, i + SWEEP_CONCURRENCY).map(async (it) => {
+        try {
+          await writeDesired(supabase, it.a, desired.get(it.a.id)!);
+          reconciled += 1;
+        } catch (err) {
+          // isolate: one bad assignment doesn't abort the scope — but say why,
+          // or a deterministic failure looks like "the block never appeared"
+          errors += 1;
+          console.error(
+            `[drive] reconcile failed for event ${it.a.event_id} (${it.a.duty}):`,
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }),
+    );
+  }
+  return { reconciled, errors };
+}
+
+// Serialize ALL deferred (after()) drive work in-process. Duty taps are
+// non-blocking, so several reconciles can be in flight at once, and a
+// reconcile now reshapes blocks across NEIGHBORING events (cross-event merge),
+// so per-event queues no longer isolate writes — family-scale tap volume makes
+// one global chain free. Each queued run re-reads current assignment state, so
+// intermediate clicks collapse into the final one. In-process only —
+// concurrent serverless instances still rely on the deterministic-id/409
+// hardening + the cron sweep.
+let driveWorkChain: Promise<void> = Promise.resolve();
+
+export function queueDriveWork(fn: () => Promise<void>): Promise<void> {
+  const next = driveWorkChain.then(fn, fn); // run regardless of the predecessor's fate
+  driveWorkChain = next;
   return next;
 }
 
-/** Reconcile one event's drive blocks. The live path behind setEventDuty;
- * idempotent, safe to call after any assignment change (assigning the second
- * duty to the same parent collapses two blocks into one; clearing one expands
- * the combined block back out). */
+// Cross-event merging means one assignment's change can reshape a neighbor
+// event's block, so the live reconcile loads everything in a window around the
+// trigger event rather than just its own pair.
+const NEIGHBORHOOD_MS = 24 * 60 * 60 * 1000;
+
+/** Reconcile every duty assignment whose source event starts within a day of
+ * the given instant. Also the after-delete hook: when a source event is
+ * removed, its old merge partners re-expand to solo blocks through here. */
+export async function reconcileDriveAround(
+  supabase: AdminClient,
+  isoStart: string,
+): Promise<void> {
+  const t = new Date(isoStart).getTime();
+  const { data: events } = await supabase
+    .from("calendar_events")
+    .select(SOURCE_EVENT_COLUMNS)
+    .gte("start_time", new Date(t - NEIGHBORHOOD_MS).toISOString())
+    .lte("start_time", new Date(t + NEIGHBORHOOD_MS).toISOString())
+    .is("drive_source_event_id", null);
+  if (!events?.length) return;
+  const evs = events as unknown as SourceEventRow[];
+
+  const { data: rows } = await supabase
+    .from("event_duty_assignments")
+    .select(ASSIGNMENT_COLUMNS)
+    .in(
+      "event_id",
+      evs.map((e) => e.id),
+    );
+  if (!rows?.length) return;
+
+  const settings = await getLogisticsSettings(supabase);
+  const byId = new Map(evs.map((e) => [e.id, e]));
+  await reconcileScope(
+    supabase,
+    (rows as unknown as DutyAssignmentRow[]).map((a) => ({
+      a,
+      ev: byId.get(a.event_id) ?? null,
+    })),
+    settings,
+  );
+}
+
+/** Reconcile one event's drive blocks (and its neighborhood — see above). The
+ * live path behind setEventDuty; idempotent, safe to call after any assignment
+ * change (assigning the second duty to the same parent collapses two blocks
+ * into one; clearing one expands a combined or merged block back out). */
 export async function reconcileEventDrive(
   supabase: AdminClient,
   eventId: string,
 ): Promise<void> {
-  const { data: rows } = await supabase
-    .from("event_duty_assignments")
-    .select(ASSIGNMENT_COLUMNS)
-    .eq("event_id", eventId);
-  if (!rows?.length) return;
-
   const { data: ev } = await supabase
     .from("calendar_events")
     .select(SOURCE_EVENT_COLUMNS)
     .eq("id", eventId)
     .maybeSingle();
+  if (ev) {
+    await reconcileDriveAround(
+      supabase,
+      (ev as unknown as SourceEventRow).start_time,
+    );
+    return;
+  }
 
+  // Source event gone — tear down whatever its assignments still hold.
+  const { data: rows } = await supabase
+    .from("event_duty_assignments")
+    .select(ASSIGNMENT_COLUMNS)
+    .eq("event_id", eventId);
+  if (!rows?.length) return;
   const settings = await getLogisticsSettings(supabase);
-  await reconcileEventLoaded(
+  await reconcileScope(
     supabase,
-    rows as unknown as DutyAssignmentRow[],
-    (ev as unknown as SourceEventRow) ?? null,
+    (rows as unknown as DutyAssignmentRow[]).map((a) => ({ a, ev: null })),
     settings,
   );
 }
@@ -475,42 +665,17 @@ export async function reconcileAllDriveEvents(
     ((events ?? []) as unknown as SourceEventRow[]).map((e) => [e.id, e]),
   );
 
-  // Group by event — the two duties reconcile together (combined-block rule).
+  // Scope to near/ahead-of-now events. Clusters compute within this window
+  // only — a merge partner that just aged past the cutoff stops participating,
+  // which is fine: events that old no longer change.
   const now = Date.now();
-  const byEvent = new Map<string, DutyAssignmentRow[]>();
+  const items: ScopeItem[] = [];
   for (const a of assignments as unknown as DutyAssignmentRow[]) {
     const ev = byId.get(a.event_id);
     if (!ev) continue;
     const t = new Date(ev.start_time).getTime();
     if (t < now - SWEEP_PAST_MS || t > now + SWEEP_FUTURE_MS) continue;
-    (byEvent.get(a.event_id) ?? byEvent.set(a.event_id, []).get(a.event_id)!).push(a);
+    items.push({ a, ev });
   }
-  const work = [...byEvent.entries()];
-
-  let reconciled = 0;
-  let errors = 0;
-  for (let i = 0; i < work.length; i += SWEEP_CONCURRENCY) {
-    await Promise.all(
-      work.slice(i, i + SWEEP_CONCURRENCY).map(async ([eventId, rows]) => {
-        try {
-          await reconcileEventLoaded(
-            supabase,
-            rows,
-            byId.get(eventId) ?? null,
-            settings,
-          );
-          reconciled += rows.length;
-        } catch (err) {
-          // isolate: one bad event doesn't abort the sweep — but say why,
-          // or a deterministic failure looks like "the block never appeared"
-          errors += 1;
-          console.error(
-            `[drive] reconcile failed for event ${eventId}:`,
-            err instanceof Error ? err.message : err,
-          );
-        }
-      }),
-    );
-  }
-  return { reconciled, errors };
+  return reconcileScope(supabase, items, settings);
 }
