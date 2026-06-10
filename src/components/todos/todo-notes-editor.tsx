@@ -8,6 +8,7 @@ import { TaskList } from "@tiptap/extension-task-list";
 import { TaskItem } from "@tiptap/extension-task-item";
 import { Markdown } from "tiptap-markdown";
 import { useEffect, useRef } from "react";
+import { LinkPaste } from "@/components/todos/link-paste";
 
 // "[] " starts a checklist, matching the lesson notes editor.
 const TaskListWithShortcut = TaskList.extend({
@@ -62,6 +63,9 @@ export function TodoNotesEditor({
         link: { openOnClick: false, autolink: true },
       }),
       Placeholder.configure({ placeholder: "Notes" }),
+      // Paste a URL → link (titled when the page resolves); paste over a
+      // selection → that text becomes the link. Click opens.
+      LinkPaste,
       TaskListWithShortcut,
       TaskItem.configure({ nested: true }),
       // html:true is load-bearing: with the Markdown extension active, the
