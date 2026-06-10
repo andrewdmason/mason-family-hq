@@ -13,6 +13,8 @@ import { ViewingBanner } from "@/components/todos/viewing-banner";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Lists" };
+
 /**
  * The lists screen — Things' iPhone home. On phones the sidebar isn't a rail
  * beside the content; it's this full-screen page of views and projects, and

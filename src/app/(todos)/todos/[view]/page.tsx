@@ -27,6 +27,16 @@ import { ViewingBanner } from "@/components/todos/viewing-banner";
 // be statically cached.
 export const dynamic = "force-dynamic";
 
+// Tab reads e.g. "Snoozed · Todos" (the (todos) layout's title template).
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ view: string }>;
+}) {
+  const { view } = await params;
+  return isTodoView(view) ? { title: viewLabel(view) } : {};
+}
+
 export default async function TodoViewPage({
   params,
   searchParams,
