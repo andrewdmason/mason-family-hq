@@ -62,7 +62,7 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${lora.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
         {children}
-        {/* Global to-do quick-add: press `q` anywhere (see quick-add.tsx). */}
+        {/* Global to-do quick-add: press `c` anywhere (see quick-add.tsx). */}
         <GlobalQuickAdd />
       </body>
     </html>

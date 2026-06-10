@@ -21,16 +21,24 @@ export function AssigneePicker({
   assigneeEmail,
   onReassign,
   triggerClassName,
+  open,
+  onOpenChange,
 }: {
   members: TodoMember[];
   assigneeEmail: string;
   onReassign: (email: string) => void;
   triggerClassName?: string;
+  /** Controlled open (the keyboard `a` summons it); omit for internal state. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const assignee = members.find((m) => m.email === assigneeEmail);
 
   return (
-    <DropdownMenu>
+    <DropdownMenu
+      open={open}
+      onOpenChange={onOpenChange ? (next) => onOpenChange(next) : undefined}
+    >
       <DropdownMenuTrigger
         render={
           <button

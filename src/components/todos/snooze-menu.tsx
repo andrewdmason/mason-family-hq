@@ -21,11 +21,21 @@ import { cn } from "@/lib/utils";
 export function SnoozeMenu({
   onSnooze,
   triggerClassName,
+  open: openProp,
+  onOpenChange,
 }: {
   onSnooze: (when: Date) => void;
   triggerClassName?: string;
+  /** Controlled open (the keyboard `s` summons it); omit for internal state. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = openProp ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    if (openProp === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [custom, setCustom] = useState("");
 
   // Recomputed each open so "this evening" drops off after 5pm.
@@ -37,7 +47,7 @@ export function SnoozeMenu({
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={(next) => setOpen(next)}>
       <PopoverTrigger
         render={
           <button

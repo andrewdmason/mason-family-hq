@@ -18,7 +18,7 @@ const VISIBLE_PER_SECTION = 5;
 /**
  * Home dashboard widget: your Today list and the Inbox tasks awaiting triage,
  * both completable right here, plus a "New" affordance that summons the
- * global quick-add modal (also on `q` from anywhere).
+ * global quick-add modal (also on `c` from anywhere).
  */
 export function TodosWidget({ data }: { data: HomeTodos }) {
   const router = useRouter();

@@ -57,6 +57,9 @@ export type TaskRowContext =
   | { mode: "view"; view: TodoView }
   | { mode: "project"; projectId: string };
 
+/** The expanded editor's summonable menus (keyboard `s` / `m` / `a`). */
+export type TaskRowMenu = "snooze" | "project" | "assignee";
+
 export type TaskRowHandlers = {
   onComplete: (task: TodoTask) => void;
   onDelete: (task: TodoTask) => void;
@@ -93,6 +96,8 @@ export function TaskRow({
   completing,
   selected,
   expanded,
+  openMenu,
+  onMenuOpenChange,
   onSelect,
   onOpen,
   handlers,
@@ -107,6 +112,9 @@ export function TaskRow({
   completing: boolean;
   selected: boolean;
   expanded: boolean;
+  /** Which expanded-editor menu is keyboard-summoned open (if any). */
+  openMenu: TaskRowMenu | null;
+  onMenuOpenChange: (menu: TaskRowMenu, open: boolean) => void;
   onSelect: (e: React.MouseEvent) => void;
   onOpen: () => void;
   handlers: TaskRowHandlers;
@@ -124,6 +132,9 @@ export function TaskRow({
 
   return (
     <div
+      // Marks the row (incl. its expanded editor) for the background-click
+      // deselect listener in TaskList.
+      data-task-row=""
       className={cn(
         "rounded-lg transition-colors",
         expanded && "bg-card shadow-sm ring-1 ring-foreground/10",
@@ -224,6 +235,8 @@ export function TaskRow({
           projects={projects}
           attachments={attachments}
           uploading={uploading}
+          openMenu={openMenu}
+          onMenuOpenChange={onMenuOpenChange}
           handlers={handlers}
         />
       )}
@@ -282,6 +295,8 @@ function ExpandedEditor({
   projects,
   attachments,
   uploading,
+  openMenu,
+  onMenuOpenChange,
   handlers,
 }: {
   task: TodoTask;
@@ -290,6 +305,8 @@ function ExpandedEditor({
   projects: TodoProject[];
   attachments: TodoTaskAttachment[];
   uploading: UploadingAttachment[];
+  openMenu: TaskRowMenu | null;
+  onMenuOpenChange: (menu: TaskRowMenu, open: boolean) => void;
   handlers: TaskRowHandlers;
 }) {
   // Membership = the assignable set: inside a project, only its members.
@@ -354,7 +371,11 @@ function ExpandedEditor({
           })}
         </div>
 
-        <SnoozeMenu onSnooze={(when) => handlers.onSnooze(task, when)} />
+        <SnoozeMenu
+          onSnooze={(when) => handlers.onSnooze(task, when)}
+          open={openMenu === "snooze"}
+          onOpenChange={(open) => onMenuOpenChange("snooze", open)}
+        />
 
         {context.mode === "view" && context.view === "snoozed" && (
           <button
@@ -371,12 +392,16 @@ function ExpandedEditor({
           task={task}
           projects={projects}
           onSetProject={(projectId) => handlers.onSetProject(task, projectId)}
+          open={openMenu === "project"}
+          onOpenChange={(open) => onMenuOpenChange("project", open)}
         />
 
         <AssigneePicker
           members={assignableMembers}
           assigneeEmail={task.assigneeEmail}
           onReassign={(email) => handlers.onReassign(task, email)}
+          open={openMenu === "assignee"}
+          onOpenChange={(open) => onMenuOpenChange("assignee", open)}
         />
 
         <button
@@ -400,10 +425,15 @@ function ProjectPicker({
   task,
   projects,
   onSetProject,
+  open,
+  onOpenChange,
 }: {
   task: TodoTask;
   projects: TodoProject[];
   onSetProject: (projectId: string | null) => void;
+  /** Controlled open (the keyboard `m` summons it); omit for internal state. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const current = projects.find((p) => p.id === task.projectId);
   const options = projects.filter((p) =>
@@ -411,7 +441,10 @@ function ProjectPicker({
   );
 
   return (
-    <DropdownMenu>
+    <DropdownMenu
+      open={open}
+      onOpenChange={onOpenChange ? (next) => onOpenChange(next) : undefined}
+    >
       <DropdownMenuTrigger
         render={
           <button

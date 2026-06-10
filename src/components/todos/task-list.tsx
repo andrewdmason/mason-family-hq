@@ -38,12 +38,17 @@ import {
 } from "@/app/(todos)/todos/actions";
 import { QuickEntry } from "@/components/todos/quick-entry";
 import {
+  TaskContextMenu,
+  type TaskContextActions,
+} from "@/components/todos/task-context-menu";
+import {
   TaskRow,
   type TaskRowContext,
   type TaskRowHandlers,
+  type TaskRowMenu,
 } from "@/components/todos/task-row";
 import type { UploadingAttachment } from "@/components/todos/task-attachments";
-import { isTypingTarget } from "@/components/todos/quick-add";
+import { inOpenOverlay, isTypingTarget } from "@/lib/todos/keyboard";
 import {
   Dialog,
   DialogContent,
@@ -114,6 +119,8 @@ export function TaskList({
   // cmd/ctrl toggles), double click opens, Delete asks then removes.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Which expanded-editor menu is keyboard-summoned open (s / m / a).
+  const [openMenu, setOpenMenu] = useState<TaskRowMenu | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // The shift-range anchor: the last plain/cmd click.
   const anchorId = useRef<string | null>(null);
@@ -138,6 +145,7 @@ export function TaskList({
   const removeLocally = (taskId: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
     setExpandedId((prev) => (prev === taskId ? null : prev));
+    if (expandedId === taskId) setOpenMenu(null);
     setSelectedIds((prev) => {
       if (!prev.has(taskId)) return prev;
       const next = new Set(prev);
@@ -385,32 +393,242 @@ export function TaskList({
     }
     // Clicking rows closes whatever is open.
     setExpandedId(null);
+    setOpenMenu(null);
+  };
+
+  // The first unselected row after (else before) the selection — where the
+  // highlight lands after the selection completes or deletes away.
+  const nextSurvivor = (): string | null => {
+    const indexes = visibleOrder.flatMap((id, i) =>
+      selectedIds.has(id) ? [i] : []
+    );
+    if (indexes.length === 0) return null;
+    for (let i = indexes[indexes.length - 1] + 1; i < visibleOrder.length; i++) {
+      if (!selectedIds.has(visibleOrder[i])) return visibleOrder[i];
+    }
+    for (let i = indexes[0] - 1; i >= 0; i--) {
+      if (!selectedIds.has(visibleOrder[i])) return visibleOrder[i];
+    }
+    return null;
   };
 
   const deleteSelected = () => {
     const ids = [...selectedIds];
+    const landing = nextSurvivor();
     setConfirmDelete(false);
-    setSelectedIds(new Set());
+    setSelectedIds(landing ? new Set([landing]) : new Set());
+    if (landing) anchorId.current = landing;
     setTasks((prev) => prev.filter((t) => !ids.includes(t.id)));
     setExpandedId((prev) => (prev && ids.includes(prev) ? null : prev));
     run(deleteTasks(ids));
   };
 
-  // Delete/Backspace on a selection asks for confirmation; Escape clears the
-  // selection. Both stay quiet while typing or while a task is open for edit.
+  // Clicking the background (anything that isn't a task row or a floating
+  // surface — menus, popovers, dialogs, toasts) clears the selection and
+  // closes any open task, like Things.
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (isTypingTarget(e.target) || expandedId) return;
-      if ((e.key === "Delete" || e.key === "Backspace") && selectedIds.size > 0) {
-        e.preventDefault();
-        setConfirmDelete(true);
-      } else if (e.key === "Escape" && selectedIds.size > 0) {
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (
+        target.closest(
+          '[data-task-row], [data-slot], [role="menu"], [role="dialog"], [role="status"]'
+        )
+      ) {
+        return;
+      }
+      setSelectedIds(new Set());
+      setExpandedId(null);
+      setOpenMenu(null);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, []);
+
+  // Gmail-style list keys: j/k (or arrows) walk the list, enter/o opens the
+  // selected task, e completes, s/m/a summon the snooze/project/assignee
+  // menus, Delete/⌫/# asks then removes, w wakes a snoozed task, z undoes a
+  // delete, and Escape closes the open task before clearing the selection.
+  // All of them stay quiet while typing or while a menu/dialog is open; the
+  // ref keeps one stable window listener over fresh state.
+  const onListKeyDown = (e: KeyboardEvent) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+    if (e.key === "Escape") {
+      if (inOpenOverlay(e.target)) return; // the dialog/menu closes itself
+      if (expandedId) {
+        setExpandedId(null);
+        setOpenMenu(null);
+      } else if (!isTypingTarget(e.target) && selectedIds.size > 0) {
         setSelectedIds(new Set());
       }
+      return;
+    }
+    if (isTypingTarget(e.target) || inOpenOverlay(e.target) || expandedId) return;
+
+    const selectOnly = (taskId: string) => {
+      setSelectedIds(new Set([taskId]));
+      anchorId.current = taskId;
+      setExpandedId(null);
+      setOpenMenu(null);
+      // After the move paints, keep the row in view.
+      requestAnimationFrame(() => {
+        document
+          .querySelector(`[data-task-id="${taskId}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      });
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedIds, expandedId]);
+    const single =
+      selectedIds.size === 1
+        ? (tasks.find((t) => selectedIds.has(t.id)) ?? null)
+        : null;
+
+    switch (e.key) {
+      case "j":
+      case "ArrowDown":
+      case "k":
+      case "ArrowUp": {
+        if (visibleOrder.length === 0) return;
+        e.preventDefault();
+        const down = e.key === "j" || e.key === "ArrowDown";
+        // Walk from the anchor (the last clicked/keyed row), else from the
+        // first selected row; no selection starts at the list's edge.
+        const fromId =
+          anchorId.current && selectedIds.has(anchorId.current)
+            ? anchorId.current
+            : (visibleOrder.find((id) => selectedIds.has(id)) ?? null);
+        const idx = fromId ? visibleOrder.indexOf(fromId) : -1;
+        const next =
+          idx < 0
+            ? visibleOrder[down ? 0 : visibleOrder.length - 1]
+            : visibleOrder[
+                Math.min(
+                  visibleOrder.length - 1,
+                  Math.max(0, idx + (down ? 1 : -1))
+                )
+              ];
+        selectOnly(next);
+        return;
+      }
+      case "o":
+      case "Enter": {
+        if (!single) return;
+        // Leave Enter alone when it's aimed at a focused button or link.
+        if (
+          e.key === "Enter" &&
+          e.target instanceof HTMLElement &&
+          e.target.closest("button, a")
+        ) {
+          return;
+        }
+        e.preventDefault();
+        setExpandedId(single.id);
+        return;
+      }
+      case "e": {
+        if (selectedIds.size === 0) return;
+        e.preventDefault();
+        const landing = nextSurvivor();
+        tasks
+          .filter((t) => selectedIds.has(t.id))
+          .forEach((t) => handlers.onComplete(t));
+        if (landing) selectOnly(landing);
+        return;
+      }
+      case "#":
+      case "Delete":
+      case "Backspace": {
+        if (selectedIds.size === 0) return;
+        e.preventDefault();
+        setConfirmDelete(true);
+        return;
+      }
+      case "s":
+      case "m":
+      case "a": {
+        if (!single) return;
+        e.preventDefault();
+        setExpandedId(single.id);
+        setOpenMenu(
+          e.key === "s" ? "snooze" : e.key === "m" ? "project" : "assignee"
+        );
+        return;
+      }
+      case "w": {
+        if (!single?.snoozedUntil) return;
+        e.preventDefault();
+        handlers.onWake(single);
+        return;
+      }
+      case "z": {
+        if (!undoTask) return;
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+    }
+  };
+  const listKeyDownRef = useRef(onListKeyDown);
+  listKeyDownRef.current = onListKeyDown;
+  useEffect(() => {
+    const listener = (e: KeyboardEvent) => listKeyDownRef.current(e);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, []);
+
+  // Right-click context menu (selection-aware): right-clicking outside the
+  // current selection pulls the selection onto that row first, so the menu
+  // always acts on what's highlighted.
+  const handleContextTarget = (task: TodoTask) => {
+    if (!selectedIds.has(task.id)) {
+      setSelectedIds(new Set([task.id]));
+      anchorId.current = task.id;
+      setExpandedId(null);
+      setOpenMenu(null);
+    }
+  };
+
+  const menuActions: TaskContextActions = {
+    open: (task) => {
+      setSelectedIds(new Set([task.id]));
+      anchorId.current = task.id;
+      setExpandedId(task.id);
+    },
+    complete: (list) => {
+      const landing = nextSurvivor();
+      list.forEach((t) => handlers.onComplete(t));
+      if (landing) {
+        setSelectedIds(new Set([landing]));
+        anchorId.current = landing;
+      }
+    },
+    setBucket: (list, bucket) => list.forEach((t) => handlers.onSetBucket(t, bucket)),
+    snooze: (list, when) => list.forEach((t) => handlers.onSnooze(t, when)),
+    wake: (list) =>
+      list.filter((t) => t.snoozedUntil).forEach((t) => handlers.onWake(t)),
+    setProject: (list, projectId) =>
+      list.forEach((t) => handlers.onSetProject(t, projectId)),
+    assign: (list, email) => list.forEach((t) => handlers.onReassign(t, email)),
+    duplicate: (list) => {
+      run(
+        Promise.all(
+          list.map((t) =>
+            createTask({
+              title: t.title,
+              assigneeEmail: t.assigneeEmail,
+              bucket: t.bucket,
+              projectId: t.projectId,
+              notesHtml: t.notesHtml ?? undefined,
+            })
+          )
+        )
+      );
+    },
+    requestDelete: (list) => {
+      setSelectedIds(new Set(list.map((t) => t.id)));
+      setConfirmDelete(true);
+    },
+  };
 
   const handleDragEnd = (event: DragEndEvent, group: TodoTask[]) => {
     const { active, over } = event;
@@ -439,7 +657,7 @@ export function TaskList({
 
   return (
     <div className="space-y-3">
-      {/* Bucket views capture via the global quick-add modal (`q` / the header
+      {/* Bucket views capture via the global quick-add modal (`c` / the header
           button); the inline entry stays only on project pages, where it adds
           straight into the project. */}
       {inProject && (
@@ -477,25 +695,43 @@ export function TaskList({
                   <div className="space-y-0.5">
                     {group.tasks.map((task) => (
                       <SortableTaskRow key={task.id} id={task.id}>
-                        <TaskRow
+                        <TaskContextMenu
                           task={task}
-                          context={context}
+                          effectiveTasks={
+                            selectedIds.has(task.id)
+                              ? tasks.filter((t) => selectedIds.has(t.id))
+                              : [task]
+                          }
                           members={members}
                           projects={projects}
-                          attachments={attachments[task.id] ?? []}
-                          uploading={uploadingByTask[task.id] ?? []}
-                          viewedEmail={viewedEmail}
-                          completing={completingIds.has(task.id)}
-                          selected={selectedIds.has(task.id)}
-                          expanded={expandedId === task.id}
-                          onSelect={(e) => handleRowClick(task, e)}
-                          onOpen={() => {
-                            setSelectedIds(new Set([task.id]));
-                            anchorId.current = task.id;
-                            setExpandedId(task.id);
-                          }}
-                          handlers={handlers}
-                        />
+                          onTargetTask={handleContextTarget}
+                          actions={menuActions}
+                        >
+                          <TaskRow
+                            task={task}
+                            context={context}
+                            members={members}
+                            projects={projects}
+                            attachments={attachments[task.id] ?? []}
+                            uploading={uploadingByTask[task.id] ?? []}
+                            viewedEmail={viewedEmail}
+                            completing={completingIds.has(task.id)}
+                            selected={selectedIds.has(task.id)}
+                            expanded={expandedId === task.id}
+                            openMenu={expandedId === task.id ? openMenu : null}
+                            onMenuOpenChange={(menu, open) =>
+                              setOpenMenu(open ? menu : null)
+                            }
+                            onSelect={(e) => handleRowClick(task, e)}
+                            onOpen={() => {
+                              setSelectedIds(new Set([task.id]));
+                              anchorId.current = task.id;
+                              setExpandedId(task.id);
+                              setOpenMenu(null);
+                            }}
+                            handlers={handlers}
+                          />
+                        </TaskContextMenu>
                       </SortableTaskRow>
                     ))}
                   </div>
@@ -566,6 +802,8 @@ function SortableTaskRow({
   return (
     <div
       ref={setNodeRef}
+      // Anchor for the keyboard selection's scrollIntoView.
+      data-task-id={id}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={isDragging ? "z-10 opacity-70" : undefined}
       {...attributes}

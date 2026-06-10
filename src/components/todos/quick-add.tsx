@@ -7,20 +7,21 @@ import {
   NewTaskModal,
   type NewTaskDefaults,
 } from "@/components/todos/new-task-modal";
+import { inOpenOverlay, isTypingTarget } from "@/lib/todos/keyboard";
 import type { TodoMember } from "@/lib/todos/types";
 import { cn } from "@/lib/utils";
 
 /**
  * Global quick-add: the new-to-do modal is mounted once (root layout, via
- * global-quick-add.tsx) and summoned from anywhere — press `q` (Todoist's
- * quick-add key; single letters never collide with Chrome's shortcuts) or
+ * global-quick-add.tsx) and summoned from anywhere — press `c` (Gmail/Linear's
+ * create key; single letters never collide with Chrome's shortcuts) or
  * dispatch the window event via emitQuickAdd() / <QuickAddButton>. The same
  * window-event pattern as src/lib/optimistic-task.ts, so openers don't need
  * a shared React context across layouts.
  */
 
 const QUICK_ADD_EVENT = "todo-quick-add";
-const QUICK_ADD_KEY = "q";
+const QUICK_ADD_KEY = "c";
 
 export function emitQuickAdd(defaults?: NewTaskDefaults): void {
   window.dispatchEvent(
@@ -28,12 +29,6 @@ export function emitQuickAdd(defaults?: NewTaskDefaults): void {
       detail: defaults,
     })
   );
-}
-
-export function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
 /** Mounted once; listens for the key + event and hosts the modal. */
@@ -56,7 +51,7 @@ export function QuickAddHost({
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== QUICK_ADD_KEY) return;
       if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
-      if (isTypingTarget(e.target)) return;
+      if (isTypingTarget(e.target) || inOpenOverlay(e.target)) return;
       e.preventDefault();
       setDefaults(undefined);
       setOpen(true);
@@ -95,7 +90,7 @@ export function QuickAddButton({
     <button
       type="button"
       onClick={() => emitQuickAdd(defaults)}
-      title="New to-do (q)"
+      title="New to-do (c)"
       className={cn(
         "inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-primary hover:bg-primary/10",
         className

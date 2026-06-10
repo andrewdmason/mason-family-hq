@@ -56,16 +56,18 @@ type ViewItem = {
   label: string;
   icon: LucideIcon;
   iconClass: string;
+  /** The `g` navigation chord (see todos-shortcuts.tsx), shown as a tooltip. */
+  chord: string;
 };
 
 // The six fixed views; the member's projects (grouped by area) list below.
 const VIEW_ITEMS: ViewItem[] = [
-  { view: "inbox", label: "Inbox", icon: Inbox, iconClass: "text-sky-700" },
-  { view: "today", label: "Today", icon: Star, iconClass: "text-amber-500" },
-  { view: "anytime", label: "Anytime", icon: Layers, iconClass: "text-teal-700" },
-  { view: "someday", label: "Someday", icon: Archive, iconClass: "text-stone-500" },
-  { view: "snoozed", label: "Snoozed", icon: Moon, iconClass: "text-indigo-500" },
-  { view: "logbook", label: "Logbook", icon: BookCheck, iconClass: "text-emerald-700" },
+  { view: "inbox", label: "Inbox", icon: Inbox, iconClass: "text-sky-700", chord: "g i" },
+  { view: "today", label: "Today", icon: Star, iconClass: "text-amber-500", chord: "g t" },
+  { view: "anytime", label: "Anytime", icon: Layers, iconClass: "text-teal-700", chord: "g a" },
+  { view: "someday", label: "Someday", icon: Archive, iconClass: "text-stone-500", chord: "g s" },
+  { view: "snoozed", label: "Snoozed", icon: Moon, iconClass: "text-indigo-500", chord: "g z" },
+  { view: "logbook", label: "Logbook", icon: BookCheck, iconClass: "text-emerald-700", chord: "g l" },
 ];
 
 /**
@@ -115,6 +117,7 @@ export function TodosSidebar({
                   active={active === item.view}
                   badge={item.view === "inbox" ? inboxCount : 0}
                   href={href(`/todos/${item.view}`)}
+                  hint={`${item.label} (${item.chord})`}
                 />
               </li>
             ))}
@@ -210,6 +213,7 @@ function SidebarLink({
   active,
   badge,
   href,
+  hint,
 }: {
   icon: LucideIcon;
   iconClass: string;
@@ -217,10 +221,12 @@ function SidebarLink({
   active: boolean;
   badge: number;
   href: string;
+  hint?: string;
 }) {
   return (
     <Link
       href={href}
+      title={hint}
       className={cn(
         "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors",
         active
