@@ -42,22 +42,34 @@ export async function createTask(input: {
   notes?: string;
   /** Rich HTML (the quick-add modal's Tiptap notes) — sanitized like edits. */
   notesHtml?: string;
+  /** Inline "New" creates an untitled draft, opened for editing in place
+   * (discarded by the client if it's closed still empty). */
+  draft?: boolean;
+  /** Where the task lands in its list. Inline "New" goes on top, like
+   * Things; captures (modal, ingest) append. */
+  position?: "top" | "bottom";
 }): Promise<TodoTask> {
   const { supabase, selfEmail } = await ctx();
   const title = input.title.trim();
-  if (!title) throw new Error("Task title is required");
+  if (!title && !input.draft) throw new Error("Task title is required");
 
-  // Append to the end of the target list.
-  const { data: last } = await supabase
+  // Top wants the list's MIN (ascending), bottom its MAX (descending). The
+  // list is the one the task will render in: the project's task list when it
+  // has a project (ordered across all assignees), else the assignee's bucket.
+  const top = input.position === "top";
+  let edgeQuery = supabase
     .from("todo_tasks")
     .select("sort_order")
-    .eq("assignee_email", input.assigneeEmail)
-    .eq("bucket", input.bucket)
     .is("completed_at", null)
-    .is("deleted_at", null)
-    .order("sort_order", { ascending: false })
+    .is("deleted_at", null);
+  edgeQuery = input.projectId
+    ? edgeQuery.eq("project_id", input.projectId)
+    : edgeQuery.eq("assignee_email", input.assigneeEmail).eq("bucket", input.bucket);
+  const { data: edge } = await edgeQuery
+    .order("sort_order", { ascending: top })
     .limit(1)
     .maybeSingle();
+  const last = edge ? { sort_order: top ? edge.sort_order - 2 : edge.sort_order } : null;
 
   const { data, error } = await supabase
     .from("todo_tasks")

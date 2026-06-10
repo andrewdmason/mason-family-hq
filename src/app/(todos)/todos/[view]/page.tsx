@@ -15,6 +15,7 @@ import {
   sweepElapsedSnoozes,
 } from "@/lib/todos/queries";
 import { isTodoView, viewLabel } from "@/lib/todos/types";
+import { InlineNewButton } from "@/components/todos/inline-new-button";
 import { LogbookList } from "@/components/todos/logbook-list";
 import { QuickAddButton } from "@/components/todos/quick-add";
 import { TaskList } from "@/components/todos/task-list";
@@ -84,13 +85,18 @@ export default async function TodoViewPage({
             <h1 className="font-serif text-2xl tracking-tight text-foreground">
               {viewLabel(view)}
             </h1>
-            <QuickAddButton
-              label="New"
-              defaults={{
-                assigneeEmail: viewed.email,
-                bucket: view === "today" ? "today" : "inbox",
-              }}
-            />
+            {view === "snoozed" || view === "delegated" || view === "logbook" ? (
+              // Status/history lenses can't host an inline draft — fall back
+              // to the capture modal.
+              <QuickAddButton
+                label="New"
+                defaults={{ assigneeEmail: viewed.email, bucket: "inbox" }}
+              />
+            ) : (
+              // Bucket views create in place, like Things: a draft opens at
+              // the top of the list.
+              <InlineNewButton />
+            )}
           </div>
 
           {view === "logbook" ? (

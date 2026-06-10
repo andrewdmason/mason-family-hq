@@ -12,6 +12,7 @@ import {
   getTodoMembers,
   sweepElapsedSnoozes,
 } from "@/lib/todos/queries";
+import { InlineNewButton } from "@/components/todos/inline-new-button";
 import { ProjectHeader } from "@/components/todos/project-header";
 import { TaskList } from "@/components/todos/task-list";
 import { TodosSidebar } from "@/components/todos/todos-sidebar";
@@ -84,6 +85,10 @@ export default async function ProjectPage({
             homeHref={withAs("/todos/today", viewed.email, selfEmail)}
             logbookHref={withAs("/todos/logbook", viewed.email, selfEmail)}
           />
+
+          <div className="mb-1 flex justify-end">
+            <InlineNewButton />
+          </div>
 
           <TaskList
             context={{ mode: "project", projectId: project.id }}

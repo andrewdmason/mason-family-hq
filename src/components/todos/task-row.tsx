@@ -67,6 +67,9 @@ export type TaskRowHandlers = {
   onWake: (task: TodoTask) => void;
   onSetBucket: (task: TodoTask, bucket: TodoBucket) => void;
   onReassign: (task: TodoTask, email: string) => void;
+  /** Live (every keystroke) — keeps list state current while editing. */
+  onTitleChange: (task: TodoTask, title: string) => void;
+  /** Commit (blur/Enter/close) — persists to the server. */
   onRenameTitle: (task: TodoTask, title: string) => void;
   onSetProject: (task: TodoTask, projectId: string | null) => void;
   onSaveNotes: (task: TodoTask, html: string) => void;
@@ -190,16 +193,21 @@ export function TaskRow({
         />
         {expanded ? (
           // Open: the title becomes the editor — no duplicate line below.
-          <TitleInput task={task} onRename={handlers.onRenameTitle} />
+          <TitleInput
+            task={task}
+            onChange={(title) => handlers.onTitleChange(task, title)}
+            onCommit={(title) => handlers.onRenameTitle(task, title)}
+          />
         ) : (
           <>
             <span
               className={cn(
                 "min-w-0 flex-1 truncate text-sm text-foreground transition-all select-none",
+                !task.title.trim() && "text-muted-foreground/60",
                 completing && "text-muted-foreground line-through"
               )}
             >
-              {task.title}
+              {task.title.trim() || "New To-Do"}
             </span>
             {hasNotes && (
               <FileText className="size-3.5 shrink-0 text-muted-foreground/60" />
@@ -256,45 +264,63 @@ export function TaskRow({
   );
 }
 
-/** The opened task's title editor: replaces the static row title, focused
- * with the cursor parked at the end of the name. */
+/**
+ * The opened task's title editor: replaces the static row title, focused with
+ * the cursor parked at the end of the name. Fully controlled — every
+ * keystroke flows into the list state (so closing the editor any way, even
+ * Escape, never loses typed text); the server commit flushes on blur, Enter,
+ * and unmount.
+ */
 function TitleInput({
   task,
-  onRename,
+  onChange,
+  onCommit,
 }: {
   task: TodoTask;
-  onRename: (task: TodoTask, title: string) => void;
+  onChange: (title: string) => void;
+  onCommit: (title: string) => void;
 }) {
-  const [title, setTitle] = useState(task.title);
   const inputRef = useRef<HTMLInputElement>(null);
+  // The last server-committed value; flush only when it changed.
+  const committedRef = useRef(task.title);
+  const latestRef = useRef(task.title);
+  latestRef.current = task.title;
+  const onCommitRef = useRef(onCommit);
+  onCommitRef.current = onCommit;
 
-  useEffect(() => setTitle(task.title), [task.title]);
-
-  // On open: focus with the caret at the end of the name.
+  // On open: focus with the caret at the end of the name. On close (unmount):
+  // flush an uncommitted title.
   useEffect(() => {
     const input = inputRef.current;
-    if (!input) return;
-    input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
+    if (input) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+    return () => {
+      if (latestRef.current !== committedRef.current) {
+        onCommitRef.current(latestRef.current);
+      }
+    };
   }, []);
 
-  const saveTitle = () => {
-    const trimmed = title.trim();
-    if (trimmed && trimmed !== task.title) onRename(task, trimmed);
-    else setTitle(task.title);
+  const flush = () => {
+    if (task.title !== committedRef.current) {
+      committedRef.current = task.title;
+      onCommit(task.title);
+    }
   };
 
   return (
     <input
       ref={inputRef}
-      value={title}
-      onChange={(e) => setTitle(e.target.value)}
-      onBlur={saveTitle}
+      value={task.title}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={flush}
       onKeyDown={(e) => {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-        if (e.key === "Escape") setTitle(task.title);
       }}
-      className="min-w-0 flex-1 bg-transparent text-sm font-medium text-foreground outline-none"
+      placeholder="New To-Do"
+      className="min-w-0 flex-1 bg-transparent text-sm font-medium text-foreground outline-none placeholder:text-muted-foreground/60"
       aria-label="Task title"
     />
   );

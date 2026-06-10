@@ -103,6 +103,7 @@ const SECTIONS: { title: string; rows: ShortcutRow[] }[] = [
       { keys: ["j", "↓"], label: "Next task" },
       { keys: ["k", "↑"], label: "Previous task" },
       { keys: ["⏎", "o"], label: "Open task" },
+      { keys: ["⌘A"], label: "Select all" },
       { keys: ["esc"], label: "Close / clear selection" },
     ],
   },

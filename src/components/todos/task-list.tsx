@@ -36,7 +36,7 @@ import {
   updateTaskNotes,
   updateTaskTitle,
 } from "@/app/(todos)/todos/actions";
-import { QuickEntry } from "@/components/todos/quick-entry";
+import { onInlineNew } from "@/components/todos/inline-new-button";
 import {
   TaskContextMenu,
   type TaskContextActions,
@@ -80,7 +80,7 @@ const EMPTY_STATES: Record<string, { icon: typeof Star; text: string }> = {
   someday: { icon: Archive, text: "No someday-maybes parked here yet." },
   snoozed: { icon: Moon, text: "Nothing snoozed. Snoozed tasks wait here, then pop into Today." },
   delegated: { icon: Send, text: "Nothing delegated. To-dos you create for someone else show up here until they're done." },
-  project: { icon: CircleDashed, text: "No tasks here yet. Add the first one above." },
+  project: { icon: CircleDashed, text: "No tasks here yet. Hit New to add the first one." },
 };
 
 type TaskGroup = {
@@ -169,11 +169,19 @@ export function TaskList({
     }
   };
 
-  const handleCreate = (title: string) => {
-    const bucket: TodoBucket = inProject
-      ? "anytime"
-      : view === "snoozed"
-        ? "inbox"
+  // Stable React keys across the temp→real id swap, so the in-place editor
+  // (and whatever the user is mid-typing) survives the server roundtrip.
+  const keyAliases = useRef(new Map<string, string>());
+  const stableKey = (taskId: string) => keyAliases.current.get(taskId) ?? taskId;
+
+  // Things' "New": an untitled draft lands at the top of the list, opened for
+  // editing in place. Emitted by the header button (inline-new-button.tsx).
+  const handleInlineNew = () => {
+    const bucket: TodoBucket =
+      inProject || view === "snoozed" || view === "delegated" || view === "logbook"
+        ? inProject
+          ? "anytime"
+          : "inbox"
         : (view as TodoBucket);
     // Inside a project the assignee must be a member; default to the viewed
     // person when they belong, else the project's first member.
@@ -188,7 +196,7 @@ export function TaskList({
 
     const temp: TodoTask = {
       id: `temp-${crypto.randomUUID()}`,
-      title,
+      title: "",
       notesHtml: null,
       bucket,
       assigneeEmail,
@@ -197,24 +205,70 @@ export function TaskList({
       snoozedUntil: null,
       completedAt: null,
       completedByEmail: null,
-      sortOrder: (tasks[tasks.length - 1]?.sortOrder ?? 0) + 1,
+      sortOrder: (tasks[0]?.sortOrder ?? 1) - 1,
       assigneeSeenAt: new Date().toISOString(),
       createdAt: new Date().toISOString(),
     };
-    setTasks((prev) => [...prev, temp]);
+    setTasks((prev) => [temp, ...prev]);
+    setSelectedIds(new Set([temp.id]));
+    anchorId.current = temp.id;
+    setExpandedId(temp.id);
+    setOpenMenu(null);
+
     run(
       createTask({
-        title,
+        title: "",
+        draft: true,
+        position: "top",
         assigneeEmail,
         bucket,
         projectId: inProject ? context.projectId : null,
       })
-        .then((created) =>
-          setTasks((prev) => prev.map((t) => (t.id === temp.id ? created : t)))
-        )
+        .then((created) => {
+          keyAliases.current.set(created.id, temp.id);
+          setTasks((prev) =>
+            prev.map((t) => {
+              if (t.id !== temp.id) return t;
+              // Keep anything typed while the roundtrip was in flight, and
+              // sync it up if it already diverged from the (empty) draft.
+              if (t.title.trim()) void updateTaskTitle(created.id, t.title);
+              if (t.notesHtml) void updateTaskNotes(created.id, t.notesHtml);
+              return { ...created, title: t.title, notesHtml: t.notesHtml };
+            })
+          );
+          setExpandedId((prev) => (prev === temp.id ? created.id : prev));
+          setSelectedIds((prev) =>
+            prev.has(temp.id)
+              ? new Set([...prev].map((id) => (id === temp.id ? created.id : id)))
+              : prev
+          );
+          if (anchorId.current === temp.id) anchorId.current = created.id;
+        })
         .catch(() => removeLocally(temp.id))
     );
   };
+  const inlineNewRef = useRef(handleInlineNew);
+  inlineNewRef.current = handleInlineNew;
+  useEffect(() => onInlineNew(() => inlineNewRef.current()), []);
+
+  // Things discards an untitled to-do when it's closed: once the open editor
+  // moves off a draft that's still empty (no title, no notes), drop it.
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
+  const prevExpandedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevExpandedRef.current;
+    prevExpandedRef.current = expandedId;
+    if (!prev || prev === expandedId) return;
+    const task = tasksRef.current.find((t) => t.id === prev);
+    if (!task) return;
+    const notesEmpty = (task.notesHtml ?? "").replace(/<[^>]*>/g, "").trim() === "";
+    if (task.title.trim() === "" && notesEmpty) {
+      removeLocally(task.id);
+      if (!task.id.startsWith("temp-")) run(deleteTask(task.id));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedId]);
 
   const handlers: TaskRowHandlers = {
     onComplete: (task) => {
@@ -285,9 +339,17 @@ export function TaskList({
       }
       run(reassignTask(task.id, email));
     },
-    onRenameTitle: (task, title) => {
+    onTitleChange: (task, title) => {
       patchLocally(task.id, { title });
-      run(updateTaskTitle(task.id, title));
+    },
+    onRenameTitle: (task, title) => {
+      const trimmed = title.trim();
+      // Empty titles stay local: an empty draft is discarded on close, and a
+      // blanked-out existing title just isn't committed.
+      if (!trimmed) return;
+      patchLocally(task.id, { title: trimmed });
+      // A draft still waiting on its server id syncs via the create handler.
+      if (!task.id.startsWith("temp-")) run(updateTaskTitle(task.id, trimmed));
     },
     onSetProject: (task, projectId) => {
       if (inProject && projectId !== context.projectId) removeLocally(task.id);
@@ -296,7 +358,7 @@ export function TaskList({
     },
     onSaveNotes: (task, html) => {
       patchLocally(task.id, { notesHtml: html });
-      run(updateTaskNotes(task.id, html));
+      if (!task.id.startsWith("temp-")) run(updateTaskNotes(task.id, html));
     },
     onAddFiles: (task, files) => {
       if (files.length === 0) return;
@@ -475,10 +537,26 @@ export function TaskList({
   // Gmail-style list keys: j/k (or arrows) walk the list, enter/o opens the
   // selected task, e completes, s/m/a summon the snooze/project/assignee
   // menus, Delete/⌫/# asks then removes, w wakes a snoozed task, z undoes a
-  // delete, and Escape closes the open task before clearing the selection.
-  // All of them stay quiet while typing or while a menu/dialog is open; the
-  // ref keeps one stable window listener over fresh state.
+  // delete, ⌘A selects every task in the view, and Escape closes the open
+  // task before clearing the selection. All of them stay quiet while typing
+  // or while a menu/dialog is open; the ref keeps one stable window listener
+  // over fresh state.
   const onListKeyDown = (e: KeyboardEvent) => {
+    // ⌘A / Ctrl+A: select all — unless typing, where native select-all wins.
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      !e.altKey &&
+      !e.shiftKey &&
+      e.key.toLowerCase() === "a"
+    ) {
+      if (isTypingTarget(e.target) || inOpenOverlay(e.target) || expandedId)
+        return;
+      if (visibleOrder.length === 0) return;
+      e.preventDefault();
+      setSelectedIds(new Set(visibleOrder));
+      anchorId.current = visibleOrder[0];
+      return;
+    }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
 
     if (e.key === "Escape") {
@@ -684,13 +762,6 @@ export function TaskList({
 
   return (
     <div className="space-y-3">
-      {/* Bucket views capture via the global quick-add modal (`c` / the header
-          button); the inline entry stays only on project pages, where it adds
-          straight into the project. */}
-      {inProject && (
-        <QuickEntry placeholder="Add a to-do…" onCreate={handleCreate} />
-      )}
-
       {tasks.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-10 text-center">
           <EmptyIcon className="mx-auto size-6 text-muted-foreground" />
@@ -721,7 +792,7 @@ export function TaskList({
                 >
                   <div className="space-y-0.5">
                     {group.tasks.map((task) => (
-                      <SortableTaskRow key={task.id} id={task.id}>
+                      <SortableTaskRow key={stableKey(task.id)} id={task.id}>
                         <TaskContextMenu
                           task={task}
                           effectiveTasks={
