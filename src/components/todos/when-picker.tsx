@@ -155,7 +155,7 @@ const MORNING = "09:00";
  * Things' inline month grid: today is the star, past days fade out, a day
  * click snoozes until that day at the time in the footer row.
  */
-function MiniCalendar({ onPick }: { onPick: (when: Date) => void }) {
+export function MiniCalendar({ onPick }: { onPick: (when: Date) => void }) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const [monthStart, setMonthStart] = useState(

@@ -42,6 +42,12 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { MemberSwitcher } from "@/components/todos/member-switcher";
+import {
+  DROP_TARGET_ATTR,
+  onDropTarget,
+  projectDropKey,
+  viewDropKey,
+} from "@/lib/todos/drop-targets";
 import { withAs } from "@/lib/todos/member-context";
 import { sortBetween } from "@/lib/todos/sort";
 import type {
@@ -106,6 +112,11 @@ export function TodosSidebar({
     [projects, viewedEmail]
   );
 
+  // The task list broadcasts which sidebar item a live task drag is over
+  // (null when it isn't over a valid target); that item lights up.
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  useEffect(() => onDropTarget(setDropTarget), []);
+
   return (
     <>
       {/* Desktop rail */}
@@ -128,6 +139,8 @@ export function TodosSidebar({
                   }
                   href={href(`/todos/${item.view}`)}
                   hint={`${item.label} (${item.chord})`}
+                  dropKey={viewDropKey(item.view)}
+                  dropActive={dropTarget === viewDropKey(item.view)}
                 />
               </li>
             ))}
@@ -137,6 +150,7 @@ export function TodosSidebar({
             projects={myProjects}
             areas={areas}
             activeProjectId={activeProjectId}
+            dropTarget={dropTarget}
             href={href}
           />
 
@@ -229,6 +243,8 @@ function SidebarLink({
   badge,
   href,
   hint,
+  dropKey,
+  dropActive = false,
 }: {
   icon: LucideIcon;
   iconClass: string;
@@ -237,17 +253,23 @@ function SidebarLink({
   badge: number;
   href: string;
   hint?: string;
+  /** Marks this item as a task-drag drop target (see drop-targets.ts). */
+  dropKey?: string;
+  dropActive?: boolean;
 }) {
   return (
     <Link
       href={href}
       title={hint}
+      {...(dropKey ? { [DROP_TARGET_ATTR]: dropKey } : {})}
       className={cn(
         // Like Things: sidebar rows keep the normal arrow cursor.
         "flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors",
         active
           ? "bg-accent/70 font-medium text-foreground"
-          : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+          : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+        // A live task drag hovering this item.
+        dropActive && "bg-primary/15 text-foreground ring-1 ring-primary/40 ring-inset"
       )}
     >
       <Icon className={cn("size-4 shrink-0", iconClass)} />
@@ -270,11 +292,13 @@ function ProjectsSection({
   projects,
   areas,
   activeProjectId,
+  dropTarget,
   href,
 }: {
   projects: TodoProject[];
   areas: TodoArea[];
   activeProjectId: string | null;
+  dropTarget: string | null;
   href: (path: string) => string;
 }) {
   // Local copies for optimistic drag reorder; props win after refresh.
@@ -355,6 +379,8 @@ function ProjectsSection({
                 active={activeProjectId === project.id}
                 badge={0}
                 href={href(`/todos/project/${project.id}`)}
+                dropKey={projectDropKey(project.id)}
+                dropActive={dropTarget === projectDropKey(project.id)}
               />
             </SortableRow>
           ))}

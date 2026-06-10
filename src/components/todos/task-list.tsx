@@ -10,6 +10,8 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragMoveEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -49,6 +51,8 @@ import {
   type TaskRowMenu,
 } from "@/components/todos/task-row";
 import type { UploadingAttachment } from "@/components/todos/task-attachments";
+import { MiniCalendar } from "@/components/todos/when-picker";
+import { MemberAvatar } from "@/components/journal/member-avatar";
 import { inOpenOverlay, isTypingTarget } from "@/lib/todos/keyboard";
 import {
   Dialog,
@@ -58,10 +62,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent } from "@/components/ui/popover";
 import { Toast, ToastViewport } from "@/components/ui/toast";
 import { isImageFile, uploadTaskAttachment } from "@/lib/todos/attachment-upload";
+import {
+  dropTargetAtPoint,
+  emitDropTarget,
+  parseDropKey,
+} from "@/lib/todos/drop-targets";
 import { withAs } from "@/lib/todos/member-context";
 import type { TodoTaskAttachment } from "@/lib/todos/queries";
+import { snoozePresets } from "@/lib/todos/snooze";
 import { needsRenormalize, sortBetween } from "@/lib/todos/sort";
 import type {
   TodoBucket,
@@ -70,6 +81,7 @@ import type {
   TodoTask,
   TodoView,
 } from "@/lib/todos/types";
+import { cn } from "@/lib/utils";
 
 const COMPLETE_ANIMATION_MS = 600;
 const UNDO_WINDOW_MS = 6_000;
@@ -90,6 +102,9 @@ type TaskGroup = {
   href: string | null;
   tasks: TodoTask[];
 };
+
+const countLabel = (list: TodoTask[]) =>
+  list.length === 1 ? "this to-do" : `${list.length} to-dos`;
 
 /**
  * Client state for a task list — sidebar views and project pages share this.
@@ -132,6 +147,24 @@ export function TaskList({
     Record<string, UploadingAttachment[]>
   >({});
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Drag-to-sidebar: the tasks riding the active drag (the whole selection
+  // when the dragged row belongs to it), the valid sidebar target under the
+  // pointer, and the follow-on dialogue a drop opens (Snoozed and Delegated
+  // ask a question before acting; Logbook confirms).
+  const draggingTasksRef = useRef<TodoTask[]>([]);
+  const dropTargetRef = useRef<{ key: string; el: HTMLElement } | null>(null);
+  // The real pointer position during a drag. dnd-kit's delta folds auto-scroll
+  // compensation in, so activator + delta drifts once the page scrolls —
+  // hit-testing the sidebar needs the native event's coordinates.
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  const [dragCount, setDragCount] = useState(0);
+  const [pendingDrop, setPendingDrop] = useState<
+    | { kind: "snooze"; tasks: TodoTask[]; anchor: HTMLElement }
+    | { kind: "assign"; tasks: TodoTask[]; anchor: HTMLElement }
+    | { kind: "complete"; tasks: TodoTask[] }
+    | null
+  >(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -760,7 +793,143 @@ export function TaskList({
     },
   };
 
+  // ============================================================
+  // Drag: reorder within the group, or drop onto a sidebar item
+  // ============================================================
+
+  // Members a drop on Delegated could hand the tasks to — the membership
+  // rule across the whole drag set (same as the context menu's Assign-to).
+  const eligibleAssignees = (dragTasks: TodoTask[]) =>
+    members.filter((m) =>
+      dragTasks.every((t) => {
+        if (!t.projectId) return true;
+        const project = projects.find((p) => p.id === t.projectId);
+        return !project || project.memberEmails.includes(m.email);
+      })
+    );
+
+  // Whether this drag set may drop on this sidebar item. Projects honor the
+  // membership rule; a bucket view's own item is a no-op target (Snoozed and
+  // Delegated stay live in their own views — re-snooze / re-delegate).
+  const dropEligible = (key: string, dragTasks: TodoTask[]): boolean => {
+    const target = parseDropKey(key);
+    if (target.kind === "project") {
+      const project = projects.find((p) => p.id === target.projectId);
+      return (
+        !!project &&
+        dragTasks.every((t) => project.memberEmails.includes(t.assigneeEmail))
+      );
+    }
+    if (target.view === view && view !== "snoozed" && view !== "delegated") {
+      return false;
+    }
+    if (target.view === "delegated") {
+      return eligibleAssignees(dragTasks).length > 0;
+    }
+    return true;
+  };
+
+  // While a drag is live, mirror the pointer so handleDragMove (which also
+  // fires for auto-scroll) always hit-tests against where the pointer truly is.
+  useEffect(() => {
+    if (dragCount === 0) return;
+    const onMove = (e: PointerEvent) => {
+      pointerRef.current = { x: e.clientX, y: e.clientY };
+    };
+    window.addEventListener("pointermove", onMove);
+    return () => window.removeEventListener("pointermove", onMove);
+  }, [dragCount]);
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const id = String(event.active.id);
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+    const activator = event.activatorEvent as Partial<PointerEvent>;
+    pointerRef.current =
+      typeof activator.clientX === "number" &&
+      typeof activator.clientY === "number"
+        ? { x: activator.clientX, y: activator.clientY }
+        : null;
+    // Dragging a row inside the selection carries the whole selection;
+    // dragging an unselected row pulls the selection onto it first (like the
+    // context menu).
+    const inSelection = selectedIds.has(id);
+    draggingTasksRef.current = inSelection
+      ? tasks.filter((t) => selectedIds.has(t.id))
+      : [task];
+    if (!inSelection) {
+      setSelectedIds(new Set([id]));
+      anchorId.current = id;
+    }
+    setExpandedId(null);
+    setOpenMenu(null);
+    setDragCount(draggingTasksRef.current.length);
+  };
+
+  const handleDragMove = (_event: DragMoveEvent) => {
+    const pointer = pointerRef.current;
+    if (!pointer) return;
+    const hit = dropTargetAtPoint(pointer.x, pointer.y);
+    const valid =
+      hit && dropEligible(hit.key, draggingTasksRef.current) ? hit : null;
+    if (dropTargetRef.current?.key !== valid?.key) {
+      emitDropTarget(valid?.key ?? null);
+    }
+    dropTargetRef.current = valid;
+  };
+
+  /** Close out the drag state; returns what was live for the drop check. */
+  const settleDrag = () => {
+    const target = dropTargetRef.current;
+    const dragTasks = draggingTasksRef.current;
+    dropTargetRef.current = null;
+    draggingTasksRef.current = [];
+    setDragCount(0);
+    emitDropTarget(null);
+    return { target, dragTasks };
+  };
+
+  // A drop on the sidebar, routed by target. Buckets and projects act
+  // immediately through the optimistic handlers; Snoozed and Delegated open
+  // a picker anchored at the item, Logbook asks for confirmation.
+  const performSidebarDrop = (
+    target: { key: string; el: HTMLElement },
+    dragTasks: TodoTask[]
+  ) => {
+    const parsed = parseDropKey(target.key);
+    if (parsed.kind === "project") {
+      dragTasks.forEach((t) => handlers.onSetProject(t, parsed.projectId));
+      return;
+    }
+    switch (parsed.view) {
+      case "inbox":
+        dragTasks.forEach((t) => handlers.onMoveToInbox(t));
+        return;
+      case "today":
+      case "anytime":
+      case "someday": {
+        const bucket = parsed.view;
+        dragTasks.forEach((t) => handlers.onSetBucket(t, bucket));
+        return;
+      }
+      case "snoozed":
+        setPendingDrop({ kind: "snooze", tasks: dragTasks, anchor: target.el });
+        return;
+      case "delegated":
+        setPendingDrop({ kind: "assign", tasks: dragTasks, anchor: target.el });
+        return;
+      case "logbook":
+        setPendingDrop({ kind: "complete", tasks: dragTasks });
+        return;
+    }
+  };
+
   const handleDragEnd = (event: DragEndEvent, group: TodoTask[]) => {
+    const { target, dragTasks } = settleDrag();
+    if (target && dragTasks.length > 0) {
+      performSidebarDrop(target, dragTasks);
+      return;
+    }
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIndex = group.findIndex((t) => t.id === active.id);
@@ -809,6 +978,9 @@ export function TaskList({
                 id={`todos-tasks-${group.key}`}
                 sensors={sensors}
                 collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragMove={handleDragMove}
+                onDragCancel={() => void settleDrag()}
                 onDragEnd={(e) => handleDragEnd(e, group.tasks)}
               >
                 <SortableContext
@@ -817,7 +989,11 @@ export function TaskList({
                 >
                   <div className="space-y-0.5">
                     {group.tasks.map((task) => (
-                      <SortableTaskRow key={stableKey(task.id)} id={task.id}>
+                      <SortableTaskRow
+                        key={stableKey(task.id)}
+                        id={task.id}
+                        dragCount={dragCount}
+                      >
                         <TaskContextMenu
                           task={task}
                           effectiveTasks={
@@ -893,6 +1069,138 @@ export function TaskList({
         </DialogContent>
       </Dialog>
 
+      {/* Drop on Snoozed: pick the wake moment, anchored at the sidebar item */}
+      {pendingDrop?.kind === "snooze" && (
+        <Popover
+          open
+          onOpenChange={(open) => {
+            if (!open) setPendingDrop(null);
+          }}
+        >
+          <PopoverContent
+            anchor={pendingDrop.anchor}
+            side="right"
+            align="start"
+            className="w-64 gap-0.5 p-1.5"
+          >
+            <p className="px-2 py-1 text-xs text-muted-foreground">
+              Snooze {countLabel(pendingDrop.tasks)} until…
+            </p>
+            {snoozePresets().map((preset) => (
+              <button
+                key={preset.key}
+                type="button"
+                onClick={() => {
+                  pendingDrop.tasks.forEach((t) =>
+                    handlers.onSnooze(t, preset.when)
+                  );
+                  setPendingDrop(null);
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent/60"
+              >
+                <span className="flex-1 text-left">{preset.label}</span>
+                <span className="text-xs text-muted-foreground">{preset.hint}</span>
+              </button>
+            ))}
+            <div className="-mx-1 my-1 h-px bg-border" />
+            <MiniCalendar
+              onPick={(when) => {
+                pendingDrop.tasks.forEach((t) => handlers.onSnooze(t, when));
+                setPendingDrop(null);
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+      )}
+
+      {/* Drop on Delegated: pick who gets them */}
+      {pendingDrop?.kind === "assign" && (
+        <Popover
+          open
+          onOpenChange={(open) => {
+            if (!open) setPendingDrop(null);
+          }}
+        >
+          <PopoverContent
+            anchor={pendingDrop.anchor}
+            side="right"
+            align="start"
+            className="w-56 gap-0.5 p-1.5"
+          >
+            <p className="px-2 py-1 text-xs text-muted-foreground">
+              Delegate {countLabel(pendingDrop.tasks)} to…
+            </p>
+            {eligibleAssignees(pendingDrop.tasks).map((member) => (
+              <button
+                key={member.email}
+                type="button"
+                onClick={() => {
+                  pendingDrop.tasks
+                    .filter((t) => t.assigneeEmail !== member.email)
+                    .forEach((t) => handlers.onReassign(t, member.email));
+                  setPendingDrop(null);
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent/60"
+              >
+                <MemberAvatar name={member.name} size="xs" />
+                <span className="flex-1 truncate text-left">
+                  {member.name ?? member.email}
+                </span>
+                {member.email === selfEmail && (
+                  <span className="text-xs text-muted-foreground">you</span>
+                )}
+              </button>
+            ))}
+          </PopoverContent>
+        </Popover>
+      )}
+
+      {/* Drop on Logbook: confirm completion */}
+      <Dialog
+        open={pendingDrop?.kind === "complete"}
+        onOpenChange={(open) => {
+          if (!open) setPendingDrop(null);
+        }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              Complete{" "}
+              {pendingDrop?.kind === "complete"
+                ? countLabel(pendingDrop.tasks)
+                : "to-dos"}
+              ?
+            </DialogTitle>
+            <DialogDescription>
+              {pendingDrop?.kind === "complete" && pendingDrop.tasks.length > 1
+                ? "They’ll be marked done and filed in the Logbook."
+                : "It’ll be marked done and filed in the Logbook."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setPendingDrop(null)}
+              className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent/50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (pendingDrop?.kind === "complete") {
+                  pendingDrop.tasks.forEach((t) => handlers.onComplete(t));
+                }
+                setPendingDrop(null);
+              }}
+              className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Complete
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {undoTask && (
         <ToastViewport>
           <Toast className="flex items-center justify-between gap-3">
@@ -915,9 +1223,12 @@ export function TaskList({
 
 function SortableTaskRow({
   id,
+  dragCount,
   children,
 }: {
   id: string;
+  /** Size of the drag set — badges the floating row when > 1. */
+  dragCount: number;
   children: React.ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -928,11 +1239,16 @@ function SortableTaskRow({
       // Anchor for the keyboard selection's scrollIntoView.
       data-task-id={id}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={isDragging ? "z-10 opacity-70" : undefined}
+      className={cn("relative", isDragging && "z-10 opacity-70")}
       {...attributes}
       {...listeners}
     >
       {children}
+      {isDragging && dragCount > 1 && (
+        <span className="pointer-events-none absolute -top-2 -right-2 z-20 flex size-5 items-center justify-center rounded-full bg-primary text-[11px] font-medium tabular-nums text-primary-foreground shadow-sm">
+          {dragCount}
+        </span>
+      )}
     </div>
   );
 }
