@@ -384,51 +384,6 @@ export async function listGoogleCalendarsForConnection(
   return listGoogleCalendars({ kind: "oauth", memberEmail: connectionEmail });
 }
 
-/** Add a Google calendar as a source, then sync it immediately. `connectionEmail`
- * is whose token reaches the calendar; `memberEmail` is the group it shows under
- * (null = family-wide, e.g. a shared calendar added from a parent's account). */
-export async function addGoogleSource(input: {
-  memberEmail: string | null;
-  connectionEmail: string;
-  googleCalendarId: string;
-  nickname: string;
-  color: string | null;
-}): Promise<void> {
-  await requireParent();
-  const admin = createAdminClient();
-
-  // Adding the same calendar from the same account twice would duplicate events.
-  const { data: existing } = await admin
-    .from("calendar_sources")
-    .select("id")
-    .eq("source_type", "google")
-    .eq("google_calendar_id", input.googleCalendarId)
-    .eq("google_connection_email", input.connectionEmail)
-    .limit(1);
-  if (existing && existing.length > 0) {
-    throw new Error("That calendar is already added.");
-  }
-
-  const { data, error } = await admin
-    .from("calendar_sources")
-    .insert({
-      member_email: input.memberEmail,
-      source_type: "google",
-      google_calendar_id: input.googleCalendarId,
-      google_connection_email: input.connectionEmail,
-      nickname: input.nickname.trim() || null,
-      color: input.color,
-    })
-    .select("id")
-    .single();
-  if (error || !data)
-    throw new Error(error?.message ?? "Couldn't add the calendar.");
-
-  await syncGoogleSource(data.id as string).catch(() => {});
-  revalidatePath("/calendar");
-  revalidatePath("/settings/calendars");
-}
-
 // --- Primary calendar setup -------------------------------------------------
 
 /** Set up a member's primary calendar in "managed" mode: the app acts AS them via
@@ -543,14 +498,46 @@ export async function listManagedCalendars(
 
 /** Set a member's primary calendar in "connected" mode: written via that person's
  * own Google OAuth token (an adult who signed in and picked one of their own
- * calendars). */
+ * calendars). Also ensures the calendar is a synced source so its events show in
+ * the app — done here rather than by the client calling addGoogleSource, because
+ * the expected "already added" case must be a no-op: thrown action errors are
+ * masked in production builds, so the client can't tell it apart from a real
+ * failure. */
 export async function setConnectedPrimary(
   memberEmail: string,
   calendarId: string,
   summary: string,
+  color?: string | null,
 ): Promise<{ ok: true } | { error: string }> {
   await requireParent();
   const admin = createAdminClient();
+
+  const { data: existing } = await admin
+    .from("calendar_sources")
+    .select("id")
+    .eq("source_type", "google")
+    .eq("google_calendar_id", calendarId)
+    .eq("google_connection_email", memberEmail)
+    .limit(1);
+  let sourceId = existing?.[0]?.id as string | undefined;
+  if (!sourceId) {
+    const { data: ins, error: insError } = await admin
+      .from("calendar_sources")
+      .insert({
+        member_email: memberEmail,
+        source_type: "google",
+        google_calendar_id: calendarId,
+        google_connection_email: memberEmail,
+        nickname: summary.trim() || null,
+        color: color ?? null,
+      })
+      .select("id")
+      .single();
+    if (insError || !ins)
+      return { error: insError?.message ?? "Couldn't add the calendar." };
+    sourceId = ins.id as string;
+  }
+
   const { error } = await admin
     .from("family_members")
     .update({
@@ -561,6 +548,8 @@ export async function setConnectedPrimary(
     })
     .eq("email", memberEmail);
   if (error) return { error: error.message };
+
+  await syncGoogleSource(sourceId).catch(() => {});
   revalidatePath("/settings/calendars");
   revalidatePath("/calendar");
   return { ok: true };
