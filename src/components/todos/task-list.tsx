@@ -26,6 +26,7 @@ import {
   deleteTasks,
   deleteTaskAttachment,
   clearSnooze,
+  moveTaskToInbox,
   reassignTask,
   renormalizeTaskOrder,
   restoreTask,
@@ -352,9 +353,32 @@ export function TaskList({
       if (!task.id.startsWith("temp-")) run(updateTaskTitle(task.id, trimmed));
     },
     onSetProject: (task, projectId) => {
-      if (inProject && projectId !== context.projectId) removeLocally(task.id);
-      else patchLocally(task.id, { projectId });
+      if (inProject && projectId !== context.projectId) {
+        removeLocally(task.id);
+      } else {
+        // Filing an Inbox task into a project triages it (mirrors the server).
+        const autoTriage = !!projectId && task.bucket === "inbox";
+        patchLocally(task.id, {
+          projectId,
+          ...(autoTriage ? { bucket: "anytime" as const } : {}),
+        });
+        if (autoTriage && view === "inbox") removeLocally(task.id);
+      }
       run(setTaskProject(task.id, projectId));
+    },
+    onMoveToInbox: (task) => {
+      // Un-triage: leaves projects and every view except the Inbox itself
+      // (and Delegated, where it stays theirs-to-do).
+      if (inProject || (view && view !== "inbox" && view !== "delegated")) {
+        removeLocally(task.id);
+      } else {
+        patchLocally(task.id, {
+          bucket: "inbox",
+          projectId: null,
+          snoozedUntil: null,
+        });
+      }
+      run(moveTaskToInbox(task.id));
     },
     onSaveNotes: (task, html) => {
       patchLocally(task.id, { notesHtml: html });
@@ -713,6 +737,7 @@ export function TaskList({
       list.filter((t) => t.snoozedUntil).forEach((t) => handlers.onWake(t)),
     setProject: (list, projectId) =>
       list.forEach((t) => handlers.onSetProject(t, projectId)),
+    moveToInbox: (list) => list.forEach((t) => handlers.onMoveToInbox(t)),
     assign: (list, email) => list.forEach((t) => handlers.onReassign(t, email)),
     duplicate: (list) => {
       run(

@@ -72,6 +72,8 @@ export type TaskRowHandlers = {
   /** Commit (blur/Enter/close) — persists to the server. */
   onRenameTitle: (task: TodoTask, title: string) => void;
   onSetProject: (task: TodoTask, projectId: string | null) => void;
+  /** Back to the Inbox: clears project + snooze (un-triage). */
+  onMoveToInbox: (task: TodoTask) => void;
   onSaveNotes: (task: TodoTask, html: string) => void;
   onAddFiles: (task: TodoTask, files: File[]) => void;
   onDeleteAttachment: (task: TodoTask, attachment: TodoTaskAttachment) => void;
@@ -409,6 +411,7 @@ function ExpandedEditor({
           task={task}
           projects={projects}
           onSetProject={(projectId) => handlers.onSetProject(task, projectId)}
+          onMoveToInbox={() => handlers.onMoveToInbox(task)}
           open={openMenu === "project"}
           onOpenChange={(open) => onMenuOpenChange("project", open)}
         />
@@ -435,19 +438,24 @@ function ExpandedEditor({
 }
 
 /**
- * Move a task into / out of a project. Only offers projects the task's
- * assignee belongs to — the membership rule, enforced at the picker.
+ * The task's location, Things' "Move" dimension: the Inbox (no project, no
+ * decision), a project, or loose ("No project" — triaged but unfiled). Only
+ * offers projects the task's assignee belongs to — the membership rule,
+ * enforced at the picker. Inbox lives HERE, not in the When picker: a task
+ * in a project can't be in the Inbox, so picking Inbox clears the project.
  */
 function ProjectPicker({
   task,
   projects,
   onSetProject,
+  onMoveToInbox,
   open,
   onOpenChange,
 }: {
   task: TodoTask;
   projects: TodoProject[];
   onSetProject: (projectId: string | null) => void;
+  onMoveToInbox: () => void;
   /** Controlled open (the keyboard `m` summons it); omit for internal state. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -456,6 +464,7 @@ function ProjectPicker({
   const options = projects.filter((p) =>
     p.memberEmails.includes(task.assigneeEmail)
   );
+  const inInbox = !task.projectId && task.bucket === "inbox" && !task.snoozedUntil;
 
   return (
     <DropdownMenu
@@ -470,10 +479,25 @@ function ProjectPicker({
           />
         }
       >
-        <CircleDashed className="size-4 text-primary/70" />
-        {current?.name ?? "No project"}
+        {inInbox ? (
+          <Inbox className="size-4 text-sky-700" />
+        ) : (
+          <CircleDashed className="size-4 text-primary/70" />
+        )}
+        {current?.name ?? (inInbox ? "Inbox" : "No project")}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-52">
+        <DropdownMenuItem
+          onClick={() => {
+            if (!inInbox) onMoveToInbox();
+          }}
+          className="gap-2"
+        >
+          <Inbox className="size-4 text-sky-700" />
+          <span className="flex-1">Inbox</span>
+          {inInbox && <Check className="size-4 text-primary" />}
+        </DropdownMenuItem>
+        {options.length > 0 && <DropdownMenuSeparator />}
         {options.map((project) => (
           <DropdownMenuItem
             key={project.id}
@@ -487,7 +511,7 @@ function ProjectPicker({
             {project.id === task.projectId && <Check className="size-4 text-primary" />}
           </DropdownMenuItem>
         ))}
-        {options.length > 0 && <DropdownMenuSeparator />}
+        <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={() => {
             if (task.projectId) onSetProject(null);
@@ -495,7 +519,7 @@ function ProjectPicker({
           className="gap-2 text-muted-foreground"
         >
           <span className="flex-1">No project</span>
-          {!task.projectId && <Check className="size-4 text-primary" />}
+          {!task.projectId && !inInbox && <Check className="size-4 text-primary" />}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

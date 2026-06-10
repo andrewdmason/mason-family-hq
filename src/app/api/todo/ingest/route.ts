@@ -116,7 +116,8 @@ export async function POST(request: NextRequest) {
     const row = {
       title,
       notes_html: notes,
-      bucket: "inbox",
+      // A project capture is already triaged — it can't sit in the Inbox.
+      bucket: projectId ? "anytime" : "inbox",
       assignee_email: assigneeEmail,
       creator_email: auth.memberEmail,
       project_id: projectId,

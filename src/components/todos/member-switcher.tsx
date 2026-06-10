@@ -56,8 +56,8 @@ export function MemberSwitcher({
             aria-label="View another family member's lists"
             className={cn(
               variant === "sidebar"
-                ? "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground/70 hover:bg-accent/40 hover:text-foreground"
-                : "inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-sm whitespace-nowrap text-muted-foreground",
+                ? "flex w-full cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground/70 hover:bg-accent/40 hover:text-foreground"
+                : "inline-flex cursor-default items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-sm whitespace-nowrap text-muted-foreground",
               viewingOther && "text-primary"
             )}
           />

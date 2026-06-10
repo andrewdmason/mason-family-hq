@@ -153,7 +153,7 @@ export function TodosSidebar({
             />
             <Link
               href="/todos/settings"
-              className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground/70 hover:bg-accent/40 hover:text-foreground"
+              className="flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground/70 hover:bg-accent/40 hover:text-foreground"
             >
               <KeyRound className="size-4" />
               Integrations
@@ -173,7 +173,7 @@ export function TodosSidebar({
                 key={item.view}
                 href={href(`/todos/${item.view}`)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap",
+                  "inline-flex cursor-default items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap",
                   isActive
                     ? "border-primary/30 bg-primary/10 text-foreground"
                     : "border-border bg-card text-muted-foreground"
@@ -199,7 +199,7 @@ export function TodosSidebar({
               key={project.id}
               href={href(`/todos/project/${project.id}`)}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap",
+                "inline-flex cursor-default items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap",
                 activeProjectId === project.id
                   ? "border-primary/30 bg-primary/10 text-foreground"
                   : "border-border bg-card text-muted-foreground"
@@ -243,7 +243,8 @@ function SidebarLink({
       href={href}
       title={hint}
       className={cn(
-        "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors",
+        // Like Things: sidebar rows keep the normal arrow cursor.
+        "flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors",
         active
           ? "bg-accent/70 font-medium text-foreground"
           : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
@@ -440,7 +441,7 @@ function NewProjectButton({ hrefFor }: { hrefFor: (path: string) => string }) {
         render={
           <button
             type="button"
-            className="mt-4 flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+            className="mt-4 flex w-full cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent/40 hover:text-foreground"
           />
         }
       >

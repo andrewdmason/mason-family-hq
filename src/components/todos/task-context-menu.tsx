@@ -34,8 +34,9 @@ import type {
 } from "@/lib/todos/types";
 import { cn } from "@/lib/utils";
 
+// Inbox isn't a "when" — it's the absence of triage, reachable only via the
+// Project submenu's Inbox (which also clears the project).
 const BUCKETS: { bucket: TodoBucket; label: string; icon: typeof Star; iconClass: string }[] = [
-  { bucket: "inbox", label: "Inbox", icon: Inbox, iconClass: "text-sky-700" },
   { bucket: "today", label: "Today", icon: Star, iconClass: "text-amber-500" },
   { bucket: "anytime", label: "Anytime", icon: Layers, iconClass: "text-teal-700" },
   { bucket: "someday", label: "Someday", icon: Archive, iconClass: "text-stone-500" },
@@ -48,6 +49,7 @@ export type TaskContextActions = {
   snooze: (tasks: TodoTask[], when: Date) => void;
   wake: (tasks: TodoTask[]) => void;
   setProject: (tasks: TodoTask[], projectId: string | null) => void;
+  moveToInbox: (tasks: TodoTask[]) => void;
   assign: (tasks: TodoTask[], email: string) => void;
   duplicate: (tasks: TodoTask[]) => void;
   requestDelete: (tasks: TodoTask[]) => void;
@@ -172,6 +174,20 @@ export function TaskContextMenu({
             Project
           </ContextMenuSubTrigger>
           <ContextMenuSubContent>
+            <ContextMenuItem
+              disabled={tasks.every(
+                (t) => !t.projectId && t.bucket === "inbox" && !t.snoozedUntil
+              )}
+              onClick={() => actions.moveToInbox(tasks)}
+              className="gap-2"
+            >
+              <Inbox className="size-4 text-sky-700" />
+              <span className="flex-1">Inbox</span>
+              {tasks.every(
+                (t) => !t.projectId && t.bucket === "inbox" && !t.snoozedUntil
+              ) && <Check className="size-4 text-primary" />}
+            </ContextMenuItem>
+            {eligibleProjects.length > 0 && <ContextMenuSeparator />}
             {eligibleProjects.map((project) => {
               const allHere = tasks.every((t) => t.projectId === project.id);
               return (

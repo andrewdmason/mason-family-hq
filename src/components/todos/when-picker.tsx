@@ -4,6 +4,8 @@ import { useState } from "react";
 import {
   Archive,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Inbox,
   Layers,
   Moon,
@@ -14,11 +16,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  defaultCustomSnooze,
-  formatWake,
-  snoozePresets,
-} from "@/lib/todos/snooze";
+import { formatWake, snoozePresets } from "@/lib/todos/snooze";
 import type { TodoBucket } from "@/lib/todos/types";
 import { cn } from "@/lib/utils";
 
@@ -33,11 +31,13 @@ const BUCKET_META: Record<
 };
 
 /**
- * Things' "When" control, one chip + one picker: the chip always names the
+ * Things' "When" control, one chip + one picker. The chip always names the
  * task's current state (Today, Anytime, Someday, Inbox, or its wake time when
- * snoozed) — including Anytime explicitly, where Things confusingly drops the
- * chip. The picker mixes the snooze presets (Today's sibling moments) with the
- * buckets, because they're all the same question: when does this surface?
+ * snoozed); the picker offers Today, This evening, a mini calendar (a day
+ * click snoozes until that day at the time below it), then Anytime and
+ * Someday. Inbox is deliberately NOT a destination here — it's the absence of
+ * triage, a location: a task leaves it by getting a When (or a project), and
+ * returns only via the project picker's "Inbox".
  */
 export function WhenPicker({
   bucket,
@@ -63,10 +63,11 @@ export function WhenPicker({
     if (openProp === undefined) setInternalOpen(next);
     onOpenChange?.(next);
   };
-  const [custom, setCustom] = useState("");
 
   // Recomputed each open so "This evening" drops off after 5pm.
-  const presets = open ? snoozePresets() : [];
+  const evening = open
+    ? snoozePresets().find((preset) => preset.key === "evening")
+    : undefined;
 
   const snoozed = !!snoozedUntil;
   const current = snoozed
@@ -86,7 +87,7 @@ export function WhenPicker({
   const itemClass =
     "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent/60";
 
-  const bucketRow = (key: TodoBucket, muted = false) => {
+  const bucketRow = (key: Exclude<TodoBucket, "inbox">) => {
     const meta = BUCKET_META[key];
     const Icon = meta.icon;
     const active = bucket === key && !snoozed;
@@ -95,7 +96,7 @@ export function WhenPicker({
         key={key}
         type="button"
         onClick={() => pickBucket(key)}
-        className={cn(itemClass, muted && "text-muted-foreground")}
+        className={itemClass}
       >
         <Icon className={cn("size-4", meta.iconClass)} />
         <span className="flex-1 text-left">{meta.label}</span>
@@ -122,51 +123,138 @@ export function WhenPicker({
         {current.label}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 gap-0.5 p-1.5">
-        {/* Today first, then its sibling moments (Things' order). */}
+        {/* Things' order: Today, This Evening, the calendar, then the parks. */}
         {bucketRow("today")}
-        {presets.map((preset) => (
+        {evening && (
           <button
-            key={preset.key}
             type="button"
-            onClick={() => pickSnooze(preset.when)}
+            onClick={() => pickSnooze(evening.when)}
             className={itemClass}
           >
             <Moon className="size-4 text-indigo-500" />
-            <span className="flex-1 text-left">{preset.label}</span>
-            <span className="text-xs text-muted-foreground">{preset.hint}</span>
+            <span className="flex-1 text-left">{evening.label}</span>
+            <span className="text-xs text-muted-foreground">{evening.hint}</span>
           </button>
-        ))}
+        )}
+
+        {open && <MiniCalendar onPick={pickSnooze} />}
 
         <div className="-mx-1 my-1 h-px bg-border" />
 
         {bucketRow("anytime")}
         {bucketRow("someday")}
-        {bucketRow("inbox", true)}
-
-        <div className="mt-1 border-t border-border/60 pt-2 pb-1">
-          <label className="px-2 text-xs font-medium text-muted-foreground">
-            Pick a date &amp; time
-          </label>
-          <div className="mt-1 flex items-center gap-1.5 px-2">
-            <input
-              type="datetime-local"
-              value={custom || defaultCustomSnooze()}
-              onChange={(e) => setCustom(e.target.value)}
-              className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                const when = new Date(custom || defaultCustomSnooze());
-                if (!Number.isNaN(when.getTime())) pickSnooze(when);
-              }}
-              className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-            >
-              Set
-            </button>
-          </div>
-        </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const MORNING = "09:00";
+
+/**
+ * Things' inline month grid: today is the star, past days fade out, a day
+ * click snoozes until that day at the time in the footer row.
+ */
+function MiniCalendar({ onPick }: { onPick: (when: Date) => void }) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const [monthStart, setMonthStart] = useState(
+    () => new Date(today.getFullYear(), today.getMonth(), 1)
+  );
+  const [time, setTime] = useState(MORNING);
+
+  const year = monthStart.getFullYear();
+  const month = monthStart.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const leadingBlanks = new Date(year, month, 1).getDay();
+  const onCurrentMonth =
+    year === today.getFullYear() && month === today.getMonth();
+
+  const pickDay = (day: number) => {
+    const [hh, mm] = time.split(":").map(Number);
+    onPick(new Date(year, month, day, hh || 9, mm || 0));
+  };
+
+  const monthLabel = monthStart.toLocaleDateString("en-US", {
+    month: "long",
+    ...(year !== today.getFullYear() ? { year: "numeric" } : {}),
+  });
+
+  return (
+    <div className="px-1.5 py-1">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-xs font-medium text-muted-foreground">
+          {monthLabel}
+        </span>
+        <span className="flex items-center">
+          <button
+            type="button"
+            aria-label="Previous month"
+            disabled={onCurrentMonth}
+            onClick={() => setMonthStart(new Date(year, month - 1, 1))}
+            className="rounded p-0.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground disabled:opacity-30"
+          >
+            <ChevronLeft className="size-3.5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Next month"
+            onClick={() => setMonthStart(new Date(year, month + 1, 1))}
+            className="rounded p-0.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+          >
+            <ChevronRight className="size-3.5" />
+          </button>
+        </span>
+      </div>
+
+      <div className="grid grid-cols-7 gap-y-0.5 text-center">
+        {WEEKDAYS.map((day) => (
+          <span key={day} className="text-[10px] font-medium text-muted-foreground/70">
+            {day}
+          </span>
+        ))}
+        {Array.from({ length: leadingBlanks }, (_, i) => (
+          <span key={`blank-${i}`} />
+        ))}
+        {Array.from({ length: daysInMonth }, (_, i) => {
+          const day = i + 1;
+          const date = new Date(year, month, day);
+          const isPast = date < today;
+          const isToday = onCurrentMonth && day === today.getDate();
+          return (
+            <button
+              key={day}
+              type="button"
+              disabled={isPast}
+              onClick={() => pickDay(day)}
+              aria-label={isToday ? "Today" : undefined}
+              className={cn(
+                "mx-auto flex size-7 items-center justify-center rounded-full text-xs tabular-nums",
+                isPast
+                  ? "text-muted-foreground/30"
+                  : "text-foreground hover:bg-accent"
+              )}
+            >
+              {isToday ? (
+                <Star className="size-3.5 fill-amber-400 text-amber-400" />
+              ) : (
+                day
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-1 flex items-center justify-end gap-1.5 pr-1">
+        <span className="text-[10px] text-muted-foreground">at</span>
+        <input
+          type="time"
+          value={time}
+          onChange={(e) => setTime(e.target.value || MORNING)}
+          className="rounded border border-border bg-background px-1 py-0.5 text-[10px] text-muted-foreground"
+          aria-label="Wake time"
+        />
+      </div>
+    </div>
   );
 }

@@ -54,6 +54,8 @@ export async function createTask(input: {
   const { supabase, selfEmail } = await ctx();
   const title = input.title.trim();
   if (!title && !input.draft) throw new Error("Task title is required");
+  // A task in a project can't be in the Inbox — having a project IS triage.
+  if (input.projectId && input.bucket === "inbox") input.bucket = "anytime";
 
   // Top wants the list's MIN (ascending), bottom its MAX (descending). The
   // list is the one the task will render in: the project's task list when it
@@ -142,6 +144,21 @@ export async function updateTaskNotes(taskId: string, html: string): Promise<voi
   const { error } = await supabase
     .from("todo_tasks")
     .update({ notes_html: sanitizeNotesHtml(html) })
+    .eq("id", taskId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+/**
+ * Send a task back to the Inbox — the un-triage. Inbox means "no decision
+ * yet", so this clears the project and any snooze along with it (a task in a
+ * project can't be in the Inbox).
+ */
+export async function moveTaskToInbox(taskId: string): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_tasks")
+    .update({ bucket: "inbox", project_id: null, snoozed_until: null })
     .eq("id", taskId);
   if (error) throw error;
   revalidateTodos();
@@ -310,12 +327,24 @@ export async function setAreaSortOrder(areaId: string, sortOrder: number): Promi
 // ============================================================
 
 /** Move a task into a project (or out, with null). The picker only offers
- * projects the task's assignee belongs to, keeping the membership rule. */
+ * projects the task's assignee belongs to, keeping the membership rule.
+ * Filing an Inbox task into a project triages it — it becomes Anytime
+ * (a task in a project can't be in the Inbox). */
 export async function setTaskProject(taskId: string, projectId: string | null): Promise<void> {
   const { supabase } = await ctx();
+  const { data: current } = await supabase
+    .from("todo_tasks")
+    .select("bucket")
+    .eq("id", taskId)
+    .maybeSingle();
+  const autoTriage = !!projectId && current?.bucket === "inbox";
   const { error } = await supabase
     .from("todo_tasks")
-    .update({ project_id: projectId })
+    .update(
+      autoTriage
+        ? { project_id: projectId, bucket: "anytime" }
+        : { project_id: projectId }
+    )
     .eq("id", taskId);
   if (error) throw error;
   revalidateTodos();
