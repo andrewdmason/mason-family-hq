@@ -221,6 +221,23 @@ export async function getAreas(supabase: Supabase): Promise<TodoArea[]> {
   );
 }
 
+/** A project's completed ("logged") tasks, newest first — behind the
+ * Things-style "Show N logged items" toggle at the bottom of the project. */
+export async function getProjectLoggedTasks(
+  supabase: Supabase,
+  projectId: string
+): Promise<TodoTask[]> {
+  const { data } = await supabase
+    .from("todo_tasks")
+    .select(TASK_COLUMNS)
+    .eq("project_id", projectId)
+    .not("completed_at", "is", null)
+    .is("deleted_at", null)
+    .order("completed_at", { ascending: false })
+    .limit(200);
+  return ((data ?? []) as TodoTaskRow[]).map(taskFromRow);
+}
+
 /** Active tasks in a project, every assignee, in manual order. */
 export async function getProjectTasks(
   supabase: Supabase,

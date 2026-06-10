@@ -5,6 +5,7 @@ import {
   getAreas,
   getDelegatedCount,
   getInboxCount,
+  getProjectLoggedTasks,
   getProjects,
   getProjectTasks,
   getSelfEmail,
@@ -14,6 +15,7 @@ import {
 } from "@/lib/todos/queries";
 import { InlineNewButton } from "@/components/todos/inline-new-button";
 import { ProjectHeader } from "@/components/todos/project-header";
+import { ProjectLogged } from "@/components/todos/project-logged";
 import { TaskList } from "@/components/todos/task-list";
 import { TodosSidebar } from "@/components/todos/todos-sidebar";
 import { ViewingBanner } from "@/components/todos/viewing-banner";
@@ -37,13 +39,15 @@ export default async function ProjectPage({
   const viewed = resolveViewedMember(as, selfEmail, members);
 
   await sweepElapsedSnoozes(supabase);
-  const [projects, areas, tasks, inboxCount, delegatedCount] = await Promise.all([
-    getProjects(supabase),
-    getAreas(supabase),
-    getProjectTasks(supabase, id),
-    getInboxCount(supabase, viewed.email),
-    getDelegatedCount(supabase, viewed.email),
-  ]);
+  const [projects, areas, tasks, loggedTasks, inboxCount, delegatedCount] =
+    await Promise.all([
+      getProjects(supabase),
+      getAreas(supabase),
+      getProjectTasks(supabase, id),
+      getProjectLoggedTasks(supabase, id),
+      getInboxCount(supabase, viewed.email),
+      getDelegatedCount(supabase, viewed.email),
+    ]);
 
   const project = projects.find((p) => p.id === id);
   if (!project) notFound();
@@ -99,6 +103,8 @@ export default async function ProjectPage({
             viewedEmail={viewed.email}
             selfEmail={selfEmail}
           />
+
+          <ProjectLogged initialTasks={loggedTasks} />
         </div>
       </div>
     </main>
