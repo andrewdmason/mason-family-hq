@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { resolveViewedMember } from "@/lib/todos/member-context";
 import {
   getAreas,
+  getDelegatedCount,
   getInboxCount,
   getLogbookProjects,
   getProjects,
@@ -48,10 +49,11 @@ export default async function TodoViewPage({
   if (view === "inbox" && viewed.email === selfEmail) {
     await markInboxSeen(supabase, selfEmail);
   }
-  const [tasks, inboxCount, projects, areas, logbookProjects] =
+  const [tasks, inboxCount, delegatedCount, projects, areas, logbookProjects] =
     await Promise.all([
       getViewTasks(supabase, viewed.email, view),
       getInboxCount(supabase, viewed.email),
+      getDelegatedCount(supabase, viewed.email),
       getProjects(supabase),
       getAreas(supabase),
       view === "logbook" ? getLogbookProjects(supabase) : Promise.resolve([]),
@@ -67,6 +69,7 @@ export default async function TodoViewPage({
         <TodosSidebar
           active={view}
           inboxCount={inboxCount}
+          delegatedCount={delegatedCount}
           viewedEmail={viewed.email}
           selfEmail={selfEmail}
           members={members}

@@ -82,6 +82,7 @@ export function TodosSidebar({
   active,
   activeProjectId = null,
   inboxCount,
+  delegatedCount = 0,
   viewedEmail,
   selfEmail,
   members,
@@ -91,6 +92,7 @@ export function TodosSidebar({
   active: TodoView | null;
   activeProjectId?: string | null;
   inboxCount: number;
+  delegatedCount?: number;
   viewedEmail: string;
   selfEmail: string;
   members: TodoMember[];
@@ -117,7 +119,13 @@ export function TodosSidebar({
                   iconClass={item.iconClass}
                   label={item.label}
                   active={active === item.view}
-                  badge={item.view === "inbox" ? inboxCount : 0}
+                  badge={
+                    item.view === "inbox"
+                      ? inboxCount
+                      : item.view === "delegated"
+                        ? delegatedCount
+                        : 0
+                  }
                   href={href(`/todos/${item.view}`)}
                   hint={`${item.label} (${item.chord})`}
                 />
@@ -176,6 +184,11 @@ export function TodosSidebar({
                 {item.view === "inbox" && inboxCount > 0 && (
                   <span className="rounded-full bg-primary/15 px-1.5 text-xs tabular-nums text-primary">
                     {inboxCount}
+                  </span>
+                )}
+                {item.view === "delegated" && delegatedCount > 0 && (
+                  <span className="rounded-full bg-primary/15 px-1.5 text-xs tabular-nums text-primary">
+                    {delegatedCount}
                   </span>
                 )}
               </Link>

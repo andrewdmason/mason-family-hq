@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { resolveViewedMember } from "@/lib/todos/member-context";
 import {
   getAreas,
+  getDelegatedCount,
   getInboxCount,
   getProjects,
   getSelfEmail,
@@ -24,8 +25,9 @@ export default async function TodosSettingsPage() {
   ]);
   const viewed = resolveViewedMember(undefined, selfEmail, members);
 
-  const [inboxCount, projects, areas, { data: tokenRows }] = await Promise.all([
+  const [inboxCount, delegatedCount, projects, areas, { data: tokenRows }] = await Promise.all([
     getInboxCount(supabase, selfEmail),
+    getDelegatedCount(supabase, selfEmail),
     getProjects(supabase),
     getAreas(supabase),
     supabase
@@ -54,6 +56,7 @@ export default async function TodosSettingsPage() {
         <TodosSidebar
           active={null}
           inboxCount={inboxCount}
+          delegatedCount={delegatedCount}
           viewedEmail={viewed.email}
           selfEmail={selfEmail}
           members={members}

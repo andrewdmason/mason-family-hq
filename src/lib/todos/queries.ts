@@ -94,6 +94,22 @@ export async function getInboxCount(
   return count ?? 0;
 }
 
+/** Open delegated count (created by member, assigned elsewhere) — the
+ * sidebar badge twin of getInboxCount. */
+export async function getDelegatedCount(
+  supabase: Supabase,
+  memberEmail: string
+): Promise<number> {
+  const { count } = await supabase
+    .from("todo_tasks")
+    .select("id", { count: "exact", head: true })
+    .eq("creator_email", memberEmail)
+    .neq("assignee_email", memberEmail)
+    .is("completed_at", null)
+    .is("deleted_at", null);
+  return count ?? 0;
+}
+
 /** Active tasks for one of the four bucket views, in manual order. */
 async function getBucketTasks(
   supabase: Supabase,
