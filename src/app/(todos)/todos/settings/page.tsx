@@ -9,6 +9,9 @@ import {
   getTodoMembers,
 } from "@/lib/todos/queries";
 import { ApiTokens, type ApiTokenRow } from "@/components/todos/api-tokens";
+import { BackToLists } from "@/components/todos/back-to-lists";
+import { RaycastRecipeModal } from "@/components/todos/raycast-recipe-modal";
+import { ShortcutRecipeModal } from "@/components/todos/shortcut-recipe-modal";
 import { TodosSidebar } from "@/components/todos/todos-sidebar";
 
 export const dynamic = "force-dynamic";
@@ -65,16 +68,15 @@ export default async function TodosSettingsPage() {
         />
 
         <div className="min-w-0 flex-1">
+          <BackToLists href="/todos/browse" />
+
           <h1 className="mb-1 font-serif text-2xl tracking-tight text-foreground">
             Integrations
           </h1>
           <p className="mb-4 text-sm text-muted-foreground">
             API tokens authenticate the Apple Reminders Shortcut and the
-            Raycast quick-capture command. See{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">
-              docs/todos-ios-shortcut.md
-            </code>{" "}
-            for the Shortcut recipe.
+            Raycast quick-capture command. See <ShortcutRecipeModal /> for the
+            iPhone side and <RaycastRecipeModal /> for the Mac side.
           </p>
 
           <ApiTokens tokens={tokens} />
