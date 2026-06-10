@@ -12,6 +12,17 @@ export interface EventAttendee {
   color: string;
 }
 
+// A duty slot as the cards render it: the assigned parent's initial in their
+// color, "na" (explicitly no drive needed — renders nothing), or "unset" (the
+// attention state — a hollow amber dot, shown only when the event has a
+// location to drive to).
+export type DutyChip = { initial: string; color: string } | "na" | "unset";
+
+export interface EventDutyChips {
+  dropoff: DutyChip;
+  pickup: DutyChip;
+}
+
 export interface EventDisplay {
   event: CalendarEvent;
   color: string;
@@ -31,6 +42,69 @@ export interface EventDisplay {
   // Family members (besides the owner) on this event — rendered as avatars on
   // the card, and as ghost blocks in their own columns.
   attendees: EventAttendee[];
+  // Drop-off/pick-up chips for a kid's timed event; null when duty doesn't
+  // apply (adult-owned, all-day, or a drive block itself).
+  duties: EventDutyChips | null;
+  // A client-synthesized drive block whose real mirror row hasn't landed yet —
+  // rendered translucent/pulsing so a duty tap shows its block instantly.
+  pendingDrive: boolean;
+}
+
+/** The drop-off (→) / pick-up (←) glyphs on a kid's event card. Assigned reads
+ * as the parent's initial in their color; N/A consumes no ink at all; unset is
+ * a hollow amber dot — the only state that asks for attention — and only when
+ * the event has a location (a proxy for "someone has to drive"). */
+export function DutyGlyphs({
+  duties,
+  hasLocation,
+  className,
+}: {
+  duties: EventDutyChips;
+  hasLocation: boolean;
+  className?: string;
+}) {
+  const slot = (duty: "dropoff" | "pickup", chip: DutyChip) => {
+    if (chip === "na") return null;
+    const arrow = duty === "dropoff" ? "→" : "←";
+    const label = duty === "dropoff" ? "Drop-off" : "Pick-up";
+    if (chip === "unset") {
+      if (!hasLocation) return null;
+      return (
+        <span
+          key={duty}
+          title={`${label} not set`}
+          className="inline-flex items-center gap-0.5 text-muted-foreground"
+        >
+          <span aria-hidden>{arrow}</span>
+          <span className="h-2 w-2 rounded-full border border-amber-500" />
+        </span>
+      );
+    }
+    return (
+      <span
+        key={duty}
+        title={label}
+        className="inline-flex items-center gap-0.5 text-muted-foreground"
+      >
+        <span aria-hidden>{arrow}</span>
+        <span
+          className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] font-semibold leading-none text-white"
+          style={{ backgroundColor: mutedColor(chip.color) }}
+        >
+          {chip.initial}
+        </span>
+      </span>
+    );
+  };
+  const dropoff = slot("dropoff", duties.dropoff);
+  const pickup = slot("pickup", duties.pickup);
+  if (!dropoff && !pickup) return null;
+  return (
+    <span className={cn("inline-flex shrink-0 items-center gap-1.5", className)}>
+      {dropoff}
+      {pickup}
+    </span>
+  );
 }
 
 /** Overlapping avatars for the other family members on an event. */
@@ -90,8 +164,16 @@ export function EventRow({
   showLocation?: boolean;
   memberBadge?: { name: string; color: string } | null;
 }) {
-  const { event, color, sourceLabel, conflict, rsvp, attendees, calendarLabel } =
-    display;
+  const {
+    event,
+    color,
+    sourceLabel,
+    conflict,
+    rsvp,
+    attendees,
+    calendarLabel,
+    duties,
+  } = display;
   return (
     <button
       type="button"
@@ -140,6 +222,9 @@ export function EventRow({
               {event.location}
             </span>
           )}
+          {duties && (
+            <DutyGlyphs duties={duties} hasLocation={!!event.location} />
+          )}
           {attendees.length > 0 && <AttendeeAvatars attendees={attendees} />}
         </span>
       </span>
@@ -160,7 +245,8 @@ export function EventColumnCard({
   onClick: (event: CalendarEvent) => void;
   selected?: boolean;
 }) {
-  const { event, color, conflict, rsvp, calendarLabel, attendees } = display;
+  const { event, color, conflict, rsvp, calendarLabel, attendees, duties } =
+    display;
   const time = event.all_day
     ? "All day"
     : new Date(event.start_time).toLocaleTimeString("en-US", {
@@ -176,6 +262,7 @@ export function EventColumnCard({
       className={cn(
         "block w-full rounded-sm border border-border/70 border-l-[3px] bg-white px-2 py-1.5 text-left transition-colors hover:bg-muted/40 dark:bg-card",
         selected && "ring-1 ring-ring",
+        display.pendingDrive && "animate-pulse opacity-60",
       )}
     >
       <span className="flex items-center gap-1 text-[11px] italic tabular-nums text-muted-foreground">
@@ -195,9 +282,12 @@ export function EventColumnCard({
         )}
         {event.title}
       </span>
-      {attendees.length > 0 && (
-        <span className="mt-1 flex">
-          <AttendeeAvatars attendees={attendees} />
+      {(attendees.length > 0 || duties) && (
+        <span className="mt-1 flex items-center gap-1.5">
+          {duties && (
+            <DutyGlyphs duties={duties} hasLocation={!!event.location} />
+          )}
+          {attendees.length > 0 && <AttendeeAvatars attendees={attendees} />}
         </span>
       )}
     </button>
@@ -247,7 +337,7 @@ export function EventPill({
   display: EventDisplay;
   onClick: (event: CalendarEvent) => void;
 }) {
-  const { event, color, conflict, rsvp, calendarLabel } = display;
+  const { event, color, conflict, rsvp, calendarLabel, duties } = display;
   return (
     <button
       type="button"
@@ -274,6 +364,13 @@ export function EventPill({
         )}
         {event.title}
       </span>
+      {duties && (
+        <DutyGlyphs
+          duties={duties}
+          hasLocation={!!event.location}
+          className="ml-auto"
+        />
+      )}
       {rsvp === "no_reply" && (
         <span className="ml-auto shrink-0 rounded-full bg-amber-100 px-1 text-[9px] font-medium leading-tight text-amber-700 dark:bg-amber-950 dark:text-amber-400">
           RSVP

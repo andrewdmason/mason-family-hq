@@ -45,8 +45,10 @@ export default async function WorkoutsPage({
     tab === "completed" ? "history" : tab === "upcoming" ? "upcoming" : "today";
 
   const supabase = await createClient();
-  const userId = await requireUserId(supabase);
-  const isOwner = await getIsOwner(supabase);
+  const [userId, isOwner] = await Promise.all([
+    requireUserId(supabase),
+    getIsOwner(supabase),
+  ]);
 
   if (view === "today") {
     return <TodayView supabase={supabase} userId={userId} isOwner={isOwner} />;

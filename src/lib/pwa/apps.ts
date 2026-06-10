@@ -46,6 +46,42 @@ export function getPwaApp(key: string): PwaApp | undefined {
   return byKey.get(key);
 }
 
+// iOS launch screens. A standalone web app launches to plain white unless an
+// apple-touch-startup-image whose pixel size exactly matches the device is
+// linked (iOS ignores the manifest's background_color for this), so we list
+// one image per device size and let the media query pick the match. Sizes are
+// CSS points + device pixel ratio, portrait only (the manifest pins portrait).
+// Covers iPhone 8/SE through 17 Pro Max plus the common iPads. The images are
+// drawn by scripts/generate-icons.mjs into public/app-splash/ — keep its
+// mirror of this list in sync.
+export const SPLASH_SIZES = [
+  // iPhones
+  { w: 440, h: 956, r: 3 }, // 16/17 Pro Max
+  { w: 430, h: 932, r: 3 }, // 14 Pro Max, 15 Pro Max/Plus, 16 Plus
+  { w: 428, h: 926, r: 3 }, // 12/13 Pro Max, 14 Plus
+  { w: 414, h: 896, r: 3 }, // XS Max, 11 Pro Max
+  { w: 414, h: 896, r: 2 }, // XR, 11
+  { w: 402, h: 874, r: 3 }, // 16 Pro, 17, 17 Pro
+  { w: 393, h: 852, r: 3 }, // 14 Pro, 15, 15 Pro, 16, 16e
+  { w: 390, h: 844, r: 3 }, // 12, 12 Pro, 13, 13 Pro, 14
+  { w: 375, h: 812, r: 3 }, // X, XS, 11 Pro, 12/13 mini
+  { w: 375, h: 667, r: 2 }, // 6/7/8, SE 2/3
+  // iPads
+  { w: 1024, h: 1366, r: 2 }, // iPad Pro 12.9"
+  { w: 834, h: 1194, r: 2 }, // iPad Pro 11"
+  { w: 820, h: 1180, r: 2 }, // iPad Air 10.9", iPad 10th gen
+  { w: 810, h: 1080, r: 2 }, // iPad 10.2"
+  { w: 768, h: 1024, r: 2 }, // iPad 9.7", mini 5
+  { w: 744, h: 1133, r: 2 }, // iPad mini 6/7
+];
+
+export function appleStartupImages(key: string) {
+  return SPLASH_SIZES.map(({ w, h, r }) => ({
+    url: `/app-splash/${key}-${w * r}x${h * r}.png`,
+    media: `(device-width: ${w}px) and (device-height: ${h}px) and (-webkit-device-pixel-ratio: ${r}) and (orientation: portrait)`,
+  }));
+}
+
 // Metadata for a route group's layout: gives this section its own home-screen
 // name and points the manifest link at its per-app manifest. The page <title>
 // stays per-section too (the root template appends "· Mason Family HQ"). We
@@ -61,6 +97,7 @@ export function appMetadata(key: string): Metadata {
       capable: true,
       title: app.name,
       statusBarStyle: "default",
+      startupImage: appleStartupImages(app.key),
     },
     manifest: `/app-manifest?app=${app.key}`,
   };

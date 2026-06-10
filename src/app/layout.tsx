@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Lora } from "next/font/google";
 import { GlobalQuickAdd } from "@/components/todos/global-quick-add";
+import { appleStartupImages } from "@/lib/pwa/apps";
 import "./globals.css";
 
 const inter = Inter({
@@ -25,11 +26,14 @@ export const metadata: Metadata = {
   description: "The Mason family's private home base",
   applicationName: "Mason Family HQ",
   // Makes the iPhone home-screen launch run standalone (no Safari chrome) with
-  // a translucent status bar and the right home-screen label.
+  // a translucent status bar, the right home-screen label, and a cream launch
+  // screen instead of iOS's default white flash. Each app's layout overrides
+  // this wholesale with its own title + splash set — see src/lib/pwa/apps.ts.
   appleWebApp: {
     capable: true,
     title: "Family HQ",
     statusBarStyle: "default",
+    startupImage: appleStartupImages("home"),
   },
   // The default manifest (used on routes outside a route group, e.g. /login).
   // Each app's own layout overrides this with its per-app manifest so installs

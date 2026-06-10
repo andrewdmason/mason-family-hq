@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireUserId } from "@/lib/members/auth";
@@ -33,7 +34,16 @@ import {
   syncEventGuests,
   importerEnabled,
 } from "@/lib/calendar/materialize";
-import { allDayInstant } from "@/lib/calendar/calendar-utils";
+import {
+  reconcileEventDrive,
+  deleteDriveEvent,
+  queueDriveWork,
+  ASSIGNMENT_COLUMNS,
+  type DutyAssignmentRow,
+  type Duty,
+} from "@/lib/calendar/drive-events";
+import { geocodeAddress } from "@/lib/calendar/geocoding";
+import { allDayInstant, isHomeLocation } from "@/lib/calendar/calendar-utils";
 
 /** Throw unless the caller is an owner/parent — the roles that manage calendars.
  * Returns the caller's member email (handy for connection-scoped work). */
@@ -236,6 +246,17 @@ export async function deleteEvent(id: string): Promise<void> {
         ev.external_id.slice("google:".length),
       );
     }
+  }
+
+  // Drive blocks this event's duty assignments materialized live on a PARENT's
+  // Google calendar — delete them BEFORE the row delete, because the cascade
+  // erases the assignment ledger (the only record of where the blocks live).
+  const { data: duties } = await admin
+    .from("event_duty_assignments")
+    .select(ASSIGNMENT_COLUMNS)
+    .eq("event_id", id);
+  for (const a of duties ?? []) {
+    await deleteDriveEvent(admin, a as unknown as DutyAssignmentRow).catch(() => {});
   }
 
   const { error } = await admin.from("calendar_events").delete().eq("id", id);
@@ -692,6 +713,187 @@ export async function setEventGoing(
   }
   revalidatePath("/calendar");
   return warning ? { ok: true, warning } : { ok: true };
+}
+
+// --- Drop-off / pick-up duty ------------------------------------------------
+
+/** A duty's saved state: assigned to a parent, explicitly not needed (N/A), or
+ * unset (null — no row). */
+export type DutyState = { assignee: string | null; isNa: boolean } | null;
+
+/** Set (or clear) who's doing drop-off / pick-up for a kid's event. Only the
+ * DB write (the source of truth) happens before the response — every Google
+ * call (drive-block create/move/delete) runs via after(), so taps never block
+ * on the Calendar API. The cron sweep is the safety net if the deferred work
+ * dies. Owner/parent only. */
+export async function setEventDuty(
+  eventId: string,
+  duty: Duty,
+  state: DutyState,
+): Promise<{ ok: true } | { error: string }> {
+  await requireParent();
+  const admin = createAdminClient();
+
+  const { data: ev } = await admin
+    .from("calendar_events")
+    .select("id, member_email, all_day, drive_source_event_id, location")
+    .eq("id", eventId)
+    .maybeSingle();
+  if (!ev) return { error: "Event not found." };
+  if (ev.all_day || ev.drive_source_event_id) {
+    return { error: "Drop-off/pick-up only applies to timed events." };
+  }
+  const { data: logistics } = await admin
+    .from("calendar_logistics_settings")
+    .select("home_address")
+    .eq("id", 1)
+    .maybeSingle();
+  if (isHomeLocation(ev.location as string | null, logistics?.home_address)) {
+    return { error: "This event is at home — no drive needed." };
+  }
+  const { data: owner } = await admin
+    .from("family_members")
+    .select("role")
+    .eq("email", ev.member_email ?? "")
+    .maybeSingle();
+  if (owner?.role !== "kid") {
+    return { error: "Drop-off/pick-up only applies to kids' events." };
+  }
+  if (state?.assignee) {
+    const { data: assignee } = await admin
+      .from("family_members")
+      .select("role")
+      .eq("email", state.assignee)
+      .maybeSingle();
+    if (!assignee || assignee.role === "kid") {
+      return { error: "Only a parent can be assigned." };
+    }
+  }
+
+  const { data: existing } = await admin
+    .from("event_duty_assignments")
+    .select(ASSIGNMENT_COLUMNS)
+    .eq("event_id", eventId)
+    .eq("duty", duty)
+    .maybeSingle();
+
+  // Unset: delete the row now; the Google teardown runs after the response,
+  // working from the captured ledger (the deleted row's pointers live on in
+  // `row`). The follow-up reconcile expands a sibling that had been folded
+  // into a combined block back to its own round trip.
+  if (state === null) {
+    if (existing) {
+      const row = existing as unknown as DutyAssignmentRow;
+      await admin.from("event_duty_assignments").delete().eq("id", row.id);
+      after(() =>
+        queueDriveWork(eventId, async () => {
+          try {
+            await deleteDriveEvent(admin, row);
+            await reconcileEventDrive(admin, eventId);
+            revalidatePath("/calendar");
+          } catch (err) {
+            // best-effort: the next sweep finishes the job
+            console.error(
+              `[drive] teardown failed after duty clear (event ${eventId}):`,
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }),
+      );
+    }
+    revalidatePath("/calendar");
+    return { ok: true };
+  }
+
+  const { data: row, error } = await admin
+    .from("event_duty_assignments")
+    .upsert(
+      {
+        event_id: eventId,
+        duty,
+        assignee_email: state.assignee,
+        is_na: state.assignee ? false : state.isNa,
+      },
+      { onConflict: "event_id,duty" },
+    )
+    .select("id")
+    .single();
+  if (error || !row) return { error: error?.message ?? "Couldn't save." };
+
+  // Event-level reconcile (both duties together, so giving one parent the
+  // second duty can collapse two round trips into one combined block) runs
+  // after the response — the tap shouldn't wait on the Calendar API.
+  after(() =>
+    queueDriveWork(eventId, async () => {
+      try {
+        await reconcileEventDrive(admin, eventId);
+        revalidatePath("/calendar");
+      } catch (err) {
+        // best-effort: state is saved; the next sweep writes/moves the block
+        console.error(
+          `[drive] reconcile failed after duty change (event ${eventId}):`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }),
+  );
+
+  revalidatePath("/calendar");
+  return { ok: true };
+}
+
+// --- Logistics settings (home address, buffer) --------------------------------
+
+export type LogisticsSettingsView = {
+  homeAddress: string;
+  bufferMinutes: number;
+  homeGeocoded: boolean;
+};
+
+export async function getLogisticsSettingsView(): Promise<LogisticsSettingsView | null> {
+  await requireParent();
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("calendar_logistics_settings")
+    .select("home_address, drive_buffer_minutes, home_lat, home_lng")
+    .eq("id", 1)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    homeAddress: data.home_address as string,
+    bufferMinutes: data.drive_buffer_minutes as number,
+    homeGeocoded: data.home_lat != null && data.home_lng != null,
+  };
+}
+
+/** Save the home address + arrive-early buffer. Geocodes inline (one Nominatim
+ * call); a failed geocode still saves and the cron retries. Changed values flow
+ * into every block via the sweep's hash check. */
+export async function updateLogisticsSettings(input: {
+  homeAddress: string;
+  bufferMinutes: number;
+}): Promise<{ ok: true; geocoded: boolean } | { error: string }> {
+  await requireParent();
+  const address = input.homeAddress.trim();
+  if (!address) return { error: "A home address is required." };
+  const buffer = Math.max(0, Math.min(60, Math.round(input.bufferMinutes)));
+
+  const geo = await geocodeAddress(address).catch(() => null);
+
+  const admin = createAdminClient();
+  const { error } = await admin.from("calendar_logistics_settings").upsert({
+    id: 1,
+    home_address: address,
+    drive_buffer_minutes: buffer,
+    home_lat: geo?.lat ?? null,
+    home_lng: geo?.lng ?? null,
+    home_geocoded_at: geo ? new Date().toISOString() : null,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath("/settings/calendars");
+  revalidatePath("/calendar");
+  return { ok: true, geocoded: !!geo };
 }
 
 // --- TeamSnap attendance ----------------------------------------------------

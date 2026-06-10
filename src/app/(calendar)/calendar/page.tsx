@@ -5,6 +5,8 @@ import {
   getCalendarSources,
   getCalendarEvents,
   getEventAttendees,
+  getEventDuties,
+  getLogisticsHints,
 } from "@/lib/calendar/queries";
 import { CalendarClient } from "@/components/calendar/calendar-client";
 import { SyncTrigger } from "@/components/calendar/sync-trigger";
@@ -12,20 +14,27 @@ import { SyncTrigger } from "@/components/calendar/sync-trigger";
 export default async function CalendarPage() {
   const supabase = await createClient();
   const userId = await requireUserId(supabase);
-  const { data: me } = await supabase
-    .from("family_members")
-    .select("role, email")
-    .eq("user_id", userId)
-    .maybeSingle();
-  const canManage = me?.role === "owner" || me?.role === "parent";
-  const currentMemberEmail = me?.email ?? null;
 
-  const [members, sources, events] = await Promise.all([
+  // One round trip for everything that only needs the user id; only the
+  // attendee lookup (keyed by event ids) has to wait for a prior result.
+  const [{ data: me }, members, sources, events] = await Promise.all([
+    supabase
+      .from("family_members")
+      .select("role, email")
+      .eq("user_id", userId)
+      .maybeSingle(),
     getCalendarMembers(),
     getCalendarSources(),
     getCalendarEvents(),
   ]);
-  const goingByEvent = await getEventAttendees(events.map((e) => e.id));
+  const canManage = me?.role === "owner" || me?.role === "parent";
+  const currentMemberEmail = me?.email ?? null;
+  const eventIds = events.map((e) => e.id);
+  const [goingByEvent, dutiesByEvent, logistics] = await Promise.all([
+    getEventAttendees(eventIds),
+    getEventDuties(eventIds),
+    getLogisticsHints(),
+  ]);
 
   // getCalendarMembers returns kids-first (Oscar, Sebastian, Andrew, Jenny);
   // the calendar reads better with adults first, so reverse for the chips and
@@ -40,6 +49,8 @@ export default async function CalendarPage() {
         sources={sources}
         events={events}
         goingByEvent={goingByEvent}
+        dutiesByEvent={dutiesByEvent}
+        logistics={logistics}
         canManage={canManage}
         currentMemberEmail={currentMemberEmail}
       />

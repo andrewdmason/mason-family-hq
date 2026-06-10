@@ -5,13 +5,20 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 
 // One Google consent grants both sign-in and Calendar read/write. access_type
-// offline + prompt consent are what make Supabase return a provider refresh
-// token, which /auth/callback stores for the calendar sync.
+// offline makes Google return a provider refresh token on the first consent,
+// which /auth/callback stores for the calendar sync. Returning users skip the
+// consent screen (no prompt param), so no refresh token comes back — that's
+// fine, the callback keeps the stored one.
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 
 /** The Google sign-in button. The only part of the login page that needs the
- * client (it calls supabase.auth.signInWithOAuth and redirects to Google). */
-export function GoogleSignIn() {
+ * client (it calls supabase.auth.signInWithOAuth and redirects to Google).
+ *
+ * forceConsent (via /login?consent=1) re-shows Google's consent screen to mint
+ * a fresh refresh token — the escape hatch if a member's stored token ever dies
+ * without them revoking access (revocation alone self-heals: Google clears the
+ * grant, so the next sign-in re-consents automatically). */
+export function GoogleSignIn({ forceConsent = false }: { forceConsent?: boolean }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,7 +31,10 @@ export function GoogleSignIn() {
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
         scopes: CALENDAR_SCOPE,
-        queryParams: { access_type: "offline", prompt: "consent" },
+        queryParams: {
+          access_type: "offline",
+          ...(forceConsent ? { prompt: "consent" } : {}),
+        },
       },
     });
     if (error) {
