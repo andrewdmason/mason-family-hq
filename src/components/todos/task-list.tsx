@@ -214,6 +214,10 @@ export function TaskList({
 
   const inProject = context.mode === "project";
   const view: TodoView | null = context.mode === "view" ? context.view : null;
+  // Mirrors the header button split (see [view]/page.tsx): bucket views and
+  // project pages create in place; the status lenses (Snoozed, Delegated)
+  // keep the global capture modal — including for the `c` key.
+  const canInlineNew = inProject || view === "inbox" || view === "today" || view === "anytime" || view === "someday";
 
   const removeLocally = (taskId: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
@@ -237,83 +241,6 @@ export function TaskList({
   // (and whatever the user is mid-typing) survives the server roundtrip.
   const keyAliases = useRef(new Map<string, string>());
   const stableKey = (taskId: string) => keyAliases.current.get(taskId) ?? taskId;
-
-  // Things' "New": an untitled draft lands at the top of the list, opened for
-  // editing in place. Emitted by the header button (inline-new-button.tsx).
-  const handleInlineNew = () => {
-    const bucket: TodoBucket =
-      inProject || view === "snoozed" || view === "delegated" || view === "logbook"
-        ? inProject
-          ? "anytime"
-          : "inbox"
-        : (view as TodoBucket);
-    // Inside a project the assignee must be a member; default to the viewed
-    // person when they belong, else the project's first member.
-    const project = inProject
-      ? projects.find((p) => p.id === context.projectId)
-      : undefined;
-    const assigneeEmail =
-      !project || project.memberEmails.includes(viewedEmail)
-        ? viewedEmail
-        : project.memberEmails[0];
-    if (!assigneeEmail) return;
-
-    const temp: TodoTask = {
-      id: `temp-${crypto.randomUUID()}`,
-      title: "",
-      notesHtml: null,
-      bucket,
-      assigneeEmail,
-      creatorEmail: selfEmail,
-      projectId: inProject ? context.projectId : null,
-      snoozedUntil: null,
-      completedAt: null,
-      completedByEmail: null,
-      sortOrder: (tasks[0]?.sortOrder ?? 1) - 1,
-      assigneeSeenAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-    };
-    setTasks((prev) => [temp, ...prev]);
-    setSelectedIds(new Set([temp.id]));
-    anchorId.current = temp.id;
-    setExpandedId(temp.id);
-    setOpenMenu(null);
-
-    run(
-      createTask({
-        title: "",
-        draft: true,
-        position: "top",
-        assigneeEmail,
-        bucket,
-        projectId: inProject ? context.projectId : null,
-      })
-        .then((created) => {
-          keyAliases.current.set(created.id, temp.id);
-          setTasks((prev) =>
-            prev.map((t) => {
-              if (t.id !== temp.id) return t;
-              // Keep anything typed while the roundtrip was in flight, and
-              // sync it up if it already diverged from the (empty) draft.
-              if (t.title.trim()) void updateTaskTitle(created.id, t.title);
-              if (t.notesHtml) void updateTaskNotes(created.id, t.notesHtml);
-              return { ...created, title: t.title, notesHtml: t.notesHtml };
-            })
-          );
-          setExpandedId((prev) => (prev === temp.id ? created.id : prev));
-          setSelectedIds((prev) =>
-            prev.has(temp.id)
-              ? new Set([...prev].map((id) => (id === temp.id ? created.id : id)))
-              : prev
-          );
-          if (anchorId.current === temp.id) anchorId.current = created.id;
-        })
-        .catch(() => removeLocally(temp.id))
-    );
-  };
-  const inlineNewRef = useRef(handleInlineNew);
-  inlineNewRef.current = handleInlineNew;
-  useEffect(() => onInlineNew(() => inlineNewRef.current()), []);
 
   // Things discards an untitled to-do when it's closed: once the open editor
   // moves off a draft that's still empty (no title, no notes), drop it.
@@ -619,6 +546,118 @@ export function TaskList({
     [groups]
   );
 
+  // Things' "New": an untitled draft opens for editing in place — at the top
+  // of the list, or on the line below `after` (the selected row) when given.
+  // Emitted by the header button (inline-new-button.tsx) and the `c` key.
+  const handleInlineNew = (after?: TodoTask) => {
+    const bucket: TodoBucket =
+      inProject || view === "snoozed" || view === "delegated" || view === "logbook"
+        ? inProject
+          ? "anytime"
+          : "inbox"
+        : (view as TodoBucket);
+    // The draft joins the group it lands in: the project page's project, or —
+    // in the project-grouped views — the selected row's project (loose
+    // otherwise, so the draft renders where it was summoned).
+    const projectId = inProject
+      ? context.projectId
+      : grouped
+        ? (after?.projectId ?? null)
+        : null;
+    // Inside a project the assignee must be a member; default to the viewed
+    // person when they belong, else the project's first member.
+    const project = projectId
+      ? projects.find((p) => p.id === projectId)
+      : undefined;
+    const assigneeEmail =
+      !project || project.memberEmails.includes(viewedEmail)
+        ? viewedEmail
+        : project.memberEmails[0];
+    if (!assigneeEmail) return;
+
+    // Below a selected row: the midpoint between it and its in-group
+    // neighbor — renormalizing first (like drag) if midpoints there ran dry.
+    const group = after
+      ? groups.find((g) => g.tasks.some((t) => t.id === after.id))
+      : undefined;
+    const afterIdx = group
+      ? group.tasks.findIndex((t) => t.id === after!.id)
+      : -1;
+    let sortOrder = (tasks[0]?.sortOrder ?? 1) - 1;
+    if (group && afterIdx >= 0) {
+      const next = group.tasks[afterIdx + 1];
+      if (needsRenormalize(after!.sortOrder, next?.sortOrder)) {
+        group.tasks.forEach((t, i) => patchLocally(t.id, { sortOrder: i + 1 }));
+        run(renormalizeTaskOrder(group.tasks.map((t) => t.id)));
+        sortOrder = afterIdx + 1.5;
+      } else {
+        sortOrder = sortBetween(after!.sortOrder, next?.sortOrder ?? null);
+      }
+    }
+
+    const temp: TodoTask = {
+      id: `temp-${crypto.randomUUID()}`,
+      title: "",
+      notesHtml: null,
+      bucket,
+      assigneeEmail,
+      creatorEmail: selfEmail,
+      projectId,
+      snoozedUntil: null,
+      completedAt: null,
+      completedByEmail: null,
+      sortOrder,
+      assigneeSeenAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+    // Render order follows array order, so slot the draft right after its row.
+    setTasks((prev) => {
+      const i = after ? prev.findIndex((t) => t.id === after.id) : -1;
+      return i < 0
+        ? [temp, ...prev]
+        : [...prev.slice(0, i + 1), temp, ...prev.slice(i + 1)];
+    });
+    setSelectedIds(new Set([temp.id]));
+    anchorId.current = temp.id;
+    setExpandedId(temp.id);
+    setOpenMenu(null);
+
+    run(
+      createTask({
+        title: "",
+        draft: true,
+        ...(after ? { sortOrder } : { position: "top" as const }),
+        assigneeEmail,
+        bucket,
+        projectId,
+      })
+        .then((created) => {
+          keyAliases.current.set(created.id, temp.id);
+          setTasks((prev) =>
+            prev.map((t) => {
+              if (t.id !== temp.id) return t;
+              // Keep anything typed while the roundtrip was in flight, and
+              // sync it up if it already diverged from the (empty) draft.
+              if (t.title.trim()) void updateTaskTitle(created.id, t.title);
+              if (t.notesHtml) void updateTaskNotes(created.id, t.notesHtml);
+              return { ...created, title: t.title, notesHtml: t.notesHtml };
+            })
+          );
+          setExpandedId((prev) => (prev === temp.id ? created.id : prev));
+          setSelectedIds((prev) =>
+            prev.has(temp.id)
+              ? new Set([...prev].map((id) => (id === temp.id ? created.id : id)))
+              : prev
+          );
+          if (anchorId.current === temp.id) anchorId.current = created.id;
+        })
+        .catch(() => removeLocally(temp.id))
+    );
+  };
+  const inlineNewRef = useRef(handleInlineNew);
+  inlineNewRef.current = handleInlineNew;
+  useEffect(() => onInlineNew(() => inlineNewRef.current()), []);
+
   const handleRowClick = (task: TodoTask, e: React.MouseEvent) => {
     if (e.shiftKey && anchorId.current) {
       const a = visibleOrder.indexOf(anchorId.current);
@@ -697,7 +736,8 @@ export function TaskList({
   }, []);
 
   // Gmail-style list keys: j/k (or arrows) walk the list, enter/o opens the
-  // selected task, e completes, s/m/a summon the snooze/project/assignee
+  // selected task, e completes, c creates an inline draft below the
+  // selection, s/m/a summon the snooze/project/assignee
   // menus, Delete/⌫/# asks then removes, w wakes a snoozed task, z undoes a
   // delete, ⌘Z/⇧⌘Z undo/redo check-offs, ⌘A selects every task in the view,
   // and Escape closes the open task before clearing the selection. All of them stay quiet while typing
@@ -841,6 +881,21 @@ export function TaskList({
         if (!undoTask) return;
         e.preventDefault();
         handleUndo();
+        return;
+      }
+      case "c": {
+        // In-place views own `c` (the quick-add host defers to the
+        // data-inline-new marker below); status lenses keep the modal.
+        if (!canInlineNew || e.repeat) return;
+        e.preventDefault();
+        // Below the bottom-most selected row, like Things; with nothing
+        // selected the draft opens at the top, same as the header New.
+        const afterId = [...visibleOrder]
+          .reverse()
+          .find((id) => selectedIds.has(id));
+        handleInlineNew(
+          afterId ? tasks.find((t) => t.id === afterId) : undefined
+        );
         return;
       }
     }
@@ -1070,7 +1125,9 @@ export function TaskList({
   const EmptyIcon = empty.icon;
 
   return (
-    <div className="space-y-3">
+    // data-inline-new tells the global quick-add host that `c` is taken
+    // here (quick-add.tsx checks for it before opening the modal).
+    <div className="space-y-3" data-inline-new={canInlineNew ? "" : undefined}>
       {tasks.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-10 text-center">
           <EmptyIcon className="mx-auto size-6 text-muted-foreground" />
@@ -1142,6 +1199,10 @@ export function TaskList({
                               setSelectedIds(new Set([task.id]));
                               anchorId.current = task.id;
                               setExpandedId(task.id);
+                              setOpenMenu(null);
+                            }}
+                            onClose={() => {
+                              setExpandedId(null);
                               setOpenMenu(null);
                             }}
                             handlers={handlers}

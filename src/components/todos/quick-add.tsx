@@ -21,6 +21,10 @@ import { cn } from "@/lib/utils";
  * dispatch the window event via emitQuickAdd() / <QuickAddButton>. The same
  * window-event pattern as src/lib/optimistic-task.ts, so openers don't need
  * a shared React context across layouts.
+ *
+ * Views that create in place (bucket views, project pages) own `c` instead —
+ * their task list marks itself with data-inline-new and the key handler here
+ * stands down, so the modal is only the capture path everywhere else.
  */
 
 const QUICK_ADD_EVENT = "todo-quick-add";
@@ -65,6 +69,10 @@ export function QuickAddHost({
       if (e.key !== QUICK_ADD_KEY) return;
       if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
       if (isTypingTarget(e.target) || inOpenOverlay(e.target)) return;
+      // A task list that creates in place owns `c` (an inline draft below
+      // the selection — see task-list.tsx). Listener order between the two
+      // window handlers isn't guaranteed, so the marker is the contract.
+      if (document.querySelector("[data-inline-new]")) return;
       e.preventDefault();
       // Like Things' quick entry, the When defaults to where you're standing:
       // `c` on /todos/anytime preselects Anytime; the ?as= member carries

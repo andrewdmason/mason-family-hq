@@ -51,6 +51,9 @@ export async function createTask(input: {
   /** Where the task lands in its list. Inline "New" goes on top, like
    * Things; captures (modal, ingest) append. */
   position?: "top" | "bottom";
+  /** Explicit fractional position (the inline draft slotting in below a
+   * selected row) — the client computed the midpoint; wins over position. */
+  sortOrder?: number;
 }): Promise<TodoTask> {
   const { supabase, selfEmail } = await ctx();
   const title = input.title.trim();
@@ -61,20 +64,23 @@ export async function createTask(input: {
   // Top wants the list's MIN (ascending), bottom its MAX (descending). The
   // list is the one the task will render in: the project's task list when it
   // has a project (ordered across all assignees), else the assignee's bucket.
-  const top = input.position === "top";
-  let edgeQuery = supabase
-    .from("todo_tasks")
-    .select("sort_order")
-    .is("completed_at", null)
-    .is("deleted_at", null);
-  edgeQuery = input.projectId
-    ? edgeQuery.eq("project_id", input.projectId)
-    : edgeQuery.eq("assignee_email", input.assigneeEmail).eq("bucket", input.bucket);
-  const { data: edge } = await edgeQuery
-    .order("sort_order", { ascending: top })
-    .limit(1)
-    .maybeSingle();
-  const last = edge ? { sort_order: top ? edge.sort_order - 2 : edge.sort_order } : null;
+  let sortOrder = input.sortOrder;
+  if (sortOrder == null) {
+    const top = input.position === "top";
+    let edgeQuery = supabase
+      .from("todo_tasks")
+      .select("sort_order")
+      .is("completed_at", null)
+      .is("deleted_at", null);
+    edgeQuery = input.projectId
+      ? edgeQuery.eq("project_id", input.projectId)
+      : edgeQuery.eq("assignee_email", input.assigneeEmail).eq("bucket", input.bucket);
+    const { data: edge } = await edgeQuery
+      .order("sort_order", { ascending: top })
+      .limit(1)
+      .maybeSingle();
+    sortOrder = edge ? (top ? edge.sort_order - 1 : edge.sort_order + 1) : 1;
+  }
 
   const { data, error } = await supabase
     .from("todo_tasks")
@@ -90,7 +96,7 @@ export async function createTask(input: {
       creator_email: selfEmail,
       project_id: input.projectId ?? null,
       snoozed_until: input.snoozedUntil ?? null,
-      sort_order: (last?.sort_order ?? 0) + 1,
+      sort_order: sortOrder,
       // Your own captures never need an "unseen" state.
       assignee_seen_at: input.assigneeEmail === selfEmail ? new Date().toISOString() : null,
     })
