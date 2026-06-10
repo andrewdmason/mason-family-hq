@@ -5,6 +5,7 @@
   "scripts": {
     "predev": "bash scripts/db-heal-local.sh",
     "dev": "next dev",
+    "dev:agent": "node scripts/dev-agent.js",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

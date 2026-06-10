@@ -12,8 +12,9 @@ const GOOGLE_TOKEN_TTL_SECONDS = 3600;
 
 // Persist the Google provider tokens captured at sign-in so the calendar sync and
 // write-back can act as the member. Supabase doesn't refresh provider tokens — the
-// refresh token (returned only with access_type=offline + prompt=consent) is what
-// lets us. Never clobber a stored refresh token with null.
+// refresh token is what lets us. Google only returns one when the consent screen
+// is shown (first sign-in, after revocation, or /login?consent=1) — routine
+// re-logins skip consent and return null, so never clobber a stored refresh token.
 async function storeGoogleConnection(
   email: string,
   session: Session | null,
