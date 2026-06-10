@@ -40,6 +40,9 @@ export interface CalendarEvent {
   // opens the kid's event sheet on tap.
   drive_source_event_id: string | null;
   drive_duty: "dropoff" | "pickup" | null;
+  // Cached one-way home→event drive (drive-time.ts); null until computed.
+  // The client uses it to place ghost blocks exactly where the real one lands.
+  drive_minutes: number | null;
 }
 
 // A drop-off/pick-up duty's saved state. Unset is the absence of the key.

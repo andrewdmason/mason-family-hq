@@ -20,31 +20,24 @@ import {
 } from "./google";
 import { getMemberPrimary, deterministicEventId, type ImportDest } from "./materialize";
 import { isHomeLocation } from "./calendar-utils";
+import { getLogisticsSettings, type LogisticsSettings } from "./drive-time";
 import {
-  getLogisticsSettings,
+  driveBlockWindow,
+  driveEventTitle,
   FALLBACK_DRIVE_MINUTES,
-  type LogisticsSettings,
-} from "./drive-time";
+  COMBINE_GAP_MINUTES,
+  type Duty,
+} from "./drive-window";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
-export type Duty = "dropoff" | "pickup";
-
-// Titles render the leave-home time in the family's timezone. The cron path
-// has no request (no tz cookie), and mixing tz between paths would flap the
-// sync hash — so both use the same fixed zone (precedent: whoop/push.ts).
-const TITLE_TZ = "America/Los_Angeles";
+export { driveBlockWindow, driveEventTitle, type Duty };
 
 // The cron sweep only reconciles assignments whose source event is near/ahead
 // of now — finished events keep their (historical) blocks untouched.
 const SWEEP_PAST_MS = 2 * 60 * 60 * 1000;
 const SWEEP_FUTURE_MS = 60 * 24 * 60 * 60 * 1000;
 const SWEEP_CONCURRENCY = 4;
-
-// When the SAME parent has both duties and driving home between them would
-// leave less than this at home, they're realistically staying for the whole
-// thing — one combined block (leave → return) instead of two overlapping ones.
-const COMBINE_GAP_MINUTES = 30;
 
 export const ASSIGNMENT_COLUMNS =
   "id, event_id, duty, assignee_email, is_na, drive_event_id, drive_google_event_id, drive_calendar_id, drive_sync_hash, drive_is_estimate";
@@ -79,56 +72,8 @@ interface SourceEventRow {
   drive_minutes: number | null;
 }
 
-// ---------------------------------------------------------------------------
-// Pure block math. All arithmetic is on stored timestamptz instants (ms), so
-// it's DST-safe; only the title's display time is timezone-formatted.
-// ---------------------------------------------------------------------------
-const MIN_MS = 60_000;
-
-export function driveBlockWindow(args: {
-  duty: Duty;
-  startTime: string;
-  endTime: string | null;
-  teamsnapArrivalTime: string | null;
-  driveMinutes: number;
-  bufferMinutes: number;
-}): { start: string; end: string } {
-  const { driveMinutes, bufferMinutes } = args;
-  if (args.duty === "dropoff") {
-    // Leave home, arrive bufferMin early, drive straight home.
-    const anchor = new Date(args.teamsnapArrivalTime ?? args.startTime).getTime();
-    return {
-      start: new Date(anchor - (driveMinutes + bufferMinutes) * MIN_MS).toISOString(),
-      end: new Date(anchor - bufferMinutes * MIN_MS + driveMinutes * MIN_MS).toISOString(),
-    };
-  }
-  // Pickup: arrive bufferMin before the end, kid out at the end, drive home.
-  const anchor = new Date(args.endTime ?? args.startTime).getTime();
-  return {
-    start: new Date(anchor - (driveMinutes + bufferMinutes) * MIN_MS).toISOString(),
-    end: new Date(anchor + driveMinutes * MIN_MS).toISOString(),
-  };
-}
-
-export function driveEventTitle(args: {
-  duty: Duty | "combined";
-  kidName: string;
-  leaveIso: string;
-  isEstimate: boolean;
-}): string {
-  // "3:40", no am/pm — the calendar slot already says which half of the day.
-  const parts = new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: TITLE_TZ,
-  }).formatToParts(new Date(args.leaveIso));
-  const hour = parts.find((p) => p.type === "hour")?.value ?? "";
-  const minute = parts.find((p) => p.type === "minute")?.value ?? "";
-  const arrow =
-    args.duty === "dropoff" ? "→" : args.duty === "pickup" ? "←" : "↔";
-  return `🚗 ${arrow} ${args.kidName} ${hour}:${minute}${args.isEstimate ? " (est.)" : ""}`;
-}
+// Block math + titles live in drive-window.ts (client-safe, shared with the
+// calendar client's ghost blocks); re-exported above for server callers.
 
 function sha12(input: string): string {
   return createHash("sha256").update(input).digest("hex").slice(0, 12);
@@ -261,7 +206,7 @@ function desiredFor(
     const pickW = driveBlockWindow({ duty: "pickup", ...windowArgs });
     const gapMin =
       (new Date(pickW.start).getTime() - new Date(dropW.end).getTime()) /
-      MIN_MS;
+      60_000;
     if (gapMin < COMBINE_GAP_MINUTES) {
       // The combined block lives on the DROPOFF assignment's ledger; the
       // pickup assignment stays saved but materializes nothing.
@@ -273,7 +218,7 @@ function desiredFor(
         title: driveEventTitle({
           duty: "combined",
           kidName,
-          leaveIso: window.start,
+          driveMinutes,
           isEstimate,
         }),
         isEstimate,
@@ -288,7 +233,7 @@ function desiredFor(
     title: driveEventTitle({
       duty: a.duty,
       kidName,
-      leaveIso: window.start,
+      driveMinutes,
       isEstimate,
     }),
     isEstimate,
@@ -455,6 +400,27 @@ async function reconcileEventLoaded(
     const desired = desiredFor(a, sibling, ev, settings, kidName);
     await writeDesired(supabase, a, ev, desired);
   }
+}
+
+// Per-event serialization for the deferred (after()) drive work. Duty taps are
+// non-blocking, so several reconciles for one event can be in flight at once;
+// chaining them prevents interleaved Google writes from orphaning a block.
+// Each queued run re-reads current assignment state, so intermediate clicks
+// collapse into the final one. In-process only — concurrent serverless
+// instances still rely on the deterministic-id/409 hardening + the cron sweep.
+const driveWorkQueues = new Map<string, Promise<void>>();
+
+export function queueDriveWork(
+  eventId: string,
+  fn: () => Promise<void>,
+): Promise<void> {
+  const prev = driveWorkQueues.get(eventId) ?? Promise.resolve();
+  const next = prev.then(fn, fn); // run regardless of the predecessor's fate
+  driveWorkQueues.set(eventId, next);
+  void next.finally(() => {
+    if (driveWorkQueues.get(eventId) === next) driveWorkQueues.delete(eventId);
+  });
+  return next;
 }
 
 /** Reconcile one event's drive blocks. The live path behind setEventDuty;

@@ -24,10 +24,6 @@ const SKIP_LOCATIONS = new Set(["tbd", "tba", "n/a", "unknown", "home"]);
 // so treat it as unknown (the block falls back to the marked estimate).
 const MAX_DRIVE_MINUTES = 240;
 
-/** Fallback drive time (each way) when no real one could be computed — the
- * block still lands on the calendar, marked as an estimate. */
-export const FALLBACK_DRIVE_MINUTES = 20;
-
 export interface LogisticsSettings {
   homeAddress: string;
   homeLat: number | null;

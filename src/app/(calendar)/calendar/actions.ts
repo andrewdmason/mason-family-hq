@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireUserId } from "@/lib/members/auth";
@@ -36,6 +37,7 @@ import {
 import {
   reconcileEventDrive,
   deleteDriveEvent,
+  queueDriveWork,
   ASSIGNMENT_COLUMNS,
   type DutyAssignmentRow,
   type Duty,
@@ -719,10 +721,11 @@ export async function setEventGoing(
  * unset (null — no row). */
 export type DutyState = { assignee: string | null; isNa: boolean } | null;
 
-/** Set (or clear) who's doing drop-off / pick-up for a kid's event. The DB
- * write is the source of truth and returns fast; the round-trip drive block on
- * the parent's Google calendar reconciles best-effort here, with the cron
- * sweep as the safety net. Owner/parent only. */
+/** Set (or clear) who's doing drop-off / pick-up for a kid's event. Only the
+ * DB write (the source of truth) happens before the response — every Google
+ * call (drive-block create/move/delete) runs via after(), so taps never block
+ * on the Calendar API. The cron sweep is the safety net if the deferred work
+ * dies. Owner/parent only. */
 export async function setEventDuty(
   eventId: string,
   duty: Duty,
@@ -774,23 +777,29 @@ export async function setEventDuty(
     .eq("duty", duty)
     .maybeSingle();
 
-  // Unset: tear down the drive block first (the row is the only link to it),
-  // then re-reconcile the event — the sibling duty may have been folded into a
-  // combined block that now needs to expand back to its own round trip.
+  // Unset: delete the row now; the Google teardown runs after the response,
+  // working from the captured ledger (the deleted row's pointers live on in
+  // `row`). The follow-up reconcile expands a sibling that had been folded
+  // into a combined block back to its own round trip.
   if (state === null) {
     if (existing) {
       const row = existing as unknown as DutyAssignmentRow;
-      try {
-        await deleteDriveEvent(admin, row);
-      } catch {
-        // best-effort: the cron sweep retries via the surviving ledger
-      }
       await admin.from("event_duty_assignments").delete().eq("id", row.id);
-      try {
-        await reconcileEventDrive(admin, eventId);
-      } catch {
-        // best-effort: the next sweep finishes the job
-      }
+      after(() =>
+        queueDriveWork(eventId, async () => {
+          try {
+            await deleteDriveEvent(admin, row);
+            await reconcileEventDrive(admin, eventId);
+            revalidatePath("/calendar");
+          } catch (err) {
+            // best-effort: the next sweep finishes the job
+            console.error(
+              `[drive] teardown failed after duty clear (event ${eventId}):`,
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }),
+      );
     }
     revalidatePath("/calendar");
     return { ok: true };
@@ -811,17 +820,23 @@ export async function setEventDuty(
     .single();
   if (error || !row) return { error: error?.message ?? "Couldn't save." };
 
-  // Event-level reconcile: both duties together, so giving one parent the
-  // second duty can collapse two round trips into one combined block.
-  try {
-    await reconcileEventDrive(admin, eventId);
-  } catch (err) {
-    // best-effort: state is saved; the next sweep writes/moves the block
-    console.error(
-      `[drive] reconcile failed after duty change (event ${eventId}):`,
-      err instanceof Error ? err.message : err,
-    );
-  }
+  // Event-level reconcile (both duties together, so giving one parent the
+  // second duty can collapse two round trips into one combined block) runs
+  // after the response — the tap shouldn't wait on the Calendar API.
+  after(() =>
+    queueDriveWork(eventId, async () => {
+      try {
+        await reconcileEventDrive(admin, eventId);
+        revalidatePath("/calendar");
+      } catch (err) {
+        // best-effort: state is saved; the next sweep writes/moves the block
+        console.error(
+          `[drive] reconcile failed after duty change (event ${eventId}):`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }),
+  );
 
   revalidatePath("/calendar");
   return { ok: true };

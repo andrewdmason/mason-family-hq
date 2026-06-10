@@ -6,7 +6,7 @@ import {
   getCalendarEvents,
   getEventAttendees,
   getEventDuties,
-  getHomeAddress,
+  getLogisticsHints,
 } from "@/lib/calendar/queries";
 import { CalendarClient } from "@/components/calendar/calendar-client";
 import { SyncTrigger } from "@/components/calendar/sync-trigger";
@@ -30,10 +30,10 @@ export default async function CalendarPage() {
   const canManage = me?.role === "owner" || me?.role === "parent";
   const currentMemberEmail = me?.email ?? null;
   const eventIds = events.map((e) => e.id);
-  const [goingByEvent, dutiesByEvent, homeAddress] = await Promise.all([
+  const [goingByEvent, dutiesByEvent, logistics] = await Promise.all([
     getEventAttendees(eventIds),
     getEventDuties(eventIds),
-    getHomeAddress(),
+    getLogisticsHints(),
   ]);
 
   // getCalendarMembers returns kids-first (Oscar, Sebastian, Andrew, Jenny);
@@ -50,7 +50,7 @@ export default async function CalendarPage() {
         events={events}
         goingByEvent={goingByEvent}
         dutiesByEvent={dutiesByEvent}
-        homeAddress={homeAddress}
+        logistics={logistics}
         canManage={canManage}
         currentMemberEmail={currentMemberEmail}
       />

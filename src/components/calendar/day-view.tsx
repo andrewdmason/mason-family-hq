@@ -352,6 +352,7 @@ export function DayView({
           className={cn(
             "absolute flex items-start justify-end overflow-hidden rounded-sm px-0.5 py-0.5",
             event.id === selectedEventId && "ring-1 ring-ring",
+            d.pendingDrive && "animate-pulse opacity-60",
           )}
         >
           {d.isTeamsnap && height >= TALL && (
@@ -374,6 +375,9 @@ export function DayView({
         className={cn(
           "absolute flex flex-col overflow-hidden rounded-sm border border-border/70 border-l-[3px] bg-white px-1.5 py-0.5 text-left transition-colors hover:bg-muted/40 dark:bg-card",
           event.id === selectedEventId && "ring-1 ring-ring",
+          // A duty tap's block-to-be: visible instantly, ghosted until the
+          // real mirror row replaces it.
+          d.pendingDrive && "animate-pulse opacity-60",
         )}
       >
         {showTime && (

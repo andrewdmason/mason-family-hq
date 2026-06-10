@@ -11,7 +11,7 @@ import type {
 } from "./types";
 
 const EVENT_COLUMNS =
-  "id, member_email, calendar_source_id, title, description, location, start_time, end_time, all_day, source_type, external_id, google_event_id, organizer_email, teamsnap_opponent, teamsnap_arrival_time, teamsnap_is_game, teamsnap_rsvp, recurrence, recurrence_parent_id, is_canceled, dismissed, drive_source_event_id, drive_duty";
+  "id, member_email, calendar_source_id, title, description, location, start_time, end_time, all_day, source_type, external_id, google_event_id, organizer_email, teamsnap_opponent, teamsnap_arrival_time, teamsnap_is_game, teamsnap_rsvp, recurrence, recurrence_parent_id, is_canceled, dismissed, drive_source_event_id, drive_duty, drive_minutes";
 
 const SOURCE_COLUMNS =
   "id, member_email, source_type, teamsnap_team_id, teamsnap_team_name, teamsnap_player_member_id, ics_url, google_calendar_id, google_connection_email, nickname, color, is_active, last_synced_at, sync_error";
@@ -109,16 +109,25 @@ export async function getEventAttendees(
   return out;
 }
 
-/** The configured home address (null until set). Used by the calendar UI to
- * recognize events located AT home, which need no drop-off/pick-up. */
-export async function getHomeAddress(): Promise<string | null> {
+export interface LogisticsHints {
+  // Recognizes events located AT home, which need no drop-off/pick-up.
+  homeAddress: string | null;
+  // Lets the client compute ghost drive blocks with the server's exact math.
+  bufferMinutes: number;
+}
+
+/** The logistics facts the calendar client needs (read-only). */
+export async function getLogisticsHints(): Promise<LogisticsHints> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("calendar_logistics_settings")
-    .select("home_address")
+    .select("home_address, drive_buffer_minutes")
     .eq("id", 1)
     .maybeSingle();
-  return (data?.home_address as string | null) ?? null;
+  return {
+    homeAddress: (data?.home_address as string | null) ?? null,
+    bufferMinutes: (data?.drive_buffer_minutes as number | null) ?? 5,
+  };
 }
 
 /** Drop-off / pick-up assignments per event, for the given event ids. A missing

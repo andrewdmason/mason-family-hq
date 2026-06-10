@@ -362,9 +362,10 @@ function GoingRow({
 
 // Drop-off / pick-up assignment: one row per duty, same avatar-tap pattern as
 // GoingRow plus an "N/A" chip for "no drive needed". Tap a parent to assign
-// (full color + ring), tap the selected one to clear back to unset. Writes
-// immediately — the drive block on the parent's Google calendar follows in the
-// background, so taps feel instant.
+// (full color + ring), tap the selected one to clear back to unset. Taps are
+// never blocked: the optimistic state flips instantly and the server work
+// (DB write, then the Google drive block in the background) catches up —
+// rapid re-clicks are resolved last-write-wins by the calendar client.
 function LogisticsRows({
   event,
   parents,
@@ -382,18 +383,11 @@ function LogisticsRows({
     state: EventDuty | null,
   ) => Promise<void>;
 }) {
-  const [pending, setPending] = useState<"dropoff" | "pickup" | null>(null);
   if (parents.length === 0) return null;
 
-  async function set(duty: "dropoff" | "pickup", next: EventDuty | null) {
-    setPending(duty);
-    try {
-      await onSetDuty(event.id, duty, next);
-    } catch {
-      // The parent reverts its optimistic state on failure.
-    } finally {
-      setPending(null);
-    }
+  function set(duty: "dropoff" | "pickup", next: EventDuty | null) {
+    // Fire and forget; the calendar client owns optimistic state + revert.
+    onSetDuty(event.id, duty, next).catch(() => {});
   }
 
   // The assigned parent has no Google calendar set up — the block shows in the
@@ -418,7 +412,7 @@ function LogisticsRows({
               <button
                 key={p.email}
                 type="button"
-                disabled={!canManage || pending === duty}
+                disabled={!canManage}
                 onClick={() =>
                   set(
                     duty,
@@ -445,7 +439,7 @@ function LogisticsRows({
           })}
           <button
             type="button"
-            disabled={!canManage || pending === duty}
+            disabled={!canManage}
             onClick={() =>
               set(duty, current?.isNa ? null : { assignee: null, isNa: true })
             }

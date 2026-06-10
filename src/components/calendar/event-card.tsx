@@ -45,6 +45,9 @@ export interface EventDisplay {
   // Drop-off/pick-up chips for a kid's timed event; null when duty doesn't
   // apply (adult-owned, all-day, or a drive block itself).
   duties: EventDutyChips | null;
+  // A client-synthesized drive block whose real mirror row hasn't landed yet —
+  // rendered translucent/pulsing so a duty tap shows its block instantly.
+  pendingDrive: boolean;
 }
 
 /** The drop-off (→) / pick-up (←) glyphs on a kid's event card. Assigned reads
@@ -259,6 +262,7 @@ export function EventColumnCard({
       className={cn(
         "block w-full rounded-sm border border-border/70 border-l-[3px] bg-white px-2 py-1.5 text-left transition-colors hover:bg-muted/40 dark:bg-card",
         selected && "ring-1 ring-ring",
+        display.pendingDrive && "animate-pulse opacity-60",
       )}
     >
       <span className="flex items-center gap-1 text-[11px] italic tabular-nums text-muted-foreground">
