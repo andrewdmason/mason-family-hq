@@ -7,7 +7,7 @@ import {
   getLogbookProjects,
   getProjects,
   getSelfEmail,
-  getTaskImages,
+  getTaskAttachments,
   getTodoMembers,
   getViewTasks,
   markInboxSeen,
@@ -57,10 +57,10 @@ export default async function TodoViewPage({
       getAreas(supabase),
       view === "logbook" ? getLogbookProjects(supabase) : Promise.resolve([]),
     ]);
-  const imagesByTask =
+  const attachmentsByTask =
     view === "logbook"
       ? {}
-      : await getTaskImages(supabase, tasks.map((t) => t.id));
+      : await getTaskAttachments(supabase, tasks.map((t) => t.id));
 
   return (
     <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-6 sm:px-6">
@@ -105,7 +105,7 @@ export default async function TodoViewPage({
               initialTasks={tasks}
               members={members}
               projects={projects}
-              imagesByTask={imagesByTask}
+              attachmentsByTask={attachmentsByTask}
               viewedEmail={viewed.email}
               selfEmail={selfEmail}
             />

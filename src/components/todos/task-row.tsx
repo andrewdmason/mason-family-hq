@@ -6,10 +6,10 @@ import {
   Check,
   CircleDashed,
   FileText,
-  Image as ImageIcon,
   Inbox,
   Layers,
   Moon,
+  Paperclip,
   Star,
   Sun,
   Trash2,
@@ -25,10 +25,12 @@ import { MemberAvatar } from "@/components/journal/member-avatar";
 import { AssigneePicker } from "@/components/todos/assignee-picker";
 import { firstNameOf } from "@/components/todos/member-name";
 import { SnoozeMenu } from "@/components/todos/snooze-menu";
-import { TaskImages, type UploadingImage } from "@/components/todos/task-images";
+import {
+  TaskAttachments,
+  type UploadingAttachment,
+} from "@/components/todos/task-attachments";
 import { TodoNotesEditor } from "@/components/todos/todo-notes-editor";
-import { isImageFile } from "@/lib/todos/image-upload";
-import type { TodoTaskImage } from "@/lib/todos/queries";
+import type { TodoTaskAttachment } from "@/lib/todos/queries";
 import { formatWake } from "@/lib/todos/snooze";
 import type {
   TodoBucket,
@@ -65,13 +67,13 @@ export type TaskRowHandlers = {
   onRenameTitle: (task: TodoTask, title: string) => void;
   onSetProject: (task: TodoTask, projectId: string | null) => void;
   onSaveNotes: (task: TodoTask, html: string) => void;
-  onAddImages: (task: TodoTask, files: File[]) => void;
-  onDeleteImage: (task: TodoTask, image: TodoTaskImage) => void;
+  onAddFiles: (task: TodoTask, files: File[]) => void;
+  onDeleteAttachment: (task: TodoTask, attachment: TodoTaskAttachment) => void;
 };
 
-/** Image files from a drop/paste payload (empty when it's not a file drag). */
-function imageFiles(list: FileList | null | undefined): File[] {
-  return Array.from(list ?? []).filter(isImageFile);
+/** Files from a drop/paste payload (empty when it's not a file payload). */
+function payloadFiles(list: FileList | null | undefined): File[] {
+  return Array.from(list ?? []);
 }
 
 /**
@@ -83,7 +85,7 @@ export function TaskRow({
   context,
   members,
   projects,
-  images,
+  attachments,
   uploading,
   viewedEmail,
   completing,
@@ -95,8 +97,8 @@ export function TaskRow({
   context: TaskRowContext;
   members: TodoMember[];
   projects: TodoProject[];
-  images: TodoTaskImage[];
-  uploading: UploadingImage[];
+  attachments: TodoTaskAttachment[];
+  uploading: UploadingAttachment[];
   viewedEmail: string;
   completing: boolean;
   expanded: boolean;
@@ -121,8 +123,9 @@ export function TaskRow({
         expanded && "bg-card shadow-sm ring-1 ring-foreground/10",
         dragOver && "ring-2 ring-primary/50"
       )}
-      // OS file drags attach images straight onto the task (dnd-kit's pointer
-      // sensor never sees these, so row sorting is unaffected).
+      // OS file drags attach straight onto the task — images and any other
+      // file type (dnd-kit's pointer sensor never sees these, so row sorting
+      // is unaffected).
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("Files")) {
           e.preventDefault();
@@ -131,10 +134,10 @@ export function TaskRow({
       }}
       onDragLeave={() => setDragOver(false)}
       onDrop={(e) => {
-        const files = imageFiles(e.dataTransfer.files);
+        const files = payloadFiles(e.dataTransfer.files);
         if (files.length > 0) {
           e.preventDefault();
-          handlers.onAddImages(task, files);
+          handlers.onAddFiles(task, files);
         }
         setDragOver(false);
       }}
@@ -165,10 +168,10 @@ export function TaskRow({
         {hasNotes && !expanded && (
           <FileText className="size-3.5 shrink-0 text-muted-foreground/60" />
         )}
-        {images.length > 0 && !expanded && (
+        {attachments.length > 0 && !expanded && (
           <span className="inline-flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground/60">
-            <ImageIcon className="size-3.5" />
-            {images.length}
+            <Paperclip className="size-3.5" />
+            {attachments.length}
           </span>
         )}
         {fromSomeoneElse && (
@@ -201,7 +204,7 @@ export function TaskRow({
           context={context}
           members={members}
           projects={projects}
-          images={images}
+          attachments={attachments}
           uploading={uploading}
           handlers={handlers}
         />
@@ -215,7 +218,7 @@ function ExpandedEditor({
   context,
   members,
   projects,
-  images,
+  attachments,
   uploading,
   handlers,
 }: {
@@ -223,8 +226,8 @@ function ExpandedEditor({
   context: TaskRowContext;
   members: TodoMember[];
   projects: TodoProject[];
-  images: TodoTaskImage[];
-  uploading: UploadingImage[];
+  attachments: TodoTaskAttachment[];
+  uploading: UploadingAttachment[];
   handlers: TaskRowHandlers;
 }) {
   const [title, setTitle] = useState(task.title);
@@ -247,14 +250,14 @@ function ExpandedEditor({
   return (
     <div
       className="space-y-3 px-3 pt-1 pb-3"
-      // Pasting a screenshot anywhere in the detail attaches it (text pastes
-      // pass through to the focused input/editor untouched).
+      // Pasting a screenshot (or any copied file) anywhere in the detail
+      // attaches it; text pastes pass through to the focused input/editor.
       onPasteCapture={(e) => {
-        const files = imageFiles(e.clipboardData?.files);
+        const files = payloadFiles(e.clipboardData?.files);
         if (files.length > 0) {
           e.preventDefault();
           e.stopPropagation();
-          handlers.onAddImages(task, files);
+          handlers.onAddFiles(task, files);
         }
       }}
     >
@@ -277,11 +280,11 @@ function ExpandedEditor({
         onSave={(html) => handlers.onSaveNotes(task, html)}
       />
 
-      <TaskImages
-        images={images}
+      <TaskAttachments
+        attachments={attachments}
         uploading={uploading}
-        onAddFiles={(files) => handlers.onAddImages(task, files)}
-        onDelete={(image) => handlers.onDeleteImage(task, image)}
+        onAddFiles={(files) => handlers.onAddFiles(task, files)}
+        onDelete={(attachment) => handlers.onDeleteAttachment(task, attachment)}
       />
 
       <div className="flex flex-wrap items-center gap-1">

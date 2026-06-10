@@ -1,14 +1,16 @@
 import { createClient } from "@/lib/supabase/client";
 import {
-  attachTaskImage,
-  createTaskImageUploadUrls,
+  attachTaskAttachment,
+  createTaskAttachmentUploadUrls,
 } from "@/app/(todos)/todos/actions";
 
-const IMAGES_BUCKET = "todo-images";
+const ATTACHMENTS_BUCKET = "todo-images";
 const MAX_DISPLAY_EDGE = 2000;
 
-/** Images only — tasks don't take videos. Extension fallback because drag
- * sources sometimes hand over files with an empty MIME type. */
+/** Whether a dropped/pasted file should get the image treatment (downscaled
+ * display copy + thumbnail grid). Extension fallback because drag sources
+ * sometimes hand over files with an empty MIME type. Everything else attaches
+ * as a plain file (PDFs, docs, …). */
 export function isImageFile(file: File): boolean {
   if (file.type.startsWith("image/")) return true;
   const ext = file.name.includes(".")
@@ -46,32 +48,48 @@ async function makeDisplayBlob(file: File): Promise<Blob> {
 }
 
 /**
- * Upload one image to a task: original + downscaled display copy via signed
- * URLs, then the todo_task_images row. Returns the new image id.
+ * Upload one attachment to a task. Images push an original + downscaled
+ * display copy; other files push just the original. Returns the new row id.
  */
-export async function uploadTaskImage(
+export async function uploadTaskAttachment(
   taskId: string,
   file: File
 ): Promise<string> {
-  const ext = file.name.split(".").pop() ?? "jpg";
-  const imageId = crypto.randomUUID();
-  const urls = await createTaskImageUploadUrls(taskId, imageId, ext);
-  const displayBlob = await makeDisplayBlob(file);
+  const kind = isImageFile(file) ? "image" : "file";
+  const ext = file.name.includes(".")
+    ? (file.name.split(".").pop() ?? "bin")
+    : "bin";
+  const attachmentId = crypto.randomUUID();
+  const urls = await createTaskAttachmentUploadUrls(
+    taskId,
+    attachmentId,
+    ext,
+    kind
+  );
   const supabase = createClient();
 
   const original = await supabase.storage
-    .from(IMAGES_BUCKET)
+    .from(ATTACHMENTS_BUCKET)
     .uploadToSignedUrl(urls.originalPath, urls.originalToken, file, {
       contentType: file.type || undefined,
     });
   if (original.error) throw original.error;
 
-  const display = await supabase.storage
-    .from(IMAGES_BUCKET)
-    .uploadToSignedUrl(urls.displayPath, urls.displayToken, displayBlob, {
-      contentType: displayBlob.type || "image/jpeg",
-    });
-  if (display.error) throw display.error;
+  if (kind === "image" && urls.displayPath && urls.displayToken) {
+    const displayBlob = await makeDisplayBlob(file);
+    const display = await supabase.storage
+      .from(ATTACHMENTS_BUCKET)
+      .uploadToSignedUrl(urls.displayPath, urls.displayToken, displayBlob, {
+        contentType: displayBlob.type || "image/jpeg",
+      });
+    if (display.error) throw display.error;
+  }
 
-  return attachTaskImage(taskId, urls.originalPath, urls.displayPath);
+  return attachTaskAttachment(taskId, {
+    originalPath: urls.originalPath,
+    displayPath: urls.displayPath,
+    kind,
+    fileName: file.name,
+    mimeType: file.type || null,
+  });
 }

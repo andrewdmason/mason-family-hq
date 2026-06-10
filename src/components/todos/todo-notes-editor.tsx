@@ -30,9 +30,14 @@ const TaskListWithShortcut = TaskList.extend({
 export function TodoNotesEditor({
   initialHtml,
   onSave,
+  onChange,
 }: {
   initialHtml: string;
-  onSave: (html: string) => void | Promise<void>;
+  /** Debounced + flushed on blur/unmount — the autosave path. */
+  onSave?: (html: string) => void | Promise<void>;
+  /** Every keystroke, undebounced — for forms that submit explicitly
+   * (the quick-add modal) and just need the current HTML. */
+  onChange?: (html: string) => void;
 }) {
   const latestHtmlRef = useRef<string>(initialHtml);
   const savedRef = useRef<string>(initialHtml);
@@ -43,6 +48,7 @@ export function TodoNotesEditor({
       clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
+    if (!onSave) return;
     const html = latestHtmlRef.current;
     if (html === savedRef.current) return;
     savedRef.current = html;
@@ -76,6 +82,7 @@ export function TodoNotesEditor({
     },
     onUpdate: ({ editor }) => {
       latestHtmlRef.current = editor.getHTML();
+      onChange?.(latestHtmlRef.current);
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(flushSave, 1500);
     },

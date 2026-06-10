@@ -200,44 +200,59 @@ export async function getProjectTasks(
   return ((data ?? []) as TodoTaskRow[]).map(taskFromRow);
 }
 
-export type TodoTaskImage = {
+export type TodoTaskAttachment = {
   id: string;
   taskId: string;
-  displayPath: string;
-  /** Signed display URL, valid ~1h (pages are force-dynamic, so always fresh). */
-  displayUrl: string;
+  kind: "image" | "file";
+  fileName: string | null;
+  /** Signed URL, valid ~1h (pages are force-dynamic, so always fresh):
+   * the display copy for images, the original for other files. */
+  url: string;
 };
 
-/** Images for a set of tasks, with signed display URLs, keyed by task id. */
-export async function getTaskImages(
+/** Attachments for a set of tasks, with signed URLs, keyed by task id. */
+export async function getTaskAttachments(
   supabase: Supabase,
   taskIds: string[]
-): Promise<Record<string, TodoTaskImage[]>> {
+): Promise<Record<string, TodoTaskAttachment[]>> {
   if (taskIds.length === 0) return {};
   const { data } = await supabase
-    .from("todo_task_images")
-    .select("id, task_id, display_path")
+    .from("todo_task_attachments")
+    .select("id, task_id, kind, file_name, display_path, original_path")
     .in("task_id", taskIds)
     .order("created_at", { ascending: true });
-  const rows = (data ?? []) as { id: string; task_id: string; display_path: string }[];
+  const rows = (data ?? []) as {
+    id: string;
+    task_id: string;
+    kind: "image" | "file";
+    file_name: string | null;
+    display_path: string | null;
+    original_path: string;
+  }[];
   if (rows.length === 0) return {};
+
+  const pathFor = (row: (typeof rows)[number]) =>
+    row.kind === "image" && row.display_path
+      ? row.display_path
+      : row.original_path;
 
   const { data: signed } = await supabase.storage
     .from("todo-images")
-    .createSignedUrls(rows.map((r) => r.display_path), 3600);
+    .createSignedUrls(rows.map(pathFor), 3600);
   const urlByPath = new Map(
     (signed ?? []).map((s) => [s.path, s.signedUrl] as const)
   );
 
-  const byTask: Record<string, TodoTaskImage[]> = {};
+  const byTask: Record<string, TodoTaskAttachment[]> = {};
   for (const row of rows) {
-    const url = urlByPath.get(row.display_path);
+    const url = urlByPath.get(pathFor(row));
     if (!url) continue;
     (byTask[row.task_id] ??= []).push({
       id: row.id,
       taskId: row.task_id,
-      displayPath: row.display_path,
-      displayUrl: url,
+      kind: row.kind,
+      fileName: row.file_name,
+      url,
     });
   }
   return byTask;

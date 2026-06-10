@@ -7,7 +7,7 @@ import {
   getProjects,
   getProjectTasks,
   getSelfEmail,
-  getTaskImages,
+  getTaskAttachments,
   getTodoMembers,
   sweepElapsedSnoozes,
 } from "@/lib/todos/queries";
@@ -46,7 +46,7 @@ export default async function ProjectPage({
   const project = projects.find((p) => p.id === id);
   if (!project) notFound();
 
-  const imagesByTask = await getTaskImages(supabase, tasks.map((t) => t.id));
+  const attachmentsByTask = await getTaskAttachments(supabase, tasks.map((t) => t.id));
 
   const area = areas.find((a) => a.id === project.areaId) ?? null;
   const openTasksByMember: Record<string, number> = {};
@@ -95,7 +95,7 @@ export default async function ProjectPage({
             initialTasks={tasks}
             members={members}
             projects={projects}
-            imagesByTask={imagesByTask}
+            attachmentsByTask={attachmentsByTask}
             viewedEmail={viewed.email}
             selfEmail={selfEmail}
           />

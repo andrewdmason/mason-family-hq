@@ -23,7 +23,7 @@ import {
   completeTask,
   createTask,
   deleteTask,
-  deleteTaskImage,
+  deleteTaskAttachment,
   clearSnooze,
   reassignTask,
   renormalizeTaskOrder,
@@ -41,11 +41,11 @@ import {
   type TaskRowContext,
   type TaskRowHandlers,
 } from "@/components/todos/task-row";
-import type { UploadingImage } from "@/components/todos/task-images";
+import type { UploadingAttachment } from "@/components/todos/task-attachments";
 import { Toast, ToastViewport } from "@/components/ui/toast";
-import { isImageFile, uploadTaskImage } from "@/lib/todos/image-upload";
+import { isImageFile, uploadTaskAttachment } from "@/lib/todos/attachment-upload";
 import { withAs } from "@/lib/todos/member-context";
-import type { TodoTaskImage } from "@/lib/todos/queries";
+import type { TodoTaskAttachment } from "@/lib/todos/queries";
 import { needsRenormalize, sortBetween } from "@/lib/todos/sort";
 import type {
   TodoBucket,
@@ -85,7 +85,7 @@ export function TaskList({
   initialTasks,
   members,
   projects,
-  imagesByTask = {},
+  attachmentsByTask = {},
   viewedEmail,
   selfEmail,
 }: {
@@ -93,7 +93,7 @@ export function TaskList({
   initialTasks: TodoTask[];
   members: TodoMember[];
   projects: TodoProject[];
-  imagesByTask?: Record<string, TodoTaskImage[]>;
+  attachmentsByTask?: Record<string, TodoTaskAttachment[]>;
   viewedEmail: string;
   selfEmail: string;
 }) {
@@ -102,9 +102,9 @@ export function TaskList({
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [undoTask, setUndoTask] = useState<TodoTask | null>(null);
-  const [images, setImages] = useState(imagesByTask);
+  const [attachments, setAttachments] = useState(attachmentsByTask);
   const [uploadingByTask, setUploadingByTask] = useState<
-    Record<string, UploadingImage[]>
+    Record<string, UploadingAttachment[]>
   >({});
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -114,7 +114,7 @@ export function TaskList({
 
   // Server refresh is the source of truth (post-action reconciliation).
   useEffect(() => setTasks(initialTasks), [initialTasks]);
-  useEffect(() => setImages(imagesByTask), [imagesByTask]);
+  useEffect(() => setAttachments(attachmentsByTask), [attachmentsByTask]);
 
   const inProject = context.mode === "project";
   const view: TodoView | null = context.mode === "view" ? context.view : null;
@@ -254,12 +254,12 @@ export function TaskList({
       patchLocally(task.id, { notesHtml: html });
       run(updateTaskNotes(task.id, html));
     },
-    onAddImages: (task, files) => {
-      const imagesToUpload = files.filter(isImageFile);
-      if (imagesToUpload.length === 0) return;
-      const placeholders = imagesToUpload.map((file) => ({
+    onAddFiles: (task, files) => {
+      if (files.length === 0) return;
+      const placeholders = files.map((file) => ({
         key: crypto.randomUUID(),
-        objectUrl: URL.createObjectURL(file),
+        name: file.name,
+        objectUrl: isImageFile(file) ? URL.createObjectURL(file) : null,
         file,
       }));
       setUploadingByTask((prev) => ({
@@ -271,7 +271,7 @@ export function TaskList({
       void Promise.allSettled(
         placeholders.map(async (placeholder) => {
           try {
-            await uploadTaskImage(task.id, placeholder.file);
+            await uploadTaskAttachment(task.id, placeholder.file);
           } finally {
             setUploadingByTask((prev) => ({
               ...prev,
@@ -279,17 +279,17 @@ export function TaskList({
                 (u) => u.key !== placeholder.key
               ),
             }));
-            URL.revokeObjectURL(placeholder.objectUrl);
+            if (placeholder.objectUrl) URL.revokeObjectURL(placeholder.objectUrl);
           }
         })
       ).then(() => router.refresh());
     },
-    onDeleteImage: (task, image) => {
-      setImages((prev) => ({
+    onDeleteAttachment: (task, attachment) => {
+      setAttachments((prev) => ({
         ...prev,
-        [task.id]: (prev[task.id] ?? []).filter((i) => i.id !== image.id),
+        [task.id]: (prev[task.id] ?? []).filter((a) => a.id !== attachment.id),
       }));
-      run(deleteTaskImage(image.id));
+      run(deleteTaskAttachment(attachment.id));
     },
   };
 
@@ -401,7 +401,7 @@ export function TaskList({
                           context={context}
                           members={members}
                           projects={projects}
-                          images={images[task.id] ?? []}
+                          attachments={attachments[task.id] ?? []}
                           uploading={uploadingByTask[task.id] ?? []}
                           viewedEmail={viewedEmail}
                           completing={completingIds.has(task.id)}

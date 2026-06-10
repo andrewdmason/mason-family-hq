@@ -38,8 +38,10 @@ export async function createTask(input: {
   assigneeEmail: string;
   bucket: TodoBucket;
   projectId?: string | null;
-  /** Plain text (e.g. the quick-add modal's Notes field) — converted to HTML. */
+  /** Plain text (e.g. the ingest path) — converted to paragraph HTML. */
   notes?: string;
+  /** Rich HTML (the quick-add modal's Tiptap notes) — sanitized like edits. */
+  notesHtml?: string;
 }): Promise<TodoTask> {
   const { supabase, selfEmail } = await ctx();
   const title = input.title.trim();
@@ -61,7 +63,11 @@ export async function createTask(input: {
     .from("todo_tasks")
     .insert({
       title,
-      notes_html: input.notes ? plainTextToNotesHtml(input.notes) : null,
+      notes_html: input.notesHtml
+        ? sanitizeNotesHtml(input.notesHtml)
+        : input.notes
+          ? plainTextToNotesHtml(input.notes)
+          : null,
       bucket: input.bucket,
       assignee_email: input.assigneeEmail,
       creator_email: selfEmail,
@@ -109,14 +115,18 @@ const NOTES_SANITIZE: sanitizeHtml.IOptions = {
   allowedSchemes: ["http", "https", "mailto", "tel"],
 };
 
-export async function updateTaskNotes(taskId: string, html: string): Promise<void> {
-  const { supabase } = await ctx();
+function sanitizeNotesHtml(html: string): string | null {
   const clean = sanitizeHtml(html, NOTES_SANITIZE);
   // Tiptap's empty document still serializes as "<p></p>" — store NULL.
   const isEmpty = clean.replace(/<[^>]*>/g, "").trim() === "";
+  return isEmpty ? null : clean;
+}
+
+export async function updateTaskNotes(taskId: string, html: string): Promise<void> {
+  const { supabase } = await ctx();
   const { error } = await supabase
     .from("todo_tasks")
-    .update({ notes_html: isEmpty ? null : clean })
+    .update({ notes_html: sanitizeNotesHtml(html) })
     .eq("id", taskId);
   if (error) throw error;
   revalidateTodos();
@@ -504,34 +514,49 @@ export async function revokeApiToken(tokenId: string): Promise<void> {
 }
 
 // ============================================================
-// Images (todo-images bucket; see migration 00130)
+// Attachments (todo-images bucket; see migrations 00130 + 00132)
 // ============================================================
 
-const IMAGES_BUCKET = "todo-images";
+const ATTACHMENTS_BUCKET = "todo-images";
 
-export async function createTaskImageUploadUrls(
+/**
+ * Sign upload URLs for one attachment. Images get an original + downscaled
+ * display pair; other files store just the original.
+ */
+export async function createTaskAttachmentUploadUrls(
   taskId: string,
-  imageId: string,
-  ext: string
+  attachmentId: string,
+  ext: string,
+  kind: "image" | "file"
 ): Promise<{
   originalPath: string;
   originalToken: string;
-  displayPath: string;
-  displayToken: string;
+  displayPath: string | null;
+  displayToken: string | null;
 }> {
   const { supabase } = await ctx();
-  const safeExt = ext.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
-  const originalPath = `${taskId}/${imageId}-original.${safeExt}`;
-  const displayPath = `${taskId}/${imageId}-display.jpg`;
+  const safeExt = ext.toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
+  const originalPath = `${taskId}/${attachmentId}-original.${safeExt}`;
 
   const original = await supabase.storage
-    .from(IMAGES_BUCKET)
+    .from(ATTACHMENTS_BUCKET)
     .createSignedUploadUrl(originalPath);
   if (original.error || !original.data) {
     throw new Error(original.error?.message ?? "Failed to create upload URL");
   }
+
+  if (kind !== "image") {
+    return {
+      originalPath: original.data.path,
+      originalToken: original.data.token,
+      displayPath: null,
+      displayToken: null,
+    };
+  }
+
+  const displayPath = `${taskId}/${attachmentId}-display.jpg`;
   const display = await supabase.storage
-    .from(IMAGES_BUCKET)
+    .from(ATTACHMENTS_BUCKET)
     .createSignedUploadUrl(displayPath);
   if (display.error || !display.data) {
     throw new Error(display.error?.message ?? "Failed to create upload URL");
@@ -545,45 +570,57 @@ export async function createTaskImageUploadUrls(
   };
 }
 
-export async function attachTaskImage(
+export async function attachTaskAttachment(
   taskId: string,
-  originalPath: string,
-  displayPath: string
+  input: {
+    originalPath: string;
+    displayPath: string | null;
+    kind: "image" | "file";
+    fileName: string;
+    mimeType: string | null;
+  }
 ): Promise<string> {
   const { supabase, selfEmail } = await ctx();
   const { data, error } = await supabase
-    .from("todo_task_images")
+    .from("todo_task_attachments")
     .insert({
       task_id: taskId,
-      original_path: originalPath,
-      display_path: displayPath,
+      original_path: input.originalPath,
+      display_path: input.displayPath,
+      kind: input.kind,
+      file_name: input.fileName,
+      mime_type: input.mimeType,
       uploaded_by_email: selfEmail,
     })
     .select("id")
     .single();
-  if (error || !data) throw new Error(error?.message ?? "Failed to attach image");
+  if (error || !data) throw new Error(error?.message ?? "Failed to attach file");
   revalidateTodos();
   return data.id as string;
 }
 
-export async function deleteTaskImage(imageId: string): Promise<void> {
+export async function deleteTaskAttachment(attachmentId: string): Promise<void> {
   const { supabase } = await ctx();
-  const { data: image } = await supabase
-    .from("todo_task_images")
+  const { data: attachment } = await supabase
+    .from("todo_task_attachments")
     .select("original_path, display_path")
-    .eq("id", imageId)
+    .eq("id", attachmentId)
     .maybeSingle();
-  if (!image) return;
+  if (!attachment) return;
 
   const { error } = await supabase
-    .from("todo_task_images")
+    .from("todo_task_attachments")
     .delete()
-    .eq("id", imageId);
+    .eq("id", attachmentId);
   if (error) throw error;
 
   await supabase.storage
-    .from(IMAGES_BUCKET)
-    .remove([image.original_path as string, image.display_path as string]);
+    .from(ATTACHMENTS_BUCKET)
+    .remove(
+      [attachment.original_path, attachment.display_path].filter(
+        (p): p is string => !!p
+      )
+    );
   revalidateTodos();
 }
 
