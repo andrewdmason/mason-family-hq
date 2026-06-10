@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   DndContext,
   PointerSensor,
@@ -71,6 +70,7 @@ import {
   parseDropKey,
 } from "@/lib/todos/drop-targets";
 import { withAs } from "@/lib/todos/member-context";
+import { useReconciler } from "@/lib/todos/reconcile";
 import type { TodoTaskAttachment } from "@/lib/todos/queries";
 import { snoozePresets } from "@/lib/todos/snooze";
 import { needsRenormalize, sortBetween } from "@/lib/todos/sort";
@@ -109,8 +109,10 @@ const countLabel = (list: TodoTask[]) =>
 /**
  * Client state for a task list — sidebar views and project pages share this.
  * The server page passes the fresh task set; mutations update local state
- * instantly, fire the server action, then router.refresh() reconciles
- * (sidebar badge included). Rows drag-reorder within their group.
+ * instantly, fire the server action, and one refresh reconciles (sidebar
+ * badge included) once every in-flight action has settled — see
+ * lib/todos/reconcile.ts. Rows drag-reorder within their group, or drop onto
+ * sidebar items.
  */
 export function TaskList({
   context,
@@ -129,7 +131,7 @@ export function TaskList({
   viewedEmail: string;
   selfEmail: string;
 }) {
-  const router = useRouter();
+  const { run, idle } = useReconciler();
   const [tasks, setTasks] = useState(initialTasks);
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
   // Things' interaction model: click selects (shift extends a range,
@@ -170,9 +172,30 @@ export function TaskList({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
-  // Server refresh is the source of truth (post-action reconciliation).
-  useEffect(() => setTasks(initialTasks), [initialTasks]);
-  useEffect(() => setAttachments(attachmentsByTask), [attachmentsByTask]);
+  // Server snapshots are the source of truth, but only between mutations
+  // (idle): a snapshot rendered before a later optimistic change committed
+  // would resurrect its old row — the drain refresh re-syncs afterwards. The
+  // open editor's draft fields also survive the swap (the user may still be
+  // mid-typing when a snapshot lands).
+  useEffect(() => {
+    if (!idle()) return;
+    setTasks((prev) => {
+      const editing = expandedId ? prev.find((t) => t.id === expandedId) : undefined;
+      if (!editing) return initialTasks;
+      return initialTasks.some((t) => t.id === editing.id)
+        ? initialTasks.map((t) =>
+            t.id === editing.id
+              ? { ...t, title: editing.title, notesHtml: editing.notesHtml }
+              : t
+          )
+        : [editing, ...initialTasks];
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTasks]);
+  useEffect(() => {
+    if (idle()) setAttachments(attachmentsByTask);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachmentsByTask]);
 
   const inProject = context.mode === "project";
   const view: TodoView | null = context.mode === "view" ? context.view : null;
@@ -193,14 +216,6 @@ export function TaskList({
     setTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, ...patch } : t))
     );
-  };
-
-  const run = async (action: Promise<unknown>) => {
-    try {
-      await action;
-    } finally {
-      router.refresh();
-    }
   };
 
   // Stable React keys across the temp→real id swap, so the in-place editor
@@ -431,21 +446,25 @@ export function TaskList({
       }));
       setExpandedId(task.id);
 
-      void Promise.allSettled(
-        placeholders.map(async (placeholder) => {
-          try {
-            await uploadTaskAttachment(task.id, placeholder.file);
-          } finally {
-            setUploadingByTask((prev) => ({
-              ...prev,
-              [task.id]: (prev[task.id] ?? []).filter(
-                (u) => u.key !== placeholder.key
-              ),
-            }));
-            if (placeholder.objectUrl) URL.revokeObjectURL(placeholder.objectUrl);
-          }
-        })
-      ).then(() => router.refresh());
+      // The whole batch rides one pending slot: the drain refresh picks up
+      // the stored attachments' signed URLs once every upload settles.
+      run(
+        Promise.allSettled(
+          placeholders.map(async (placeholder) => {
+            try {
+              await uploadTaskAttachment(task.id, placeholder.file);
+            } finally {
+              setUploadingByTask((prev) => ({
+                ...prev,
+                [task.id]: (prev[task.id] ?? []).filter(
+                  (u) => u.key !== placeholder.key
+                ),
+              }));
+              if (placeholder.objectUrl) URL.revokeObjectURL(placeholder.objectUrl);
+            }
+          })
+        )
+      );
     },
     onDeleteAttachment: (task, attachment) => {
       setAttachments((prev) => ({

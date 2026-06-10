@@ -20,12 +20,13 @@ import {
  * list you're looking at, never who you are. RLS is household-wide ("Family
  * access"), so these don't need ownership filters; the FK constraints validate
  * member emails.
+ *
+ * Task/project actions deliberately do NOT revalidatePath: every consumer
+ * reconciles client-side (useReconciler's drained router.refresh()), and the
+ * todos + home pages are force-dynamic, so revalidation here would only bolt
+ * a full page re-render onto every mutation's POST. Keeping the actions lean
+ * is what makes optimistic bursts (multi-select drops) cheap in production.
  */
-
-function revalidateTodos() {
-  revalidatePath("/todos", "layout");
-  revalidatePath("/home");
-}
 
 async function ctx() {
   const supabase = await createClient();
@@ -97,7 +98,6 @@ export async function createTask(input: {
     .single();
   if (error) throw error;
 
-  revalidateTodos();
   return taskFromRow(data as TodoTaskRow);
 }
 
@@ -110,7 +110,6 @@ export async function updateTaskTitle(taskId: string, title: string): Promise<vo
     .update({ title: trimmed })
     .eq("id", taskId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 // Tiptap output for the notes field: basic blocks, marks, links, and the
@@ -146,7 +145,6 @@ export async function updateTaskNotes(taskId: string, html: string): Promise<voi
     .update({ notes_html: sanitizeNotesHtml(html) })
     .eq("id", taskId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 /**
@@ -161,7 +159,6 @@ export async function moveTaskToInbox(taskId: string): Promise<void> {
     .update({ bucket: "inbox", project_id: null, snoozed_until: null })
     .eq("id", taskId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 /** Move a task between Inbox / Today / Anytime / Someday (clears any snooze). */
@@ -172,7 +169,6 @@ export async function setTaskBucket(taskId: string, bucket: TodoBucket): Promise
     .update({ bucket, snoozed_until: null })
     .eq("id", taskId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 /**
@@ -192,7 +188,6 @@ export async function reassignTask(taskId: string, assigneeEmail: string): Promi
     )
     .eq("id", taskId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 /** Snooze until a moment (ISO). The lazy sweep pops it into Today afterwards. */
@@ -205,7 +200,6 @@ export async function snoozeTask(taskId: string, untilIso: string): Promise<void
     .update({ snoozed_until: until.toISOString() })
     .eq("id", taskId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 /** Wake a snoozed task by hand — same landing spot as the sweep: Today. */
@@ -216,7 +210,6 @@ export async function clearSnooze(taskId: string): Promise<void> {
     .update({ snoozed_until: null, bucket: "today" })
     .eq("id", taskId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 export async function completeTask(taskId: string): Promise<void> {
@@ -230,7 +223,6 @@ export async function completeTask(taskId: string): Promise<void> {
     })
     .eq("id", taskId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 /** Logbook → back to the living list it was completed from. */
@@ -241,7 +233,6 @@ export async function uncompleteTask(taskId: string): Promise<void> {
     .update({ completed_at: null, completed_by_email: null })
     .eq("id", taskId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 /** Batch soft delete for multi-selection — confirmed via modal, no undo toast. */
@@ -253,7 +244,6 @@ export async function deleteTasks(taskIds: string[]): Promise<void> {
     .update({ deleted_at: new Date().toISOString() })
     .in("id", taskIds);
   if (error) throw error;
-  revalidateTodos();
 }
 
 /** Soft delete — the undo toast calls restoreTask; there is no Trash UI. */
@@ -264,7 +254,6 @@ export async function deleteTask(taskId: string): Promise<void> {
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", taskId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 export async function restoreTask(taskId: string): Promise<void> {
@@ -274,7 +263,6 @@ export async function restoreTask(taskId: string): Promise<void> {
     .update({ deleted_at: null })
     .eq("id", taskId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 // ============================================================
@@ -288,7 +276,6 @@ export async function setTaskSortOrder(taskId: string, sortOrder: number): Promi
     .update({ sort_order: sortOrder })
     .eq("id", taskId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 /** Reset a list's positions to 1..n when midpoints run out of precision. */
@@ -299,7 +286,6 @@ export async function renormalizeTaskOrder(orderedIds: string[]): Promise<void> 
       supabase.from("todo_tasks").update({ sort_order: index + 1 }).eq("id", id)
     )
   );
-  revalidateTodos();
 }
 
 export async function setProjectSortOrder(projectId: string, sortOrder: number): Promise<void> {
@@ -309,7 +295,6 @@ export async function setProjectSortOrder(projectId: string, sortOrder: number):
     .update({ sort_order: sortOrder })
     .eq("id", projectId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 export async function setAreaSortOrder(areaId: string, sortOrder: number): Promise<void> {
@@ -319,7 +304,6 @@ export async function setAreaSortOrder(areaId: string, sortOrder: number): Promi
     .update({ sort_order: sortOrder })
     .eq("id", areaId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 // ============================================================
@@ -347,7 +331,6 @@ export async function setTaskProject(taskId: string, projectId: string | null): 
     )
     .eq("id", taskId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 export async function createProject(name: string): Promise<{ id: string }> {
@@ -377,7 +360,6 @@ export async function createProject(name: string): Promise<{ id: string }> {
     .insert({ project_id: data.id, member_email: selfEmail });
   if (memberError) throw memberError;
 
-  revalidateTodos();
   return { id: data.id };
 }
 
@@ -390,7 +372,6 @@ export async function renameProject(projectId: string, name: string): Promise<vo
     .update({ name: trimmed })
     .eq("id", projectId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 export async function setProjectArea(projectId: string, areaId: string | null): Promise<void> {
@@ -400,7 +381,6 @@ export async function setProjectArea(projectId: string, areaId: string | null): 
     .update({ area_id: areaId })
     .eq("id", projectId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 export async function addProjectMember(projectId: string, memberEmail: string): Promise<void> {
@@ -412,7 +392,6 @@ export async function addProjectMember(projectId: string, memberEmail: string): 
       { onConflict: "project_id,member_email", ignoreDuplicates: true }
     );
   if (error) throw error;
-  revalidateTodos();
 }
 
 /**
@@ -445,7 +424,6 @@ export async function removeProjectMember(
     .eq("project_id", projectId)
     .eq("member_email", memberEmail);
   if (error) throw error;
-  revalidateTodos();
   return {};
 }
 
@@ -470,7 +448,6 @@ export async function completeProject(projectId: string): Promise<void> {
     .update({ completed_at: now, completed_by_email: selfEmail })
     .eq("id", projectId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 /** Logbook → bring a completed project back (its tasks stay completed). */
@@ -481,7 +458,6 @@ export async function uncompleteProject(projectId: string): Promise<void> {
     .update({ completed_at: null, completed_by_email: null })
     .eq("id", projectId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 /**
@@ -526,7 +502,6 @@ export async function restoreProject(projectId: string, deletedAt: string): Prom
     .update({ deleted_at: null })
     .eq("id", projectId);
   if (error) throw error;
-  revalidateTodos();
 }
 
 // ============================================================
@@ -651,7 +626,6 @@ export async function attachTaskAttachment(
     .select("id")
     .single();
   if (error || !data) throw new Error(error?.message ?? "Failed to attach file");
-  revalidateTodos();
   return data.id as string;
 }
 
@@ -677,7 +651,6 @@ export async function deleteTaskAttachment(attachmentId: string): Promise<void> 
         (p): p is string => !!p
       )
     );
-  revalidateTodos();
 }
 
 export async function createArea(name: string): Promise<{ id: string }> {
@@ -698,6 +671,5 @@ export async function createArea(name: string): Promise<{ id: string }> {
     .select("id")
     .single();
   if (error) throw error;
-  revalidateTodos();
   return { id: data.id };
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -49,6 +49,7 @@ import {
   viewDropKey,
 } from "@/lib/todos/drop-targets";
 import { withAs } from "@/lib/todos/member-context";
+import { useReconciler } from "@/lib/todos/reconcile";
 import { sortBetween } from "@/lib/todos/sort";
 import type {
   TodoArea,
@@ -187,12 +188,13 @@ export function TodosSidebar({
                 key={item.view}
                 href={href(`/todos/${item.view}`)}
                 className={cn(
-                  "inline-flex cursor-default items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap",
+                  "relative inline-flex cursor-default items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap",
                   isActive
                     ? "border-primary/30 bg-primary/10 text-foreground"
                     : "border-border bg-card text-muted-foreground"
                 )}
               >
+                <LinkPendingHighlight rounded="rounded-full" />
                 <Icon className={cn("size-3.5", item.iconClass)} />
                 {item.label}
                 {item.view === "inbox" && inboxCount > 0 && (
@@ -213,12 +215,13 @@ export function TodosSidebar({
               key={project.id}
               href={href(`/todos/project/${project.id}`)}
               className={cn(
-                "inline-flex cursor-default items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap",
+                "relative inline-flex cursor-default items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm whitespace-nowrap",
                 activeProjectId === project.id
                   ? "border-primary/30 bg-primary/10 text-foreground"
                   : "border-border bg-card text-muted-foreground"
               )}
             >
+              <LinkPendingHighlight rounded="rounded-full" />
               <CircleDashed className="size-3.5 text-primary/70" />
               {project.name}
             </Link>
@@ -232,6 +235,26 @@ export function TodosSidebar({
         </div>
       </nav>
     </>
+  );
+}
+
+/**
+ * Instant feedback for view switching. Sibling navigations (today → anytime)
+ * are param-only, so the (todos) loading boundary never re-shows — the old
+ * view rightly stays put while the server answers. Without this, a click on
+ * a slow connection reads as dead; the in-flight item lights up immediately
+ * instead. Rendered inside a <Link> (useLinkStatus's contract).
+ */
+function LinkPendingHighlight({ rounded = "rounded-lg" }: { rounded?: string }) {
+  const { pending } = useLinkStatus();
+  if (!pending) return null;
+  return (
+    <span
+      className={cn(
+        "pointer-events-none absolute inset-0 animate-pulse bg-accent/70",
+        rounded
+      )}
+    />
   );
 }
 
@@ -264,7 +287,7 @@ function SidebarLink({
       {...(dropKey ? { [DROP_TARGET_ATTR]: dropKey } : {})}
       className={cn(
         // Like Things: sidebar rows keep the normal arrow cursor.
-        "flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors",
+        "relative flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors",
         active
           ? "bg-accent/70 font-medium text-foreground"
           : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
@@ -272,10 +295,11 @@ function SidebarLink({
         dropActive && "bg-primary/15 text-foreground ring-1 ring-primary/40 ring-inset"
       )}
     >
-      <Icon className={cn("size-4 shrink-0", iconClass)} />
-      <span className="flex-1 truncate">{label}</span>
+      <LinkPendingHighlight />
+      <Icon className={cn("relative size-4 shrink-0", iconClass)} />
+      <span className="relative flex-1 truncate">{label}</span>
       {badge > 0 && (
-        <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-xs tabular-nums text-primary">
+        <span className="relative rounded-full bg-primary/15 px-1.5 py-0.5 text-xs tabular-nums text-primary">
           {badge}
         </span>
       )}
@@ -301,11 +325,19 @@ function ProjectsSection({
   dropTarget: string | null;
   href: (path: string) => string;
 }) {
-  // Local copies for optimistic drag reorder; props win after refresh.
+  // Local copies for optimistic drag reorder; server snapshots win once no
+  // reorder is in flight (a snapshot raced by a drag would snap items back).
+  const { run, idle } = useReconciler();
   const [orderedProjects, setOrderedProjects] = useState(projects);
   const [orderedAreas, setOrderedAreas] = useState(areas);
-  useEffect(() => setOrderedProjects(projects), [projects]);
-  useEffect(() => setOrderedAreas(areas), [areas]);
+  useEffect(() => {
+    if (idle()) setOrderedProjects(projects);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects]);
+  useEffect(() => {
+    if (idle()) setOrderedAreas(areas);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [areas]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -335,7 +367,7 @@ function ProjectsSection({
         .map((p) => (p.id === moved.id ? { ...p, sortOrder } : p))
         .sort((a, b) => a.sortOrder - b.sortOrder)
     );
-    void setProjectSortOrder(moved.id, sortOrder);
+    void run(setProjectSortOrder(moved.id, sortOrder));
   };
 
   const handleAreaDragEnd = (event: DragEndEvent) => {
@@ -355,7 +387,7 @@ function ProjectsSection({
         .map((a) => (a.id === moved.id ? { ...a, sortOrder } : a))
         .sort((a, b) => a.sortOrder - b.sortOrder)
     );
-    void setAreaSortOrder(moved.id, sortOrder);
+    void run(setAreaSortOrder(moved.id, sortOrder));
   };
 
   const projectList = (groupKey: string, group: TodoProject[]) => (
