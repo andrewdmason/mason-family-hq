@@ -21,11 +21,14 @@ import { cn } from "@/lib/utils";
 export function SnoozeMenu({
   onSnooze,
   triggerClassName,
+  label = "Snooze",
   open: openProp,
   onOpenChange,
 }: {
   onSnooze: (when: Date) => void;
   triggerClassName?: string;
+  /** Trigger text — e.g. the wake time when the task is already snoozed. */
+  label?: string;
   /** Controlled open (the keyboard `s` summons it); omit for internal state. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -60,7 +63,7 @@ export function SnoozeMenu({
         }
       >
         <Moon className="size-4 text-indigo-500" />
-        Snooze
+        {label}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 gap-1 p-1.5">
         {presets.map((preset) => (

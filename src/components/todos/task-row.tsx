@@ -383,7 +383,9 @@ function ExpandedEditor({
       />
 
       <div className="flex flex-wrap items-center gap-1">
-        {/* When: bucket moves (these also clear any snooze) */}
+        {/* When: one segmented control — the four buckets plus Snooze, which
+            is the same dimension ("when does this surface?") and opens its
+            preset picker in place. Bucket moves clear any snooze. */}
         <div className="flex items-center rounded-lg border border-border/70 p-0.5">
           {BUCKET_OPTIONS.map((option) => {
             const Icon = option.icon;
@@ -407,13 +409,19 @@ function ExpandedEditor({
               </button>
             );
           })}
+          <SnoozeMenu
+            label={task.snoozedUntil ? formatWake(task.snoozedUntil) : "Snooze"}
+            triggerClassName={cn(
+              "gap-1.5 rounded-md px-2 py-1 text-xs",
+              task.snoozedUntil
+                ? "bg-accent font-medium text-foreground"
+                : "text-muted-foreground hover:bg-transparent hover:text-foreground"
+            )}
+            onSnooze={(when) => handlers.onSnooze(task, when)}
+            open={openMenu === "snooze"}
+            onOpenChange={(open) => onMenuOpenChange("snooze", open)}
+          />
         </div>
-
-        <SnoozeMenu
-          onSnooze={(when) => handlers.onSnooze(task, when)}
-          open={openMenu === "snooze"}
-          onOpenChange={(open) => onMenuOpenChange("snooze", open)}
-        />
 
         {context.mode === "view" && context.view === "snoozed" && (
           <button
