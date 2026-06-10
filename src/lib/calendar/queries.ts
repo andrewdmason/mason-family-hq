@@ -3,10 +3,15 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { memberColor } from "./calendar-utils";
-import type { CalendarEvent, CalendarMember, CalendarSource } from "./types";
+import type {
+  CalendarEvent,
+  CalendarMember,
+  CalendarSource,
+  EventDuties,
+} from "./types";
 
 const EVENT_COLUMNS =
-  "id, member_email, calendar_source_id, title, description, location, start_time, end_time, all_day, source_type, external_id, google_event_id, organizer_email, teamsnap_opponent, teamsnap_arrival_time, teamsnap_is_game, teamsnap_rsvp, recurrence, recurrence_parent_id, is_canceled, dismissed";
+  "id, member_email, calendar_source_id, title, description, location, start_time, end_time, all_day, source_type, external_id, google_event_id, organizer_email, teamsnap_opponent, teamsnap_arrival_time, teamsnap_is_game, teamsnap_rsvp, recurrence, recurrence_parent_id, is_canceled, dismissed, drive_source_event_id, drive_duty";
 
 const SOURCE_COLUMNS =
   "id, member_email, source_type, teamsnap_team_id, teamsnap_team_name, teamsnap_player_member_id, ics_url, google_calendar_id, google_connection_email, nickname, color, is_active, last_synced_at, sync_error";
@@ -61,7 +66,7 @@ export async function getCalendarEvents(
 ): Promise<CalendarEvent[]> {
   const { rangeStart, rangeEnd } = range ?? defaultEventWindow();
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("calendar_events")
     .select(EVENT_COLUMNS)
     .eq("is_canceled", false)
@@ -69,8 +74,19 @@ export async function getCalendarEvents(
     .gte("start_time", rangeStart.toISOString())
     .lte("start_time", rangeEnd.toISOString())
     .order("start_time", { ascending: true });
+  if (error) {
+    // Don't let a schema/query failure read as "no events" — the classic local
+    // cause is a sibling workspace's db reset dropping this branch's columns
+    // (run `npm run db:heal`).
+    console.error("[calendar] events query failed:", error.message);
+  }
   return (data ?? []) as CalendarEvent[];
 }
+
+// NOTE: these per-event maps deliberately fetch ALL rows and filter in JS
+// rather than passing the event ids to PostgREST — an `.in()` with the
+// calendar window's ~1000 event ids overflows the URL line (HTTP 414) and
+// supabase-js surfaces that as silently-empty data.
 
 /** Who's marked "going" per event, for the given event ids. Returns a map of
  * event id -> member emails (only going=true rows). */
@@ -82,12 +98,48 @@ export async function getEventAttendees(
   const { data } = await supabase
     .from("event_attendees")
     .select("event_id, member_email")
-    .eq("going", true)
-    .in("event_id", eventIds);
+    .eq("going", true);
 
+  const wanted = new Set(eventIds);
   const out: Record<string, string[]> = {};
   for (const r of data ?? []) {
+    if (!wanted.has(r.event_id as string)) continue;
     (out[r.event_id as string] ??= []).push(r.member_email as string);
+  }
+  return out;
+}
+
+/** The configured home address (null until set). Used by the calendar UI to
+ * recognize events located AT home, which need no drop-off/pick-up. */
+export async function getHomeAddress(): Promise<string | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("calendar_logistics_settings")
+    .select("home_address")
+    .eq("id", 1)
+    .maybeSingle();
+  return (data?.home_address as string | null) ?? null;
+}
+
+/** Drop-off / pick-up assignments per event, for the given event ids. A missing
+ * duty key means unset (no row). */
+export async function getEventDuties(
+  eventIds: string[],
+): Promise<Record<string, EventDuties>> {
+  if (eventIds.length === 0) return {};
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("event_duty_assignments")
+    .select("event_id, duty, assignee_email, is_na");
+
+  const wanted = new Set(eventIds);
+  const out: Record<string, EventDuties> = {};
+  for (const r of data ?? []) {
+    if (!wanted.has(r.event_id as string)) continue;
+    (out[r.event_id as string] ??= {})[r.duty as "dropoff" | "pickup"] = {
+      assignee: r.assignee_email as string | null,
+      isNa: r.is_na as boolean,
+    };
   }
   return out;
 }

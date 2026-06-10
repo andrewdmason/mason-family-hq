@@ -35,7 +35,20 @@ export interface CalendarEvent {
   // Set when the user deleted the materialized event off their Google calendar:
   // treated as a decline (hidden, not recreated). Survives re-sync.
   dismissed: boolean;
+  // Set only on drive-block mirror rows (drive-events.ts): the kid's event this
+  // block drives to/from. The UI colors the block with the kid's color and
+  // opens the kid's event sheet on tap.
+  drive_source_event_id: string | null;
+  drive_duty: "dropoff" | "pickup" | null;
 }
+
+// A drop-off/pick-up duty's saved state. Unset is the absence of the key.
+export interface EventDuty {
+  assignee: string | null; // a parent's email, or null when isNa
+  isNa: boolean; // explicitly "no drive needed"
+}
+
+export type EventDuties = { dropoff?: EventDuty; pickup?: EventDuty };
 
 export interface CalendarSource {
   id: string;

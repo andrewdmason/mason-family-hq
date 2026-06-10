@@ -368,3 +368,27 @@ export function formatDisplayTitle(
 
   return event.title;
 }
+
+/** Whether an event's location IS home — "Home"-style names, or the family's
+ * configured home address (matched on the street number + name, so "2909
+ * Avalon Ave" and "2909 Avalon Ave. Berkeley, CA 94705" both hit). Home events
+ * need no drop-off/pick-up: no duty controls, no nudge, no drive blocks. */
+export function isHomeLocation(
+  location: string | null,
+  homeAddress?: string | null,
+): boolean {
+  if (!location) return false;
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const loc = norm(location);
+  if (loc === "home" || loc === "house" || loc === "our house") return true;
+  if (homeAddress) {
+    const street = norm(homeAddress).split(" ").slice(0, 2).join(" ");
+    if (street.length >= 6 && loc.startsWith(street)) return true;
+  }
+  return false;
+}

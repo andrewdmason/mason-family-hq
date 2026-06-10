@@ -25,6 +25,7 @@ import {
   formatDayLabel,
   formatMonthLabel,
   formatWeekLabel,
+  isHomeLocation,
   memberColor,
   parseAnchorDate,
   toDateKey,
@@ -35,6 +36,8 @@ import type {
   CalendarEvent,
   CalendarMember,
   CalendarSource,
+  EventDuties,
+  EventDuty,
 } from "@/lib/calendar/types";
 import { DayView } from "./day-view";
 import { AgendaView } from "./agenda-view";
@@ -42,8 +45,8 @@ import { WeekView } from "./week-view";
 import { MonthView } from "./month-view";
 import { EventSheet, type SheetMode } from "./event-sheet";
 import { SyncButton } from "./sync-button";
-import type { EventDisplay } from "./event-card";
-import { setEventGoing } from "@/app/(calendar)/calendar/actions";
+import type { DutyChip, EventDisplay, EventDutyChips } from "./event-card";
+import { setEventDuty, setEventGoing } from "@/app/(calendar)/calendar/actions";
 
 type View = "day" | "feed" | "week" | "month";
 
@@ -58,6 +61,8 @@ export function CalendarClient({
   sources,
   events,
   goingByEvent,
+  dutiesByEvent,
+  homeAddress,
   canManage,
   currentMemberEmail,
 }: {
@@ -65,6 +70,8 @@ export function CalendarClient({
   sources: CalendarSource[];
   events: CalendarEvent[];
   goingByEvent: Record<string, string[]>;
+  dutiesByEvent: Record<string, EventDuties>;
+  homeAddress: string | null;
   canManage: boolean;
   currentMemberEmail: string | null;
 }) {
@@ -124,6 +131,50 @@ export function CalendarClient({
     return { warning: res.warning };
   }
 
+  // Optimistic drop-off/pick-up overrides, layered over the server-fetched
+  // assignments the same way the "going" overrides are. A key set to null means
+  // "unset" (delete); an absent key means "no pending change".
+  const [dutyOverrides, setDutyOverrides] = useState<
+    Record<string, Partial<Record<"dropoff" | "pickup", EventDuty | null>>>
+  >({});
+
+  const dutiesFor = useCallback(
+    (eventId: string): EventDuties => {
+      const merged: EventDuties = { ...(dutiesByEvent[eventId] ?? {}) };
+      const ov = dutyOverrides[eventId];
+      if (ov) {
+        for (const duty of ["dropoff", "pickup"] as const) {
+          if (duty in ov) {
+            const v = ov[duty];
+            if (v == null) delete merged[duty];
+            else merged[duty] = v;
+          }
+        }
+      }
+      return merged;
+    },
+    [dutiesByEvent, dutyOverrides],
+  );
+
+  async function setDuty(
+    eventId: string,
+    duty: "dropoff" | "pickup",
+    state: EventDuty | null,
+  ): Promise<void> {
+    const before = dutiesFor(eventId)[duty] ?? null;
+    const set = (v: EventDuty | null) =>
+      setDutyOverrides((prev) => ({
+        ...prev,
+        [eventId]: { ...(prev[eventId] ?? {}), [duty]: v },
+      }));
+    set(state); // optimistic
+    const res = await setEventDuty(eventId, duty, state);
+    if ("error" in res) {
+      set(before); // revert
+      throw new Error(res.error);
+    }
+  }
+
   const sourcesById = useMemo(
     () => new Map(sources.map((s) => [s.id, s])),
     [sources],
@@ -135,6 +186,20 @@ export function CalendarClient({
   const memberColors = useMemo(
     () => new Map(members.map((m) => [m.email, m.color])),
     [members],
+  );
+  const kidEmails = useMemo(
+    () => new Set(members.filter((m) => m.role === "kid").map((m) => m.email)),
+    [members],
+  );
+  const parents = useMemo(
+    () => members.filter((m) => m.role !== "kid"),
+    [members],
+  );
+  // Raw events by id — resolves a drive block's source kid event (the raw list,
+  // not the logical one, so the link works even if the kid event was collapsed).
+  const eventsById = useMemo(
+    () => new Map(events.map((e) => [e.id, e])),
+    [events],
   );
 
   // How many active calendars each owner (member, or null for family) has. When
@@ -231,10 +296,19 @@ export function CalendarClient({
       const source = event.calendar_source_id
         ? sourcesById.get(event.calendar_source_id)
         : undefined;
+      // A drive block borrows the KID's color (not its parent owner's): color
+      // identity + flush time edges are what visually tie the block to the
+      // kid's event across the columns — no connector lines.
+      const driveSource = event.drive_source_event_id
+        ? eventsById.get(event.drive_source_event_id)
+        : undefined;
       // Member identity drives the card color so a card matches its column
       // header dot. Fall back to the source color (e.g. a family calendar with
       // no member) and finally a hashed color.
       const color =
+        (driveSource?.member_email
+          ? memberColors.get(driveSource.member_email)
+          : null) ??
         (event.member_email ? memberColors.get(event.member_email) : null) ??
         source?.color ??
         memberColor(event.member_email);
@@ -264,6 +338,29 @@ export function CalendarClient({
           color: memberColors.get(email) ?? memberColor(email),
         }),
       );
+      // Drop-off/pick-up chips: only kid-owned timed events carry duty (a
+      // drive block never does — it IS the duty — and an event AT home needs
+      // no transport at all).
+      let duties: EventDutyChips | null = null;
+      if (
+        !event.all_day &&
+        !event.drive_source_event_id &&
+        !isHomeLocation(event.location, homeAddress) &&
+        event.member_email &&
+        kidEmails.has(event.member_email)
+      ) {
+        const d = dutiesFor(event.id);
+        const chip = (v: EventDuty | undefined): DutyChip => {
+          if (!v) return "unset";
+          if (v.isNa || !v.assignee) return "na";
+          const name = memberNames.get(v.assignee) ?? v.assignee;
+          return {
+            initial: name.charAt(0).toUpperCase(),
+            color: memberColors.get(v.assignee) ?? memberColor(v.assignee),
+          };
+        };
+        duties = { dropoff: chip(d.dropoff), pickup: chip(d.pickup) };
+      }
       return {
         event,
         color,
@@ -273,6 +370,7 @@ export function CalendarClient({
         rsvp,
         isTeamsnap: source?.source_type === "teamsnap",
         attendees,
+        duties,
       };
     };
   }, [
@@ -282,10 +380,25 @@ export function CalendarClient({
     sourceCountByOwner,
     conflictIds,
     attendeesFor,
+    kidEmails,
+    dutiesFor,
+    eventsById,
   ]);
 
+  const logicalById = useMemo(
+    () => new Map(base.events.map((e) => [e.id, e])),
+    [base],
+  );
+
   function openDetail(event: CalendarEvent) {
-    setActiveEvent(event);
+    // A drive block opens its source kid event — the block is an artifact of
+    // the assignment, not a thing to inspect or edit on its own.
+    const target = event.drive_source_event_id
+      ? logicalById.get(event.drive_source_event_id) ??
+        eventsById.get(event.drive_source_event_id) ??
+        event
+      : event;
+    setActiveEvent(target);
     setSheetMode("detail");
     setSheetOpen(true);
   }
@@ -519,6 +632,17 @@ export function CalendarClient({
             : []
         }
         onToggleGoing={toggleGoing}
+        duties={activeEvent ? dutiesFor(activeEvent.id) : {}}
+        parents={parents}
+        showLogistics={
+          !!activeEvent &&
+          !activeEvent.all_day &&
+          !activeEvent.drive_source_event_id &&
+          !isHomeLocation(activeEvent.location, homeAddress) &&
+          !!activeEvent.member_email &&
+          kidEmails.has(activeEvent.member_email)
+        }
+        onSetDuty={setDuty}
       />
     </div>
   );

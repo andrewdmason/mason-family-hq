@@ -3,13 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "bash scripts/db-heal-local.sh",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "seed:media": "node supabase/seed-journal-photos.mjs",
     "seed:photos": "npm run seed:media",
-    "db:reset": "supabase db reset && npm run seed:media"
+    "db:heal": "bash scripts/db-heal-local.sh",
+    "db:reset": "supabase db reset && npm run seed:media && npm run db:heal"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",

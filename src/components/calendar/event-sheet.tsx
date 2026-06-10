@@ -25,6 +25,8 @@ import type {
   CalendarEvent,
   CalendarMember,
   CalendarSource,
+  EventDuties,
+  EventDuty,
 } from "@/lib/calendar/types";
 import {
   createManualEvent,
@@ -71,6 +73,10 @@ export function EventSheet({
   sourceLabel,
   going,
   onToggleGoing,
+  duties,
+  parents,
+  showLogistics,
+  onSetDuty,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -88,6 +94,14 @@ export function EventSheet({
     email: string,
     willGo: boolean,
   ) => Promise<{ warning?: string }>;
+  duties: EventDuties;
+  parents: CalendarMember[];
+  showLogistics: boolean;
+  onSetDuty: (
+    eventId: string,
+    duty: "dropoff" | "pickup",
+    state: EventDuty | null,
+  ) => Promise<void>;
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -101,6 +115,10 @@ export function EventSheet({
             canRsvp={canRsvp}
             going={going}
             onToggleGoing={onToggleGoing}
+            duties={duties}
+            parents={parents}
+            showLogistics={showLogistics}
+            onSetDuty={onSetDuty}
             onEdit={() => onModeChange("edit")}
             onClose={() => onOpenChange(false)}
           />
@@ -125,6 +143,10 @@ function DetailBody({
   canRsvp,
   going,
   onToggleGoing,
+  duties,
+  parents,
+  showLogistics,
+  onSetDuty,
   onEdit,
   onClose,
 }: {
@@ -139,6 +161,14 @@ function DetailBody({
     email: string,
     willGo: boolean,
   ) => Promise<{ warning?: string }>;
+  duties: EventDuties;
+  parents: CalendarMember[];
+  showLogistics: boolean;
+  onSetDuty: (
+    eventId: string,
+    duty: "dropoff" | "pickup",
+    state: EventDuty | null,
+  ) => Promise<void>;
   onEdit: () => void;
   onClose: () => void;
 }) {
@@ -215,6 +245,16 @@ function DetailBody({
           canManage={canManage}
           onToggleGoing={onToggleGoing}
         />
+        {showLogistics && (
+          <LogisticsRows
+            key={`duty-${event.id}`}
+            event={event}
+            parents={parents}
+            duties={duties}
+            canManage={canManage}
+            onSetDuty={onSetDuty}
+          />
+        )}
       </div>
       {canManage && isEditable && (
         <SheetFooter className="flex-row justify-between">
@@ -316,6 +356,128 @@ function GoingRow({
         })}
       </div>
       {warning && <p className="text-xs text-muted-foreground">{warning}</p>}
+    </div>
+  );
+}
+
+// Drop-off / pick-up assignment: one row per duty, same avatar-tap pattern as
+// GoingRow plus an "N/A" chip for "no drive needed". Tap a parent to assign
+// (full color + ring), tap the selected one to clear back to unset. Writes
+// immediately — the drive block on the parent's Google calendar follows in the
+// background, so taps feel instant.
+function LogisticsRows({
+  event,
+  parents,
+  duties,
+  canManage,
+  onSetDuty,
+}: {
+  event: CalendarEvent;
+  parents: CalendarMember[];
+  duties: EventDuties;
+  canManage: boolean;
+  onSetDuty: (
+    eventId: string,
+    duty: "dropoff" | "pickup",
+    state: EventDuty | null,
+  ) => Promise<void>;
+}) {
+  const [pending, setPending] = useState<"dropoff" | "pickup" | null>(null);
+  if (parents.length === 0) return null;
+
+  async function set(duty: "dropoff" | "pickup", next: EventDuty | null) {
+    setPending(duty);
+    try {
+      await onSetDuty(event.id, duty, next);
+    } catch {
+      // The parent reverts its optimistic state on failure.
+    } finally {
+      setPending(null);
+    }
+  }
+
+  // The assigned parent has no Google calendar set up — the block shows in the
+  // app but can't land on their real calendar yet.
+  const unsyncable = (["dropoff", "pickup"] as const)
+    .map((d) => duties[d]?.assignee)
+    .filter((email): email is string => !!email)
+    .map((email) => parents.find((p) => p.email === email))
+    .filter((p) => p && !p.primary_calendar_id);
+
+  function row(duty: "dropoff" | "pickup") {
+    const current = duties[duty];
+    return (
+      <div className="flex items-center gap-3">
+        <div className="w-20 shrink-0 text-xs font-medium text-muted-foreground">
+          {duty === "dropoff" ? "→ Drop-off" : "← Pick-up"}
+        </div>
+        <div className="flex items-center gap-2">
+          {parents.map((p) => {
+            const selected = current?.assignee === p.email;
+            return (
+              <button
+                key={p.email}
+                type="button"
+                disabled={!canManage || pending === duty}
+                onClick={() =>
+                  set(
+                    duty,
+                    selected ? null : { assignee: p.email, isNa: false },
+                  )
+                }
+                aria-pressed={selected}
+                title={`${p.name ?? p.email}${selected ? ` is doing ${duty === "dropoff" ? "drop-off" : "pick-up"}` : ""}`}
+                className={cn(
+                  "rounded-full transition-opacity disabled:cursor-not-allowed",
+                  selected ? "opacity-100" : "opacity-35 hover:opacity-60",
+                )}
+                style={
+                  selected
+                    ? {
+                        boxShadow: `0 0 0 2px var(--background), 0 0 0 4px ${p.color ?? "currentColor"}`,
+                      }
+                    : undefined
+                }
+              >
+                <MemberAvatar name={p.name} size="md" />
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            disabled={!canManage || pending === duty}
+            onClick={() =>
+              set(duty, current?.isNa ? null : { assignee: null, isNa: true })
+            }
+            aria-pressed={!!current?.isNa}
+            title="No drive needed"
+            className={cn(
+              "rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed",
+              current?.isNa
+                ? "border-foreground bg-foreground text-background"
+                : "border-border text-muted-foreground opacity-60 hover:opacity-100",
+            )}
+          >
+            N/A
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {row("dropoff")}
+      {row("pickup")}
+      {unsyncable.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {unsyncable
+            .map((p) => p?.name ?? p?.email)
+            .join(" and ")}{" "}
+          has no Google calendar connected — the drive time shows here but
+          won&rsquo;t reach their real calendar yet.
+        </p>
+      )}
     </div>
   );
 }

@@ -316,7 +316,9 @@ export async function deleteGoogleEvent(
   opts?: WriteOpts,
 ): Promise<void> {
   const token = await resolveToken(cred);
-  // 404/410 mean it's already gone — treat as success.
+  // 404/410 mean it's already gone — treat as success. (410 "Gone" is what
+  // Google actually returns for a previously-deleted event, so a retry after
+  // a partial failure must not choke on it.)
   try {
     await googleFetch(
       token,
@@ -328,7 +330,7 @@ export async function deleteGoogleEvent(
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";
-    if (!/error 40[049]/.test(msg)) throw err;
+    if (!/error 4(00|04|09|10)/.test(msg)) throw err;
   }
 }
 
