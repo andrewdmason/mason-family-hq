@@ -15,6 +15,8 @@ import { TodosSidebar } from "@/components/todos/todos-sidebar";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Settings" };
+
 /**
  * Todos settings: personal API tokens for the capture integrations (iOS
  * Reminders Shortcut, Raycast). Always your own — no ?as= here.

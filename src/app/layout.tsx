@@ -16,9 +16,11 @@ const lora = Lora({
 });
 
 export const metadata: Metadata = {
-  // Every page sets its own title (its app/view name); the template appends the
-  // product name so a browser tab or home-screen launch reads e.g. "Reader ·
-  // Mason Family HQ". Pages with no title fall back to the default.
+  // Apps title themselves like standalone products: each route group's layout
+  // sets an absolute title ("Todos", "Calendar") plus its own subpage template
+  // ("Snoozed · Todos") via appMetadata() — see src/lib/pwa/apps.ts. This root
+  // template only reaches pages outside an app group (e.g. /login), and the
+  // default covers pages with no title at all.
   title: {
     default: "Mason Family HQ",
     template: "%s · Mason Family HQ",
