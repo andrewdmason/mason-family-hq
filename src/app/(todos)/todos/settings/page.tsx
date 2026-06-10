@@ -56,6 +56,7 @@ export default async function TodosSettingsPage() {
           inboxCount={inboxCount}
           viewedEmail={viewed.email}
           selfEmail={selfEmail}
+          members={members}
           projects={projects}
           areas={areas}
         />

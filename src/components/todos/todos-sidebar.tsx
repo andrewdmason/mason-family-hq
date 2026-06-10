@@ -40,9 +40,15 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { MemberSwitcher } from "@/components/todos/member-switcher";
 import { withAs } from "@/lib/todos/member-context";
 import { sortBetween } from "@/lib/todos/sort";
-import type { TodoArea, TodoProject, TodoView } from "@/lib/todos/types";
+import type {
+  TodoArea,
+  TodoMember,
+  TodoProject,
+  TodoView,
+} from "@/lib/todos/types";
 import { cn } from "@/lib/utils";
 
 type ViewItem = {
@@ -74,6 +80,7 @@ export function TodosSidebar({
   inboxCount,
   viewedEmail,
   selfEmail,
+  members,
   projects,
   areas,
 }: {
@@ -82,6 +89,7 @@ export function TodosSidebar({
   inboxCount: number;
   viewedEmail: string;
   selfEmail: string;
+  members: TodoMember[];
   projects: TodoProject[];
   areas: TodoArea[];
 }) {
@@ -121,13 +129,23 @@ export function TodosSidebar({
 
           <NewProjectButton hrefFor={href} />
 
-          <Link
-            href="/todos/settings"
-            className="mt-1 flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground/70 hover:bg-accent/40 hover:text-foreground"
-          >
-            <KeyRound className="size-4" />
-            Integrations
-          </Link>
+          {/* Footer: occasional destinations, kept quiet. "Family" swaps the
+              whole app to another member's perspective. */}
+          <div className="mt-1">
+            <MemberSwitcher
+              members={members}
+              viewedEmail={viewedEmail}
+              selfEmail={selfEmail}
+              variant="sidebar"
+            />
+            <Link
+              href="/todos/settings"
+              className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground/70 hover:bg-accent/40 hover:text-foreground"
+            >
+              <KeyRound className="size-4" />
+              Integrations
+            </Link>
+          </div>
         </div>
       </nav>
 
@@ -173,6 +191,12 @@ export function TodosSidebar({
               {project.name}
             </Link>
           ))}
+          <MemberSwitcher
+            members={members}
+            viewedEmail={viewedEmail}
+            selfEmail={selfEmail}
+            variant="mobile"
+          />
         </div>
       </nav>
     </>

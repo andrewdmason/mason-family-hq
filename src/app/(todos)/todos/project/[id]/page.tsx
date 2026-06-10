@@ -11,7 +11,6 @@ import {
   getTodoMembers,
   sweepElapsedSnoozes,
 } from "@/lib/todos/queries";
-import { MemberSwitcher } from "@/components/todos/member-switcher";
 import { ProjectHeader } from "@/components/todos/project-header";
 import { TaskList } from "@/components/todos/task-list";
 import { TodosSidebar } from "@/components/todos/todos-sidebar";
@@ -64,20 +63,13 @@ export default async function ProjectPage({
           inboxCount={inboxCount}
           viewedEmail={viewed.email}
           selfEmail={selfEmail}
+          members={members}
           projects={projects}
           areas={areas}
         />
 
         <div className="min-w-0 flex-1">
           {viewed.email !== selfEmail && <ViewingBanner viewed={viewed} />}
-
-          <div className="mb-2 flex justify-end">
-            <MemberSwitcher
-              members={members}
-              viewedEmail={viewed.email}
-              selfEmail={selfEmail}
-            />
-          </div>
 
           <ProjectHeader
             project={project}

@@ -15,7 +15,6 @@ import {
 } from "@/lib/todos/queries";
 import { isTodoView, viewLabel } from "@/lib/todos/types";
 import { LogbookList } from "@/components/todos/logbook-list";
-import { MemberSwitcher } from "@/components/todos/member-switcher";
 import { QuickAddButton } from "@/components/todos/quick-add";
 import { TaskList } from "@/components/todos/task-list";
 import { TodosSidebar } from "@/components/todos/todos-sidebar";
@@ -70,6 +69,7 @@ export default async function TodoViewPage({
           inboxCount={inboxCount}
           viewedEmail={viewed.email}
           selfEmail={selfEmail}
+          members={members}
           projects={projects}
           areas={areas}
         />
@@ -81,20 +81,13 @@ export default async function TodoViewPage({
             <h1 className="font-serif text-2xl tracking-tight text-foreground">
               {viewLabel(view)}
             </h1>
-            <div className="flex items-center gap-2">
-              <QuickAddButton
-                label="New"
-                defaults={{
-                  assigneeEmail: viewed.email,
-                  bucket: view === "today" ? "today" : "inbox",
-                }}
-              />
-              <MemberSwitcher
-                members={members}
-                viewedEmail={viewed.email}
-                selfEmail={selfEmail}
-              />
-            </div>
+            <QuickAddButton
+              label="New"
+              defaults={{
+                assigneeEmail: viewed.email,
+                bucket: view === "today" ? "today" : "inbox",
+              }}
+            />
           </div>
 
           {view === "logbook" ? (
