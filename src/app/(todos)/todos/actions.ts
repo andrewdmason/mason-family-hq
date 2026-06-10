@@ -212,6 +212,18 @@ export async function uncompleteTask(taskId: string): Promise<void> {
   revalidateTodos();
 }
 
+/** Batch soft delete for multi-selection — confirmed via modal, no undo toast. */
+export async function deleteTasks(taskIds: string[]): Promise<void> {
+  if (taskIds.length === 0) return;
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_tasks")
+    .update({ deleted_at: new Date().toISOString() })
+    .in("id", taskIds);
+  if (error) throw error;
+  revalidateTodos();
+}
+
 /** Soft delete — the undo toast calls restoreTask; there is no Trash UI. */
 export async function deleteTask(taskId: string): Promise<void> {
   const { supabase } = await ctx();

@@ -107,7 +107,7 @@ export function TaskRow({
   completing: boolean;
   selected: boolean;
   expanded: boolean;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent) => void;
   onOpen: () => void;
   handlers: TaskRowHandlers;
 }) {

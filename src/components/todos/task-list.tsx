@@ -23,6 +23,7 @@ import {
   completeTask,
   createTask,
   deleteTask,
+  deleteTasks,
   deleteTaskAttachment,
   clearSnooze,
   reassignTask,
@@ -42,6 +43,15 @@ import {
   type TaskRowHandlers,
 } from "@/components/todos/task-row";
 import type { UploadingAttachment } from "@/components/todos/task-attachments";
+import { isTypingTarget } from "@/components/todos/quick-add";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Toast, ToastViewport } from "@/components/ui/toast";
 import { isImageFile, uploadTaskAttachment } from "@/lib/todos/attachment-upload";
 import { withAs } from "@/lib/todos/member-context";
@@ -100,9 +110,13 @@ export function TaskList({
   const router = useRouter();
   const [tasks, setTasks] = useState(initialTasks);
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
-  // Things' interaction model: one click selects, a double click opens.
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Things' interaction model: click selects (shift extends a range,
+  // cmd/ctrl toggles), double click opens, Delete asks then removes.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  // The shift-range anchor: the last plain/cmd click.
+  const anchorId = useRef<string | null>(null);
   const [undoTask, setUndoTask] = useState<TodoTask | null>(null);
   const [attachments, setAttachments] = useState(attachmentsByTask);
   const [uploadingByTask, setUploadingByTask] = useState<
@@ -124,7 +138,12 @@ export function TaskList({
   const removeLocally = (taskId: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
     setExpandedId((prev) => (prev === taskId ? null : prev));
-    setSelectedId((prev) => (prev === taskId ? null : prev));
+    setSelectedIds((prev) => {
+      if (!prev.has(taskId)) return prev;
+      const next = new Set(prev);
+      next.delete(taskId);
+      return next;
+    });
   };
 
   const patchLocally = (taskId: string, patch: Partial<TodoTask>) => {
@@ -334,6 +353,65 @@ export function TaskList({
     return result;
   }, [grouped, tasks, projects, viewedEmail, selfEmail]);
 
+  // Selection. Plain click selects one; shift extends a range from the last
+  // anchor through the visible order; cmd/ctrl toggles membership.
+  const visibleOrder = useMemo(
+    () => groups.flatMap((g) => g.tasks.map((t) => t.id)),
+    [groups]
+  );
+
+  const handleRowClick = (task: TodoTask, e: React.MouseEvent) => {
+    if (e.shiftKey && anchorId.current) {
+      const a = visibleOrder.indexOf(anchorId.current);
+      const b = visibleOrder.indexOf(task.id);
+      if (a >= 0 && b >= 0) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        setSelectedIds(new Set(visibleOrder.slice(lo, hi + 1)));
+      } else {
+        setSelectedIds(new Set([task.id]));
+        anchorId.current = task.id;
+      }
+    } else if (e.metaKey || e.ctrlKey) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(task.id)) next.delete(task.id);
+        else next.add(task.id);
+        return next;
+      });
+      anchorId.current = task.id;
+    } else {
+      setSelectedIds(new Set([task.id]));
+      anchorId.current = task.id;
+    }
+    // Clicking rows closes whatever is open.
+    setExpandedId(null);
+  };
+
+  const deleteSelected = () => {
+    const ids = [...selectedIds];
+    setConfirmDelete(false);
+    setSelectedIds(new Set());
+    setTasks((prev) => prev.filter((t) => !ids.includes(t.id)));
+    setExpandedId((prev) => (prev && ids.includes(prev) ? null : prev));
+    run(deleteTasks(ids));
+  };
+
+  // Delete/Backspace on a selection asks for confirmation; Escape clears the
+  // selection. Both stay quiet while typing or while a task is open for edit.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target) || expandedId) return;
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedIds.size > 0) {
+        e.preventDefault();
+        setConfirmDelete(true);
+      } else if (e.key === "Escape" && selectedIds.size > 0) {
+        setSelectedIds(new Set());
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedIds, expandedId]);
+
   const handleDragEnd = (event: DragEndEvent, group: TodoTask[]) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -408,15 +486,12 @@ export function TaskList({
                           uploading={uploadingByTask[task.id] ?? []}
                           viewedEmail={viewedEmail}
                           completing={completingIds.has(task.id)}
-                          selected={selectedId === task.id}
+                          selected={selectedIds.has(task.id)}
                           expanded={expandedId === task.id}
-                          onSelect={() => {
-                            setSelectedId(task.id);
-                            // Clicking another row closes whatever is open.
-                            setExpandedId(null);
-                          }}
+                          onSelect={(e) => handleRowClick(task, e)}
                           onOpen={() => {
-                            setSelectedId(task.id);
+                            setSelectedIds(new Set([task.id]));
+                            anchorId.current = task.id;
                             setExpandedId(task.id);
                           }}
                           handlers={handlers}
@@ -430,6 +505,34 @@ export function TaskList({
           ))}
         </div>
       )}
+
+      {/* Delete-key confirmation for the current selection */}
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>
+              Delete {selectedIds.size === 1 ? "this to-do" : `${selectedIds.size} to-dos`}?
+            </DialogTitle>
+            <DialogDescription>This can’t be undone from the app.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(false)}
+              className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent/50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={deleteSelected}
+              className="rounded-md bg-destructive px-3 py-1.5 text-sm font-medium text-white hover:bg-destructive/90"
+            >
+              Delete
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {undoTask && (
         <ToastViewport>
