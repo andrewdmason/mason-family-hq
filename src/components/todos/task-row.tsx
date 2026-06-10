@@ -150,9 +150,9 @@ export function TaskRow({
     >
       <div
         className={cn(
+          // Like Things: no hover wash — selection is the only row highlight.
           "group flex cursor-default items-center gap-2.5 rounded-lg px-2 py-2 transition-opacity duration-500",
-          !expanded && "hover:bg-accent/30",
-          !expanded && selected && "bg-accent/60",
+          !expanded && selected && "bg-accent/70",
           completing && "opacity-40"
         )}
         onClick={expanded ? undefined : onSelect}

@@ -72,7 +72,7 @@ export function LogbookList({
             {group.items.map((item) => (
               <div
                 key={`${item.kind}:${item.id}`}
-                className="flex items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-accent/30"
+                className="flex items-center gap-2.5 rounded-lg px-2 py-2"
               >
                 <TaskCheckbox checked onToggle={() => handleUncomplete(item)} />
                 <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground line-through decoration-foreground/20">
