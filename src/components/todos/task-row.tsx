@@ -514,12 +514,10 @@ function ProjectPicker({
           />
         }
       >
-        {inInbox ? (
-          <Inbox className="size-4 text-sky-700" />
-        ) : (
-          <CircleDashed className="size-4 text-primary/70" />
-        )}
-        {current?.name ?? (inInbox ? "Inbox" : "No project")}
+        {/* The chip stays the project's empty state even in the Inbox — the
+            When chip already says Inbox, and twins read as a glitch. */}
+        <CircleDashed className="size-4 text-primary/70" />
+        {current?.name ?? "No project"}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-52">
         <DropdownMenuItem
