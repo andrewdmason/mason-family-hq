@@ -9,9 +9,11 @@ export const metadata = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; consent?: string }>;
 }) {
-  const { error: authError } = await searchParams;
+  // ?consent=1 forces Google's consent screen to mint a fresh calendar refresh
+  // token — see GoogleSignIn for when that's needed.
+  const { error: authError, consent } = await searchParams;
 
   return (
     <div className="flex min-h-full flex-1 items-center justify-center px-4">
@@ -41,7 +43,7 @@ export default async function LoginPage({
               Sign in with your family Google account — journal, reading,
               calendar, and everything else under one roof.
             </p>
-            <GoogleSignIn />
+            <GoogleSignIn forceConsent={consent === "1"} />
           </div>
 
           <DevLoginSwitcher />
