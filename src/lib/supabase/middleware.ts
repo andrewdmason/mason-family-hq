@@ -42,7 +42,11 @@ export async function updateSession(request: NextRequest) {
     // The cron sync endpoint authenticates itself with a bearer secret (it's
     // called by pg_cron, which has no session) — see
     // src/app/api/cron/calendar-sync/route.ts.
-    !request.nextUrl.pathname.startsWith("/api/cron")
+    !request.nextUrl.pathname.startsWith("/api/cron") &&
+    // The todo ingest endpoint authenticates with a personal API token (it's
+    // called by the Apple Reminders Shortcut and Raycast, which have no
+    // session) — see src/app/api/todo/ingest/route.ts.
+    !request.nextUrl.pathname.startsWith("/api/todo/ingest")
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";

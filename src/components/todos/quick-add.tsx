@@ -1,0 +1,113 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Plus } from "lucide-react";
+import {
+  NewTaskModal,
+  type NewTaskDefaults,
+} from "@/components/todos/new-task-modal";
+import { inOpenOverlay, isTypingTarget } from "@/lib/todos/keyboard";
+import type { TodoMember } from "@/lib/todos/types";
+import { cn } from "@/lib/utils";
+
+/**
+ * Global quick-add: the new-to-do modal is mounted once (root layout, via
+ * global-quick-add.tsx) and summoned from anywhere — press `c` (Gmail/Linear's
+ * create key; single letters never collide with Chrome's shortcuts) or
+ * dispatch the window event via emitQuickAdd() / <QuickAddButton>. The same
+ * window-event pattern as src/lib/optimistic-task.ts, so openers don't need
+ * a shared React context across layouts.
+ */
+
+const QUICK_ADD_EVENT = "todo-quick-add";
+const QUICK_ADD_KEY = "c";
+
+export function emitQuickAdd(defaults?: NewTaskDefaults): void {
+  window.dispatchEvent(
+    new CustomEvent<NewTaskDefaults | undefined>(QUICK_ADD_EVENT, {
+      detail: defaults,
+    })
+  );
+}
+
+/** Mounted once; listens for the key + event and hosts the modal. */
+export function QuickAddHost({
+  members,
+  selfEmail,
+}: {
+  members: TodoMember[];
+  selfEmail: string;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [defaults, setDefaults] = useState<NewTaskDefaults | undefined>();
+
+  useEffect(() => {
+    const onEvent = (e: Event) => {
+      setDefaults((e as CustomEvent<NewTaskDefaults | undefined>).detail);
+      setOpen(true);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== QUICK_ADD_KEY) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      if (isTypingTarget(e.target) || inOpenOverlay(e.target)) return;
+      e.preventDefault();
+      // Like Things' quick entry, the When defaults to where you're standing:
+      // `c` on /todos/anytime preselects Anytime; the ?as= member carries
+      // over too. Anywhere else falls back to Inbox capture.
+      const match = window.location.pathname.match(
+        /^\/todos\/(inbox|today|anytime|someday)$/
+      );
+      const as = new URLSearchParams(window.location.search).get("as");
+      setDefaults({
+        bucket: (match?.[1] as NewTaskDefaults["bucket"]) ?? undefined,
+        assigneeEmail: as ?? undefined,
+      });
+      setOpen(true);
+    };
+    window.addEventListener(QUICK_ADD_EVENT, onEvent);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener(QUICK_ADD_EVENT, onEvent);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
+  return (
+    <NewTaskModal
+      open={open}
+      onOpenChange={setOpen}
+      members={members}
+      selfEmail={selfEmail}
+      defaults={defaults}
+      onCreated={() => router.refresh()}
+    />
+  );
+}
+
+/** A "+ New to-do" button that summons the global modal with context. */
+export function QuickAddButton({
+  defaults,
+  label = "New to-do",
+  className,
+}: {
+  defaults?: NewTaskDefaults;
+  label?: string;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => emitQuickAdd(defaults)}
+      title="New to-do (c)"
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-primary hover:bg-primary/10",
+        className
+      )}
+    >
+      <Plus className="size-4" />
+      {label}
+    </button>
+  );
+}

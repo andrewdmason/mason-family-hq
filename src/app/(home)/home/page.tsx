@@ -3,7 +3,9 @@ import { JournalStatusWidget } from "@/components/home/journal-status-widget";
 import { ReaderWidget } from "@/components/home/reader-widget";
 import { PracticeTrendWidget } from "@/components/home/practice-trend-widget";
 import { PersonStatusWidget } from "@/components/home/person-status-widget";
+import { TodosWidget } from "@/components/home/todos-widget";
 import { WorkoutWidget } from "@/components/home/workout-widget";
+import { getHomeTodos } from "@/lib/home/todos";
 import { getHomeWorkout } from "@/lib/home/workouts";
 import { getReadingHome } from "@/app/(reading)/reader/actions";
 import { getActiveQuizzesByBook } from "@/app/(reading)/reader/quizzes/actions";
@@ -35,6 +37,7 @@ export default async function HomePage() {
     reading,
     personStatuses,
     workout,
+    todos,
   ] = await Promise.all([
     getIsOwner(),
     getJournalStatus("private", today),
@@ -42,6 +45,7 @@ export default async function HomePage() {
     getReadingHome().catch(() => null),
     getHomePersonStatuses(tz, member.email).catch(() => []),
     getHomeWorkout().catch(() => null),
+    getHomeTodos().catch(() => null),
   ]);
 
   // The most recently active in-progress book powers the Reader widget; a
@@ -72,6 +76,7 @@ export default async function HomePage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Main column */}
         <div className="space-y-4 lg:col-span-2">
+          {todos && <TodosWidget data={todos} />}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <JournalStatusWidget
               audience="private"

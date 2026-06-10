@@ -12,6 +12,7 @@ import {
   Dumbbell,
   GraduationCap,
   House,
+  ListTodo,
   Music,
   NotebookPen,
   Settings,
@@ -48,6 +49,13 @@ const APPS: App[] = [
     match: "/family",
     description: "Shared journal feed",
     icon: Users,
+  },
+  {
+    href: "/todos",
+    label: "Todos",
+    match: "/todos",
+    description: "Family to-do lists",
+    icon: ListTodo,
   },
   {
     href: "/reader",

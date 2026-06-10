@@ -175,6 +175,50 @@
   margin: 0.5em 0;
 }
 
+/* Links open on click (Linear-style) — pointer cursor, and a hover bubble
+   revealing the destination since the text usually shows the page title. */
+.prose-editor a {
+  position: relative;
+  color: var(--primary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--primary) 35%, transparent);
+  text-underline-offset: 2px;
+  transition: text-decoration-color 120ms ease;
+}
+
+.prose-editor a:hover {
+  text-decoration-color: var(--primary);
+}
+
+.prose-editor a::after {
+  content: attr(href);
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  z-index: 20;
+  max-width: 24rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border);
+  background: var(--popover);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-decoration: none;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.08);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease 200ms;
+}
+
+.prose-editor a:hover::after {
+  opacity: 1;
+}
+
 .prose-editor strong {
   font-weight: 600;
 }
