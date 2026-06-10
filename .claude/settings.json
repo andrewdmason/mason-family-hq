@@ -1,4 +1,14 @@
 {
+  "permissions": {
+    "deny": [
+      "mcp__supabase-server__apply_migration",
+      "mcp__vercel__add_toolbar_reaction",
+      "mcp__vercel__change_toolbar_thread_resolve_status",
+      "mcp__vercel__edit_toolbar_message",
+      "mcp__vercel__reply_to_toolbar_thread",
+      "mcp__vercel__get_access_to_vercel_url"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -7,6 +17,10 @@
           {
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-port-3000.js\""
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-vercel-writes.js\""
           }
         ]
       }

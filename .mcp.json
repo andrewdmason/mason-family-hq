@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "supabase-server": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "-p",
+        "@supabase/mcp-server-supabase@0.8.2",
+        "-p",
+        "@modelcontextprotocol/sdk@1.29.0",
+        "-p",
+        "zod@3.25.76",
+        "mcp-server-supabase",
+        "--read-only",
+        "--project-ref=evemrivkogdwmrgrdayc",
+        "--features=database,docs"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}"
+      }
+    },
+    "vercel": {
+      "type": "http",
+      "url": "https://mcp.vercel.com/personal-acabf465/practice-book"
+    }
+  }
+}
