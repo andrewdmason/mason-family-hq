@@ -1,7 +1,9 @@
 // Generates the Mason Family HQ app icons + favicons, plus a distinct icon for
 // each "app" (route group) so a PWA installed from /workouts gets a dumbbell
 // tile, /reader a book, and so on — and the browser tab favicon matches too
-// (each route group gets its own icon0.svg/icon1.png pair).
+// (each route group gets its own icon0.svg/icon1.png pair). Favicons draw the
+// same art enlarged (FAVICON_* constants): browser tabs don't mask the icon,
+// and at 16px the safe-zone-sized glyph is too small to read.
 //
 // The master mark is a warm cream house (with a heart window) on a terracotta
 // gradient — drawn entirely with canvas primitives so it stays crisp at every
@@ -39,6 +41,17 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TERRA_TOP = "#a8623f";
 const TERRA_BOTTOM = "#7f4327";
 const CREAM = "#f7f1e5";
+
+// Favicon-only enlargements. Browser tabs don't mask the icon, so favicon art
+// can run much bigger than the PWA maskable safe zone (which keeps the tile
+// glyphs at 46%). Glyphs get ~74% of the tile with a slightly thicker stroke
+// so the line doesn't read thin once enlarged; the house mark scales a bit
+// less so its roof keeps clear of the rounded corners.
+const FAVICON_GLYPH_SCALE = 0.74;
+const FAVICON_GLYPH_STROKE = 2.5;
+const FAVICON_HOUSE_SCALE = 1.22;
+const TILE_GLYPH_SCALE = 0.46;
+const TILE_GLYPH_STROKE = 2;
 
 // Each app's tile: a per-hue gradient (kept warm/muted so the set reads as one
 // family) plus its switcher glyph. `group` is the route-group folder that gets
@@ -78,8 +91,12 @@ function drawBackground(ctx, size, top, bottom) {
 
 // --- House mark (home + favicon) ---------------------------------------------
 /** Draw the cream house with a heart-window cut-out, full-bleed. */
-function drawHouse(ctx, size, top, bottom) {
+function drawHouse(ctx, size, top, bottom, houseScale = 1) {
   const u = (n) => n * size;
+  ctx.save();
+  ctx.translate(size / 2, size / 2);
+  ctx.scale(houseScale, houseScale);
+  ctx.translate(-size / 2, -size / 2);
   const grad = ctx.createLinearGradient(0, 0, size, size);
   grad.addColorStop(0, top);
   grad.addColorStop(1, bottom);
@@ -123,6 +140,7 @@ function drawHouse(ctx, size, top, bottom) {
   ctx.clip();
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
+  ctx.restore();
   ctx.restore();
 }
 
@@ -209,16 +227,17 @@ function strokeRoundRect(ctx, x, y, w, h, r) {
   ctx.stroke();
 }
 
-/** Draw a Lucide glyph centred in the maskable safe zone, in cream. */
-function drawGlyph(ctx, size, IconComponent) {
-  const glyphSize = size * 0.46; // sits well inside the 80% maskable safe zone
+/** Draw a Lucide glyph centred, in cream. Tiles keep the glyph inside the 80%
+ * maskable safe zone (46%); favicons blow it up for tab legibility. */
+function drawGlyph(ctx, size, IconComponent, glyphScale = TILE_GLYPH_SCALE, stroke = TILE_GLYPH_STROKE) {
+  const glyphSize = size * glyphScale;
   const scale = glyphSize / 24; // Lucide's viewBox is 24×24
   ctx.save();
   ctx.translate(size / 2 - glyphSize / 2, size / 2 - glyphSize / 2);
   ctx.scale(scale, scale);
   ctx.strokeStyle = CREAM;
   ctx.fillStyle = "transparent";
-  ctx.lineWidth = 2; // Lucide's native stroke width, scaled with the glyph
+  ctx.lineWidth = stroke; // Lucide-native is 2, scaled with the glyph
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   for (const el of lucideElements(IconComponent)) strokeSvgElement(ctx, el);
@@ -230,7 +249,7 @@ function drawGlyph(ctx, size, IconComponent) {
 // get their corners rounded here, at the icon.svg's 112/512 radius.
 const CORNER = 112 / 512;
 
-function appCanvas(size, app, { rounded = false } = {}) {
+function appCanvas(size, app, { rounded = false, favicon = false } = {}) {
   const canvas = createCanvas(size, size);
   const ctx = canvas.getContext("2d");
   if (rounded) {
@@ -238,29 +257,51 @@ function appCanvas(size, app, { rounded = false } = {}) {
     ctx.clip();
   }
   drawBackground(ctx, size, app.top, app.bottom);
-  if (app.glyph) drawGlyph(ctx, size, app.glyph);
-  else drawHouse(ctx, size, app.top, app.bottom);
+  if (app.glyph)
+    drawGlyph(
+      ctx, size, app.glyph,
+      favicon ? FAVICON_GLYPH_SCALE : TILE_GLYPH_SCALE,
+      favicon ? FAVICON_GLYPH_STROKE : TILE_GLYPH_STROKE
+    );
+  else drawHouse(ctx, size, app.top, app.bottom, favicon ? FAVICON_HOUSE_SCALE : 1);
   return canvas;
 }
 
-const appPng = (size, app, opts) => appCanvas(size, app, opts).toBuffer("image/png");
+function appPng(size, app, opts = {}) {
+  // Tiny favicons get rendered 8× and downscaled — stroking directly at
+  // 16–48px aliases badly.
+  if (size < 64) {
+    const big = appCanvas(size * 8, app, opts);
+    const canvas = createCanvas(size, size);
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(big, 0, 0, size, size);
+    return canvas.toBuffer("image/png");
+  }
+  return appCanvas(size, app, opts).toBuffer("image/png");
+}
 
 // --- Favicons (SVG) ------------------------------------------------------------
 // A crisp vector favicon: the app's tile art with rounded corners. Modern
 // browsers (Chrome, Firefox) prefer this over the .ico/.png fallbacks.
 function appSvg(app) {
-  // Same geometry as drawGlyph: a 24×24 Lucide viewBox scaled to ~46% of the
-  // tile, centred. We inline the icon's rendered child elements (bare paths
-  // that inherit stroke styling from the wrapping <g>).
+  // Favicon geometry (bigger than the PWA tiles): a 24×24 Lucide viewBox
+  // scaled to FAVICON_GLYPH_SCALE of the tile, centred. We inline the icon's
+  // rendered child elements (bare paths that inherit stroke styling from the
+  // wrapping <g>). The house mark scales up around the tile centre instead.
+  const glyphSide = 512 * FAVICON_GLYPH_SCALE;
   const art = app.glyph
-    ? `<g transform="translate(138.24 138.24) scale(${(512 * 0.46) / 24})" fill="none" stroke="${CREAM}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${renderToStaticMarkup(createElement(app.glyph))
+    ? `<g transform="translate(${(512 - glyphSide) / 2} ${(512 - glyphSide) / 2}) scale(${glyphSide / 24})" fill="none" stroke="${CREAM}" stroke-width="${FAVICON_GLYPH_STROKE}" stroke-linecap="round" stroke-linejoin="round">${renderToStaticMarkup(createElement(app.glyph))
         .replace(/^<svg[^>]*>/, "")
         .replace(/<\/svg>$/, "")}</g>`
-    : `<path d="M256 102 L430 235 L82 235 Z" fill="${CREAM}" stroke="${CREAM}" stroke-width="28" stroke-linejoin="round"/>
+    : `<g transform="translate(256 256) scale(${FAVICON_HOUSE_SCALE}) translate(-256 -256)">
+  <path d="M256 102 L430 235 L82 235 Z" fill="${CREAM}" stroke="${CREAM}" stroke-width="28" stroke-linejoin="round"/>
   <rect x="131" y="235" width="250" height="185" rx="15" fill="${CREAM}"/>
   <path d="M256 349
            C 331 290, 290 221, 256 259
-           C 222 221, 181 290, 256 349 Z" fill="url(#bg)"/>`;
+           C 222 221, 181 290, 256 349 Z" fill="url(#bg)"/>
+  </g>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
@@ -286,7 +327,7 @@ for (const app of APPS) {
   if (app.key !== "home") {
     writeFileSync(join(root, `src/app/${app.group}/apple-icon.png`), appPng(180, app));
     writeFileSync(join(root, `src/app/${app.group}/icon0.svg`), appSvg(app));
-    writeFileSync(join(root, `src/app/${app.group}/icon1.png`), appPng(32, app, { rounded: true }));
+    writeFileSync(join(root, `src/app/${app.group}/icon1.png`), appPng(32, app, { rounded: true, favicon: true }));
     console.log(`wrote src/app/${app.group}/{apple-icon.png,icon0.svg,icon1.png}`);
   }
 }
@@ -350,7 +391,7 @@ console.log("wrote src/app/apple-icon.png (180x180)");
 
 // favicon.ico (16, 32, 48, packed as PNG entries).
 function buildIco(sizes) {
-  const images = sizes.map((s) => ({ size: s, data: housePng(s) }));
+  const images = sizes.map((s) => ({ size: s, data: appPng(s, house, { favicon: true }) }));
   const header = Buffer.alloc(6);
   header.writeUInt16LE(0, 0); // reserved
   header.writeUInt16LE(1, 2); // type: icon
