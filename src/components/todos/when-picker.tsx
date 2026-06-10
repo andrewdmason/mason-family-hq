@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Archive,
   Check,
@@ -17,6 +17,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { formatWake, snoozePresets } from "@/lib/todos/snooze";
+import { suggestWhen, type WhenSuggestion } from "@/lib/todos/when-suggest";
 import type { TodoBucket } from "@/lib/todos/types";
 import { cn } from "@/lib/utils";
 
@@ -30,14 +31,18 @@ const BUCKET_META: Record<
   someday: { label: "Someday", icon: Archive, iconClass: "text-stone-500" },
 };
 
+const itemClass =
+  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent/60";
+
 /**
  * Things' "When" control, one chip + one picker. The chip always names the
  * task's current state (Today, Anytime, Someday, Inbox, or its wake time when
- * snoozed); the picker offers Today, This evening, a mini calendar (a day
- * click snoozes until that day at the time below it), then Anytime and
- * Someday. Inbox is deliberately NOT a destination here — it's the absence of
- * triage, a location: a task leaves it by getting a When (or a project), and
- * returns only via the project picker's "Inbox".
+ * snoozed); the picker opens to a focused type-ahead ("tom", "fri", "in 3
+ * days"…) above Today, This evening, a mini calendar (a day click snoozes
+ * until that day at the time below it), then Anytime and Someday. Inbox is
+ * deliberately NOT a destination here — it's the absence of triage, a
+ * location: a task leaves it by getting a When (or a project), and returns
+ * only via the project picker's "Inbox".
  */
 export function WhenPicker({
   bucket,
@@ -83,9 +88,10 @@ export function WhenPicker({
     setOpen(false);
     onSnooze(when);
   };
-
-  const itemClass =
-    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent/60";
+  const pickSuggestion = (s: WhenSuggestion) => {
+    if (s.kind === "bucket") pickBucket(s.bucket);
+    else pickSnooze(s.when);
+  };
 
   const bucketRow = (key: Exclude<TodoBucket, "inbox">) => {
     const meta = BUCKET_META[key];
@@ -123,33 +129,118 @@ export function WhenPicker({
         {current.label}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 gap-0.5 p-1.5">
-        {/* Things' order: Today, This Evening, the calendar, then the parks. */}
-        {bucketRow("today")}
-        {evening && (
-          <button
-            type="button"
-            onClick={() => pickSnooze(evening.when)}
-            className={itemClass}
-          >
-            <Moon className="size-4 text-indigo-500" />
-            <span className="flex-1 text-left">{evening.label}</span>
-            <span className="text-xs text-muted-foreground">{evening.hint}</span>
-          </button>
+        {/* Mounted only while open so the query resets on every summon. */}
+        {open && (
+          <WhenTypeahead onPick={pickSuggestion}>
+            {/* Things' order: Today, This Evening, the calendar, then the parks. */}
+            {bucketRow("today")}
+            {evening && (
+              <button
+                type="button"
+                onClick={() => pickSnooze(evening.when)}
+                className={itemClass}
+              >
+                <Moon className="size-4 text-indigo-500" />
+                <span className="flex-1 text-left">{evening.label}</span>
+                <span className="text-xs text-muted-foreground">{evening.hint}</span>
+              </button>
+            )}
+
+            <MiniCalendar onPick={pickSnooze} />
+
+            <div className="-mx-1 my-1 h-px bg-border" />
+
+            {bucketRow("anytime")}
+            {bucketRow("someday")}
+          </WhenTypeahead>
         )}
-
-        {open && <MiniCalendar onPick={pickSnooze} />}
-
-        <div className="-mx-1 my-1 h-px bg-border" />
-
-        {bucketRow("anytime")}
-        {bucketRow("someday")}
       </PopoverContent>
     </Popover>
   );
 }
 
+/**
+ * The hands-on-keyboard path: a focused input above the preset list. Empty
+ * query shows `children` (the usual presets + calendar); typing swaps in
+ * parsed suggestions ("tom", "fri", "in 3 days", "jun 24"…) navigable with
+ * arrows + Enter. Lives in its own component, mounted per-open, so the query
+ * and highlight reset on every summon without effect gymnastics.
+ */
+function WhenTypeahead({
+  onPick,
+  children,
+}: {
+  onPick: (s: WhenSuggestion) => void;
+  children: ReactNode;
+}) {
+  const [query, setQuery] = useState("");
+  const [activeIdx, setActiveIdx] = useState(0);
+  const suggestions = query.trim() ? suggestWhen(query) : [];
+
+  return (
+    <>
+      <input
+        autoFocus
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setActiveIdx(0);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" && suggestions.length > 0) {
+            e.preventDefault();
+            setActiveIdx((i) => Math.min(i + 1, suggestions.length - 1));
+          } else if (e.key === "ArrowUp" && suggestions.length > 0) {
+            e.preventDefault();
+            setActiveIdx((i) => Math.max(i - 1, 0));
+          } else if (e.key === "Enter" && suggestions.length > 0) {
+            e.preventDefault();
+            onPick(suggestions[Math.min(activeIdx, suggestions.length - 1)]);
+          }
+        }}
+        placeholder="Try “tomorrow” or “in 3 days”"
+        aria-label="When"
+        className="mb-0.5 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-ring"
+      />
+
+      {!query.trim() ? (
+        children
+      ) : suggestions.length === 0 ? (
+        <p className="px-2 py-1.5 text-xs text-muted-foreground">
+          No match — try “tomorrow”, “fri”, or “jun 24”
+        </p>
+      ) : (
+        suggestions.map((s, i) => {
+          const Icon = s.kind === "bucket" ? BUCKET_META[s.bucket].icon : Moon;
+          const iconClass =
+            s.kind === "bucket"
+              ? BUCKET_META[s.bucket].iconClass
+              : "text-indigo-500";
+          return (
+            <button
+              key={s.kind === "snooze" ? s.when.getTime() : s.bucket}
+              type="button"
+              onClick={() => onPick(s)}
+              onMouseEnter={() => setActiveIdx(i)}
+              className={cn(itemClass, i === activeIdx && "bg-accent/60")}
+            >
+              <Icon className={cn("size-4", iconClass)} />
+              <span className="flex-1 text-left">{s.label}</span>
+              {s.kind === "snooze" && (
+                <span className="text-xs text-muted-foreground">{s.hint}</span>
+              )}
+            </button>
+          );
+        })
+      )}
+    </>
+  );
+}
+
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
-const MORNING = "09:00";
+// Day picks wake at midnight (in Today first thing); the footer input is only
+// for when a specific time of day actually matters.
+const DAY_START = "00:00";
 
 /**
  * Things' inline month grid: today is the star, past days fade out, a day
@@ -161,7 +252,7 @@ export function MiniCalendar({ onPick }: { onPick: (when: Date) => void }) {
   const [monthStart, setMonthStart] = useState(
     () => new Date(today.getFullYear(), today.getMonth(), 1)
   );
-  const [time, setTime] = useState(MORNING);
+  const [time, setTime] = useState(DAY_START);
 
   const year = monthStart.getFullYear();
   const month = monthStart.getMonth();
@@ -172,7 +263,7 @@ export function MiniCalendar({ onPick }: { onPick: (when: Date) => void }) {
 
   const pickDay = (day: number) => {
     const [hh, mm] = time.split(":").map(Number);
-    onPick(new Date(year, month, day, hh || 9, mm || 0));
+    onPick(new Date(year, month, day, hh || 0, mm || 0));
   };
 
   const monthLabel = monthStart.toLocaleDateString("en-US", {
@@ -250,7 +341,7 @@ export function MiniCalendar({ onPick }: { onPick: (when: Date) => void }) {
         <input
           type="time"
           value={time}
-          onChange={(e) => setTime(e.target.value || MORNING)}
+          onChange={(e) => setTime(e.target.value || DAY_START)}
           className="rounded border border-border bg-background px-1 py-0.5 text-[10px] text-muted-foreground"
           aria-label="Wake time"
         />

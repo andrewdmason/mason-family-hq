@@ -64,6 +64,8 @@ export function NewTaskModal({
   const [assignee, setAssignee] = useState(selfEmail);
   const [bucket, setBucket] = useState<TodoBucket>("inbox");
   const [snoozedUntil, setSnoozedUntil] = useState<Date | null>(null);
+  // Controlled so ⇧⌘S can summon the When type-ahead while typing the title.
+  const [whenOpen, setWhenOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   // Remounts the Tiptap editor so each summon starts blank.
   const [session, setSession] = useState(0);
@@ -82,6 +84,7 @@ export function NewTaskModal({
       setAssignee(defaults?.assigneeEmail ?? selfEmail);
       setBucket(defaults?.bucket ?? "inbox");
       setSnoozedUntil(null);
+      setWhenOpen(false);
       setSession((s) => s + 1);
     }
   }, [open, defaults, selfEmail]);
@@ -142,6 +145,18 @@ export function NewTaskModal({
           dragOver && "ring-2 ring-primary/50"
         )}
         showCloseButton={false}
+        onKeyDown={(e) => {
+          // ⇧⌘S: hop from the title/notes into the When type-ahead.
+          if (
+            (e.metaKey || e.ctrlKey) &&
+            e.shiftKey &&
+            !e.altKey &&
+            e.key.toLowerCase() === "s"
+          ) {
+            e.preventDefault();
+            setWhenOpen(true);
+          }
+        }}
         onDragOver={(e) => {
           if (e.dataTransfer.types.includes("Files")) {
             e.preventDefault();
@@ -232,6 +247,8 @@ export function NewTaskModal({
               setSnoozedUntil(null);
             }}
             onSnooze={(when) => setSnoozedUntil(when)}
+            open={whenOpen}
+            onOpenChange={setWhenOpen}
             triggerClassName="rounded-md bg-transparent px-2 py-1 hover:bg-accent/60"
           />
 
