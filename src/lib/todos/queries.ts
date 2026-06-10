@@ -6,6 +6,7 @@ import { requireUserId } from "@/lib/members/auth";
 import {
   TASK_COLUMNS,
   taskFromRow,
+  type SidebarCounts,
   type TodoArea,
   type TodoMember,
   type TodoProject,
@@ -78,36 +79,38 @@ export async function markInboxSeen(
     .is("deleted_at", null);
 }
 
-/** Unprocessed-inbox count for the sidebar badge. */
-export async function getInboxCount(
+/**
+ * Sidebar badge counts in one parallel sweep: inbox and today by bucket,
+ * snoozed by a pending wake, delegated by created-for-someone-else. Runs
+ * post-sweep, so bucket counts can assume elapsed snoozes already woke.
+ */
+export async function getSidebarCounts(
   supabase: Supabase,
   memberEmail: string
-): Promise<number> {
-  const { count } = await supabase
-    .from("todo_tasks")
-    .select("id", { count: "exact", head: true })
-    .eq("assignee_email", memberEmail)
-    .eq("bucket", "inbox")
-    .is("snoozed_until", null)
-    .is("completed_at", null)
-    .is("deleted_at", null);
-  return count ?? 0;
-}
-
-/** Open delegated count (created by member, assigned elsewhere) — the
- * sidebar badge twin of getInboxCount. */
-export async function getDelegatedCount(
-  supabase: Supabase,
-  memberEmail: string
-): Promise<number> {
-  const { count } = await supabase
-    .from("todo_tasks")
-    .select("id", { count: "exact", head: true })
-    .eq("creator_email", memberEmail)
-    .neq("assignee_email", memberEmail)
-    .is("completed_at", null)
-    .is("deleted_at", null);
-  return count ?? 0;
+): Promise<SidebarCounts> {
+  const open = () =>
+    supabase
+      .from("todo_tasks")
+      .select("id", { count: "exact", head: true })
+      .is("completed_at", null)
+      .is("deleted_at", null);
+  const bucketCount = (bucket: "inbox" | "today") =>
+    open()
+      .eq("assignee_email", memberEmail)
+      .eq("bucket", bucket)
+      .is("snoozed_until", null);
+  const [inbox, today, snoozed, delegated] = await Promise.all([
+    bucketCount("inbox"),
+    bucketCount("today"),
+    open().eq("assignee_email", memberEmail).not("snoozed_until", "is", null),
+    open().eq("creator_email", memberEmail).neq("assignee_email", memberEmail),
+  ]);
+  return {
+    inbox: inbox.count ?? 0,
+    today: today.count ?? 0,
+    snoozed: snoozed.count ?? 0,
+    delegated: delegated.count ?? 0,
+  };
 }
 
 /** Active tasks for one of the four bucket views, in manual order. */

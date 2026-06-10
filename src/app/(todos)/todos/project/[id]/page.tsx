@@ -3,12 +3,11 @@ import { createClient } from "@/lib/supabase/server";
 import { resolveViewedMember, withAs } from "@/lib/todos/member-context";
 import {
   getAreas,
-  getDelegatedCount,
-  getInboxCount,
   getProjectLoggedTasks,
   getProjects,
   getProjectTasks,
   getSelfEmail,
+  getSidebarCounts,
   getTaskAttachments,
   getTodoMembers,
   sweepElapsedSnoozes,
@@ -40,15 +39,13 @@ export default async function ProjectPage({
   const viewed = resolveViewedMember(as, selfEmail, members);
 
   await sweepElapsedSnoozes(supabase);
-  const [projects, areas, tasks, loggedTasks, inboxCount, delegatedCount] =
-    await Promise.all([
-      getProjects(supabase),
-      getAreas(supabase),
-      getProjectTasks(supabase, id),
-      getProjectLoggedTasks(supabase, id),
-      getInboxCount(supabase, viewed.email),
-      getDelegatedCount(supabase, viewed.email),
-    ]);
+  const [projects, areas, tasks, loggedTasks, counts] = await Promise.all([
+    getProjects(supabase),
+    getAreas(supabase),
+    getProjectTasks(supabase, id),
+    getProjectLoggedTasks(supabase, id),
+    getSidebarCounts(supabase, viewed.email),
+  ]);
 
   const project = projects.find((p) => p.id === id);
   if (!project) notFound();
@@ -68,8 +65,7 @@ export default async function ProjectPage({
         <TodosSidebar
           active={null}
           activeProjectId={project.id}
-          inboxCount={inboxCount}
-          delegatedCount={delegatedCount}
+          counts={counts}
           viewedEmail={viewed.email}
           selfEmail={selfEmail}
           members={members}
