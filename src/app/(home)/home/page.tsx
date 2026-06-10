@@ -7,7 +7,6 @@ import { TodosWidget } from "@/components/home/todos-widget";
 import { WorkoutWidget } from "@/components/home/workout-widget";
 import { getHomeTodos } from "@/lib/home/todos";
 import { getHomeWorkout } from "@/lib/home/workouts";
-import { getTodoMembers } from "@/lib/todos/queries";
 import { getReadingHome } from "@/app/(reading)/reader/actions";
 import { getActiveQuizzesByBook } from "@/app/(reading)/reader/quizzes/actions";
 import { getStreakData, getTrailingPracticeData } from "@/app/practice/reports/actions";
@@ -39,7 +38,6 @@ export default async function HomePage() {
     personStatuses,
     workout,
     todos,
-    todoMembers,
   ] = await Promise.all([
     getIsOwner(),
     getJournalStatus("private", today),
@@ -48,7 +46,6 @@ export default async function HomePage() {
     getHomePersonStatuses(tz, member.email).catch(() => []),
     getHomeWorkout().catch(() => null),
     getHomeTodos().catch(() => null),
-    getTodoMembers().catch(() => []),
   ]);
 
   // The most recently active in-progress book powers the Reader widget; a
@@ -79,7 +76,7 @@ export default async function HomePage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Main column */}
         <div className="space-y-4 lg:col-span-2">
-          {todos && <TodosWidget data={todos} members={todoMembers} />}
+          {todos && <TodosWidget data={todos} />}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <JournalStatusWidget
               audience="private"

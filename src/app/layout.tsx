@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Lora } from "next/font/google";
+import { GlobalQuickAdd } from "@/components/todos/global-quick-add";
 import "./globals.css";
 
 const inter = Inter({
@@ -59,7 +60,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${inter.variable} ${lora.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        {/* Global to-do quick-add: press `q` anywhere (see quick-add.tsx). */}
+        <GlobalQuickAdd />
+      </body>
     </html>
   );
 }

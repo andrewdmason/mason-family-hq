@@ -355,11 +355,13 @@ export function TaskList({
   const emptyKey = inProject ? "project" : (view as string);
   const empty = EMPTY_STATES[emptyKey] ?? EMPTY_STATES.project;
   const EmptyIcon = empty.icon;
-  const showQuickEntry = inProject || (view !== "snoozed" && view !== "logbook");
 
   return (
     <div className="space-y-3">
-      {showQuickEntry && (
+      {/* Bucket views capture via the global quick-add modal (`q` / the header
+          button); the inline entry stays only on project pages, where it adds
+          straight into the project. */}
+      {inProject && (
         <QuickEntry placeholder="Add a to-do…" onCreate={handleCreate} />
       )}
 
