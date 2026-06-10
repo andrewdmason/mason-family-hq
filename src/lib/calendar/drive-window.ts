@@ -57,3 +57,114 @@ export function driveEventTitle(args: {
     args.duty === "dropoff" ? "→" : args.duty === "pickup" ? "←" : "↔";
   return `🚗 ${arrow} ${args.kidName} ${args.isEstimate ? "~" : ""}${args.driveMinutes} min`;
 }
+
+// ---------------------------------------------------------------------------
+// Cross-event merge. When the SAME parent has several same-direction blocks
+// (drop-offs for two kids' practices, say) whose windows overlap or leave less
+// than the combine gap at home between trips, reality is ONE multi-stop trip —
+// home → stop → stop → home — not stacked round trips that read as a
+// scheduling conflict. Cluster them; the earliest stop's assignment owns the
+// single written block, the rest materialize nothing.
+// ---------------------------------------------------------------------------
+
+/** One assignment's would-be block, the clustering input. Shared between the
+ * server reconciler (key = assignment id) and the client's ghost synthesis
+ * (key = `${eventId}:${duty}`). */
+export interface PlannedDriveBlock {
+  key: string;
+  assignee: string;
+  /** Combined (↔) blocks never cross-merge — that parent is staying at the
+   * venue for the whole event, not running an errand loop. */
+  duty: Duty | "combined";
+  kidName: string;
+  location: string | null;
+  window: { start: string; end: string };
+  /** The block's own solo title — the cluster title when it stays alone. */
+  title: string;
+  /** The stop instant (drop-off arrival anchor / pick-up end), for the merged
+   * block's stop-list description. */
+  anchor: string;
+  isEstimate: boolean;
+}
+
+export interface DriveCluster {
+  /** In stop order (earliest window first); members[0] owns the written block. */
+  members: PlannedDriveBlock[];
+  window: { start: string; end: string };
+  title: string;
+  /** The first stop — what fits in a location field; the rest go in the
+   * description. */
+  location: string | null;
+  isEstimate: boolean;
+}
+
+function toCluster(members: PlannedDriveBlock[]): DriveCluster {
+  if (members.length === 1) {
+    const m = members[0];
+    return {
+      members,
+      window: m.window,
+      title: m.title,
+      location: m.location,
+      isEstimate: m.isEstimate,
+    };
+  }
+  // Merged title drops the minutes: the one-way number describes a single
+  // round trip, and the union window is only an approximation of the real
+  // multi-stop route (it ignores the venue→venue leg) — hence estimate.
+  const arrow = members[0].duty === "dropoff" ? "→" : "←";
+  const names = [...new Set(members.map((m) => m.kidName))];
+  const end = members.reduce(
+    (max, m) => (m.window.end > max ? m.window.end : max),
+    members[0].window.end,
+  );
+  return {
+    members,
+    window: { start: members[0].window.start, end },
+    title: `🚗 ${arrow} ${names.join(" + ")}`,
+    location: members[0].location,
+    isEstimate: true,
+  };
+}
+
+/** Cluster blocks by (assignee, duty): sort by start, then chain any block
+ * that begins less than COMBINE_GAP_MINUTES after the running cluster ends —
+ * the same "no real time at home between trips" rule as the per-event ↔
+ * combine. Every input block lands in exactly one cluster (solos included),
+ * so callers can treat the output uniformly. */
+export function clusterDriveBlocks(
+  blocks: PlannedDriveBlock[],
+): DriveCluster[] {
+  const groups = new Map<string, PlannedDriveBlock[]>();
+  const clusters: DriveCluster[] = [];
+  for (const b of blocks) {
+    if (b.duty === "combined") {
+      clusters.push(toCluster([b]));
+      continue;
+    }
+    const k = `${b.assignee}:${b.duty}`;
+    const list = groups.get(k);
+    if (list) list.push(b);
+    else groups.set(k, [b]);
+  }
+  for (const list of groups.values()) {
+    list.sort(
+      (a, b) =>
+        a.window.start.localeCompare(b.window.start) ||
+        a.key.localeCompare(b.key),
+    );
+    let run: PlannedDriveBlock[] = [];
+    let runEnd = 0;
+    for (const b of list) {
+      const start = new Date(b.window.start).getTime();
+      if (run.length && start - runEnd >= COMBINE_GAP_MINUTES * MIN_MS) {
+        clusters.push(toCluster(run));
+        run = [];
+      }
+      run.push(b);
+      runEnd = Math.max(runEnd, new Date(b.window.end).getTime());
+    }
+    if (run.length) clusters.push(toCluster(run));
+  }
+  return clusters;
+}

@@ -36,6 +36,7 @@ import {
 } from "@/lib/calendar/materialize";
 import {
   reconcileEventDrive,
+  reconcileDriveAround,
   deleteDriveEvent,
   queueDriveWork,
   ASSIGNMENT_COLUMNS,
@@ -229,7 +230,7 @@ export async function deleteEvent(id: string): Promise<void> {
 
   const { data: ev } = await admin
     .from("calendar_events")
-    .select("id, source_type, calendar_source_id, external_id")
+    .select("id, source_type, calendar_source_id, external_id, start_time")
     .eq("id", id)
     .single();
 
@@ -261,6 +262,26 @@ export async function deleteEvent(id: string): Promise<void> {
 
   const { error } = await admin.from("calendar_events").delete().eq("id", id);
   if (error) throw new Error(error.message);
+
+  // A deleted event's blocks may have been merged with a neighbor's (one
+  // multi-stop trip) — re-expand the survivors after the response.
+  if (duties?.length && ev?.start_time) {
+    const startTime = ev.start_time as string;
+    after(() =>
+      queueDriveWork(async () => {
+        try {
+          await reconcileDriveAround(admin, startTime);
+          revalidatePath("/calendar");
+        } catch (err) {
+          // best-effort: the next sweep finishes the job
+          console.error(
+            `[drive] neighborhood reconcile failed after event delete (${id}):`,
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }),
+    );
+  }
   revalidatePath("/calendar");
 }
 
@@ -775,7 +796,7 @@ export async function setEventDuty(
       const row = existing as unknown as DutyAssignmentRow;
       await admin.from("event_duty_assignments").delete().eq("id", row.id);
       after(() =>
-        queueDriveWork(eventId, async () => {
+        queueDriveWork(async () => {
           try {
             await deleteDriveEvent(admin, row);
             await reconcileEventDrive(admin, eventId);
@@ -813,7 +834,7 @@ export async function setEventDuty(
   // second duty can collapse two round trips into one combined block) runs
   // after the response — the tap shouldn't wait on the Calendar API.
   after(() =>
-    queueDriveWork(eventId, async () => {
+    queueDriveWork(async () => {
       try {
         await reconcileEventDrive(admin, eventId);
         revalidatePath("/calendar");
