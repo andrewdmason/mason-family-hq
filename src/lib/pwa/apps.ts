@@ -30,6 +30,7 @@ export type PwaApp = {
 export const PWA_APPS: PwaApp[] = [
   { key: "home", name: "Family HQ", shortName: "Family HQ", startUrl: "/home", pageTitle: "Home" },
   { key: "family", name: "Family", shortName: "Family", startUrl: "/family", pageTitle: "Family" },
+  { key: "todos", name: "Todos", shortName: "Todos", startUrl: "/todos", pageTitle: "Todos" },
   { key: "reader", name: "Reader", shortName: "Reader", startUrl: "/reader", pageTitle: "Reader" },
   { key: "journal", name: "Journal", shortName: "Journal", startUrl: "/journal", pageTitle: "Journal" },
   { key: "timeline", name: "Timeline", shortName: "Timeline", startUrl: "/timeline", pageTitle: "Timeline" },

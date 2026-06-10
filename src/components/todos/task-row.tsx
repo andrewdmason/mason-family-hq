@@ -1,0 +1,435 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import {
+  Archive,
+  Check,
+  CircleDashed,
+  FileText,
+  Image as ImageIcon,
+  Inbox,
+  Layers,
+  Moon,
+  Star,
+  Sun,
+  Trash2,
+} from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { MemberAvatar } from "@/components/journal/member-avatar";
+import { AssigneePicker } from "@/components/todos/assignee-picker";
+import { firstNameOf } from "@/components/todos/member-name";
+import { SnoozeMenu } from "@/components/todos/snooze-menu";
+import { TaskImages, type UploadingImage } from "@/components/todos/task-images";
+import { TodoNotesEditor } from "@/components/todos/todo-notes-editor";
+import { isImageFile } from "@/lib/todos/image-upload";
+import type { TodoTaskImage } from "@/lib/todos/queries";
+import { formatWake } from "@/lib/todos/snooze";
+import type {
+  TodoBucket,
+  TodoMember,
+  TodoProject,
+  TodoTask,
+  TodoView,
+} from "@/lib/todos/types";
+import { cn } from "@/lib/utils";
+
+const BUCKET_OPTIONS: { bucket: TodoBucket; label: string; icon: typeof Star; iconClass: string }[] = [
+  { bucket: "inbox", label: "Inbox", icon: Inbox, iconClass: "text-sky-700" },
+  { bucket: "today", label: "Today", icon: Star, iconClass: "text-amber-500" },
+  { bucket: "anytime", label: "Anytime", icon: Layers, iconClass: "text-teal-700" },
+  { bucket: "someday", label: "Someday", icon: Archive, iconClass: "text-stone-500" },
+];
+
+export function bucketIcon(bucket: TodoBucket) {
+  return BUCKET_OPTIONS.find((o) => o.bucket === bucket)!;
+}
+
+/** Where this row is rendered: a sidebar view or a project page. */
+export type TaskRowContext =
+  | { mode: "view"; view: TodoView }
+  | { mode: "project"; projectId: string };
+
+export type TaskRowHandlers = {
+  onComplete: (task: TodoTask) => void;
+  onDelete: (task: TodoTask) => void;
+  onSnooze: (task: TodoTask, when: Date) => void;
+  onWake: (task: TodoTask) => void;
+  onSetBucket: (task: TodoTask, bucket: TodoBucket) => void;
+  onReassign: (task: TodoTask, email: string) => void;
+  onRenameTitle: (task: TodoTask, title: string) => void;
+  onSetProject: (task: TodoTask, projectId: string | null) => void;
+  onSaveNotes: (task: TodoTask, html: string) => void;
+  onAddImages: (task: TodoTask, files: File[]) => void;
+  onDeleteImage: (task: TodoTask, image: TodoTaskImage) => void;
+};
+
+/** Image files from a drop/paste payload (empty when it's not a file drag). */
+function imageFiles(list: FileList | null | undefined): File[] {
+  return Array.from(list ?? []).filter(isImageFile);
+}
+
+/**
+ * One task: checkbox, title, context chips; clicking the row expands an inline
+ * editor (Things-style) with title, bucket, snooze, project, assignee, delete.
+ */
+export function TaskRow({
+  task,
+  context,
+  members,
+  projects,
+  images,
+  uploading,
+  viewedEmail,
+  completing,
+  expanded,
+  onToggleExpand,
+  handlers,
+}: {
+  task: TodoTask;
+  context: TaskRowContext;
+  members: TodoMember[];
+  projects: TodoProject[];
+  images: TodoTaskImage[];
+  uploading: UploadingImage[];
+  viewedEmail: string;
+  completing: boolean;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  handlers: TaskRowHandlers;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+  const creator = members.find((m) => m.email === task.creatorEmail);
+  const assignee = members.find((m) => m.email === task.assigneeEmail);
+  const fromSomeoneElse = task.creatorEmail !== task.assigneeEmail;
+  const inProjectMode = context.mode === "project";
+  const showSnoozeChip =
+    !!task.snoozedUntil &&
+    (inProjectMode || (context.mode === "view" && context.view === "snoozed"));
+  const BucketIcon = bucketIcon(task.bucket);
+  const hasNotes = !!task.notesHtml;
+
+  return (
+    <div
+      className={cn(
+        "rounded-lg transition-colors",
+        expanded && "bg-card shadow-sm ring-1 ring-foreground/10",
+        dragOver && "ring-2 ring-primary/50"
+      )}
+      // OS file drags attach images straight onto the task (dnd-kit's pointer
+      // sensor never sees these, so row sorting is unaffected).
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("Files")) {
+          e.preventDefault();
+          setDragOver(true);
+        }
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        const files = imageFiles(e.dataTransfer.files);
+        if (files.length > 0) {
+          e.preventDefault();
+          handlers.onAddImages(task, files);
+        }
+        setDragOver(false);
+      }}
+    >
+      <div
+        className={cn(
+          "group flex cursor-default items-center gap-2.5 rounded-lg px-2 py-2 transition-opacity duration-500",
+          !expanded && "hover:bg-accent/30",
+          completing && "opacity-40"
+        )}
+        onClick={onToggleExpand}
+      >
+        <TaskCheckbox
+          checked={completing}
+          onToggle={(e) => {
+            e.stopPropagation();
+            handlers.onComplete(task);
+          }}
+        />
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-sm text-foreground transition-all",
+            completing && "text-muted-foreground line-through"
+          )}
+        >
+          {task.title}
+        </span>
+        {hasNotes && !expanded && (
+          <FileText className="size-3.5 shrink-0 text-muted-foreground/60" />
+        )}
+        {images.length > 0 && !expanded && (
+          <span className="inline-flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground/60">
+            <ImageIcon className="size-3.5" />
+            {images.length}
+          </span>
+        )}
+        {fromSomeoneElse && (
+          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+            from {firstNameOf(creator)}
+          </span>
+        )}
+        {inProjectMode && task.assigneeEmail !== viewedEmail && (
+          <span className="shrink-0" title={assignee?.name ?? task.assigneeEmail}>
+            <MemberAvatar name={assignee?.name} size="xs" />
+          </span>
+        )}
+        {inProjectMode && !task.snoozedUntil && task.bucket !== "anytime" && (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+            <BucketIcon.icon className={cn("size-3", BucketIcon.iconClass)} />
+            {BucketIcon.label}
+          </span>
+        )}
+        {showSnoozeChip && task.snoozedUntil && (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-500/10 px-2 py-0.5 text-xs text-indigo-700">
+            <Moon className="size-3" />
+            {formatWake(task.snoozedUntil)}
+          </span>
+        )}
+      </div>
+
+      {expanded && (
+        <ExpandedEditor
+          task={task}
+          context={context}
+          members={members}
+          projects={projects}
+          images={images}
+          uploading={uploading}
+          handlers={handlers}
+        />
+      )}
+    </div>
+  );
+}
+
+function ExpandedEditor({
+  task,
+  context,
+  members,
+  projects,
+  images,
+  uploading,
+  handlers,
+}: {
+  task: TodoTask;
+  context: TaskRowContext;
+  members: TodoMember[];
+  projects: TodoProject[];
+  images: TodoTaskImage[];
+  uploading: UploadingImage[];
+  handlers: TaskRowHandlers;
+}) {
+  const [title, setTitle] = useState(task.title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => setTitle(task.title), [task.title]);
+
+  const saveTitle = () => {
+    const trimmed = title.trim();
+    if (trimmed && trimmed !== task.title) handlers.onRenameTitle(task, trimmed);
+    else setTitle(task.title);
+  };
+
+  // Membership = the assignable set: inside a project, only its members.
+  const project = projects.find((p) => p.id === task.projectId);
+  const assignableMembers = project
+    ? members.filter((m) => project.memberEmails.includes(m.email))
+    : members;
+
+  return (
+    <div
+      className="space-y-3 px-3 pt-1 pb-3"
+      // Pasting a screenshot anywhere in the detail attaches it (text pastes
+      // pass through to the focused input/editor untouched).
+      onPasteCapture={(e) => {
+        const files = imageFiles(e.clipboardData?.files);
+        if (files.length > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          handlers.onAddImages(task, files);
+        }
+      }}
+    >
+      <input
+        ref={inputRef}
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onBlur={saveTitle}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          if (e.key === "Escape") setTitle(task.title);
+        }}
+        className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium text-foreground outline-none focus:border-border focus:bg-background"
+        aria-label="Task title"
+      />
+
+      <TodoNotesEditor
+        key={task.id}
+        initialHtml={task.notesHtml ?? ""}
+        onSave={(html) => handlers.onSaveNotes(task, html)}
+      />
+
+      <TaskImages
+        images={images}
+        uploading={uploading}
+        onAddFiles={(files) => handlers.onAddImages(task, files)}
+        onDelete={(image) => handlers.onDeleteImage(task, image)}
+      />
+
+      <div className="flex flex-wrap items-center gap-1">
+        {/* When: bucket moves (these also clear any snooze) */}
+        <div className="flex items-center rounded-lg border border-border/70 p-0.5">
+          {BUCKET_OPTIONS.map((option) => {
+            const Icon = option.icon;
+            const active = task.bucket === option.bucket && !task.snoozedUntil;
+            return (
+              <button
+                key={option.bucket}
+                type="button"
+                onClick={() => {
+                  if (!active) handlers.onSetBucket(task, option.bucket);
+                }}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs",
+                  active
+                    ? "bg-accent font-medium text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Icon className={cn("size-3.5", option.iconClass)} />
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <SnoozeMenu onSnooze={(when) => handlers.onSnooze(task, when)} />
+
+        {context.mode === "view" && context.view === "snoozed" && (
+          <button
+            type="button"
+            onClick={() => handlers.onWake(task)}
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          >
+            <Sun className="size-4 text-amber-500" />
+            Wake now
+          </button>
+        )}
+
+        <ProjectPicker
+          task={task}
+          projects={projects}
+          onSetProject={(projectId) => handlers.onSetProject(task, projectId)}
+        />
+
+        <AssigneePicker
+          members={assignableMembers}
+          assigneeEmail={task.assigneeEmail}
+          onReassign={(email) => handlers.onReassign(task, email)}
+        />
+
+        <button
+          type="button"
+          onClick={() => handlers.onDelete(task)}
+          className="ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          aria-label="Delete task"
+        >
+          <Trash2 className="size-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Move a task into / out of a project. Only offers projects the task's
+ * assignee belongs to — the membership rule, enforced at the picker.
+ */
+function ProjectPicker({
+  task,
+  projects,
+  onSetProject,
+}: {
+  task: TodoTask;
+  projects: TodoProject[];
+  onSetProject: (projectId: string | null) => void;
+}) {
+  const current = projects.find((p) => p.id === task.projectId);
+  const options = projects.filter((p) =>
+    p.memberEmails.includes(task.assigneeEmail)
+  );
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          />
+        }
+      >
+        <CircleDashed className="size-4 text-primary/70" />
+        {current?.name ?? "No project"}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-52">
+        {options.map((project) => (
+          <DropdownMenuItem
+            key={project.id}
+            onClick={() => {
+              if (project.id !== task.projectId) onSetProject(project.id);
+            }}
+            className="gap-2"
+          >
+            <CircleDashed className="size-4 text-primary/70" />
+            <span className="flex-1 truncate">{project.name}</span>
+            {project.id === task.projectId && <Check className="size-4 text-primary" />}
+          </DropdownMenuItem>
+        ))}
+        {options.length > 0 && <DropdownMenuSeparator />}
+        <DropdownMenuItem
+          onClick={() => {
+            if (task.projectId) onSetProject(null);
+          }}
+          className="gap-2 text-muted-foreground"
+        >
+          <span className="flex-1">No project</span>
+          {!task.projectId && <Check className="size-4 text-primary" />}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Things-style round-cornered checkbox that fills on completion. */
+export function TaskCheckbox({
+  checked,
+  onToggle,
+}: {
+  checked: boolean;
+  onToggle: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={checked ? "Mark incomplete" : "Mark complete"}
+      className={cn(
+        "flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border transition-colors",
+        checked
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-foreground/25 hover:border-primary/60"
+      )}
+    >
+      {checked && <Check className="size-3.5" strokeWidth={3} />}
+    </button>
+  );
+}

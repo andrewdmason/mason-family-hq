@@ -1,0 +1,610 @@
+"use server";
+
+import { createHash, randomBytes } from "node:crypto";
+import { revalidatePath } from "next/cache";
+import sanitizeHtml from "sanitize-html";
+import { createClient } from "@/lib/supabase/server";
+import { plainTextToNotesHtml } from "@/lib/todos/notes";
+import { getSelfEmail } from "@/lib/todos/queries";
+import {
+  TASK_COLUMNS,
+  taskFromRow,
+  type TodoBucket,
+  type TodoTask,
+  type TodoTaskRow,
+} from "@/lib/todos/types";
+
+/**
+ * Mutations for the Todos app. Every action resolves the *real* signed-in
+ * member for creator/completed-by stamps — the person switcher changes whose
+ * list you're looking at, never who you are. RLS is household-wide ("Family
+ * access"), so these don't need ownership filters; the FK constraints validate
+ * member emails.
+ */
+
+function revalidateTodos() {
+  revalidatePath("/todos", "layout");
+  revalidatePath("/home");
+}
+
+async function ctx() {
+  const supabase = await createClient();
+  const selfEmail = await getSelfEmail(supabase);
+  return { supabase, selfEmail };
+}
+
+export async function createTask(input: {
+  title: string;
+  assigneeEmail: string;
+  bucket: TodoBucket;
+  projectId?: string | null;
+  /** Plain text (e.g. the quick-add modal's Notes field) — converted to HTML. */
+  notes?: string;
+}): Promise<TodoTask> {
+  const { supabase, selfEmail } = await ctx();
+  const title = input.title.trim();
+  if (!title) throw new Error("Task title is required");
+
+  // Append to the end of the target list.
+  const { data: last } = await supabase
+    .from("todo_tasks")
+    .select("sort_order")
+    .eq("assignee_email", input.assigneeEmail)
+    .eq("bucket", input.bucket)
+    .is("completed_at", null)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { data, error } = await supabase
+    .from("todo_tasks")
+    .insert({
+      title,
+      notes_html: input.notes ? plainTextToNotesHtml(input.notes) : null,
+      bucket: input.bucket,
+      assignee_email: input.assigneeEmail,
+      creator_email: selfEmail,
+      project_id: input.projectId ?? null,
+      sort_order: (last?.sort_order ?? 0) + 1,
+      // Your own captures never need an "unseen" state.
+      assignee_seen_at: input.assigneeEmail === selfEmail ? new Date().toISOString() : null,
+    })
+    .select(TASK_COLUMNS)
+    .single();
+  if (error) throw error;
+
+  revalidateTodos();
+  return taskFromRow(data as TodoTaskRow);
+}
+
+export async function updateTaskTitle(taskId: string, title: string): Promise<void> {
+  const { supabase } = await ctx();
+  const trimmed = title.trim();
+  if (!trimmed) throw new Error("Task title is required");
+  const { error } = await supabase
+    .from("todo_tasks")
+    .update({ title: trimmed })
+    .eq("id", taskId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+// Tiptap output for the notes field: basic blocks, marks, links, and the
+// task-list structure (ul[data-type=taskList] > li > label > input[checkbox]).
+const NOTES_SANITIZE: sanitizeHtml.IOptions = {
+  allowedTags: [
+    "p", "h1", "h2", "h3", "ul", "ol", "li", "a", "strong", "b", "em", "i",
+    "s", "u", "code", "pre", "blockquote", "br", "hr", "label", "input",
+    "div", "span",
+  ],
+  allowedAttributes: {
+    a: ["href", "target", "rel"],
+    ul: ["data-type"],
+    li: ["data-type", "data-checked"],
+    input: ["type", "checked", "disabled"],
+    div: [],
+    span: [],
+  },
+  allowedSchemes: ["http", "https", "mailto", "tel"],
+};
+
+export async function updateTaskNotes(taskId: string, html: string): Promise<void> {
+  const { supabase } = await ctx();
+  const clean = sanitizeHtml(html, NOTES_SANITIZE);
+  // Tiptap's empty document still serializes as "<p></p>" — store NULL.
+  const isEmpty = clean.replace(/<[^>]*>/g, "").trim() === "";
+  const { error } = await supabase
+    .from("todo_tasks")
+    .update({ notes_html: isEmpty ? null : clean })
+    .eq("id", taskId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+/** Move a task between Inbox / Today / Anytime / Someday (clears any snooze). */
+export async function setTaskBucket(taskId: string, bucket: TodoBucket): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_tasks")
+    .update({ bucket, snoozed_until: null })
+    .eq("id", taskId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+/**
+ * Hand a task to another member. Handing it to someone else drops it in their
+ * Inbox unseen (triage ritual + bell ping); taking it yourself keeps the
+ * bucket and needs no notification.
+ */
+export async function reassignTask(taskId: string, assigneeEmail: string): Promise<void> {
+  const { supabase, selfEmail } = await ctx();
+  const toSelf = assigneeEmail === selfEmail;
+  const { error } = await supabase
+    .from("todo_tasks")
+    .update(
+      toSelf
+        ? { assignee_email: assigneeEmail, assignee_seen_at: new Date().toISOString() }
+        : { assignee_email: assigneeEmail, bucket: "inbox", assignee_seen_at: null }
+    )
+    .eq("id", taskId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+/** Snooze until a moment (ISO). The lazy sweep pops it into Today afterwards. */
+export async function snoozeTask(taskId: string, untilIso: string): Promise<void> {
+  const { supabase } = await ctx();
+  const until = new Date(untilIso);
+  if (Number.isNaN(until.getTime())) throw new Error("Invalid snooze time");
+  const { error } = await supabase
+    .from("todo_tasks")
+    .update({ snoozed_until: until.toISOString() })
+    .eq("id", taskId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+/** Wake a snoozed task by hand — same landing spot as the sweep: Today. */
+export async function clearSnooze(taskId: string): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_tasks")
+    .update({ snoozed_until: null, bucket: "today" })
+    .eq("id", taskId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+export async function completeTask(taskId: string): Promise<void> {
+  const { supabase, selfEmail } = await ctx();
+  const { error } = await supabase
+    .from("todo_tasks")
+    .update({
+      completed_at: new Date().toISOString(),
+      completed_by_email: selfEmail,
+      snoozed_until: null,
+    })
+    .eq("id", taskId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+/** Logbook → back to the living list it was completed from. */
+export async function uncompleteTask(taskId: string): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_tasks")
+    .update({ completed_at: null, completed_by_email: null })
+    .eq("id", taskId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+/** Soft delete — the undo toast calls restoreTask; there is no Trash UI. */
+export async function deleteTask(taskId: string): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_tasks")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", taskId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+export async function restoreTask(taskId: string): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_tasks")
+    .update({ deleted_at: null })
+    .eq("id", taskId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+// ============================================================
+// Ordering (fractional index; see src/lib/todos/sort.ts)
+// ============================================================
+
+export async function setTaskSortOrder(taskId: string, sortOrder: number): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_tasks")
+    .update({ sort_order: sortOrder })
+    .eq("id", taskId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+/** Reset a list's positions to 1..n when midpoints run out of precision. */
+export async function renormalizeTaskOrder(orderedIds: string[]): Promise<void> {
+  const { supabase } = await ctx();
+  await Promise.all(
+    orderedIds.map((id, index) =>
+      supabase.from("todo_tasks").update({ sort_order: index + 1 }).eq("id", id)
+    )
+  );
+  revalidateTodos();
+}
+
+export async function setProjectSortOrder(projectId: string, sortOrder: number): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_projects")
+    .update({ sort_order: sortOrder })
+    .eq("id", projectId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+export async function setAreaSortOrder(areaId: string, sortOrder: number): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_areas")
+    .update({ sort_order: sortOrder })
+    .eq("id", areaId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+// ============================================================
+// Projects & areas
+// ============================================================
+
+/** Move a task into a project (or out, with null). The picker only offers
+ * projects the task's assignee belongs to, keeping the membership rule. */
+export async function setTaskProject(taskId: string, projectId: string | null): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_tasks")
+    .update({ project_id: projectId })
+    .eq("id", taskId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+export async function createProject(name: string): Promise<{ id: string }> {
+  const { supabase, selfEmail } = await ctx();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Project name is required");
+
+  const { data: last } = await supabase
+    .from("todo_projects")
+    .select("sort_order")
+    .is("completed_at", null)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { data, error } = await supabase
+    .from("todo_projects")
+    .insert({ name: trimmed, sort_order: (last?.sort_order ?? 0) + 1 })
+    .select("id")
+    .single();
+  if (error) throw error;
+
+  // Creator starts as sole member.
+  const { error: memberError } = await supabase
+    .from("todo_project_members")
+    .insert({ project_id: data.id, member_email: selfEmail });
+  if (memberError) throw memberError;
+
+  revalidateTodos();
+  return { id: data.id };
+}
+
+export async function renameProject(projectId: string, name: string): Promise<void> {
+  const { supabase } = await ctx();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Project name is required");
+  const { error } = await supabase
+    .from("todo_projects")
+    .update({ name: trimmed })
+    .eq("id", projectId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+export async function setProjectArea(projectId: string, areaId: string | null): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_projects")
+    .update({ area_id: areaId })
+    .eq("id", projectId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+export async function addProjectMember(projectId: string, memberEmail: string): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_project_members")
+    .upsert(
+      { project_id: projectId, member_email: memberEmail },
+      { onConflict: "project_id,member_email", ignoreDuplicates: true }
+    );
+  if (error) throw error;
+  revalidateTodos();
+}
+
+/**
+ * Remove a member — blocked while they still have active tasks assigned in
+ * the project (reassign those first), so a project never holds tasks owned by
+ * a non-member.
+ */
+export async function removeProjectMember(
+  projectId: string,
+  memberEmail: string
+): Promise<{ blocked?: string }> {
+  const { supabase } = await ctx();
+
+  const { count } = await supabase
+    .from("todo_tasks")
+    .select("id", { count: "exact", head: true })
+    .eq("project_id", projectId)
+    .eq("assignee_email", memberEmail)
+    .is("completed_at", null)
+    .is("deleted_at", null);
+  if ((count ?? 0) > 0) {
+    return {
+      blocked: `Reassign their ${count} open task${count === 1 ? "" : "s"} in this project first.`,
+    };
+  }
+
+  const { error } = await supabase
+    .from("todo_project_members")
+    .delete()
+    .eq("project_id", projectId)
+    .eq("member_email", memberEmail);
+  if (error) throw error;
+  revalidateTodos();
+  return {};
+}
+
+/**
+ * Complete a project: files it in the Logbook and completes any still-open
+ * tasks with it (the UI confirms when there are any).
+ */
+export async function completeProject(projectId: string): Promise<void> {
+  const { supabase, selfEmail } = await ctx();
+  const now = new Date().toISOString();
+
+  const { error: taskError } = await supabase
+    .from("todo_tasks")
+    .update({ completed_at: now, completed_by_email: selfEmail, snoozed_until: null })
+    .eq("project_id", projectId)
+    .is("completed_at", null)
+    .is("deleted_at", null);
+  if (taskError) throw taskError;
+
+  const { error } = await supabase
+    .from("todo_projects")
+    .update({ completed_at: now, completed_by_email: selfEmail })
+    .eq("id", projectId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+/** Logbook → bring a completed project back (its tasks stay completed). */
+export async function uncompleteProject(projectId: string): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_projects")
+    .update({ completed_at: null, completed_by_email: null })
+    .eq("id", projectId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+/**
+ * Soft-delete a project and its active tasks together; restoreProject brings
+ * both back (it only restores tasks stamped at the same deleted_at moment, so
+ * tasks deleted earlier stay deleted).
+ */
+export async function deleteProject(projectId: string): Promise<{ deletedAt: string }> {
+  const { supabase } = await ctx();
+  const deletedAt = new Date().toISOString();
+
+  const { error: taskError } = await supabase
+    .from("todo_tasks")
+    .update({ deleted_at: deletedAt })
+    .eq("project_id", projectId)
+    .is("deleted_at", null);
+  if (taskError) throw taskError;
+
+  const { error } = await supabase
+    .from("todo_projects")
+    .update({ deleted_at: deletedAt })
+    .eq("id", projectId);
+  if (error) throw error;
+  // No revalidate here: the project page stays mounted through the undo
+  // window (revalidating would immediately re-render it into a 404). The
+  // undo path and the post-undo-window navigation both refresh explicitly.
+  return { deletedAt };
+}
+
+export async function restoreProject(projectId: string, deletedAt: string): Promise<void> {
+  const { supabase } = await ctx();
+
+  const { error: taskError } = await supabase
+    .from("todo_tasks")
+    .update({ deleted_at: null })
+    .eq("project_id", projectId)
+    .eq("deleted_at", deletedAt);
+  if (taskError) throw taskError;
+
+  const { error } = await supabase
+    .from("todo_projects")
+    .update({ deleted_at: null })
+    .eq("id", projectId);
+  if (error) throw error;
+  revalidateTodos();
+}
+
+// ============================================================
+// API tokens (ingest endpoint auth; see migration 00131)
+// ============================================================
+
+/**
+ * Mint a personal API token for /api/todo/ingest. The raw token is returned
+ * exactly once (shown in the settings UI, never again); only its SHA-256 hex
+ * digest is stored.
+ */
+export async function createApiToken(
+  name: string
+): Promise<{ id: string; token: string }> {
+  const { supabase, selfEmail } = await ctx();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Token name is required");
+
+  const token = `todo_${randomBytes(32).toString("base64url")}`;
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+
+  const { data, error } = await supabase
+    .from("todo_api_tokens")
+    .insert({ member_email: selfEmail, name: trimmed, token_hash: tokenHash })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "Failed to create token");
+
+  revalidatePath("/todos/settings");
+  return { id: data.id as string, token };
+}
+
+export async function revokeApiToken(tokenId: string): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_api_tokens")
+    .delete()
+    .eq("id", tokenId);
+  if (error) throw error;
+  revalidatePath("/todos/settings");
+}
+
+// ============================================================
+// Images (todo-images bucket; see migration 00130)
+// ============================================================
+
+const IMAGES_BUCKET = "todo-images";
+
+export async function createTaskImageUploadUrls(
+  taskId: string,
+  imageId: string,
+  ext: string
+): Promise<{
+  originalPath: string;
+  originalToken: string;
+  displayPath: string;
+  displayToken: string;
+}> {
+  const { supabase } = await ctx();
+  const safeExt = ext.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+  const originalPath = `${taskId}/${imageId}-original.${safeExt}`;
+  const displayPath = `${taskId}/${imageId}-display.jpg`;
+
+  const original = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .createSignedUploadUrl(originalPath);
+  if (original.error || !original.data) {
+    throw new Error(original.error?.message ?? "Failed to create upload URL");
+  }
+  const display = await supabase.storage
+    .from(IMAGES_BUCKET)
+    .createSignedUploadUrl(displayPath);
+  if (display.error || !display.data) {
+    throw new Error(display.error?.message ?? "Failed to create upload URL");
+  }
+
+  return {
+    originalPath: original.data.path,
+    originalToken: original.data.token,
+    displayPath: display.data.path,
+    displayToken: display.data.token,
+  };
+}
+
+export async function attachTaskImage(
+  taskId: string,
+  originalPath: string,
+  displayPath: string
+): Promise<string> {
+  const { supabase, selfEmail } = await ctx();
+  const { data, error } = await supabase
+    .from("todo_task_images")
+    .insert({
+      task_id: taskId,
+      original_path: originalPath,
+      display_path: displayPath,
+      uploaded_by_email: selfEmail,
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "Failed to attach image");
+  revalidateTodos();
+  return data.id as string;
+}
+
+export async function deleteTaskImage(imageId: string): Promise<void> {
+  const { supabase } = await ctx();
+  const { data: image } = await supabase
+    .from("todo_task_images")
+    .select("original_path, display_path")
+    .eq("id", imageId)
+    .maybeSingle();
+  if (!image) return;
+
+  const { error } = await supabase
+    .from("todo_task_images")
+    .delete()
+    .eq("id", imageId);
+  if (error) throw error;
+
+  await supabase.storage
+    .from(IMAGES_BUCKET)
+    .remove([image.original_path as string, image.display_path as string]);
+  revalidateTodos();
+}
+
+export async function createArea(name: string): Promise<{ id: string }> {
+  const { supabase } = await ctx();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Area name is required");
+
+  const { data: last } = await supabase
+    .from("todo_areas")
+    .select("sort_order")
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { data, error } = await supabase
+    .from("todo_areas")
+    .insert({ name: trimmed, sort_order: (last?.sort_order ?? 0) + 1 })
+    .select("id")
+    .single();
+  if (error) throw error;
+  revalidateTodos();
+  return { id: data.id };
+}

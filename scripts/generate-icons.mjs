@@ -24,6 +24,7 @@ import { DOMParser } from "@xmldom/xmldom";
 import {
   Users,
   BookOpen,
+  ListTodo,
   NotebookPen,
   CalendarDays,
   CalendarRange,
@@ -45,6 +46,7 @@ const CREAM = "#f7f1e5";
 const APPS = [
   { key: "home", group: "(home)", glyph: null, top: TERRA_TOP, bottom: TERRA_BOTTOM },
   { key: "family", group: "(family)", glyph: Users, top: "#b5746e", bottom: "#8a4a42" },
+  { key: "todos", group: "(todos)", glyph: ListTodo, top: "#5f9183", bottom: "#3a6356" },
   { key: "reader", group: "(reading)", glyph: BookOpen, top: "#bd924a", bottom: "#8a6526" },
   { key: "journal", group: "(journal)", glyph: NotebookPen, top: "#a07258", bottom: "#70492f" },
   { key: "timeline", group: "(timeline)", glyph: CalendarDays, top: "#a8718f", bottom: "#774a63" },
