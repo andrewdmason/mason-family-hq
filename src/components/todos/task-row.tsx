@@ -84,6 +84,9 @@ function payloadFiles(list: FileList | null | undefined): File[] {
   return Array.from(list ?? []);
 }
 
+/** Open/close animation length — keep in sync with the duration-200 classes. */
+const EXPAND_MS = 200;
+
 /**
  * One task, with Things' interaction model: a single click selects the row,
  * a double click opens it. Opened, the static title line is *replaced* by the
@@ -125,6 +128,24 @@ export function TaskRow({
   handlers: TaskRowHandlers;
 }) {
   const [dragOver, setDragOver] = useState(false);
+  // Things animates open/close: the editor body grows from zero (the grid
+  // 0fr→1fr trick, so the dynamic notes/attachments height needs no
+  // measuring) while the card gains breathing room (margin) + its chrome.
+  // `open` flips a frame after `expanded` so a row that mounts already
+  // expanded (the inline-New draft) still starts from the collapsed state;
+  // on close the editor stays mounted until the exit transition finishes.
+  const [open, setOpen] = useState(false);
+  const [editorMounted, setEditorMounted] = useState(expanded);
+  useEffect(() => {
+    if (expanded) {
+      setEditorMounted(true);
+      const raf = requestAnimationFrame(() => setOpen(true));
+      return () => cancelAnimationFrame(raf);
+    }
+    setOpen(false);
+    const timer = setTimeout(() => setEditorMounted(false), EXPAND_MS);
+    return () => clearTimeout(timer);
+  }, [expanded]);
   const creator = members.find((m) => m.email === task.creatorEmail);
   const assignee = members.find((m) => m.email === task.assigneeEmail);
   const inProjectMode = context.mode === "project";
@@ -153,8 +174,8 @@ export function TaskRow({
       // deselect listener in TaskList.
       data-task-row=""
       className={cn(
-        "rounded-lg transition-colors",
-        expanded && "bg-card shadow-sm ring-1 ring-foreground/10",
+        "rounded-lg transition-all duration-200 ease-out",
+        open && "my-3 bg-card shadow-sm ring-1 ring-foreground/10",
         dragOver && "ring-2 ring-primary/50"
       )}
       // OS file drags attach straight onto the task — images and any other
@@ -179,8 +200,11 @@ export function TaskRow({
       <div
         className={cn(
           // Like Things: no hover wash — selection is the only row highlight.
-          "group flex cursor-default items-center gap-2.5 rounded-lg px-2 py-2 transition-opacity duration-500",
-          !expanded && selected && "bg-accent/70",
+          // (`!open` so the selection wash crossfades with the card chrome;
+          // opacity keeps its slow completing-fade, background matches the
+          // 200ms open/close animation.)
+          "group flex cursor-default items-center gap-2.5 rounded-lg px-2 py-2 [transition:opacity_500ms,background-color_200ms]",
+          !open && selected && "bg-accent/70",
           completing && "opacity-40"
         )}
         onClick={expanded ? undefined : onSelect}
@@ -249,19 +273,30 @@ export function TaskRow({
         )}
       </div>
 
-      {expanded && (
-        <ExpandedEditor
-          task={task}
-          context={context}
-          members={members}
-          projects={projects}
-          attachments={attachments}
-          uploading={uploading}
-          openMenu={openMenu}
-          onMenuOpenChange={onMenuOpenChange}
-          handlers={handlers}
-        />
-      )}
+      {/* Always-rendered grid shell so the height animates both ways; the
+          (heavy) editor itself only mounts while open or closing. */}
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows] duration-200 ease-out",
+          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        )}
+      >
+        <div className="overflow-hidden">
+          {editorMounted && (
+            <ExpandedEditor
+              task={task}
+              context={context}
+              members={members}
+              projects={projects}
+              attachments={attachments}
+              uploading={uploading}
+              openMenu={openMenu}
+              onMenuOpenChange={onMenuOpenChange}
+              handlers={handlers}
+            />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
