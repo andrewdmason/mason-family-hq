@@ -46,7 +46,9 @@ const CREAM = "#f7f1e5";
 const APPS = [
   { key: "home", group: "(home)", glyph: null, top: TERRA_TOP, bottom: TERRA_BOTTOM },
   { key: "family", group: "(family)", glyph: Users, top: "#b5746e", bottom: "#8a4a42" },
-  { key: "todos", group: "(todos)", glyph: ListTodo, top: "#5f9183", bottom: "#3a6356" },
+  // favicon: also write a per-group icon.png, so browser tabs in this app show
+  // its own tile instead of the root house favicon.
+  { key: "todos", group: "(todos)", glyph: ListTodo, top: "#5f9183", bottom: "#3a6356", favicon: true },
   { key: "reader", group: "(reading)", glyph: BookOpen, top: "#bd924a", bottom: "#8a6526" },
   { key: "journal", group: "(journal)", glyph: NotebookPen, top: "#a07258", bottom: "#70492f" },
   { key: "timeline", group: "(timeline)", glyph: CalendarDays, top: "#a8718f", bottom: "#774a63" },
@@ -244,6 +246,10 @@ for (const app of APPS) {
   if (app.key !== "home") {
     writeFileSync(join(root, `src/app/${app.group}/apple-icon.png`), appPng(180, app));
     console.log(`wrote src/app/${app.group}/apple-icon.png (180x180)`);
+  }
+  if (app.favicon) {
+    writeFileSync(join(root, `src/app/${app.group}/icon.png`), appPng(64, app));
+    console.log(`wrote src/app/${app.group}/icon.png (64x64)`);
   }
 }
 
