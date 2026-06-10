@@ -5,8 +5,10 @@ import { getCalendarMembers, getCalendarSources } from "@/lib/calendar/queries";
 import {
   hasTeamsnapConnection,
   listGoogleConnectedEmails,
+  getLogisticsSettingsView,
 } from "@/app/(calendar)/calendar/actions";
 import { CalendarsManager } from "@/components/journal/calendars-manager";
+import { LogisticsSettings } from "@/components/journal/logistics-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -28,21 +30,30 @@ export default async function CalendarsSettingsPage() {
     redirect("/settings/user");
   }
 
-  const [members, sources, teamsnapConnected, googleConnectedEmails] =
-    await Promise.all([
-      getCalendarMembers(),
-      getCalendarSources(),
-      hasTeamsnapConnection(),
-      listGoogleConnectedEmails(),
-    ]);
+  const [
+    members,
+    sources,
+    teamsnapConnected,
+    googleConnectedEmails,
+    logistics,
+  ] = await Promise.all([
+    getCalendarMembers(),
+    getCalendarSources(),
+    hasTeamsnapConnection(),
+    listGoogleConnectedEmails(),
+    getLogisticsSettingsView(),
+  ]);
 
   return (
-    <CalendarsManager
-      members={members}
-      sources={sources}
-      teamsnapConnected={teamsnapConnected}
-      googleConnectedEmails={googleConnectedEmails}
-      currentUserEmail={me.email as string}
-    />
+    <>
+      <CalendarsManager
+        members={members}
+        sources={sources}
+        teamsnapConnected={teamsnapConnected}
+        googleConnectedEmails={googleConnectedEmails}
+        currentUserEmail={me.email as string}
+      />
+      <LogisticsSettings settings={logistics} />
+    </>
   );
 }

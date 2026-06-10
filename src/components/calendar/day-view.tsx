@@ -8,7 +8,7 @@ import {
   toDateKey,
 } from "@/lib/calendar/calendar-utils";
 import type { CalendarEvent, CalendarMember } from "@/lib/calendar/types";
-import type { EventDisplay } from "./event-card";
+import { DutyGlyphs, type EventDisplay } from "./event-card";
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import { cn } from "@/lib/utils";
 
@@ -352,6 +352,7 @@ export function DayView({
           className={cn(
             "absolute flex items-start justify-end overflow-hidden rounded-sm px-0.5 py-0.5",
             event.id === selectedEventId && "ring-1 ring-ring",
+            d.pendingDrive && "animate-pulse opacity-60",
           )}
         >
           {d.isTeamsnap && height >= TALL && (
@@ -374,6 +375,9 @@ export function DayView({
         className={cn(
           "absolute flex flex-col overflow-hidden rounded-sm border border-border/70 border-l-[3px] bg-white px-1.5 py-0.5 text-left transition-colors hover:bg-muted/40 dark:bg-card",
           event.id === selectedEventId && "ring-1 ring-ring",
+          // A duty tap's block-to-be: visible instantly, ghosted until the
+          // real mirror row replaces it.
+          d.pendingDrive && "animate-pulse opacity-60",
         )}
       >
         {showTime && (
@@ -381,15 +385,23 @@ export function DayView({
             <span className="truncate">
               {formatTimeRange(event.start_time, event.end_time, false)}
             </span>
-            {d.attendees.length > 0 && (
-              <span className="ml-auto flex shrink-0 -space-x-1">
-                {d.attendees.slice(0, 3).map((a) => (
-                  <span key={a.email} title={a.name ?? a.email} className="inline-flex">
-                    <MemberAvatar name={a.name} size="xs" className="ring-1 ring-card" />
-                  </span>
-                ))}
-              </span>
-            )}
+            <span className="ml-auto flex shrink-0 items-center gap-1 not-italic">
+              {d.duties && (
+                <DutyGlyphs
+                  duties={d.duties}
+                  hasLocation={!!event.location}
+                />
+              )}
+              {d.attendees.length > 0 && (
+                <span className="flex -space-x-1">
+                  {d.attendees.slice(0, 3).map((a) => (
+                    <span key={a.email} title={a.name ?? a.email} className="inline-flex">
+                      <MemberAvatar name={a.name} size="xs" className="ring-1 ring-card" />
+                    </span>
+                  ))}
+                </span>
+              )}
+            </span>
           </span>
         )}
         <span className={cn("flex items-start gap-1", showTime && "mt-0.5")}>
@@ -401,6 +413,15 @@ export function DayView({
           </span>
           {d.conflict && (
             <AlertTriangle className="mt-px h-2.5 w-2.5 shrink-0 text-amber-600" />
+          )}
+          {/* Short cards drop the time row, so the duty glyphs ride the title
+              row instead — the amber "unset" nudge can't be height-gated away. */}
+          {!showTime && d.duties && (
+            <DutyGlyphs
+              duties={d.duties}
+              hasLocation={!!event.location}
+              className="ml-auto text-[10px]"
+            />
           )}
         </span>
         {height >= 60 && event.location && (
@@ -514,6 +535,13 @@ export function DayView({
                 </span>
                 {everyone && (
                   <span className="shrink-0 not-italic">· Everyone</span>
+                )}
+                {d.duties && (
+                  <DutyGlyphs
+                    duties={d.duties}
+                    hasLocation={!!event.location}
+                    className="ml-auto not-italic"
+                  />
                 )}
               </span>
             )}
