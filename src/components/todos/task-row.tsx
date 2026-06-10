@@ -77,8 +77,10 @@ function payloadFiles(list: FileList | null | undefined): File[] {
 }
 
 /**
- * One task: checkbox, title, context chips; clicking the row expands an inline
- * editor (Things-style) with title, bucket, snooze, project, assignee, delete.
+ * One task, with Things' interaction model: a single click selects the row,
+ * a double click opens it. Opened, the static title line is *replaced* by the
+ * editable title (cursor at the end), with notes, attachments, and controls
+ * beneath.
  */
 export function TaskRow({
   task,
@@ -89,8 +91,10 @@ export function TaskRow({
   uploading,
   viewedEmail,
   completing,
+  selected,
   expanded,
-  onToggleExpand,
+  onSelect,
+  onOpen,
   handlers,
 }: {
   task: TodoTask;
@@ -101,8 +105,10 @@ export function TaskRow({
   uploading: UploadingAttachment[];
   viewedEmail: string;
   completing: boolean;
+  selected: boolean;
   expanded: boolean;
-  onToggleExpand: () => void;
+  onSelect: () => void;
+  onOpen: () => void;
   handlers: TaskRowHandlers;
 }) {
   const [dragOver, setDragOver] = useState(false);
@@ -146,9 +152,11 @@ export function TaskRow({
         className={cn(
           "group flex cursor-default items-center gap-2.5 rounded-lg px-2 py-2 transition-opacity duration-500",
           !expanded && "hover:bg-accent/30",
+          !expanded && selected && "bg-accent/60",
           completing && "opacity-40"
         )}
-        onClick={onToggleExpand}
+        onClick={expanded ? undefined : onSelect}
+        onDoubleClick={expanded ? undefined : onOpen}
       >
         <TaskCheckbox
           checked={completing}
@@ -157,44 +165,54 @@ export function TaskRow({
             handlers.onComplete(task);
           }}
         />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-sm text-foreground transition-all",
-            completing && "text-muted-foreground line-through"
-          )}
-        >
-          {task.title}
-        </span>
-        {hasNotes && !expanded && (
-          <FileText className="size-3.5 shrink-0 text-muted-foreground/60" />
-        )}
-        {attachments.length > 0 && !expanded && (
-          <span className="inline-flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground/60">
-            <Paperclip className="size-3.5" />
-            {attachments.length}
-          </span>
-        )}
-        {fromSomeoneElse && (
-          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-            from {firstNameOf(creator)}
-          </span>
-        )}
-        {inProjectMode && task.assigneeEmail !== viewedEmail && (
-          <span className="shrink-0" title={assignee?.name ?? task.assigneeEmail}>
-            <MemberAvatar name={assignee?.name} size="xs" />
-          </span>
-        )}
-        {inProjectMode && !task.snoozedUntil && task.bucket !== "anytime" && (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-            <BucketIcon.icon className={cn("size-3", BucketIcon.iconClass)} />
-            {BucketIcon.label}
-          </span>
-        )}
-        {showSnoozeChip && task.snoozedUntil && (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-500/10 px-2 py-0.5 text-xs text-indigo-700">
-            <Moon className="size-3" />
-            {formatWake(task.snoozedUntil)}
-          </span>
+        {expanded ? (
+          // Open: the title becomes the editor — no duplicate line below.
+          <TitleInput task={task} onRename={handlers.onRenameTitle} />
+        ) : (
+          <>
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-sm text-foreground transition-all select-none",
+                completing && "text-muted-foreground line-through"
+              )}
+            >
+              {task.title}
+            </span>
+            {hasNotes && (
+              <FileText className="size-3.5 shrink-0 text-muted-foreground/60" />
+            )}
+            {attachments.length > 0 && (
+              <span className="inline-flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground/60">
+                <Paperclip className="size-3.5" />
+                {attachments.length}
+              </span>
+            )}
+            {fromSomeoneElse && (
+              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                from {firstNameOf(creator)}
+              </span>
+            )}
+            {inProjectMode && task.assigneeEmail !== viewedEmail && (
+              <span
+                className="shrink-0"
+                title={assignee?.name ?? task.assigneeEmail}
+              >
+                <MemberAvatar name={assignee?.name} size="xs" />
+              </span>
+            )}
+            {inProjectMode && !task.snoozedUntil && task.bucket !== "anytime" && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                <BucketIcon.icon className={cn("size-3", BucketIcon.iconClass)} />
+                {BucketIcon.label}
+              </span>
+            )}
+            {showSnoozeChip && task.snoozedUntil && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-500/10 px-2 py-0.5 text-xs text-indigo-700">
+                <Moon className="size-3" />
+                {formatWake(task.snoozedUntil)}
+              </span>
+            )}
+          </>
         )}
       </div>
 
@@ -210,6 +228,50 @@ export function TaskRow({
         />
       )}
     </div>
+  );
+}
+
+/** The opened task's title editor: replaces the static row title, focused
+ * with the cursor parked at the end of the name. */
+function TitleInput({
+  task,
+  onRename,
+}: {
+  task: TodoTask;
+  onRename: (task: TodoTask, title: string) => void;
+}) {
+  const [title, setTitle] = useState(task.title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => setTitle(task.title), [task.title]);
+
+  // On open: focus with the caret at the end of the name.
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }, []);
+
+  const saveTitle = () => {
+    const trimmed = title.trim();
+    if (trimmed && trimmed !== task.title) onRename(task, trimmed);
+    else setTitle(task.title);
+  };
+
+  return (
+    <input
+      ref={inputRef}
+      value={title}
+      onChange={(e) => setTitle(e.target.value)}
+      onBlur={saveTitle}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Escape") setTitle(task.title);
+      }}
+      className="min-w-0 flex-1 bg-transparent text-sm font-medium text-foreground outline-none"
+      aria-label="Task title"
+    />
   );
 }
 
@@ -230,17 +292,6 @@ function ExpandedEditor({
   uploading: UploadingAttachment[];
   handlers: TaskRowHandlers;
 }) {
-  const [title, setTitle] = useState(task.title);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => setTitle(task.title), [task.title]);
-
-  const saveTitle = () => {
-    const trimmed = title.trim();
-    if (trimmed && trimmed !== task.title) handlers.onRenameTitle(task, trimmed);
-    else setTitle(task.title);
-  };
-
   // Membership = the assignable set: inside a project, only its members.
   const project = projects.find((p) => p.id === task.projectId);
   const assignableMembers = project
@@ -249,7 +300,9 @@ function ExpandedEditor({
 
   return (
     <div
-      className="space-y-3 px-3 pt-1 pb-3"
+      // Left padding lines the body up under the title text (row padding +
+      // checkbox + gap).
+      className="space-y-3 pt-1 pr-3 pb-3 pl-9"
       // Pasting a screenshot (or any copied file) anywhere in the detail
       // attaches it; text pastes pass through to the focused input/editor.
       onPasteCapture={(e) => {
@@ -261,19 +314,6 @@ function ExpandedEditor({
         }
       }}
     >
-      <input
-        ref={inputRef}
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        onBlur={saveTitle}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-          if (e.key === "Escape") setTitle(task.title);
-        }}
-        className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium text-foreground outline-none focus:border-border focus:bg-background"
-        aria-label="Task title"
-      />
-
       <TodoNotesEditor
         key={task.id}
         initialHtml={task.notesHtml ?? ""}

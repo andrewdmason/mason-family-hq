@@ -100,6 +100,8 @@ export function TaskList({
   const router = useRouter();
   const [tasks, setTasks] = useState(initialTasks);
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
+  // Things' interaction model: one click selects, a double click opens.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [undoTask, setUndoTask] = useState<TodoTask | null>(null);
   const [attachments, setAttachments] = useState(attachmentsByTask);
@@ -122,6 +124,7 @@ export function TaskList({
   const removeLocally = (taskId: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
     setExpandedId((prev) => (prev === taskId ? null : prev));
+    setSelectedId((prev) => (prev === taskId ? null : prev));
   };
 
   const patchLocally = (taskId: string, patch: Partial<TodoTask>) => {
@@ -405,12 +408,17 @@ export function TaskList({
                           uploading={uploadingByTask[task.id] ?? []}
                           viewedEmail={viewedEmail}
                           completing={completingIds.has(task.id)}
+                          selected={selectedId === task.id}
                           expanded={expandedId === task.id}
-                          onToggleExpand={() =>
-                            setExpandedId((prev) =>
-                              prev === task.id ? null : task.id
-                            )
-                          }
+                          onSelect={() => {
+                            setSelectedId(task.id);
+                            // Clicking another row closes whatever is open.
+                            setExpandedId(null);
+                          }}
+                          onOpen={() => {
+                            setSelectedId(task.id);
+                            setExpandedId(task.id);
+                          }}
                           handlers={handlers}
                         />
                       </SortableTaskRow>
