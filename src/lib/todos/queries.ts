@@ -129,6 +129,27 @@ async function getSnoozedTasks(
   return ((data ?? []) as TodoTaskRow[]).map(taskFromRow);
 }
 
+/**
+ * Open tasks this member created for *other* people — the outbound ledger
+ * ("what have I put on everyone else's plates?"). Ordered by assignee so the
+ * view can group by person.
+ */
+async function getDelegatedTasks(
+  supabase: Supabase,
+  memberEmail: string
+): Promise<TodoTask[]> {
+  const { data } = await supabase
+    .from("todo_tasks")
+    .select(TASK_COLUMNS)
+    .eq("creator_email", memberEmail)
+    .neq("assignee_email", memberEmail)
+    .is("completed_at", null)
+    .is("deleted_at", null)
+    .order("assignee_email", { ascending: true })
+    .order("sort_order", { ascending: true });
+  return ((data ?? []) as TodoTaskRow[]).map(taskFromRow);
+}
+
 const LOGBOOK_PAGE = 100;
 
 /** Completed tasks, newest first (the Logbook groups them by local date). */
@@ -289,6 +310,8 @@ export async function getViewTasks(
   switch (view) {
     case "snoozed":
       return getSnoozedTasks(supabase, memberEmail);
+    case "delegated":
+      return getDelegatedTasks(supabase, memberEmail);
     case "logbook":
       return getLogbookTasks(supabase, memberEmail);
     default:

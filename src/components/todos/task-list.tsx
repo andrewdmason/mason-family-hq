@@ -18,7 +18,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Archive, CircleDashed, Inbox, Layers, Moon, Star } from "lucide-react";
+import { Archive, CircleDashed, Inbox, Layers, Moon, Send, Star } from "lucide-react";
 import {
   completeTask,
   createTask,
@@ -79,6 +79,7 @@ const EMPTY_STATES: Record<string, { icon: typeof Star; text: string }> = {
   anytime: { icon: Layers, text: "Nothing queued. Tasks you could do whenever live here." },
   someday: { icon: Archive, text: "No someday-maybes parked here yet." },
   snoozed: { icon: Moon, text: "Nothing snoozed. Snoozed tasks wait here, then pop into Today." },
+  delegated: { icon: Send, text: "Nothing delegated. To-dos you create for someone else show up here until they're done." },
   project: { icon: CircleDashed, text: "No tasks here yet. Add the first one above." },
 };
 
@@ -237,7 +238,9 @@ export function TaskList({
       run(deleteTask(task.id));
     },
     onSnooze: (task, when) => {
-      if (inProject || view === "snoozed") {
+      // Views that show snoozed tasks in place just update the chip; bucket
+      // views drop the row (it hides until it wakes).
+      if (inProject || view === "snoozed" || view === "delegated") {
         patchLocally(task.id, { snoozedUntil: when.toISOString() });
         if (view === "snoozed") {
           setTasks((prev) =>
@@ -252,17 +255,28 @@ export function TaskList({
       run(snoozeTask(task.id, when.toISOString()));
     },
     onWake: (task) => {
-      if (inProject) patchLocally(task.id, { snoozedUntil: null, bucket: "today" });
-      else removeLocally(task.id);
+      if (inProject || view === "delegated") {
+        patchLocally(task.id, { snoozedUntil: null, bucket: "today" });
+      } else {
+        removeLocally(task.id);
+      }
       run(clearSnooze(task.id));
     },
     onSetBucket: (task, bucket) => {
-      if (inProject) patchLocally(task.id, { bucket, snoozedUntil: null });
-      else if (view === "snoozed" || bucket !== view) removeLocally(task.id);
+      // Delegated tracks the task wherever it sits in their system.
+      if (inProject || view === "delegated") {
+        patchLocally(task.id, { bucket, snoozedUntil: null });
+      } else if (view === "snoozed" || bucket !== view) {
+        removeLocally(task.id);
+      }
       run(setTaskBucket(task.id, bucket));
     },
     onReassign: (task, email) => {
-      if (inProject) {
+      if (view === "delegated") {
+        // Taking it back (or it landing on the viewer) ends the delegation.
+        if (email === viewedEmail) removeLocally(task.id);
+        else patchLocally(task.id, { assigneeEmail: email });
+      } else if (inProject) {
         patchLocally(task.id, { assigneeEmail: email });
       } else if (email !== viewedEmail) {
         removeLocally(task.id);
@@ -332,9 +346,22 @@ export function TaskList({
     run(restoreTask(task.id));
   };
 
-  // Anytime and Someday group by project (loose tasks first), like Things.
+  // Anytime and Someday group by project (loose tasks first), like Things;
+  // Delegated groups by who holds the task.
   const grouped = view === "anytime" || view === "someday";
   const groups = useMemo<TaskGroup[]>(() => {
+    if (view === "delegated") {
+      return members
+        .map((member) => ({
+          key: member.email,
+          heading:
+            member.name?.trim().split(/\s+/)[0] ?? member.email.split("@")[0],
+          // The heading jumps into that person's lists.
+          href: withAs("/todos/today", member.email, selfEmail),
+          tasks: tasks.filter((t) => t.assigneeEmail === member.email),
+        }))
+        .filter((group) => group.tasks.length > 0);
+    }
     if (!grouped) return [{ key: "all", heading: null, href: null, tasks }];
     const loose = tasks.filter((t) => !t.projectId);
     const result: TaskGroup[] =
@@ -359,7 +386,7 @@ export function TaskList({
       result.unshift({ key: "loose", heading: null, href: null, tasks: orphans });
     }
     return result;
-  }, [grouped, tasks, projects, viewedEmail, selfEmail]);
+  }, [grouped, view, tasks, members, projects, viewedEmail, selfEmail]);
 
   // Selection. Plain click selects one; shift extends a range from the last
   // anchor through the visible order; cmd/ctrl toggles membership.

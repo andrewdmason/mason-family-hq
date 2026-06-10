@@ -28,6 +28,7 @@ import {
   Layers,
   Moon,
   Plus,
+  Send,
   Star,
 } from "lucide-react";
 import {
@@ -60,13 +61,14 @@ type ViewItem = {
   chord: string;
 };
 
-// The six fixed views; the member's projects (grouped by area) list below.
+// The fixed views; the member's projects (grouped by area) list below.
 const VIEW_ITEMS: ViewItem[] = [
   { view: "inbox", label: "Inbox", icon: Inbox, iconClass: "text-sky-700", chord: "g i" },
   { view: "today", label: "Today", icon: Star, iconClass: "text-amber-500", chord: "g t" },
   { view: "anytime", label: "Anytime", icon: Layers, iconClass: "text-teal-700", chord: "g a" },
   { view: "someday", label: "Someday", icon: Archive, iconClass: "text-stone-500", chord: "g s" },
   { view: "snoozed", label: "Snoozed", icon: Moon, iconClass: "text-indigo-500", chord: "g z" },
+  { view: "delegated", label: "Delegated", icon: Send, iconClass: "text-rose-700", chord: "g d" },
   { view: "logbook", label: "Logbook", icon: BookCheck, iconClass: "text-emerald-700", chord: "g l" },
 ];
 

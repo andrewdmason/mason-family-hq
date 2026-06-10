@@ -25,6 +25,7 @@ const GO_TARGETS: Record<string, string> = {
   a: "anytime",
   s: "someday",
   z: "snoozed", // s is taken; z as in zzz
+  d: "delegated",
   l: "logbook",
 };
 
@@ -92,6 +93,7 @@ const SECTIONS: { title: string; rows: ShortcutRow[] }[] = [
       { keys: ["g", "a"], label: "Anytime" },
       { keys: ["g", "s"], label: "Someday" },
       { keys: ["g", "z"], label: "Snoozed" },
+      { keys: ["g", "d"], label: "Delegated" },
       { keys: ["g", "l"], label: "Logbook" },
     ],
   },

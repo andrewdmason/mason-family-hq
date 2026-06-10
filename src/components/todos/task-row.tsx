@@ -122,11 +122,23 @@ export function TaskRow({
   const [dragOver, setDragOver] = useState(false);
   const creator = members.find((m) => m.email === task.creatorEmail);
   const assignee = members.find((m) => m.email === task.assigneeEmail);
-  const fromSomeoneElse = task.creatorEmail !== task.assigneeEmail;
   const inProjectMode = context.mode === "project";
+  // Delegated groups by assignee and is creator==viewer by definition, so
+  // the "from X" chip would be pure noise there.
+  const inDelegated = context.mode === "view" && context.view === "delegated";
+  const fromSomeoneElse =
+    task.creatorEmail !== task.assigneeEmail && !inDelegated;
+  // Status lenses (snoozed, delegated) and project pages show where the task
+  // sits: its wake time, or its bucket.
   const showSnoozeChip =
     !!task.snoozedUntil &&
-    (inProjectMode || (context.mode === "view" && context.view === "snoozed"));
+    (inProjectMode ||
+      inDelegated ||
+      (context.mode === "view" && context.view === "snoozed"));
+  const showBucketChip =
+    (inProjectMode || inDelegated) &&
+    !task.snoozedUntil &&
+    task.bucket !== "anytime";
   const BucketIcon = bucketIcon(task.bucket);
   const hasNotes = !!task.notesHtml;
 
@@ -211,7 +223,7 @@ export function TaskRow({
                 <MemberAvatar name={assignee?.name} size="xs" />
               </span>
             )}
-            {inProjectMode && !task.snoozedUntil && task.bucket !== "anytime" && (
+            {showBucketChip && (
               <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                 <BucketIcon.icon className={cn("size-3", BucketIcon.iconClass)} />
                 {BucketIcon.label}
