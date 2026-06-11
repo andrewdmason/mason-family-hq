@@ -721,6 +721,34 @@ export async function setEventGoing(
       // Other failures are best-effort: state is saved and re-asserted on sync.
     }
   }
+
+  // Going reshapes any drive block this member holds on the event (round trip
+  // ↔ one-way leg) — reconcile after the response, same as duty taps. Gated on
+  // an actual assignment so plain attendance toggles stay free.
+  const { data: heldDuty } = await admin
+    .from("event_duty_assignments")
+    .select("id")
+    .eq("event_id", eventId)
+    .eq("assignee_email", memberEmail)
+    .limit(1)
+    .maybeSingle();
+  if (heldDuty) {
+    after(() =>
+      queueDriveWork(async () => {
+        try {
+          await reconcileEventDrive(admin, eventId);
+          revalidatePath("/calendar");
+        } catch (err) {
+          // best-effort: the next sweep reshapes the block
+          console.error(
+            `[drive] reconcile failed after going change (event ${eventId}):`,
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }),
+    );
+  }
+
   revalidatePath("/calendar");
   return warning ? { ok: true, warning } : { ok: true };
 }

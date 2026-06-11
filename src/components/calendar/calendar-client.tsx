@@ -123,25 +123,6 @@ export function CalendarClient({
     Record<string, Record<string, boolean>>
   >({});
 
-  async function toggleGoing(
-    eventId: string,
-    email: string,
-    willGo: boolean,
-  ): Promise<{ warning?: string }> {
-    const set = (going: boolean) =>
-      setOverrides((prev) => ({
-        ...prev,
-        [eventId]: { ...(prev[eventId] ?? {}), [email]: going },
-      }));
-    set(willGo); // optimistic
-    const res = await setEventGoing(eventId, email, willGo);
-    if ("error" in res) {
-      set(!willGo); // revert
-      throw new Error(res.error);
-    }
-    return { warning: res.warning };
-  }
-
   // Optimistic drop-off/pick-up overrides, layered over the server-fetched
   // assignments the same way the "going" overrides are. A key set to null means
   // "unset" (delete); an absent key means "no pending change".
@@ -182,6 +163,29 @@ export function CalendarClient({
     },
     [],
   );
+
+  async function toggleGoing(
+    eventId: string,
+    email: string,
+    willGo: boolean,
+  ): Promise<{ warning?: string }> {
+    const set = (going: boolean) =>
+      setOverrides((prev) => ({
+        ...prev,
+        [eventId]: { ...(prev[eventId] ?? {}), [email]: going },
+      }));
+    set(willGo); // optimistic
+    const res = await setEventGoing(eventId, email, willGo);
+    if ("error" in res) {
+      set(!willGo); // revert
+      throw new Error(res.error);
+    }
+    // Going can reshape this parent's drive block (round trip ↔ one-way leg)
+    // after the response — swap the ghost for the real row, like duty taps.
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => router.refresh(), 4000);
+    return { warning: res.warning };
+  }
 
   async function setDuty(
     eventId: string,
@@ -316,13 +320,32 @@ export function CalendarClient({
         driveMinutes,
         bufferMinutes: logistics.bufferMinutes,
       };
-      const dropW = driveBlockWindow({ duty: "dropoff", ...windowArgs });
-      const pickW = driveBlockWindow({ duty: "pickup", ...windowArgs });
+      // Same attending rule as the server: a parent who's "going" (server rows
+      // overlaid with pending toggles) gets one-way legs, not round trips.
+      const isGoing = (email: string) =>
+        overrides[ev.id]?.[email] ??
+        (goingByEvent[ev.id] ?? []).includes(email);
+      const attending = {
+        dropoff: !!d.dropoff?.assignee && isGoing(d.dropoff.assignee),
+        pickup: !!d.pickup?.assignee && isGoing(d.pickup.assignee),
+      };
+      const dropW = driveBlockWindow({
+        duty: "dropoff",
+        attending: attending.dropoff,
+        ...windowArgs,
+      });
+      const pickW = driveBlockWindow({
+        duty: "pickup",
+        attending: attending.pickup,
+        ...windowArgs,
+      });
       // Same combine rule as the server: one ↔ block when the same parent has
-      // both duties with no real time at home between trips.
+      // both duties with no real time at home between trips — unless they're
+      // attending (one-way legs; the event itself fills the middle).
       const combined =
         !!d.dropoff?.assignee &&
         d.dropoff.assignee === d.pickup?.assignee &&
+        !attending.dropoff &&
         (new Date(pickW.start).getTime() - new Date(dropW.end).getTime()) /
           60_000 <
           COMBINE_GAP_MINUTES;
@@ -341,6 +364,7 @@ export function CalendarClient({
           key,
           assignee,
           duty: combined ? "combined" : duty,
+          attending: attending[duty],
           kidName,
           location: ev.location,
           window: combined
@@ -364,9 +388,10 @@ export function CalendarClient({
       }
     }
     // Pass 2: cluster (the server's cross-event merge rule), then diff each
-    // cluster against the real mirror rows. The title encodes everything
-    // user-visible (duty arrow, membership, minutes), so a mirror on the right
-    // parent with the right title IS the desired block, already in place.
+    // cluster against the real mirror rows. The title encodes the user-visible
+    // identity (duty arrow, membership, minutes) but NOT the window — a going
+    // toggle flips the same-titled block between round-trip and one-way — so
+    // a mirror must match on parent, title, AND window to count as in place.
     for (const cluster of clusterDriveBlocks(planned)) {
       const owner = cluster.members[0];
       for (const m of cluster.members.slice(1)) {
@@ -377,7 +402,11 @@ export function CalendarClient({
       if (
         mirror &&
         mirror.member_email === owner.assignee &&
-        mirror.title === cluster.title
+        mirror.title === cluster.title &&
+        mirror.end_time != null &&
+        // epoch compare — DB timestamptz strings aren't byte-identical to ISO
+        +new Date(mirror.start_time) === +new Date(cluster.window.start) &&
+        +new Date(mirror.end_time) === +new Date(cluster.window.end)
       ) {
         continue; // real & right
       }
@@ -411,7 +440,7 @@ export function CalendarClient({
       });
     }
     return { hidden, extra };
-  }, [events, dutiesFor, kidEmails, memberNames, logistics]);
+  }, [events, dutiesFor, kidEmails, memberNames, logistics, goingByEvent, overrides]);
 
   const effectiveEvents = useMemo(
     () => [
