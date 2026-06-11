@@ -13,6 +13,7 @@ import {
   markInboxSeen,
   sweepElapsedSnoozes,
 } from "@/lib/todos/queries";
+import { getJournalNudgePending } from "@/lib/todos/journal-nudge";
 import { isTodoView, viewLabel } from "@/lib/todos/types";
 import { TodosViews } from "@/components/todos/todos-views";
 
@@ -67,13 +68,18 @@ export default async function TodoViewPage({
   if (view === "inbox" && viewed.email === selfEmail) {
     await markInboxSeen(supabase, selfEmail);
   }
-  const [activeTasks, logbookTasks, projects, areas, logbookProjects] =
+  const [activeTasks, logbookTasks, projects, areas, logbookProjects, journalNudge] =
     await Promise.all([
       getMemberActiveTasks(supabase, viewed.email),
       getLogbookTasks(supabase, viewed.email),
       getProjects(supabase),
       getAreas(supabase),
       getLogbookProjects(supabase),
+      // The "write in your journal" nudge is personal — it rides your own
+      // Today view only, never someone else's list you're peeking at.
+      viewed.email === selfEmail
+        ? getJournalNudgePending(supabase)
+        : Promise.resolve(false),
     ]);
   const attachmentsByTask = await getTaskAttachments(
     supabase,
@@ -92,6 +98,7 @@ export default async function TodoViewPage({
       areas={areas}
       viewed={viewed}
       selfEmail={selfEmail}
+      journalNudge={journalNudge}
     />
   );
 }
