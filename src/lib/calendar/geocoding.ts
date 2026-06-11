@@ -12,6 +12,8 @@
 // to an estimate.
 
 const PLACES_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
+const PLACES_AUTOCOMPLETE_URL =
+  "https://places.googleapis.com/v1/places:autocomplete";
 // Places locationBias circle radius in meters (50 km is the API max). A bias,
 // not a restriction — far-away tournaments still resolve.
 const PLACES_BIAS_RADIUS_M = 50_000;
@@ -25,6 +27,84 @@ const BIAS_DEGREES = 1.5;
 export interface GeocodingResult {
   lat: number;
   lng: number;
+}
+
+export interface PlaceSuggestion {
+  placeId: string;
+  label: string;
+  secondary: string | null;
+  location: string;
+}
+
+export async function suggestPlaces(
+  input: string,
+  nearLat?: number,
+  nearLng?: number,
+): Promise<PlaceSuggestion[]> {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const query = input.trim();
+  if (!apiKey || query.length < 2) return [];
+
+  const res = await fetch(PLACES_AUTOCOMPLETE_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask":
+        "suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat",
+    },
+    body: JSON.stringify({
+      input: query,
+      includedRegionCodes: ["us"],
+      ...(nearLat != null && nearLng != null
+        ? {
+            locationBias: {
+              circle: {
+                center: { latitude: nearLat, longitude: nearLng },
+                radius: PLACES_BIAS_RADIUS_M,
+              },
+            },
+          }
+        : {}),
+    }),
+    next: { revalidate: 0 },
+  });
+
+  if (!res.ok) {
+    console.warn(
+      `[places] Autocomplete failed (${res.status}) for "${query}": ${(await res.text()).slice(0, 200)}`,
+    );
+    return [];
+  }
+
+  const data = (await res.json()) as {
+    suggestions?: Array<{
+      placePrediction?: {
+        placeId?: string;
+        text?: { text?: string };
+        structuredFormat?: {
+          mainText?: { text?: string };
+          secondaryText?: { text?: string };
+        };
+      };
+    }>;
+  };
+
+  return (data.suggestions ?? [])
+    .map((s): PlaceSuggestion | null => {
+      const p = s.placePrediction;
+      const location = p?.text?.text?.trim();
+      const label = p?.structuredFormat?.mainText?.text?.trim() ?? location;
+      if (!p?.placeId || !location || !label) return null;
+      return {
+        placeId: p.placeId,
+        label,
+        secondary: p.structuredFormat?.secondaryText?.text?.trim() ?? null,
+        location,
+      };
+    })
+    .filter((s): s is PlaceSuggestion => s != null)
+    .slice(0, 5);
 }
 
 export async function geocodeAddress(

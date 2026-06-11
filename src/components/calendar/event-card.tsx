@@ -177,6 +177,7 @@ export function EventRow({
   return (
     <button
       type="button"
+      data-event-id={event.id}
       onClick={() => onClick(event)}
       className={cn(
         "flex w-full items-start gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition-colors hover:bg-muted/60",
@@ -256,6 +257,7 @@ export function EventColumnCard({
   return (
     <button
       type="button"
+      data-event-id={event.id}
       onClick={() => onClick(event)}
       title={calendarLabel ? `${calendarLabel}: ${event.title}` : event.title}
       style={{ borderLeftColor: mutedColor(color) }}
@@ -314,6 +316,7 @@ export function EventGhost({
   return (
     <button
       type="button"
+      data-event-id={event.id}
       onClick={() => onClick(event)}
       title={`${event.title} (you're going)`}
       style={{ borderLeftColor: color }}
@@ -341,6 +344,7 @@ export function EventPill({
   return (
     <button
       type="button"
+      data-event-id={event.id}
       onClick={() => onClick(event)}
       title={calendarLabel ? `${calendarLabel}: ${event.title}` : event.title}
       className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[11px] leading-tight transition-colors hover:bg-muted"

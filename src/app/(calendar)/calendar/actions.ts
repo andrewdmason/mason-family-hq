@@ -34,7 +34,11 @@ import {
   setGoing,
   setDuty,
 } from "@/lib/calendar/mutations";
-import { geocodeAddress } from "@/lib/calendar/geocoding";
+import {
+  geocodeAddress,
+  suggestPlaces,
+  type PlaceSuggestion,
+} from "@/lib/calendar/geocoding";
 
 /** Throw unless the caller is an owner/parent — the roles that manage calendars.
  * Returns the caller's member email (handy for connection-scoped work). */
@@ -511,6 +515,31 @@ export async function setEventDuty(
 ): Promise<{ ok: true } | { error: string }> {
   await requireParent();
   return setDuty(eventId, duty, state);
+}
+
+// --- Location search ---------------------------------------------------------
+
+export type LocationSuggestion = PlaceSuggestion;
+
+export async function searchLocationSuggestions(
+  input: string,
+): Promise<LocationSuggestion[]> {
+  await requireParent();
+  const query = input.trim();
+  if (query.length < 2) return [];
+
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("calendar_logistics_settings")
+    .select("home_lat, home_lng")
+    .eq("id", 1)
+    .maybeSingle();
+
+  return suggestPlaces(
+    query,
+    data?.home_lat as number | undefined,
+    data?.home_lng as number | undefined,
+  );
 }
 
 // --- Logistics settings (home address, buffer) --------------------------------

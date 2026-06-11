@@ -75,11 +75,12 @@ import type {
   EventDuties,
   EventDuty,
 } from "@/lib/calendar/types";
-import { DayView } from "./day-view";
+import { DayView, type GridDraft } from "./day-view";
 import { AgendaView } from "./agenda-view";
 import { WeekView } from "./week-view";
 import { MonthView } from "./month-view";
-import { EventSheet, type SheetMode } from "./event-sheet";
+import { EventPanelHost } from "./event-panel-host";
+import type { DraftEvent } from "./event-panel";
 import type { DutyChip, EventDisplay, EventDutyChips } from "./event-card";
 import {
   changeEventOwner,
@@ -151,9 +152,18 @@ export function CalendarClient({
   // TeamSnap events you've RSVP'd "Not going" to are hidden unless this is on.
   const [showDeclined, setShowDeclined] = useState(false);
 
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [sheetMode, setSheetMode] = useState<SheetMode>("detail");
-  const [activeEvent, setActiveEvent] = useState<CalendarEvent | null>(null);
+  // The event panel (anchored popover / bottom sheet): viewing or editing an
+  // existing event, or collecting details for a draft already drawn on the
+  // grid. anchorId is the data-event-id of the block the popover anchors to —
+  // the block the user actually clicked (a drive block anchors there even
+  // though the panel shows its source kid event).
+  // `pending` marks a drag-to-create in progress: the draft block renders on
+  // the grid but the panel itself waits for the release.
+  const [panel, setPanel] = useState<
+    | { kind: "event"; event: CalendarEvent; anchorId: string }
+    | { kind: "create"; draft: DraftEvent; pending?: boolean }
+    | null
+  >(null);
   // Optimistic per-event "going" overrides (email -> going). The base attendee
   // set is derived from server data (event_attendees + members who already have
   // the event on their calendar as a guest); these overrides layer the user's
@@ -269,8 +279,10 @@ export function CalendarClient({
   ): Promise<{ warning?: string }> {
     const res = await changeEventOwner(eventId, email);
     if ("error" in res) throw new Error(res.error);
-    setActiveEvent((prev) =>
-      prev && prev.id === eventId ? { ...prev, member_email: email } : prev,
+    setPanel((prev) =>
+      prev?.kind === "event" && prev.event.id === eventId
+        ? { ...prev, event: { ...prev.event, member_email: email } }
+        : prev,
     );
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => router.refresh(), 4000);
@@ -488,8 +500,9 @@ export function CalendarClient({
         teamsnap_arrival_time: null,
         teamsnap_is_game: null,
         teamsnap_rsvp: null,
-        recurrence: "none",
-        recurrence_parent_id: null,
+        rrule: null,
+        google_recurring_event_id: null,
+        google_attendees: null,
         is_canceled: false,
         dismissed: false,
         drive_source_event_id: src.ev.id,
@@ -500,12 +513,48 @@ export function CalendarClient({
     return { hidden, extra };
   }, [events, dutiesFor, kidEmails, memberNames, logistics, goingByEvent, overrides]);
 
+  // The in-progress draft as a synthetic event so it renders on the grid while
+  // the panel collects details — same trick as the pending-drive ghosts. The
+  // day view styles "draft:" ids dashed/translucent.
+  const draftEvent = useMemo((): CalendarEvent | null => {
+    if (panel?.kind !== "create") return null;
+    const { draft } = panel;
+    return {
+      id: "draft:new",
+      member_email: draft.memberEmail,
+      calendar_source_id: null,
+      title: "New event",
+      description: null,
+      location: null,
+      start_time: draft.startTime,
+      end_time: draft.endTime,
+      all_day: draft.allDay,
+      source_type: "manual",
+      external_id: null,
+      google_event_id: null,
+      organizer_email: null,
+      teamsnap_opponent: null,
+      teamsnap_arrival_time: null,
+      teamsnap_is_game: null,
+      teamsnap_rsvp: null,
+      rrule: null,
+      google_recurring_event_id: null,
+      google_attendees: null,
+      is_canceled: false,
+      dismissed: false,
+      drive_source_event_id: null,
+      drive_duty: null,
+      drive_minutes: null,
+    };
+  }, [panel]);
+
   const effectiveEvents = useMemo(
     () => [
       ...events.filter((e) => !driveAdjusted.hidden.has(e.id)),
       ...driveAdjusted.extra,
+      ...(draftEvent ? [draftEvent] : []),
     ],
-    [events, driveAdjusted],
+    [events, driveAdjusted, draftEvent],
   );
 
   // Collapse the same underlying event (a shared Google event read from several
@@ -711,23 +760,59 @@ export function CalendarClient({
     [base],
   );
 
+  // The event the open panel is showing (null while creating or closed) —
+  // feeds the going/duty/source props below.
+  const panelEvent = panel?.kind === "event" ? panel.event : null;
+
   function openDetail(event: CalendarEvent) {
     // A drive block opens its source kid event — the block is an artifact of
-    // the assignment, not a thing to inspect or edit on its own.
+    // the assignment, not a thing to inspect or edit on its own. The popover
+    // still anchors to the block that was clicked.
     const target = event.drive_source_event_id
       ? logicalById.get(event.drive_source_event_id) ??
         eventsById.get(event.drive_source_event_id) ??
         event
       : event;
-    setActiveEvent(target);
-    setSheetMode("detail");
-    setSheetOpen(true);
+    setPanel({ kind: "event", event: target, anchorId: event.id });
   }
 
+  // The floating + button: drop a one-hour draft at the next round hour on the
+  // viewed day (9 a.m. when that day isn't today) and open the panel for the
+  // details. The draft renders on the grid immediately — see draftEvent below.
   function openCreate() {
-    setActiveEvent(null);
-    setSheetMode("create");
-    setSheetOpen(true);
+    const now = new Date();
+    const start = new Date(anchor);
+    if (toDateKey(start) === toDateKey(now)) {
+      start.setHours(now.getHours() + 1, 0, 0, 0);
+    } else {
+      start.setHours(9, 0, 0, 0);
+    }
+    const end = new Date(start);
+    end.setHours(end.getHours() + 1);
+    setPanel({
+      kind: "create",
+      draft: {
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        allDay: false,
+        memberEmail: currentMemberEmail ?? members[0]?.email ?? null,
+      },
+    });
+  }
+
+  // Click/drag on the day grid's empty background: the draft block tracks the
+  // drag (pending), and the release opens the panel beside it.
+  function handleGridDraft(d: GridDraft) {
+    setPanel({
+      kind: "create",
+      draft: {
+        startTime: d.start,
+        endTime: d.end,
+        allDay: false,
+        memberEmail: d.memberEmail,
+      },
+      pending: !d.commit,
+    });
   }
 
   // One period forward/back, sized to the current view (day/week/month; the
@@ -904,11 +989,19 @@ export function CalendarClient({
           members={agendaMembers}
           display={display}
           onEventClick={openDetail}
-          selectedEventId={sheetOpen ? activeEvent?.id ?? null : null}
+          selectedEventId={
+            panel?.kind === "event"
+              ? panel.event.id
+              : panel?.kind === "create"
+                ? "draft:new"
+                : null
+          }
           currentMemberEmail={currentMemberEmail}
           // Reference equality: only the center panel is the real anchor —
           // the swipe neighbors get fresh Date objects from anchorFor().
           beforeAxis={anchorDate === anchor ? triageBars : null}
+          canManage={canManage}
+          onGridDraft={handleGridDraft}
         />
       )}
       {view === "feed" && (
@@ -918,7 +1011,7 @@ export function CalendarClient({
           members={agendaMembers}
           display={display}
           onEventClick={openDetail}
-          selectedEventId={sheetOpen ? activeEvent?.id ?? null : null}
+          selectedEventId={panel?.kind === "event" ? panel.event.id : null}
         />
       )}
       {view === "week" && (
@@ -1137,13 +1230,18 @@ export function CalendarClient({
       {/* New event floats over the grid, Google Calendar style, instead of
           taking up header space. */}
       {canManage && (
-        <Button
-          onClick={openCreate}
-          aria-label="New event"
-          className="fixed bottom-[calc(env(safe-area-inset-bottom)+1.25rem)] right-5 z-40 size-12 rounded-full shadow-lg"
-        >
-          <Plus className="size-5" />
-        </Button>
+        // The data-panel-trigger wrapper marks this as "opens the panel, not an
+        // outside click" for the panel's dismissal handler (a plain span: the
+        // attribute doesn't survive Button's render chain on the server).
+        <span data-panel-trigger="" className="contents">
+          <Button
+            onClick={openCreate}
+            aria-label="New event"
+            className="fixed bottom-[calc(env(safe-area-inset-bottom)+1.25rem)] right-5 z-40 size-12 rounded-full shadow-lg"
+          >
+            <Plus className="size-5" />
+          </Button>
+        </span>
       )}
 
       {/* The view. No top padding: the day view's anchored chrome must sit
@@ -1178,39 +1276,52 @@ export function CalendarClient({
         </div>
       </div>
 
-      <EventSheet
-        open={sheetOpen}
-        onOpenChange={setSheetOpen}
-        mode={sheetMode}
-        onModeChange={setSheetMode}
-        event={activeEvent}
+      <EventPanelHost
+        // A pending (mid-drag) draft renders only its grid block; the panel
+        // itself opens on release.
+        mode={panel?.kind === "create" && panel.pending ? null : panel}
+        anchorEventId={
+          panel?.kind === "event"
+            ? panel.anchorId
+            : panel?.kind === "create"
+              ? "draft:new"
+              : null
+        }
+        panelKey={
+          panel?.kind === "event"
+            ? panel.event.id
+            : panel?.kind === "create"
+              ? // Keyed by the draft's times so a fresh grid gesture re-seeds
+                // the form, while edits inside one create session stay put.
+                `create:${panel.draft.startTime}:${panel.draft.endTime}`
+              : "closed"
+        }
+        onClose={() => setPanel(null)}
         members={members}
         sources={sources}
         canManage={canManage}
         canRsvp={
           canManage &&
-          (activeEvent?.calendar_source_id
-            ? sourcesById.get(activeEvent.calendar_source_id)?.source_type ===
+          (panelEvent?.calendar_source_id
+            ? sourcesById.get(panelEvent.calendar_source_id)?.source_type ===
               "teamsnap"
             : false)
         }
-        sourceLabel={activeEvent ? display(activeEvent).sourceLabel : null}
+        sourceLabel={panelEvent ? display(panelEvent).sourceLabel : null}
         going={
-          activeEvent
-            ? attendeesFor(activeEvent.id, activeEvent.member_email)
-            : []
+          panelEvent ? attendeesFor(panelEvent.id, panelEvent.member_email) : []
         }
         onToggleGoing={toggleGoing}
         onChangeOwner={changeOwner}
-        duties={activeEvent ? dutiesFor(activeEvent.id) : {}}
+        duties={panelEvent ? dutiesFor(panelEvent.id) : {}}
         parents={parents}
         showLogistics={
-          !!activeEvent &&
-          !activeEvent.all_day &&
-          !activeEvent.drive_source_event_id &&
-          !isHomeLocation(activeEvent.location, logistics.homeAddress) &&
-          !!activeEvent.member_email &&
-          kidEmails.has(activeEvent.member_email)
+          !!panelEvent &&
+          !panelEvent.all_day &&
+          !panelEvent.drive_source_event_id &&
+          !isHomeLocation(panelEvent.location, logistics.homeAddress) &&
+          !!panelEvent.member_email &&
+          kidEmails.has(panelEvent.member_email)
         }
         onSetDuty={setDuty}
       />
@@ -1247,6 +1358,7 @@ function DutyTriageBar({
     <button
       type="button"
       onClick={onOpen}
+      data-panel-trigger=""
       className="flex w-full items-center gap-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-left text-xs transition-colors hover:bg-amber-100/60 dark:border-amber-900 dark:bg-amber-950/40 dark:hover:bg-amber-950/60"
     >
       <span

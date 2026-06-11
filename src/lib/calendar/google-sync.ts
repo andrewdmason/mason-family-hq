@@ -9,20 +9,49 @@ import {
   googleTimesToEvent,
   FAMILYHQ_MARKER,
   type GoogleCredential,
+  type GoogleEvent,
 } from "./google";
+import type { GoogleAttendee } from "./types";
 
 // How far back/forward to pull. A year ahead covers school years and seasons; a
 // month back keeps recently-passed events visible.
 const WINDOW_PAST_MONTHS = 1;
 const WINDOW_FUTURE_MONTHS = 12;
 
-function syncWindow(): { timeMin: string; timeMax: string } {
+export function syncWindow(): { timeMin: string; timeMax: string } {
   const now = new Date();
   const min = new Date(now);
   min.setMonth(min.getMonth() - WINDOW_PAST_MONTHS);
   const max = new Date(now);
   max.setMonth(max.getMonth() + WINDOW_FUTURE_MONTHS);
   return { timeMin: min.toISOString(), timeMax: max.toISOString() };
+}
+
+// A Google event's guest list as we persist it (google_attendees jsonb), or
+// null when there are no guests. Entries without an email are resource rooms
+// etc. — skipped.
+export function attendeesJson(ev: GoogleEvent): GoogleAttendee[] | null {
+  const list = (ev.attendees ?? []).flatMap((a) =>
+    a.email
+      ? [
+          {
+            email: a.email.toLowerCase(),
+            responseStatus: a.responseStatus ?? "needsAction",
+            ...(a.displayName ? { displayName: a.displayName } : {}),
+          },
+        ]
+      : [],
+  );
+  return list.length ? list : null;
+}
+
+// Pull the RRULE body out of a series master's recurrence array ("RRULE:..."
+// possibly alongside EXDATE/RDATE lines).
+export function rruleFromRecurrence(
+  recurrence: string[] | undefined,
+): string | null {
+  const line = (recurrence ?? []).find((r) => r.startsWith("RRULE:"));
+  return line ? line.slice("RRULE:".length) : null;
 }
 
 export async function syncGoogleSource(
@@ -80,6 +109,25 @@ export async function syncGoogleSource(
     return { synced: 0, error: msg };
   }
 
+  // Series masters carry the RRULEs (the instance listing doesn't) — one extra
+  // request, best-effort: without it only the "Repeats weekly" display degrades;
+  // recurringEventId alone still drives this/all edit behavior.
+  const rruleByMasterId = new Map<string, string>();
+  try {
+    const masters = await listGoogleEvents(
+      cred,
+      source.google_calendar_id,
+      syncWindow(),
+      { singleEvents: false },
+    );
+    for (const m of masters) {
+      const rrule = rruleFromRecurrence(m.recurrence);
+      if (rrule) rruleByMasterId.set(m.id, rrule);
+    }
+  } catch {
+    // proceed without rrules
+  }
+
   // One row per external_id (last wins) so the batched upsert never touches the
   // same conflict target twice.
   const rowByExtId = new Map<string, Record<string, unknown>>();
@@ -104,6 +152,11 @@ export async function syncGoogleSource(
       external_id: externalId,
       organizer_email: ev.organizer?.email?.toLowerCase() ?? null,
       is_canceled: ev.status === "cancelled",
+      google_recurring_event_id: ev.recurringEventId ?? null,
+      rrule: ev.recurringEventId
+        ? (rruleByMasterId.get(ev.recurringEventId) ?? null)
+        : null,
+      google_attendees: attendeesJson(ev),
     });
   }
 
@@ -170,18 +223,14 @@ export async function syncGoogleSource(
 async function reconcileMaterializedOnCalendar(
   supabase: ReturnType<typeof createAdminClient>,
   calendarId: string,
-  events: Array<{
-    id: string;
-    status?: string;
-    attendees?: Array<{ email?: string; responseStatus?: string }>;
-  }>,
+  events: GoogleEvent[],
   window: { timeMin: string; timeMax: string },
 ): Promise<void> {
   const googleById = new Map(events.map((e) => [e.id, e]));
 
   const { data: materialized } = await supabase
     .from("calendar_events")
-    .select("id, google_event_id, dismissed")
+    .select("id, google_event_id, dismissed, google_attendees")
     .eq("google_calendar_id", calendarId)
     .not("google_event_id", "is", null)
     .gte("start_time", window.timeMin)
@@ -199,7 +248,18 @@ async function reconcileMaterializedOnCalendar(
     const present = !!g && g.status !== "cancelled";
     if (!present && !m.dismissed) dismiss.push(m.id as string);
     else if (present && m.dismissed) undismiss.push(m.id as string);
-    if (present) attendeesByEventId.set(m.id as string, g!.attendees ?? []);
+    if (present) {
+      attendeesByEventId.set(m.id as string, g!.attendees ?? []);
+      // Keep the persisted guest list current (a coach invited directly in
+      // Google shows up here). Only write rows that actually changed.
+      const next = attendeesJson(g!);
+      if (JSON.stringify(next) !== JSON.stringify(m.google_attendees ?? null)) {
+        await supabase
+          .from("calendar_events")
+          .update({ google_attendees: next })
+          .eq("id", m.id);
+      }
+    }
   }
 
   if (dismiss.length) {
