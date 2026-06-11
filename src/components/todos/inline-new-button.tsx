@@ -7,8 +7,9 @@ import { cn } from "@/lib/utils";
  * Things-style "New": tells the page's TaskList to create an untitled draft
  * at the top of the list, opened for editing in place. Same window-event
  * pattern as quick-add, so the header button doesn't need to share state
- * with the list. (The global `c` modal remains the capture path from
- * anywhere; this is the in-view path.)
+ * with the list. (`c` is the keyboard route to the same draft — below the
+ * selection — wherever a list creates in place; the global modal is the
+ * capture path everywhere else.)
  */
 
 const INLINE_NEW_EVENT = "todo-inline-new";

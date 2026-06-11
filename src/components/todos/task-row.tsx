@@ -108,6 +108,7 @@ export function TaskRow({
   onMenuOpenChange,
   onSelect,
   onOpen,
+  onClose,
   handlers,
 }: {
   task: TodoTask;
@@ -125,6 +126,8 @@ export function TaskRow({
   onMenuOpenChange: (menu: TaskRowMenu, open: boolean) => void;
   onSelect: (e: React.MouseEvent) => void;
   onOpen: () => void;
+  /** Collapse the open editor (Enter in the title commits and closes). */
+  onClose: () => void;
   handlers: TaskRowHandlers;
 }) {
   const [dragOver, setDragOver] = useState(false);
@@ -231,6 +234,7 @@ export function TaskRow({
             task={task}
             onChange={(title) => handlers.onTitleChange(task, title)}
             onCommit={(title) => handlers.onRenameTitle(task, title)}
+            onClose={onClose}
           />
         ) : (
           <>
@@ -321,16 +325,18 @@ export function TaskRow({
  * the cursor parked at the end of the name. Fully controlled — every
  * keystroke flows into the list state (so closing the editor any way, even
  * Escape, never loses typed text); the server commit flushes on blur, Enter,
- * and unmount.
+ * and unmount. Enter also collapses the task, like Things.
  */
 function TitleInput({
   task,
   onChange,
   onCommit,
+  onClose,
 }: {
   task: TodoTask;
   onChange: (title: string) => void;
   onCommit: (title: string) => void;
+  onClose: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   // The last server-committed value; flush only when it changed.
@@ -369,7 +375,10 @@ function TitleInput({
       onChange={(e) => onChange(e.target.value)}
       onBlur={flush}
       onKeyDown={(e) => {
-        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Enter") {
+          flush();
+          onClose();
+        }
       }}
       placeholder="New To-Do"
       className="min-w-0 flex-1 bg-transparent text-sm font-medium text-foreground outline-none placeholder:text-muted-foreground/60"
