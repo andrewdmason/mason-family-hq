@@ -178,6 +178,7 @@ const SECTIONS: { title: string; rows: ShortcutRow[] }[] = [
       { keys: ["⌫", "#"], label: "Delete" },
       { keys: ["s", "⇧⌘S"], label: "Snooze… (⇧⌘S works while typing)" },
       { keys: ["w"], label: "Wake now" },
+      { keys: ["t"], label: "Move to Today (clears snooze)" },
       { keys: ["y"], label: "Move to Anytime (clears snooze)" },
       { keys: ["m"], label: "Move to project…" },
       { keys: ["a"], label: "Assign to…" },

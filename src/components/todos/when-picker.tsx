@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import {
   Archive,
+  CalendarClock,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -37,9 +38,7 @@ const itemClass =
 /**
  * Things' "When" control, one chip + one picker. The chip always names the
  * task's current state (Today, Anytime, Someday, Inbox, or its wake time when
- * snoozed); the picker opens to a focused type-ahead ("tom", "fri", "in 3
- * days"…) above Today, This evening, a mini calendar (a day click snoozes
- * until that day at the time below it), then Anytime and Someday. Inbox is
+ * snoozed); the picker opens to the shared {@link WhenMenu}. Inbox is
  * deliberately NOT a destination here — it's the absence of triage, a
  * location: a task leaves it by getting a When (or a project), and returns
  * only via the project picker's "Inbox".
@@ -69,47 +68,11 @@ export function WhenPicker({
     onOpenChange?.(next);
   };
 
-  // Recomputed each open so "This evening" drops off after 5pm.
-  const evening = open
-    ? snoozePresets().find((preset) => preset.key === "evening")
-    : undefined;
-
   const snoozed = !!snoozedUntil;
   const current = snoozed
     ? { label: formatWake(snoozedUntil!), icon: Moon, iconClass: "text-indigo-500" }
     : BUCKET_META[bucket];
   const CurrentIcon = current.icon;
-
-  const pickBucket = (next: TodoBucket) => {
-    setOpen(false);
-    if (next !== bucket || snoozed) onSetBucket(next);
-  };
-  const pickSnooze = (when: Date) => {
-    setOpen(false);
-    onSnooze(when);
-  };
-  const pickSuggestion = (s: WhenSuggestion) => {
-    if (s.kind === "bucket") pickBucket(s.bucket);
-    else pickSnooze(s.when);
-  };
-
-  const bucketRow = (key: Exclude<TodoBucket, "inbox">) => {
-    const meta = BUCKET_META[key];
-    const Icon = meta.icon;
-    const active = bucket === key && !snoozed;
-    return (
-      <button
-        key={key}
-        type="button"
-        onClick={() => pickBucket(key)}
-        className={itemClass}
-      >
-        <Icon className={cn("size-4", meta.iconClass)} />
-        <span className="flex-1 text-left">{meta.label}</span>
-        {active && <Check className="size-4 text-primary" />}
-      </button>
-    );
-  };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -129,33 +92,116 @@ export function WhenPicker({
         {current.label}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 gap-0.5 p-1.5">
-        {/* Mounted only while open so the query resets on every summon. */}
+        {/* Mounted only while open so the query/calendar reset on every summon. */}
         {open && (
-          <WhenTypeahead onPick={pickSuggestion}>
-            {/* Things' order: Today, This Evening, the calendar, then the parks. */}
-            {bucketRow("today")}
-            {evening && (
-              <button
-                type="button"
-                onClick={() => pickSnooze(evening.when)}
-                className={itemClass}
-              >
-                <Moon className="size-4 text-indigo-500" />
-                <span className="flex-1 text-left">{evening.label}</span>
-                <span className="text-xs text-muted-foreground">{evening.hint}</span>
-              </button>
-            )}
-
-            <MiniCalendar onPick={pickSnooze} />
-
-            <div className="-mx-1 my-1 h-px bg-border" />
-
-            {bucketRow("anytime")}
-            {bucketRow("someday")}
-          </WhenTypeahead>
+          <WhenMenu
+            bucket={bucket}
+            snoozedUntil={snoozedUntil}
+            onPickBucket={(next) => {
+              setOpen(false);
+              if (next !== bucket || snoozed) onSetBucket(next);
+            }}
+            onPickSnooze={(when) => {
+              setOpen(false);
+              onSnooze(when);
+            }}
+          />
         )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * The picker body, shared by the chip's popover and the keyboard `s` popover
+ * (which anchors it to the row without opening the editor). A focused
+ * type-ahead ("tom", "fri", "in 3 days"…) sits above the quick rows; empty,
+ * it shows Gmail-style snooze shortcuts — Today, then This evening / Tomorrow
+ * / This weekend / Next week, a "Pick date & time" reveal for the mini
+ * calendar, then the Anytime and Someday parks. Mount it only while the
+ * popover is open so the query and calendar reset on every summon.
+ */
+export function WhenMenu({
+  bucket,
+  snoozedUntil,
+  onPickBucket,
+  onPickSnooze,
+}: {
+  bucket: TodoBucket;
+  snoozedUntil: string | null;
+  onPickBucket: (bucket: Exclude<TodoBucket, "inbox">) => void;
+  onPickSnooze: (when: Date) => void;
+}) {
+  // Recomputed on mount so "This evening" drops off after 5pm.
+  const presets = snoozePresets();
+  const snoozed = !!snoozedUntil;
+
+  const pickSuggestion = (s: WhenSuggestion) => {
+    if (s.kind === "bucket") onPickBucket(s.bucket);
+    else onPickSnooze(s.when);
+  };
+
+  const bucketRow = (key: Exclude<TodoBucket, "inbox">) => {
+    const meta = BUCKET_META[key];
+    const Icon = meta.icon;
+    const active = bucket === key && !snoozed;
+    return (
+      <button
+        key={key}
+        type="button"
+        onClick={() => onPickBucket(key)}
+        className={itemClass}
+      >
+        <Icon className={cn("size-4", meta.iconClass)} />
+        <span className="flex-1 text-left">{meta.label}</span>
+        {active && <Check className="size-4 text-primary" />}
+      </button>
+    );
+  };
+
+  return (
+    <WhenTypeahead onPick={pickSuggestion}>
+      {bucketRow("today")}
+      {/* Gmail-style snooze shortcuts (This evening, Tomorrow, This weekend,
+          Next week — whichever still lie ahead). */}
+      {presets.map((preset) => (
+        <button
+          key={preset.key}
+          type="button"
+          onClick={() => onPickSnooze(preset.when)}
+          className={itemClass}
+        >
+          <Moon className="size-4 text-indigo-500" />
+          <span className="flex-1 text-left">{preset.label}</span>
+          <span className="text-xs text-muted-foreground">{preset.hint}</span>
+        </button>
+      ))}
+      <PickDateTime onPick={onPickSnooze} />
+
+      <div className="-mx-1 my-1 h-px bg-border" />
+
+      {bucketRow("anytime")}
+      {bucketRow("someday")}
+    </WhenTypeahead>
+  );
+}
+
+/**
+ * Gmail's "Pick date & time" row: a single line that swaps itself for the mini
+ * calendar when clicked, so the calendar stays tucked away until wanted.
+ */
+function PickDateTime({ onPick }: { onPick: (when: Date) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  if (expanded) return <MiniCalendar onPick={onPick} />;
+  return (
+    <button
+      type="button"
+      onClick={() => setExpanded(true)}
+      className={itemClass}
+    >
+      <CalendarClock className="size-4 text-muted-foreground" />
+      <span className="flex-1 text-left">Pick date &amp; time</span>
+    </button>
   );
 }
 
