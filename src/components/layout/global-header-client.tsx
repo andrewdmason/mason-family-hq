@@ -9,6 +9,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { NotificationBell } from "@/components/journal/notification-bell";
+import { AppHeaderSlot } from "@/components/layout/app-header";
 import { AppSwitcher } from "@/components/layout/app-switcher";
 import { cn } from "@/lib/utils";
 import type { JournalStreakStats } from "@/components/layout/global-header";
@@ -18,6 +19,25 @@ import type { JournalNotifications } from "@/lib/types";
 // the book's own (hover-revealed) header is the only way out.
 function hidesGlobalChrome(pathname: string | null) {
   return /^\/reader\/[^/]+\/read\/?$/.test(pathname ?? "");
+}
+
+// The journaling streak only applies where journaling happens — the personal
+// journal and the family feed — so the badge only renders on those apps
+// instead of riding along in every header.
+const STREAK_ROUTES = ["/journal", "/family"];
+
+function showsStreak(pathname: string | null) {
+  return STREAK_ROUTES.some(
+    (route) => pathname === route || pathname?.startsWith(`${route}/`)
+  );
+}
+
+// The calendar publishes its whole toolbar into the header's app slot (see
+// AppHeaderContent in calendar-client), and its content runs wider than the
+// journal-ish apps — widen the header there so the controls line up with the
+// page below.
+function headerWidthClass(pathname: string | null) {
+  return pathname?.startsWith("/calendar") ? "max-w-5xl" : "max-w-3xl";
 }
 
 export function GlobalHeaderClient({
@@ -35,10 +55,16 @@ export function GlobalHeaderClient({
   return (
     <TooltipProvider>
       <header className="sticky top-0 z-50 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="relative mx-auto flex h-14 max-w-3xl items-center justify-between px-6">
+        <div
+          className={cn(
+            "relative mx-auto flex h-14 items-center gap-2 px-6",
+            headerWidthClass(pathname)
+          )}
+        >
           <AppSwitcher isOwner={isOwner} />
-          <div className="flex items-center gap-2">
-            <JournalStreakBadge streak={streak} />
+          <AppHeaderSlot />
+          <div className="flex shrink-0 items-center gap-2">
+            {showsStreak(pathname) && <JournalStreakBadge streak={streak} />}
             {notifications.count > 0 && (
               <NotificationBell notifications={notifications} />
             )}
@@ -62,13 +88,21 @@ export function GlobalHeaderShell() {
 
   return (
     <header className="sticky top-0 z-50 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="relative mx-auto flex h-14 max-w-3xl items-center justify-between px-6">
+      <div
+        className={cn(
+          "relative mx-auto flex h-14 items-center gap-2 px-6",
+          headerWidthClass(pathname)
+        )}
+      >
         <AppSwitcher isOwner={false} />
-        <div className="flex items-center gap-2">
-          <div
-            aria-hidden
-            className="h-8 w-14 animate-pulse rounded-full bg-muted/70"
-          />
+        <AppHeaderSlot />
+        <div className="flex shrink-0 items-center gap-2">
+          {showsStreak(pathname) && (
+            <div
+              aria-hidden
+              className="h-8 w-14 animate-pulse rounded-full bg-muted/70"
+            />
+          )}
         </div>
       </div>
     </header>

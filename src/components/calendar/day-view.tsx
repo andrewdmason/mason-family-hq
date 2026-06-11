@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { AlertTriangle, Flag, MapPin } from "lucide-react";
 import {
   eventDayKey,
@@ -123,6 +123,7 @@ export function DayView({
   onEventClick,
   selectedEventId,
   currentMemberEmail,
+  beforeAxis,
 }: {
   events: CalendarEvent[];
   anchorDate: Date;
@@ -131,6 +132,8 @@ export function DayView({
   onEventClick: (event: CalendarEvent) => void;
   selectedEventId: string | null;
   currentMemberEmail: string | null;
+  /** Rendered between the anchored chrome and the time axis (triage bars). */
+  beforeAxis?: ReactNode;
 }) {
   // A live clock so the "now" line tracks the real time. Starts null so the
   // server and the first client render agree (no Date-dependent output during
@@ -172,13 +175,11 @@ export function DayView({
   const isFamily = (e: CalendarEvent) =>
     !e.member_email || !memberEmails.has(e.member_email);
 
-  if (dayEvents.length === 0) {
-    return (
-      <p className="px-1 py-16 text-center text-sm text-muted-foreground">
-        Nothing scheduled this day.
-      </p>
-    );
-  }
+  // The viewed date, shown Google Calendar style in the all-day strip's
+  // gutter ("WED 11") — it doubles as the day view's date display, so the
+  // toolbar doesn't need a label.
+  const weekday = anchorDate.toLocaleDateString("en-US", { weekday: "short" });
+  const dayNum = anchorDate.getDate();
 
   // Time window: a 6 a.m.–10 p.m. spine, widened to swallow any event that runs
   // earlier or later so nothing falls off the axis.
@@ -280,6 +281,11 @@ export function DayView({
   // edge(columns.length) === 1.
   const edge = (i: number) =>
     weights.slice(0, i).reduce((sum, w) => sum + w, 0) / totalWeight;
+  // Explicit percentage widths, NOT flexGrow/flexBasis: 0 — with border-box a
+  // zero basis is floored at each cell's padding+border, so rows whose cells
+  // pad differently (padded name cells vs border-only axis columns) would
+  // distribute the same weights differently and the columns would misalign.
+  const colWidth = (i: number) => `${(weights[i] / totalWeight) * 100}%`;
   // A column renders full (titled) blocks on desktop, or when it's the signed-in
   // user's wide column on the phone; the other phone columns render thin ticks.
   const isFull = (i: number) => !isMobile || i === meColIndex;
@@ -292,8 +298,6 @@ export function DayView({
         .sort((a, b) => a - b),
     }))
     .filter((s) => s.cols.length >= 2);
-
-  const hasAllDay = columns.some((c) => c.allDay.length > 0);
 
   // A row of dots, one per member column in left-to-right order, filled for the
   // members attending — so the exact combination reads at a glance, including
@@ -672,48 +676,66 @@ export function DayView({
           the narrow mobile columns drop to textless member-colored blocks so the
           four-column "who's busy today" read survives on a phone. */}
       <div>
-        {/* Column headers — first name only on mobile to fit the narrow columns. */}
-        <div className="flex" style={{ paddingLeft: GUTTER }}>
-          {columns.map((c, i) => (
-            <div
-              key={c.key}
-              className="flex min-w-0 items-center gap-1 px-1 pb-1.5 pt-1 text-[11px] font-medium text-foreground md:gap-1.5 md:px-2 md:pb-2 md:text-sm"
-              style={{
-                flexGrow: weights[i],
-                flexBasis: 0,
-                ...(c.isMe
-                  ? { backgroundColor: meTint(mute(c.color)) }
-                  : null),
-              }}
-            >
-              <span
-                className="h-2 w-2 shrink-0 rounded-full md:h-2.5 md:w-2.5"
-                style={{ backgroundColor: mute(c.color) }}
-                aria-hidden
-              />
-              <span className="truncate md:hidden">{c.label.split(" ")[0]}</span>
-              <span className="hidden truncate md:inline">{c.label}</span>
-            </div>
-          ))}
-        </div>
+        {/* Anchored chrome, Google Calendar style: the member columns and the
+            all-day strip (whose gutter carries the viewed date) stick under
+            the global header while the axis scrolls beneath them. This works
+            inside the swipe track because the track's wrapper clips with
+            overflow-x: clip — an overflow: hidden scrollport would swallow
+            the stickiness. */}
+        <div className="sticky top-14 z-30 bg-background">
+          {/* Column headers — first name only on mobile to fit the narrow columns. */}
+          <div className="flex" style={{ paddingLeft: GUTTER }}>
+            {columns.map((c, i) => (
+              <div
+                key={c.key}
+                className="flex min-w-0 shrink-0 items-center gap-1 px-1 pb-1.5 pt-1 text-[11px] font-medium text-foreground md:gap-1.5 md:px-2 md:pb-2 md:text-sm"
+                style={{
+                  width: colWidth(i),
+                  ...(c.isMe
+                    ? { backgroundColor: meTint(mute(c.color)) }
+                    : null),
+                }}
+              >
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full md:h-2.5 md:w-2.5"
+                  style={{ backgroundColor: mute(c.color) }}
+                  aria-hidden
+                />
+                <span className="truncate md:hidden">{c.label.split(" ")[0]}</span>
+                <span className="hidden truncate md:inline">{c.label}</span>
+              </div>
+            ))}
+          </div>
 
-        {/* All-day strip */}
-        {hasAllDay && (
+          {/* All-day strip. Its gutter shows the viewed date — today gets the
+              filled badge — so the strip earns its place even on days with no
+              all-day events. */}
           <div className="flex border-y border-border/60 bg-muted/20">
             <div
-              className="shrink-0 py-1 pr-1 text-right text-[9px] font-medium uppercase tracking-wide text-muted-foreground"
+              className="flex shrink-0 flex-col items-center justify-center gap-0.5 py-1 pr-1"
               style={{ width: GUTTER }}
             >
-              All day
+              <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                {weekday}
+              </span>
+              <span
+                className={cn(
+                  "flex size-6 items-center justify-center rounded-full font-sans text-sm font-semibold tabular-nums leading-none",
+                  isToday
+                    ? "bg-primary text-primary-foreground"
+                    : "text-foreground",
+                )}
+              >
+                {dayNum}
+              </span>
             </div>
             <div className="flex min-w-0 flex-1">
               {columns.map((c, i) => (
                 <div
                   key={c.key}
-                  className="min-w-0 space-y-0.5 border-l border-border/40 px-1 py-1"
+                  className="min-w-0 shrink-0 space-y-0.5 border-l border-border/40 px-1 py-1"
                   style={{
-                    flexGrow: weights[i],
-                    flexBasis: 0,
+                    width: colWidth(i),
                     ...(c.isMe
                       ? { backgroundColor: meTint(mute(c.color)) }
                       : null),
@@ -724,44 +746,51 @@ export function DayView({
               ))}
             </div>
           </div>
-        )}
+        </div>
 
-        {/* The axis */}
-        <div className="relative" style={{ height: totalH }}>
-          {axisLines()}
-          <div
-            className="absolute inset-y-0 flex"
-            style={{ left: GUTTER, right: 0 }}
-          >
-            {columns.map((c, i) => (
-              <div
-                key={c.key}
-                className="relative min-w-0 border-l border-border/60"
-                style={{
-                  flexGrow: weights[i],
-                  flexBasis: 0,
-                  ...(c.isMe
-                    ? { backgroundColor: meTint(mute(c.color)) }
-                    : null),
-                }}
-              >
-                {pack(c.solo).map((p) => (
-                  <Block key={p.event.id} placed={p} full={isFull(i)} />
-                ))}
-              </div>
-            ))}
-          </div>
-          {/* Shared events tie across columns in an overlay above them. */}
-          {sharedTimed.length > 0 && (
+        {beforeAxis}
+
+        {dayEvents.length === 0 ? (
+          <p className="px-1 py-16 text-center text-sm text-muted-foreground">
+            Nothing scheduled this day.
+          </p>
+        ) : (
+          // The axis
+          <div className="relative" style={{ height: totalH }}>
+            {axisLines()}
             <div
-              className="pointer-events-none absolute inset-y-0"
+              className="absolute inset-y-0 flex"
               style={{ left: GUTTER, right: 0 }}
             >
-              {sharedTimed.map((s) => renderSpanningEvent(s))}
+              {columns.map((c, i) => (
+                <div
+                  key={c.key}
+                  className="relative min-w-0 shrink-0 border-l border-border/60"
+                  style={{
+                    width: colWidth(i),
+                    ...(c.isMe
+                      ? { backgroundColor: meTint(mute(c.color)) }
+                      : null),
+                  }}
+                >
+                  {pack(c.solo).map((p) => (
+                    <Block key={p.event.id} placed={p} full={isFull(i)} />
+                  ))}
+                </div>
+              ))}
             </div>
-          )}
-          {nowLine()}
-        </div>
+            {/* Shared events tie across columns in an overlay above them. */}
+            {sharedTimed.length > 0 && (
+              <div
+                className="pointer-events-none absolute inset-y-0"
+                style={{ left: GUTTER, right: 0 }}
+              >
+                {sharedTimed.map((s) => renderSpanningEvent(s))}
+              </div>
+            )}
+            {nowLine()}
+          </div>
+        )}
       </div>
     </div>
   );
