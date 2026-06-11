@@ -16,8 +16,10 @@ export const COMBINE_GAP_MINUTES = 30;
 
 const MIN_MS = 60_000;
 
-/** The round-trip window a duty blocks out. All arithmetic is on stored
- * timestamptz instants (ms), so it's DST-safe. */
+/** The window a duty blocks out — a round trip, unless the assigned parent is
+ * also attending the event, in which case the trip is one-way (they stay at
+ * the venue after drop-off / leave from it after pick-up). All arithmetic is
+ * on stored timestamptz instants (ms), so it's DST-safe. */
 export function driveBlockWindow(args: {
   duty: Duty;
   startTime: string;
@@ -25,20 +27,31 @@ export function driveBlockWindow(args: {
   teamsnapArrivalTime: string | null;
   driveMinutes: number;
   bufferMinutes: number;
+  attending?: boolean;
 }): { start: string; end: string } {
   const { driveMinutes, bufferMinutes } = args;
   if (args.duty === "dropoff") {
-    // Leave home, arrive bufferMin early, drive straight home.
+    // Leave home, arrive bufferMin early; then either drive straight home or
+    // (attending) stay — the block ends at the arrival anchor, where the
+    // event takes over.
     const anchor = new Date(args.teamsnapArrivalTime ?? args.startTime).getTime();
+    const start = new Date(
+      anchor - (driveMinutes + bufferMinutes) * MIN_MS,
+    ).toISOString();
     return {
-      start: new Date(anchor - (driveMinutes + bufferMinutes) * MIN_MS).toISOString(),
-      end: new Date(anchor - bufferMinutes * MIN_MS + driveMinutes * MIN_MS).toISOString(),
+      start,
+      end: args.attending
+        ? new Date(anchor).toISOString()
+        : new Date(anchor - bufferMinutes * MIN_MS + driveMinutes * MIN_MS).toISOString(),
     };
   }
-  // Pickup: arrive bufferMin before the end, kid out at the end, drive home.
+  // Pickup: arrive bufferMin before the end, kid out at the end, drive home —
+  // or (attending) already at the venue, so just the drive home from the end.
   const anchor = new Date(args.endTime ?? args.startTime).getTime();
   return {
-    start: new Date(anchor - (driveMinutes + bufferMinutes) * MIN_MS).toISOString(),
+    start: args.attending
+      ? new Date(anchor).toISOString()
+      : new Date(anchor - (driveMinutes + bufferMinutes) * MIN_MS).toISOString(),
     end: new Date(anchor + driveMinutes * MIN_MS).toISOString(),
   };
 }
@@ -50,9 +63,10 @@ export function driveEventTitle(args: {
   isEstimate: boolean;
 }): string {
   // The number is the ONE-WAY drive — the thing you can't infer from the
-  // block itself (whose span is the round trip plus the arrive-early buffer,
-  // and whose position already says when to leave). "~" marks a fallback
-  // estimate that hasn't been computed from the real route yet.
+  // block itself (whose span is the round trip plus the arrive-early buffer —
+  // or just the one-way leg when the parent is attending — and whose position
+  // already says when to leave). "~" marks a fallback estimate that hasn't
+  // been computed from the real route yet.
   const arrow =
     args.duty === "dropoff" ? "→" : args.duty === "pickup" ? "←" : "↔";
   return `🚗 ${arrow} ${args.kidName} ${args.isEstimate ? "~" : ""}${args.driveMinutes} min`;
@@ -76,6 +90,10 @@ export interface PlannedDriveBlock {
   /** Combined (↔) blocks never cross-merge — that parent is staying at the
    * venue for the whole event, not running an errand loop. */
   duty: Duty | "combined";
+  /** One-way block for a parent attending the event. Never cross-merges
+   * either: the trip starts or ends at the venue, not at home, so the merged
+   * window's home-between-trips math doesn't apply. */
+  attending?: boolean;
   kidName: string;
   location: string | null;
   window: { start: string; end: string };
@@ -138,7 +156,7 @@ export function clusterDriveBlocks(
   const groups = new Map<string, PlannedDriveBlock[]>();
   const clusters: DriveCluster[] = [];
   for (const b of blocks) {
-    if (b.duty === "combined") {
+    if (b.duty === "combined" || b.attending) {
       clusters.push(toCluster([b]));
       continue;
     }

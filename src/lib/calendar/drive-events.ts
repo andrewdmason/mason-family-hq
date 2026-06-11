@@ -1,7 +1,10 @@
-// Drive-block orchestration: keeps each duty assignment's round-trip drive
-// event in sync with reality — a REAL Google event on the assigned parent's
-// primary calendar plus a local mirror row (rendered in the kid's color, tap-
-// through to the kid's event).
+// Drive-block orchestration: keeps each duty assignment's drive event in sync
+// with reality — a REAL Google event on the assigned parent's primary
+// calendar plus a local mirror row (rendered in the kid's color, tap-through
+// to the kid's event). A block is a round trip, unless the assigned parent is
+// also "going" to the event (event_attendees), which makes it a one-way leg:
+// drop-off ends at arrival (they stay), pick-up starts at the event's end
+// (they're already there).
 //
 // Reconciliation is scope-based, not per-assignment, because blocks interact
 // at two levels: within one event, the same parent holding both duties with no
@@ -188,6 +191,9 @@ type DesiredBlock =
       description: string | null;
       kidName: string;
       isEstimate: boolean;
+      /** The assignee is attending the event — one-way block (see
+       * driveBlockWindow); excluded from cross-event merging. */
+      attending: boolean;
     };
 
 function desiredFor(
@@ -196,6 +202,7 @@ function desiredFor(
   event: SourceEventRow | null,
   settings: LogisticsSettings | null,
   kidName: string,
+  attending: boolean,
 ): DesiredBlock {
   const shouldExist =
     !!a.assignee_email &&
@@ -224,8 +231,15 @@ function desiredFor(
   const pickAnchor = ev.end_time ?? ev.start_time;
 
   // Same parent on both duties: if the time at home between returning from
-  // drop-off and leaving for pick-up is under the threshold, combine.
-  if (sibling?.assignee_email && sibling.assignee_email === a.assignee_email) {
+  // drop-off and leaving for pick-up is under the threshold, combine. Skipped
+  // when that parent is attending — their two legs are one-way (the event
+  // itself, on their own calendar via the guest invite, fills the middle), so
+  // there's no round-trip pair to collapse.
+  if (
+    !attending &&
+    sibling?.assignee_email &&
+    sibling.assignee_email === a.assignee_email
+  ) {
     const dropW = driveBlockWindow({ duty: "dropoff", ...windowArgs });
     const pickW = driveBlockWindow({ duty: "pickup", ...windowArgs });
     const gapMin =
@@ -251,11 +265,12 @@ function desiredFor(
         description: null,
         kidName,
         isEstimate,
+        attending: false,
       };
     }
   }
 
-  const window = driveBlockWindow({ duty: a.duty, ...windowArgs });
+  const window = driveBlockWindow({ duty: a.duty, attending, ...windowArgs });
   return {
     exists: true,
     kind: a.duty,
@@ -271,6 +286,7 @@ function desiredFor(
     description: null,
     kidName,
     isEstimate,
+    attending,
   };
 }
 
@@ -469,6 +485,20 @@ async function reconcileScope(
   if (!items.length) return { reconciled: 0, errors: 0 };
   const names = await loadFirstNames(supabase);
 
+  // Who's "going" to which event: an attending parent's duty is a one-way leg
+  // (stay after drop-off / leave from the venue after pick-up), not a round
+  // trip. Fetch-all + JS filter — a PostgREST .in() with a sweep's worth of
+  // event ids can overflow the URL line, and the table is family-scale.
+  const { data: goingRows } = await supabase
+    .from("event_attendees")
+    .select("event_id, member_email")
+    .eq("going", true);
+  const going = new Set(
+    ((goingRows ?? []) as { event_id: string; member_email: string }[]).map(
+      (r) => `${r.event_id}:${r.member_email}`,
+    ),
+  );
+
   const byEvent = new Map<string, ScopeItem[]>();
   for (const it of items) {
     const list = byEvent.get(it.a.event_id);
@@ -484,7 +514,11 @@ async function reconcileScope(
         (it.ev?.member_email && names.get(it.ev.member_email)) ||
         it.ev?.member_email?.split("@")[0] ||
         "kid";
-      desired.set(it.a.id, desiredFor(it.a, sibling, it.ev, settings, kidName));
+      const attending = going.has(`${it.a.event_id}:${it.a.assignee_email}`);
+      desired.set(
+        it.a.id,
+        desiredFor(it.a, sibling, it.ev, settings, kidName, attending),
+      );
     }
   }
 
@@ -499,6 +533,7 @@ async function reconcileScope(
       key: it.a.id,
       assignee: it.a.assignee_email,
       duty: d.kind,
+      attending: d.attending,
       kidName: d.kidName,
       location: d.location,
       window: d.window,
