@@ -38,6 +38,39 @@ const FAMILY_COLOR = "#8a8a80";
 const mute = (color: string) => `color-mix(in srgb, ${color} 60%, #6f6a5f)`;
 const meTint = (color: string) => `color-mix(in srgb, ${color} 7%, transparent)`;
 
+// Drive blocks render as arrows, not cards: a solid block in the color of the
+// kid being driven (display() already resolves a drive block's color to its
+// source event's kid) whose pointed end is the direction of travel — rightward
+// for drop-offs (out to the event), leftward for pick-ups (back home), both
+// for a combined out-and-back. The point is cut by clip-path, so it spans the
+// block's full height and stays legible even on the shortest drives.
+const driveArrowClip = (
+  duty: "dropoff" | "pickup" | "combined",
+  depthPx: number,
+) => {
+  const p = `${depthPx}px`;
+  if (duty === "combined")
+    return `polygon(${p} 0, calc(100% - ${p}) 0, 100% 50%, calc(100% - ${p}) 100%, ${p} 100%, 0 50%)`;
+  if (duty === "pickup")
+    return `polygon(${p} 0, 100% 0, 100% 100%, ${p} 100%, 0 50%)`;
+  return `polygon(0 0, calc(100% - ${p}) 0, 100% 50%, calc(100% - ${p}) 100%, 0 100%)`;
+};
+
+// When an arrow block is too short for its full title, it falls back to just
+// the drive time — "11 min drive" — since the arrow direction and the kid
+// color already say the rest. Parsed from the title (the one server-written
+// source of truth); merged multi-stop titles carry no minutes, so they fall
+// back to the kid names instead ("Oscar + Theo").
+const compactDriveLabel = (title: string) => {
+  const mins = title.match(/\((~?\d+ min drive)\)/)?.[1];
+  return (
+    mins ??
+    title
+      .replace(/^(?:Drop off \+ pickup|Drop off|Pickup)\s*/, "")
+      .replace(/\s*@.*$/, "")
+  );
+};
+
 // A tiny baseball — circle plus two curved seams — stamped on TeamSnap blocks in
 // the textless mobile view so a sports commitment reads at a glance. Uses
 // currentColor so the wrapper sets it against the saturated block fill.
@@ -443,6 +476,14 @@ export function DayView({
       width: `calc(${widthPct}% - 3px)`,
     };
     const isDraft = event.id.startsWith("draft:");
+    const isDrive = !!event.drive_source_event_id;
+    // The arrow's direction. A combined (out-and-back) block is stored under
+    // the dropoff duty, so it's told apart by its title.
+    const driveDuty = event.title.startsWith("Drop off + pickup")
+      ? ("combined" as const)
+      : event.drive_duty === "pickup"
+        ? ("pickup" as const)
+        : ("dropoff" as const);
     if (!full) {
       return (
         <button
@@ -452,7 +493,11 @@ export function DayView({
           title={
             d.calendarLabel ? `${d.calendarLabel}: ${event.title}` : event.title
           }
-          style={{ ...pos, backgroundColor: mute(d.color) }}
+          style={{
+            ...pos,
+            backgroundColor: mute(d.color),
+            ...(isDrive ? { clipPath: driveArrowClip(driveDuty, 7) } : null),
+          }}
           className={cn(
             "absolute z-20 flex items-start justify-end overflow-hidden rounded-sm px-0.5 py-0.5",
             event.id === selectedEventId && "ring-1 ring-ring",
@@ -463,6 +508,49 @@ export function DayView({
           {d.isTeamsnap && height >= TALL && (
             <BaseballGlyph className="h-2.5 w-2.5 shrink-0 text-white/90" />
           )}
+        </button>
+      );
+    }
+    if (isDrive) {
+      // The arrow block. No time row (the title carries the stop time and the
+      // position says when to leave) and no border (clip-path would cut it);
+      // the solid kid color against white cards is the identity. A block with
+      // its lane to itself shows the full title — one line when short, two
+      // when tall; a shared (narrow) lane would clip mid-name, so it falls
+      // back to the tersest label ("11 min") — arrow direction and kid color
+      // already say the rest.
+      const label =
+        placed.lanes > 1
+          ? compactDriveLabel(event.title).replace(" drive", "")
+          : event.title;
+      return (
+        <button
+          type="button"
+          data-event-id={event.id}
+          onClick={() => onEventClick(event)}
+          title={event.title}
+          style={{
+            ...pos,
+            backgroundColor: mute(d.color),
+            clipPath: driveArrowClip(driveDuty, 10),
+          }}
+          className={cn(
+            "absolute z-20 flex items-center overflow-hidden text-left transition-[filter] hover:brightness-95",
+            // Pad the pointed end(s) so text clears the cut.
+            driveDuty === "dropoff" ? "pl-1.5 pr-3.5" : "pl-3.5 pr-1.5",
+            driveDuty === "combined" && "pr-3.5",
+            event.id === selectedEventId && "brightness-[.82]",
+            d.pendingDrive && "animate-pulse opacity-60",
+          )}
+        >
+          <span
+            className={cn(
+              "min-w-0 text-[11px] leading-tight text-white/95",
+              height < 40 ? "truncate" : "line-clamp-2",
+            )}
+          >
+            {label}
+          </span>
         </button>
       );
     }
