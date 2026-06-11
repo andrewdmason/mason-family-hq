@@ -761,7 +761,7 @@ export function TaskList({
   // Gmail-style list keys: j/k (or arrows) walk the list, enter/o opens the
   // selected task, e completes, c creates an inline draft below the
   // selection, s drops the snooze/When menu from the row (without opening the
-  // editor; ⇧⌘S summons it even mid-typing), m/a summon the project/assignee
+  // editor), m/a summon the project/assignee
   // menus, t pulls the selection into Today, y moves it to Anytime,
   // Delete/⌫/# asks then removes, w wakes a snoozed task, z undoes a
   // delete, ⌘Z/⇧⌘Z undo/redo check-offs, ⌘A selects every task in the view,
@@ -792,23 +792,6 @@ export function TaskList({
       e.preventDefault();
       if (e.shiftKey) handleRedoComplete();
       else handleUndoComplete();
-      return;
-    }
-    // ⇧⌘S: jump to the When type-ahead. Unlike the plain `s` below it works
-    // mid-typing, so editing a title can flow straight into scheduling.
-    if (
-      (e.metaKey || e.ctrlKey) &&
-      e.shiftKey &&
-      !e.altKey &&
-      e.key.toLowerCase() === "s"
-    ) {
-      if (inOpenOverlay(e.target)) return;
-      const targetId =
-        expandedId ?? (selectedIds.size === 1 ? [...selectedIds][0] : null);
-      if (!targetId) return;
-      e.preventDefault();
-      setExpandedId(targetId);
-      setOpenMenu("snooze");
       return;
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
