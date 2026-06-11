@@ -912,6 +912,24 @@ export function TaskList({
         handlers.onWake(single);
         return;
       }
+      case "y": {
+        // Clear any scheduling — Today/Someday bucket or a snooze — back to
+        // plain Anytime. Skips tasks already there so it can't no-op churn.
+        const affected = tasks.filter(
+          (t) =>
+            selectedIds.has(t.id) && (t.bucket !== "anytime" || t.snoozedUntil)
+        );
+        if (affected.length === 0) return;
+        e.preventDefault();
+        // Rows leave bucket/status views but stay (patched) in project,
+        // delegated, and Anytime views — only move the highlight when they go.
+        const staysPut =
+          inProject || view === "delegated" || view === "anytime";
+        const landing = staysPut ? null : nextSurvivor();
+        affected.forEach((t) => handlers.onSetBucket(t, "anytime"));
+        if (landing) selectOnly(landing);
+        return;
+      }
       case "z": {
         if (!undoTask) return;
         e.preventDefault();
