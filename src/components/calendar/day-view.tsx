@@ -332,22 +332,31 @@ export function DayView({
     return [...set];
   };
 
-  // Classify timed events. A multi-attendee event is drawn ONCE as a shared
-  // object tied across its attendees' columns (below); a single-attendee event is
-  // a solo block in its owner's column. Ownerless events fall to the Family column.
+  // Classify timed events. Every event renders ONCE as a normal card in its
+  // owner's column; a member who's attending someone else's event gets a solid
+  // block in the OWNER's color in their own column (built per-column below) —
+  // the color says whose thing it is, with no cross-column frame physically
+  // linking them. Ownerless events fall to the Family column.
   const familyTimed = timed.filter(isFamily);
   const soloByEmail = new Map<string, CalendarEvent[]>();
-  const sharedEvents: CalendarEvent[] = [];
+  const attendByEmail = new Map<string, CalendarEvent[]>();
   for (const e of timed) {
     if (isFamily(e)) continue;
     const attending = attendingMembersOf(e);
-    if (attending.length >= 2) {
-      sharedEvents.push(e);
-    } else {
-      const owner = attending[0] ?? e.member_email!;
-      const arr = soloByEmail.get(owner) ?? [];
-      arr.push(e);
-      soloByEmail.set(owner, arr);
+    // The owner's column carries the real card; if the owner isn't a shown
+    // member, the first shown attendee's column stands in.
+    const owner =
+      e.member_email && memberEmails.has(e.member_email)
+        ? e.member_email
+        : attending[0] ?? e.member_email!;
+    const arr = soloByEmail.get(owner) ?? [];
+    arr.push(e);
+    soloByEmail.set(owner, arr);
+    for (const g of attending) {
+      if (g === owner) continue;
+      const a = attendByEmail.get(g) ?? [];
+      a.push(e);
+      attendByEmail.set(g, a);
     }
   }
 
@@ -359,6 +368,7 @@ export function DayView({
     label: string;
     color: string;
     solo: CalendarEvent[];
+    attend: CalendarEvent[];
     allDay: CalendarEvent[];
     isMe: boolean;
   };
@@ -367,6 +377,7 @@ export function DayView({
     label: m.name ?? m.email,
     color: m.color ?? FAMILY_COLOR,
     solo: soloByEmail.get(m.email) ?? [],
+    attend: attendByEmail.get(m.email) ?? [],
     allDay: allDay.filter((e) => e.member_email === m.email),
     isMe: m.email === currentMemberEmail,
   }));
@@ -377,6 +388,7 @@ export function DayView({
       label: "Family",
       color: FAMILY_COLOR,
       solo: familyTimed,
+      attend: [],
       allDay: familyAllDay,
       isMe: false,
     });
@@ -386,9 +398,6 @@ export function DayView({
   const meIndex = columns.findIndex((c) => c.isMe);
   if (meIndex > 0) columns.unshift(columns.splice(meIndex, 1)[0]);
 
-  // Map each shared event to the column indices it spans (computed after the
-  // me-first reorder so positions are final).
-  const colIndexByKey = new Map(columns.map((c, i) => [c.key, i]));
   const memberColumns = columns.filter((c) => c.key !== FAMILY_KEY);
 
   // Column widths. On the phone layout the signed-in user's column is ME_WEIGHT
@@ -398,10 +407,6 @@ export function DayView({
   const meColIndex = columns.findIndex((c) => c.isMe);
   const weights = columns.map((c) => (isMobile && c.isMe ? ME_WEIGHT : 1));
   const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-  // Left edge of column i as a fraction of the axis width: edge(0) === 0 and
-  // edge(columns.length) === 1.
-  const edge = (i: number) =>
-    weights.slice(0, i).reduce((sum, w) => sum + w, 0) / totalWeight;
   // Explicit percentage widths, NOT flexGrow/flexBasis: 0 — with border-box a
   // zero basis is floored at each cell's padding+border, so rows whose cells
   // pad differently (padded name cells vs border-only axis columns) would
@@ -410,15 +415,54 @@ export function DayView({
   // A column renders full (titled) blocks on desktop, or when it's the signed-in
   // user's wide column on the phone; the other phone columns render thin ticks.
   const isFull = (i: number) => !isMobile || i === meColIndex;
-  const sharedTimed = sharedEvents
-    .map((event) => ({
-      event,
-      cols: attendingMembersOf(event)
-        .map((email) => colIndexByKey.get(email))
-        .filter((i): i is number => i != null)
-        .sort((a, b) => a - b),
-    }))
-    .filter((s) => s.cols.length >= 2);
+
+  // An attended (not owned) event, with this member's own one-way drive legs
+  // fused in: drive → attend → drive reads as ONE commitment in their column,
+  // with width steps (divots) at the true event start/end separating driving
+  // from being there.
+  type FusedAttend = {
+    event: CalendarEvent; // the owner's event (click/selection target)
+    legTop: CalendarEvent | null; // this member's drop-off leg
+    legBottom: CalendarEvent | null; // this member's pick-up leg
+  };
+
+  // A column's positioned blocks: its own events (and any unfused drive
+  // arrows), plus one fused shape per attended event. The fused shape packs
+  // lanes under a shadow event spanning leg start → leg end, so overlap math
+  // sees the real footprint; the rendered content comes from the source event.
+  function placedFor(
+    c: Column,
+  ): { placed: Placed; fused?: FusedAttend }[] {
+    if (c.attend.length === 0) {
+      return pack(c.solo).map((placed) => ({ placed }));
+    }
+    const fusedByShadow = new Map<string, FusedAttend>();
+    const claimed = new Set<string>();
+    const items: CalendarEvent[] = [];
+    for (const e of c.attend) {
+      const leg = (duty: "dropoff" | "pickup") =>
+        c.solo.find(
+          (s) => s.drive_source_event_id === e.id && s.drive_duty === duty,
+        ) ?? null;
+      const legTop = leg("dropoff");
+      const legBottom = leg("pickup");
+      if (legTop) claimed.add(legTop.id);
+      if (legBottom) claimed.add(legBottom.id);
+      const shadow: CalendarEvent = {
+        ...e,
+        id: `attend:${e.id}`,
+        start_time: legTop?.start_time ?? e.start_time,
+        end_time: legBottom?.end_time ?? e.end_time,
+      };
+      fusedByShadow.set(shadow.id, { event: e, legTop, legBottom });
+      items.push(shadow);
+    }
+    items.push(...c.solo.filter((s) => !claimed.has(s.id)));
+    return pack(items).map((placed) => ({
+      placed,
+      fused: fusedByShadow.get(placed.event.id),
+    }));
+  }
 
   // A row of dots, one per member column in left-to-right order, filled for the
   // members attending — so the exact combination reads at a glance, including
@@ -452,9 +496,17 @@ export function DayView({
   // location. A thin block — the other columns on the phone — is a bare member-
   // colored tick: position already says when and the column says who, so it shows
   // only a baseball glyph for TeamSnap games (when tall enough), no text.
-  function Block({ placed, full }: { placed: Placed; full: boolean }) {
+  function Block({
+    placed,
+    full,
+    fused,
+  }: {
+    placed: Placed;
+    full: boolean;
+    fused?: FusedAttend;
+  }) {
     const { event } = placed;
-    const d = display(event);
+    const d = display(fused ? fused.event : event);
     const trueTop = y(startMin(event));
     const trueHeight = y(endMin(event)) - trueTop;
     const height = Math.max(trueHeight, MIN_BLOCK);
@@ -475,6 +527,74 @@ export function DayView({
       left: `calc(${leftPct}% + 1px)`,
       width: `calc(${widthPct}% - 3px)`,
     };
+    // An attended event (someone else's, in this member's column): one solid
+    // rounded block in the OWNER's color spanning any fused drive legs plus
+    // the event itself. The legs are full-width segments a shade lighter,
+    // separated from the event span by a thin hairline at the true event
+    // start/end — Fantastical's travel-time treatment: one commitment, with
+    // the driving visibly bracketing the being-there.
+    if (fused) {
+      const e = fused.event;
+      const evTop = Math.max(y(startMin(e)) - top, 0);
+      const evEnd = Math.min(y(endMin(e)) - top, height);
+      const hasTop = !!fused.legTop;
+      const hasBottom = !!fused.legBottom;
+      return (
+        <button
+          type="button"
+          data-event-id={e.id}
+          onClick={() => onEventClick(e)}
+          title={`${e.title} — you're going`}
+          style={{ ...pos, backgroundColor: mute(d.color) }}
+          className={cn(
+            "absolute z-20 overflow-hidden rounded-md text-left transition-[filter] hover:brightness-95",
+            e.id === selectedEventId && "ring-1 ring-ring",
+          )}
+        >
+          {hasTop && (
+            <span
+              aria-hidden
+              className="absolute inset-x-0 top-0 border-b border-white/90 bg-white/25"
+              style={{ height: evTop }}
+            />
+          )}
+          {hasBottom && (
+            <span
+              aria-hidden
+              className="absolute inset-x-0 border-t border-white/90 bg-white/25"
+              style={{ top: evEnd, bottom: 0 }}
+            />
+          )}
+          {full && (
+            <span
+              className="absolute inset-x-0 flex items-center overflow-hidden px-1.5"
+              // Vertically centered on the event span — capped so a multi-hour
+              // span reads top-anchored (with breathing room) rather than
+              // floating its title mid-block.
+              style={{
+                top: evTop,
+                height: Math.min(Math.max(evEnd - evTop, 18), 40),
+              }}
+            >
+              <span className="flex min-w-0 items-center gap-1">
+                {/* Whose event this is — the owner's initial, since the block
+                    sits in someone else's column. */}
+                <MemberAvatar
+                  name={
+                    members.find((m) => m.email === e.member_email)?.name ??
+                    e.member_email
+                  }
+                  size="xs"
+                />
+                <span className="line-clamp-2 min-w-0 text-[11px] leading-tight text-white/95">
+                  {e.title}
+                </span>
+              </span>
+            </span>
+          )}
+        </button>
+      );
+    }
     const isDraft = event.id.startsWith("draft:");
     const isDrive = !!event.drive_source_event_id;
     // The arrow's direction. A combined (out-and-back) block is stored under
@@ -610,15 +730,46 @@ export function DayView({
           {d.conflict && (
             <AlertTriangle className="mt-px h-2.5 w-2.5 shrink-0 text-amber-600" />
           )}
-          {/* Short cards drop the time row, so the duty glyphs ride the title
-              row instead — the amber "unset" nudge can't be height-gated away. */}
-          {!showTime && d.duties && (
-            <DutyGlyphs
-              duties={d.duties}
-              hasLocation={!!event.location}
-              className="ml-auto text-[10px]"
-            />
-          )}
+          {/* Short cards drop the time row, so the going-avatars and the duty
+              glyphs ride the title row instead. Only the amber "unset" nudge
+              earns the duty ink here — assigned duties already show as drive
+              blocks in the assignee's column, and a full set of glyphs can
+              crush the title out of a narrow lane. */}
+          {!showTime &&
+            (() => {
+              const needsNudge =
+                d.duties &&
+                (d.duties.dropoff === "unset" || d.duties.pickup === "unset");
+              if (!needsNudge && d.attendees.length === 0) return null;
+              return (
+                <span className="ml-auto flex shrink-0 items-center gap-1">
+                  {needsNudge && d.duties && (
+                    <DutyGlyphs
+                      duties={d.duties}
+                      hasLocation={!!event.location}
+                      className="text-[10px]"
+                    />
+                  )}
+                  {d.attendees.length > 0 && (
+                    <span className="flex -space-x-1">
+                      {d.attendees.slice(0, 2).map((a) => (
+                        <span
+                          key={a.email}
+                          title={a.name ?? a.email}
+                          className="inline-flex"
+                        >
+                          <MemberAvatar
+                            name={a.name}
+                            size="xs"
+                            className="ring-1 ring-card"
+                          />
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </span>
+              );
+            })()}
         </span>
         {height >= 60 && event.location && (
           <span className="mt-0.5 flex items-center gap-0.5 truncate text-[10px] text-muted-foreground">
@@ -630,137 +781,6 @@ export function DayView({
     );
   }
 
-  // A shared (multi-attendee) event drawn as ONE card frame spanning from its
-  // first to its last attending column. The card is filled (a normal white card)
-  // only over the columns that ARE attending; any column it jumps over is left as
-  // an open "window" — the frame's top and bottom edges bridge across it, but its
-  // interior is transparent, so the column beneath (its separators, its tint, its
-  // free time) shows through. That reads as "these two are one event, and the
-  // people in between simply aren't in it" rather than "their time is blocked."
-  function renderSpanningEvent({
-    event,
-    cols,
-  }: {
-    event: CalendarEvent;
-    cols: number[];
-  }) {
-    const d = display(event);
-    const first = cols[0];
-    const last = cols[cols.length - 1];
-    const top = y(startMin(event));
-    const height = Math.max(y(endMin(event)) - top, MIN_BLOCK);
-    const everyone = cols.length === memberColumns.length;
-    const selected = event.id === selectedEventId;
-    const showTime = height >= 46;
-    // The frame spans from the first to the last attending column, positioned off
-    // the same weights as the columns (so it lines up when the me column is wide).
-    const frameL = edge(first);
-    const frameW = edge(last + 1) - frameL;
-    // It renders full (titled) when it leads in the wide me column, or on desktop;
-    // otherwise it's thin colored fills with just a glyph, like the solo ticks.
-    const full = !isMobile || first === meColIndex;
-    // Contiguous runs of attending columns — each gets a filled segment; the gaps
-    // between runs are the open windows.
-    const runs: Array<[number, number]> = [];
-    for (const i of cols) {
-      const r = runs[runs.length - 1];
-      if (r && i === r[1] + 1) r[1] = i;
-      else runs.push([i, i]);
-    }
-    // Content lives in the leading run so a long title truncates instead of
-    // running across the windows. Positions are fractions of the frame's width.
-    const fillLeft = (a: number) => ((edge(a) - frameL) / frameW) * 100;
-    const fillWidth = (a: number, b: number) =>
-      ((edge(b + 1) - edge(a)) / frameW) * 100;
-    const leadWidthPct = ((edge(runs[0][1] + 1) - frameL) / frameW) * 100;
-    return (
-      <button
-        key={event.id}
-        type="button"
-        data-event-id={event.id}
-        onClick={() => onEventClick(event)}
-        title={event.title}
-        style={{
-          top,
-          height,
-          left: `calc(${frameL * 100}% + 1px)`,
-          width: `calc(${frameW * 100}% - 3px)`,
-          borderLeftColor: mute(d.color),
-        }}
-        className={cn(
-          "group pointer-events-auto absolute overflow-hidden rounded-sm bg-transparent text-left",
-          full && "border border-border/70 border-l-[3px]",
-          selected && "ring-1 ring-ring",
-        )}
-      >
-        {/* Filled segments over the attending columns; the gaps between runs stay
-            open windows. White cards when full, member-colored ticks when thin. */}
-        {runs.map(([a, b]) => (
-          <span
-            key={`fill-${a}`}
-            aria-hidden
-            className={cn(
-              "absolute inset-y-0 transition-colors",
-              full && "bg-white group-hover:bg-muted/40 dark:bg-card",
-            )}
-            style={{
-              left: `${fillLeft(a)}%`,
-              width: `${fillWidth(a, b)}%`,
-              ...(full ? null : { backgroundColor: mute(d.color) }),
-            }}
-          />
-        ))}
-        {/* Thin: just a baseball glyph in the leading run, once tall enough. */}
-        {!full && d.isTeamsnap && height >= TALL && (
-          <span
-            className="absolute inset-y-0 left-0 flex items-start justify-end px-0.5 py-0.5"
-            style={{ width: `${leadWidthPct}%` }}
-          >
-            <BaseballGlyph className="h-2.5 w-2.5 shrink-0 text-white/90" />
-          </span>
-        )}
-        {/* Full content, in the leading run. */}
-        {full && (
-          <span
-            className="absolute inset-y-0 left-0 flex flex-col overflow-hidden px-1.5 py-0.5"
-            style={{ width: `${leadWidthPct}%` }}
-          >
-            {showTime && (
-              <span className="flex items-center gap-1 text-[10px] italic tabular-nums leading-tight text-muted-foreground">
-                <span className="truncate">
-                  {formatTimeRange(event.start_time, event.end_time, false)}
-                </span>
-                {everyone && (
-                  <span className="shrink-0 not-italic">· Everyone</span>
-                )}
-                {d.duties && (
-                  <DutyGlyphs
-                    duties={d.duties}
-                    hasLocation={!!event.location}
-                    className="ml-auto not-italic"
-                  />
-                )}
-              </span>
-            )}
-            <span className={cn("flex items-start gap-1", showTime && "mt-0.5")}>
-              <span className="line-clamp-2 min-w-0 text-[11px] leading-tight text-foreground">
-                {event.title}
-              </span>
-              {d.conflict && (
-                <AlertTriangle className="mt-px h-2.5 w-2.5 shrink-0 text-amber-600" />
-              )}
-            </span>
-            {height >= 60 && event.location && (
-              <span className="mt-0.5 flex items-center gap-0.5 truncate text-[10px] text-muted-foreground">
-                <MapPin className="h-2.5 w-2.5 shrink-0" />
-                {event.location}
-              </span>
-            )}
-          </span>
-        )}
-      </button>
-    );
-  }
 
   // An all-day marker: a flag plus the title in a full (titled) column, matching
   // the agenda's treatment; a textless member-colored chip in a thin phone column.
@@ -965,21 +985,17 @@ export function DayView({
                   onPointerUp={onColPointerUp}
                   onPointerCancel={onColPointerCancel}
                 >
-                  {pack(c.solo).map((p) => (
-                    <Block key={p.event.id} placed={p} full={isFull(i)} />
+                  {placedFor(c).map(({ placed, fused }) => (
+                    <Block
+                      key={placed.event.id}
+                      placed={placed}
+                      full={isFull(i)}
+                      fused={fused}
+                    />
                   ))}
                 </div>
               ))}
             </div>
-            {/* Shared events tie across columns in an overlay above them. */}
-            {sharedTimed.length > 0 && (
-              <div
-                className="pointer-events-none absolute inset-y-0 z-10"
-                style={{ left: GUTTER, right: 0 }}
-              >
-                {sharedTimed.map((s) => renderSpanningEvent(s))}
-              </div>
-            )}
             {nowLine()}
           </div>
         )}
