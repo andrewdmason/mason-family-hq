@@ -75,7 +75,7 @@ import type {
   EventDuties,
   EventDuty,
 } from "@/lib/calendar/types";
-import { DayView } from "./day-view";
+import { DayView, type GridDraft } from "./day-view";
 import { AgendaView } from "./agenda-view";
 import { WeekView } from "./week-view";
 import { MonthView } from "./month-view";
@@ -157,9 +157,11 @@ export function CalendarClient({
   // grid. anchorId is the data-event-id of the block the popover anchors to —
   // the block the user actually clicked (a drive block anchors there even
   // though the panel shows its source kid event).
+  // `pending` marks a drag-to-create in progress: the draft block renders on
+  // the grid but the panel itself waits for the release.
   const [panel, setPanel] = useState<
     | { kind: "event"; event: CalendarEvent; anchorId: string }
-    | { kind: "create"; draft: DraftEvent }
+    | { kind: "create"; draft: DraftEvent; pending?: boolean }
     | null
   >(null);
   // Optimistic per-event "going" overrides (email -> going). The base attendee
@@ -798,6 +800,21 @@ export function CalendarClient({
     });
   }
 
+  // Click/drag on the day grid's empty background: the draft block tracks the
+  // drag (pending), and the release opens the panel beside it.
+  function handleGridDraft(d: GridDraft) {
+    setPanel({
+      kind: "create",
+      draft: {
+        startTime: d.start,
+        endTime: d.end,
+        allDay: false,
+        memberEmail: d.memberEmail,
+      },
+      pending: !d.commit,
+    });
+  }
+
   // One period forward/back, sized to the current view (day/week/month; the
   // feed pages by a week). Shared by the header arrows and the swipe gesture.
   const anchorFor = (from: Date, dir: 1 | -1) =>
@@ -983,6 +1000,8 @@ export function CalendarClient({
           // Reference equality: only the center panel is the real anchor —
           // the swipe neighbors get fresh Date objects from anchorFor().
           beforeAxis={anchorDate === anchor ? triageBars : null}
+          canManage={canManage}
+          onGridDraft={handleGridDraft}
         />
       )}
       {view === "feed" && (
@@ -1258,7 +1277,9 @@ export function CalendarClient({
       </div>
 
       <EventPanelHost
-        mode={panel}
+        // A pending (mid-drag) draft renders only its grid block; the panel
+        // itself opens on release.
+        mode={panel?.kind === "create" && panel.pending ? null : panel}
         anchorEventId={
           panel?.kind === "event"
             ? panel.anchorId
@@ -1266,7 +1287,15 @@ export function CalendarClient({
               ? "draft:new"
               : null
         }
-        panelKey={panel?.kind === "event" ? panel.event.id : "create"}
+        panelKey={
+          panel?.kind === "event"
+            ? panel.event.id
+            : panel?.kind === "create"
+              ? // Keyed by the draft's times so a fresh grid gesture re-seeds
+                // the form, while edits inside one create session stay put.
+                `create:${panel.draft.startTime}:${panel.draft.endTime}`
+              : "closed"
+        }
         onClose={() => setPanel(null)}
         members={members}
         sources={sources}

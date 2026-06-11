@@ -46,6 +46,7 @@ export function TimeField({
   value,
   onChange,
   baseMinutes,
+  action,
   disabled,
   className,
 }: {
@@ -53,6 +54,10 @@ export function TimeField({
   onChange: (minutes: number) => void;
   // When set, options run from baseMinutes forward and show "(duration)".
   baseMinutes?: number;
+  action?: {
+    label: string;
+    onSelect: () => void;
+  };
   disabled?: boolean;
   className?: string;
 }) {
@@ -129,34 +134,53 @@ export function TimeField({
       />
       {open && !disabled && (
         <div
-          ref={listRef}
           // mousedown (not click) so selection wins the race against blur.
-          className="absolute top-full left-0 z-10 mt-1 max-h-52 w-max min-w-28 overflow-y-auto rounded-lg bg-popover py-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
+          className="absolute top-full left-0 z-10 mt-1 w-max min-w-28 overflow-hidden rounded-lg bg-popover py-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
         >
-          {options.map((m) => (
-            <button
-              key={m}
-              type="button"
-              tabIndex={-1}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onChange(m % (24 * 60));
-                setOpen(false);
-                inputRef.current?.blur();
-              }}
-              className={cn(
-                "flex w-full items-baseline gap-2 px-2.5 py-1 text-left text-sm tabular-nums hover:bg-accent",
-                m === value && "bg-accent font-medium",
-              )}
-            >
-              {formatMinutes(m % (24 * 60))}
-              {baseMinutes != null && (
-                <span className="text-xs text-muted-foreground">
-                  {formatDuration(m - baseMinutes)}
-                </span>
-              )}
-            </button>
-          ))}
+          {action && (
+            <>
+              <button
+                type="button"
+                tabIndex={-1}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  action.onSelect();
+                  setOpen(false);
+                  inputRef.current?.blur();
+                }}
+                className="flex w-full items-center px-2.5 py-1.5 text-left text-sm font-medium hover:bg-accent"
+              >
+                {action.label}
+              </button>
+              <div className="my-1 border-t border-border/60" />
+            </>
+          )}
+          <div ref={listRef} className="max-h-52 overflow-y-auto">
+            {options.map((m) => (
+              <button
+                key={m}
+                type="button"
+                tabIndex={-1}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onChange(m % (24 * 60));
+                  setOpen(false);
+                  inputRef.current?.blur();
+                }}
+                className={cn(
+                  "flex w-full items-baseline gap-2 px-2.5 py-1 text-left text-sm tabular-nums hover:bg-accent",
+                  m === value && "bg-accent font-medium",
+                )}
+              >
+                {formatMinutes(m % (24 * 60))}
+                {baseMinutes != null && (
+                  <span className="text-xs text-muted-foreground">
+                    {formatDuration(m - baseMinutes)}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>

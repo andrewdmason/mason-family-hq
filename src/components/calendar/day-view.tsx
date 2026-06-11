@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Flag, MapPin } from "lucide-react";
 import {
   eventDayKey,
@@ -115,6 +115,16 @@ const hourLabel = (h: number) => {
   return `${hr - 12}p`;
 };
 
+// What a grid create-gesture reports up to the calendar client. `commit`
+// distinguishes the live preview during a drag (draft block only) from the
+// release (open the panel).
+export type GridDraft = {
+  memberEmail: string | null;
+  start: string; // ISO
+  end: string; // ISO
+  commit: boolean;
+};
+
 export function DayView({
   events,
   anchorDate,
@@ -124,6 +134,8 @@ export function DayView({
   selectedEventId,
   currentMemberEmail,
   beforeAxis,
+  canManage = false,
+  onGridDraft,
 }: {
   events: CalendarEvent[];
   anchorDate: Date;
@@ -134,6 +146,9 @@ export function DayView({
   currentMemberEmail: string | null;
   /** Rendered between the anchored chrome and the time axis (triage bars). */
   beforeAxis?: ReactNode;
+  canManage?: boolean;
+  /** Click/drag on empty grid creates a draft event (desktop only). */
+  onGridDraft?: (draft: GridDraft) => void;
 }) {
   // A live clock so the "now" line tracks the real time. Starts null so the
   // server and the first client render agree (no Date-dependent output during
@@ -199,6 +214,79 @@ export function DayView({
   const totalH = (maxH - minH) * PX_PER_HOUR;
   const y = (min: number) => ((min - minH * 60) / 60) * PX_PER_HOUR;
   const hourMarks = Array.from({ length: maxH - minH + 1 }, (_, i) => minH + i);
+
+  // --- Drag-to-create (desktop only) ---------------------------------------
+  // Press on a column's empty background and drag to draw a draft event; a
+  // plain click drops a 30-minute one. The live preview renders through the
+  // calendar client (the draft becomes a synthetic event), and release opens
+  // the panel. Touch keeps its existing gestures (tap-to-open, swipe-day).
+  const createDrag = useRef<{
+    member: string | null;
+    startMin: number;
+    colEl: HTMLElement;
+    moved: boolean;
+  } | null>(null);
+
+  const snap15 = (m: number) => Math.round(m / 15) * 15;
+  const minuteAtPointer = (clientY: number, colEl: HTMLElement) => {
+    const rect = colEl.getBoundingClientRect();
+    const min = minH * 60 + ((clientY - rect.top) / PX_PER_HOUR) * 60;
+    return Math.max(minH * 60, Math.min(maxH * 60, min));
+  };
+  // The viewed day at a minutes-since-midnight instant, as ISO.
+  const isoAt = (min: number) => {
+    const d = new Date(anchorDate);
+    d.setHours(0, min, 0, 0);
+    return d.toISOString();
+  };
+  const draftRange = (a: number, b: number): [number, number] =>
+    b >= a ? [a, Math.max(b, a + 15)] : [b, a];
+
+  function onColPointerDown(e: React.PointerEvent<HTMLDivElement>, member: string | null) {
+    if (!onGridDraft || !canManage || isMobile || e.pointerType === "touch") return;
+    if (e.button !== 0) return;
+    // Only the empty background starts a create — presses on event blocks (or
+    // their handles) belong to the blocks.
+    if ((e.target as Element).closest("button")) return;
+    const colEl = e.currentTarget;
+    createDrag.current = {
+      member,
+      startMin: snap15(minuteAtPointer(e.clientY, colEl)),
+      colEl,
+      moved: false,
+    };
+    colEl.setPointerCapture(e.pointerId);
+  }
+
+  function onColPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const d = createDrag.current;
+    if (!d) return;
+    const m = snap15(minuteAtPointer(e.clientY, d.colEl));
+    if (!d.moved && m === d.startMin) return; // slop: ignore sub-snap jitters
+    d.moved = true;
+    e.preventDefault(); // no text selection while drawing
+    const [a, b] = draftRange(d.startMin, m);
+    onGridDraft?.({ memberEmail: d.member, start: isoAt(a), end: isoAt(b), commit: false });
+  }
+
+  function onColPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    const d = createDrag.current;
+    createDrag.current = null;
+    if (!d) return;
+    if (!d.moved) {
+      // Plain click: a 30-minute draft at the snapped point.
+      const a = snap15(minuteAtPointer(e.clientY, d.colEl));
+      onGridDraft?.({ memberEmail: d.member, start: isoAt(a), end: isoAt(a + 30), commit: true });
+      return;
+    }
+    const m = snap15(minuteAtPointer(e.clientY, d.colEl));
+    const [a, b] = draftRange(d.startMin, m);
+    onGridDraft?.({ memberEmail: d.member, start: isoAt(a), end: isoAt(b), commit: true });
+  }
+
+  function onColPointerCancel() {
+    createDrag.current = null;
+  }
 
   // The shown members attending an event — its owner (when shown) plus any guest
   // members. The set, not an owner, is what a shared event really is.
@@ -366,7 +454,7 @@ export function DayView({
           }
           style={{ ...pos, backgroundColor: mute(d.color) }}
           className={cn(
-            "absolute flex items-start justify-end overflow-hidden rounded-sm px-0.5 py-0.5",
+            "absolute z-20 flex items-start justify-end overflow-hidden rounded-sm px-0.5 py-0.5",
             event.id === selectedEventId && "ring-1 ring-ring",
             d.pendingDrive && "animate-pulse opacity-60",
             isDraft && "opacity-70",
@@ -391,7 +479,7 @@ export function DayView({
         }
         style={{ ...pos, borderLeftColor: mute(d.color) }}
         className={cn(
-          "absolute flex flex-col overflow-hidden rounded-sm border border-border/70 border-l-[3px] bg-white px-1.5 py-0.5 text-left transition-colors hover:bg-muted/40 dark:bg-card",
+          "absolute z-20 flex flex-col overflow-hidden rounded-sm border border-border/70 border-l-[3px] bg-white px-1.5 py-0.5 text-left transition-colors hover:bg-muted/40 dark:bg-card",
           event.id === selectedEventId && "ring-1 ring-ring",
           // A duty tap's block-to-be: visible instantly, ghosted until the
           // real mirror row replaces it.
@@ -759,12 +847,13 @@ export function DayView({
 
         {beforeAxis}
 
-        {dayEvents.length === 0 ? (
+        {dayEvents.length === 0 && (isMobile || !canManage || !onGridDraft) ? (
           <p className="px-1 py-16 text-center text-sm text-muted-foreground">
             Nothing scheduled this day.
           </p>
         ) : (
-          // The axis
+          // The axis. Rendered even on an empty day when the grid is
+          // create-enabled — the empty hours are the click-to-create surface.
           <div className="relative" style={{ height: totalH }}>
             {axisLines()}
             <div
@@ -781,6 +870,12 @@ export function DayView({
                       ? { backgroundColor: meTint(mute(c.color)) }
                       : null),
                   }}
+                  onPointerDown={(e) =>
+                    onColPointerDown(e, c.key === FAMILY_KEY ? null : c.key)
+                  }
+                  onPointerMove={onColPointerMove}
+                  onPointerUp={onColPointerUp}
+                  onPointerCancel={onColPointerCancel}
                 >
                   {pack(c.solo).map((p) => (
                     <Block key={p.event.id} placed={p} full={isFull(i)} />
@@ -791,7 +886,7 @@ export function DayView({
             {/* Shared events tie across columns in an overlay above them. */}
             {sharedTimed.length > 0 && (
               <div
-                className="pointer-events-none absolute inset-y-0"
+                className="pointer-events-none absolute inset-y-0 z-10"
                 style={{ left: GUTTER, right: 0 }}
               >
                 {sharedTimed.map((s) => renderSpanningEvent(s))}

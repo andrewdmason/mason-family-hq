@@ -10,12 +10,19 @@
 // Hosted by EventPanelHost in an anchored popover (desktop) or bottom sheet
 // (mobile) — see event-panel-host.tsx.
 
-import { useEffect, useMemo, useState, type RefObject } from "react";
-import { CalendarDays, MapPin, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CalendarDays,
+  ChevronDown,
+  MapPin,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import { DateField } from "@/components/ui/date-field";
 import { TimeField } from "@/components/ui/time-field";
 import {
@@ -46,7 +53,9 @@ import {
   createManualEvent,
   updateManualEvent,
   deleteEvent,
+  searchLocationSuggestions,
   type ManualEventInput,
+  type LocationSuggestion,
 } from "@/app/(calendar)/calendar/actions";
 import { TeamsnapAttendance } from "./team-availability";
 import { MemberAvatar } from "@/components/journal/member-avatar";
@@ -114,15 +123,16 @@ function seedValues(
       ? { date: start.date, min: 10 * 60 }
       : localParts(draft.endTime ?? draft.startTime);
     // Default to the draft owner's Google calendar so the event lands on their
-    // real calendar without extra clicks; their absence falls back to app-only.
+    // real calendar without extra clicks. No calendar of their own → app-only
+    // (NOT someone else's calendar — the clicked column says whose event it is).
     const ownSource = googleSources.find(
       (s) => s.member_email === draft.memberEmail,
     );
     return {
       title: "",
-      calendarSourceId: ownSource?.id ?? googleSources[0]?.id ?? "",
+      calendarSourceId: ownSource?.id ?? "",
       ownerEmail: "",
-      memberEmail: draft.memberEmail ?? members[0]?.email ?? "",
+      memberEmail: draft.memberEmail ?? "",
       allDay: draft.allDay,
       startDate: start.date,
       endDate: end.date,
@@ -233,6 +243,7 @@ export function EventPanelContent({
   const [values, setValues] = useState(initial);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   // Non-fatal outcome of a save (e.g. the event moved but the original
   // couldn't be deleted) — shown instead of closing, so it isn't lost.
   const [notice, setNotice] = useState<string | null>(null);
@@ -358,6 +369,11 @@ export function EventPanelContent({
 
   const isTeamsnap = event?.source_type === "teamsnap";
   const showSaveBar = editable && (mode.kind === "create" || dirty);
+  const showAdvancedControls =
+    (mode.kind === "create" && googleSources.length > 0) ||
+    !!googleEvent ||
+    (mode.kind === "event" && !googleEvent && values.calendarSourceId === "") ||
+    !!event?.rrule;
 
   return (
     <div
@@ -417,6 +433,10 @@ export function EventPanelContent({
                     <TimeField
                       value={values.startMin}
                       onChange={(m) => moveStart({ min: m })}
+                      action={{
+                        label: "All day",
+                        onSelect: () => toggleAllDay(true),
+                      }}
                     />
                     <span className="text-muted-foreground">–</span>
                     <TimeField
@@ -436,148 +456,23 @@ export function EventPanelContent({
                     )}
                   </>
                 )}
-              </div>
-              <label className="flex w-fit cursor-pointer items-center gap-2 pl-6 text-xs text-muted-foreground">
-                <Switch
-                  checked={values.allDay}
-                  onCheckedChange={toggleAllDay}
-                  className="scale-90"
-                />
-                All day
-              </label>
-            </div>
-
-            {/* Where it lives */}
-            {googleEvent ? (
-              <FieldRow label="Calendar">
-                <Select
-                  value={values.ownerEmail}
-                  onValueChange={(v) => patch({ ownerEmail: v ?? "" })}
-                  onOpenChange={reportOverlay}
-                  items={[
-                    ...(googleEvent.member_email == null
-                      ? [{ value: "", label: "Shared calendar (leave as is)" }]
-                      : []),
-                    ...members.map((m) => ({
-                      value: m.email,
-                      label: m.name ?? m.email,
-                    })),
-                  ]}
-                >
-                  <SelectTrigger size="sm" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {googleEvent.member_email == null && (
-                      <SelectItem value="">
-                        Shared calendar (leave as is)
-                      </SelectItem>
-                    )}
-                    {members.map((m) => {
-                      const receivable =
-                        !!m.primary_calendar_id ||
-                        m.email === googleEvent.member_email;
-                      return (
-                        <SelectItem
-                          key={m.email}
-                          value={m.email}
-                          disabled={!receivable}
-                        >
-                          {m.name ?? m.email}
-                          {receivable ? "" : " (no Google calendar)"}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-                {ownerChanged && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Saving moves this event to{" "}
-                    {members.find((m) => m.email === values.ownerEmail)?.name ??
-                      values.ownerEmail}
-                    &rsquo;s calendar
-                    {googleEvent.member_email
-                      ? ` — ${
-                          members.find(
-                            (m) => m.email === googleEvent.member_email,
-                          )?.name ?? googleEvent.member_email
-                        } and current guests stay invited.`
-                      : "."}
-                  </p>
+                {values.allDay && (
+                  <button
+                    type="button"
+                    onClick={() => toggleAllDay(false)}
+                    className="rounded-md px-1.5 py-0.5 text-sm tabular-nums transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+                  >
+                    All day
+                  </button>
                 )}
-              </FieldRow>
-            ) : mode.kind === "create" && googleSources.length > 0 ? (
-              <FieldRow label="Calendar">
-                <Select
-                  value={values.calendarSourceId}
-                  onValueChange={(v) => patch({ calendarSourceId: v ?? "" })}
-                  onOpenChange={reportOverlay}
-                  items={[
-                    ...googleSources.map((s) => ({
-                      value: s.id,
-                      label: s.nickname ?? "Google calendar",
-                    })),
-                    { value: "", label: "App only (no Google calendar)" },
-                  ]}
-                >
-                  <SelectTrigger size="sm" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {googleSources.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.nickname ?? "Google calendar"}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value="">
-                      App only (no Google calendar)
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </FieldRow>
-            ) : null}
-
-            {/* Whose calendar only applies to app-only events; a Google event
-                belongs to whoever owns the chosen calendar. */}
-            {!googleEvent && values.calendarSourceId === "" && (
-              <FieldRow label="Who">
-                <Select
-                  value={values.memberEmail}
-                  onValueChange={(v) => patch({ memberEmail: v ?? "" })}
-                  onOpenChange={reportOverlay}
-                  items={members.map((m) => ({
-                    value: m.email,
-                    label: m.name ?? m.email,
-                  }))}
-                >
-                  <SelectTrigger size="sm" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {members.map((m) => (
-                      <SelectItem key={m.email} value={m.email}>
-                        {m.name ?? m.email}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FieldRow>
-            )}
-
-            {/* Recurring display (read-only until the repeat picker lands). */}
-            {event?.rrule && (
-              <p className="pl-6 text-xs text-muted-foreground">
-                {describeRRule(event.rrule)}
-              </p>
-            )}
+              </div>
+            </div>
 
             <div className="flex items-center gap-1">
               <MapPin className="mr-1 h-4 w-4 shrink-0 text-muted-foreground" />
-              <Input
+              <LocationTypeahead
                 value={values.location}
-                onChange={(e) => patch({ location: e.target.value })}
-                placeholder="Location"
-                className="h-7 border-none px-1.5 shadow-none focus-visible:bg-accent focus-visible:ring-0 dark:bg-transparent"
+                onChange={(location) => patch({ location })}
               />
             </div>
 
@@ -588,6 +483,165 @@ export function EventPanelContent({
               rows={2}
               className="min-h-0 resize-none border-none px-1.5 shadow-none focus-visible:bg-accent focus-visible:ring-0 dark:bg-transparent"
             />
+
+            {showAdvancedControls && (
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setAdvancedOpen((open) => !open)}
+                  aria-label={
+                    advancedOpen
+                      ? "Hide event details"
+                      : "Show event details"
+                  }
+                  aria-expanded={advancedOpen}
+                  className="ml-5 flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "size-4 transition-transform",
+                      advancedOpen && "rotate-180",
+                    )}
+                  />
+                </button>
+
+                {advancedOpen && (
+                  <div className="space-y-2 border-t border-border/60 pt-3">
+                    {googleEvent ? (
+                      <FieldRow label="Calendar">
+                        <Select
+                          value={values.ownerEmail}
+                          onValueChange={(v) => patch({ ownerEmail: v ?? "" })}
+                          onOpenChange={reportOverlay}
+                          items={[
+                            ...(googleEvent.member_email == null
+                              ? [
+                                  {
+                                    value: "",
+                                    label: "Shared calendar (leave as is)",
+                                  },
+                                ]
+                              : []),
+                            ...members.map((m) => ({
+                              value: m.email,
+                              label: m.name ?? m.email,
+                            })),
+                          ]}
+                        >
+                          <SelectTrigger size="sm" className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {googleEvent.member_email == null && (
+                              <SelectItem value="">
+                                Shared calendar (leave as is)
+                              </SelectItem>
+                            )}
+                            {members.map((m) => {
+                              const receivable =
+                                !!m.primary_calendar_id ||
+                                m.email === googleEvent.member_email;
+                              return (
+                                <SelectItem
+                                  key={m.email}
+                                  value={m.email}
+                                  disabled={!receivable}
+                                >
+                                  {m.name ?? m.email}
+                                  {receivable ? "" : " (no Google calendar)"}
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
+                        {ownerChanged && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Saving moves this event to{" "}
+                            {members.find((m) => m.email === values.ownerEmail)
+                              ?.name ?? values.ownerEmail}
+                            &rsquo;s calendar
+                            {googleEvent.member_email
+                              ? ` — ${
+                                  members.find(
+                                    (m) =>
+                                      m.email === googleEvent.member_email,
+                                  )?.name ?? googleEvent.member_email
+                                } and current guests stay invited.`
+                              : "."}
+                          </p>
+                        )}
+                      </FieldRow>
+                    ) : mode.kind === "create" && googleSources.length > 0 ? (
+                      <FieldRow label="Calendar">
+                        <Select
+                          value={values.calendarSourceId}
+                          onValueChange={(v) =>
+                            patch({ calendarSourceId: v ?? "" })
+                          }
+                          onOpenChange={reportOverlay}
+                          items={[
+                            ...googleSources.map((s) => ({
+                              value: s.id,
+                              label: s.nickname ?? "Google calendar",
+                            })),
+                            {
+                              value: "",
+                              label: "App only (no Google calendar)",
+                            },
+                          ]}
+                        >
+                          <SelectTrigger size="sm" className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {googleSources.map((s) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {s.nickname ?? "Google calendar"}
+                              </SelectItem>
+                            ))}
+                            <SelectItem value="">
+                              App only (no Google calendar)
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FieldRow>
+                    ) : mode.kind === "event" &&
+                      !googleEvent &&
+                      values.calendarSourceId === "" ? (
+                      <FieldRow label="Who">
+                        <Select
+                          value={values.memberEmail}
+                          onValueChange={(v) => patch({ memberEmail: v ?? "" })}
+                          onOpenChange={reportOverlay}
+                          items={members.map((m) => ({
+                            value: m.email,
+                            label: m.name ?? m.email,
+                          }))}
+                        >
+                          <SelectTrigger size="sm" className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {members.map((m) => (
+                              <SelectItem key={m.email} value={m.email}>
+                                {m.name ?? m.email}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </FieldRow>
+                    ) : null}
+
+                    {/* Recurring display (read-only until the repeat picker lands). */}
+                    {event?.rrule && (
+                      <p className="pl-[4.5rem] text-xs text-muted-foreground">
+                        {describeRRule(event.rrule)}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         ) : (
           event && (
@@ -722,6 +776,95 @@ function FieldRow({
   );
 }
 
+function LocationTypeahead({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const requestSeq = useRef(0);
+  const [focused, setFocused] = useState(false);
+  const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([]);
+
+  useEffect(() => {
+    const query = value.trim();
+    if (!focused || query.length < 2) return;
+
+    const seq = ++requestSeq.current;
+    const timeout = window.setTimeout(async () => {
+      try {
+        const next = await searchLocationSuggestions(query);
+        if (requestSeq.current === seq) setSuggestions(next);
+      } catch {
+        if (requestSeq.current === seq) setSuggestions([]);
+      }
+    }, 220);
+
+    return () => window.clearTimeout(timeout);
+  }, [focused, value]);
+
+  function selectSuggestion(suggestion: LocationSuggestion) {
+    onChange(suggestion.location);
+    requestSeq.current += 1;
+    setSuggestions([]);
+    setFocused(false);
+    inputRef.current?.blur();
+  }
+
+  return (
+    <div className="relative min-w-0 flex-1">
+      <Input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => {
+          const next = e.target.value;
+          onChange(next);
+          if (next.trim().length < 2) {
+            requestSeq.current += 1;
+            setSuggestions([]);
+          }
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          requestSeq.current += 1;
+          setFocused(false);
+          setSuggestions([]);
+        }}
+        placeholder="Location"
+        autoComplete="off"
+        className="h-7 border-none px-1.5 shadow-none focus-visible:bg-accent focus-visible:ring-0 dark:bg-transparent"
+      />
+      {focused && suggestions.length > 0 && (
+        <div className="absolute top-full left-0 z-20 mt-1 max-h-56 w-full min-w-64 overflow-y-auto rounded-lg bg-popover py-1 text-popover-foreground shadow-md ring-1 ring-foreground/10">
+          {suggestions.map((suggestion) => (
+            <button
+              key={suggestion.placeId}
+              type="button"
+              tabIndex={-1}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                selectSuggestion(suggestion);
+              }}
+              className="block w-full px-2.5 py-1.5 text-left hover:bg-accent"
+            >
+              <span className="block truncate text-sm">
+                {suggestion.label}
+              </span>
+              {suggestion.secondary && (
+                <span className="block truncate text-xs text-muted-foreground">
+                  {suggestion.secondary}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // "Who's going" toggles: one avatar per family member other than the event owner.
 // Tap to mark going (full color + ring), tap again to clear (dimmed). For a
 // materialized event this adds/removes them as a native Google guest so the event
@@ -772,36 +915,40 @@ export function GoingRow({
 
   return (
     <div className="space-y-1.5">
-      <div className="text-xs font-medium text-muted-foreground">Going</div>
-      <div className="flex flex-wrap gap-2">
-        {others.map((m) => {
-          const isGoing = goingSet.has(m.email);
-          return (
-            <button
-              key={m.email}
-              type="button"
-              disabled={!canManage || pending === m.email}
-              onClick={() => toggle(m.email)}
-              aria-pressed={isGoing}
-              title={`${m.name ?? m.email}${isGoing ? " is going" : ""}`}
-              className={cn(
-                "rounded-full transition-opacity disabled:cursor-not-allowed",
-                isGoing ? "opacity-100" : "opacity-35 hover:opacity-60",
-              )}
-              style={
-                isGoing
-                  ? {
-                      boxShadow: `0 0 0 2px var(--background), 0 0 0 4px ${m.color ?? "currentColor"}`,
-                    }
-                  : undefined
-              }
-            >
-              <MemberAvatar name={m.name} size="md" />
-            </button>
-          );
-        })}
+      <div className="flex items-center gap-3">
+        <ActionRowLabel icon={<Users className="size-4" />} label="Going" />
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          {others.map((m) => {
+            const isGoing = goingSet.has(m.email);
+            return (
+              <button
+                key={m.email}
+                type="button"
+                disabled={!canManage || pending === m.email}
+                onClick={() => toggle(m.email)}
+                aria-pressed={isGoing}
+                title={`${m.name ?? m.email}${isGoing ? " is going" : ""}`}
+                className={cn(
+                  "rounded-full transition-opacity disabled:cursor-not-allowed",
+                  isGoing ? "opacity-100" : "opacity-35 hover:opacity-60",
+                )}
+                style={
+                  isGoing
+                    ? {
+                        boxShadow: `0 0 0 2px var(--background), 0 0 0 4px ${m.color ?? "currentColor"}`,
+                      }
+                    : undefined
+                }
+              >
+                <MemberAvatar name={m.name} size="md" />
+              </button>
+            );
+          })}
+        </div>
       </div>
-      {warning && <p className="text-xs text-muted-foreground">{warning}</p>}
+      {warning && (
+        <p className="pl-[5.75rem] text-xs text-muted-foreground">{warning}</p>
+      )}
     </div>
   );
 }
@@ -846,11 +993,19 @@ export function LogisticsRows({
 
   function row(duty: "dropoff" | "pickup") {
     const current = duties[duty];
+    const isDropoff = duty === "dropoff";
     return (
       <div className="flex items-center gap-3">
-        <div className="w-20 shrink-0 text-xs font-medium text-muted-foreground">
-          {duty === "dropoff" ? "→ Drop-off" : "← Pick-up"}
-        </div>
+        <ActionRowLabel
+          icon={
+            isDropoff ? (
+              <ArrowRight className="size-4" />
+            ) : (
+              <ArrowLeft className="size-4" />
+            )
+          }
+          label={isDropoff ? "Drop-off" : "Pick-up"}
+        />
         <div className="flex items-center gap-2">
           {parents.map((p) => {
             const selected = current?.assignee === p.email;
@@ -910,7 +1065,7 @@ export function LogisticsRows({
       {row("dropoff")}
       {row("pickup")}
       {unsyncable.length > 0 && (
-        <p className="text-xs text-muted-foreground">
+        <p className="pl-[5.75rem] text-xs text-muted-foreground">
           {unsyncable
             .map((p) => p?.name ?? p?.email)
             .join(" and ")}{" "}
@@ -918,6 +1073,23 @@ export function LogisticsRows({
           won&rsquo;t reach their real calendar yet.
         </p>
       )}
+    </div>
+  );
+}
+
+function ActionRowLabel({
+  icon,
+  label,
+}: {
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <div className="flex w-20 shrink-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+      <span className="flex size-4 items-center justify-center text-muted-foreground">
+        {icon}
+      </span>
+      <span>{label}</span>
     </div>
   );
 }
