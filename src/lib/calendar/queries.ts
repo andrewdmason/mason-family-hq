@@ -3,6 +3,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { memberColor } from "./calendar-utils";
+import { FAMILY_TZ } from "./drive-time";
 import type {
   CalendarEvent,
   CalendarMember,
@@ -114,6 +115,8 @@ export interface LogisticsHints {
   homeAddress: string | null;
   // Lets the client compute ghost drive blocks with the server's exact math.
   bufferMinutes: number;
+  // Formats ghost-block titles' "@ time" exactly as the server writes them.
+  timeZone: string;
 }
 
 /** The logistics facts the calendar client needs (read-only). */
@@ -127,6 +130,7 @@ export async function getLogisticsHints(): Promise<LogisticsHints> {
   return {
     homeAddress: (data?.home_address as string | null) ?? null,
     bufferMinutes: (data?.drive_buffer_minutes as number | null) ?? 5,
+    timeZone: FAMILY_TZ,
   };
 }
 

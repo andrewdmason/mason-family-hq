@@ -430,6 +430,10 @@ export function CalendarClient({
           continue;
         }
         const key = `${ev.id}:${duty}`;
+        const anchor =
+          duty === "pickup"
+            ? ev.end_time ?? ev.start_time
+            : ev.teamsnap_arrival_time ?? ev.start_time;
         planned.push({
           key,
           assignee,
@@ -445,13 +449,12 @@ export function CalendarClient({
           title: driveEventTitle({
             duty: combined ? "combined" : duty,
             kidName,
+            anchor,
+            timeZone: logistics.timeZone,
             driveMinutes,
             isEstimate,
           }),
-          anchor:
-            duty === "pickup"
-              ? ev.end_time ?? ev.start_time
-              : ev.teamsnap_arrival_time ?? ev.start_time,
+          anchor,
           isEstimate,
         });
         sourceByKey.set(key, { ev, duty });
@@ -462,7 +465,7 @@ export function CalendarClient({
     // identity (duty arrow, membership, minutes) but NOT the window — a going
     // toggle flips the same-titled block between round-trip and one-way — so
     // a mirror must match on parent, title, AND window to count as in place.
-    for (const cluster of clusterDriveBlocks(planned)) {
+    for (const cluster of clusterDriveBlocks(planned, logistics.timeZone)) {
       const owner = cluster.members[0];
       for (const m of cluster.members.slice(1)) {
         const mirror = mirrorByKey.get(m.key);
