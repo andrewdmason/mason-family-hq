@@ -30,6 +30,7 @@ import {
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
+  changeCalendarEventOwner,
   setGoing,
   setDuty,
 } from "@/lib/calendar/mutations";
@@ -74,6 +75,16 @@ export async function updateManualEvent(
 export async function deleteEvent(id: string): Promise<void> {
   await requireParent();
   return deleteCalendarEvent(id);
+}
+
+/** Move an event to a different family member's calendar (the Edit form's
+ * Calendar picker). Owner/parent only. */
+export async function changeEventOwner(
+  eventId: string,
+  newOwnerEmail: string,
+): Promise<{ ok: true; warning?: string } | { error: string }> {
+  await requireParent();
+  return changeCalendarEventOwner(eventId, newOwnerEmail);
 }
 
 export type IcsSourceInput = {

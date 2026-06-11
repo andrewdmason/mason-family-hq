@@ -73,6 +73,7 @@ export function EventSheet({
   sourceLabel,
   going,
   onToggleGoing,
+  onChangeOwner,
   duties,
   parents,
   showLogistics,
@@ -93,6 +94,10 @@ export function EventSheet({
     eventId: string,
     email: string,
     willGo: boolean,
+  ) => Promise<{ warning?: string }>;
+  onChangeOwner: (
+    eventId: string,
+    email: string,
   ) => Promise<{ warning?: string }>;
   duties: EventDuties;
   parents: CalendarMember[];
@@ -127,6 +132,7 @@ export function EventSheet({
             event={mode === "edit" ? event : null}
             members={members}
             sources={sources}
+            onChangeOwner={onChangeOwner}
             onDone={() => onOpenChange(false)}
           />
         )}
@@ -480,19 +486,39 @@ function EventForm({
   event,
   members,
   sources,
+  onChangeOwner,
   onDone,
 }: {
   event: CalendarEvent | null;
   members: CalendarMember[];
   sources: CalendarSource[];
+  onChangeOwner: (
+    eventId: string,
+    email: string,
+  ) => Promise<{ warning?: string }>;
   onDone: () => void;
 }) {
   // Writable targets: connected Google calendars. "" = app-only manual event.
   const googleSources = sources.filter((s) => s.source_type === "google");
   const isEditingExisting = !!event;
+  // Editing a real Google event: the Calendar field becomes a member picker —
+  // picking someone else moves the event to THEIR calendar on save (re-created
+  // there with the previous owner + guests invited, original deleted).
+  const googleEvent =
+    event &&
+    event.source_type === "google" &&
+    event.external_id?.startsWith("google:") &&
+    event.calendar_source_id
+      ? event
+      : null;
   const [title, setTitle] = useState(event?.title ?? "");
   const [memberEmail, setMemberEmail] = useState<string>(
     event?.member_email ?? members[0]?.email ?? "",
+  );
+  // The owner picked in the Calendar field for a Google event ("" = an owner-
+  // less shared-calendar event left where it is).
+  const [ownerEmail, setOwnerEmail] = useState<string>(
+    event?.member_email ?? "",
   );
   // Default new events to the first Google calendar when one exists, so the
   // common case (event lands on your real calendar) needs no extra click.
@@ -524,6 +550,12 @@ function EventForm({
   const [description, setDescription] = useState(event?.description ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Non-fatal outcome of a save (e.g. the event moved but the original
+  // couldn't be deleted) — shown instead of closing, so it isn't lost.
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const ownerChanged =
+    !!googleEvent && !!ownerEmail && ownerEmail !== (googleEvent.member_email ?? "");
 
   async function onSave() {
     if (!title.trim() || !start) {
@@ -532,6 +564,7 @@ function EventForm({
     }
     setPending(true);
     setError(null);
+    setNotice(null);
     const input: ManualEventInput = {
       calendarSourceId: calendarSourceId || null,
       memberEmail: memberEmail || null,
@@ -546,7 +579,17 @@ function EventForm({
     };
     try {
       if (event) {
+        // Field edits land on the event where it lives today; an owner change
+        // then moves the freshly-updated event to the new member's calendar.
         await updateManualEvent(event.id, input);
+        if (ownerChanged) {
+          const res = await onChangeOwner(event.id, ownerEmail);
+          if (res.warning) {
+            setNotice(res.warning);
+            setPending(false);
+            return;
+          }
+        }
       } else {
         await createManualEvent(input);
       }
@@ -572,25 +615,67 @@ function EventForm({
             placeholder="Soccer practice"
           />
         </div>
-        {googleSources.length > 0 && (
+        {googleEvent ? (
+          // Editing a Google event: pick whose calendar it belongs on. Members
+          // without a primary calendar can't receive a Google event.
           <div className="space-y-1.5">
-            <Label htmlFor="ev-calendar">Calendar</Label>
+            <Label htmlFor="ev-owner">Calendar</Label>
             <select
-              id="ev-calendar"
-              value={calendarSourceId}
-              onChange={(e) => setCalendarSourceId(e.target.value)}
-              // Moving an existing event between calendars isn't supported here.
-              disabled={isEditingExisting}
-              className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
+              id="ev-owner"
+              value={ownerEmail}
+              onChange={(e) => setOwnerEmail(e.target.value)}
+              className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             >
-              {googleSources.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.nickname ?? "Google calendar"}
-                </option>
-              ))}
-              <option value="">App only (no Google calendar)</option>
+              {googleEvent.member_email == null && (
+                <option value="">Shared calendar (leave as is)</option>
+              )}
+              {members.map((m) => {
+                const receivable =
+                  !!m.primary_calendar_id || m.email === googleEvent.member_email;
+                return (
+                  <option key={m.email} value={m.email} disabled={!receivable}>
+                    {m.name ?? m.email}
+                    {receivable ? "" : " (no Google calendar)"}
+                  </option>
+                );
+              })}
             </select>
+            {ownerChanged && (
+              <p className="text-xs text-muted-foreground">
+                Saving moves this event to{" "}
+                {members.find((m) => m.email === ownerEmail)?.name ?? ownerEmail}
+                &rsquo;s calendar
+                {googleEvent.member_email
+                  ? ` — ${
+                      members.find((m) => m.email === googleEvent.member_email)
+                        ?.name ?? googleEvent.member_email
+                    } and current guests stay invited.`
+                  : "."}
+              </p>
+            )}
           </div>
+        ) : (
+          googleSources.length > 0 && (
+            <div className="space-y-1.5">
+              <Label htmlFor="ev-calendar">Calendar</Label>
+              <select
+                id="ev-calendar"
+                value={calendarSourceId}
+                onChange={(e) => setCalendarSourceId(e.target.value)}
+                // Only a Google event can move between calendars (handled above);
+                // an existing app-only event keeps its (lack of a) calendar.
+                disabled={isEditingExisting}
+                className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
+              >
+                {googleSources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.nickname ?? "Google calendar"}
+                  </option>
+                ))}
+                <option value="">App only (no Google calendar)</option>
+              </select>
+            </div>
+          )
         )}
 
         {/* Whose calendar only applies to app-only events; a Google event belongs
@@ -670,6 +755,7 @@ function EventForm({
           />
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
+        {notice && <p className="text-sm text-muted-foreground">{notice}</p>}
       </div>
       <SheetFooter className="flex-row justify-end">
         <Button variant="ghost" size="sm" onClick={onDone} disabled={pending}>
