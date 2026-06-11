@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SyncButton } from "@/components/calendar/sync-button";
 import type {
   CalendarMember,
   CalendarSource,
@@ -59,10 +60,14 @@ export function CalendarsManager({
 }) {
   return (
     <div className="mt-6 space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Each person has one Google calendar. Their teams and school calendars are
-        imported into it automatically, and it&rsquo;s shared with the family.
-      </p>
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-sm text-muted-foreground">
+          Each person has one Google calendar. Their teams and school calendars
+          are imported into it automatically, and it&rsquo;s shared with the
+          family.
+        </p>
+        <SyncButton />
+      </div>
       {members.map((m) => (
         <CalendarGroup
           key={m.email}

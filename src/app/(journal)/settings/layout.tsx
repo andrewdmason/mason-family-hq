@@ -37,8 +37,11 @@ export default async function SettingsLayout({
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-24 pt-12">
-      <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
-        <div>
+      {/* minmax(0,1fr): a bare 1fr track refuses to shrink below its content's
+          min-width, so one long unbreakable string (e.g. a sync-error JSON blob
+          in Calendars) would push the whole page into horizontal scroll. */}
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_240px]">
+        <div className="min-w-0">
           <SettingsNav isOwner={isOwner} canManage={canManage} />
           {children}
         </div>

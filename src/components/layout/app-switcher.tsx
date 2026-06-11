@@ -1,6 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -13,11 +14,14 @@ import {
   GraduationCap,
   House,
   ListTodo,
+  Menu,
   Music,
   NotebookPen,
   Settings,
   Users,
 } from "lucide-react";
+import { useAppNav } from "@/components/layout/app-header";
+import { buttonVariants } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +29,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
 type App = {
@@ -128,10 +138,12 @@ function isActive(pathname: string, match: string): boolean {
 }
 
 /**
- * App identity + switcher for the family-wide apps. The header shows only the
- * current app's name; the dropdown is a "product switcher" — each app is a
- * substantial row with its icon and a one-line description. Settings sits at the
- * bottom, separated and compact, as a global "app" of its own.
+ * App identity + switcher for the family-wide apps. On sm+ the header shows
+ * the current app's name and the dropdown is a "product switcher" — each app
+ * is a substantial row with its icon and a one-line description, with Settings
+ * at the bottom, separated and compact, as a global "app" of its own. On
+ * phones it collapses to a hamburger opening a left nav sheet (MobileNav,
+ * below) that holds the same app list plus the current app's own nav section.
  */
 export function AppSwitcher({ isOwner = false }: { isOwner?: boolean }) {
   const pathname = usePathname();
@@ -143,19 +155,21 @@ export function AppSwitcher({ isOwner = false }: { isOwner?: boolean }) {
   const onSettings = current.match === SETTINGS.match;
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <button
-            type="button"
-            aria-label={`${current.label} — switch app`}
-            className="inline-flex h-14 items-center gap-1.5 font-serif text-lg tracking-tight text-foreground transition-colors hover:text-foreground/70"
-          />
-        }
-      >
-        {current.label}
-        <ChevronDown className="size-4 text-muted-foreground" />
-      </DropdownMenuTrigger>
+    <>
+      <MobileNav apps={apps} current={current} onSettings={onSettings} />
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <button
+              type="button"
+              aria-label={`${current.label} — switch app`}
+              className="hidden h-14 shrink-0 items-center gap-1.5 whitespace-nowrap font-serif text-lg tracking-tight text-foreground transition-colors hover:text-foreground/70 sm:inline-flex"
+            />
+          }
+        >
+          {current.label}
+          <ChevronDown className="size-4 text-muted-foreground" />
+        </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-72 p-1.5">
         {apps.map((app) => {
           const active = app.match === current.match;
@@ -206,6 +220,146 @@ export function AppSwitcher({ isOwner = false }: { isOwner?: boolean }) {
           )}
         </DropdownMenuItem>
       </DropdownMenuContent>
-    </DropdownMenu>
+      </DropdownMenu>
+    </>
+  );
+}
+
+/**
+ * Phone navigation, Google Calendar style: a hamburger in the header's corner
+ * opening a left sheet. Up top sits just the current app, as a disclosure —
+ * tapping it expands the full app list in place — and below it, when the
+ * current app published one (see AppNavContent), that app's own nav section,
+ * e.g. the calendar's day/feed/week/month picker.
+ */
+function MobileNav({
+  apps,
+  current,
+  onSettings,
+}: {
+  apps: App[];
+  current: App;
+  onSettings: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  // The app list starts collapsed every time the sheet opens — the common
+  // case is acting within the current app, not leaving it.
+  const [appsExpanded, setAppsExpanded] = useState(false);
+  const appNav = useAppNav();
+  const CurrentIcon = current.icon;
+
+  function setSheetOpen(next: boolean) {
+    setOpen(next);
+    if (!next) setAppsExpanded(false);
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={setSheetOpen}>
+      <SheetTrigger
+        aria-label="Menu"
+        className={cn(
+          buttonVariants({ variant: "ghost", size: "icon-sm" }),
+          "sm:hidden"
+        )}
+      >
+        <Menu className="size-5" />
+      </SheetTrigger>
+      <SheetContent
+        side="left"
+        showCloseButton={false}
+        className="w-80 gap-0 overflow-y-auto p-3"
+      >
+        <SheetTitle className="sr-only">Apps</SheetTitle>
+        <button
+          type="button"
+          onClick={() => setAppsExpanded((x) => !x)}
+          aria-expanded={appsExpanded}
+          className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left"
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary">
+            <CurrentIcon className="size-5" />
+          </span>
+          <span className="font-serif text-base leading-tight text-foreground">
+            {current.label}
+          </span>
+          <ChevronDown
+            className={cn(
+              "ml-auto size-4 shrink-0 text-muted-foreground transition-transform",
+              appsExpanded && "rotate-180"
+            )}
+          />
+        </button>
+        {appsExpanded && (
+          <nav className="mt-0.5 flex flex-col gap-0.5">
+            {apps.map((app) => {
+              const active = app.match === current.match;
+              const Icon = app.icon;
+              return (
+                <Link
+                  key={app.href}
+                  href={app.href}
+                  onClick={() => setSheetOpen(false)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-2 py-2",
+                    active && "bg-accent/60"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/40 text-muted-foreground",
+                      active && "border-primary/30 bg-primary/10 text-primary"
+                    )}
+                  >
+                    <Icon className="size-5" />
+                  </span>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="font-serif text-base leading-tight text-foreground">
+                      {app.label}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {app.description}
+                    </span>
+                  </span>
+                  {active && (
+                    <Check className="ml-auto size-4 shrink-0 text-primary" />
+                  )}
+                </Link>
+              );
+            })}
+          </nav>
+        )}
+        {appNav != null && (
+          <div
+            className="mt-3 border-t pt-3"
+            // The app's nav section is published from another tree, so it
+            // can't close the sheet itself. Any tap on one of its buttons or
+            // links (picking a view) is a final action — close for it.
+            onClickCapture={(e) => {
+              if ((e.target as HTMLElement).closest("button, a")) {
+                setSheetOpen(false);
+              }
+            }}
+          >
+            {appNav}
+          </div>
+        )}
+        <div className="mt-3 border-t pt-3">
+          <Link
+            href={SETTINGS.href}
+            onClick={() => setSheetOpen(false)}
+            className={cn(
+              "flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-muted-foreground",
+              onSettings && "bg-accent/60 text-foreground"
+            )}
+          >
+            <Settings className="size-4" />
+            <span className="text-sm">Settings</span>
+            {onSettings && (
+              <Check className="ml-auto size-4 shrink-0 text-primary" />
+            )}
+          </Link>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }

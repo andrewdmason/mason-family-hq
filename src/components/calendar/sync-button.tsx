@@ -8,8 +8,9 @@ import { cn } from "@/lib/utils";
 import { triggerFullSync } from "@/app/(calendar)/calendar/actions";
 
 /** Manually pull the latest — including every player's RSVP — from TeamSnap, ICS,
- * and Google. The same full sync also runs every 15 minutes via cron; this is
- * the "do it now" button. */
+ * and Google. The same full sync also runs every 15 minutes via cron (and on
+ * calendar page mount via SyncTrigger); this is the "do it now" button, living
+ * in Settings → Calendars. */
 export function SyncButton() {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
