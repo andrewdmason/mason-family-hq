@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { GlobalHeader } from "@/components/layout/global-header";
 import { TimezoneProvider } from "@/components/timezone-provider";
+import { RefreshOnReturn } from "@/components/todos/refresh-on-return";
 import { TodosShortcuts } from "@/components/todos/todos-shortcuts";
 import { appMetadata } from "@/lib/pwa/apps";
 
@@ -14,6 +15,9 @@ export default function TodosLayout({
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <TimezoneProvider />
+      {/* Layout-level so every todos screen (views, project, browse) picks up
+          phone/other-member additions when the window regains focus. */}
+      <RefreshOnReturn />
       {/* Suspense: TodosShortcuts reads useSearchParams (the ?as= param). */}
       <Suspense fallback={null}>
         <TodosShortcuts />
