@@ -37,6 +37,13 @@ const FAMILY_COLOR = "#8a8a80";
 // are untouched.
 const mute = (color: string) => `color-mix(in srgb, ${color} 60%, #6f6a5f)`;
 const meTint = (color: string) => `color-mix(in srgb, ${color} 7%, transparent)`;
+// A light wash of a member color — the phone's thin-column blocks. Solid fills
+// in four thin columns drowned out the me column's full-color cards, so the
+// other members' time renders as context (washed) rather than focus (solid).
+// Mixed with the page background, NOT transparent: a see-through block lets
+// grid lines bleed through and reads as tentative/unaccepted.
+const wash = (color: string) =>
+  `color-mix(in srgb, ${color} 30%, var(--background))`;
 
 // Drive blocks render as arrows, not cards: a solid block in the color of the
 // kid being driven (display() already resolves a drive block's color to its
@@ -655,9 +662,12 @@ export function DayView({
 
   // One positioned event block. A "full" block — every column on desktop, and the
   // signed-in user's wide column on the phone — is a white card with time/title/
-  // location. A thin block — the other columns on the phone — is a bare member-
-  // colored tick: position already says when and the column says who, so it shows
-  // only a baseball glyph for TeamSnap games (when tall enough), no text.
+  // location. A thin block — the other columns on the phone — is a textless block
+  // washed in the member color (position already says when and the column says
+  // who), light enough that the me column's full-color cards stay the loudest
+  // thing on screen. It shows only a baseball glyph for TeamSnap games (when tall
+  // enough). Drive blocks are the exception: their clip-path arrow stays a solid
+  // fill so the shape reads.
   //
   // A plain render function, NOT a <Component>: defined inside DayView, a
   // component would get a fresh identity every render, making React REMOUNT
@@ -722,7 +732,10 @@ export function DayView({
           data-event-id={e.id}
           onClick={() => onEventClick(e)}
           title={`${e.title} — you're going`}
-          style={{ ...pos, backgroundColor: mute(d.color) }}
+          style={{
+            ...pos,
+            backgroundColor: full ? mute(d.color) : wash(mute(d.color)),
+          }}
           className={cn(
             "absolute z-20 overflow-hidden rounded-md text-left transition-[filter] hover:brightness-95",
             e.id === selectedEventId && "ring-1 ring-ring",
@@ -731,15 +744,28 @@ export function DayView({
           {hasTop && (
             <span
               aria-hidden
-              className="absolute inset-x-0 top-0 border-b border-white/90 bg-white/25"
-              style={{ height: evTop }}
+              className={cn(
+                "absolute inset-x-0 top-0 border-b",
+                full ? "border-white/90 bg-white/25" : "bg-white/40",
+              )}
+              style={{
+                height: evTop,
+                ...(full ? null : { borderColor: mute(d.color) }),
+              }}
             />
           )}
           {hasBottom && (
             <span
               aria-hidden
-              className="absolute inset-x-0 border-t border-white/90 bg-white/25"
-              style={{ top: evEnd, bottom: 0 }}
+              className={cn(
+                "absolute inset-x-0 border-t",
+                full ? "border-white/90 bg-white/25" : "bg-white/40",
+              )}
+              style={{
+                top: evEnd,
+                bottom: 0,
+                ...(full ? null : { borderColor: mute(d.color) }),
+              }}
             />
           )}
           {full && (
@@ -793,8 +819,10 @@ export function DayView({
           }
           style={{
             ...pos,
-            backgroundColor: mute(d.color),
-            ...(isDrive ? { clipPath: driveArrowClip(driveDuty, 7) } : null),
+            backgroundColor: isDrive ? mute(d.color) : wash(mute(d.color)),
+            ...(isDrive
+              ? { clipPath: driveArrowClip(driveDuty, 7) }
+              : { color: mute(d.color) }),
           }}
           className={cn(
             "absolute z-20 flex items-start justify-end overflow-hidden rounded-sm px-0.5 py-0.5",
@@ -804,7 +832,9 @@ export function DayView({
           )}
         >
           {d.isTeamsnap && height >= TALL && (
-            <BaseballGlyph className="h-2.5 w-2.5 shrink-0 text-white/90" />
+            <BaseballGlyph
+              className={cn("h-2.5 w-2.5 shrink-0", isDrive && "text-white/90")}
+            />
           )}
         </button>
       );
@@ -1007,7 +1037,7 @@ export function DayView({
           data-event-id={event.id}
           onClick={() => onEventClick(event)}
           title={event.title}
-          style={{ backgroundColor: mute(d.color) }}
+          style={{ backgroundColor: wash(mute(d.color)) }}
           className={cn(
             "block h-2.5 w-full rounded-sm transition-colors",
             event.id === selectedEventId && "ring-1 ring-ring",
