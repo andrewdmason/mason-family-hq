@@ -354,10 +354,12 @@ export function DayView({
       left: `calc(${leftPct}% + 1px)`,
       width: `calc(${widthPct}% - 3px)`,
     };
+    const isDraft = event.id.startsWith("draft:");
     if (!full) {
       return (
         <button
           type="button"
+          data-event-id={event.id}
           onClick={() => onEventClick(event)}
           title={
             d.calendarLabel ? `${d.calendarLabel}: ${event.title}` : event.title
@@ -367,6 +369,7 @@ export function DayView({
             "absolute flex items-start justify-end overflow-hidden rounded-sm px-0.5 py-0.5",
             event.id === selectedEventId && "ring-1 ring-ring",
             d.pendingDrive && "animate-pulse opacity-60",
+            isDraft && "opacity-70",
           )}
         >
           {d.isTeamsnap && height >= TALL && (
@@ -381,6 +384,7 @@ export function DayView({
     return (
       <button
         type="button"
+        data-event-id={event.id}
         onClick={() => onEventClick(event)}
         title={
           d.calendarLabel ? `${d.calendarLabel}: ${event.title}` : event.title
@@ -392,6 +396,8 @@ export function DayView({
           // A duty tap's block-to-be: visible instantly, ghosted until the
           // real mirror row replaces it.
           d.pendingDrive && "animate-pulse opacity-60",
+          // The not-yet-saved draft the panel is collecting details for.
+          isDraft && "border-dashed bg-white/70 dark:bg-card/70",
         )}
       >
         {showTime && (
@@ -495,6 +501,7 @@ export function DayView({
       <button
         key={event.id}
         type="button"
+        data-event-id={event.id}
         onClick={() => onEventClick(event)}
         title={event.title}
         style={{
@@ -590,6 +597,7 @@ export function DayView({
         <button
           key={event.id}
           type="button"
+          data-event-id={event.id}
           onClick={() => onEventClick(event)}
           title={event.title}
           style={{ backgroundColor: mute(d.color) }}
@@ -604,6 +612,7 @@ export function DayView({
       <button
         key={event.id}
         type="button"
+        data-event-id={event.id}
         onClick={() => onEventClick(event)}
         title={event.title}
         className={cn(
