@@ -24,15 +24,19 @@ import {
   insertGoogleEvent,
   patchGoogleEvent,
   deleteGoogleEvent,
+  getGoogleEvent,
   shareCalendar,
   eventToGoogleBody,
   type GoogleCalendarListEntry,
+  type GoogleCredential,
 } from "@/lib/calendar/google";
 import { syncGoogleSource } from "@/lib/calendar/google-sync";
 import {
   cancelSourceMaterializations,
   syncEventGuests,
   importerEnabled,
+  getMemberPrimary,
+  credForMember,
 } from "@/lib/calendar/materialize";
 import {
   reconcileEventDrive,
@@ -98,7 +102,9 @@ type GoogleWriteTarget = {
   sourceId: string;
   memberEmail: string | null;
   googleCalendarId: string;
-  connectionEmail: string;
+  // Reaches the calendar: delegation for a managed member (kids), their own
+  // OAuth token otherwise.
+  cred: GoogleCredential;
 };
 
 /** Resolve a calendar source to a Google write target, or null if it isn't a
@@ -128,7 +134,7 @@ async function googleTarget(
     sourceId: src.id,
     memberEmail: src.member_email,
     googleCalendarId: src.google_calendar_id,
-    connectionEmail,
+    cred: await credForMember(admin, src.member_email, connectionEmail),
   };
 }
 
@@ -141,7 +147,7 @@ export async function createManualEvent(input: ManualEventInput): Promise<string
   const target = await googleTarget(admin, input.calendarSourceId);
   if (target) {
     const created = await insertGoogleEvent(
-      { kind: "oauth", memberEmail: target.connectionEmail },
+      target.cred,
       target.googleCalendarId,
       eventToGoogleBody(input),
     );
@@ -201,7 +207,7 @@ export async function updateManualEvent(
     if (!target) throw new Error("This calendar is no longer connected.");
     const googleEventId = ev.external_id.slice("google:".length);
     await patchGoogleEvent(
-      { kind: "oauth", memberEmail: target.connectionEmail },
+      target.cred,
       target.googleCalendarId,
       googleEventId,
       eventToGoogleBody(input),
@@ -242,7 +248,7 @@ export async function deleteEvent(id: string): Promise<void> {
     const target = await googleTarget(admin, ev.calendar_source_id);
     if (target) {
       await deleteGoogleEvent(
-        { kind: "oauth", memberEmail: target.connectionEmail },
+        target.cred,
         target.googleCalendarId,
         ev.external_id.slice("google:".length),
       );
@@ -283,6 +289,248 @@ export async function deleteEvent(id: string): Promise<void> {
     );
   }
   revalidatePath("/calendar");
+}
+
+/** After an owner change, bring the event's drive logistics in line with the new
+ * owner: a kid's event gets its blocks reconciled (renamed/reshaped) after the
+ * response; anyone else's event can't carry duties at all, so existing
+ * assignments and their blocks are torn down. */
+async function settleDutiesForNewOwner(
+  admin: ReturnType<typeof createAdminClient>,
+  eventId: string,
+  newOwnerRole: string | undefined,
+): Promise<void> {
+  const { data: duties } = await admin
+    .from("event_duty_assignments")
+    .select(ASSIGNMENT_COLUMNS)
+    .eq("event_id", eventId);
+  if (!duties?.length) return;
+
+  if (newOwnerRole === "kid") {
+    after(() =>
+      queueDriveWork(async () => {
+        try {
+          await reconcileEventDrive(admin, eventId);
+          revalidatePath("/calendar");
+        } catch (err) {
+          // best-effort: the next sweep reshapes the blocks
+          console.error(
+            `[drive] reconcile failed after owner change (event ${eventId}):`,
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }),
+    );
+    return;
+  }
+
+  for (const a of duties) {
+    await deleteDriveEvent(admin, a as unknown as DutyAssignmentRow).catch(() => {});
+  }
+  await admin.from("event_duty_assignments").delete().eq("event_id", eventId);
+}
+
+/** Move an event to a different family member — "oh, this is actually Oscar's
+ * event". For a Google event it's re-created on the new owner's primary calendar
+ * with the previous organizer and guests invited (so it still shows on their
+ * calendars, now as guests), and the original is deleted — which also clears
+ * every guest's old copy. The app row is repointed in place so its id (and the
+ * going/duty state hanging off it) survives. App-only manual events just change
+ * owner. Owner/parent only. */
+export async function changeEventOwner(
+  eventId: string,
+  newOwnerEmail: string,
+): Promise<{ ok: true; warning?: string } | { error: string }> {
+  await requireParent();
+  const admin = createAdminClient();
+
+  const { data: ev } = await admin
+    .from("calendar_events")
+    .select(
+      "id, member_email, source_type, calendar_source_id, external_id, organizer_email, title, location, description, start_time, end_time, all_day",
+    )
+    .eq("id", eventId)
+    .maybeSingle();
+  if (!ev) return { error: "Event not found." };
+  if (ev.member_email === newOwnerEmail) return { ok: true };
+
+  const { data: famRows } = await admin
+    .from("family_members")
+    .select("email, name, role");
+  const family = new Map((famRows ?? []).map((m) => [m.email as string, m]));
+  const newOwner = family.get(newOwnerEmail);
+  if (!newOwner) return { error: "Unknown family member." };
+  const ownerName = (newOwner.name as string | null) ?? newOwnerEmail;
+
+  // App-only event: ownership is just the row's member.
+  if (ev.source_type === "manual") {
+    const { error } = await admin
+      .from("calendar_events")
+      .update({ member_email: newOwnerEmail })
+      .eq("id", eventId);
+    if (error) return { error: error.message };
+    await settleDutiesForNewOwner(admin, eventId, newOwner.role as string);
+    revalidatePath("/calendar");
+    return { ok: true };
+  }
+
+  if (
+    ev.source_type !== "google" ||
+    !ev.external_id?.startsWith("google:") ||
+    !ev.calendar_source_id
+  ) {
+    return { error: "Only Google and app-only events can be reassigned." };
+  }
+
+  // Where the event should live: the new owner's primary calendar.
+  const dest = await getMemberPrimary(admin, newOwnerEmail);
+  if (!dest) {
+    return { error: `${ownerName} doesn't have a Google calendar set up yet.` };
+  }
+
+  // Where it lives now: the row's source calendar + a credential that can
+  // delete from it (delegation for managed members, OAuth otherwise).
+  const src = await googleTarget(admin, ev.calendar_source_id);
+  if (!src) return { error: "This calendar is no longer connected." };
+  const fromCred = src.cred;
+  const oldGoogleId = ev.external_id.slice("google:".length);
+
+  // Already on the right calendar (e.g. a shared calendar synced for several
+  // members) — just re-attribute the row, no Google churn.
+  if (src.googleCalendarId === dest.calendarId) {
+    const { error } = await admin
+      .from("calendar_events")
+      .update({ member_email: newOwnerEmail })
+      .eq("id", eventId);
+    if (error) return { error: error.message };
+    await settleDutiesForNewOwner(admin, eventId, newOwner.role as string);
+    revalidatePath("/calendar");
+    return { ok: true };
+  }
+
+  // The new guest list: everyone already invited, plus the previous organizer
+  // (when they're family — Jenny stays on the event she created) and anyone
+  // toggled "going", minus the new owner (they're the organizer now).
+  const current = await getGoogleEvent(fromCred, src.googleCalendarId, oldGoogleId);
+  const byEmail = new Map<string, { email: string; responseStatus?: string }>();
+  for (const a of current?.attendees ?? []) {
+    if (a.email) {
+      byEmail.set(a.email.toLowerCase(), {
+        email: a.email,
+        responseStatus: a.responseStatus,
+      });
+    }
+  }
+  const oldOrganizer = (ev.organizer_email as string | null) ?? src.memberEmail;
+  if (oldOrganizer && family.has(oldOrganizer)) {
+    byEmail.set(oldOrganizer, { email: oldOrganizer, responseStatus: "accepted" });
+  }
+  const { data: goingRows } = await admin
+    .from("event_attendees")
+    .select("member_email")
+    .eq("event_id", eventId)
+    .eq("going", true);
+  for (const r of goingRows ?? []) {
+    const email = (r.member_email as string).toLowerCase();
+    if (!byEmail.has(email)) byEmail.set(email, { email, responseStatus: "accepted" });
+  }
+  byEmail.delete(newOwnerEmail.toLowerCase());
+  byEmail.delete(dest.calendarId.toLowerCase());
+
+  // Create on the new calendar first — if this fails, nothing has changed.
+  // Invites land on guests' calendars without email noise (sendUpdates none).
+  const created = await insertGoogleEvent(
+    dest.cred,
+    dest.calendarId,
+    {
+      ...eventToGoogleBody({
+        title: ev.title as string,
+        location: ev.location as string | null,
+        description: ev.description as string | null,
+        startTime: ev.start_time as string,
+        endTime: ev.end_time as string | null,
+        allDay: ev.all_day as boolean,
+      }),
+      attendees: [...byEmail.values()],
+    },
+    { sendUpdates: "none" },
+  );
+
+  // Repoint the row at the new Google event, keeping its id so event_attendees
+  // and duty assignments survive. The new owner's primary calendar is normally a
+  // synced source — attach to it so the next sync upserts in place.
+  const { data: destSrc } = await admin
+    .from("calendar_sources")
+    .select("id")
+    .eq("source_type", "google")
+    .eq("google_calendar_id", dest.calendarId)
+    .eq("member_email", newOwnerEmail)
+    .limit(1)
+    .maybeSingle();
+  const { error: updateError } = await admin
+    .from("calendar_events")
+    .update({
+      member_email: newOwnerEmail,
+      calendar_source_id: destSrc?.id ?? null,
+      external_id: `google:${created.id}`,
+      organizer_email:
+        created.organizer?.email?.toLowerCase() ?? newOwnerEmail.toLowerCase(),
+    })
+    .eq("id", eventId);
+  if (updateError) {
+    // Roll the orphan back so sync doesn't ingest a duplicate.
+    await deleteGoogleEvent(dest.cred, dest.calendarId, created.id, {
+      sendUpdates: "none",
+    }).catch(() => {});
+    return { error: updateError.message };
+  }
+
+  // Other members' synced copies of the OLD event collapse into this row's
+  // logical event today; the delete below cancels them on Google, so drop the
+  // rows now rather than leaving cancelled ghosts until the next sync.
+  await admin
+    .from("calendar_events")
+    .delete()
+    .eq("external_id", `google:${oldGoogleId}`)
+    .neq("id", eventId);
+
+  // Record the invited family members as going so the avatars are right
+  // immediately (sync would converge anyway via their guest copies).
+  const invitedFamily = [...byEmail.keys()].filter((e) => family.has(e));
+  if (invitedFamily.length) {
+    await admin.from("event_attendees").upsert(
+      invitedFamily.map((email) => ({
+        event_id: eventId,
+        member_email: email,
+        going: true,
+      })),
+      { onConflict: "event_id,member_email" },
+    );
+  }
+  await admin
+    .from("event_attendees")
+    .delete()
+    .eq("event_id", eventId)
+    .eq("member_email", newOwnerEmail);
+
+  await settleDutiesForNewOwner(admin, eventId, newOwner.role as string);
+
+  // Delete the original last — it's the most forgiving step (already-gone is
+  // success), and everything above already points at the new event.
+  let warning: string | undefined;
+  try {
+    await deleteGoogleEvent(fromCred, src.googleCalendarId, oldGoogleId, {
+      sendUpdates: "none",
+    });
+  } catch {
+    const fromName = src.memberEmail
+      ? family.get(src.memberEmail)?.name ?? src.memberEmail
+      : "the original";
+    warning = `Moved to ${ownerName}'s calendar, but the original couldn't be removed from ${fromName}'s calendar — delete it there manually.`;
+  }
+
+  revalidatePath("/calendar");
+  return warning ? { ok: true, warning } : { ok: true };
 }
 
 export type IcsSourceInput = {

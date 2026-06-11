@@ -57,7 +57,11 @@ import { MonthView } from "./month-view";
 import { EventSheet, type SheetMode } from "./event-sheet";
 import { SyncButton } from "./sync-button";
 import type { DutyChip, EventDisplay, EventDutyChips } from "./event-card";
-import { setEventDuty, setEventGoing } from "@/app/(calendar)/calendar/actions";
+import {
+  changeEventOwner,
+  setEventDuty,
+  setEventGoing,
+} from "@/app/(calendar)/calendar/actions";
 
 type View = "day" | "feed" | "week" | "month";
 
@@ -217,6 +221,24 @@ export function CalendarClient({
     }
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => router.refresh(), 4000);
+  }
+
+  // Reassign an event to another member's calendar ("this is Oscar's event").
+  // The server re-creates it on the new owner's Google calendar with the old
+  // owner + guests invited and deletes the original; revalidation then redraws
+  // the columns. The active event is patched so the open sheet tracks the move.
+  async function changeOwner(
+    eventId: string,
+    email: string,
+  ): Promise<{ warning?: string }> {
+    const res = await changeEventOwner(eventId, email);
+    if ("error" in res) throw new Error(res.error);
+    setActiveEvent((prev) =>
+      prev && prev.id === eventId ? { ...prev, member_email: email } : prev,
+    );
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => router.refresh(), 4000);
+    return { warning: res.warning };
   }
 
   const sourcesById = useMemo(
@@ -920,6 +942,7 @@ export function CalendarClient({
             : []
         }
         onToggleGoing={toggleGoing}
+        onChangeOwner={changeOwner}
         duties={activeEvent ? dutiesFor(activeEvent.id) : {}}
         parents={parents}
         showLogistics={

@@ -441,7 +441,7 @@ export async function materializeSource(
  * for events that aren't materialized onto a delegated calendar. */
 // The credential to write to a member's calendar: managed members via delegation,
 // connected members via their own OAuth token.
-async function credForMember(
+export async function credForMember(
   supabase: AdminClient,
   memberEmail: string | null,
   connection: string,
