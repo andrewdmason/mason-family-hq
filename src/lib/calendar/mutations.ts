@@ -158,7 +158,9 @@ export async function updateCalendarEvent(
 
   const { data: ev } = await admin
     .from("calendar_events")
-    .select("id, source_type, calendar_source_id, external_id")
+    .select(
+      "id, source_type, calendar_source_id, external_id, start_time, end_time",
+    )
     .eq("id", id)
     .single();
 
@@ -183,6 +185,7 @@ export async function updateCalendarEvent(
       .update(baseEventColumns(input))
       .eq("id", id);
     if (error) throw new Error(error.message);
+    await settleDutiesAfterTimeChange(admin, id, ev, input);
     revalidatePath("/calendar");
     return;
   }
@@ -193,7 +196,54 @@ export async function updateCalendarEvent(
     .update({ ...baseEventColumns(input), member_email: input.memberEmail })
     .eq("id", id);
   if (error) throw new Error(error.message);
+  if (ev) await settleDutiesAfterTimeChange(admin, id, ev, input);
   revalidatePath("/calendar");
+}
+
+/** A time change moves an event's drive blocks (and can merge them into — or
+ * split them from — a neighbor's multi-stop trip). The sweep would catch it
+ * eventually, but an edit/drag should land its blocks promptly: reconcile the
+ * OLD neighborhood (re-expand whatever this event was merged with) and the new
+ * one after the response, like deleteCalendarEvent does. */
+async function settleDutiesAfterTimeChange(
+  admin: ReturnType<typeof createAdminClient>,
+  eventId: string,
+  before: { start_time: string; end_time: string | null },
+  input: ManualEventInput,
+): Promise<void> {
+  const after_ = baseEventColumns(input);
+  const sameInstant = (a: string | null, b: string | null) =>
+    (a == null) === (b == null) && (a == null || +new Date(a) === +new Date(b!));
+  if (
+    sameInstant(before.start_time, after_.start_time) &&
+    sameInstant(before.end_time, after_.end_time)
+  ) {
+    return;
+  }
+  const { data: duties } = await admin
+    .from("event_duty_assignments")
+    .select("event_id")
+    .eq("event_id", eventId)
+    .limit(1);
+  if (!duties?.length) return;
+  const oldStart = before.start_time;
+  after(() =>
+    queueDriveWork(async () => {
+      try {
+        if (!sameInstant(oldStart, after_.start_time)) {
+          await reconcileDriveAround(admin, oldStart);
+        }
+        await reconcileEventDrive(admin, eventId);
+        revalidatePath("/calendar");
+      } catch (err) {
+        // best-effort: the next sweep reshapes the blocks
+        console.error(
+          `[drive] reconcile failed after time change (event ${eventId}):`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }),
+  );
 }
 
 export async function deleteCalendarEvent(id: string): Promise<void> {
