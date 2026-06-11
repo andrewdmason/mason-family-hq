@@ -32,7 +32,11 @@ import {
 } from "./google";
 import { getMemberPrimary, deterministicEventId, type ImportDest } from "./materialize";
 import { isHomeLocation } from "./calendar-utils";
-import { getLogisticsSettings, type LogisticsSettings } from "./drive-time";
+import {
+  getLogisticsSettings,
+  FAMILY_TZ,
+  type LogisticsSettings,
+} from "./drive-time";
 import {
   driveBlockWindow,
   driveEventTitle,
@@ -258,6 +262,8 @@ function desiredFor(
         title: driveEventTitle({
           duty: "combined",
           kidName,
+          anchor: dropAnchor,
+          timeZone: FAMILY_TZ,
           driveMinutes,
           isEstimate,
         }),
@@ -271,14 +277,17 @@ function desiredFor(
   }
 
   const window = driveBlockWindow({ duty: a.duty, attending, ...windowArgs });
+  const anchor = a.duty === "dropoff" ? dropAnchor : pickAnchor;
   return {
     exists: true,
     kind: a.duty,
     window,
-    anchor: a.duty === "dropoff" ? dropAnchor : pickAnchor,
+    anchor,
     title: driveEventTitle({
       duty: a.duty,
       kidName,
+      anchor,
+      timeZone: FAMILY_TZ,
       driveMinutes,
       isEstimate,
     }),
@@ -447,8 +456,6 @@ async function writeDesired(
 // Stop-list description for a merged multi-stop block — read in Google
 // Calendar, where the location field only fits the first stop. Times are
 // formatted in the family's home timezone (every stop is local).
-const FAMILY_TZ = process.env.FAMILY_TIMEZONE || "America/Los_Angeles";
-
 function stopsDescription(cluster: DriveCluster): string {
   const label =
     cluster.members[0].duty === "dropoff" ? "Drop-offs" : "Pick-ups";
@@ -542,7 +549,7 @@ async function reconcileScope(
       isEstimate: d.isEstimate,
     });
   }
-  for (const cluster of clusterDriveBlocks(planned)) {
+  for (const cluster of clusterDriveBlocks(planned, FAMILY_TZ)) {
     if (cluster.members.length < 2) continue;
     const owner = cluster.members[0];
     const od = desired.get(owner.key);

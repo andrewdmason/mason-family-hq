@@ -12,6 +12,11 @@ import { isHomeLocation } from "./calendar-utils";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
+// Times in drive-block titles/descriptions are formatted in the family's home
+// timezone (every stop is local). Server-only — the client gets this via
+// LogisticsHints so ghost-block titles match the written ones byte-for-byte.
+export const FAMILY_TZ = process.env.FAMILY_TIMEZONE || "America/Los_Angeles";
+
 const STALE_HOURS = 24;
 // Nominatim allows 1 req/sec; the cron route's budget is 60s, so cap geocodes
 // per run — a backlog drains over a few ticks (steady state is 0–2 new

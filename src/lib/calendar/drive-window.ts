@@ -56,20 +56,46 @@ export function driveBlockWindow(args: {
   };
 }
 
+/** "3pm" / "3:15pm" — a stop instant as it reads in a calendar title,
+ * formatted in the family's home timezone (passed in explicitly so the server
+ * reconciler and the client's ghost blocks render byte-identical titles). */
+export function clockTime(iso: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).formatToParts(new Date(iso));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const minute = get("minute");
+  return `${get("hour")}${minute === "00" ? "" : `:${minute}`}${get(
+    "dayPeriod",
+  ).toLowerCase()}`;
+}
+
 export function driveEventTitle(args: {
   duty: Duty | "combined";
   kidName: string;
+  /** The stop instant — drop-off arrival anchor / pick-up at the event end. */
+  anchor: string;
+  timeZone: string;
   driveMinutes: number;
   isEstimate: boolean;
 }): string {
-  // The number is the ONE-WAY drive — the thing you can't infer from the
-  // block itself (whose span is the round trip plus the arrive-early buffer —
-  // or just the one-way leg when the parent is attending — and whose position
-  // already says when to leave). "~" marks a fallback estimate that hasn't
-  // been computed from the real route yet.
-  const arrow =
-    args.duty === "dropoff" ? "→" : args.duty === "pickup" ? "←" : "↔";
-  return `🚗 ${arrow} ${args.kidName} ${args.isEstimate ? "~" : ""}${args.driveMinutes} min`;
+  // "@ time" is the stop itself and the number is the ONE-WAY drive — the two
+  // things you can't infer from the block itself (whose span is the round trip
+  // plus the arrive-early buffer — or just the one-way leg when the parent is
+  // attending — and whose position already says when to leave). "~" marks a
+  // fallback estimate that hasn't been computed from the real route yet.
+  const verb =
+    args.duty === "dropoff"
+      ? "Drop off"
+      : args.duty === "pickup"
+        ? "Pickup"
+        : "Drop off + pickup";
+  return `${verb} ${args.kidName} @ ${clockTime(args.anchor, args.timeZone)} (${
+    args.isEstimate ? "~" : ""
+  }${args.driveMinutes} min drive)`;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +142,10 @@ export interface DriveCluster {
   isEstimate: boolean;
 }
 
-function toCluster(members: PlannedDriveBlock[]): DriveCluster {
+function toCluster(
+  members: PlannedDriveBlock[],
+  timeZone: string,
+): DriveCluster {
   if (members.length === 1) {
     const m = members[0];
     return {
@@ -127,10 +156,11 @@ function toCluster(members: PlannedDriveBlock[]): DriveCluster {
       isEstimate: m.isEstimate,
     };
   }
-  // Merged title drops the minutes: the one-way number describes a single
-  // round trip, and the union window is only an approximation of the real
-  // multi-stop route (it ignores the venue→venue leg) — hence estimate.
-  const arrow = members[0].duty === "dropoff" ? "→" : "←";
+  // Merged title keeps the first stop's time but drops the minutes: the
+  // one-way number describes a single round trip, and the union window is only
+  // an approximation of the real multi-stop route (it ignores the venue→venue
+  // leg) — hence estimate.
+  const verb = members[0].duty === "dropoff" ? "Drop off" : "Pickup";
   const names = [...new Set(members.map((m) => m.kidName))];
   const end = members.reduce(
     (max, m) => (m.window.end > max ? m.window.end : max),
@@ -139,7 +169,10 @@ function toCluster(members: PlannedDriveBlock[]): DriveCluster {
   return {
     members,
     window: { start: members[0].window.start, end },
-    title: `🚗 ${arrow} ${names.join(" + ")}`,
+    title: `${verb} ${names.join(" + ")} @ ${clockTime(
+      members[0].anchor,
+      timeZone,
+    )}`,
     location: members[0].location,
     isEstimate: true,
   };
@@ -152,12 +185,13 @@ function toCluster(members: PlannedDriveBlock[]): DriveCluster {
  * so callers can treat the output uniformly. */
 export function clusterDriveBlocks(
   blocks: PlannedDriveBlock[],
+  timeZone: string,
 ): DriveCluster[] {
   const groups = new Map<string, PlannedDriveBlock[]>();
   const clusters: DriveCluster[] = [];
   for (const b of blocks) {
     if (b.duty === "combined" || b.attending) {
-      clusters.push(toCluster([b]));
+      clusters.push(toCluster([b], timeZone));
       continue;
     }
     const k = `${b.assignee}:${b.duty}`;
@@ -176,13 +210,13 @@ export function clusterDriveBlocks(
     for (const b of list) {
       const start = new Date(b.window.start).getTime();
       if (run.length && start - runEnd >= COMBINE_GAP_MINUTES * MIN_MS) {
-        clusters.push(toCluster(run));
+        clusters.push(toCluster(run, timeZone));
         run = [];
       }
       run.push(b);
       runEnd = Math.max(runEnd, new Date(b.window.end).getTime());
     }
-    if (run.length) clusters.push(toCluster(run));
+    if (run.length) clusters.push(toCluster(run, timeZone));
   }
   return clusters;
 }
