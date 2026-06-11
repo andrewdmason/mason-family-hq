@@ -4,8 +4,16 @@
 // tables.
 
 export type CalendarSourceType = "teamsnap" | "ics" | "manual" | "google";
-export type CalendarRecurrence = "none" | "weekly" | "biweekly";
 export type TeamsnapRsvp = "going" | "maybe" | "not_going" | "no_reply";
+
+// One entry of a Google event's guest list, as captured at last sync. Family
+// "going" state lives in event_attendees; this is display + dedup for guests
+// outside the family.
+export interface GoogleAttendee {
+  email: string;
+  responseStatus: string; // "accepted" | "declined" | "tentative" | "needsAction"
+  displayName?: string;
+}
 
 export interface CalendarEvent {
   id: string;
@@ -29,8 +37,16 @@ export interface CalendarEvent {
   teamsnap_arrival_time: string | null;
   teamsnap_is_game: boolean | null;
   teamsnap_rsvp: TeamsnapRsvp | null;
-  recurrence: CalendarRecurrence;
-  recurrence_parent_id: string | null;
+  // RFC5545 RRULE body (no "RRULE:" prefix) when the event is part of a
+  // recurring series — denormalized from the Google series master so the panel
+  // can say "Repeats weekly" without a fetch.
+  rrule: string | null;
+  // The Google series-master event id (GoogleEvent.recurringEventId). Non-null
+  // marks the row as an instance of a series and is the target for "all events"
+  // edits/deletes.
+  google_recurring_event_id: string | null;
+  // The event's full Google guest list from the last sync (externals included).
+  google_attendees: GoogleAttendee[] | null;
   is_canceled: boolean;
   // Set when the user deleted the materialized event off their Google calendar:
   // treated as a decline (hidden, not recreated). Survives re-sync.

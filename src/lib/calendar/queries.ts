@@ -11,7 +11,7 @@ import type {
 } from "./types";
 
 const EVENT_COLUMNS =
-  "id, member_email, calendar_source_id, title, description, location, start_time, end_time, all_day, source_type, external_id, google_event_id, organizer_email, teamsnap_opponent, teamsnap_arrival_time, teamsnap_is_game, teamsnap_rsvp, recurrence, recurrence_parent_id, is_canceled, dismissed, drive_source_event_id, drive_duty, drive_minutes";
+  "id, member_email, calendar_source_id, title, description, location, start_time, end_time, all_day, source_type, external_id, google_event_id, organizer_email, teamsnap_opponent, teamsnap_arrival_time, teamsnap_is_game, teamsnap_rsvp, rrule, google_recurring_event_id, google_attendees, is_canceled, dismissed, drive_source_event_id, drive_duty, drive_minutes";
 
 const SOURCE_COLUMNS =
   "id, member_email, source_type, teamsnap_team_id, teamsnap_team_name, teamsnap_player_member_id, ics_url, google_calendar_id, google_connection_email, nickname, color, is_active, last_synced_at, sync_error";

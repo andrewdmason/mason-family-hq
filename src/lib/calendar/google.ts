@@ -56,10 +56,19 @@ export interface GoogleEvent {
   // Set on events our importer authored, so a calendar that is both an import
   // destination and a read source can filter its own materialized events out.
   extendedProperties?: { private?: Record<string, string> };
-  // Guests + their RSVP, used to detect a guest who declined (Case A).
-  attendees?: Array<{ email?: string; responseStatus?: string }>;
+  // Guests + their RSVP, used to detect a guest who declined (Case A) and to
+  // surface the full guest list (externals included) in the event panel.
+  attendees?: Array<{
+    email?: string;
+    responseStatus?: string;
+    displayName?: string;
+  }>;
   // Who owns the event — used to pick the owner column for a shared event.
   organizer?: { email?: string; self?: boolean };
+  // On an expanded instance (singleEvents=true): the series master's id.
+  recurringEventId?: string;
+  // On a series master (singleEvents=false): ["RRULE:...", maybe EXDATE/RDATE].
+  recurrence?: string[];
 }
 
 // The private extended-property key the importer stamps on every event it
@@ -241,6 +250,7 @@ export async function listGoogleEvents(
   cred: GoogleCredential,
   calendarId: string,
   range: { timeMin: string; timeMax: string },
+  opts?: { singleEvents?: boolean },
 ): Promise<GoogleEvent[]> {
   const token = await resolveToken(cred);
   const out: GoogleEvent[] = [];
@@ -252,8 +262,43 @@ export async function listGoogleEvents(
     );
     url.searchParams.set("timeMin", range.timeMin);
     url.searchParams.set("timeMax", range.timeMax);
-    url.searchParams.set("singleEvents", "true");
+    // singleEvents=false returns series masters (with their RRULEs) instead of
+    // expanded instances — used to stamp rrule onto instance rows.
+    url.searchParams.set("singleEvents", String(opts?.singleEvents ?? true));
     url.searchParams.set("showDeleted", "true"); // so we can cancel removed rows
+    url.searchParams.set("maxResults", "2500");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const res = await googleFetch(token, url.toString());
+    const json = (await res.json()) as {
+      items?: GoogleEvent[];
+      nextPageToken?: string;
+    };
+    out.push(...(json.items ?? []));
+    pageToken = json.nextPageToken;
+  } while (pageToken);
+
+  return out;
+}
+
+// The expanded instances of one recurring series (GET .../events/{id}/instances).
+// Used right after creating a recurring event to mirror rows locally with the
+// same instance ids the next sync will upsert against.
+export async function listGoogleEventInstances(
+  cred: GoogleCredential,
+  calendarId: string,
+  eventId: string,
+  range: { timeMin: string; timeMax: string },
+): Promise<GoogleEvent[]> {
+  const token = await resolveToken(cred);
+  const out: GoogleEvent[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const url = new URL(
+      `${GOOGLE_CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}/instances`,
+    );
+    url.searchParams.set("timeMin", range.timeMin);
+    url.searchParams.set("timeMax", range.timeMax);
     url.searchParams.set("maxResults", "2500");
     if (pageToken) url.searchParams.set("pageToken", pageToken);
     const res = await googleFetch(token, url.toString());

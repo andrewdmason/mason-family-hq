@@ -28,7 +28,7 @@ export function parseDateParam(
 // Mirrors EVENT_COLUMNS in @/lib/calendar/queries (which is session-scoped;
 // this side reads through the service-role client).
 const EVENT_COLUMNS =
-  "id, member_email, calendar_source_id, title, description, location, start_time, end_time, all_day, source_type, external_id, google_event_id, organizer_email, teamsnap_opponent, teamsnap_arrival_time, teamsnap_is_game, teamsnap_rsvp, recurrence, recurrence_parent_id, is_canceled, dismissed, drive_source_event_id, drive_duty, drive_minutes";
+  "id, member_email, calendar_source_id, title, description, location, start_time, end_time, all_day, source_type, external_id, google_event_id, organizer_email, teamsnap_opponent, teamsnap_arrival_time, teamsnap_is_game, teamsnap_rsvp, rrule, google_recurring_event_id, google_attendees, is_canceled, dismissed, drive_source_event_id, drive_duty, drive_minutes";
 
 export interface AgentMember {
   email: string;
