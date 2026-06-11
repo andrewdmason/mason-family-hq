@@ -46,7 +46,10 @@ export async function updateSession(request: NextRequest) {
     // The todo ingest endpoint authenticates with a personal API token (it's
     // called by the Apple Reminders Shortcut and Raycast, which have no
     // session) — see src/app/api/todo/ingest/route.ts.
-    !request.nextUrl.pathname.startsWith("/api/todo/ingest")
+    !request.nextUrl.pathname.startsWith("/api/todo/ingest") &&
+    // The agent API authenticates with a bearer secret (it's called by the
+    // family assistant, which has no session) — see src/lib/agent/auth.ts.
+    !request.nextUrl.pathname.startsWith("/api/agent")
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";

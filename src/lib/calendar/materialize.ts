@@ -440,8 +440,9 @@ export async function materializeSource(
  * (so a removed member is dropped), with going members marked accepted. No-ops
  * for events that aren't materialized onto a delegated calendar. */
 // The credential to write to a member's calendar: managed members via delegation,
-// connected members via their own OAuth token.
-async function credForMember(
+// connected members via their own OAuth token. Exported for the manual-event
+// write path (mutations.ts), which needs the same managed/connected split.
+export async function credForMember(
   supabase: AdminClient,
   memberEmail: string | null,
   connection: string,
