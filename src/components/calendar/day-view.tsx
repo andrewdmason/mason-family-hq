@@ -330,8 +330,18 @@ export function DayView({
   function Block({ placed, full }: { placed: Placed; full: boolean }) {
     const { event } = placed;
     const d = display(event);
-    const top = y(startMin(event));
-    const height = Math.max(y(endMin(event)) - top, MIN_BLOCK);
+    const trueTop = y(startMin(event));
+    const trueHeight = y(endMin(event)) - trueTop;
+    const height = Math.max(trueHeight, MIN_BLOCK);
+    // A drop-off drive block too short to read at true scale grows UP from its
+    // end, not down from its start: its anchor instant is the arrival, and by
+    // construction the event it feeds into starts right where it ends — growing
+    // down would bury it under that event's card (e.g. a 6-minute one-way
+    // drop-off abutting a practice the same parent is attending).
+    const top =
+      event.drive_duty === "dropoff" && trueHeight < MIN_BLOCK
+        ? trueTop + trueHeight - height
+        : trueTop;
     const widthPct = 100 / placed.lanes;
     const leftPct = placed.lane * widthPct;
     const pos = {
