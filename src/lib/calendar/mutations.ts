@@ -13,6 +13,7 @@ import {
   deleteGoogleEvent,
   getGoogleEvent,
   eventToGoogleBody,
+  DEFAULT_REMINDERS,
   type GoogleCredential,
 } from "@/lib/calendar/google";
 import {
@@ -115,7 +116,7 @@ export async function createCalendarEvent(
     const created = await insertGoogleEvent(
       target.cred,
       target.googleCalendarId,
-      eventToGoogleBody(input),
+      { ...eventToGoogleBody(input), reminders: DEFAULT_REMINDERS },
     );
     const { data, error } = await admin
       .from("calendar_events")
@@ -468,6 +469,7 @@ export async function changeCalendarEventOwner(
         allDay: ev.all_day as boolean,
       }),
       attendees: [...byEmail.values()],
+      reminders: DEFAULT_REMINDERS,
     },
     { sendUpdates: "none" },
   );

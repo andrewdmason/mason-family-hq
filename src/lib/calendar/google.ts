@@ -449,6 +449,16 @@ export function googleTimesToEvent(ev: GoogleEvent): {
   };
 }
 
+// Alert 2 minutes before instead of the calendar's 10-minute default. Reminders
+// are private to the authenticated user, so this only shapes the copy on the
+// calendar we're writing to. Applied on insert (and drive-block patches, which
+// the app owns outright) — not on edits of regular events, so an alert someone
+// customized in Google/Apple Calendar survives an app edit.
+export const DEFAULT_REMINDERS = {
+  useDefault: false,
+  overrides: [{ method: "popup", minutes: 2 }],
+};
+
 // Our event input -> Google start/end objects. All-day uses date strings (end is
 // exclusive in Google's model, so a single all-day event ends the next day).
 export function eventToGoogleBody(input: {

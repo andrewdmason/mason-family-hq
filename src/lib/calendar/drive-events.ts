@@ -29,6 +29,7 @@ import {
   patchGoogleEvent,
   deleteGoogleEvent,
   FAMILYHQ_MARKER,
+  DEFAULT_REMINDERS,
 } from "./google";
 import { getMemberPrimary, deterministicEventId, type ImportDest } from "./materialize";
 import { isHomeLocation } from "./calendar-utils";
@@ -329,6 +330,9 @@ async function writeDesired(
       description,
       destCalendarId,
       a.assignee_email,
+      // In the hash so existing blocks get one re-patch when the default
+      // alert changes.
+      DEFAULT_REMINDERS.overrides,
     ]),
   );
   if (hash === a.drive_sync_hash) return; // unchanged — no API calls
@@ -377,6 +381,9 @@ async function writeDesired(
       // revives the cancelled event instead of leaving it hidden.
       status: "confirmed",
       extendedProperties: { private: { [FAMILYHQ_MARKER]: `drive:${a.id}` } },
+      // App-owned blocks: assert the alert on patch too, since the body is
+      // shared between insert and patch.
+      reminders: DEFAULT_REMINDERS,
     };
     if (a.drive_google_event_id === googleId && a.drive_calendar_id === dest.calendarId) {
       try {
