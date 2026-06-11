@@ -51,7 +51,7 @@ import {
   type TaskRowMenu,
 } from "@/components/todos/task-row";
 import type { UploadingAttachment } from "@/components/todos/task-attachments";
-import { MiniCalendar } from "@/components/todos/when-picker";
+import { MiniCalendar, WhenMenu } from "@/components/todos/when-picker";
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import { inOpenOverlay, isTypingTarget } from "@/lib/todos/keyboard";
 import {
@@ -144,8 +144,14 @@ export function TaskList({
   // cmd/ctrl toggles), double click opens, Delete asks then removes.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  // Which expanded-editor menu is keyboard-summoned open (s / m / a).
+  // Which expanded-editor menu is keyboard-summoned open (m / a).
   const [openMenu, setOpenMenu] = useState<TaskRowMenu | null>(null);
+  // The keyboard `s` snooze popover: the When menu anchored to the selected
+  // row (no editor open), so scheduling never has to expand the task.
+  const [snoozeTarget, setSnoozeTarget] = useState<{
+    task: TodoTask;
+    anchor: HTMLElement;
+  } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // The shift-range anchor: the last plain/cmd click.
   const anchorId = useRef<string | null>(null);
@@ -754,9 +760,10 @@ export function TaskList({
 
   // Gmail-style list keys: j/k (or arrows) walk the list, enter/o opens the
   // selected task, e completes, c creates an inline draft below the
-  // selection, s/m/a summon the snooze/project/assignee
-  // menus (⇧⌘S summons snooze even mid-typing), Delete/⌫/# asks then
-  // removes, w wakes a snoozed task, z undoes a
+  // selection, s drops the snooze/When menu from the row (without opening the
+  // editor), m/a summon the project/assignee
+  // menus, t pulls the selection into Today, y moves it to Anytime,
+  // Delete/⌫/# asks then removes, w wakes a snoozed task, z undoes a
   // delete, ⌘Z/⇧⌘Z undo/redo check-offs, ⌘A selects every task in the view,
   // and Escape closes the open task before clearing the selection. All of them stay quiet while typing
   // or while a menu/dialog is open; the ref keeps one stable window listener
@@ -785,23 +792,6 @@ export function TaskList({
       e.preventDefault();
       if (e.shiftKey) handleRedoComplete();
       else handleUndoComplete();
-      return;
-    }
-    // ⇧⌘S: jump to the When type-ahead. Unlike the plain `s` below it works
-    // mid-typing, so editing a title can flow straight into scheduling.
-    if (
-      (e.metaKey || e.ctrlKey) &&
-      e.shiftKey &&
-      !e.altKey &&
-      e.key.toLowerCase() === "s"
-    ) {
-      if (inOpenOverlay(e.target)) return;
-      const targetId =
-        expandedId ?? (selectedIds.size === 1 ? [...selectedIds][0] : null);
-      if (!targetId) return;
-      e.preventDefault();
-      setExpandedId(targetId);
-      setOpenMenu("snooze");
       return;
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -895,15 +885,42 @@ export function TaskList({
         setConfirmDelete(true);
         return;
       }
-      case "s":
+      case "s": {
+        // Snooze without opening the editor: the When menu drops from the
+        // row itself, so scheduling never has to expand the task.
+        if (!single) return;
+        e.preventDefault();
+        const anchor = document.querySelector(`[data-task-id="${single.id}"]`);
+        if (anchor instanceof HTMLElement) {
+          setExpandedId(null);
+          setOpenMenu(null);
+          setSnoozeTarget({ task: single, anchor });
+        }
+        return;
+      }
       case "m":
       case "a": {
         if (!single) return;
         e.preventDefault();
         setExpandedId(single.id);
-        setOpenMenu(
-          e.key === "s" ? "snooze" : e.key === "m" ? "project" : "assignee"
+        setOpenMenu(e.key === "m" ? "project" : "assignee");
+        return;
+      }
+      case "t": {
+        // Pull the selection into Today (clearing any snooze). Skips tasks
+        // already there so it can't no-op churn.
+        const affected = tasks.filter(
+          (t) =>
+            selectedIds.has(t.id) && (t.bucket !== "today" || t.snoozedUntil)
         );
+        if (affected.length === 0) return;
+        e.preventDefault();
+        // Rows leave bucket/status views but stay (patched) in project,
+        // delegated, and Today views — only move the highlight when they go.
+        const staysPut = inProject || view === "delegated" || view === "today";
+        const landing = staysPut ? null : nextSurvivor();
+        affected.forEach((t) => handlers.onSetBucket(t, "today"));
+        if (landing) selectOnly(landing);
         return;
       }
       case "w": {
@@ -1298,6 +1315,36 @@ export function TaskList({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Keyboard `s`: the When menu, anchored to the selected row so
+          scheduling never opens the editor. */}
+      {snoozeTarget && (
+        <Popover
+          open
+          onOpenChange={(open) => {
+            if (!open) setSnoozeTarget(null);
+          }}
+        >
+          <PopoverContent
+            anchor={snoozeTarget.anchor}
+            align="start"
+            className="w-64 gap-0.5 p-1.5"
+          >
+            <WhenMenu
+              bucket={snoozeTarget.task.bucket}
+              snoozedUntil={snoozeTarget.task.snoozedUntil}
+              onPickBucket={(bucket) => {
+                handlers.onSetBucket(snoozeTarget.task, bucket);
+                setSnoozeTarget(null);
+              }}
+              onPickSnooze={(when) => {
+                handlers.onSnooze(snoozeTarget.task, when);
+                setSnoozeTarget(null);
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+      )}
 
       {/* Drop on Snoozed: pick the wake moment, anchored at the sidebar item */}
       {pendingDrop?.kind === "snooze" && (

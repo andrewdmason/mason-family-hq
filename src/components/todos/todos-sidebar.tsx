@@ -78,9 +78,9 @@ type ViewItem = {
 const VIEW_ITEMS: ViewItem[] = [
   { view: "inbox", label: "Inbox", icon: Inbox, iconClass: "text-sky-700", chord: "g i" },
   { view: "today", label: "Today", icon: Star, iconClass: "text-amber-500", chord: "g t" },
+  { view: "snoozed", label: "Snoozed", icon: Moon, iconClass: "text-indigo-500", chord: "g z" },
   { view: "anytime", label: "Anytime", icon: Layers, iconClass: "text-teal-700", chord: "g a" },
   { view: "someday", label: "Someday", icon: Archive, iconClass: "text-stone-500", chord: "g s" },
-  { view: "snoozed", label: "Snoozed", icon: Moon, iconClass: "text-indigo-500", chord: "g z" },
   { view: "delegated", label: "Delegated", icon: Send, iconClass: "text-rose-700", chord: "g d" },
   { view: "logbook", label: "Logbook", icon: BookCheck, iconClass: "text-emerald-700", chord: "g l" },
 ];
