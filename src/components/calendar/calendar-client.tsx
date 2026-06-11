@@ -86,6 +86,7 @@ import {
   changeEventOwner,
   setEventDuty,
   setEventGoing,
+  updateManualEvent,
 } from "@/app/(calendar)/calendar/actions";
 
 type View = "day" | "feed" | "week" | "month";
@@ -180,6 +181,43 @@ export function CalendarClient({
     Record<string, Partial<Record<"dropoff" | "pickup", EventDuty | null>>>
   >({});
 
+  // Optimistic start/end overrides from a drag-to-move/resize on the day grid,
+  // applied to the raw events BEFORE the drive-ghost math and the logical-event
+  // collapse — so a moved kid event drags its drive-block ghost along with it.
+  const [timeOverrides, setTimeOverrides] = useState<
+    Record<string, { start: string; end: string | null }>
+  >({});
+  const adjustedEvents = useMemo(() => {
+    if (Object.keys(timeOverrides).length === 0) return events;
+    return events.map((e) => {
+      const ov = timeOverrides[e.id];
+      return ov ? { ...e, start_time: ov.start, end_time: ov.end } : e;
+    });
+  }, [events, timeOverrides]);
+  // Once a refresh delivers the moved times from the server, the override has
+  // done its job — drop it so it can't mask a LATER time change (a panel edit,
+  // or a sync from Google). Render-phase adjustment, not an effect: prune when
+  // a new events array arrives, before anything derives from it.
+  const [prunedFor, setPrunedFor] = useState(events);
+  if (prunedFor !== events) {
+    setPrunedFor(events);
+    const next = { ...timeOverrides };
+    let changed = false;
+    for (const e of events) {
+      const ov = next[e.id];
+      if (!ov) continue;
+      const endMatches =
+        ov.end == null
+          ? e.end_time == null
+          : e.end_time != null && +new Date(e.end_time) === +new Date(ov.end);
+      if (+new Date(e.start_time) === +new Date(ov.start) && endMatches) {
+        delete next[e.id];
+        changed = true;
+      }
+    }
+    if (changed) setTimeOverrides(next);
+  }
+
   const dutiesFor = useCallback(
     (eventId: string): EventDuties => {
       const merged: EventDuties = { ...(dutiesByEvent[eventId] ?? {}) };
@@ -269,6 +307,55 @@ export function CalendarClient({
     refreshTimer.current = setTimeout(() => router.refresh(), 4000);
   }
 
+  // Persist a drag-to-move/resize from the day grid. The optimistic override
+  // repositions the block (and its drive ghost) in the same frame as the
+  // release; the write goes through the same update path as the panel's save.
+  // Drags can stack up on one event — the seq makes an older failure revert
+  // only when nothing newer is in flight (same pattern as the duty taps).
+  const moveSeq = useRef<Record<string, number>>({});
+  async function moveEventTime(
+    event: CalendarEvent,
+    start: string,
+    end: string | null,
+  ): Promise<void> {
+    const id = event.id;
+    const seq = (moveSeq.current[id] = (moveSeq.current[id] ?? 0) + 1);
+    const patchPanel = (s: string, e: string | null) =>
+      setPanel((prev) =>
+        prev?.kind === "event" && prev.event.id === id
+          ? { ...prev, event: { ...prev.event, start_time: s, end_time: e } }
+          : prev,
+      );
+    setTimeOverrides((prev) => ({ ...prev, [id]: { start, end } }));
+    patchPanel(start, end);
+    try {
+      await updateManualEvent(id, {
+        calendarSourceId: event.calendar_source_id,
+        memberEmail: event.member_email,
+        title: event.title,
+        location: event.location,
+        description: event.description,
+        startTime: start,
+        endTime: end,
+        allDay: false,
+      });
+    } catch (err) {
+      if (moveSeq.current[id] === seq) {
+        // Revert — the block snaps back to where the server still has it.
+        setTimeOverrides((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        patchPanel(event.start_time, event.end_time);
+      }
+      console.error("Couldn't move the event:", err);
+      return;
+    }
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => router.refresh(), 4000);
+  }
+
   // Reassign an event to another member's calendar ("this is Oscar's event").
   // The server re-creates it on the new owner's Google calendar with the old
   // owner + guests invited and deletes the original; revalidation then redraws
@@ -312,8 +399,8 @@ export function CalendarClient({
   // Raw events by id — resolves a drive block's source kid event (the raw list,
   // not the logical one, so the link works even if the kid event was collapsed).
   const eventsById = useMemo(
-    () => new Map(events.map((e) => [e.id, e])),
-    [events],
+    () => new Map(adjustedEvents.map((e) => [e.id, e])),
+    [adjustedEvents],
   );
 
   // How many active calendars each owner (member, or null for family) has. When
@@ -357,7 +444,7 @@ export function CalendarClient({
     const hidden = new Set<string>();
     const extra: CalendarEvent[] = [];
     const mirrorByKey = new Map<string, CalendarEvent>();
-    for (const e of events) {
+    for (const e of adjustedEvents) {
       if (e.drive_source_event_id && e.drive_duty) {
         mirrorByKey.set(`${e.drive_source_event_id}:${e.drive_duty}`, e);
       }
@@ -368,7 +455,7 @@ export function CalendarClient({
       string,
       { ev: CalendarEvent; duty: "dropoff" | "pickup" }
     >();
-    for (const ev of events) {
+    for (const ev of adjustedEvents) {
       if (ev.drive_source_event_id || ev.all_day) continue;
       if (!ev.member_email || !kidEmails.has(ev.member_email)) continue;
       if (isHomeLocation(ev.location, logistics.homeAddress)) continue;
@@ -514,7 +601,7 @@ export function CalendarClient({
       });
     }
     return { hidden, extra };
-  }, [events, dutiesFor, kidEmails, memberNames, logistics, goingByEvent, overrides]);
+  }, [adjustedEvents, dutiesFor, kidEmails, memberNames, logistics, goingByEvent, overrides]);
 
   // The in-progress draft as a synthetic event so it renders on the grid while
   // the panel collects details — same trick as the pending-drive ghosts. The
@@ -553,11 +640,11 @@ export function CalendarClient({
 
   const effectiveEvents = useMemo(
     () => [
-      ...events.filter((e) => !driveAdjusted.hidden.has(e.id)),
+      ...adjustedEvents.filter((e) => !driveAdjusted.hidden.has(e.id)),
       ...driveAdjusted.extra,
       ...(draftEvent ? [draftEvent] : []),
     ],
-    [events, driveAdjusted, draftEvent],
+    [adjustedEvents, driveAdjusted, draftEvent],
   );
 
   // Collapse the same underlying event (a shared Google event read from several
@@ -1005,6 +1092,7 @@ export function CalendarClient({
           beforeAxis={anchorDate === anchor ? triageBars : null}
           canManage={canManage}
           onGridDraft={handleGridDraft}
+          onEventTimeChange={moveEventTime}
         />
       )}
       {view === "feed" && (

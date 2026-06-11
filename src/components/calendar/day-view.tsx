@@ -169,6 +169,7 @@ export function DayView({
   beforeAxis,
   canManage = false,
   onGridDraft,
+  onEventTimeChange,
 }: {
   events: CalendarEvent[];
   anchorDate: Date;
@@ -182,6 +183,13 @@ export function DayView({
   canManage?: boolean;
   /** Click/drag on empty grid creates a draft event (desktop only). */
   onGridDraft?: (draft: GridDraft) => void;
+  /** Drag an event block to move it, or its top/bottom edge to resize it
+   * (desktop only). Reports the new times on release. */
+  onEventTimeChange?: (
+    event: CalendarEvent,
+    start: string,
+    end: string | null,
+  ) => void;
 }) {
   // A live clock so the "now" line tracks the real time. Starts null so the
   // server and the first client render agree (no Date-dependent output during
@@ -319,6 +327,160 @@ export function DayView({
 
   function onColPointerCancel() {
     createDrag.current = null;
+  }
+
+  // --- Drag-to-move / drag-to-resize (desktop only) -------------------------
+  // Press an event block and drag to move it along the axis (15-minute snap),
+  // or grab its top/bottom edge to change just the start/end. The live preview
+  // is local to this view; the release reports the final times up to the
+  // calendar client, which applies them optimistically and persists.
+  const blockDrag = useRef<{
+    event: CalendarEvent;
+    mode: "move" | "start" | "end";
+    startY: number;
+    baseStart: number; // minutes
+    baseEnd: number;
+    moved: boolean;
+  } | null>(null);
+  const [dragPreview, setDragPreview] = useState<{
+    id: string;
+    startMin: number;
+    endMin: number;
+  } | null>(null);
+  // A drag's pointerup is followed by a click on the same block — swallow it
+  // so releasing a move doesn't also open the panel.
+  const suppressClick = useRef(false);
+
+  // The browser shows the hovered element's cursor, so mid-drag feedback would
+  // flip back to the arrow the moment the pointer leaves the thin handle strip
+  // (or the card). Pin the gesture's cursor on <body> instead, and suspend text
+  // selection for the duration.
+  const dragCursor = (cursor: string | null) => {
+    if (cursor) {
+      document.body.style.cursor = cursor;
+      document.body.style.userSelect = "none";
+    } else {
+      document.body.style.removeProperty("cursor");
+      document.body.style.removeProperty("user-select");
+    }
+  };
+  useEffect(() => () => dragCursor(null), []); // never leak past unmount
+
+  // Times are draggable where the panel allows editing: manual + Google
+  // events. Synced feeds (TeamSnap/ICS) are read-only, drive blocks are
+  // derived artifacts of the duty assignment, and the in-progress draft's
+  // times belong to the create gesture/panel.
+  const canDragEvent = (e: CalendarEvent) =>
+    !!onEventTimeChange &&
+    canManage &&
+    !isMobile &&
+    !e.all_day &&
+    !e.drive_source_event_id &&
+    !e.id.startsWith("draft:") &&
+    (e.source_type === "manual" || e.source_type === "google");
+
+  // The dragged block's [start, end] minutes at a pointer position, snapped
+  // and clamped: a move keeps the duration and stays inside the axis window;
+  // a resize pins the other edge and keeps at least 15 minutes.
+  function dragRange(
+    d: NonNullable<typeof blockDrag.current>,
+    clientY: number,
+  ): [number, number] {
+    const delta = ((clientY - d.startY) / PX_PER_HOUR) * 60;
+    if (d.mode === "move") {
+      const dur = d.baseEnd - d.baseStart;
+      const s = Math.min(
+        Math.max(snap15(d.baseStart + delta), minH * 60),
+        maxH * 60 - dur,
+      );
+      return [s, s + dur];
+    }
+    if (d.mode === "start") {
+      const s = Math.min(
+        Math.max(snap15(d.baseStart + delta), minH * 60),
+        d.baseEnd - 15,
+      );
+      return [s, d.baseEnd];
+    }
+    const e = Math.max(
+      Math.min(snap15(d.baseEnd + delta), maxH * 60),
+      d.baseStart + 15,
+    );
+    return [d.baseStart, e];
+  }
+
+  const shiftIso = (iso: string, minutes: number) =>
+    new Date(new Date(iso).getTime() + minutes * 60_000).toISOString();
+
+  function onBlockPointerDown(
+    e: React.PointerEvent<HTMLButtonElement>,
+    event: CalendarEvent,
+  ) {
+    if (e.pointerType === "touch" || e.button !== 0) return;
+    suppressClick.current = false;
+    const handle = (e.target as Element)
+      .closest("[data-resize]")
+      ?.getAttribute("data-resize");
+    blockDrag.current = {
+      event,
+      mode: handle === "top" ? "start" : handle === "bottom" ? "end" : "move",
+      startY: e.clientY,
+      baseStart: startMin(event),
+      baseEnd: endMin(event),
+      moved: false,
+    };
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function onBlockPointerMove(e: React.PointerEvent<HTMLButtonElement>) {
+    const d = blockDrag.current;
+    if (!d) return;
+    const [s, en] = dragRange(d, e.clientY);
+    if (!d.moved && s === d.baseStart && en === d.baseEnd) return; // slop
+    if (!d.moved) {
+      d.moved = true;
+      dragCursor(d.mode === "move" ? "grabbing" : "ns-resize");
+    }
+    e.preventDefault();
+    setDragPreview({ id: d.event.id, startMin: s, endMin: en });
+  }
+
+  function onBlockPointerUp(e: React.PointerEvent<HTMLButtonElement>) {
+    const d = blockDrag.current;
+    blockDrag.current = null;
+    dragCursor(null);
+    if (!d) return;
+    setDragPreview(null);
+    if (!d.moved) return; // plain click — the click handler opens the panel
+    suppressClick.current = true;
+    const [s, en] = dragRange(d, e.clientY);
+    const ev = d.event;
+    if (d.mode === "move") {
+      const delta = s - d.baseStart;
+      if (delta === 0) return;
+      // Shift the real instants so cross-midnight ends (clamped on the axis)
+      // keep their true duration.
+      onEventTimeChange?.(
+        ev,
+        shiftIso(ev.start_time, delta),
+        ev.end_time ? shiftIso(ev.end_time, delta) : null,
+      );
+    } else if (d.mode === "start") {
+      if (s === d.baseStart) return;
+      // Resizing a point-in-time event (no end) materializes its implied end,
+      // pinning the bottom edge where the block already drew it.
+      onEventTimeChange?.(ev, isoAt(s), ev.end_time ?? isoAt(d.baseEnd));
+    } else {
+      if (en === d.baseEnd) return;
+      onEventTimeChange?.(ev, ev.start_time, isoAt(en));
+    }
+  }
+
+  function onBlockPointerCancel() {
+    blockDrag.current = null;
+    dragCursor(null);
+    setDragPreview(null);
   }
 
   // The shown members attending an event — its owner (when shown) plus any guest
@@ -496,19 +658,33 @@ export function DayView({
   // location. A thin block — the other columns on the phone — is a bare member-
   // colored tick: position already says when and the column says who, so it shows
   // only a baseball glyph for TeamSnap games (when tall enough), no text.
-  function Block({
-    placed,
-    full,
-    fused,
-  }: {
-    placed: Placed;
-    full: boolean;
-    fused?: FusedAttend;
-  }) {
+  //
+  // A plain render function, NOT a <Component>: defined inside DayView, a
+  // component would get a fresh identity every render, making React REMOUNT
+  // every block whenever state changes — which destroys the DOM node holding a
+  // drag's pointer capture mid-gesture (the drag would only track while the
+  // cursor stayed over the card). Plain JSX keeps the nodes stable.
+  function renderBlock(placed: Placed, full: boolean, fused?: FusedAttend) {
     const { event } = placed;
     const d = display(fused ? fused.event : event);
-    const trueTop = y(startMin(event));
-    const trueHeight = y(endMin(event)) - trueTop;
+    // While this block is being dragged, draw it (position AND time text) from
+    // the preview minutes instead of its stored times.
+    const pv = dragPreview?.id === event.id ? dragPreview : null;
+    const shown = pv
+      ? { ...event, start_time: isoAt(pv.startMin), end_time: isoAt(pv.endMin) }
+      : event;
+    const draggable = full && !fused && canDragEvent(event);
+    const dragProps = draggable
+      ? {
+          onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) =>
+            onBlockPointerDown(e, event),
+          onPointerMove: onBlockPointerMove,
+          onPointerUp: onBlockPointerUp,
+          onPointerCancel: onBlockPointerCancel,
+        }
+      : null;
+    const trueTop = y(startMin(shown));
+    const trueHeight = y(endMin(shown)) - trueTop;
     const height = Math.max(trueHeight, MIN_BLOCK);
     // A drop-off drive block too short to read at true scale grows UP from its
     // end, not down from its start: its anchor instant is the arrival, and by
@@ -541,6 +717,7 @@ export function DayView({
       const hasBottom = !!fused.legBottom;
       return (
         <button
+          key={event.id}
           type="button"
           data-event-id={e.id}
           onClick={() => onEventClick(e)}
@@ -607,6 +784,7 @@ export function DayView({
     if (!full) {
       return (
         <button
+          key={event.id}
           type="button"
           data-event-id={event.id}
           onClick={() => onEventClick(event)}
@@ -645,6 +823,7 @@ export function DayView({
           : event.title;
       return (
         <button
+          key={event.id}
           type="button"
           data-event-id={event.id}
           onClick={() => onEventClick(event)}
@@ -679,9 +858,18 @@ export function DayView({
     const showTime = height >= 46;
     return (
       <button
+        key={event.id}
         type="button"
         data-event-id={event.id}
-        onClick={() => onEventClick(event)}
+        onClick={() => {
+          // A drag's release fires a click too — that one doesn't open the panel.
+          if (suppressClick.current) {
+            suppressClick.current = false;
+            return;
+          }
+          onEventClick(event);
+        }}
+        {...dragProps}
         title={
           d.calendarLabel ? `${d.calendarLabel}: ${event.title}` : event.title
         }
@@ -694,12 +882,14 @@ export function DayView({
           d.pendingDrive && "animate-pulse opacity-60",
           // The not-yet-saved draft the panel is collecting details for.
           isDraft && "border-dashed bg-white/70 dark:bg-card/70",
+          // Mid-drag: lift it over its neighbors so the preview reads cleanly.
+          pv && "z-30 shadow-md ring-1 ring-ring",
         )}
       >
         {showTime && (
           <span className="flex items-center gap-1 text-[10px] italic tabular-nums leading-tight text-muted-foreground">
             <span className="truncate">
-              {formatTimeRange(event.start_time, event.end_time, false)}
+              {formatTimeRange(shown.start_time, shown.end_time, false)}
             </span>
             <span className="ml-auto flex shrink-0 items-center gap-1 not-italic">
               {d.duties && (
@@ -777,7 +967,28 @@ export function DayView({
             {event.location}
           </span>
         )}
+        {draggable && resizeHandles()}
       </button>
+    );
+  }
+
+  // Invisible grab strips along a draggable block's top and bottom edges —
+  // the pointerdown handler reads data-resize to start a resize instead of a
+  // move. Last children, so they paint above the card's content.
+  function resizeHandles() {
+    return (
+      <>
+        <span
+          data-resize="top"
+          aria-hidden
+          className="absolute inset-x-0 top-0 h-2 cursor-ns-resize"
+        />
+        <span
+          data-resize="bottom"
+          aria-hidden
+          className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize"
+        />
+      </>
     );
   }
 
@@ -985,14 +1196,9 @@ export function DayView({
                   onPointerUp={onColPointerUp}
                   onPointerCancel={onColPointerCancel}
                 >
-                  {placedFor(c).map(({ placed, fused }) => (
-                    <Block
-                      key={placed.event.id}
-                      placed={placed}
-                      full={isFull(i)}
-                      fused={fused}
-                    />
-                  ))}
+                  {placedFor(c).map(({ placed, fused }) =>
+                    renderBlock(placed, isFull(i), fused),
+                  )}
                 </div>
               ))}
             </div>
