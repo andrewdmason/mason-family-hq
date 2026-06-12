@@ -72,12 +72,34 @@ export async function renderStill(
   if (!g) throw new Error("OffscreenCanvas 2d context unavailable");
   g.drawImage(image, 0, 0, width, height);
 
+  const annotations = drawOverlay(g, frame, phase, ctx.stanceFrame, width, height);
+
+  const blob = await canvas.convertToBlob({
+    type: ctx.encoding.contentType,
+    quality: ctx.encoding.quality,
+  });
+  return { phase, blob, contentType: ctx.encoding.contentType, annotations };
+}
+
+/**
+ * The shared annotation pass — skeleton, stance-head reference, posture line,
+ * stride markers, phase chip — drawn over an already-painted frame. Used by
+ * the phase stills and by every frame of the annotated swing video.
+ */
+export function drawOverlay(
+  g: OffscreenCanvasRenderingContext2D,
+  frame: KeypointFrame,
+  phase: SwingPhase | null,
+  stanceFrame: KeypointFrame,
+  width: number,
+  height: number
+): string[] {
   const annotations: string[] = [];
   const px = (nx: number) => nx * width;
   const py = (ny: number) => ny * height;
 
   // Skeleton — dashed when this frame's landmarks were interpolated, so the
-  // still never asserts precision the pose data doesn't have.
+  // overlay never asserts precision the pose data doesn't have.
   g.lineWidth = Math.max(2, width / 320);
   g.strokeStyle = "rgba(56, 189, 248, 0.9)";
   g.setLineDash(frame.interpolated ? [6, 5] : []);
@@ -101,9 +123,9 @@ export async function renderStill(
     }
   }
 
-  // Head reference: the stance head position carried onto every later phase —
+  // Head reference: the stance head position carried onto every later frame —
   // the "did his head move?" tell made visible.
-  const stanceNose = ctx.stanceFrame.landmarks[LM.nose];
+  const stanceNose = stanceFrame.landmarks[LM.nose];
   drawCrosshair(g, px(stanceNose.x), py(stanceNose.y), width, "rgba(250, 204, 21, 0.95)");
   if (phase !== "stance") {
     const nose = frame.landmarks[LM.nose];
@@ -142,20 +164,18 @@ export async function renderStill(
   }
 
   // Phase label chip.
-  const label = phase.toUpperCase();
-  g.font = `bold ${Math.max(14, Math.round(height / 28))}px system-ui, sans-serif`;
-  const pad = Math.round(height / 70) + 4;
-  const textWidth = g.measureText(label).width;
-  g.fillStyle = "rgba(15, 23, 42, 0.75)";
-  g.fillRect(pad, pad, textWidth + pad * 2, pad * 2.4);
-  g.fillStyle = "#f8fafc";
-  g.fillText(label, pad * 2, pad + pad * 1.7);
+  if (phase !== null) {
+    const label = phase.toUpperCase();
+    g.font = `bold ${Math.max(14, Math.round(height / 28))}px system-ui, sans-serif`;
+    const pad = Math.round(height / 70) + 4;
+    const textWidth = g.measureText(label).width;
+    g.fillStyle = "rgba(15, 23, 42, 0.75)";
+    g.fillRect(pad, pad, textWidth + pad * 2, pad * 2.4);
+    g.fillStyle = "#f8fafc";
+    g.fillText(label, pad * 2, pad + pad * 1.7);
+  }
 
-  const blob = await canvas.convertToBlob({
-    type: ctx.encoding.contentType,
-    quality: ctx.encoding.quality,
-  });
-  return { phase, blob, contentType: ctx.encoding.contentType, annotations };
+  return annotations;
 }
 
 export function stillInfoFor(

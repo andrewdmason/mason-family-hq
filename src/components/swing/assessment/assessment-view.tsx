@@ -10,6 +10,7 @@ import Link from "next/link";
 import { AlertTriangle, Ban, History, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { AssessmentActions } from "@/components/swing/assessment/assessment-actions";
+import { EvidencePlayer } from "@/components/swing/assessment/evidence-player";
 import { formatDateOnly, humanizeIssueKey } from "@/lib/swing/format";
 import type {
   ProgressVerdictKind,
@@ -19,6 +20,13 @@ import type {
   SwingSession,
 } from "@/lib/swing/types";
 
+export interface EvidenceMedia {
+  videoPath: string;
+  videoUrl: string;
+  /** Seconds into the annotated video where the evidence frame sits. */
+  offsetSec: number;
+}
+
 export function AssessmentView({
   assessment,
   player,
@@ -26,6 +34,7 @@ export function AssessmentView({
   focusAreas,
   priorAreasById,
   stillUrls,
+  evidenceMedia,
   supersededById,
 }: {
   assessment: SwingAssessment;
@@ -35,6 +44,7 @@ export function AssessmentView({
   priorAreasById: Record<string, SwingFocusArea>;
   /** path → short-TTL signed URL, signed fresh on every page load. */
   stillUrls: Record<string, string>;
+  evidenceMedia: Record<string, EvidenceMedia>;
   supersededById: string | null;
 }) {
   const focus = focusAreas.filter((fa) => fa.disposition === "focus");
@@ -115,6 +125,7 @@ export function AssessmentView({
                   area={area}
                   index={i}
                   stillUrls={stillUrls}
+                  evidenceMedia={evidenceMedia}
                 />
               ))}
             </div>
@@ -254,10 +265,12 @@ function FocusAreaCard({
   area,
   index,
   stillUrls,
+  evidenceMedia,
 }: {
   area: SwingFocusArea;
   index: number;
   stillUrls: Record<string, string>;
+  evidenceMedia: Record<string, EvidenceMedia>;
 }) {
   return (
     <article className="rounded-xl border bg-card p-4 sm:p-5">
@@ -282,7 +295,57 @@ function FocusAreaCard({
         {area.tell}
       </p>
 
-      <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+      {/* Evidence sits right under the tell — see it, then read why. Media is
+          full-card-width; the annotated video (when this clip has one) opens
+          frozen on the evidence frame so the coach can play the before/after
+          movement the tell describes. */}
+      {area.evidenceStills.length > 0 && (
+        <div className="mt-4 space-y-4">
+          {area.evidenceStills.map((still) => {
+            const url = stillUrls[still.path];
+            const media = evidenceMedia[still.path];
+            return (
+              <figure key={still.path} className="min-w-0">
+                {media ? (
+                  <EvidencePlayer
+                    videoUrl={media.videoUrl}
+                    posterUrl={url ?? null}
+                    offsetSec={media.offsetSec}
+                    alt={still.caption}
+                  />
+                ) : url ? (
+                  // Signed URL with a short TTL — next/image's cache/loader
+                  // adds nothing here, a plain img is correct.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={url}
+                    alt={still.caption}
+                    className="w-full rounded-lg border bg-muted"
+                  />
+                ) : (
+                  <div className="flex aspect-video items-center justify-center rounded-lg border bg-muted text-xs text-muted-foreground">
+                    Still unavailable
+                  </div>
+                )}
+                <figcaption className="mt-1.5 text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground capitalize">
+                    {still.phase}
+                  </span>{" "}
+                  — {still.caption}
+                  {media && (
+                    <span className="text-muted-foreground/70">
+                      {" "}
+                      · paused on this moment — press play for the full swing in slow motion
+                    </span>
+                  )}
+                </figcaption>
+              </figure>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
         {area.diagnosis}
       </p>
 
@@ -326,42 +389,6 @@ function FocusAreaCard({
         </div>
       )}
 
-      {area.evidenceStills.length > 0 && (
-        <div className="mt-4">
-          <p className="mb-2 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-            Evidence
-          </p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {area.evidenceStills.map((still) => {
-              const url = stillUrls[still.path];
-              return (
-                <figure key={still.path} className="min-w-0">
-                  {url ? (
-                    // Signed URL with a short TTL — next/image's cache/loader
-                    // adds nothing here, a plain img is correct.
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={url}
-                      alt={still.caption}
-                      className="w-full rounded-lg border bg-muted"
-                    />
-                  ) : (
-                    <div className="flex aspect-video items-center justify-center rounded-lg border bg-muted text-xs text-muted-foreground">
-                      Still unavailable
-                    </div>
-                  )}
-                  <figcaption className="mt-1 text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground capitalize">
-                      {still.phase}
-                    </span>{" "}
-                    — {still.caption}
-                  </figcaption>
-                </figure>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </article>
   );
 }

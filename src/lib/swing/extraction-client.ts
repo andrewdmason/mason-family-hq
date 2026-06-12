@@ -20,6 +20,13 @@ export interface ClientStill {
   blob: Blob;
 }
 
+export interface ClientSwingVideo {
+  blob: Blob;
+  contentType: string;
+  startMs: number;
+  slowdown: number;
+}
+
 export type ClientExtraction =
   | {
       ok: true;
@@ -31,6 +38,7 @@ export type ClientExtraction =
       slowMotionFactor: number;
       keypointsGzip: Blob;
       stills: ClientStill[];
+      video: ClientSwingVideo | null;
       warnings: string[];
     }
   | {
@@ -167,6 +175,14 @@ function extractViaWorker(
               annotations: s.annotations,
               blob: new Blob([s.bytes], { type: s.contentType }),
             })),
+            video: msg.video
+              ? {
+                  blob: new Blob([msg.video.bytes], { type: msg.video.contentType }),
+                  contentType: msg.video.contentType,
+                  startMs: msg.video.startMs,
+                  slowdown: msg.video.slowdown,
+                }
+              : null,
             warnings: msg.warnings ?? [],
           });
         }
@@ -251,6 +267,7 @@ async function extractOnMainThread(
           annotations: s.annotations,
           blob: s.blob,
         })),
+        video: result.video,
         warnings: result.warnings,
       };
     } finally {

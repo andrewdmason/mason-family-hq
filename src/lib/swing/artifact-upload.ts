@@ -8,11 +8,11 @@
 import { createClient } from "@/lib/supabase/client";
 import { SWING_BUCKET } from "@/lib/swing/bucket";
 import type { ClipUploadGrant } from "@/app/(swing)/swing/actions";
-import type { ClientStill } from "@/lib/swing/extraction-client";
+import type { ClientStill, ClientSwingVideo } from "@/lib/swing/extraction-client";
 
 export async function uploadClipArtifacts(
   grant: ClipUploadGrant,
-  artifacts: { keypointsGzip: Blob; stills: ClientStill[] }
+  artifacts: { keypointsGzip: Blob; stills: ClientStill[]; video: ClientSwingVideo | null }
 ): Promise<void> {
   const storage = createClient().storage.from(SWING_BUCKET);
 
@@ -23,6 +23,16 @@ export async function uploadClipArtifacts(
     { contentType: "application/gzip" }
   );
   if (kpError) throw new Error(`Keypoints upload failed: ${kpError.message}`);
+
+  if (grant.video && artifacts.video) {
+    const { error } = await storage.uploadToSignedUrl(
+      grant.video.path,
+      grant.video.token,
+      artifacts.video.blob,
+      { contentType: artifacts.video.contentType }
+    );
+    if (error) throw new Error(`Swing video upload failed: ${error.message}`);
+  }
 
   for (const grantStill of grant.stills) {
     const still = artifacts.stills.find((s) => s.phase === grantStill.phase);

@@ -96,6 +96,15 @@ export interface SwingSession {
   createdAt: string;
 }
 
+export interface ClipVideo {
+  path: string;
+  contentType: string;
+  /** Clip-time ms of the video's first frame. */
+  startMs: number;
+  /** Encode-time stretch: videoSec = (eventMs - startMs) * slowdown / 1000. */
+  slowdown: number;
+}
+
 export interface SwingClip {
   id: string;
   sessionId: string;
@@ -112,6 +121,7 @@ export interface SwingClip {
   metrics: SwingMetrics | null;
   keypointsPath: string | null;
   stills: StillInfo[];
+  video: ClipVideo | null;
   createdAt: string;
 }
 
@@ -222,6 +232,7 @@ export function clipFromRow(row: any): SwingClip {
     metrics: row.metrics ?? null,
     keypointsPath: row.keypoints_path ?? null,
     stills: row.stills ?? [],
+    video: row.video ?? null,
     createdAt: row.created_at,
   };
 }

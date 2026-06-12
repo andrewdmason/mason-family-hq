@@ -31,6 +31,7 @@ import {
   renderStill,
   type RenderedStill,
 } from "./annotate";
+import { renderSwingVideo, type RenderedSwingVideo } from "./render-video";
 
 export type ExtractionStage = "decoding" | "pose" | "annotating";
 
@@ -61,6 +62,9 @@ export type ExtractionResult =
        * pose model later re-derives everything from this without re-filming. */
       keypoints: KeypointFrame[];
       stills: RenderedStill[];
+      /** Annotated slow-motion swing video — present when this browser can
+       * encode H.264; stills remain the guaranteed evidence either way. */
+      video: RenderedSwingVideo | null;
       warnings: string[];
       benchmark: ExtractionBenchmark;
     }
@@ -281,6 +285,17 @@ export async function extractClip(
     }
   }
 
+  /* Annotated swing video: same overlays, playable before/after context.
+   * Best-effort — encoding support varies and the stills already satisfy R7. */
+  const video = await renderSwingVideo(
+    source,
+    dense,
+    detection,
+    durationMs,
+    trackFps,
+    (done, total) => onProgress({ stage: "annotating", done, total })
+  );
+
   return {
     ok: true,
     events: detection.events,
@@ -290,6 +305,7 @@ export async function extractClip(
     slowMotionFactor: timeScale,
     keypoints: dense,
     stills,
+    video,
     warnings: [...gate1.warnings, ...gate2.warnings],
     benchmark: benchmark(),
   };

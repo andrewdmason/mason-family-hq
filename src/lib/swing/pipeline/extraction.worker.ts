@@ -65,6 +65,12 @@ export type WorkerOutMessage =
       heightNorm: number;
       slowMotionFactor: number;
       keypoints: KeypointFrame[];
+      video: {
+        bytes: ArrayBuffer;
+        contentType: string;
+        startMs: number;
+        slowdown: number;
+      } | null;
       warnings: string[];
       benchmark: ExtractionBenchmark;
       delegate: PoseDelegate;
@@ -112,6 +118,17 @@ self.onmessage = async (event: MessageEvent<ExtractRequest>) => {
         });
         transfers.push(bytes);
       }
+      let video: { bytes: ArrayBuffer; contentType: string; startMs: number; slowdown: number } | null = null;
+      if (result.video) {
+        const bytes = await result.video.blob.arrayBuffer();
+        video = {
+          bytes,
+          contentType: result.video.contentType,
+          startMs: result.video.startMs,
+          slowdown: result.video.slowdown,
+        };
+        transfers.push(bytes);
+      }
       postMessage(
         {
           type: "result",
@@ -127,6 +144,7 @@ self.onmessage = async (event: MessageEvent<ExtractRequest>) => {
           benchmark: result.benchmark,
           delegate,
           stills,
+          video,
         },
         { transfer: transfers }
       );

@@ -227,6 +227,7 @@ export function SessionShell({
             contentType: s.contentType,
             annotations: s.annotations,
           })),
+          hasVideo: extraction.video !== null,
         });
         if (grant.kind === "already_done") {
           updateJob(jobId, { status: { kind: "duplicate" } });
@@ -235,6 +236,7 @@ export function SessionShell({
         await uploadClipArtifacts(grant, {
           keypointsGzip: extraction.keypointsGzip,
           stills: extraction.stills,
+          video: extraction.video,
         });
         await recordClipExtracted(grant.clipId, {
           events: extraction.events,
@@ -244,6 +246,9 @@ export function SessionShell({
           sourceFps: extraction.probe.trackFps,
           durationSeconds: extraction.probe.durationSeconds,
           filmedAt,
+          videoMeta: extraction.video
+            ? { startMs: extraction.video.startMs, slowdown: extraction.video.slowdown }
+            : null,
         });
         updateJob(jobId, { status: { kind: "done" } });
         router.refresh();

@@ -103,6 +103,12 @@ CREATE TABLE swing_clips (
   -- Phase-keyframe stills: [{path, phase, contentType, annotations: [...]}].
   -- contentType matters: WebP normally, JPEG on Safari (no WebP encoder).
   stills           jsonb NOT NULL DEFAULT '[]'::jsonb,
+  -- Annotated slow-motion swing video (H.264, overlays burned in), rendered
+  -- client-side at extraction time like the stills: {path, contentType,
+  -- startMs, slowdown}. startMs = clip-time of the video's first frame;
+  -- slowdown = encode-time stretch — together they map a phase event into
+  -- the video timeline. Null when the browser couldn't encode H.264.
+  video            jsonb,
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT uq_swing_clips_session_hash UNIQUE (session_id, content_hash)
@@ -209,7 +215,7 @@ VALUES (
   25 * 1024 * 1024,
   -- image/jpeg is the Safari still-encoding fallback (Safari canvas cannot
   -- encode WebP and silently falls back to PNG, which we do not allow).
-  ARRAY['application/json', 'application/gzip', 'image/webp', 'image/jpeg']
+  ARRAY['application/json', 'application/gzip', 'image/webp', 'image/jpeg', 'video/mp4']
 )
 ON CONFLICT (id) DO NOTHING;
 

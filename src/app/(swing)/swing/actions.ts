@@ -162,6 +162,8 @@ export interface ClipUploadGrant {
   /** path + token pairs for uploadToSignedUrl, keyed by artifact. */
   keypoints: { path: string; token: string };
   stills: { phase: SwingPhase; path: string; token: string }[];
+  /** Present when the client rendered an annotated swing video. */
+  video: { path: string; token: string } | null;
 }
 
 export interface ClipAlreadyDone {
@@ -181,6 +183,7 @@ export async function issueClipArtifactUploads(
     contentHash: string;
     fileName: string | null;
     stills: { phase: SwingPhase; contentType: string; annotations: string[] }[];
+    hasVideo: boolean;
   }
 ): Promise<ClipUploadGrant | ClipAlreadyDone> {
   if (!/^[0-9a-f]{64}$/.test(input.contentHash)) throw new Error("Bad content hash");
@@ -222,6 +225,7 @@ export async function issueClipArtifactUploads(
     };
   });
 
+  const videoPath = input.hasVideo ? `${sessionId}/${clipId}/swing.mp4` : null;
   const row = {
     id: clipId,
     session_id: sessionId,
@@ -231,6 +235,8 @@ export async function issueClipArtifactUploads(
     file_name: input.fileName?.slice(0, 200) ?? null,
     keypoints_path: keypointsPath,
     stills: stillsInfo,
+    // startMs/slowdown land in recordClipExtracted once uploads are acked.
+    video: videoPath ? { path: videoPath, contentType: "video/mp4" } : null,
   };
   const { error: upsertError } = await supabase
     .from("swing_clips")
@@ -243,6 +249,7 @@ export async function issueClipArtifactUploads(
     clipId,
     keypoints: await signUpload(storage, keypointsPath),
     stills: [],
+    video: videoPath ? await signUpload(storage, videoPath) : null,
   };
   for (const s of stillsInfo) {
     grants.stills.push({ phase: s.phase, ...(await signUpload(storage, s.path)) });
@@ -271,9 +278,32 @@ export async function recordClipExtracted(
     sourceFps: unknown;
     durationSeconds: unknown;
     filmedAt: string | null;
+    /** Timeline mapping for the annotated video (when one was uploaded). */
+    videoMeta: { startMs: unknown; slowdown: unknown } | null;
   }
 ): Promise<void> {
   const supabase = await createClient();
+
+  // The video path was server-issued at grant time; only the timeline
+  // mapping comes from the client, and only as bounded finite numbers.
+  let video: Record<string, unknown> | undefined;
+  if (payload.videoMeta) {
+    const { data: existing } = await supabase
+      .from("swing_clips")
+      .select("video")
+      .eq("id", clipId)
+      .maybeSingle();
+    const startMs = sanitizeFiniteNumber(payload.videoMeta.startMs);
+    const slowdown = sanitizeFiniteNumber(payload.videoMeta.slowdown);
+    if (existing?.video && startMs !== null && startMs >= 0 && slowdown !== null) {
+      video = {
+        ...existing.video,
+        startMs,
+        slowdown: Math.min(Math.max(slowdown, 1), 32),
+      };
+    }
+  }
+
   const { error } = await supabase
     .from("swing_clips")
     .update({
@@ -286,6 +316,7 @@ export async function recordClipExtracted(
       source_fps: sanitizeFiniteNumber(payload.sourceFps),
       duration_seconds: sanitizeFiniteNumber(payload.durationSeconds),
       filmed_at: payload.filmedAt,
+      ...(video !== undefined ? { video } : {}),
     })
     .eq("id", clipId)
     .eq("status", "extracting");
