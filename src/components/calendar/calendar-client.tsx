@@ -153,15 +153,13 @@ export function CalendarClient({
   // TeamSnap events you've RSVP'd "Not going" to are hidden unless this is on.
   const [showDeclined, setShowDeclined] = useState(false);
 
-  // The event panel (anchored popover / bottom sheet): viewing or editing an
-  // existing event, or collecting details for a draft already drawn on the
-  // grid. anchorId is the data-event-id of the block the popover anchors to —
-  // the block the user actually clicked (a drive block anchors there even
-  // though the panel shows its source kid event).
+  // The event panel (desktop flyout drawer / mobile bottom sheet): viewing or
+  // editing an existing event, or collecting details for a draft already drawn
+  // on the grid.
   // `pending` marks a drag-to-create in progress: the draft block renders on
   // the grid but the panel itself waits for the release.
   const [panel, setPanel] = useState<
-    | { kind: "event"; event: CalendarEvent; anchorId: string }
+    | { kind: "event"; event: CalendarEvent }
     | { kind: "create"; draft: DraftEvent; pending?: boolean }
     | null
   >(null);
@@ -856,14 +854,13 @@ export function CalendarClient({
 
   function openDetail(event: CalendarEvent) {
     // A drive block opens its source kid event — the block is an artifact of
-    // the assignment, not a thing to inspect or edit on its own. The popover
-    // still anchors to the block that was clicked.
+    // the assignment, not a thing to inspect or edit on its own.
     const target = event.drive_source_event_id
       ? logicalById.get(event.drive_source_event_id) ??
         eventsById.get(event.drive_source_event_id) ??
         event
       : event;
-    setPanel({ kind: "event", event: target, anchorId: event.id });
+    setPanel({ kind: "event", event: target });
   }
 
   // The floating + button: drop a one-hour draft at the next round hour on the
@@ -1371,13 +1368,6 @@ export function CalendarClient({
         // A pending (mid-drag) draft renders only its grid block; the panel
         // itself opens on release.
         mode={panel?.kind === "create" && panel.pending ? null : panel}
-        anchorEventId={
-          panel?.kind === "event"
-            ? panel.anchorId
-            : panel?.kind === "create"
-              ? "draft:new"
-              : null
-        }
         panelKey={
           panel?.kind === "event"
             ? panel.event.id
