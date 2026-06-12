@@ -132,6 +132,23 @@ export function midpoint(a: Landmark, b: Landmark): { x: number; y: number } {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
 
+/** Frame nearest in time to a timestamp, or null for an empty series. */
+export function nearestFrame(
+  frames: KeypointFrame[],
+  timestampMs: number
+): KeypointFrame | null {
+  let best: KeypointFrame | null = null;
+  let bestDist = Infinity;
+  for (const f of frames) {
+    const d = Math.abs(f.timestampMs - timestampMs);
+    if (d < bestDist) {
+      bestDist = d;
+      best = f;
+    }
+  }
+  return best;
+}
+
 /** Hitter pixel height in normalized units: nose to ankle midpoint. */
 export function hitterHeight(frame: KeypointFrame): number {
   const nose = frame.landmarks[0];

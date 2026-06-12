@@ -10,7 +10,11 @@ import Link from "next/link";
 import { ArrowRight, ChevronLeft, ChevronRight, ClipboardList } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { FocusCard } from "@/components/swing/player/focus-card";
-import { humanizeIssueKey } from "@/lib/swing/format";
+import {
+  formatDateOnly,
+  formatTimestampDate,
+  humanizeIssueKey,
+} from "@/lib/swing/format";
 import { NewSessionButton } from "@/components/swing/player/new-session-button";
 import {
   ageFromBirthYear,
@@ -214,12 +218,12 @@ function AssessmentRow({
       <Link
         href={`/swing/assessments/${assessment.id}`}
         className="absolute inset-0"
-        aria-label={`Assessment from ${formatTimestamp(assessment.createdAt)}`}
+        aria-label={`Assessment from ${formatTimestampDate(assessment.createdAt)}`}
       />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate font-medium text-foreground">
-            {formatTimestamp(assessment.createdAt)}
+            {formatTimestampDate(assessment.createdAt)}
           </span>
           <Badge variant={badge.variant} className="shrink-0">
             {badge.label}
@@ -232,24 +236,4 @@ function AssessmentRow({
       <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />
     </li>
   );
-}
-
-/* ------------------------------------------------------------------ dates - */
-
-/** filmed_on is a plain YYYY-MM-DD — parse as local, not UTC midnight. */
-function formatDateOnly(isoDate: string): string {
-  const [y, m, d] = isoDate.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function formatTimestamp(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
 }

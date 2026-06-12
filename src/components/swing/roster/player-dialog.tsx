@@ -24,7 +24,12 @@ import {
   createPlayer,
   updatePlayer,
 } from "@/app/(swing)/swing/actions";
-import type { Bats, SwingPlayer } from "@/lib/swing/types";
+import {
+  BIRTH_YEAR_MAX,
+  BIRTH_YEAR_MIN,
+  type Bats,
+  type SwingPlayer,
+} from "@/lib/swing/types";
 
 const BATS_LABELS: Record<Bats, string> = { L: "Left", R: "Right" };
 
@@ -147,8 +152,8 @@ function PlayerForm({
             id="player-birth-year"
             type="number"
             inputMode="numeric"
-            min={1990}
-            max={2030}
+            min={BIRTH_YEAR_MIN}
+            max={BIRTH_YEAR_MAX}
             value={birthYear}
             onChange={(e) => setBirthYear(e.target.value)}
             placeholder={String(new Date().getFullYear() - 9)}

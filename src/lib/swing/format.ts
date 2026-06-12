@@ -16,3 +16,12 @@ export function formatDateOnly(isoDate: string): string {
     year: "numeric",
   });
 }
+
+/** Date part of a full ISO timestamp, short month ("Jun 12, 2026"). */
+export function formatTimestampDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}

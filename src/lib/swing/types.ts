@@ -4,6 +4,10 @@
 
 export type Bats = "L" | "R";
 
+/** Valid birth-year range for roster players (shared by server validation and form inputs). */
+export const BIRTH_YEAR_MIN = 1990;
+export const BIRTH_YEAR_MAX = 2030;
+
 export type SessionStatus = "draft" | "analyzing" | "complete" | "analysis_failed";
 export type ClipStatus = "pending" | "extracting" | "ok" | "rejected";
 export type AssessmentStatus =
@@ -58,7 +62,7 @@ export const METRIC_KEYS = [
   "stride_duration", // ms
   "swing_duration", // launch→contact, ms
   "weight_transfer", // hip-midpoint horizontal travel ÷ stance width
-  "hip_shoulder_timing", // hip rotation onset minus shoulder onset, ms (timing proxy, not degrees)
+  "hip_shoulder_timing", // shoulder rotation onset minus hip onset, ms (positive = hips fired first, good sequence)
 ] as const;
 export type MetricKey = (typeof METRIC_KEYS)[number];
 

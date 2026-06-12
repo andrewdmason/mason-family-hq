@@ -15,7 +15,7 @@ import {
   type FrameSource,
 } from "./frame-source";
 import { detectFrame, type KeypointFrame } from "./pose";
-import { conditionSeries } from "./smoothing";
+import { conditionSeries, nearestFrame } from "./smoothing";
 import {
   detectPhases,
   findSwingBursts,
@@ -93,7 +93,12 @@ export async function extractClip(
       poseMs += performance.now() - t0;
       framesProcessed++;
       sampled.close();
-      if (kf) frames.push(kf);
+      // Duplicate-timestamp guard: the <video> fallback can resolve two
+      // requested timestamps to the same decoded frame — a zero-dt pair
+      // corrupts speed series downstream.
+      if (kf && kf.timestampMs !== frames[frames.length - 1]?.timestampMs) {
+        frames.push(kf);
+      }
     }
     return frames;
   };
@@ -192,20 +197,4 @@ export async function extractClip(
     warnings: [...gate1.warnings, ...gate2.warnings],
     benchmark: benchmark(),
   };
-}
-
-function nearestFrame(
-  frames: KeypointFrame[],
-  timestampMs: number
-): KeypointFrame | null {
-  let best: KeypointFrame | null = null;
-  let bestDist = Infinity;
-  for (const f of frames) {
-    const d = Math.abs(f.timestampMs - timestampMs);
-    if (d < bestDist) {
-      bestDist = d;
-      best = f;
-    }
-  }
-  return best;
 }

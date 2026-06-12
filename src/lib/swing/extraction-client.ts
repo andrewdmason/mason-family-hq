@@ -10,6 +10,7 @@
 import type { Bats, SwingEvents, SwingMetrics, SwingPhase } from "@/lib/swing/types";
 import type { ClipProbe } from "@/lib/swing/pipeline/frame-source";
 import type { ExtractionProgress } from "@/lib/swing/pipeline/extract";
+import type { WorkerOutMessage } from "@/lib/swing/pipeline/extraction.worker";
 import type { PoseDelegate, PoseModel } from "@/lib/swing/pipeline/pose";
 
 export interface ClientStill {
@@ -102,14 +103,19 @@ function extractViaWorker(
     );
     const jobId = crypto.randomUUID();
     let probe: ClipProbe | null = null;
+    let settled = false;
 
     const finish = (value: ClientExtraction | "needs-fallback") => {
+      // Settle exactly once: a late worker error/message after the result
+      // must not terminate a fresh worker or double-resolve.
+      if (settled) return;
+      settled = true;
       worker.terminate();
       resolve(value);
     };
 
     worker.onerror = () => finish("needs-fallback");
-    worker.onmessage = async (event) => {
+    worker.onmessage = async (event: MessageEvent<WorkerOutMessage>) => {
       const msg = event.data;
       if (msg.jobId !== jobId) return;
       switch (msg.type) {
@@ -150,14 +156,12 @@ function extractViaWorker(
               events: msg.events,
               keypoints: msg.keypoints,
             }),
-            stills: msg.stills.map(
-              (s: { phase: SwingPhase; contentType: string; annotations: string[]; bytes: ArrayBuffer }) => ({
-                phase: s.phase,
-                contentType: s.contentType,
-                annotations: s.annotations,
-                blob: new Blob([s.bytes], { type: s.contentType }),
-              })
-            ),
+            stills: msg.stills.map((s) => ({
+              phase: s.phase,
+              contentType: s.contentType,
+              annotations: s.annotations,
+              blob: new Blob([s.bytes], { type: s.contentType }),
+            })),
             warnings: msg.warnings ?? [],
           });
         }
@@ -191,7 +195,10 @@ async function extractOnMainThread(
       import("./pipeline/extract"),
     ]);
 
-  const { probe } = await openClip(file);
+  const { probe, source: openedSource } = await openClip(file);
+  // openClip can hand back a live WebCodecs source (e.g. the worker path was
+  // skipped) — release it before standing up the <video> fallback source.
+  openedSource?.close();
   handlers.onProbe?.(probe);
   if (probe.path === "unsupported") return unsupportedResult(probe);
 

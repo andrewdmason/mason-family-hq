@@ -1,7 +1,13 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { playerFromRow, type Bats, type SwingPlayer } from "@/lib/swing/types";
+import {
+  BIRTH_YEAR_MAX,
+  BIRTH_YEAR_MIN,
+  playerFromRow,
+  type Bats,
+  type SwingPlayer,
+} from "@/lib/swing/types";
 
 /**
  * Roster mutations for the Swing Coach app. RLS is household-wide ("Family
@@ -16,9 +22,6 @@ import { playerFromRow, type Bats, type SwingPlayer } from "@/lib/swing/types";
  * player's sessions, assessments, and focus-area history stay queryable
  * (and restorable) forever.
  */
-
-const BIRTH_YEAR_MIN = 1990;
-const BIRTH_YEAR_MAX = 2030;
 
 function validatePlayerInput(input: {
   name: string;
@@ -117,11 +120,22 @@ import {
 } from "@/lib/swing/sanitize";
 import { SWING_PHASES, type StillInfo, type SwingPhase } from "@/lib/swing/types";
 
-export async function createSession(playerId: string): Promise<string> {
+export async function createSession(
+  playerId: string,
+  filmedOn?: string
+): Promise<string> {
+  // The client passes its local date — the DB default (CURRENT_DATE, UTC)
+  // would be off by one for evening sessions in US timezones.
+  if (filmedOn !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(filmedOn)) {
+    throw new Error("Invalid date");
+  }
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("swing_sessions")
-    .insert({ player_id: playerId })
+    .insert({
+      player_id: playerId,
+      ...(filmedOn ? { filmed_on: filmedOn } : {}),
+    })
     .select("id")
     .single();
   if (error) throw new Error(`Couldn't create session: ${error.message}`);
@@ -292,6 +306,27 @@ export async function recordClipRejected(
 ): Promise<void> {
   if (!/^[0-9a-f]{64}$/.test(input.contentHash)) throw new Error("Bad content hash");
   const supabase = await createClient();
+
+  const { data: session } = await supabase
+    .from("swing_sessions")
+    .select("id, status")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (!session) throw new Error("Session not found");
+  if (session.status !== "draft") {
+    throw new Error("Clips can only be recorded while the session is a draft");
+  }
+
+  // Never downgrade an ok clip (or null its artifact paths) — a stale
+  // rejection arriving after a successful extract is a no-op.
+  const { data: existing } = await supabase
+    .from("swing_clips")
+    .select("id, status")
+    .eq("session_id", sessionId)
+    .eq("content_hash", input.contentHash)
+    .maybeSingle();
+  if (existing?.status === "ok") return;
+
   const { error } = await supabase.from("swing_clips").upsert(
     {
       session_id: sessionId,
@@ -313,6 +348,24 @@ export async function recordClipRejected(
 /** Coach-initiated exclusion (e.g. "different player?" outlier confirm). */
 export async function excludeClip(clipId: string, reason: string): Promise<void> {
   const supabase = await createClient();
+
+  // Only allowed while the clip's session is still a draft — excluding a
+  // clip after analysis would silently desync the assessment's inputs.
+  const { data: clip } = await supabase
+    .from("swing_clips")
+    .select("id, session_id")
+    .eq("id", clipId)
+    .maybeSingle();
+  if (!clip) throw new Error("Clip not found");
+  const { data: session } = await supabase
+    .from("swing_sessions")
+    .select("status")
+    .eq("id", clip.session_id)
+    .maybeSingle();
+  if (!session || session.status !== "draft") {
+    throw new Error("Clips can only be excluded while the session is a draft");
+  }
+
   const { error } = await supabase
     .from("swing_clips")
     .update({ status: "rejected", rejection_reason: reason.slice(0, 500) })
@@ -348,7 +401,12 @@ export async function deleteSession(sessionId: string): Promise<void> {
     for (const s of (clip.stills ?? []) as StillInfo[]) paths.push(s.path);
   }
   if (paths.length > 0) {
-    await supabase.storage.from(SWING_BUCKET).remove(paths);
+    const { error: storageError } = await supabase.storage
+      .from(SWING_BUCKET)
+      .remove(paths);
+    if (storageError) {
+      throw new Error(`Couldn't delete session media: ${storageError.message}`);
+    }
   }
   const { error } = await supabase
     .from("swing_sessions")
@@ -407,18 +465,36 @@ export async function voidAssessment(assessmentId: string): Promise<void> {
     .eq("status", "complete");
   if (error) throw new Error(`Couldn't void assessment: ${error.message}`);
 
+  // Cascade: voiding the live assessment also voids the same session's
+  // superseded history — otherwise a superseded row would keep the session
+  // looking "assessed" and block the draft reset below.
+  const { error: cascadeError } = await supabase
+    .from("swing_assessments")
+    .update({ status: "voided" })
+    .eq("session_id", assessment.session_id)
+    .eq("status", "superseded");
+  if (cascadeError) {
+    throw new Error(`Couldn't void superseded assessments: ${cascadeError.message}`);
+  }
+
   // A session whose only assessments are voided is analyzable (and
   // reassignable) again — wrong-kid recovery composes with reassign even
   // after analysis ran.
-  const { data: live } = await supabase
+  const { data: live, error: liveError } = await supabase
     .from("swing_assessments")
     .select("id")
     .eq("session_id", assessment.session_id)
     .in("status", ["complete", "generating", "superseded"]);
+  if (liveError) {
+    throw new Error(`Couldn't check live assessments: ${liveError.message}`);
+  }
   if ((live ?? []).length === 0) {
-    await supabase
+    const { error: resetError } = await supabase
       .from("swing_sessions")
       .update({ status: "draft" })
       .eq("id", assessment.session_id);
+    if (resetError) {
+      throw new Error(`Couldn't reset session to draft: ${resetError.message}`);
+    }
   }
 }

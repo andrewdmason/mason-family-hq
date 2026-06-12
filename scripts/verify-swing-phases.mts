@@ -96,6 +96,41 @@ console.log("Wrist dropout mid-swing (interpolation bridges):");
   }
 }
 
+console.log("Dense gate: low pose confidence (>30% of frames at 0.3):");
+{
+  const clean = conditionSeries(generateSwing(), 120);
+  const detection = detectPhases(clean);
+  check("clean detection available for gate window", detection !== null);
+  const degraded = generateSwing().map((f, i) =>
+    i % 3 !== 0 ? { ...f, poseConfidence: 0.3 } : f
+  );
+  const gate = denseGate(degraded, detection?.events.launch, detection?.events.contact);
+  check(
+    "rejects low_pose_confidence",
+    !gate.ok && gate.code === "low_pose_confidence",
+    gate.code
+  );
+}
+
+console.log("Dense gate: wrists untrackable through launch→contact:");
+{
+  const conditioned = conditionSeries(generateSwing(), 120);
+  const detection = detectPhases(conditioned);
+  check("clean detection available for gate window", detection !== null);
+  if (detection) {
+    const e = detection.events;
+    // Raw frames, NO interpolation bridging — the gate must see the dropout
+    // (visibility 0.2 < the 0.45 wrist floor through the whole window).
+    const raw = withWristDropout(generateSwing(), e.launch!, e.contact!);
+    const gate = denseGate(raw, e.launch, e.contact);
+    check(
+      "rejects low_wrist_confidence",
+      !gate.ok && gate.code === "low_wrist_confidence",
+      gate.code
+    );
+  }
+}
+
 console.log("No-swing clip (kid walks through frame):");
 {
   const frames = conditionSeries(generateWalking(), 30);
@@ -160,6 +195,10 @@ console.log("Plausibility unit checks:");
   check(
     "missing contact fails",
     !plausible({ stance: 0, plant: 1400, launch: 1500, finish: 2000 })
+  );
+  check(
+    "load after plant fails",
+    !plausible({ stance: 0, load: 1450, plant: 1400, launch: 1500, contact: 1650, finish: 2000 })
   );
 }
 

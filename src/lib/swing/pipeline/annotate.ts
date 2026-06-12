@@ -12,24 +12,9 @@
 import type { StillInfo, SwingMetrics, SwingPhase } from "@/lib/swing/types";
 import { LM, type KeypointFrame } from "./pose";
 import type { PhaseDetection } from "./phases";
+import { BONES } from "./skeleton";
 
 const MAX_STILL_HEIGHT = 720;
-
-/** Skeleton bones (subset of MediaPipe pose connections that reads clearly). */
-const BONES: [number, number][] = [
-  [LM.leftShoulder, LM.rightShoulder],
-  [LM.leftShoulder, LM.leftElbow],
-  [LM.leftElbow, LM.leftWrist],
-  [LM.rightShoulder, LM.rightElbow],
-  [LM.rightElbow, LM.rightWrist],
-  [LM.leftShoulder, LM.leftHip],
-  [LM.rightShoulder, LM.rightHip],
-  [LM.leftHip, LM.rightHip],
-  [LM.leftHip, LM.leftKnee],
-  [LM.leftKnee, LM.leftAnkle],
-  [LM.rightHip, LM.rightKnee],
-  [LM.rightKnee, LM.rightAnkle],
-];
 
 export interface StillEncoding {
   contentType: "image/webp" | "image/jpeg";

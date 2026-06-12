@@ -132,6 +132,10 @@ CREATE TABLE swing_assessments (
 );
 
 CREATE INDEX idx_swing_assessments_player ON swing_assessments (player_id, created_at DESC);
+-- Partial index for the hot "current focus" path: roster/player pages only
+-- ever read complete assessments newest-first.
+CREATE INDEX idx_swing_assessments_player_complete ON swing_assessments (player_id, created_at DESC)
+  WHERE status = 'complete';
 CREATE INDEX idx_swing_assessments_session ON swing_assessments (session_id);
 
 CREATE TABLE swing_focus_areas (

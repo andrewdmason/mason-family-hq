@@ -107,7 +107,9 @@ export async function getRosterFocusSummaries(
     .select("id, player_id, created_at")
     .in("player_id", playerIds)
     .eq("status", "complete")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    // Safety bound — only the newest row per player is used below.
+    .limit(playerIds.length * 10);
   const latestByPlayer = new Map<string, string>();
   for (const row of assessments ?? []) {
     if (!latestByPlayer.has(row.player_id)) latestByPlayer.set(row.player_id, row.id);

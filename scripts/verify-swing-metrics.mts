@@ -5,7 +5,7 @@ import { detectPhases } from "../src/lib/swing/pipeline/phases";
 import { computeMetrics } from "../src/lib/swing/pipeline/metrics";
 import { conditionSeries } from "../src/lib/swing/pipeline/smoothing";
 import { LM } from "../src/lib/swing/pipeline/pose";
-import { generateSwing } from "./fixtures/swing-synthetic";
+import { FIXTURE_EVENTS, generateSwing } from "./fixtures/swing-synthetic";
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = "") {
@@ -44,6 +44,32 @@ const clean = metricsFor(generateSwing());
   );
   check("weight_transfer non-negative (moves toward pitcher)", (m.weight_transfer?.value ?? -1) >= 0);
   check("front_knee_angle present", m.front_knee_angle_contact !== undefined);
+  check(
+    "back_elbow_slot present and in sane band (−0.5…0.5)",
+    m.back_elbow_slot !== undefined &&
+      m.back_elbow_slot.value > -0.5 &&
+      m.back_elbow_slot.value < 0.5,
+    `${m.back_elbow_slot?.value.toFixed(3)}`
+  );
+  check(
+    "hip_shoulder_timing present or cleanly absent (never NaN)",
+    m.hip_shoulder_timing === undefined || Number.isFinite(m.hip_shoulder_timing.value),
+    `${m.hip_shoulder_timing?.value}`
+  );
+  if (m.load_duration !== undefined) {
+    check(
+      "load_duration within ±150ms of fixture delta",
+      Math.abs(m.load_duration.value - (FIXTURE_EVENTS.plant - FIXTURE_EVENTS.load)) <= 150,
+      `${m.load_duration.value}`
+    );
+  }
+  if (m.stride_duration !== undefined) {
+    check(
+      "stride_duration within ±150ms of fixture delta",
+      Math.abs(m.stride_duration.value - (FIXTURE_EVENTS.launch - FIXTURE_EVENTS.plant)) <= 150,
+      `${m.stride_duration.value}`
+    );
+  }
   check("no NaN anywhere", Object.values(m).every((v) => Number.isFinite(v.value)));
   check(
     "trunk metrics graded high confidence",

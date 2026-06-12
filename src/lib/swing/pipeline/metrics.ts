@@ -11,8 +11,8 @@
 
 import type { MetricConfidence, MetricKey, MetricValue, SwingMetrics } from "@/lib/swing/types";
 import { LM, type KeypointFrame } from "./pose";
-import type { PhaseDetection } from "./phases";
-import { midpoint } from "./smoothing";
+import { PHASE_TUNING, type PhaseDetection } from "./phases";
+import { midpoint, nearestFrame } from "./smoothing";
 
 export function computeMetrics(
   frames: KeypointFrame[],
@@ -171,19 +171,8 @@ export function computeMetrics(
 /* --------------------------------------------------------------- helpers - */
 
 function frameAt(frames: KeypointFrame[]) {
-  return (timestampMs: number | undefined): KeypointFrame | null => {
-    if (timestampMs === undefined) return null;
-    let best: KeypointFrame | null = null;
-    let bestDist = Infinity;
-    for (const f of frames) {
-      const d = Math.abs(f.timestampMs - timestampMs);
-      if (d < bestDist) {
-        bestDist = d;
-        best = f;
-      }
-    }
-    return best;
-  };
+  return (timestampMs: number | undefined): KeypointFrame | null =>
+    timestampMs === undefined ? null : nearestFrame(frames, timestampMs);
 }
 
 /** Spine angle vs vertical, degrees: hip-mid → shoulder-mid lean. */
@@ -243,7 +232,7 @@ function rotationOnsetMs(
     const dt = (frames[i].timestampMs - frames[i - 1].timestampMs) / 1000;
     if (dt <= 0) continue;
     const rate = Math.abs(widths[i] - widths[i - 1]) / heightNorm / dt;
-    if (rate > 0.5) return t;
+    if (rate > PHASE_TUNING.rotationOnsetRateThreshold) return t;
   }
   return null;
 }

@@ -29,6 +29,8 @@ export const PHASE_TUNING = {
   /** Plausible launch→contact duration band, ms (youth swings are slower). */
   minLaunchToContactMs: 40,
   maxLaunchToContactMs: 450,
+  /** Segment x-width change rate (heights/sec) marking rotation onset. */
+  rotationOnsetRateThreshold: 0.5,
 } as const;
 
 export interface SwingWindow {

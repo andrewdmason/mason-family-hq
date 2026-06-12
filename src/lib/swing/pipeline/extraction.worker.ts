@@ -11,9 +11,17 @@
 //                  as transferable ArrayBuffers + keypoints JSON }
 //               { type: "error",    jobId, message }   (unexpected failures)
 
+import type { Bats, SwingEvents, SwingMetrics, SwingPhase } from "@/lib/swing/types";
 import { openClip } from "./decode";
-import { extractClip } from "./extract";
-import { createLandmarker, type PoseDelegate, type PoseModel } from "./pose";
+import { extractClip, type ExtractionBenchmark, type ExtractionProgress } from "./extract";
+import type { ClipProbe } from "./frame-source";
+import {
+  createLandmarker,
+  type KeypointFrame,
+  type PoseDelegate,
+  type PoseModel,
+} from "./pose";
+import type { RejectionCode } from "./quality";
 
 export interface ExtractRequest {
   type: "extract";
@@ -24,11 +32,44 @@ export interface ExtractRequest {
 }
 
 interface StillPayload {
-  phase: string;
+  phase: SwingPhase;
   contentType: string;
   annotations: string[];
   bytes: ArrayBuffer;
 }
+
+/** Everything this worker actually posts — the host switches on these. */
+export type WorkerOutMessage =
+  | { type: "probe"; jobId: string; probe: ClipProbe }
+  | ({ type: "progress"; jobId: string } & ExtractionProgress)
+  | { type: "result"; jobId: string; ok: false; needsFallback: true }
+  | {
+      type: "result";
+      jobId: string;
+      ok: false;
+      needsFallback?: undefined;
+      rejectionCode: RejectionCode;
+      rejectionMessage: string;
+      warnings: string[];
+      benchmark: ExtractionBenchmark;
+      delegate: PoseDelegate;
+    }
+  | {
+      type: "result";
+      jobId: string;
+      ok: true;
+      needsFallback?: undefined;
+      events: SwingEvents;
+      metrics: SwingMetrics;
+      detectedBats: Bats;
+      heightNorm: number;
+      keypoints: KeypointFrame[];
+      warnings: string[];
+      benchmark: ExtractionBenchmark;
+      delegate: PoseDelegate;
+      stills: StillPayload[];
+    }
+  | { type: "error"; jobId: string; message: string };
 
 self.onmessage = async (event: MessageEvent<ExtractRequest>) => {
   const msg = event.data;

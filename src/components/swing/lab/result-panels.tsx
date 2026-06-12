@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { AlertTriangle, Download, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -168,20 +168,24 @@ export function OkResultPanels({
     [result.metrics]
   );
 
-  // Object URLs for the transferred still bytes; revoked on unmount/change.
-  const stillUrls = useMemo(
-    () =>
-      result.stills.map((s) => ({
-        phase: s.phase,
-        annotations: s.annotations,
-        url: URL.createObjectURL(new Blob([s.bytes], { type: s.contentType })),
-      })),
-    [result.stills]
-  );
-  useEffect(
-    () => () => stillUrls.forEach((u) => URL.revokeObjectURL(u.url)),
-    [stillUrls]
-  );
+  // Object URLs for the transferred still bytes. Creation and revocation live
+  // in ONE effect so each set of URLs is revoked by its own cleanup (a memo
+  // recompute would otherwise leak URLs the separate effect never saw).
+  const [stillUrls, setStillUrls] = useState<
+    { phase: OkResult["stills"][number]["phase"]; annotations: string[]; url: string }[]
+  >([]);
+  useEffect(() => {
+    const urls = result.stills.map((s) => ({
+      phase: s.phase,
+      annotations: s.annotations,
+      url: URL.createObjectURL(new Blob([s.bytes], { type: s.contentType })),
+    }));
+    // URL creation is an external-system side effect that must pair with the
+    // revoking cleanup below; the setState just mirrors it into render state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setStillUrls(urls);
+    return () => urls.forEach((u) => URL.revokeObjectURL(u.url));
+  }, [result.stills]);
 
   function downloadKeypoints() {
     // These JSONs become the fixtures for the U5/U6 verify scripts.

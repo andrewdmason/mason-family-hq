@@ -110,7 +110,10 @@ export async function runAssessment(
   if (insertError || !inserted) {
     throw new AssessmentError(`Couldn't start assessment: ${insertError?.message}`, false);
   }
-  const assessmentId = inserted.id as string;
+  if (typeof inserted.id !== "string") {
+    throw new AssessmentError("Unexpected id type", false);
+  }
+  const assessmentId = inserted.id;
 
   try {
     const output = await callModel({
@@ -137,7 +140,13 @@ export async function runAssessment(
       drills: fa.drills,
       tell: fa.tell,
       evidence_stills: fa.evidence_stills.map((s) => {
-        const info = stills.find((st) => st.path === s.path)!;
+        const info = stills.find((st) => st.path === s.path);
+        if (!info) {
+          throw new AssessmentError(
+            "evidence still path not found after validation",
+            false
+          );
+        }
         return {
           path: s.path,
           phase: info.phase,
@@ -188,11 +197,27 @@ export async function runAssessment(
     return { assessmentId };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Assessment generation failed";
-    await supabase
+    // Orphan cleanup: focus areas may have landed before a later step failed —
+    // delete them so the failed parent leaves no half-written children behind.
+    const { error: faCleanupError } = await supabase
+      .from("swing_focus_areas")
+      .delete()
+      .eq("assessment_id", assessmentId);
+    if (faCleanupError) {
+      console.error(
+        `Failed to clean up focus areas for assessment ${assessmentId}: ${faCleanupError.message}`
+      );
+    }
+    const { error: failError } = await supabase
       .from("swing_assessments")
       .update({ status: "analysis_failed", error: message })
       .eq("id", assessmentId)
       .eq("status", "generating");
+    if (failError) {
+      console.error(
+        `Failed to mark assessment ${assessmentId} analysis_failed: ${failError.message}`
+      );
+    }
     throw error;
   }
 }
@@ -228,34 +253,37 @@ async function callModel(input: {
   validStillPaths: Set<string>;
 }): Promise<AssessmentToolOutput> {
   const client = anthropic();
-  const message = await client.messages.create({
-    model: SWING_MODEL,
-    max_tokens: 4000,
-    system: buildSystemPrompt(),
-    tools: [
-      {
-        ...ASSESSMENT_TOOL,
-        // Strict tool use: schema-enforced output shrinks the defensive-parse
-        // surface for a schema far deeper than other forced-tool calls here.
-        strict: true,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any,
-    ],
-    tool_choice: { type: "tool", name: ASSESSMENT_TOOL.name },
-    messages: [
-      {
-        role: "user",
-        content: buildUserPrompt({
-          player: input.player,
-          aggregates: input.aggregates,
-          priors: input.priors,
-          library: DRILL_LIBRARY,
-          stills: input.stills,
-          sessionDate: input.sessionDate,
-        }),
-      },
-    ],
-  });
+  const message = await client.messages.create(
+    {
+      model: SWING_MODEL,
+      max_tokens: 4000,
+      system: buildSystemPrompt(),
+      tools: [
+        {
+          ...ASSESSMENT_TOOL,
+          // Strict tool use: schema-enforced output shrinks the defensive-parse
+          // surface for a schema far deeper than other forced-tool calls here.
+          strict: true,
+        } as typeof ASSESSMENT_TOOL & { strict: boolean },
+      ],
+      tool_choice: { type: "tool", name: ASSESSMENT_TOOL.name },
+      messages: [
+        {
+          role: "user",
+          content: buildUserPrompt({
+            player: input.player,
+            aggregates: input.aggregates,
+            priors: input.priors,
+            library: DRILL_LIBRARY,
+            stills: input.stills,
+            sessionDate: input.sessionDate,
+          }),
+        },
+      ],
+    },
+    // Must fail before Vercel's maxDuration 300s hard kill (SDK default 10min).
+    { timeout: 250_000 }
+  );
 
   const toolUse = message.content.find((b) => b.type === "tool_use");
   if (!toolUse || toolUse.type !== "tool_use") {

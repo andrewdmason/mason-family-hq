@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { createSession } from "@/app/(swing)/swing/actions";
 
 /**
- * "New session" CTA: creates the session row immediately (filmed_on defaults
- * to today server-side, editable on the session page) and navigates straight
- * there — no intermediate form.
+ * "New session" CTA: creates the session row immediately (filmed_on is the
+ * client's local date — the server's CURRENT_DATE is UTC and would be
+ * tomorrow for evening sessions; editable on the session page) and navigates
+ * straight there — no intermediate form.
  */
 export function NewSessionButton({
   playerId,
@@ -28,7 +29,11 @@ export function NewSessionButton({
     setPending(true);
     setError(null);
     try {
-      const sessionId = await createSession(playerId);
+      // en-CA formats as YYYY-MM-DD in the user's local timezone.
+      const sessionId = await createSession(
+        playerId,
+        new Date().toLocaleDateString("en-CA")
+      );
       router.push(`/swing/players/${playerId}/sessions/${sessionId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't create session");

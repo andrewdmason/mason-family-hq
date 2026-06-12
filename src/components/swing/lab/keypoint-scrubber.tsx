@@ -2,24 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeypointFrame } from "@/lib/swing/pipeline/pose";
+import { BONES } from "@/lib/swing/pipeline/skeleton";
 import type { SwingEvents } from "@/lib/swing/types";
 import { LAB_LM } from "./lab-types";
-
-/** Bones to draw: shoulders/elbows/wrists/hips/knees/ankles. */
-const BONES: [number, number][] = [
-  [LAB_LM.leftShoulder, LAB_LM.rightShoulder],
-  [LAB_LM.leftShoulder, LAB_LM.leftElbow],
-  [LAB_LM.leftElbow, LAB_LM.leftWrist],
-  [LAB_LM.rightShoulder, LAB_LM.rightElbow],
-  [LAB_LM.rightElbow, LAB_LM.rightWrist],
-  [LAB_LM.leftShoulder, LAB_LM.leftHip],
-  [LAB_LM.rightShoulder, LAB_LM.rightHip],
-  [LAB_LM.leftHip, LAB_LM.rightHip],
-  [LAB_LM.leftHip, LAB_LM.leftKnee],
-  [LAB_LM.leftKnee, LAB_LM.leftAnkle],
-  [LAB_LM.rightHip, LAB_LM.rightKnee],
-  [LAB_LM.rightKnee, LAB_LM.rightAnkle],
-];
 
 const JOINTS: number[] = [...new Set(BONES.flat())];
 const CANVAS_WIDTH = 480;

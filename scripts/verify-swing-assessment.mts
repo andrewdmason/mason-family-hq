@@ -15,6 +15,12 @@ import {
   type AssessmentToolOutput,
 } from "../src/lib/swing/assessment/schema";
 import { DRILL_LIBRARY } from "../src/lib/swing/library/drills";
+import {
+  sanitizeAnnotations,
+  sanitizeBats,
+  sanitizeEvents,
+  sanitizeMetrics,
+} from "../src/lib/swing/sanitize";
 import type { SwingMetrics } from "../src/lib/swing/types";
 
 let failures = 0;
@@ -203,6 +209,56 @@ console.log("Output validation (all-or-nothing):");
   const badContinuity = structuredClone(good);
   badContinuity.focus_areas[0].continues_prior_focus_area_id = "not-a-real-id";
   check("bogus continuity link → rejected", !validateAssessmentOutput(badContinuity, ctx).ok);
+}
+
+console.log("Sanitize (server-side shape validation):");
+{
+  const valid = sanitizeMetrics({
+    head_drift: { value: 0.05, confidence: "high", unit: "norm" },
+  });
+  check(
+    "valid metric passes through",
+    valid.head_drift?.value === 0.05 &&
+      valid.head_drift.confidence === "high" &&
+      valid.head_drift.unit === "norm"
+  );
+  check(
+    "unknown metric key dropped",
+    Object.keys(
+      sanitizeMetrics({ bat_speed: { value: 1, confidence: "high", unit: "ms" } })
+    ).length === 0
+  );
+  check(
+    "NaN value dropped",
+    Object.keys(
+      sanitizeMetrics({ head_drift: { value: NaN, confidence: "high", unit: "norm" } })
+    ).length === 0
+  );
+  check(
+    "bad confidence dropped",
+    Object.keys(
+      sanitizeMetrics({ head_drift: { value: 0.05, confidence: "certain", unit: "norm" } })
+    ).length === 0
+  );
+  check("non-object metrics → {}", Object.keys(sanitizeMetrics("nope")).length === 0);
+
+  const events = sanitizeEvents({ contact: 1650, warmup: 100, plant: -5 });
+  check(
+    "valid event kept; unknown phase and negative time dropped",
+    events.contact === 1650 && Object.keys(events).length === 1
+  );
+
+  check("bats L/R pass", sanitizeBats("L") === "L" && sanitizeBats("R") === "R");
+  check("bats junk → null", sanitizeBats("S") === null && sanitizeBats(7) === null);
+
+  const annotations = sanitizeAnnotations(
+    Array.from({ length: 20 }, () => "a".repeat(100))
+  );
+  check(
+    "annotations truncated to 12 items of ≤60 chars",
+    annotations.length === 12 && annotations.every((a) => a.length === 60)
+  );
+  check("non-array annotations → []", sanitizeAnnotations("x").length === 0);
 }
 
 if (process.env.SWING_VERIFY_LIVE === "1") {

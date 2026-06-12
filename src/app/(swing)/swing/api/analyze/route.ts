@@ -45,9 +45,10 @@ export async function POST(request: Request) {
   }
 
   if (sessionRow.status === "analyzing") {
-    /* Stuck-`analyzing` escape: if the newest assessment is a stale
-     * `generating` orphan, reap it and proceed as a fresh run — surfaced to
-     * the coach as the same Retry button, no special state. */
+    /* Stuck-`analyzing` reconciliation: figure out what the newest assessment
+     * actually says happened, then either bounce (a real run is in flight),
+     * reap a stale orphan, or repair a session flag the dead handler never
+     * got to flip. Repaired sessions fall through to the CAS claim below. */
     const { data: newest } = await supabase
       .from("swing_assessments")
       .select("id, status, created_at")
@@ -55,20 +56,45 @@ export async function POST(request: Request) {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    const stale =
-      newest?.status === "generating" &&
-      Date.now() - new Date(newest.created_at).getTime() > STALE_GENERATING_MS;
-    if (!stale) {
+    if (newest?.status === "generating") {
+      const stale =
+        Date.now() - new Date(newest.created_at).getTime() > STALE_GENERATING_MS;
+      if (!stale) {
+        return NextResponse.json(
+          { error: "Analysis is already running for this session" },
+          { status: 409 }
+        );
+      }
+      // Reap the orphan: fail it, clean up any focus areas it half-wrote,
+      // and reset the session so the CAS claim can take over.
+      await supabase
+        .from("swing_assessments")
+        .update({ status: "analysis_failed", error: "Timed out — taken over by retry" })
+        .eq("id", newest.id)
+        .eq("status", "generating");
+      await supabase.from("swing_focus_areas").delete().eq("assessment_id", newest.id);
+      await supabase
+        .from("swing_sessions")
+        .update({ status: "analysis_failed" })
+        .eq("id", sessionId);
+    } else if (newest?.status === "complete") {
+      // Handler died after the assessment landed but before the session flip.
+      await supabase
+        .from("swing_sessions")
+        .update({ status: "complete" })
+        .eq("id", sessionId);
       return NextResponse.json(
-        { error: "Analysis is already running for this session" },
+        { error: "Session already has an assessment — use regenerate" },
         { status: 409 }
       );
+    } else {
+      // Missing or terminal-failed (analysis_failed/superseded/voided): the
+      // session flag is stale — mark it failed and retry via the CAS claim.
+      await supabase
+        .from("swing_sessions")
+        .update({ status: "analysis_failed" })
+        .eq("id", sessionId);
     }
-    await supabase
-      .from("swing_assessments")
-      .update({ status: "analysis_failed", error: "Timed out — taken over by retry" })
-      .eq("id", newest!.id)
-      .eq("status", "generating");
   } else if (sessionRow.status === "complete") {
     if (mode !== "regenerate") {
       return NextResponse.json(
@@ -76,17 +102,25 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
-  } else if (sessionRow.status !== "draft" && sessionRow.status !== "analysis_failed") {
-    return NextResponse.json({ error: "Session isn't ready to analyze" }, { status: 409 });
   }
 
   const regenerate = sessionRow.status === "complete" && mode === "regenerate";
 
   if (!regenerate) {
-    await supabase
+    // Compare-and-set: only one caller wins the draft/analysis_failed →
+    // analyzing flip; concurrent requests see zero rows and bounce.
+    const { data: claimed } = await supabase
       .from("swing_sessions")
       .update({ status: "analyzing", error: null })
-      .eq("id", sessionId);
+      .eq("id", sessionId)
+      .in("status", ["draft", "analysis_failed"])
+      .select("id");
+    if ((claimed ?? []).length === 0) {
+      return NextResponse.json(
+        { error: "Analysis is already running" },
+        { status: 409 }
+      );
+    }
   }
 
   try {
@@ -103,10 +137,15 @@ export async function POST(request: Request) {
       error instanceof Error ? error.message : "Assessment generation failed";
     const status = error instanceof AssessmentError && error.isUserError ? 422 : 500;
     if (!regenerate) {
-      await supabase
+      const { error: statusError } = await supabase
         .from("swing_sessions")
         .update({ status: "analysis_failed", error: message })
         .eq("id", sessionId);
+      if (statusError) {
+        console.error(
+          `Failed to mark session ${sessionId} analysis_failed: ${statusError.message}`
+        );
+      }
     }
     return NextResponse.json({ error: message }, { status });
   }

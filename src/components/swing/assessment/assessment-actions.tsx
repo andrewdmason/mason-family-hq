@@ -4,7 +4,7 @@
 // for `complete` assessments (the view enforces that) — failed runs retry
 // from the session page, and voided/superseded snapshots are immutable.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Ban, Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,10 +23,15 @@ export function AssessmentActions({
 }) {
   const router = useRouter();
   const [regenerating, setRegenerating] = useState(false);
+  const regeneratingRef = useRef(false);
   const [voiding, setVoiding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function regenerate() {
+    // Synchronous ref guard: React state is async, so a double-click could
+    // fire two POSTs before `regenerating` re-renders the button disabled.
+    if (regeneratingRef.current) return;
+    regeneratingRef.current = true;
     setRegenerating(true);
     setError(null);
     try {
@@ -47,6 +52,7 @@ export function AssessmentActions({
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't regenerate");
+      regeneratingRef.current = false;
       setRegenerating(false);
     }
   }

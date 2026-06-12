@@ -24,11 +24,17 @@ export default async function SessionPage({
   if (!player || !session || session.playerId !== player.id) notFound();
 
   // The session's latest assessment drives the post-analyze states (wait
-  // spinner → redirect on complete, retry CTA on failure).
-  const { data: assessmentRow } = await supabase
+  // spinner → redirect on complete, retry CTA on failure). For a complete
+  // session, pick the newest COMPLETE assessment — a failed regenerate may
+  // be the newest row, and "Assessment ready" must never link to it.
+  let assessmentQuery = supabase
     .from("swing_assessments")
     .select("id, status")
-    .eq("session_id", sessionId)
+    .eq("session_id", sessionId);
+  if (session.status === "complete") {
+    assessmentQuery = assessmentQuery.eq("status", "complete");
+  }
+  const { data: assessmentRow } = await assessmentQuery
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();

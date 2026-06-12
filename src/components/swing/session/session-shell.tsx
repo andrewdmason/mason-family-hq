@@ -80,11 +80,24 @@ export function SessionShell({
   const [jobs, setJobs] = useState<Job[]>([]);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const analyzingRef = useRef(false);
   const processing = useRef(false);
-  const knownHashes = useRef(new Set(initialClips.map((c) => c.contentHash)));
+  // Only terminal clips are duplicates — pending/extracting rows must stay
+  // re-addable (re-adding the same file is the documented resume path).
+  const knownHashes = useRef(
+    new Set(
+      initialClips
+        .filter((c) => c.status === "ok" || c.status === "rejected")
+        .map((c) => c.contentHash)
+    )
+  );
 
   const okClips = initialClips.filter((c) => c.status === "ok");
   const ready = okClips.length >= MIN_USABLE_CLIPS;
+
+  const busy = jobs.some((j) =>
+    ["queued", "fingerprinting", "extracting", "uploading"].includes(j.status.kind)
+  );
 
   /* ------------------------------------------------ analyzing wait state - */
   useEffect(() => {
@@ -94,15 +107,13 @@ export function SessionShell({
   }, [session.status, router]);
 
   useEffect(() => {
+    if (busy) return; // don't yank the page away while clips are in flight
     if (session.status === "complete" && latestAssessment?.status === "complete") {
       router.replace(`/swing/assessments/${latestAssessment.id}`);
     }
-  }, [session.status, latestAssessment, router]);
+  }, [session.status, latestAssessment?.id, latestAssessment?.status, busy, router]);
 
   /* --------------------------------------------------------- wake lock --- */
-  const busy = jobs.some((j) =>
-    ["queued", "fingerprinting", "extracting", "uploading"].includes(j.status.kind)
-  );
   useEffect(() => {
     if (!busy || !("wakeLock" in navigator)) return;
     let lock: WakeLockSentinel | null = null;
@@ -246,6 +257,10 @@ export function SessionShell({
   // OOMs phones; serial keeps progress legible. pendingRef is the queue;
   // state is just the render mirror.
   const pendingRef = useRef<Job[]>([]);
+  // Ref-indirection so the long-lived pump loop always calls the latest
+  // processJob (a stale closure would pin old session/router references).
+  const processJobRef = useRef(processJob);
+  processJobRef.current = processJob;
   const pump = useCallback(async () => {
     if (processing.current) return;
     processing.current = true;
@@ -254,7 +269,7 @@ export function SessionShell({
         const next = pendingRef.current.shift();
         if (!next) break;
         try {
-          await processJob(next);
+          await processJobRef.current(next);
         } catch (error) {
           updateJob(next.id, {
             status: {
@@ -268,7 +283,7 @@ export function SessionShell({
     } finally {
       processing.current = false;
     }
-  }, [processJob, updateJob]);
+  }, [updateJob]);
 
   const addFiles = useCallback(
     (files: FileList | File[]) => {
@@ -329,13 +344,22 @@ export function SessionShell({
   }, [okClips]);
 
   async function startAnalyze() {
+    // Synchronous ref guard: React state is async, so a double-click could
+    // fire two POSTs before `analyzing` re-renders the button disabled.
+    if (analyzingRef.current || busy) return;
+    analyzingRef.current = true;
     setAnalyzing(true);
     setAnalyzeError(null);
+    // The route can legitimately run for minutes (maxDuration 300s) — give it
+    // a little headroom, then stop waiting client-side.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 330_000);
     try {
       const res = await fetch("/swing/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId: session.id }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
@@ -343,8 +367,16 @@ export function SessionShell({
       }
       router.refresh();
     } catch (error) {
-      setAnalyzeError(error instanceof Error ? error.message : "Couldn't start analysis");
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setAnalyzeError(
+          "Analysis is running on the server — check back in a minute."
+        );
+      } else {
+        setAnalyzeError(error instanceof Error ? error.message : "Couldn't start analysis");
+      }
     } finally {
+      clearTimeout(timeout);
+      analyzingRef.current = false;
       setAnalyzing(false);
     }
   }
@@ -405,9 +437,9 @@ export function SessionShell({
             className="rounded border border-input bg-transparent px-1.5 py-0.5 text-sm"
             onChange={(e) => {
               if (e.target.value) {
-                updateSessionFilmedOn(session.id, e.target.value).then(() =>
-                  router.refresh()
-                );
+                updateSessionFilmedOn(session.id, e.target.value)
+                  .then(() => router.refresh())
+                  .catch((err) => console.error("Couldn't update session date:", err));
               }
             }}
           />
@@ -462,9 +494,9 @@ export function SessionShell({
                     <button
                       className="underline"
                       onClick={() =>
-                        excludeClip(clip.id, "Excluded by coach — looked like a different player").then(
-                          () => router.refresh()
-                        )
+                        excludeClip(clip.id, "Excluded by coach — looked like a different player")
+                          .then(() => router.refresh())
+                          .catch((err) => console.error("Couldn't exclude clip:", err))
                       }
                     >
                       Exclude clip
@@ -512,7 +544,14 @@ export function SessionShell({
           className="self-start text-xs text-muted-foreground underline-offset-2 hover:underline"
           onClick={() => {
             if (window.confirm("Delete this session and its extracted data?")) {
-              deleteSession(session.id).then(() => router.push(`/swing/players/${player.id}`));
+              deleteSession(session.id)
+                .then(() => router.push(`/swing/players/${player.id}`))
+                .catch((err) => {
+                  console.error("Couldn't delete session:", err);
+                  window.alert(
+                    err instanceof Error ? err.message : "Couldn't delete session."
+                  );
+                });
             }
           }}
         >
