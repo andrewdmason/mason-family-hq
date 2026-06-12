@@ -412,24 +412,28 @@ export async function excludeClip(clipId: string, reason: string): Promise<void>
  */
 export async function deleteSession(sessionId: string): Promise<void> {
   const supabase = await createClient();
+  // Only a LIVE assessment blocks deletion: void first, then delete. Voided,
+  // superseded, and failed assessment rows are part of the session and go
+  // with it (FK cascade) — that's the full wrong-kid/garbage cleanup path.
   const { data: assessments } = await supabase
     .from("swing_assessments")
     .select("id, status")
     .eq("session_id", sessionId)
-    .in("status", ["complete", "superseded", "voided", "generating"]);
+    .in("status", ["complete", "generating"]);
   if ((assessments ?? []).length > 0) {
-    throw new Error("This session has an assessment — void it instead of deleting");
+    throw new Error("This session has a live assessment — void it first, then delete");
   }
 
   // Derive object paths from rows (no recursive bucket walking needed).
   const { data: clips } = await supabase
     .from("swing_clips")
-    .select("keypoints_path, stills")
+    .select("keypoints_path, stills, video")
     .eq("session_id", sessionId);
   const paths: string[] = [];
   for (const clip of clips ?? []) {
     if (clip.keypoints_path) paths.push(clip.keypoints_path);
     for (const s of (clip.stills ?? []) as StillInfo[]) paths.push(s.path);
+    if (clip.video?.path) paths.push(clip.video.path as string);
   }
   if (paths.length > 0) {
     const { error: storageError } = await supabase.storage

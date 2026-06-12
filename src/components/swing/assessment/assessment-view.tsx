@@ -9,7 +9,7 @@
 import Link from "next/link";
 import { AlertTriangle, Ban, History, RotateCcw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { AssessmentActions } from "@/components/swing/assessment/assessment-actions";
+import { AssessmentMenu } from "@/components/swing/assessment/assessment-actions";
 import { EvidencePlayer } from "@/components/swing/assessment/evidence-player";
 import { formatDateOnly, humanizeIssueKey } from "@/lib/swing/format";
 import type {
@@ -62,15 +62,16 @@ export function AssessmentView({
       {/* Voided content stays readable (it explains WHY it was voided) but is
           visually washed — it is not part of the player's record. */}
       <div className={assessment.status === "voided" ? "opacity-60" : undefined}>
-        <header className="mb-6">
-          <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-            Swing assessment
-          </p>
-          <h1 className="mt-1 font-serif text-2xl tracking-tight">
-            <Link href={`/swing/players/${player.id}`} className="hover:underline">
-              {player.name}
-            </Link>
-          </h1>
+        <header className="mb-6 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+              Swing assessment
+            </p>
+            <h1 className="mt-1 font-serif text-2xl tracking-tight">
+              <Link href={`/swing/players/${player.id}`} className="hover:underline">
+                {player.name}
+              </Link>
+            </h1>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
             {session && <span>{formatDateOnly(session.filmedOn)}</span>}
             {assessment.swingCount !== null && (
@@ -90,7 +91,15 @@ export function AssessmentView({
                 {assessment.model}
               </Badge>
             )}
+            </div>
           </div>
+          <AssessmentMenu
+            assessmentId={assessment.id}
+            sessionId={assessment.sessionId}
+            playerId={player.id}
+            playerName={player.name}
+            status={assessment.status}
+          />
         </header>
 
         {assessment.narrative && (
@@ -169,14 +178,6 @@ export function AssessmentView({
         )}
       </div>
 
-      {assessment.status === "complete" && (
-        <AssessmentActions
-          assessmentId={assessment.id}
-          sessionId={assessment.sessionId}
-          playerId={player.id}
-          playerName={player.name}
-        />
-      )}
     </main>
   );
 }
