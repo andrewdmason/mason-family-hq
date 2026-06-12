@@ -406,6 +406,10 @@ export function SessionShell({
     // a little headroom, then stop waiting client-side.
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 330_000);
+    // Flip into the server-driven analyzing state right away — the analyze
+    // fetch blocks for the whole generation (30-60s), and the status poll
+    // only engages once the refreshed session prop reports "analyzing".
+    const earlyRefresh = setTimeout(() => router.refresh(), 1200);
     try {
       const res = await fetch("/swing/api/analyze", {
         method: "POST",
@@ -428,6 +432,7 @@ export function SessionShell({
       }
     } finally {
       clearTimeout(timeout);
+      clearTimeout(earlyRefresh);
       analyzingRef.current = false;
       setAnalyzing(false);
     }

@@ -55,8 +55,9 @@ export const ASSESSMENT_TOOL = {
       },
       focus_areas: {
         type: "array",
-        minItems: 1,
-        maxItems: 2,
+        // Array bounds live here as prose: strict tool use rejects
+        // minItems/maxItems, and validateAssessmentOutput enforces them.
+        description: "1 or 2 focus areas, never more.",
         items: {
           type: "object",
           additionalProperties: false,
@@ -83,15 +84,18 @@ export const ASSESSMENT_TOOL = {
             cue: { type: "string" },
             drills: {
               type: "array",
-              minItems: 1,
-              maxItems: 2,
+              description: "1 or 2 drills, never more.",
               items: {
                 type: "object",
                 additionalProperties: false,
                 required: ["name", "steps"],
                 properties: {
                   name: { type: "string" },
-                  steps: { type: "array", items: { type: "string" }, minItems: 1 },
+                  steps: {
+                    type: "array",
+                    description: "At least one step.",
+                    items: { type: "string" },
+                  },
                   equipment: { type: "string" },
                 },
               },
@@ -99,8 +103,7 @@ export const ASSESSMENT_TOOL = {
             tell: { type: "string" },
             evidence_stills: {
               type: "array",
-              minItems: 0,
-              maxItems: 2,
+              description: "At most 2 stills per focus area.",
               items: {
                 type: "object",
                 additionalProperties: false,
