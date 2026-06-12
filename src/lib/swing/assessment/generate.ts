@@ -32,8 +32,8 @@ import {
   type PriorContext,
 } from "./prompt";
 import {
+  ASSESSMENT_OUTPUT_SCHEMA,
   ASSESSMENT_PROMPT_VERSION,
-  ASSESSMENT_TOOL,
   validateAssessmentOutput,
   type AssessmentToolOutput,
 } from "./schema";
@@ -253,20 +253,21 @@ async function callModel(input: {
   validStillPaths: Set<string>;
 }): Promise<AssessmentToolOutput> {
   const client = anthropic();
+  // Structured outputs (output_config.format), not forced tool use —
+  // claude-fable-5 rejects tool_choice forcing. The installed SDK's types
+  // predate output_config on the GA surface; the API accepts it, so the
+  // params object carries one localized cast.
   const message = await client.messages.create(
     {
       model: SWING_MODEL,
-      max_tokens: 4000,
+      max_tokens: 8000,
       system: buildSystemPrompt(),
-      tools: [
-        {
-          ...ASSESSMENT_TOOL,
-          // Strict tool use: schema-enforced output shrinks the defensive-parse
-          // surface for a schema far deeper than other forced-tool calls here.
-          strict: true,
-        } as typeof ASSESSMENT_TOOL & { strict: boolean },
-      ],
-      tool_choice: { type: "tool", name: ASSESSMENT_TOOL.name },
+      output_config: {
+        format: {
+          type: "json_schema",
+          schema: ASSESSMENT_OUTPUT_SCHEMA,
+        },
+      },
       messages: [
         {
           role: "user",
@@ -280,20 +281,30 @@ async function callModel(input: {
           }),
         },
       ],
-    },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any,
     // Must fail before Vercel's maxDuration 300s hard kill (SDK default 10min).
     { timeout: 250_000 }
   );
 
-  const toolUse = message.content.find((b) => b.type === "tool_use");
-  if (!toolUse || toolUse.type !== "tool_use") {
+  if (message.stop_reason === "refusal") {
+    throw new AssessmentError("Model refused to generate the assessment", false);
+  }
+  const textBlock = message.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
     throw new AssessmentError("Model returned no structured assessment", false);
+  }
+  let parsedOutput: unknown;
+  try {
+    parsedOutput = JSON.parse(textBlock.text);
+  } catch {
+    throw new AssessmentError("Model output was not valid JSON", false);
   }
 
   /* ALL-OR-NOTHING validation — deliberate divergence from quiz-generate's
    * fail-soft posture: a half-valid assessment is the overconfident-output
    * failure mode. Any problem → analysis_failed → retry. */
-  const result = validateAssessmentOutput(toolUse.input, {
+  const result = validateAssessmentOutput(parsedOutput, {
     validStillPaths: input.validStillPaths,
     priorFocusAreaIds: input.priorActiveIds,
     libraryKeys: new Set(DRILL_LIBRARY.map((e) => e.key)),

@@ -32,13 +32,12 @@ export interface AssessmentToolOutput {
   }[];
 }
 
-export const ASSESSMENT_TOOL = {
-  name: "deliver_assessment",
-  description:
-    "Deliver the structured coaching assessment for this player's swing session.",
-  // Kept strict-mode friendly: additionalProperties false, everything required
-  // (nullable where genuinely optional).
-  input_schema: {
+// Structured-outputs schema (output_config.format) — NOT a tool definition:
+// claude-fable-5 doesn't support forced tool_choice, and structured outputs is
+// the canonical schema-enforced path. Constraints the structured-outputs
+// subset doesn't allow (min/maxItems etc.) live as description prose and are
+// enforced by validateAssessmentOutput below.
+export const ASSESSMENT_OUTPUT_SCHEMA = {
     type: "object" as const,
     additionalProperties: false,
     required: ["narrative", "confidence_notes", "focus_areas", "parked", "progress"],
@@ -151,7 +150,6 @@ export const ASSESSMENT_TOOL = {
         },
       },
     },
-  },
 };
 
 export interface ValidationContext {

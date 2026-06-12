@@ -110,6 +110,6 @@ export function buildUserPrompt(input: {
       .join("\n")}`
   );
 
-  sections.push("Deliver the assessment now via the deliver_assessment tool.");
+  sections.push("Deliver the assessment now as JSON matching the required schema.");
   return sections.join("\n\n");
 }
