@@ -902,6 +902,13 @@ export function CalendarClient({
     });
   }
 
+  // Drill from the week chart into a specific day — its headers, date labels,
+  // and empty regions all land here.
+  function openDay(date: Date) {
+    setAnchor(new Date(date));
+    setView("day");
+  }
+
   // One period forward/back, sized to the current view (day/week/month; the
   // feed pages by a week). Shared by the header arrows and the swipe gesture.
   const anchorFor = (from: Date, dir: 1 | -1) =>
@@ -1106,8 +1113,18 @@ export function CalendarClient({
         <WeekView
           events={visibleEvents}
           anchorDate={anchorDate}
+          members={agendaMembers}
           display={display}
           onEventClick={openDetail}
+          selectedEventId={
+            panel?.kind === "event"
+              ? panel.event.id
+              : panel?.kind === "create"
+                ? "draft:new"
+                : null
+          }
+          currentMemberEmail={currentMemberEmail}
+          onDayOpen={openDay}
         />
       )}
       {view === "month" && (
@@ -1122,7 +1139,15 @@ export function CalendarClient({
   );
 
   return (
-    <div className="mx-auto w-full max-w-5xl flex-1 px-4 pb-12 sm:px-6">
+    <div
+      className={cn(
+        "mx-auto w-full flex-1 px-4 pb-12 sm:px-6",
+        // The week chart is the one view that earns a full-width window: its
+        // lanes and their adaptive titles grow with every extra pixel. The
+        // card/list views read best at column width.
+        view === "week" ? "max-w-[1800px]" : "max-w-5xl",
+      )}
+    >
       {/* The calendar's whole toolbar rides in the global header (see
           AppHeaderContent): date nav on the left; view switcher (sm+) and
           filter on the right, next to the notification bell. New event is the
