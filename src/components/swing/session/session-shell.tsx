@@ -9,11 +9,13 @@
 // means re-adding the file, which the hash upsert makes safe.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   CalendarDays,
   Check,
+  ChevronLeft,
   Film,
   Loader2,
   Plus,
@@ -457,6 +459,7 @@ export function SessionShell({
   if (session.status === "analyzing") {
     return (
       <CenteredState
+        player={player}
         icon={<Loader2 className="size-8 animate-spin text-sky-600" />}
         title="Generating assessment…"
         body="This takes about a minute. You can close this tab — the assessment finishes on the server and will be here when you come back."
@@ -466,6 +469,7 @@ export function SessionShell({
   if (session.status === "complete" && latestAssessment) {
     return (
       <CenteredState
+        player={player}
         icon={<Check className="size-8 text-green-600" />}
         title="Assessment ready"
         body=""
@@ -480,6 +484,7 @@ export function SessionShell({
   if (session.status === "analysis_failed") {
     return (
       <CenteredState
+        player={player}
         icon={<AlertTriangle className="size-8 text-amber-600" />}
         title="Analysis failed"
         body={session.error ?? "The coaching engine hit a problem. Your clips are safe — retry runs from stored data, nothing re-uploads."}
@@ -497,6 +502,7 @@ export function SessionShell({
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-6 sm:px-6">
       <header className="mb-4">
+        <BackToPlayer player={player} />
         <h1 className="font-serif text-2xl tracking-tight">
           Session — {player.name}
         </h1>
@@ -869,23 +875,40 @@ function Warning({ text }: { text: string }) {
   );
 }
 
+function BackToPlayer({ player }: { player: SwingPlayer }) {
+  return (
+    <Link
+      href={`/swing/players/${player.id}`}
+      className="-ml-1.5 mb-1 inline-flex items-center gap-0.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+    >
+      <ChevronLeft className="size-4" />
+      {player.name}
+    </Link>
+  );
+}
+
 function CenteredState({
+  player,
   icon,
   title,
   body,
   action,
 }: {
+  player: SwingPlayer;
   icon: React.ReactNode;
   title: string;
   body: string;
   action?: React.ReactNode;
 }) {
   return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-3 px-4 py-24 text-center">
-      {icon}
-      <h1 className="font-serif text-xl">{title}</h1>
-      {body && <p className="text-sm text-muted-foreground">{body}</p>}
-      {action}
+    <main className="mx-auto w-full max-w-md flex-1 px-4 py-6">
+      <BackToPlayer player={player} />
+      <div className="flex flex-col items-center gap-3 pt-20 text-center">
+        {icon}
+        <h1 className="font-serif text-xl">{title}</h1>
+        {body && <p className="text-sm text-muted-foreground">{body}</p>}
+        {action}
+      </div>
     </main>
   );
 }
