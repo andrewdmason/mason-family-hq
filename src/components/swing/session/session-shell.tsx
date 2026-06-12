@@ -334,6 +334,16 @@ export function SessionShell({
     (c) => c.status === "rejected" || c.status === "extracting" || c.status === "pending"
   );
 
+  // One card per clip: once a file has a persisted row (rows are created at
+  // signed-URL issuance), its local job state renders INSIDE that row — live
+  // progress, upload errors, retry — instead of as a duplicate card below.
+  const ACTIVE_JOB_KINDS = ["queued", "fingerprinting", "extracting", "uploading", "upload_failed"];
+  const jobByHash = new Map<string, Job>();
+  for (const job of jobs) {
+    if (job.contentHash) jobByHash.set(job.contentHash, job);
+  }
+  const persistedHashes = new Set(initialClips.map((c) => c.contentHash));
+
   const removeClip = useCallback(
     async (clip: SwingClip) => {
       try {
@@ -529,12 +539,17 @@ export function SessionShell({
       )}
       {initialClips.length > 0 && (
         <ul className="mb-4 space-y-2">
-          {initialClips.map((clip) => (
+          {initialClips.map((clip) => {
+            const job = jobByHash.get(clip.contentHash);
+            const activeJob = job && ACTIVE_JOB_KINDS.includes(job.status.kind) ? job : undefined;
+            return (
             <li
               key={clip.id}
               className="flex items-start gap-3 rounded-lg border border-border/70 bg-card px-3 py-2.5"
             >
-              {clip.status === "ok" ? (
+              {activeJob ? (
+                <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-sky-500" />
+              ) : clip.status === "ok" ? (
                 <Check className="mt-0.5 size-4 shrink-0 text-green-600" />
               ) : clip.status === "rejected" ? (
                 <X className="mt-0.5 size-4 shrink-0 text-red-500" />
@@ -555,9 +570,16 @@ export function SessionShell({
                     </Badge>
                   )}
                 </div>
-                {clip.status === "rejected" && clip.rejectionReason && (
+                {activeJob && <JobStatusBody job={activeJob} onRetryUpload={() => retryUpload(activeJob)} />}
+                {!activeJob && clip.status === "rejected" && clip.rejectionReason && (
                   <p className="mt-0.5 text-xs text-red-500/90">{clip.rejectionReason}</p>
                 )}
+                {!activeJob &&
+                  job?.warnings.map((w) => (
+                    <p key={w} className="mt-1 text-xs text-amber-600">
+                      {w}
+                    </p>
+                  ))}
                 {clip.status === "ok" && heightOutliers.has(clip.id) && (
                   <p className="mt-0.5 flex items-center gap-1.5 text-xs text-amber-600">
                     <AlertTriangle className="size-3.5" />
@@ -575,13 +597,13 @@ export function SessionShell({
                     </button>
                   </p>
                 )}
-                {clip.status === "extracting" && (
+                {!activeJob && clip.status === "extracting" && (
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     Interrupted — re-add the same file to finish it, or remove it
                   </p>
                 )}
               </div>
-              {clip.status !== "ok" && (
+              {clip.status !== "ok" && !activeJob && (
                 <button
                   className="mt-0.5 shrink-0 text-muted-foreground transition-colors hover:text-red-500"
                   title="Remove this clip — re-add the file to run it again"
@@ -591,16 +613,23 @@ export function SessionShell({
                 </button>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 
-      {/* In-flight local jobs. */}
-      {jobs.filter((j) => j.status.kind !== "done").length > 0 && (
-        <ul className="mb-4 space-y-2">
-          {jobs
-            .filter((j) => j.status.kind !== "done")
-            .map((job) => (
+      {/* Local jobs WITHOUT a persisted row yet (fresh files pre-issuance,
+          duplicates, pre-fingerprint failures). Anything with a row renders
+          inside that row above — never as a second card. */}
+      {(() => {
+        const standalone = jobs.filter(
+          (j) =>
+            j.status.kind !== "done" &&
+            !(j.contentHash && persistedHashes.has(j.contentHash))
+        );
+        return standalone.length > 0 ? (
+          <ul className="mb-4 space-y-2">
+            {standalone.map((job) => (
               <JobRow
                 key={job.id}
                 job={job}
@@ -608,8 +637,9 @@ export function SessionShell({
                 onDismiss={() => dismissJob(job)}
               />
             ))}
-        </ul>
-      )}
+          </ul>
+        ) : null;
+      })()}
 
       <AddClipsZone onFiles={addFiles} />
 
@@ -668,11 +698,7 @@ function JobRow({
         <Film className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{job.file.name}</span>
         <span className="shrink-0 text-xs text-muted-foreground">
-          {s.kind === "queued" && "Waiting…"}
-          {s.kind === "fingerprinting" && "Checking…"}
-          {s.kind === "uploading" && "Saving…"}
           {s.kind === "duplicate" && "Already added"}
-          {s.kind === "extracting" && `${stageLabel(s.stage)} ${s.done}/${s.total}`}
         </span>
         {dismissible && (
           <button
@@ -684,13 +710,34 @@ function JobRow({
           </button>
         )}
       </div>
+      <JobStatusBody job={job} onRetryUpload={onRetryUpload} />
+    </li>
+  );
+}
+
+/** A job's live status — shared between standalone job cards and the
+ * persisted clip card the job belongs to (one card per clip, always). */
+function JobStatusBody({ job, onRetryUpload }: { job: Job; onRetryUpload: () => void }) {
+  const s = job.status;
+  return (
+    <>
+      {(s.kind === "queued" || s.kind === "fingerprinting" || s.kind === "uploading") && (
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {s.kind === "queued" ? "Waiting…" : s.kind === "fingerprinting" ? "Checking…" : "Saving…"}
+        </p>
+      )}
       {s.kind === "extracting" && (
-        <div className="mt-2 h-1 overflow-hidden rounded bg-muted">
-          <div
-            className="h-full bg-sky-500 transition-[width]"
-            style={{ width: `${Math.round((s.done / Math.max(s.total, 1)) * 100)}%` }}
-          />
-        </div>
+        <>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {stageLabel(s.stage)} {s.done}/{s.total}
+          </p>
+          <div className="mt-1.5 h-1 overflow-hidden rounded bg-muted">
+            <div
+              className="h-full bg-sky-500 transition-[width]"
+              style={{ width: `${Math.round((s.done / Math.max(s.total, 1)) * 100)}%` }}
+            />
+          </div>
+        </>
       )}
       {s.kind === "rejected" && (
         <p className="mt-1 text-xs text-red-500/90">{s.message}</p>
@@ -709,7 +756,7 @@ function JobRow({
           {w}
         </p>
       ))}
-    </li>
+    </>
   );
 }
 
