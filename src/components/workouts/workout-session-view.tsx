@@ -456,12 +456,19 @@ function MovementEntry({
     entry.sets.find((s) => s.prescribed.reps != null) ?? entry.sets[0] ?? null;
 
   // A movement inside a conditioning piece is part of the recipe: its result is
-  // logged once on the block score, so its sets render as read-only prescription
-  // rather than editable inputs (no double-entry). Strength/accessory movements
-  // are logged set-by-set so their loads feed e1RM.
+  // logged once on the block score, so its sets render as a compact line rather
+  // than editable inputs (no double-entry). Scaled loads/reps are edited through
+  // the pencil dialog; the line shows what you did, keeping the Rx visible when
+  // they differ. Strength/accessory movements are logged set-by-set so their
+  // loads feed e1RM.
   const isMetcon = (entry.sets[0]?.context ?? "strength") === "metcon";
-  const prescribed = entry.sets
-    .map((s) => formatSetMetric(s.metricType, s.prescribed))
+  const metconLabels = entry.sets
+    .map((s) => {
+      const actual = formatSetMetric(s.metricType, s.actual);
+      const rx = formatSetMetric(s.metricType, s.prescribed);
+      if (actual === "—") return rx;
+      return actual === rx ? actual : `${actual} (Rx ${rx})`;
+    })
     .filter((label) => label !== "—");
 
   return (
@@ -474,6 +481,7 @@ function MovementEntry({
             sessionId={sessionId}
             movementName={name}
             initialNotes={entry.notes}
+            sets={isMetcon ? entry.sets : []}
           />
         </div>
         {!isMetcon && (
@@ -513,8 +521,8 @@ function MovementEntry({
       )}
 
       {isMetcon ? (
-        prescribed.length > 0 ? (
-          <p className="text-xs text-muted-foreground">{prescribed.join(" · ")}</p>
+        metconLabels.length > 0 ? (
+          <p className="text-xs text-muted-foreground">{metconLabels.join(" · ")}</p>
         ) : null
       ) : (
         <div className="flex flex-col gap-1.5">
