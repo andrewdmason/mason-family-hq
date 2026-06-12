@@ -75,7 +75,10 @@ export async function gzipJson(value: unknown): Promise<Blob> {
   const stream = new Blob([JSON.stringify(value)])
     .stream()
     .pipeThrough(new CompressionStream("gzip"));
-  return new Response(stream).blob();
+  // Response.blob() yields an untyped Blob; the bucket's MIME allowlist
+  // rejects the resulting application/octet-stream upload, so type it here.
+  const bytes = await new Response(stream).arrayBuffer();
+  return new Blob([bytes], { type: "application/gzip" });
 }
 
 /**

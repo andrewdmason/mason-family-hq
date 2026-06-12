@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
+  deleteClip,
   deleteSession,
   excludeClip,
   issueClipArtifactUploads,
@@ -320,6 +321,52 @@ export function SessionShell({
   );
 
   /* ------------------------------------------------------------ derived -- */
+  /* ------------------------------------------------- clearing errors ----- */
+  // Rejected and interrupted rows block re-adding the same file (their hash
+  // still occupies the session slot). Removing them frees the slot so the
+  // coach can clear errors and re-run by re-adding the files.
+  const errorClips = initialClips.filter(
+    (c) => c.status === "rejected" || c.status === "extracting" || c.status === "pending"
+  );
+
+  const removeClip = useCallback(
+    async (clip: SwingClip) => {
+      try {
+        await deleteClip(clip.id);
+        knownHashes.current.delete(clip.contentHash);
+        // Drop any finished local job for the same file so the list resets too.
+        setJobs((prev) => prev.filter((j) => j.contentHash !== clip.contentHash));
+        router.refresh();
+      } catch (error) {
+        console.error("Couldn't remove clip:", error);
+        window.alert(error instanceof Error ? error.message : "Couldn't remove clip");
+      }
+    },
+    [router]
+  );
+
+  const clearAllErrors = useCallback(async () => {
+    for (const clip of errorClips) {
+      try {
+        await deleteClip(clip.id);
+        knownHashes.current.delete(clip.contentHash);
+      } catch (error) {
+        console.error("Couldn't remove clip:", error);
+      }
+    }
+    setJobs((prev) =>
+      prev.filter(
+        (j) => !["duplicate", "rejected", "upload_failed"].includes(j.status.kind)
+      )
+    );
+    router.refresh();
+  }, [errorClips, router]);
+
+  const dismissJob = useCallback((job: Job) => {
+    if (job.contentHash) knownHashes.current.delete(job.contentHash);
+    setJobs((prev) => prev.filter((j) => j.id !== job.id));
+  }, []);
+
   const dateSpanWarning = useMemo(() => {
     const dates = initialClips
       .map((c) => c.filmedAt)
@@ -460,6 +507,16 @@ export function SessionShell({
       />
 
       {/* Persisted clips (resume view: these survive tab closes). */}
+      {errorClips.length > 1 && (
+        <div className="mb-2 flex justify-end">
+          <button
+            className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+            onClick={clearAllErrors}
+          >
+            Clear {errorClips.length} failed clips — then re-add the files to re-run
+          </button>
+        </div>
+      )}
       {initialClips.length > 0 && (
         <ul className="mb-4 space-y-2">
           {initialClips.map((clip) => (
@@ -510,10 +567,19 @@ export function SessionShell({
                 )}
                 {clip.status === "extracting" && (
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Interrupted — re-add the same file to finish it
+                    Interrupted — re-add the same file to finish it, or remove it
                   </p>
                 )}
               </div>
+              {clip.status !== "ok" && (
+                <button
+                  className="mt-0.5 shrink-0 text-muted-foreground transition-colors hover:text-red-500"
+                  title="Remove this clip — re-add the file to run it again"
+                  onClick={() => removeClip(clip)}
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              )}
             </li>
           ))}
         </ul>
@@ -525,7 +591,12 @@ export function SessionShell({
           {jobs
             .filter((j) => j.status.kind !== "done")
             .map((job) => (
-              <JobRow key={job.id} job={job} onRetryUpload={() => retryUpload(job)} />
+              <JobRow
+                key={job.id}
+                job={job}
+                onRetryUpload={() => retryUpload(job)}
+                onDismiss={() => dismissJob(job)}
+              />
             ))}
         </ul>
       )}
@@ -570,8 +641,17 @@ export function SessionShell({
 
 /* ------------------------------------------------------------ components - */
 
-function JobRow({ job, onRetryUpload }: { job: Job; onRetryUpload: () => void }) {
+function JobRow({
+  job,
+  onRetryUpload,
+  onDismiss,
+}: {
+  job: Job;
+  onRetryUpload: () => void;
+  onDismiss: () => void;
+}) {
   const s = job.status;
+  const dismissible = ["duplicate", "rejected", "upload_failed"].includes(s.kind);
   return (
     <li className="rounded-lg border border-border/70 bg-card px-3 py-2.5">
       <div className="flex items-center gap-3">
@@ -584,6 +664,15 @@ function JobRow({ job, onRetryUpload }: { job: Job; onRetryUpload: () => void })
           {s.kind === "duplicate" && "Already added"}
           {s.kind === "extracting" && `${stageLabel(s.stage)} ${s.done}/${s.total}`}
         </span>
+        {dismissible && (
+          <button
+            className="shrink-0 text-muted-foreground transition-colors hover:text-red-500"
+            title="Dismiss"
+            onClick={onDismiss}
+          >
+            <X className="size-3.5" />
+          </button>
+        )}
       </div>
       {s.kind === "extracting" && (
         <div className="mt-2 h-1 overflow-hidden rounded bg-muted">
@@ -681,8 +770,8 @@ function FilmingGuidelines() {
         <li>One swing per clip, whole body in frame the entire time</li>
         <li>Only the hitter in frame (no teammates walking through)</li>
         <li>
-          <strong>AirDrop</strong> clips to keep true slo-mo — sharing via Messages
-          flattens them to 30fps
+          <strong>AirDrop</strong> clips straight from Photos — slow-motion exports
+          come through at 30fps and are handled automatically
         </li>
         <li>5–10 swings makes the best assessment</li>
       </ul>

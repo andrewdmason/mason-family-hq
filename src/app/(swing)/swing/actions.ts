@@ -498,3 +498,45 @@ export async function voidAssessment(assessmentId: string): Promise<void> {
     }
   }
 }
+
+/**
+ * Remove a non-ok clip row (rejected / interrupted) so the coach can clear
+ * errors and re-add the file for a fresh run. Frees the (session, hash) slot;
+ * any partially-uploaded artifacts are removed first. Usable clips are
+ * excluded via excludeClip instead — they keep their row as an audit trail.
+ */
+export async function deleteClip(clipId: string): Promise<void> {
+  const supabase = await createClient();
+  const { data: clip, error: loadError } = await supabase
+    .from("swing_clips")
+    .select("id, session_id, status, keypoints_path, stills")
+    .eq("id", clipId)
+    .maybeSingle();
+  if (loadError || !clip) throw new Error("Clip not found");
+  if (clip.status === "ok") {
+    throw new Error("This clip analyzed fine — exclude it instead of deleting");
+  }
+  const { data: session } = await supabase
+    .from("swing_sessions")
+    .select("status")
+    .eq("id", clip.session_id)
+    .maybeSingle();
+  if (session?.status !== "draft") {
+    throw new Error("Clips can only be removed while the session is a draft");
+  }
+
+  const paths: string[] = [];
+  if (clip.keypoints_path) paths.push(clip.keypoints_path);
+  for (const s of (clip.stills ?? []) as StillInfo[]) paths.push(s.path);
+  if (paths.length > 0) {
+    const { error: storageError } = await supabase.storage
+      .from(SWING_BUCKET)
+      .remove(paths);
+    if (storageError) {
+      throw new Error(`Couldn't clean up clip artifacts: ${storageError.message}`);
+    }
+  }
+
+  const { error } = await supabase.from("swing_clips").delete().eq("id", clipId);
+  if (error) throw new Error(`Couldn't remove clip: ${error.message}`);
+}
