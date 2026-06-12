@@ -1,10 +1,10 @@
 "use client";
 
 // Snap-point bottom sheet on Base UI Dialog — the mobile container for the
-// event panel. Two resting heights: half (peek at the form while the calendar
-// stays visible behind) and full. A grab handle drags between them; releasing
-// animates to the nearest snap, and dragging well below half dismisses. Inputs
-// snap the sheet to full on focus so the iOS keyboard doesn't bury them.
+// event panel. Opens at full height (dragging a half-open sheet the rest of
+// the way up proved too fiddly); the grab handle can still park it at half to
+// peek at the calendar behind, and dragging well below half dismisses. Inputs
+// snap the sheet back to full on focus so the iOS keyboard doesn't bury them.
 //
 // Hand-rolled rather than a library: the codebase is Base UI end-to-end and the
 // snap controller is ~80 lines of the same imperative-transform gesture code
@@ -34,16 +34,16 @@ export function BottomSheet({
   children: React.ReactNode;
   className?: string;
 }) {
-  const [snap, setSnap] = React.useState<Snap>("half");
+  const [snap, setSnap] = React.useState<Snap>("full");
   // Live translateY during a drag; null = resting at `snap` (CSS-animated).
   const [dragY, setDragY] = React.useState<number | null>(null);
   const dragRef = React.useRef<{ startY: number; base: number } | null>(null);
   const dragYRef = React.useRef<number | null>(null);
 
-  // Every open starts at half height.
+  // Every open starts fully expanded.
   React.useEffect(() => {
     if (open) {
-      setSnap("half");
+      setSnap("full");
       setDragY(null);
       dragYRef.current = null;
       dragRef.current = null;

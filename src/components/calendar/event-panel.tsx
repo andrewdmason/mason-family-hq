@@ -166,7 +166,6 @@ function seedValues(
 
 export function EventPanelContent({
   mode,
-  container,
   members,
   sources,
   canManage,
@@ -184,7 +183,6 @@ export function EventPanelContent({
   attentionPulse,
 }: {
   mode: PanelMode;
-  container: "popover" | "sheet";
   members: CalendarMember[];
   sources: CalendarSource[];
   canManage: boolean;
@@ -376,13 +374,7 @@ export function EventPanelContent({
     !!event?.rrule;
 
   return (
-    <div
-      className={cn(
-        "flex min-h-0 flex-col",
-        container === "popover" && "max-h-[min(75vh,34rem)]",
-        container === "sheet" && "h-full",
-      )}
-    >
+    <div className="flex h-full min-h-0 flex-col">
       {/* Header row: title + delete. The title field IS the header — there's
           no mode, so there's no "Edit event" heading either. */}
       <div className="flex items-start gap-1 pt-3 pr-10 pb-1 pl-4">
