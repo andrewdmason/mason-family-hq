@@ -8,6 +8,19 @@ import {
   toDateKey,
 } from "@/lib/calendar/calendar-utils";
 import type { CalendarEvent, CalendarMember } from "@/lib/calendar/types";
+import {
+  FAMILY_COLOR,
+  FAMILY_KEY,
+  byStart,
+  driveArrowClip,
+  driveDutyOf,
+  endMin,
+  hourLabel,
+  pack,
+  startMin,
+  wash,
+  type Placed,
+} from "@/lib/calendar/grid-layout";
 import { DutyGlyphs, type EventDisplay } from "./event-card";
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import { cn } from "@/lib/utils";
@@ -25,10 +38,6 @@ const TALL = 34;
 // On the phone layout the signed-in user's column is this many times as wide as
 // the others, so it has room for event titles while the rest stay thin ticks.
 const ME_WEIGHT = 3;
-const FAMILY_KEY = "__family__";
-// Warm taupe-gray for shared/family events (the prototype's #8a8a80), so "ours"
-// reads neutral-but-warm against the cream ground rather than a cool slate.
-const FAMILY_COLOR = "#8a8a80";
 // A faint wash marking the signed-in user's own column — derived from their own
 // color (like the prototype's Andrew-blue at low alpha) so it stays warm and on
 // theme, rather than a fixed cool blue. color-mix works for hex or oklch alike.
@@ -37,31 +46,6 @@ const FAMILY_COLOR = "#8a8a80";
 // are untouched.
 const mute = (color: string) => `color-mix(in srgb, ${color} 60%, #6f6a5f)`;
 const meTint = (color: string) => `color-mix(in srgb, ${color} 7%, transparent)`;
-// A light wash of a member color — the phone's thin-column blocks. Solid fills
-// in four thin columns drowned out the me column's full-color cards, so the
-// other members' time renders as context (washed) rather than focus (solid).
-// Mixed with the page background, NOT transparent: a see-through block lets
-// grid lines bleed through and reads as tentative/unaccepted.
-const wash = (color: string) =>
-  `color-mix(in srgb, ${color} 30%, var(--background))`;
-
-// Drive blocks render as arrows, not cards: a solid block in the color of the
-// kid being driven (display() already resolves a drive block's color to its
-// source event's kid) whose pointed end is the direction of travel — rightward
-// for drop-offs (out to the event), leftward for pick-ups (back home), both
-// for a combined out-and-back. The point is cut by clip-path, so it spans the
-// block's full height and stays legible even on the shortest drives.
-const driveArrowClip = (
-  duty: "dropoff" | "pickup" | "combined",
-  depthPx: number,
-) => {
-  const p = `${depthPx}px`;
-  if (duty === "combined")
-    return `polygon(${p} 0, calc(100% - ${p}) 0, 100% 50%, calc(100% - ${p}) 100%, ${p} 100%, 0 50%)`;
-  if (duty === "pickup")
-    return `polygon(${p} 0, 100% 0, 100% 100%, ${p} 100%, 0 50%)`;
-  return `polygon(0 0, calc(100% - ${p}) 0, 100% 50%, calc(100% - ${p}) 100%, 0 100%)`;
-};
 
 // When an arrow block is too short for its full title, it falls back to just
 // the drive time — "11 min drive" — since the arrow direction and the kid
@@ -97,63 +81,6 @@ function BaseballGlyph({ className }: { className?: string }) {
     </svg>
   );
 }
-
-const localMin = (iso: string) => {
-  const d = new Date(iso);
-  return d.getHours() * 60 + d.getMinutes();
-};
-const startMin = (e: CalendarEvent) => localMin(e.start_time);
-const endMin = (e: CalendarEvent) => {
-  const s = startMin(e);
-  if (!e.end_time) return s + 30; // give a point-in-time event a visible block
-  const em = localMin(e.end_time);
-  return em <= s ? 24 * 60 : Math.max(em, s + 15); // clamp events crossing midnight
-};
-const byStart = (a: CalendarEvent, b: CalendarEvent) =>
-  a.start_time.localeCompare(b.start_time) || endMin(a) - endMin(b);
-
-type Placed = { event: CalendarEvent; lane: number; lanes: number };
-
-// Interval-partition a column's events into side-by-side lanes: chained overlaps
-// form a cluster, and within it each event takes the first lane free at its start
-// time. Every event in a cluster shares the cluster's lane count so their widths
-// line up.
-function pack(events: CalendarEvent[]): Placed[] {
-  const sorted = [...events].sort(byStart);
-  const out: Placed[] = [];
-  let cluster: { event: CalendarEvent; end: number; lane: number }[] = [];
-  let clusterEnd = -1;
-
-  const flush = () => {
-    const lanes = cluster.reduce((m, c) => Math.max(m, c.lane + 1), 0);
-    for (const c of cluster) out.push({ event: c.event, lane: c.lane, lanes });
-    cluster = [];
-    clusterEnd = -1;
-  };
-
-  for (const event of sorted) {
-    const s = startMin(event);
-    if (cluster.length && s >= clusterEnd) flush();
-    const laneEnds: number[] = [];
-    for (const c of cluster)
-      laneEnds[c.lane] = Math.max(laneEnds[c.lane] ?? -1, c.end);
-    let lane = 0;
-    while (laneEnds[lane] != null && laneEnds[lane] > s) lane++;
-    const e = endMin(event);
-    cluster.push({ event, end: e, lane });
-    clusterEnd = Math.max(clusterEnd, e);
-  }
-  flush();
-  return out;
-}
-
-const hourLabel = (h: number) => {
-  const hr = h % 24;
-  if (hr === 0) return "12a";
-  if (hr < 12) return `${hr}a`;
-  if (hr === 12) return "12p";
-  return `${hr - 12}p`;
-};
 
 // What a grid create-gesture reports up to the calendar client. `commit`
 // distinguishes the live preview during a drag (draft block only) from the
@@ -800,13 +727,7 @@ export function DayView({
     }
     const isDraft = event.id.startsWith("draft:");
     const isDrive = !!event.drive_source_event_id;
-    // The arrow's direction. A combined (out-and-back) block is stored under
-    // the dropoff duty, so it's told apart by its title.
-    const driveDuty = event.title.startsWith("Drop off + pickup")
-      ? ("combined" as const)
-      : event.drive_duty === "pickup"
-        ? ("pickup" as const)
-        : ("dropoff" as const);
+    const driveDuty = driveDutyOf(event);
     if (!full) {
       return (
         <button
