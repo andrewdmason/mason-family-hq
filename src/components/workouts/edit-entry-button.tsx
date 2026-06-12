@@ -15,23 +15,30 @@ import {
   updateEntry,
   getMovementOptions,
 } from "@/app/(workouts)/workouts/actions";
+import { SetEditor } from "@/components/workouts/set-editor";
+import type { SetView } from "@/lib/workouts/queries";
 
 type PickerMovement = { id: string; name: string; aliases: string[] };
 
 /**
  * Per-entry edit affordance: a pencil next to a movement that opens a dialog to
- * change the movement (typeahead over the whole library) or add a note.
+ * change the movement (typeahead over the whole library) or add a note. When
+ * `sets` are passed (WOD movements, whose sets have no inline editors), the
+ * dialog also lets you log what you actually did — e.g. a scaled load or fewer
+ * reps than prescribed.
  */
 export function EditEntryButton({
   entryId,
   sessionId,
   movementName,
   initialNotes,
+  sets = [],
 }: {
   entryId: string;
   sessionId: string;
   movementName: string;
   initialNotes: string | null;
+  sets?: SetView[];
 }) {
   const [open, setOpen] = useState(false);
   const [movements, setMovements] = useState<PickerMovement[] | null>(null);
@@ -94,7 +101,9 @@ export function EditEntryButton({
           <DialogHeader>
             <DialogTitle>Edit “{movementName}”</DialogTitle>
             <DialogDescription>
-              Change the movement or add a note for this entry.
+              {sets.length > 0
+                ? "Change the movement, log what you actually did, or add a note."
+                : "Change the movement or add a note for this entry."}
             </DialogDescription>
           </DialogHeader>
 
@@ -105,7 +114,7 @@ export function EditEntryButton({
             <div className="relative">
               <Search className="absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
               <input
-                autoFocus
+                autoFocus={sets.length === 0}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search to change the movement…"
@@ -138,6 +147,23 @@ export function EditEntryButton({
               <p className="text-xs text-muted-foreground">No matches.</p>
             )}
           </div>
+
+          {sets.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Your result
+              </span>
+              {sets.map((s, i) => (
+                <SetEditor
+                  key={s.id}
+                  set={s}
+                  sessionId={sessionId}
+                  index={i}
+                  label={sets.length === 1 ? "Rx" : undefined}
+                />
+              ))}
+            </div>
+          )}
 
           <div className="flex flex-col gap-1.5">
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

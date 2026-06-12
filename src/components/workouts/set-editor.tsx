@@ -17,10 +17,12 @@ export function SetEditor({
   set,
   sessionId,
   index,
+  label,
 }: {
   set: SetView;
   sessionId: string;
   index: number;
+  label?: string;
 }) {
   const [pending, startTransition] = useTransition();
   const [saved, setSaved] = useState(false);
@@ -70,7 +72,9 @@ export function SetEditor({
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/40 px-3 py-2">
       <div className="flex min-w-0 flex-col">
-        <span className="text-xs text-muted-foreground">Set {index + 1}</span>
+        <span className="text-xs text-muted-foreground">
+          {label ?? `Set ${index + 1}`}
+        </span>
         {prescribedLabel !== "—" && (
           <span className="truncate text-xs text-muted-foreground/80">
             {prescribedLabel}
