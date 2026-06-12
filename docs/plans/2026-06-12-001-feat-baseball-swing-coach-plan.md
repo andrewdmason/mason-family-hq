@@ -1,7 +1,7 @@
 ---
 title: "feat: Baseball Swing Coach app"
 type: feat
-status: active
+status: completed
 date: 2026-06-12
 origin: docs/brainstorms/2026-06-12-baseball-swing-coach-requirements.md
 deepened: 2026-06-12
