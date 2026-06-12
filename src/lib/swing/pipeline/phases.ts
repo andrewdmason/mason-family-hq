@@ -37,6 +37,11 @@ export interface SwingWindow {
   /** Burst peak time, ms. */
   peakMs: number;
   peakSpeed: number;
+  /** Window anchor: the FIRST strong local peak in the burst. A swing's
+   * aftermath (bat drop, the coach lowering the phone) often reads faster
+   * than the swing itself and merges into the same burst — but it always
+   * comes AFTER contact, so the first strong peak is the swing. */
+  centerMs: number;
   startMs: number;
   endMs: number;
 }
@@ -45,6 +50,10 @@ export interface PhaseDetection {
   events: SwingEvents;
   /** Hitter height in normalized units at stance (metric normalizer). */
   heightNorm: number;
+  /** Clip-time-to-real-time factor: 1 for real-time clips, ~8 for an iPhone
+   * 240fps slo-mo baked into a 30fps export. Event timestamps stay in CLIP
+   * time (stills need them); durations divide by this for real ms. */
+  timeScale: number;
   detectedBats: Bats;
   /** Sign of horizontal swing direction in image space (+x or -x). */
   swingDirection: 1 | -1;
@@ -67,10 +76,15 @@ function handsMid(f: KeypointFrame) {
  * Find wrist-speed bursts in a (coarse) series. Multiple bursts = multiple
  * swings in one clip; the caller uses the most prominent and flags the rest.
  */
-export function findSwingBursts(frames: KeypointFrame[]): SwingWindow[] {
+export function findSwingBursts(
+  frames: KeypointFrame[],
+  timeScale = 1
+): SwingWindow[] {
   if (frames.length < 5) return [];
   const height = medianHeight(frames);
-  const speeds = speedSeries(frames, handsMid, height);
+  // timeScale converts clip-time speeds to real speeds: a baked slo-mo export
+  // slows every motion uniformly, so thresholds stay in real units.
+  const speeds = speedSeries(frames, handsMid, height).map((v) => v * timeScale);
   const bursts: SwingWindow[] = [];
   let inBurst = false;
   let start = 0;
@@ -93,7 +107,28 @@ export function findSwingBursts(frames: KeypointFrame[]): SwingWindow[] {
     }
   }
   if (inBurst) pushBurst(bursts, frames, start, speeds.length - 1, peakIdx, peak);
-  return mergeCloseBursts(bursts);
+  const merged = mergeCloseBursts(bursts, timeScale);
+  for (const burst of merged) {
+    burst.centerMs = firstStrongPeakMs(frames, speeds, burst);
+  }
+  return merged;
+}
+
+/** First local speed maximum ≥ 60% of the burst's peak, within the burst. */
+function firstStrongPeakMs(
+  frames: KeypointFrame[],
+  speeds: number[],
+  burst: SwingWindow
+): number {
+  const floor = burst.peakSpeed * 0.6;
+  for (let i = 1; i < speeds.length - 1; i++) {
+    const t = frames[i].timestampMs;
+    if (t < burst.startMs || t > burst.endMs) continue;
+    if (speeds[i] >= floor && speeds[i] >= speeds[i - 1] && speeds[i] >= speeds[i + 1]) {
+      return t;
+    }
+  }
+  return burst.peakMs;
 }
 
 function pushBurst(
@@ -108,15 +143,17 @@ function pushBurst(
     startMs: frames[startIdx].timestampMs,
     endMs: frames[endIdx].timestampMs,
     peakMs: frames[peakIdx].timestampMs,
+    centerMs: frames[peakIdx].timestampMs,
     peakSpeed,
   });
 }
 
-function mergeCloseBursts(bursts: SwingWindow[]): SwingWindow[] {
+function mergeCloseBursts(bursts: SwingWindow[], timeScale = 1): SwingWindow[] {
   const merged: SwingWindow[] = [];
   for (const b of bursts) {
     const prev = merged[merged.length - 1];
-    if (prev && b.startMs - prev.endMs < PHASE_TUNING.burstSeparationMs) {
+    // burstSeparationMs is a REAL-time quiet gap; clip time stretches by scale.
+    if (prev && b.startMs - prev.endMs < PHASE_TUNING.burstSeparationMs * timeScale) {
       prev.endMs = b.endMs;
       if (b.peakSpeed > prev.peakSpeed) {
         prev.peakSpeed = b.peakSpeed;
@@ -142,22 +179,112 @@ function medianHeight(frames: KeypointFrame[]): number {
 }
 
 /**
- * Full event detection over the DENSE (conditioned) series around one burst.
- * Returns null when the series can't support a plausible swing read —
- * the caller turns that into a per-clip rejection, never garbage metrics.
+ * Full event detection over the DENSE (conditioned) series.
+ *
+ * Real clips of real kids contain MANY fast-hand moments — bat waggles,
+ * practice half-swings, the actual swing, the bat drop, the coach lowering
+ * the phone — and the junk often reads FASTER than the swing. So detection
+ * is hypothesis testing, not pick-the-global-peak: every strong local speed
+ * maximum is a contact candidate (fastest first), and the first one that
+ * supports a fully plausible swing read wins. Junk candidates fail the
+ * plausibility band (their "swings" last a frame or two) and fall through.
+ *
+ * Returns null when no candidate yields a plausible read — the caller turns
+ * that into a per-clip rejection, never garbage metrics.
  */
-export function detectPhases(frames: KeypointFrame[]): PhaseDetection | null {
-  if (frames.length < 10) return null;
-  const heightNorm = medianHeight(frames);
-  const speeds = speedSeries(frames, handsMid, heightNorm);
+const MAX_CONTACT_CANDIDATES = 5;
+/** Event scans stay within this REAL-time neighborhood before contact. */
+const PRE_CONTACT_SCAN_MS = 3000;
+const POST_CONTACT_SCAN_MS = 1500;
+/** Real hand speed (heights/s) considered "quiet" when locating the stance. */
+const QUIET_SPEED = 0.8;
 
-  // Contact = peak hand speed.
-  let contactIdx = 0;
-  for (let i = 1; i < speeds.length; i++) {
-    if (speeds[i] > speeds[contactIdx]) contactIdx = i;
+export function detectPhases(
+  frames: KeypointFrame[],
+  timeScale = 1
+): PhaseDetection | null {
+  if (frames.length < 10) {
+    console.debug(`[swing] detectPhases: too few frames (${frames.length})`);
+    return null;
   }
+  const heightNorm = medianHeight(frames);
+  const speeds = speedSeries(frames, handsMid, heightNorm).map((v) => v * timeScale);
+
+  const candidates = contactCandidates(frames, speeds, timeScale);
+  if (candidates.length === 0) {
+    console.debug(
+      `[swing] detectPhases: no candidate above threshold (scale ${timeScale})`
+    );
+    return null;
+  }
+  for (const contactIdx of candidates) {
+    const detection = detectAroundContact(
+      frames,
+      speeds,
+      contactIdx,
+      heightNorm,
+      timeScale
+    );
+    if (detection) return detection;
+  }
+  console.debug(
+    `[swing] detectPhases: ${candidates.length} candidate(s), none plausible (scale ${timeScale})`
+  );
+  return null;
+}
+
+/** Strong local speed maxima, fastest first, deduped within 300 real ms. */
+function contactCandidates(
+  frames: KeypointFrame[],
+  speeds: number[],
+  timeScale: number
+): number[] {
+  const maxima: number[] = [];
+  for (let i = 1; i < speeds.length - 1; i++) {
+    if (
+      speeds[i] >= PHASE_TUNING.burstSpeedThreshold &&
+      speeds[i] >= speeds[i - 1] &&
+      speeds[i] >= speeds[i + 1]
+    ) {
+      maxima.push(i);
+    }
+  }
+  maxima.sort((a, b) => speeds[b] - speeds[a]);
+  const picked: number[] = [];
+  for (const idx of maxima) {
+    if (
+      picked.some(
+        (p) =>
+          Math.abs(frames[p].timestampMs - frames[idx].timestampMs) <
+          300 * timeScale
+      )
+    ) {
+      continue;
+    }
+    picked.push(idx);
+    if (picked.length >= MAX_CONTACT_CANDIDATES) break;
+  }
+  return picked;
+}
+
+function detectAroundContact(
+  frames: KeypointFrame[],
+  speeds: number[],
+  contactIdx: number,
+  heightNorm: number,
+  timeScale: number
+): PhaseDetection | null {
   const peakSpeed = speeds[contactIdx];
-  if (peakSpeed < PHASE_TUNING.burstSpeedThreshold) return null; // no swing here
+  const contactMs = frames[contactIdx].timestampMs;
+  // Scans stay local to this candidate: a wide window holds other motion
+  // episodes whose ankle lifts / hand moves must not bleed into this read.
+  let scanStart = 0;
+  while (
+    scanStart < contactIdx &&
+    frames[scanStart].timestampMs < contactMs - PRE_CONTACT_SCAN_MS * timeScale
+  ) {
+    scanStart++;
+  }
 
   // Swing direction: net hand x-travel through the burst.
   const from = handsMid(frames[Math.max(0, contactIdx - 5)]);
@@ -165,8 +292,8 @@ export function detectPhases(frames: KeypointFrame[]): PhaseDetection | null {
   const swingDirection: 1 | -1 = to.x - from.x >= 0 ? 1 : -1;
 
   // Handedness: the lead ankle is the one further along the swing direction
-  // at the start of the series; a left lead leg means a right-handed batter.
-  const first = frames[0];
+  // at the start of this candidate's neighborhood (pre-swing stance-ish).
+  const first = frames[scanStart];
   const leftLead =
     (first.landmarks[LM.leftAnkle].x - first.landmarks[LM.rightAnkle].x) *
       swingDirection >
@@ -180,16 +307,27 @@ export function detectPhases(frames: KeypointFrame[]): PhaseDetection | null {
     PHASE_TUNING.burstSpeedThreshold * 0.5
   );
   let launchIdx = contactIdx;
-  for (let i = contactIdx; i > 0; i--) {
-    if (speeds[i] < launchThreshold) break;
-    launchIdx = i;
+  let belowCount = 0;
+  for (let i = contactIdx; i > scanStart; i--) {
+    if (speeds[i] < launchThreshold) {
+      belowCount++;
+      if (belowCount >= 2) break; // sustained quiet — the swing started here
+    } else {
+      belowCount = 0;
+      launchIdx = i;
+    }
   }
 
-  // Finish: first decay below finishSpeedFraction × peak after contact.
-  let finishIdx = frames.length - 1;
+  // Finish: first decay below finishSpeedFraction × peak after contact,
+  // capped to this candidate's neighborhood.
+  let finishIdx = contactIdx;
   for (let i = contactIdx + 1; i < speeds.length; i++) {
-    if (speeds[i] < peakSpeed * PHASE_TUNING.finishSpeedFraction) {
-      finishIdx = i;
+    finishIdx = i;
+    if (speeds[i] < peakSpeed * PHASE_TUNING.finishSpeedFraction) break;
+    if (
+      frames[i].timestampMs >
+      contactMs + POST_CONTACT_SCAN_MS * timeScale
+    ) {
       break;
     }
   }
@@ -197,10 +335,13 @@ export function detectPhases(frames: KeypointFrame[]): PhaseDetection | null {
   // Stride: lead-ankle vertical excursion before launch (y grows downward,
   // so lift = y below baseline minus threshold).
   const ankleY = frames.map((f) => f.landmarks[side.leadAnkle].y);
-  const baselineY = percentile(ankleY.slice(0, Math.max(3, launchIdx)), 0.9);
+  const baselineY = percentile(
+    ankleY.slice(scanStart, Math.max(scanStart + 3, launchIdx)),
+    0.9
+  );
   let liftIdx = -1;
   let plantIdx = -1;
-  for (let i = 0; i < launchIdx; i++) {
+  for (let i = scanStart; i < launchIdx; i++) {
     if (
       liftIdx === -1 &&
       baselineY - ankleY[i] > PHASE_TUNING.ankleLiftThreshold * heightNorm
@@ -221,19 +362,29 @@ export function detectPhases(frames: KeypointFrame[]): PhaseDetection | null {
   // Load: onset of rearward hand travel before the stride completes.
   let loadIdx = -1;
   const handsX = frames.map((f) => handsMid(f).x);
-  for (let i = 1; i < plantIdx; i++) {
+  for (let i = scanStart + 1; i < plantIdx; i++) {
     const dt = (frames[i].timestampMs - frames[i - 1].timestampMs) / 1000;
     if (dt <= 0) continue;
     const rearwardSpeed =
-      (-(handsX[i] - handsX[i - 1]) * swingDirection) / heightNorm / dt;
+      ((-(handsX[i] - handsX[i - 1]) * swingDirection) / heightNorm / dt) * timeScale;
     if (rearwardSpeed > PHASE_TUNING.loadSpeedThreshold) {
       loadIdx = i;
       break;
     }
   }
 
-  // Stance: start of the series (coarse pass anchored the window pre-swing).
-  const stanceIdx = 0;
+  // Stance: the START of the quiet run leading into the swing — walk back
+  // from the first detected motion through the quiet stretch until the tail
+  // of a previous fast episode (or the scan floor). A slow, sub-threshold
+  // load must not drag the stance reference up against the plant.
+  const preMotionIdx = loadIdx !== -1 ? loadIdx : Math.min(plantIdx, launchIdx);
+  let stanceIdx = scanStart;
+  for (let i = preMotionIdx - 1; i >= scanStart; i--) {
+    if (speeds[i] >= QUIET_SPEED) {
+      stanceIdx = Math.min(i + 1, Math.max(preMotionIdx - 1, scanStart));
+      break;
+    }
+  }
 
   const events: SwingEvents = {
     stance: frames[stanceIdx].timestampMs,
@@ -244,11 +395,22 @@ export function detectPhases(frames: KeypointFrame[]): PhaseDetection | null {
   };
   if (loadIdx !== -1) events.load = frames[loadIdx].timestampMs;
 
-  if (!plausible(events)) return null;
+  if (!plausible(events, timeScale)) {
+    console.debug(
+      `[swing] candidate @${Math.round(contactMs)}ms (${peakSpeed.toFixed(1)} h/s): implausible — ` +
+        `launch→contact ${(((events.contact ?? 0) - (events.launch ?? 0)) / timeScale).toFixed(0)}ms real`
+    );
+    return null;
+  }
+  console.debug(
+    `[swing] candidate @${Math.round(contactMs)}ms (${peakSpeed.toFixed(1)} h/s): plausible swing, ` +
+      `launch→contact ${(((events.contact ?? 0) - (events.launch ?? 0)) / timeScale).toFixed(0)}ms real`
+  );
 
   return {
     events,
     heightNorm,
+    timeScale,
     detectedBats,
     swingDirection,
     ...side,
@@ -279,8 +441,9 @@ function leadRearIndices(leftLead: boolean) {
       };
 }
 
-/** Ordering + duration sanity; violations mean "couldn't read this swing". */
-export function plausible(events: SwingEvents): boolean {
+/** Ordering + duration sanity; violations mean "couldn't read this swing".
+ * timeScale maps the real-time plausibility band into clip time. */
+export function plausible(events: SwingEvents, timeScale = 1): boolean {
   const { stance, load, plant, launch, contact, finish } = events;
   if (
     stance === undefined ||
@@ -298,7 +461,7 @@ export function plausible(events: SwingEvents): boolean {
     launch <= contact &&
     contact <= finish;
   if (!ordered) return false;
-  const launchToContact = contact - launch;
+  const launchToContact = (contact - launch) / timeScale;
   return (
     launchToContact >= PHASE_TUNING.minLaunchToContactMs &&
     launchToContact <= PHASE_TUNING.maxLaunchToContactMs
@@ -309,4 +472,16 @@ function percentile(values: number[], p: number): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
+}
+
+/** Timestamp of peak hand speed — used to re-center a mis-anchored dense window. */
+export function peakHandSpeedMs(frames: KeypointFrame[]): number | null {
+  if (frames.length < 3) return null;
+  const heightNorm = medianHeight(frames);
+  const speeds = speedSeries(frames, handsMid, heightNorm);
+  let best = 1;
+  for (let i = 2; i < speeds.length; i++) {
+    if (speeds[i] > speeds[best]) best = i;
+  }
+  return frames[best].timestampMs;
 }

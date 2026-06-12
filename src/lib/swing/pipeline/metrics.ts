@@ -105,25 +105,29 @@ export function computeMetrics(
     });
   }
 
-  /* Tempo: phase durations. Timing metrics are the most robust 2D reads. */
+  /* Tempo: phase durations, reported in REAL milliseconds — clip time divides
+   * by timeScale (a baked slo-mo export stretches clip time uniformly). The
+   * capture rate behind timeScale > 1 is an estimate, so grade medium. */
+  const timeScale = detection.timeScale || 1;
+  const timingConfidence = timeScale > 1 ? "medium" : "high";
   if (events.load !== undefined && events.plant !== undefined) {
     set("load_duration", {
-      value: events.plant - events.load,
-      confidence: "high",
+      value: (events.plant - events.load) / timeScale,
+      confidence: timingConfidence,
       unit: "ms",
     });
   }
   if (events.plant !== undefined && events.launch !== undefined) {
     set("stride_duration", {
-      value: events.launch - events.plant,
-      confidence: "high",
+      value: (events.launch - events.plant) / timeScale,
+      confidence: timingConfidence,
       unit: "ms",
     });
   }
   if (events.launch !== undefined && events.contact !== undefined) {
     set("swing_duration", {
-      value: events.contact - events.launch,
-      confidence: "high",
+      value: (events.contact - events.launch) / timeScale,
+      confidence: timingConfidence,
       unit: "ms",
     });
   }
@@ -149,17 +153,18 @@ export function computeMetrics(
    * x-width starts collapsing/expanding (foreshortening onset) approaching
    * launch. Positive = hips fired first (good); negative = shoulders first
    * (flying open). TIMING ONLY — never degrees. */
-  const hipOnset = rotationOnsetMs(frames, LM.leftHip, LM.rightHip, events, heightNorm);
+  const hipOnset = rotationOnsetMs(frames, LM.leftHip, LM.rightHip, events, heightNorm, timeScale);
   const shoulderOnset = rotationOnsetMs(
     frames,
     LM.leftShoulder,
     LM.rightShoulder,
     events,
-    heightNorm
+    heightNorm,
+    timeScale
   );
   if (hipOnset !== null && shoulderOnset !== null) {
     set("hip_shoulder_timing", {
-      value: shoulderOnset - hipOnset,
+      value: (shoulderOnset - hipOnset) / timeScale,
       confidence: "medium",
       unit: "ms",
     });
@@ -220,7 +225,8 @@ function rotationOnsetMs(
   leftIdx: number,
   rightIdx: number,
   events: { plant?: number; contact?: number },
-  heightNorm: number
+  heightNorm: number,
+  timeScale = 1
 ): number | null {
   if (events.plant === undefined || events.contact === undefined) return null;
   const widths = frames.map((f) =>
@@ -228,10 +234,10 @@ function rotationOnsetMs(
   );
   for (let i = 1; i < frames.length; i++) {
     const t = frames[i].timestampMs;
-    if (t < events.plant - 100 || t > events.contact) continue;
+    if (t < events.plant - 100 * timeScale || t > events.contact) continue;
     const dt = (frames[i].timestampMs - frames[i - 1].timestampMs) / 1000;
     if (dt <= 0) continue;
-    const rate = Math.abs(widths[i] - widths[i - 1]) / heightNorm / dt;
+    const rate = (Math.abs(widths[i] - widths[i - 1]) / heightNorm / dt) * timeScale;
     if (rate > PHASE_TUNING.rotationOnsetRateThreshold) return t;
   }
   return null;

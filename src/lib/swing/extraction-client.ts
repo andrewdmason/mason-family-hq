@@ -28,6 +28,7 @@ export type ClientExtraction =
       metrics: SwingMetrics;
       detectedBats: Bats;
       heightNorm: number;
+      slowMotionFactor: number;
       keypointsGzip: Blob;
       stills: ClientStill[];
       warnings: string[];
@@ -151,6 +152,7 @@ function extractViaWorker(
             metrics: msg.metrics,
             detectedBats: msg.detectedBats,
             heightNorm: msg.heightNorm,
+            slowMotionFactor: msg.slowMotionFactor ?? 1,
             keypointsGzip: await gzipJson({
               version: 1,
               events: msg.events,
@@ -234,6 +236,7 @@ async function extractOnMainThread(
         metrics: result.metrics,
         detectedBats: result.detectedBats,
         heightNorm: result.heightNorm,
+        slowMotionFactor: result.slowMotionFactor,
         keypointsGzip: await gzipJson({
           version: 1,
           events: result.events,

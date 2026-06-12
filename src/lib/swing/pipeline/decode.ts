@@ -10,7 +10,7 @@
 // Memory rules: never buffer the file into an ArrayBuffer (BlobSource reads
 // by random access); close every frame promptly.
 
-import { ALL_FORMATS, BlobSource, Input, VideoSampleSink } from "mediabunny";
+import { ALL_FORMATS, BlobSource, CanvasSink, Input } from "mediabunny";
 import type { ClipProbe, FrameSource, SampledFrame } from "./frame-source";
 
 interface OpenedClip {
@@ -62,7 +62,10 @@ export async function openClip(file: Blob): Promise<OpenedClip> {
     input = null; // ownership moves to the source
     return {
       probe: { ...base, path: "webcodecs" },
-      source: new MediabunnyFrameSource(opened, new VideoSampleSink(track)),
+      // CanvasSink (not VideoSampleSink): it applies the container's rotation
+      // metadata by default — portrait iPhone footage decodes sideways as raw
+      // VideoFrames, which silently corrupts every angle/ratio metric.
+      source: new MediabunnyFrameSource(opened, new CanvasSink(track, { poolSize: 3 })),
     };
   } catch (error) {
     return {
@@ -91,29 +94,29 @@ function unsupported(reason: string): ClipProbe {
 class MediabunnyFrameSource implements FrameSource {
   constructor(
     private input: Input,
-    private sink: VideoSampleSink
+    private sink: CanvasSink
   ) {}
 
   async *framesAt(timestampsMs: number[]): AsyncGenerator<SampledFrame | null> {
     const seconds = timestampsMs.map((t) => t / 1000);
-    // samplesAtTimestamps decodes each packet at most once for sorted input —
+    // canvasesAtTimestamps decodes each packet at most once for sorted input —
     // exactly the sparse-then-dense access pattern of the two-pass pipeline.
-    for await (const sample of this.sink.samplesAtTimestamps(seconds)) {
-      if (!sample) {
+    // Canvases come from a small ring-buffer pool; the pipeline consumes each
+    // frame fully (pose + optional annotate) before pulling the next, so pool
+    // reuse never clobbers an in-flight frame.
+    for await (const wrapped of this.sink.canvasesAtTimestamps(seconds)) {
+      if (!wrapped) {
         yield null;
         continue;
       }
-      const frame = sample.toVideoFrame();
-      const timestampMs = sample.timestamp * 1000;
-      const width = sample.displayWidth;
-      const height = sample.displayHeight;
-      sample.close();
       yield {
-        timestampMs,
-        image: frame,
-        width,
-        height,
-        close: () => frame.close(),
+        timestampMs: wrapped.timestamp * 1000,
+        image: wrapped.canvas,
+        width: wrapped.canvas.width,
+        height: wrapped.canvas.height,
+        close: () => {
+          // pooled canvas — nothing to release per frame
+        },
       };
     }
   }

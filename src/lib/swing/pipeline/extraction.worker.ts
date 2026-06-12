@@ -63,6 +63,7 @@ export type WorkerOutMessage =
       metrics: SwingMetrics;
       detectedBats: Bats;
       heightNorm: number;
+      slowMotionFactor: number;
       keypoints: KeypointFrame[];
       warnings: string[];
       benchmark: ExtractionBenchmark;
@@ -120,6 +121,7 @@ self.onmessage = async (event: MessageEvent<ExtractRequest>) => {
           metrics: result.metrics,
           detectedBats: result.detectedBats,
           heightNorm: result.heightNorm,
+          slowMotionFactor: result.slowMotionFactor,
           keypoints: result.keypoints,
           warnings: result.warnings,
           benchmark: result.benchmark,

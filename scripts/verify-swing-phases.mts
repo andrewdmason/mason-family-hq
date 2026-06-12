@@ -6,6 +6,7 @@
 // calibration happens in the /swing/lab page (U1) — this script is the
 // regression net under it.
 
+import { readFileSync } from "node:fs";
 import {
   detectPhases,
   findSwingBursts,
@@ -59,6 +60,10 @@ console.log("Clean righty swing (120fps):");
       "ordering stance≤plant≤launch≤contact≤finish",
       plausible(e)
     );
+    check("load detected (regression guard — was silently absent once)", e.load !== undefined, `${e.load}`);
+    check("stance well before load (quiet-run start, not plant-adjacent)",
+      e.load !== undefined && e.stance !== undefined && e.load - e.stance > 300,
+      `stance ${e.stance} load ${e.load}`);
     const gate = denseGate(frames, e.launch, e.contact);
     check("dense gate passes", gate.ok, gate.message ?? "");
   }
@@ -200,6 +205,65 @@ console.log("Plausibility unit checks:");
     "load after plant fails",
     !plausible({ stance: 0, load: 1450, plant: 1400, launch: 1500, contact: 1650, finish: 2000 })
   );
+}
+
+console.log("Baked slow-motion export (8x-stretched 30fps AirDrop):");
+{
+  // Stretch clip time uniformly by 8 — what AirDrop does when it bakes a
+  // 240fps slo-mo into a 30fps file. All real motion information survives.
+  const stretch = 8;
+  const stretched = generateSwing({ fps: 120 }).map((f) => ({
+    ...f,
+    timestampMs: f.timestampMs * stretch,
+  }));
+  const conditioned = conditionSeries(stretched, 120 / stretch);
+  check(
+    "real-time detection finds NO burst (the original bug)",
+    findSwingBursts(conditioned, 1).length === 0
+  );
+  const bursts = findSwingBursts(conditioned, stretch);
+  check("timeScale-aware detection finds the burst", bursts.length >= 1, `${bursts.length}`);
+  const detection = detectPhases(conditioned, stretch);
+  check("phases detected at 8x", detection !== null);
+  if (detection) {
+    check("timeScale recorded on detection", detection.timeScale === stretch);
+    check(
+      "contact at stretched clip time",
+      near(detection.events.contact, FIXTURE_EVENTS.contact * stretch, EVENT_TOL_MS * stretch),
+      `${detection.events.contact}`
+    );
+    check(
+      "plausibility band scales (real launch→contact in band)",
+      plausible(detection.events, stretch) && !plausible(detection.events, 1)
+    );
+  }
+}
+
+console.log("Real-clip regression (IMG_1510: 27s AirDrop export, 8x baked slo-mo):");
+{
+  // Real dense keypoints captured from the lab page running the actual clip
+  // (scripts/fixtures/swing-clips/IMG_1510.MOV). This is the clip that
+  // exposed the baked-slo-mo and rotation bugs — detection on it must not
+  // regress. Note this clip also contains pre-swing motion and post-swing
+  // junk faster than the swing itself (the candidate-hypothesis case).
+  const fixture = JSON.parse(
+    readFileSync(new URL("./fixtures/img-1510-keypoints.json", import.meta.url), "utf8")
+  );
+  const det = detectPhases(fixture.keypoints, 8);
+  check("real swing detected at 8x", det !== null);
+  if (det) {
+    check("handedness R (was inverted before the rotation fix)", det.detectedBats === "R");
+    check(
+      "contact near the verified read (~10033ms clip time)",
+      near(det.events.contact, 10033, 250),
+      `${det.events.contact}`
+    );
+    check("plausible end to end", plausible(det.events, 8));
+    check(
+      "real-time interpretation correctly finds nothing",
+      detectPhases(fixture.keypoints, 1) === null
+    );
+  }
 }
 
 console.log(failures === 0 ? "\nAll phase checks passed." : `\n${failures} FAILURES`);

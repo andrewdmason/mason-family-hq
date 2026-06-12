@@ -168,11 +168,16 @@ export function SessionShell({
           }),
       });
 
+      // Baked slo-mo exports (AirDrop renders 240fps as a stretched 30fps
+      // file) are handled by the pipeline and warn through its own message;
+      // this warning is only for TRUE real-time low-fps captures.
+      const isBakedSlowMotion = result.ok && result.slowMotionFactor > 1;
       const fpsWarning =
+        !isBakedSlowMotion &&
         result.probe?.trackFps != null &&
         result.probe.trackFps < HIGH_SPEED_FPS_THRESHOLD
           ? [
-              `This clip is ~${Math.round(result.probe.trackFps)}fps, not true slo-mo — timing reads are less precise. AirDrop the original instead of sharing via Messages.`,
+              `This clip is ~${Math.round(result.probe.trackFps)}fps. If it was filmed in regular speed (not slo-mo), timing reads are less precise — film with 240fps slo-mo for the sharpest analysis.`,
             ]
           : [];
 

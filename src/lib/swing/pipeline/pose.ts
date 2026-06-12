@@ -110,7 +110,7 @@ export async function createLandmarker(
  */
 export function detectFrame(
   landmarker: PoseLandmarker,
-  image: ImageBitmap | VideoFrame,
+  image: ImageBitmap | VideoFrame | HTMLCanvasElement | OffscreenCanvas,
   presentationTimestampMs: number,
   detectionTimestampMs: number
 ): KeypointFrame | null {

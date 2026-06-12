@@ -10,6 +10,9 @@ import {
   COARSE_FPS,
   DENSE_FPS,
   DENSE_WINDOW_MS,
+  HIGH_SPEED_FPS_THRESHOLD,
+  MAX_COARSE_SAMPLES,
+  SLOW_MOTION_CAPTURE_RATES,
   sampleTimestamps,
   type ClipProbe,
   type FrameSource,
@@ -20,6 +23,7 @@ import {
   detectPhases,
   findSwingBursts,
   mostProminentBurst,
+  peakHandSpeedMs,
 } from "./phases";
 import { denseGate, preGate, REJECTION_MESSAGES, type RejectionCode } from "./quality";
 import {
@@ -50,6 +54,9 @@ export type ExtractionResult =
       detectedBats: Bats;
       /** Hitter pixel height (normalized) — the cross-clip same-hitter signal. */
       heightNorm: number;
+      /** 1 for real-time clips; ~8 for a 240fps slo-mo baked into a 30fps
+       * export (AirDrop). Timing metrics are already divided by this. */
+      slowMotionFactor: number;
       /** Dense conditioned keypoint series — THE persisted artifact: a better
        * pose model later re-derives everything from this without re-filming. */
       keypoints: KeypointFrame[];
@@ -120,30 +127,118 @@ export async function extractClip(
     benchmark: benchmark(),
   });
 
-  /* Pass 1 — coarse sweep to find the swing window. */
+  /* Pass 1 — coarse sweep to find the swing window. Long clips sample
+   * sparser (capped pose calls), not slower. */
+  const coarseFps = Math.min(
+    COARSE_FPS,
+    Math.max(5, MAX_COARSE_SAMPLES / Math.max(probe.durationSeconds, 1))
+  );
   const coarseRaw = await runPass(
-    sampleTimestamps(0, durationMs, COARSE_FPS),
+    sampleTimestamps(0, durationMs, coarseFps),
     "pose"
   );
   if (coarseRaw.length < 5) return rejected("low_pose_confidence", []);
-  const coarse = conditionSeries(coarseRaw, COARSE_FPS);
-  const bursts = findSwingBursts(coarse);
+  const coarse = conditionSeries(coarseRaw, coarseFps);
+
+  /* Time-scale candidates: a low-fps clip is usually a slo-mo edit BAKED into
+   * the export (AirDrop renders 240fps capture as a ~8x-stretched 30fps file).
+   * All motion slows uniformly, so detection runs in real units by scaling
+   * speeds; try real-time first, then the baked interpretations. */
+  const trackFps = probe.trackFps ?? coarseFps;
+  const scaleCandidates =
+    trackFps >= HIGH_SPEED_FPS_THRESHOLD
+      ? [1]
+      : [
+          1,
+          ...SLOW_MOTION_CAPTURE_RATES.map((rate) => rate / trackFps).filter(
+            (s) => s > 1.5
+          ),
+        ];
+  /* Pick the scale by SCREENING, not first-burst-wins: pose jitter can spike
+   * one frame over the speed threshold at the wrong scale, and locking onto
+   * that noise burst makes the dense pass reject a perfectly good swing.
+   * A candidate only wins outright when the coarse series supports a fully
+   * plausible swing read at that scale; otherwise fall back to the first
+   * scale that at least showed a burst and let the dense pass decide. */
+  let timeScale = 0;
+  let bursts: ReturnType<typeof findSwingBursts> = [];
+  let fallbackScale = 0;
+  let fallbackBursts: ReturnType<typeof findSwingBursts> = [];
+  for (const candidate of scaleCandidates) {
+    const candidateBursts = findSwingBursts(coarse, candidate);
+    console.debug(
+      `[swing] scale ${candidate}: ${candidateBursts.length} burst(s)` +
+        (candidateBursts.length
+          ? ` (top peak ${mostProminentBurst(candidateBursts)!.peakSpeed.toFixed(2)} h/s @ ${Math.round(mostProminentBurst(candidateBursts)!.peakMs)}ms)`
+          : "")
+    );
+    if (candidateBursts.length === 0) continue;
+    if (fallbackScale === 0) {
+      fallbackScale = candidate;
+      fallbackBursts = candidateBursts;
+    }
+    if (detectPhases(coarse, candidate) !== null) {
+      timeScale = candidate;
+      bursts = candidateBursts;
+      break;
+    }
+  }
+  if (timeScale === 0) {
+    timeScale = fallbackScale || 1;
+    bursts = fallbackBursts;
+    console.debug(`[swing] no candidate passed coarse screening; falling back to scale ${timeScale}`);
+  }
   const gate1 = preGate(coarse, bursts);
   if (!gate1.ok) return rejected(gate1.code!, gate1.warnings);
   const burst = mostProminentBurst(bursts)!;
+  if (timeScale > 1) {
+    gate1.warnings.push(
+      `Slow-motion export detected (~${Math.round(timeScale)}x): timing estimated assuming ${Math.round(trackFps * timeScale)}fps capture.`
+    );
+  }
 
-  /* Pass 2 — dense sampling around the chosen burst. */
-  const denseFps = Math.min(DENSE_FPS, probe.trackFps ?? COARSE_FPS);
-  const windowStart = Math.max(0, burst.peakMs - DENSE_WINDOW_MS * 1.5);
-  const windowEnd = Math.min(durationMs, burst.peakMs + DENSE_WINDOW_MS);
-  const denseRaw = await runPass(
-    sampleTimestamps(windowStart, windowEnd, denseFps),
-    "pose"
-  );
-  if (denseRaw.length < 10) return rejected("low_pose_confidence", gate1.warnings);
-  const dense = conditionSeries(denseRaw, denseFps);
+  /* Pass 2 — dense sampling around the chosen burst. Window and sampling are
+   * defined in REAL time and mapped into clip time via timeScale: a baked
+   * slo-mo clip carries its full capture-rate detail, just stretched.
+   * Anchored on the burst's FIRST strong peak (the swing), not its absolute
+   * peak (often post-swing junk). If the detected contact still lands at the
+   * window's head — no stance/load lead-in — re-center once and retry. */
+  const denseFps = Math.min(trackFps, Math.max(DENSE_FPS / timeScale, 5));
+  const runDense = async (centerMs: number) => {
+    const windowStart = Math.max(0, centerMs - DENSE_WINDOW_MS * timeScale * 1.5);
+    const windowEnd = Math.min(durationMs, centerMs + DENSE_WINDOW_MS * timeScale);
+    const raw = await runPass(sampleTimestamps(windowStart, windowEnd, denseFps), "pose");
+    const dense = raw.length >= 10 ? conditionSeries(raw, denseFps) : null;
+    console.debug(
+      `[swing] dense pass: ${raw.length} frames @ ${denseFps.toFixed(1)} clip-fps, window ${Math.round(windowStart)}–${Math.round(windowEnd)}ms, scale ${timeScale}`
+    );
+    return { dense, windowStart };
+  };
 
-  const detection = detectPhases(dense);
+  let { dense, windowStart } = await runDense(burst.centerMs);
+  if (!dense) return rejected("low_pose_confidence", gate1.warnings);
+  let detection = detectPhases(dense, timeScale);
+
+  const needsRecenter = (() => {
+    if (!detection) return true;
+    const leadInMs = (detection.events.contact ?? 0) - windowStart;
+    return leadInMs < 400 * timeScale; // no room for stance/load before contact
+  })();
+  if (needsRecenter) {
+    const recenter = detection?.events.contact ?? peakHandSpeedMs(dense);
+    if (recenter !== null && Math.abs(recenter - burst.centerMs) > 100) {
+      console.debug(`[swing] re-centering dense window on ${Math.round(recenter)}ms`);
+      const second = await runDense(recenter);
+      if (second.dense) {
+        const secondDetection = detectPhases(second.dense, timeScale);
+        if (secondDetection) {
+          dense = second.dense;
+          windowStart = second.windowStart;
+          detection = secondDetection;
+        }
+      }
+    }
+  }
   if (!detection) return rejected("implausible_swing", gate1.warnings);
   const gate2 = denseGate(dense, detection.events.launch, detection.events.contact);
   if (!gate2.ok) return rejected(gate2.code!, [...gate1.warnings, ...gate2.warnings]);
@@ -192,6 +287,7 @@ export async function extractClip(
     metrics,
     detectedBats: detection.detectedBats,
     heightNorm: detection.heightNorm,
+    slowMotionFactor: timeScale,
     keypoints: dense,
     stills,
     warnings: [...gate1.warnings, ...gate2.warnings],

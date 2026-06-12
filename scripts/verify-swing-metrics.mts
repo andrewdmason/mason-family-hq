@@ -144,5 +144,34 @@ console.log("Low-visibility knee → confidence degraded, trunk unaffected:");
   }
 }
 
+console.log("Baked slow-motion: timing metrics report REAL ms:");
+{
+  const stretch = 8;
+  const stretched = generateSwing().map((f) => ({
+    ...f,
+    timestampMs: f.timestampMs * stretch,
+  }));
+  const conditioned = conditionSeries(stretched, 120 / stretch);
+  const detection = detectPhases(conditioned, stretch);
+  check("stretched fixture detected", detection !== null);
+  if (detection) {
+    const m = computeMetrics(conditioned, detection);
+    const real = clean.metrics.swing_duration?.value ?? 0;
+    check(
+      "swing_duration ≈ real-time fixture's value",
+      m.swing_duration !== undefined && Math.abs(m.swing_duration.value - real) < 60,
+      `${m.swing_duration?.value?.toFixed(0)} vs ${real.toFixed(0)}`
+    );
+    check(
+      "timing confidence downgraded to medium (capture rate estimated)",
+      m.swing_duration?.confidence === "medium"
+    );
+    check(
+      "positional metrics unaffected by stretch",
+      Math.abs((m.stride_length_ratio?.value ?? 0) - (clean.metrics.stride_length_ratio?.value ?? 1)) < 0.02
+    );
+  }
+}
+
 console.log(failures === 0 ? "\nAll metric checks passed." : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

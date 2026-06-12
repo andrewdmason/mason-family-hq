@@ -93,15 +93,21 @@ function frameAt(t: number, p: FrameParams): KeypointFrame {
     swingX = travel + travel * (2 / swingSpan) * 400 * 0.0005 * (1 - (1 - decay) ** 2);
   }
 
-  // Load: hands drift rearward (-x) between load and plant.
+  // Load: hands move briskly rearward (-x) at the load (real loads are a
+  // deliberate move, ~0.5 heights/s — above the detection threshold).
   let loadX = 0;
   if (t >= FIXTURE_EVENTS.load) {
-    const tau = Math.min((t - FIXTURE_EVENTS.load) / 300, 1);
-    loadX = -0.08 * H * tau;
+    const tau = Math.min((t - FIXTURE_EVENTS.load) / 250, 1);
+    loadX = -0.12 * H * tau;
   }
 
-  // Head drift accrues stance→contact.
-  const driftTau = Math.min(t / p.contact, 1);
+  // Head drift accrues load→contact (real heads move during the stride and
+  // swing, not while standing in the stance — and detection anchors its
+  // stance reference just before the load).
+  const driftTau = Math.max(
+    0,
+    Math.min((t - FIXTURE_EVENTS.load) / (p.contact - FIXTURE_EVENTS.load), 1)
+  );
   const headX = 0.5 + p.headDrift * driftTau;
 
   // Lead ankle (left for the canonical righty): lift then plant.

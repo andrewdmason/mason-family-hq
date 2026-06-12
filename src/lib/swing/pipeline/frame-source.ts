@@ -11,8 +11,9 @@
 export interface SampledFrame {
   /** Clip-relative presentation time, milliseconds. */
   timestampMs: number;
-  /** Drawable + pose-compatible image (VideoFrame or ImageBitmap). */
-  image: VideoFrame | ImageBitmap;
+  /** Drawable + pose-compatible image. Canvas variants come from the
+   * WebCodecs path (rotation-corrected via CanvasSink). */
+  image: VideoFrame | ImageBitmap | HTMLCanvasElement | OffscreenCanvas;
   width: number;
   height: number;
   close(): void;
@@ -47,6 +48,12 @@ export const HIGH_SPEED_FPS_THRESHOLD = 100;
 
 /** Coarse pass sampling rate (find the swing window cheaply). */
 export const COARSE_FPS = 30;
+/** Cap on coarse-pass pose calls — long clips sample sparser, not slower. */
+export const MAX_COARSE_SAMPLES = 360;
+/** iPhone slo-mo capture rates: when a clip's track fps is low, the baked
+ * slow-motion factor is almost certainly captureRate / trackFps for one of
+ * these (AirDrop renders the slo-mo edit into a ~30fps file). */
+export const SLOW_MOTION_CAPTURE_RATES = [240, 120] as const;
 /** Dense pass sampling cap around the detected swing window. */
 export const DENSE_FPS = 120;
 /** Dense window half-width around the detected wrist-speed burst, ms. */

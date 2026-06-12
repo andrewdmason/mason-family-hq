@@ -56,7 +56,7 @@ export interface AnnotationContext {
  * metric-specific reference lines that make the tells visible.
  */
 export async function renderStill(
-  image: VideoFrame | ImageBitmap,
+  image: VideoFrame | ImageBitmap | HTMLCanvasElement | OffscreenCanvas,
   frame: KeypointFrame,
   phase: SwingPhase,
   ctx: AnnotationContext
