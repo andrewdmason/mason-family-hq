@@ -34,6 +34,7 @@ import {
   GraduationCap,
   Dumbbell,
   Music,
+  Volleyball,
 } from "lucide-react";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -67,6 +68,7 @@ const APPS = [
   { key: "calendar", group: "(calendar)", glyph: CalendarRange, top: "#7c8a55", bottom: "#515c33" },
   { key: "assignments", group: "(assignments)", glyph: GraduationCap, top: "#6f8a96", bottom: "#415c68" },
   { key: "workouts", group: "(workouts)", glyph: Dumbbell, top: "#b85c40", bottom: "#883a26" },
+  { key: "swing", group: "(swing)", glyph: Volleyball, top: "#5d7fa8", bottom: "#37547a" },
   { key: "practice", group: "practice", glyph: Music, top: "#8475a6", bottom: "#524673" },
 ];
 

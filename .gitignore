@@ -50,3 +50,4 @@ next-env.d.ts
 # raycast extension build artifacts
 /raycast/node_modules/
 /raycast/dist/
+.playwright-mcp/
