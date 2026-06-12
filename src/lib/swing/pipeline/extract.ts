@@ -48,6 +48,8 @@ export type ExtractionResult =
       events: SwingEvents;
       metrics: SwingMetrics;
       detectedBats: Bats;
+      /** Hitter pixel height (normalized) — the cross-clip same-hitter signal. */
+      heightNorm: number;
       /** Dense conditioned keypoint series — THE persisted artifact: a better
        * pose model later re-derives everything from this without re-filming. */
       keypoints: KeypointFrame[];
@@ -184,6 +186,7 @@ export async function extractClip(
     events: detection.events,
     metrics,
     detectedBats: detection.detectedBats,
+    heightNorm: detection.heightNorm,
     keypoints: dense,
     stills,
     warnings: [...gate1.warnings, ...gate2.warnings],

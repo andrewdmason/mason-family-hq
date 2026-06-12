@@ -15,9 +15,11 @@ import {
   type SwingSession,
 } from "@/lib/swing/types";
 
+import { SWING_BUCKET } from "@/lib/swing/bucket";
+
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
-export const SWING_BUCKET = "swing-artifacts";
+export { SWING_BUCKET };
 
 /**
  * Evidence stills are images of non-family minors, so signed URLs use a short

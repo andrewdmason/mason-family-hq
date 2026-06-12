@@ -90,6 +90,9 @@ CREATE TABLE swing_clips (
   -- Detected from stance orientation; compared against roster bats for the
   -- handedness-mismatch warning (footage wins for metric mirroring).
   detected_bats    text CHECK (detected_bats IN ('L', 'R')),
+  -- Hitter pixel height (normalized 0–1) — the cross-clip same-hitter outlier
+  -- signal: a mis-picked clip of a teammate shows up as a height outlier.
+  hitter_height    double precision,
   filmed_at        timestamptz,
   -- Swing phase events (frame timestamps ms): stance/load/plant/launch/contact/finish.
   events           jsonb,

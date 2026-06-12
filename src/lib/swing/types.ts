@@ -102,6 +102,7 @@ export interface SwingClip {
   sourceFps: number | null;
   durationSeconds: number | null;
   detectedBats: Bats | null;
+  hitterHeight: number | null;
   filmedAt: string | null;
   events: SwingEvents | null;
   metrics: SwingMetrics | null;
@@ -211,6 +212,7 @@ export function clipFromRow(row: any): SwingClip {
     sourceFps: row.source_fps ?? null,
     durationSeconds: row.duration_seconds ?? null,
     detectedBats: row.detected_bats ?? null,
+    hitterHeight: row.hitter_height ?? null,
     filmedAt: row.filmed_at ?? null,
     events: row.events ?? null,
     metrics: row.metrics ?? null,

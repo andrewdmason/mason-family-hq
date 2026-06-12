@@ -78,6 +78,7 @@ self.onmessage = async (event: MessageEvent<ExtractRequest>) => {
           events: result.events,
           metrics: result.metrics,
           detectedBats: result.detectedBats,
+          heightNorm: result.heightNorm,
           keypoints: result.keypoints,
           warnings: result.warnings,
           benchmark: result.benchmark,
