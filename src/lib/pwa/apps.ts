@@ -38,6 +38,7 @@ export const PWA_APPS: PwaApp[] = [
   { key: "calendar", name: "Calendar", shortName: "Calendar", startUrl: "/calendar", pageTitle: "Calendar" },
   { key: "assignments", name: "Assignments", shortName: "Assignments", startUrl: "/assignments", pageTitle: "Assignments" },
   { key: "workouts", name: "Workouts", shortName: "Workouts", startUrl: "/workouts", pageTitle: "Workouts" },
+  { key: "swing", name: "Swing Coach", shortName: "Swing", startUrl: "/swing", pageTitle: "Swing Coach" },
   { key: "practice", name: "Practice Log", shortName: "Practice", startUrl: "/practice", pageTitle: "Practice Log" },
 ];
 

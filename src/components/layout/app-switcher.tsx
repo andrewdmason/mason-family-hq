@@ -19,6 +19,7 @@ import {
   NotebookPen,
   Settings,
   Users,
+  Volleyball,
 } from "lucide-react";
 import { useAppNav } from "@/components/layout/app-header";
 import { buttonVariants } from "@/components/ui/button";
@@ -108,6 +109,13 @@ const APPS: App[] = [
     match: "/workouts",
     description: "Training log & progress",
     icon: Dumbbell,
+  },
+  {
+    href: "/swing",
+    label: "Swing Coach",
+    match: "/swing",
+    description: "Baseball swing coaching",
+    icon: Volleyball,
   },
 ];
 
