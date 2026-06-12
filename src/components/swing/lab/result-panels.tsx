@@ -190,6 +190,7 @@ export function OkResultPanels({
       events: result.events,
       metrics: result.metrics,
       detectedBats: result.detectedBats,
+      heightNorm: result.heightNorm,
       keypoints: result.keypoints,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -226,8 +227,9 @@ export function OkResultPanels({
                 ))}
               </tbody>
             </table>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Detected bats: {result.detectedBats}
+            <p className="mt-2 text-xs text-muted-foreground tabular-nums">
+              Detected bats: {result.detectedBats} · hitter height (norm):{" "}
+              {result.heightNorm.toFixed(3)}
             </p>
           </CardContent>
         </Card>

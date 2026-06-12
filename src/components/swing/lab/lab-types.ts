@@ -25,6 +25,8 @@ export interface OkResult {
   events: SwingEvents;
   metrics: SwingMetrics;
   detectedBats: Bats;
+  /** Hitter pixel height (normalized) — the cross-clip same-hitter signal. */
+  heightNorm: number;
   keypoints: KeypointFrame[];
   warnings: string[];
   benchmark: ExtractionBenchmark;

@@ -381,3 +381,44 @@ export async function reassignSession(
     .eq("id", sessionId);
   if (error) throw new Error(`Couldn't reassign session: ${error.message}`);
 }
+
+/* ===================================================================== *
+ * Assessments (U10): void. Derived current-ness means void is ONE status
+ * flip — the previous complete assessment's focus areas become current
+ * automatically, with no compensating writes to get wrong.
+ * ===================================================================== */
+
+export async function voidAssessment(assessmentId: string): Promise<void> {
+  const supabase = await createClient();
+  const { data: assessment, error: loadError } = await supabase
+    .from("swing_assessments")
+    .select("id, session_id, status")
+    .eq("id", assessmentId)
+    .maybeSingle();
+  if (loadError || !assessment) throw new Error("Assessment not found");
+  if (assessment.status !== "complete") {
+    throw new Error("Only a complete assessment can be voided");
+  }
+
+  const { error } = await supabase
+    .from("swing_assessments")
+    .update({ status: "voided" })
+    .eq("id", assessmentId)
+    .eq("status", "complete");
+  if (error) throw new Error(`Couldn't void assessment: ${error.message}`);
+
+  // A session whose only assessments are voided is analyzable (and
+  // reassignable) again — wrong-kid recovery composes with reassign even
+  // after analysis ran.
+  const { data: live } = await supabase
+    .from("swing_assessments")
+    .select("id")
+    .eq("session_id", assessment.session_id)
+    .in("status", ["complete", "generating", "superseded"]);
+  if ((live ?? []).length === 0) {
+    await supabase
+      .from("swing_sessions")
+      .update({ status: "draft" })
+      .eq("id", assessment.session_id);
+  }
+}
