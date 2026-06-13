@@ -494,14 +494,16 @@ export function CalendarClient({
         attending: attending.pickup,
         ...windowArgs,
       });
-      // Same combine rule as the server: one ↔ block when the same parent has
-      // both duties with no real time at home between trips — unless they're
-      // attending (one-way legs; the event itself fills the middle).
+      // Same combine rule as the server: one block when the same parent has
+      // both duties with no real time at home between trips (round-trip windows
+      // measure that gap, independent of attending). Attending or not, the pair
+      // collapses into a single event-titled block.
+      const dropRT = driveBlockWindow({ duty: "dropoff", ...windowArgs });
+      const pickRT = driveBlockWindow({ duty: "pickup", ...windowArgs });
       const combined =
         !!d.dropoff?.assignee &&
         d.dropoff.assignee === d.pickup?.assignee &&
-        !attending.dropoff &&
-        (new Date(pickW.start).getTime() - new Date(dropW.end).getTime()) /
+        (new Date(pickRT.start).getTime() - new Date(dropRT.end).getTime()) /
           60_000 <
           COMBINE_GAP_MINUTES;
       const kidName = (memberNames.get(ev.member_email) ?? ev.member_email)
@@ -519,6 +521,13 @@ export function CalendarClient({
           duty === "pickup"
             ? ev.end_time ?? ev.start_time
             : ev.teamsnap_arrival_time ?? ev.start_time;
+        // The combined block (drop-off iteration only): leave home → arrival
+        // when attending (the invite fills the middle), else → event end;
+        // either way the drive-home leg is dropped.
+        const combinedWindow = {
+          start: dropW.start,
+          end: attending.dropoff ? anchor : ev.end_time ?? ev.start_time,
+        };
         planned.push({
           key,
           assignee,
@@ -527,7 +536,7 @@ export function CalendarClient({
           kidName,
           location: ev.location,
           window: combined
-            ? { start: dropW.start, end: pickW.end }
+            ? combinedWindow
             : duty === "dropoff"
               ? dropW
               : pickW,
@@ -538,6 +547,7 @@ export function CalendarClient({
             timeZone: logistics.timeZone,
             driveMinutes,
             isEstimate,
+            eventTitle: ev.title,
           }),
           anchor,
           isEstimate,
