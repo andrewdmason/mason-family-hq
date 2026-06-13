@@ -236,15 +236,11 @@ function desiredFor(
   const pickAnchor = ev.end_time ?? ev.start_time;
 
   // Same parent on both duties: if the time at home between returning from
-  // drop-off and leaving for pick-up is under the threshold, combine. Skipped
-  // when that parent is attending — their two legs are one-way (the event
-  // itself, on their own calendar via the guest invite, fills the middle), so
-  // there's no round-trip pair to collapse.
-  if (
-    !attending &&
-    sibling?.assignee_email &&
-    sibling.assignee_email === a.assignee_email
-  ) {
+  // drop-off and leaving for pick-up is under the threshold, they're realistically
+  // out for the whole thing — collapse the pair into ONE block that reads as the
+  // event itself ("BJ lesson (~20 min drive)"). The gap test uses round-trip
+  // windows (real time at home), independent of whether they're attending.
+  if (sibling?.assignee_email && sibling.assignee_email === a.assignee_email) {
     const dropW = driveBlockWindow({ duty: "dropoff", ...windowArgs });
     const pickW = driveBlockWindow({ duty: "pickup", ...windowArgs });
     const gapMin =
@@ -254,7 +250,14 @@ function desiredFor(
       // The combined block lives on the DROPOFF assignment's ledger; the
       // pickup assignment stays saved but materializes nothing.
       if (a.duty === "pickup") return { exists: false };
-      const window = { start: dropW.start, end: pickW.end };
+      // Drop the drive-home leg (one figure covers the outing). When the parent
+      // is a guest on the event, the block is just the travel-in lead — the
+      // invite itself fills the middle — so it ends at arrival; otherwise it
+      // spans through the event's end.
+      const window = {
+        start: dropW.start,
+        end: attending ? dropAnchor : pickAnchor,
+      };
       return {
         exists: true,
         kind: "combined",
@@ -267,12 +270,13 @@ function desiredFor(
           timeZone: FAMILY_TZ,
           driveMinutes,
           isEstimate,
+          eventTitle: ev.title,
         }),
         location: ev.location,
         description: null,
         kidName,
         isEstimate,
-        attending: false,
+        attending,
       };
     }
   }

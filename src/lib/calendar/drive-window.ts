@@ -81,7 +81,18 @@ export function driveEventTitle(args: {
   timeZone: string;
   driveMinutes: number;
   isEstimate: boolean;
+  /** The source event's own title. When the same parent runs BOTH legs the
+   * block stands in for the whole outing, so it reads as the event itself —
+   * "BJ lesson (~20 min drive)" — with the single one-way drive figure
+   * covering it (no separate drive-home leg). */
+  eventTitle?: string | null;
 }): string {
+  const est = args.isEstimate ? "~" : "";
+  // A combined (same parent, both legs) block IS the event from the parent's
+  // side — title it after the event, not the duty.
+  if (args.duty === "combined" && args.eventTitle) {
+    return `${args.eventTitle} (${est}${args.driveMinutes} min drive)`;
+  }
   // "@ time" is the stop itself and the number is the ONE-WAY drive — the two
   // things you can't infer from the block itself (whose span is the round trip
   // plus the arrive-early buffer — or just the one-way leg when the parent is
@@ -93,9 +104,10 @@ export function driveEventTitle(args: {
       : args.duty === "pickup"
         ? "Pickup"
         : "Drop off + pickup";
-  return `${verb} ${args.kidName} @ ${clockTime(args.anchor, args.timeZone)} (${
-    args.isEstimate ? "~" : ""
-  }${args.driveMinutes} min drive)`;
+  return `${verb} ${args.kidName} @ ${clockTime(
+    args.anchor,
+    args.timeZone,
+  )} (${est}${args.driveMinutes} min drive)`;
 }
 
 // ---------------------------------------------------------------------------
