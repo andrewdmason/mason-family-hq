@@ -107,6 +107,7 @@ export async function getOrCreateTodayEntry(): Promise<EditorEntry> {
   const supabase = await createClient();
   const date = await todayLocal();
   const columns = EDITOR_ENTRY_COLUMNS;
+  const userId = await requireUserId(supabase);
 
   await pruneAbandonedEntries(supabase, date);
 
@@ -114,9 +115,16 @@ export async function getOrCreateTodayEntry(): Promise<EditorEntry> {
   // thread, but only while its writing session is still live: a finished
   // entry whose timer has elapsed (but which was never formally closed)
   // should not be resumed — "+ new entry" creates a fresh one instead.
+  //
+  // Scope to the caller: the SELECT RLS policy is "own OR family-visible", so
+  // an un-scoped query can resume *another* member's open, family-shared entry
+  // for today — landing the writer in a post they don't own (and breaking photo
+  // ops, which correctly refuse non-author writes). "Today's thread" only ever
+  // means the caller's own.
   const { data: existing } = await supabase
     .from("journal_entries")
     .select(columns)
+    .eq("user_id", userId)
     .eq("entry_date", date)
     .eq("status", "open")
     .order("created_at", { ascending: false })
@@ -139,7 +147,6 @@ export async function getOrCreateTodayEntry(): Promise<EditorEntry> {
     };
   }
 
-  const userId = await requireUserId(supabase);
   const { data: created, error } = await supabase
     .from("journal_entries")
     .insert({ entry_date: date, status: "open", user_id: userId })
@@ -170,10 +177,15 @@ export async function getOrCreateTodayEntry(): Promise<EditorEntry> {
  */
 export async function getEntryById(entryId: string): Promise<EditorEntry> {
   const supabase = await createClient();
+  // Scope to the caller: the SELECT RLS policy is "own OR family-visible", so
+  // an un-scoped lookup could load another member's family-shared entry into
+  // the compose editor — you only ever edit your own posts here.
+  const userId = await requireUserId(supabase);
   const { data, error } = await supabase
     .from("journal_entries")
     .select(EDITOR_ENTRY_COLUMNS)
     .eq("id", entryId)
+    .eq("user_id", userId)
     .single();
   if (error || !data) throw new Error(error?.message ?? "entry not found");
   return {
