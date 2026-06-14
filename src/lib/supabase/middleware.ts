@@ -47,6 +47,10 @@ export async function updateSession(request: NextRequest) {
     // called by the Apple Reminders Shortcut and Raycast, which have no
     // session) — see src/app/api/todo/ingest/route.ts.
     !request.nextUrl.pathname.startsWith("/api/todo/ingest") &&
+    // The reading ingest endpoint authenticates with a personal API token (it's
+    // called by the Chrome article-capture extension, which has no session) —
+    // see src/app/api/reading/ingest/route.ts.
+    !request.nextUrl.pathname.startsWith("/api/reading/ingest") &&
     // The agent API authenticates with a bearer secret (it's called by the
     // family assistant, which has no session) — see src/lib/agent/auth.ts.
     !request.nextUrl.pathname.startsWith("/api/agent")
