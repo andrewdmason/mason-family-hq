@@ -1,4 +1,4 @@
-import { BookOpen } from "lucide-react";
+import { AlertTriangle, BookOpen } from "lucide-react";
 import Link from "next/link";
 import { WidgetCard } from "./widget-card";
 import { cn } from "@/lib/utils";
@@ -20,23 +20,39 @@ const QUIZ_BADGE = {
 } as const;
 
 /**
- * A window into the active book: this week's progress toward the page goal, and
- * a "quiz ready" flag when one's waiting. The title opens the Reader to check
- * in or take the quiz.
+ * A window into the active book. For parents (`variant="default"`) it shows this
+ * week's progress toward the page goal plus a "quiz ready" flag. For kids
+ * (`variant="goal"`) it strips that chrome down to the single thing they need to
+ * see — the page they're aiming for ("Goal: Page 180") and a loud alert when
+ * they've blown past the deadline. The title opens the Reader either way.
  */
 export function ReaderWidget({
   book,
   weeklyPageGoal,
   activeQuiz,
+  variant = "default",
+  today,
 }: {
   book: ReadingBookWithProgress;
   weeklyPageGoal: number;
   activeQuiz: ActiveBookQuiz | null;
+  variant?: "default" | "goal";
+  today?: string;
 }) {
   const pct =
     weeklyPageGoal > 0
       ? Math.min(100, Math.round((book.pagesReadThisWeek / weeklyPageGoal) * 100))
       : 0;
+
+  // Goal variant: a target the kid hasn't reached, with a Friday deadline that's
+  // already in the past, is overdue.
+  const overdue =
+    variant === "goal" &&
+    book.target_page != null &&
+    book.current_page < book.target_page &&
+    book.target_due != null &&
+    today != null &&
+    book.target_due < today;
 
   return (
     <WidgetCard title="Reading" icon={BookOpen} href="/reader">
@@ -67,7 +83,19 @@ export function ReaderWidget({
               ? `Page ${book.current_page} of ${book.total_pages}`
               : `Page ${book.current_page}`}
           </p>
-          {activeQuiz &&
+          {variant === "goal" && book.target_page != null && (
+            <p className="mt-1.5 text-sm font-semibold text-foreground">
+              Goal: Page {book.target_page}
+            </p>
+          )}
+          {variant === "goal" && overdue && (
+            <div className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-destructive/10 px-2 py-1 text-xs font-semibold text-destructive">
+              <AlertTriangle className="size-3.5" />
+              Overdue
+            </div>
+          )}
+          {variant === "default" &&
+            activeQuiz &&
             (() => {
               const state = activeQuizState(
                 activeQuiz.attempted,
@@ -96,7 +124,7 @@ export function ReaderWidget({
         </div>
       </div>
 
-      {weeklyPageGoal > 0 && (
+      {variant === "default" && weeklyPageGoal > 0 && (
         <div className="mt-4">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>This week</span>
