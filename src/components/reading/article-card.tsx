@@ -67,7 +67,7 @@ export function ArticleCard({
     ? `https://www.google.com/s2/favicons?domain=${host}&sz=64`
     : null;
 
-  function setStatus(status: "in_progress" | "queued" | "archive") {
+  function setStatus(status: "queued" | "archive") {
     setError(null);
     startTransition(async () => {
       try {
@@ -164,7 +164,7 @@ export function ArticleCard({
               {article.status === "archive" ? (
                 <DropdownMenuItem onClick={() => setStatus("queued")}>
                   <RotateCcw />
-                  Move to reading
+                  Unarchive
                 </DropdownMenuItem>
               ) : (
                 <DropdownMenuItem onClick={() => setStatus("archive")}>
