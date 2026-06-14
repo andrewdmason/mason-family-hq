@@ -77,9 +77,37 @@ function extractArticle(): ExtractedArticle | null {
   const canonical = document.querySelector<HTMLLinkElement>(
     'link[rel="canonical"]'
   )?.href;
-  const content = DOMPurify
-    ? DOMPurify.sanitize(parsed.content)
-    : parsed.content;
+
+  // Stamp intrinsic image dimensions from the live (already-loaded) page and
+  // drop lazy-loading. With width/height present, the reader reserves each
+  // image's space on first paint, so resuming a half-read article lands at the
+  // saved position instantly instead of waiting for images to load.
+  let contentHtml = parsed.content;
+  try {
+    const liveDims = new Map<string, [number, number]>();
+    for (const im of Array.from(document.querySelectorAll("img"))) {
+      const key = im.getAttribute("src");
+      if (key && im.naturalWidth > 0 && im.naturalHeight > 0) {
+        liveDims.set(key, [im.naturalWidth, im.naturalHeight]);
+      }
+    }
+    const doc = new DOMParser().parseFromString(parsed.content, "text/html");
+    for (const im of Array.from(doc.querySelectorAll("img"))) {
+      im.removeAttribute("loading");
+      if (!im.getAttribute("width") || !im.getAttribute("height")) {
+        const dim = liveDims.get(im.getAttribute("src") || "");
+        if (dim) {
+          im.setAttribute("width", String(dim[0]));
+          im.setAttribute("height", String(dim[1]));
+        }
+      }
+    }
+    contentHtml = doc.body.innerHTML;
+  } catch {
+    contentHtml = parsed.content;
+  }
+
+  const content = DOMPurify ? DOMPurify.sanitize(contentHtml) : contentHtml;
 
   return {
     url: canonical || location.href,

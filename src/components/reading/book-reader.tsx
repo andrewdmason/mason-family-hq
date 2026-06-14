@@ -240,15 +240,33 @@ export function BookReader({
       }
     };
 
-    // Wait for the page to stop reflowing before restoring, so the saved anchor/
-    // ratio lands accurately. Guarded against unmount mid-wait.
+    // If every image already reserves its space (width/height present, as the
+    // capture extension stamps), the page is its final height on first paint —
+    // restore on the next frame so resume is instant. Otherwise wait for the
+    // layout to settle before restoring, so the saved position lands accurately.
     let cancelled = false;
-    void waitForLayoutToSettle().then(() => {
-      if (cancelled) return;
-      measure();
-      restore();
-      onScroll();
-    });
+    const imgs = Array.from(
+      contentRef.current?.querySelectorAll("img") ?? []
+    );
+    const layoutStable =
+      imgs.length === 0 ||
+      imgs.every((img) => img.hasAttribute("width") && img.hasAttribute("height"));
+
+    if (layoutStable) {
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        measure();
+        restore();
+        onScroll();
+      });
+    } else {
+      void waitForLayoutToSettle().then(() => {
+        if (cancelled) return;
+        measure();
+        restore();
+        onScroll();
+      });
+    }
 
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", measure);
