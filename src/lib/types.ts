@@ -794,6 +794,9 @@ export type ReadingBookStatus =
   | "paused"
   | "queued";
 
+/** A reading item is either an uploaded book or a saved web article. */
+export type ReadingContentType = "book" | "article";
+
 /**
  * A member's verdict on a book. The emoji scale for books they read, plus
  * "didnt_finish" for ones they started but abandoned (a soft negative signal).
@@ -805,12 +808,22 @@ export type ReadingRating =
   | "disliked"
   | "didnt_finish";
 
-/** A book a family member is tracking. */
+/** A book a family member is tracking (or a saved web article). */
 export type ReadingBook = {
   id: string;
   user_id: string;
+  /** "book" (uploaded file) or "article" (saved from the web). */
+  type: ReadingContentType;
   title: string;
   author: string | null;
+  /** Article only: canonical URL of the saved page. Null for books. */
+  source_url: string | null;
+  /** Article only: source site name (e.g. "The Verge"). Null for books. */
+  site_name: string | null;
+  /** Article only: short readability excerpt for the card. */
+  excerpt: string | null;
+  /** Article only: word count, drives the "N min read" estimate. */
+  word_count: number | null;
   total_pages: number | null;
   current_page: number;
   /** This book's own weekly target page (in_progress only). Null = no target. */

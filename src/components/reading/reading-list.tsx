@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ArchiveShelf } from "@/components/reading/archive-shelf";
+import { ArticleCard } from "@/components/reading/article-card";
 import { BookCard } from "@/components/reading/book-card";
 import { PausedSection } from "@/components/reading/paused-section";
 import { QueueRecommendations } from "@/components/reading/queue-recommendations";
@@ -15,6 +16,13 @@ import type {
 } from "@/lib/types";
 
 type Tab = ReadingBookStatus;
+type TypeFilter = "all" | "book" | "article";
+
+const TYPE_FILTERS: { value: TypeFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "book", label: "Books" },
+  { value: "article", label: "Articles" },
+];
 
 function emptyMessage(tab: Tab): string {
   switch (tab) {
@@ -49,11 +57,27 @@ export function ReadingList({
   recsHasSignal: boolean;
   recsGenres: string[];
 }) {
+  // Books and saved web articles share this list; the type filter narrows it
+  // before the status tabs. The filter only appears once there's an article to
+  // separate — book-only members see the list exactly as before.
+  const hasArticles = useMemo(
+    () => books.some((b) => b.type === "article"),
+    [books]
+  );
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const filtered = useMemo(
+    () =>
+      typeFilter === "all"
+        ? books
+        : books.filter((b) => (b.type ?? "book") === typeFilter),
+    [books, typeFilter]
+  );
+
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
-    for (const b of books) c[b.status] = (c[b.status] ?? 0) + 1;
+    for (const b of filtered) c[b.status] = (c[b.status] ?? 0) + 1;
     return c;
-  }, [books]);
+  }, [filtered]);
 
   // Always offer the forward-looking tabs (Reading, Queue) so the queue is
   // reachable even when empty; show the rest only when they have books. Paused
@@ -70,7 +94,7 @@ export function ReadingList({
       count: counts[s.value] ?? 0,
     }));
 
-  const pausedBooks = books.filter((b) => b.status === "paused");
+  const pausedBooks = filtered.filter((b) => b.status === "paused");
 
   const [active, setActive] = useState<Tab>(
     (counts["in_progress"] ?? 0) > 0 ? "in_progress" : "queued"
@@ -79,7 +103,9 @@ export function ReadingList({
     ? active
     : tabs[0]?.value ?? "in_progress";
 
-  const visible = books.filter((b) => b.status === activeTab);
+  const visible = filtered.filter((b) => b.status === activeTab);
+  const visibleBooks = visible.filter((b) => (b.type ?? "book") === "book");
+  const visibleArticles = visible.filter((b) => b.type === "article");
 
   if (books.length === 0) {
     return (
@@ -92,6 +118,26 @@ export function ReadingList({
 
   return (
     <div className="mt-5">
+      {hasArticles && (
+        <div className="mb-3 inline-flex rounded-lg bg-muted/60 p-0.5">
+          {TYPE_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              onClick={() => setTypeFilter(f.value)}
+              className={cn(
+                "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                typeFilter === f.value
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-1.5 border-b border-border pb-3">
         {tabs.map((t) => (
           <button
@@ -126,18 +172,30 @@ export function ReadingList({
             {emptyMessage(activeTab)}
           </p>
         )
-      ) : activeTab === "archive" ? (
-        <ArchiveShelf books={visible} memberEmail={memberEmail} />
       ) : (
         <div className="mt-3 space-y-3">
-          {visible.map((book) => (
-            <BookCard
-              key={book.id}
-              book={book}
-              emphasizeCheckIn={emphasizeCheckIn}
+          {/* Books: the archive tab uses the cover shelf; other tabs use cards. */}
+          {visibleBooks.length > 0 &&
+            (activeTab === "archive" ? (
+              <ArchiveShelf books={visibleBooks} memberEmail={memberEmail} />
+            ) : (
+              visibleBooks.map((book) => (
+                <BookCard
+                  key={book.id}
+                  book={book}
+                  emphasizeCheckIn={emphasizeCheckIn}
+                  memberEmail={memberEmail}
+                  isOwner={isOwner}
+                  activeQuiz={activeQuizzesByBook[book.id] ?? null}
+                />
+              ))
+            ))}
+          {/* Saved web articles always render as article cards. */}
+          {visibleArticles.map((article) => (
+            <ArticleCard
+              key={article.id}
+              article={article}
               memberEmail={memberEmail}
-              isOwner={isOwner}
-              activeQuiz={activeQuizzesByBook[book.id] ?? null}
             />
           ))}
         </div>

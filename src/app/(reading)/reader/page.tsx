@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { GraduationCap } from "lucide-react";
+import { GraduationCap, Settings } from "lucide-react";
 import { AddBookDialog } from "@/components/reading/add-book-dialog";
 import { MemberViewSwitcher } from "@/components/reading/member-view-switcher";
 import { ReadingList } from "@/components/reading/reading-list";
@@ -71,6 +71,13 @@ export default async function ReadingPage({
           {heading}
         </h1>
         <div className="flex items-center gap-2">
+          <Link
+            href="/reader/settings"
+            aria-label="Reader settings"
+            className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <Settings className="h-4 w-4" />
+          </Link>
           {isOwner && (
             <Link
               href={quizzesHref(viewingEmail)}
