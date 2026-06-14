@@ -1,5 +1,6 @@
 "use server";
 
+import { createHash, randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -30,7 +31,7 @@ import type {
 } from "@/lib/types";
 
 const BOOK_COLUMNS =
-  "id, user_id, title, author, total_pages, current_page, target_page, target_locked, target_due, status, cover_image_url, openlibrary_key, isbn, published_year, started_at, finished_at, rating, recommended_by_email, recommended_by_label, recommendation_note, created_at, updated_at";
+  "id, user_id, type, title, author, source_url, site_name, excerpt, word_count, total_pages, current_page, target_page, target_locked, target_due, status, cover_image_url, openlibrary_key, isbn, published_year, started_at, finished_at, rating, recommended_by_email, recommended_by_label, recommendation_note, created_at, updated_at";
 
 function firstName(name: string | null | undefined, fallback: string): string {
   return name?.trim().split(/\s+/)[0] || fallback;
@@ -762,6 +763,12 @@ export async function attachBookFile(
 export type ReadingBookReaderData = {
   title: string;
   author: string | null;
+  /** True for saved web articles (keep images/links; no page anchors). */
+  isArticle: boolean;
+  /** Article only: standfirst/dek shown under the headline. */
+  dek: string | null;
+  /** Article only: hero image (og:image), shown atop the article. */
+  heroImageUrl: string | null;
   /** Short-lived signed URL the client fetches the reflowed HTML from. */
   contentUrl: string;
   hasRealPages: boolean;
@@ -782,12 +789,14 @@ export async function getBookReaderData(
 
   const { data: book, error } = await client
     .from("reading_books")
-    .select("title, author")
+    .select("title, author, type, cover_image_url, excerpt")
     .eq("id", bookId)
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!book) return null;
+
+  const isArticle = book.type === "article";
 
   const { data: content } = await client
     .from("reading_book_content")
@@ -816,6 +825,9 @@ export async function getBookReaderData(
   return {
     title: book.title as string,
     author: (book.author as string) ?? null,
+    isArticle,
+    dek: isArticle ? ((book.excerpt as string) ?? null) : null,
+    heroImageUrl: isArticle ? ((book.cover_image_url as string) ?? null) : null,
     contentUrl: signed.data.signedUrl,
     hasRealPages: content.has_real_pages as boolean,
     pageCount: (content.page_count as number) ?? null,
@@ -825,6 +837,53 @@ export async function getBookReaderData(
       scrollRatio: (state?.last_scroll_ratio as number) ?? null,
     },
   };
+}
+
+// ============================================================
+// Personal API tokens for the Chrome article-capture extension
+// ============================================================
+
+/**
+ * Mint a personal API token for /api/reading/ingest (the Chrome extension). The
+ * raw token is returned exactly once (shown in settings, never again); only its
+ * SHA-256 hex digest is stored. Always the signed-in member's own token.
+ */
+export async function createReadingApiToken(
+  name: string
+): Promise<{ id: string; token: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const email = user?.email?.toLowerCase();
+  if (!email) throw new Error("Not authenticated");
+
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Token name is required");
+
+  const token = `reading_${randomBytes(32).toString("base64url")}`;
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+
+  const { data, error } = await supabase
+    .from("reading_api_tokens")
+    .insert({ member_email: email, name: trimmed, token_hash: tokenHash })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "Failed to create token");
+
+  revalidatePath("/reader/settings");
+  return { id: data.id as string, token };
+}
+
+/** Revoke (delete) one of the signed-in member's reading API tokens. */
+export async function revokeReadingApiToken(tokenId: string): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("reading_api_tokens")
+    .delete()
+    .eq("id", tokenId);
+  if (error) throw error;
+  revalidatePath("/reader/settings");
 }
 
 /**

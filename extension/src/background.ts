@@ -1,0 +1,209 @@
+/// <reference types="chrome" />
+
+// MV3 service worker. On toolbar click: inject the bundled libs, extract the
+// readable article from the live page (so paywalled/logged-in content comes
+// through), and POST it to the configured Mason reader. Feedback is shown via
+// the action badge — never a blocking dialog.
+
+type ExtractedArticle = {
+  url: string;
+  title: string;
+  byline: string | null;
+  siteName: string | null;
+  excerpt: string | null;
+  leadImageUrl: string | null;
+  content: string;
+  length: number;
+};
+
+type Config = { baseUrl: string; token: string };
+
+// Add a scheme if the stored URL lacks one (http for localhost, https
+// otherwise) — older saves stored a bare host, which fetch rejects with
+// `URL scheme "localhost" is not supported`.
+function normalizeBaseUrl(raw: string): string {
+  let v = raw.trim().replace(/\/+$/, "");
+  if (!v) return "";
+  if (!/^https?:\/\//i.test(v)) {
+    const isLocal = /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(v);
+    v = (isLocal ? "http://" : "https://") + v;
+  }
+  return v;
+}
+
+async function getConfig(): Promise<Config | null> {
+  const { baseUrl, token } = await chrome.storage.sync.get(["baseUrl", "token"]);
+  if (typeof baseUrl !== "string" || typeof token !== "string") return null;
+  if (!baseUrl.trim() || !token.trim()) return null;
+  return { baseUrl: normalizeBaseUrl(baseUrl), token: token.trim() };
+}
+
+function setBadge(tabId: number, text: string, color: string): void {
+  void chrome.action.setBadgeText({ tabId, text });
+  void chrome.action.setBadgeBackgroundColor({ tabId, color });
+}
+
+function clearBadgeSoon(tabId: number): void {
+  setTimeout(() => {
+    void chrome.action.setBadgeText({ tabId, text: "" });
+  }, 4000);
+}
+
+/**
+ * Runs IN THE PAGE (serialized by executeScript). Must be self-contained — it
+ * may only reference window/document/location and the globals vendor.js sets.
+ */
+function extractArticle(): ExtractedArticle | null {
+  const w = window as unknown as {
+    __MasonReadability?: new (doc: Document) => {
+      parse: () => {
+        title?: string;
+        byline?: string;
+        siteName?: string;
+        excerpt?: string;
+        content?: string;
+        length?: number;
+      } | null;
+    };
+    __MasonDOMPurify?: { sanitize: (html: string) => string };
+  };
+  const Readability = w.__MasonReadability;
+  const DOMPurify = w.__MasonDOMPurify;
+  if (!Readability) return null;
+
+  const clone = document.cloneNode(true) as Document;
+
+  // Promote lazy-loaded images (data-src/data-srcset) to real src/srcset before
+  // Readability runs, so it keeps them instead of discarding empty <img>s.
+  for (const im of Array.from(clone.querySelectorAll("img"))) {
+    if (!im.getAttribute("src")) {
+      const ds =
+        im.getAttribute("data-src") ||
+        im.getAttribute("data-lazy-src") ||
+        im.getAttribute("data-original");
+      if (ds) im.setAttribute("src", ds);
+    }
+    if (!im.getAttribute("srcset")) {
+      const dss = im.getAttribute("data-srcset");
+      if (dss) im.setAttribute("srcset", dss);
+    }
+  }
+
+  const parsed = new Readability(clone).parse();
+  if (!parsed || !parsed.content) return null;
+
+  const canonical = document.querySelector<HTMLLinkElement>(
+    'link[rel="canonical"]'
+  )?.href;
+
+  // Page metadata Readability drops: the social card image (almost always the
+  // hero) and the standfirst/dek. These rebuild the article header in the reader.
+  const meta = (key: string): string | null =>
+    document
+      .querySelector<HTMLMetaElement>(`meta[property="${key}"]`)
+      ?.content ||
+    document.querySelector<HTMLMetaElement>(`meta[name="${key}"]`)?.content ||
+    null;
+  const leadImageUrl = meta("og:image");
+  const dek = meta("og:description") || meta("description");
+
+  // Stamp intrinsic image dimensions from the live (already-loaded) page and
+  // drop lazy-loading. With width/height present, the reader reserves each
+  // image's space on first paint, so resuming a half-read article lands at the
+  // saved position instantly instead of waiting for images to load.
+  let contentHtml = parsed.content;
+  try {
+    const liveDims = new Map<string, [number, number]>();
+    for (const im of Array.from(document.querySelectorAll("img"))) {
+      const key = im.getAttribute("src");
+      if (key && im.naturalWidth > 0 && im.naturalHeight > 0) {
+        liveDims.set(key, [im.naturalWidth, im.naturalHeight]);
+      }
+    }
+    const doc = new DOMParser().parseFromString(parsed.content, "text/html");
+    for (const im of Array.from(doc.querySelectorAll("img"))) {
+      im.removeAttribute("loading");
+      if (!im.getAttribute("width") || !im.getAttribute("height")) {
+        const dim = liveDims.get(im.getAttribute("src") || "");
+        if (dim) {
+          im.setAttribute("width", String(dim[0]));
+          im.setAttribute("height", String(dim[1]));
+        }
+      }
+    }
+    contentHtml = doc.body.innerHTML;
+  } catch {
+    contentHtml = parsed.content;
+  }
+
+  const content = DOMPurify ? DOMPurify.sanitize(contentHtml) : contentHtml;
+
+  return {
+    url: canonical || location.href,
+    title: parsed.title || document.title,
+    byline: parsed.byline || null,
+    siteName: parsed.siteName || null,
+    // Prefer the dek (standfirst) over Readability's first-sentence excerpt.
+    excerpt: dek || parsed.excerpt || null,
+    leadImageUrl,
+    content,
+    length: parsed.length || 0,
+  };
+}
+
+async function saveActiveTab(tab: chrome.tabs.Tab): Promise<void> {
+  if (!tab.id) return;
+  const tabId = tab.id;
+
+  const config = await getConfig();
+  if (!config) {
+    setBadge(tabId, "?", "#9ca3af");
+    clearBadgeSoon(tabId);
+    void chrome.runtime.openOptionsPage();
+    return;
+  }
+
+  try {
+    // Load Readability + DOMPurify into the page, then extract.
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["vendor.js"],
+    });
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: extractArticle,
+    });
+    const article = injection?.result as ExtractedArticle | null | undefined;
+    if (!article || !article.content) {
+      throw new Error("No readable article found on this page.");
+    }
+
+    const res = await fetch(`${config.baseUrl}/api/reading/ingest`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.token}`,
+      },
+      body: JSON.stringify({
+        url: article.url,
+        title: article.title,
+        author: article.byline,
+        siteName: article.siteName,
+        excerpt: article.excerpt,
+        coverImageUrl: article.leadImageUrl,
+        html: article.content,
+      }),
+    });
+    if (!res.ok) throw new Error(`Save failed (${res.status}).`);
+
+    setBadge(tabId, "✓", "#16a34a");
+  } catch {
+    setBadge(tabId, "!", "#dc2626");
+  } finally {
+    clearBadgeSoon(tabId);
+  }
+}
+
+chrome.action.onClicked.addListener((tab) => {
+  void saveActiveTab(tab);
+});

@@ -50,3 +50,7 @@ next-env.d.ts
 # raycast extension build artifacts
 /raycast/node_modules/
 /raycast/dist/
+
+# chrome reader extension build artifacts
+/extension/node_modules/
+/extension/dist/

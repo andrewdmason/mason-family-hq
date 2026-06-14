@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Mason Reader — Save Article",
+  "version": "0.1.0",
+  "description": "Save the article you're reading to your Mason reader.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "action": {
+    "default_title": "Save to Reader"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html"
+}
