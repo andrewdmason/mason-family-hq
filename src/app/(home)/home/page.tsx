@@ -3,6 +3,7 @@ import { JournalStatusWidget } from "@/components/home/journal-status-widget";
 import { ReaderWidget } from "@/components/home/reader-widget";
 import { PracticeTrendWidget } from "@/components/home/practice-trend-widget";
 import { PersonStatusWidget } from "@/components/home/person-status-widget";
+import { KidCalendarWidget } from "@/components/home/kid-calendar-widget";
 import { TodosWidget } from "@/components/home/todos-widget";
 import { WorkoutWidget } from "@/components/home/workout-widget";
 import { getHomeTodos } from "@/lib/home/todos";
@@ -14,7 +15,8 @@ import { getIsOwner } from "@/lib/members/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { getCurrentMember, firstName } from "@/lib/home/members";
 import { getJournalStatus } from "@/lib/home/journal";
-import { getHomePersonStatuses } from "@/lib/home/person-status";
+import { getHomePersonStatuses, getKidAgenda } from "@/lib/home/person-status";
+import type { KidAgenda } from "@/lib/home/types";
 import type { ReadingBookWithProgress } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +31,7 @@ export default async function HomePage() {
   });
 
   const member = await getCurrentMember();
+  const isKid = member.role === "kid";
 
   const [
     isOwner,
@@ -38,14 +41,23 @@ export default async function HomePage() {
     personStatuses,
     workout,
     todos,
+    kidAgenda,
   ] = await Promise.all([
     getIsOwner(),
     getJournalStatus("private", today),
     getJournalStatus("family", today),
     getReadingHome().catch(() => null),
-    getHomePersonStatuses(tz, member.email).catch(() => []),
+    // Kids don't get the family-member sidebar, so skip that fetch for them.
+    isKid
+      ? Promise.resolve([])
+      : getHomePersonStatuses(tz, member.email).catch(() => []),
     getHomeWorkout().catch(() => null),
     getHomeTodos().catch(() => null),
+    isKid
+      ? getKidAgenda(tz, member.email).catch(
+          (): KidAgenda => ({ today: [], tomorrow: [] })
+        )
+      : Promise.resolve<KidAgenda | null>(null),
   ]);
 
   // The most recently active in-progress book powers the Reader widget; a
@@ -67,7 +79,23 @@ export default async function HomePage() {
       ])
     : [null, null];
 
-  const sidebarPeople = personStatuses.filter((p) => p.email !== member.email);
+  // Kids get a focused Home: no status widgets for other family members in the
+  // sidebar. Only parents/owner see the family-at-a-glance column.
+  const sidebarPeople = isKid
+    ? []
+    : personStatuses.filter((p) => p.email !== member.email);
+
+  // Kids see the Reader widget pinned to the top in its goal-focused form; for
+  // everyone else it keeps its default form and mid-column position.
+  const readerWidget = activeBook ? (
+    <ReaderWidget
+      book={activeBook}
+      weeklyPageGoal={reading?.weeklyPageGoal ?? 0}
+      activeQuiz={activeQuiz}
+      variant={isKid ? "goal" : "default"}
+      today={today}
+    />
+  ) : null;
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 pb-24 pt-12">
@@ -76,6 +104,7 @@ export default async function HomePage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Main column */}
         <div className="space-y-4 lg:col-span-2">
+          {isKid && readerWidget}
           {todos && <TodosWidget data={todos} />}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <JournalStatusWidget
@@ -89,13 +118,7 @@ export default async function HomePage() {
               today={today}
             />
           </div>
-          {activeBook && (
-            <ReaderWidget
-              book={activeBook}
-              weeklyPageGoal={reading?.weeklyPageGoal ?? 0}
-              activeQuiz={activeQuiz}
-            />
-          )}
+          {!isKid && readerWidget}
           <WorkoutWidget workout={workout} today={today} />
           {isOwner && trailing && streak && (
             <PracticeTrendWidget
@@ -107,8 +130,11 @@ export default async function HomePage() {
 
         {/* Sidebar column */}
         <div className="space-y-4">
+          {isKid && kidAgenda && (
+            <KidCalendarWidget agenda={kidAgenda} tz={tz} />
+          )}
           {sidebarPeople.map((person) => (
-            <PersonStatusWidget key={person.email} person={person} />
+            <PersonStatusWidget key={person.email} person={person} tz={tz} />
           ))}
         </div>
       </div>

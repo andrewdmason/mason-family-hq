@@ -985,7 +985,7 @@ export type ReadingBookState = {
 // Reading comprehension quizzes
 // ============================================================
 
-export type ReadingQuizStatus = "draft" | "published";
+export type ReadingQuizStatus = "draft" | "published" | "archived";
 export type ReadingQuizQuestionType = "multiple_choice" | "free_text" | "essay";
 
 /**
@@ -1161,28 +1161,51 @@ export type ActiveBookQuiz = {
   dueNow: boolean;
 };
 
-/** One row of the owner's cross-kid quizzes list. */
-export type OwnerQuizListItem = {
+/** One attempt in the Parent Admin view of a quiz. */
+export type ReadingAdminAttempt = {
+  id: string;
+  attemptNumber: number;
+  submittedAt: string | null;
+  scoreCorrect: number | null;
+  scoreTotal: number | null;
+  gradingComplete: boolean;
+  /** True when this attempt is a parent override (closed without passing). */
+  closedByParent: boolean;
+};
+
+/** One quiz (any status) in the Parent Admin view, with its attempts. */
+export type ReadingAdminQuiz = {
   id: string;
   status: ReadingQuizStatus;
   fromPage: number | null;
   throughPage: number;
   createdAt: string;
-  bookTitle: string;
-  memberEmail: string;
-  memberName: string | null;
-  /** How many times the kid has attempted this quiz. */
-  attemptCount: number;
-  /** True once any attempt got every question right. */
   passed: boolean;
-  /** True when a parent closed it without passing, rather than the kid passing it. */
   closedByParent: boolean;
-  /** The kid's most recent attempt, once they've taken it. */
-  latest: {
-    attemptNumber: number;
-    submittedAt: string;
-    scoreCorrect: number;
-    scoreTotal: number;
-    gradingComplete: boolean;
-  } | null;
+  attempts: ReadingAdminAttempt[];
+};
+
+/** One book in the Parent Admin view: assignment state + its quizzes. */
+export type ReadingAdminBook = {
+  bookId: string;
+  title: string;
+  author: string | null;
+  currentPage: number;
+  targetPage: number | null;
+  targetDue: string | null;
+  totalPages: number | null;
+  status: string;
+  /** The single live quiz (published, not yet passed), if any. */
+  activeQuiz: ReadingAdminQuiz | null;
+  /** A draft awaiting review/publish, if any. */
+  draftQuiz: ReadingAdminQuiz | null;
+  /** Passed and archived quizzes, newest first. */
+  history: ReadingAdminQuiz[];
+};
+
+/** One kid's section in the Parent Admin view. */
+export type ReadingAdminMember = {
+  email: string;
+  name: string | null;
+  books: ReadingAdminBook[];
 };
