@@ -18,6 +18,27 @@ import type { ReadingTocEntry } from "@/lib/types";
 // reserved top margin) so the page shown matches what's at the top of the view.
 const READING_LINE_OFFSET = 72;
 
+const READING_SETTLE_CAP_MS = 2000;
+
+// Article-only prose styles. Books reflow to plain text (images/links/lists are
+// stripped at conversion), so these only ever apply to saved web articles and
+// never collide with the book heading classes below.
+const ARTICLE_PROSE = [
+  "[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2",
+  "[&_img]:my-4 [&_img]:mx-auto [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-md",
+  "[&_figure]:my-5 [&_figcaption]:mt-1.5 [&_figcaption]:text-center [&_figcaption]:text-sm [&_figcaption]:text-muted-foreground",
+  "[&_ul]:my-5 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-5 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-2",
+  "[&_h1]:mt-8 [&_h1]:mb-3 [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:tracking-tight",
+  "[&_h2]:mt-7 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold",
+  "[&_h3]:mt-6 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-medium",
+  "[&_h4]:mt-5 [&_h4]:mb-2 [&_h4]:font-medium",
+  "[&_pre]:my-5 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-4 [&_pre]:text-sm",
+  "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.9em]",
+  "[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-inherit",
+  "[&_hr]:my-8 [&_hr]:border-border",
+  "[&_table]:my-5 [&_table]:w-full [&_table]:text-sm [&_th]:border [&_th]:border-border [&_th]:p-2 [&_th]:text-left [&_td]:border [&_td]:border-border [&_td]:p-2",
+].join(" ");
+
 type Anchor = { pageNumber: number; docTop: number; id: string };
 
 export function BookReader({
@@ -25,6 +46,7 @@ export function BookReader({
   memberEmail,
   title,
   author,
+  isArticle = false,
   contentUrl,
   hasRealPages,
   pageCount,
@@ -37,6 +59,7 @@ export function BookReader({
   memberEmail: string | null;
   title: string;
   author: string | null;
+  isArticle?: boolean;
   contentUrl: string;
   hasRealPages: boolean;
   pageCount: number | null;
@@ -130,9 +153,60 @@ export function BookReader({
       pageNumber: hasRealPages ? pageNumber : null,
     };
 
+    // Don't persist a position until we've restored the saved one — otherwise the
+    // initial scroll-0 reading frame would overwrite the resume point before the
+    // restore runs (especially while waiting on images/fonts to settle).
+    if (!restoredRef.current) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(flush, 1500);
   }, [flush, hasRealPages]);
+
+  // Resolve once the document height has stopped changing (images decoding,
+  // web-font swaps), so a ratio/anchor restore lands in the right place instead
+  // of against a too-short page. Capped so a perpetually-shifting page still
+  // restores eventually.
+  const waitForLayoutToSettle = useCallback(async () => {
+    const container = contentRef.current;
+    if (container) {
+      const pending = Array.from(
+        container.querySelectorAll("img")
+      ).filter((img) => !img.complete);
+      if (pending.length > 0) {
+        await Promise.race([
+          Promise.all(
+            pending.map(
+              (img) =>
+                new Promise<void>((resolve) => {
+                  img.addEventListener("load", () => resolve(), { once: true });
+                  img.addEventListener("error", () => resolve(), { once: true });
+                })
+            )
+          ),
+          new Promise<void>((resolve) =>
+            setTimeout(resolve, READING_SETTLE_CAP_MS)
+          ),
+        ]);
+      }
+    }
+    // Then wait for scrollHeight to hold steady across two frames.
+    await new Promise<void>((resolve) => {
+      let last = -1;
+      let stableFrames = 0;
+      let frames = 0;
+      const tick = () => {
+        const h = document.documentElement.scrollHeight;
+        if (h === last) {
+          if (++stableFrames >= 2) return resolve();
+        } else {
+          stableFrames = 0;
+          last = h;
+        }
+        if (++frames > 120) return resolve(); // ~2s cap at 60fps
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  }, []);
 
   // After the HTML mounts: measure, restore the saved position, wire scrolling.
   useEffect(() => {
@@ -141,29 +215,40 @@ export function BookReader({
     measure();
     onScroll();
 
-    // Restore once; re-measure shortly after in case fonts shifted layout.
     const restore = () => {
       if (restoredRef.current) return;
-      restoredRef.current = true;
+      // If the reader already scrolled away while we waited for layout, don't
+      // yank them back — just stop blocking saves.
+      if (window.scrollY > READING_LINE_OFFSET) {
+        restoredRef.current = true;
+        return;
+      }
       if (resumeAnchorId) {
         const el = document.getElementById(resumeAnchorId);
         if (el) {
+          restoredRef.current = true;
           window.scrollTo({
             top: el.getBoundingClientRect().top + window.scrollY - READING_LINE_OFFSET,
           });
           return;
         }
       }
+      restoredRef.current = true;
       if (resumeScrollRatio && resumeScrollRatio > 0) {
         const max = document.documentElement.scrollHeight - window.innerHeight;
         window.scrollTo({ top: max * resumeScrollRatio });
       }
     };
-    const t1 = setTimeout(() => {
+
+    // Wait for the page to stop reflowing before restoring, so the saved anchor/
+    // ratio lands accurately. Guarded against unmount mid-wait.
+    let cancelled = false;
+    void waitForLayoutToSettle().then(() => {
+      if (cancelled) return;
       measure();
       restore();
       onScroll();
-    }, 150);
+    });
 
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", measure);
@@ -177,7 +262,7 @@ export function BookReader({
     });
 
     return () => {
-      clearTimeout(t1);
+      cancelled = true;
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", measure);
       window.removeEventListener("pagehide", onHide);
@@ -271,7 +356,10 @@ export function BookReader({
       ) : (
         <article
           ref={contentRef}
-          className="mx-auto w-full max-w-2xl px-6 pt-20 pb-32 font-serif text-[1.15rem] leading-8 text-foreground [&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:italic [&_p]:mb-5 [&_.page-anchor]:block [&_.page-anchor]:h-0 [&_.reader-heading]:scroll-mt-28 [&_.reader-heading]:text-center [&_.reader-heading]:font-serif [&_.reader-heading]:text-balance [&_.reader-h1]:mt-16 [&_.reader-h1]:mb-3 [&_.reader-h1]:text-3xl [&_.reader-h1]:font-semibold [&_.reader-h1]:tracking-tight first:[&_.reader-h1]:mt-2 [&_.reader-h2]:mt-8 [&_.reader-h2]:mb-7 [&_.reader-h2]:text-xl [&_.reader-h2]:font-medium [&_.reader-h2]:text-muted-foreground"
+          className={cn(
+            "mx-auto w-full max-w-2xl px-6 pt-20 pb-32 font-serif text-[1.15rem] leading-8 text-foreground [&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:italic [&_p]:mb-5 [&_.page-anchor]:block [&_.page-anchor]:h-0 [&_.reader-heading]:scroll-mt-28 [&_.reader-heading]:text-center [&_.reader-heading]:font-serif [&_.reader-heading]:text-balance [&_.reader-h1]:mt-16 [&_.reader-h1]:mb-3 [&_.reader-h1]:text-3xl [&_.reader-h1]:font-semibold [&_.reader-h1]:tracking-tight first:[&_.reader-h1]:mt-2 [&_.reader-h2]:mt-8 [&_.reader-h2]:mb-7 [&_.reader-h2]:text-xl [&_.reader-h2]:font-medium [&_.reader-h2]:text-muted-foreground",
+            isArticle && ARTICLE_PROSE
+          )}
           dangerouslySetInnerHTML={{ __html: html }}
         />
       )}

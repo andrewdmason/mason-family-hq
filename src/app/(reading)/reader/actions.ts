@@ -763,6 +763,8 @@ export async function attachBookFile(
 export type ReadingBookReaderData = {
   title: string;
   author: string | null;
+  /** True for saved web articles (keep images/links; no page anchors). */
+  isArticle: boolean;
   /** Short-lived signed URL the client fetches the reflowed HTML from. */
   contentUrl: string;
   hasRealPages: boolean;
@@ -783,7 +785,7 @@ export async function getBookReaderData(
 
   const { data: book, error } = await client
     .from("reading_books")
-    .select("title, author")
+    .select("title, author, type")
     .eq("id", bookId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -817,6 +819,7 @@ export async function getBookReaderData(
   return {
     title: book.title as string,
     author: (book.author as string) ?? null,
+    isArticle: book.type === "article",
     contentUrl: signed.data.signedUrl,
     hasRealPages: content.has_real_pages as boolean,
     pageCount: (content.page_count as number) ?? null,
