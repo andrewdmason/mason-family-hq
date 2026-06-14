@@ -6,6 +6,7 @@ import { generateEssayAssignment } from "@/lib/reading/quiz-generate";
 import { readerAge } from "@/lib/reading/reader-age";
 import { essayMinWords, loadReaderContext } from "@/lib/reading/reader-context";
 import { defaultQuizTitle, essayQuestionRow } from "@/lib/reading/quiz-build";
+import { archiveOtherOpenQuizzes } from "@/lib/reading/supersede";
 
 export type EnsureStretchResult = {
   quizId: string | null;
@@ -99,6 +100,9 @@ export async function ensureStretchQuiz(
     .from("reading_quiz_questions")
     .insert(essayQuestionRow(quizId, userId, generated));
   if (qError) return { quizId: null, status: "error" };
+
+  // One live quiz per book: retire any other open quiz left for this book.
+  await archiveOtherOpenQuizzes(client, userId, bookId, quizId);
 
   revalidatePath("/reader");
   return { quizId, status: "created" };

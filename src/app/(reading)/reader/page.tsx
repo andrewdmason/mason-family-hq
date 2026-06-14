@@ -77,7 +77,7 @@ export default async function ReadingPage({
               className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <GraduationCap className="h-4 w-4" />
-              Quizzes
+              Parent Admin
             </Link>
           )}
           {isOwner && viewable.length > 1 && (
