@@ -264,6 +264,9 @@ export function formatTimeRange(
   startTime: string,
   endTime: string | null,
   allDay: boolean,
+  // Pass the viewer's IANA zone when formatting on the server (runtime is UTC
+  // there); omit on the client, where the runtime zone is already the viewer's.
+  timeZone?: string,
 ): string {
   if (allDay) return "All day";
   const start = new Date(startTime);
@@ -272,6 +275,7 @@ export function formatTimeRange(
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
+      ...(timeZone ? { timeZone } : {}),
     });
   if (!endTime) return fmt(start);
   const end = new Date(endTime);

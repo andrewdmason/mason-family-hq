@@ -130,9 +130,11 @@ export default async function HomePage() {
 
         {/* Sidebar column */}
         <div className="space-y-4">
-          {isKid && kidAgenda && <KidCalendarWidget agenda={kidAgenda} />}
+          {isKid && kidAgenda && (
+            <KidCalendarWidget agenda={kidAgenda} tz={tz} />
+          )}
           {sidebarPeople.map((person) => (
-            <PersonStatusWidget key={person.email} person={person} />
+            <PersonStatusWidget key={person.email} person={person} tz={tz} />
           ))}
         </div>
       </div>
