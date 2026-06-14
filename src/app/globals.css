@@ -359,3 +359,25 @@
   animation: assignment-highlight 1.5s ease-out;
   border-radius: 0.25rem;
 }
+
+/* Reader: web-article figure captions. Sites like The New Yorker wrap the
+   caption in a plain <p> inside the <figure> (not a <figcaption>), so it would
+   otherwise render as ordinary body text. Style real figcaptions and any
+   non-image paragraph inside a figure as a muted, centered caption. */
+.article-content figure figcaption,
+.article-content figure p:not(:has(img)):not(:has(picture)) {
+  margin-top: 0.5rem;
+  margin-bottom: 0;
+  text-align: center;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+}
+
+/* The credit half of a caption (often a second <span>) reads as a sub-line. */
+.article-content figure p:not(:has(img)):not(:has(picture)) span + span {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
