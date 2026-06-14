@@ -42,6 +42,8 @@ export default async function ReadBookPage({
       title={data.title}
       author={data.author}
       isArticle={data.isArticle}
+      dek={data.dek}
+      heroImageUrl={data.heroImageUrl}
       contentUrl={data.contentUrl}
       hasRealPages={data.hasRealPages}
       pageCount={data.pageCount}

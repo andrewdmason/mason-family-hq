@@ -47,6 +47,8 @@ export function BookReader({
   title,
   author,
   isArticle = false,
+  dek = null,
+  heroImageUrl = null,
   contentUrl,
   hasRealPages,
   pageCount,
@@ -60,6 +62,8 @@ export function BookReader({
   title: string;
   author: string | null;
   isArticle?: boolean;
+  dek?: string | null;
+  heroImageUrl?: string | null;
   contentUrl: string;
   hasRealPages: boolean;
   pageCount: number | null;
@@ -372,15 +376,42 @@ export function BookReader({
           <span className="text-sm">Opening your book…</span>
         </div>
       ) : (
-        <article
-          ref={contentRef}
-          className={cn(
-            "mx-auto w-full max-w-2xl px-6 pt-20 pb-32 font-serif text-[1.15rem] leading-8 text-foreground [&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:italic [&_p]:mb-5 [&_.page-anchor]:block [&_.page-anchor]:h-0 [&_.reader-heading]:scroll-mt-28 [&_.reader-heading]:text-center [&_.reader-heading]:font-serif [&_.reader-heading]:text-balance [&_.reader-h1]:mt-16 [&_.reader-h1]:mb-3 [&_.reader-h1]:text-3xl [&_.reader-h1]:font-semibold [&_.reader-h1]:tracking-tight first:[&_.reader-h1]:mt-2 [&_.reader-h2]:mt-8 [&_.reader-h2]:mb-7 [&_.reader-h2]:text-xl [&_.reader-h2]:font-medium [&_.reader-h2]:text-muted-foreground",
-            isArticle && "article-content",
-            isArticle && ARTICLE_PROSE
+        <article className="mx-auto w-full max-w-2xl px-6 pt-20 pb-32 font-serif text-[1.15rem] leading-8 text-foreground">
+          {/* Readability returns the title/dek/hero separately from the body, so
+              the reader reconstructs the article header for web articles. */}
+          {isArticle && (
+            <header className="mb-8">
+              <h1 className="font-serif text-3xl font-semibold tracking-tight text-balance text-foreground">
+                {title}
+              </h1>
+              {dek && (
+                <p className="mt-3 text-lg leading-snug text-muted-foreground">
+                  {dek}
+                </p>
+              )}
+              {author && (
+                <p className="mt-4 text-sm text-muted-foreground">By {author}</p>
+              )}
+              {heroImageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={heroImageUrl}
+                  alt=""
+                  className="mt-6 aspect-[16/9] w-full rounded-lg object-cover"
+                />
+              )}
+            </header>
           )}
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
+          <div
+            ref={contentRef}
+            className={cn(
+              "[&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:italic [&_p]:mb-5 [&_.page-anchor]:block [&_.page-anchor]:h-0 [&_.reader-heading]:scroll-mt-28 [&_.reader-heading]:text-center [&_.reader-heading]:font-serif [&_.reader-heading]:text-balance [&_.reader-h1]:mt-16 [&_.reader-h1]:mb-3 [&_.reader-h1]:text-3xl [&_.reader-h1]:font-semibold [&_.reader-h1]:tracking-tight first:[&_.reader-h1]:mt-2 [&_.reader-h2]:mt-8 [&_.reader-h2]:mb-7 [&_.reader-h2]:text-xl [&_.reader-h2]:font-medium [&_.reader-h2]:text-muted-foreground",
+              isArticle && "article-content",
+              isArticle && ARTICLE_PROSE
+            )}
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        </article>
       )}
 
       {/* Fixed progress indicator, Kindle-style. */}

@@ -765,6 +765,10 @@ export type ReadingBookReaderData = {
   author: string | null;
   /** True for saved web articles (keep images/links; no page anchors). */
   isArticle: boolean;
+  /** Article only: standfirst/dek shown under the headline. */
+  dek: string | null;
+  /** Article only: hero image (og:image), shown atop the article. */
+  heroImageUrl: string | null;
   /** Short-lived signed URL the client fetches the reflowed HTML from. */
   contentUrl: string;
   hasRealPages: boolean;
@@ -785,12 +789,14 @@ export async function getBookReaderData(
 
   const { data: book, error } = await client
     .from("reading_books")
-    .select("title, author, type")
+    .select("title, author, type, cover_image_url, excerpt")
     .eq("id", bookId)
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!book) return null;
+
+  const isArticle = book.type === "article";
 
   const { data: content } = await client
     .from("reading_book_content")
@@ -819,7 +825,9 @@ export async function getBookReaderData(
   return {
     title: book.title as string,
     author: (book.author as string) ?? null,
-    isArticle: book.type === "article",
+    isArticle,
+    dek: isArticle ? ((book.excerpt as string) ?? null) : null,
+    heroImageUrl: isArticle ? ((book.cover_image_url as string) ?? null) : null,
     contentUrl: signed.data.signedUrl,
     hasRealPages: content.has_real_pages as boolean,
     pageCount: (content.page_count as number) ?? null,

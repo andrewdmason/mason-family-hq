@@ -11,6 +11,7 @@ type ExtractedArticle = {
   byline: string | null;
   siteName: string | null;
   excerpt: string | null;
+  leadImageUrl: string | null;
   content: string;
   length: number;
 };
@@ -71,12 +72,40 @@ function extractArticle(): ExtractedArticle | null {
   if (!Readability) return null;
 
   const clone = document.cloneNode(true) as Document;
+
+  // Promote lazy-loaded images (data-src/data-srcset) to real src/srcset before
+  // Readability runs, so it keeps them instead of discarding empty <img>s.
+  for (const im of Array.from(clone.querySelectorAll("img"))) {
+    if (!im.getAttribute("src")) {
+      const ds =
+        im.getAttribute("data-src") ||
+        im.getAttribute("data-lazy-src") ||
+        im.getAttribute("data-original");
+      if (ds) im.setAttribute("src", ds);
+    }
+    if (!im.getAttribute("srcset")) {
+      const dss = im.getAttribute("data-srcset");
+      if (dss) im.setAttribute("srcset", dss);
+    }
+  }
+
   const parsed = new Readability(clone).parse();
   if (!parsed || !parsed.content) return null;
 
   const canonical = document.querySelector<HTMLLinkElement>(
     'link[rel="canonical"]'
   )?.href;
+
+  // Page metadata Readability drops: the social card image (almost always the
+  // hero) and the standfirst/dek. These rebuild the article header in the reader.
+  const meta = (key: string): string | null =>
+    document
+      .querySelector<HTMLMetaElement>(`meta[property="${key}"]`)
+      ?.content ||
+    document.querySelector<HTMLMetaElement>(`meta[name="${key}"]`)?.content ||
+    null;
+  const leadImageUrl = meta("og:image");
+  const dek = meta("og:description") || meta("description");
 
   // Stamp intrinsic image dimensions from the live (already-loaded) page and
   // drop lazy-loading. With width/height present, the reader reserves each
@@ -114,7 +143,9 @@ function extractArticle(): ExtractedArticle | null {
     title: parsed.title || document.title,
     byline: parsed.byline || null,
     siteName: parsed.siteName || null,
-    excerpt: parsed.excerpt || null,
+    // Prefer the dek (standfirst) over Readability's first-sentence excerpt.
+    excerpt: dek || parsed.excerpt || null,
+    leadImageUrl,
     content,
     length: parsed.length || 0,
   };
@@ -159,6 +190,7 @@ async function saveActiveTab(tab: chrome.tabs.Tab): Promise<void> {
         author: article.byline,
         siteName: article.siteName,
         excerpt: article.excerpt,
+        coverImageUrl: article.leadImageUrl,
         html: article.content,
       }),
     });
