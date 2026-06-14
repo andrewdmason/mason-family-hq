@@ -49,6 +49,13 @@ export type HomePersonReadingStatus = {
   books: HomeReadingBookStatus[];
 };
 
+/** A kid's own upcoming events, split across today and tomorrow, for the
+ * kid Home sidebar calendar card. */
+export type KidAgenda = {
+  today: CalendarEvent[];
+  tomorrow: CalendarEvent[];
+};
+
 /** One fixed sidebar card on the parent Home page. */
 export type HomePersonStatus = {
   email: string;

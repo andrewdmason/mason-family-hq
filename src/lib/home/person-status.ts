@@ -14,6 +14,7 @@ import type {
   HomePersonReadingStatus,
   HomePersonStatus,
   HomeReadingBookStatus,
+  KidAgenda,
 } from "@/lib/home/types";
 import type { MemberRole } from "@/lib/types";
 
@@ -315,4 +316,41 @@ export async function getHomePersonStatuses(
     reading: readingByEmail.get(member.email) ?? null,
     events: (eventsByEmail.get(member.email) ?? []).sort(sortEvents),
   }));
+}
+
+/**
+ * A kid's own calendar for today and tomorrow, for the kid Home sidebar. Today
+ * keeps only events that haven't ended yet (matching the "no more events today"
+ * agenda elsewhere); tomorrow shows the full day.
+ */
+export async function getKidAgenda(
+  tz: string,
+  viewerEmail: string | null
+): Promise<KidAgenda> {
+  if (!viewerEmail) return { today: [], tomorrow: [] };
+
+  const now = Date.now();
+  const todayKey = localDate(new Date(now), tz);
+  const tomorrowKey = localDate(new Date(now + DAY_MS), tz);
+
+  const events = await getCalendarEvents({
+    rangeStart: new Date(now - DAY_MS),
+    rangeEnd: new Date(now + 2 * DAY_MS),
+  });
+
+  const today: CalendarEvent[] = [];
+  const tomorrow: CalendarEvent[] = [];
+  for (const event of events) {
+    if (event.member_email !== viewerEmail) continue;
+    if (isHiddenEvent(event)) continue;
+    const key = eventDateKey(event, tz);
+    if (key === todayKey) {
+      if (!eventStillUpcoming(event, now)) continue;
+      today.push(event);
+    } else if (key === tomorrowKey) {
+      tomorrow.push(event);
+    }
+  }
+
+  return { today: today.sort(sortEvents), tomorrow: tomorrow.sort(sortEvents) };
 }
