@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mason Reader — Options</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        max-width: 28rem;
+        margin: 2rem auto;
+        padding: 0 1.25rem;
+        color: #1a1a1a;
+      }
+      h1 {
+        font-size: 1.15rem;
+        margin-bottom: 0.25rem;
+      }
+      p.hint {
+        color: #666;
+        font-size: 0.85rem;
+        margin-top: 0;
+      }
+      label {
+        display: block;
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin: 1rem 0 0.35rem;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 0.55rem 0.7rem;
+        border: 1px solid #d0d0d0;
+        border-radius: 0.5rem;
+        font-size: 0.9rem;
+      }
+      button {
+        margin-top: 1.25rem;
+        padding: 0.55rem 1rem;
+        border: 0;
+        border-radius: 0.5rem;
+        background: #111;
+        color: #fff;
+        font-weight: 600;
+        font-size: 0.9rem;
+        cursor: pointer;
+      }
+      #status {
+        margin-left: 0.75rem;
+        font-size: 0.85rem;
+        color: #16a34a;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Mason Reader</h1>
+    <p class="hint">
+      Connect the extension to your reader, then click the toolbar button on any
+      article to save it.
+    </p>
+
+    <label for="baseUrl">App URL</label>
+    <input
+      id="baseUrl"
+      type="url"
+      placeholder="https://your-reader.example.com"
+      autocomplete="off"
+    />
+
+    <label for="token">API token</label>
+    <input
+      id="token"
+      type="password"
+      placeholder="reading_…"
+      autocomplete="off"
+    />
+    <p class="hint">Generate one in the reader under Settings → Reader settings.</p>
+
+    <div>
+      <button id="save">Save</button>
+      <span id="status"></span>
+    </div>
+
+    <script src="options.js"></script>
+  </body>
+</html>
