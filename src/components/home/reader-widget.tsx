@@ -44,15 +44,33 @@ export function ReaderWidget({
       ? Math.min(100, Math.round((book.pagesReadThisWeek / weeklyPageGoal) * 100))
       : 0;
 
-  // Goal variant: a target the kid hasn't reached, with a Friday deadline that's
-  // already in the past, is overdue.
-  const overdue =
+  // Goal variant: whole days from today to the target's Friday deadline.
+  // Negative once the deadline has passed; null when there's no target/today.
+  const daysUntilDue =
+    variant === "goal" && book.target_due != null && today != null
+      ? Math.round(
+          (new Date(`${book.target_due}T12:00:00`).getTime() -
+            new Date(`${today}T12:00:00`).getTime()) /
+            86_400_000
+        )
+      : null;
+
+  // The goal is still in play (kid hasn't reached the target page yet).
+  const goalUnmet =
     variant === "goal" &&
     book.target_page != null &&
-    book.current_page < book.target_page &&
-    book.target_due != null &&
-    today != null &&
-    book.target_due < today;
+    book.current_page < book.target_page;
+
+  const overdue = goalUnmet && daysUntilDue != null && daysUntilDue < 0;
+
+  const dueCountdown =
+    daysUntilDue == null
+      ? null
+      : daysUntilDue === 0
+        ? "Due today"
+        : daysUntilDue === 1
+          ? "Due tomorrow"
+          : `Due in ${daysUntilDue} days`;
 
   return (
     <WidgetCard title="Reading" icon={BookOpen} href="/reader">
@@ -88,12 +106,21 @@ export function ReaderWidget({
               Goal: Page {book.target_page}
             </p>
           )}
-          {variant === "goal" && overdue && (
-            <div className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-destructive/10 px-2 py-1 text-xs font-semibold text-destructive">
-              <AlertTriangle className="size-3.5" />
-              Overdue
-            </div>
-          )}
+          {variant === "goal" &&
+            goalUnmet &&
+            (overdue ? (
+              <div className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-destructive/10 px-2 py-1 text-xs font-semibold text-destructive">
+                <AlertTriangle className="size-3.5" />
+                Overdue by {-daysUntilDue!}{" "}
+                {-daysUntilDue! === 1 ? "day" : "days"}
+              </div>
+            ) : (
+              dueCountdown && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {dueCountdown}
+                </p>
+              )
+            ))}
           {variant === "default" &&
             activeQuiz &&
             (() => {

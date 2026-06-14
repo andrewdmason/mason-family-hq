@@ -91,7 +91,13 @@ function ReadingBookRow({
   );
 }
 
-export function PersonStatusWidget({ person }: { person: HomePersonStatus }) {
+export function PersonStatusWidget({
+  person,
+  tz,
+}: {
+  person: HomePersonStatus;
+  tz: string;
+}) {
   const reading = person.reading;
   const readingHref = readingHomeHref(person.email);
   const visibleBooks = reading?.books.slice(0, 1) ?? [];
@@ -159,7 +165,8 @@ export function PersonStatusWidget({ person }: { person: HomePersonStatus }) {
                     {formatTimeRange(
                       event.start_time,
                       event.end_time,
-                      event.all_day
+                      event.all_day,
+                      tz
                     )}
                   </span>{" "}
                   <span className="text-foreground">{event.title}</span>

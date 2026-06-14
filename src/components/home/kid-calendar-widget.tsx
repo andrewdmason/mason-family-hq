@@ -7,9 +7,11 @@ import type { KidAgenda } from "@/lib/home/types";
 function EventList({
   events,
   emptyLabel,
+  tz,
 }: {
   events: CalendarEvent[];
   emptyLabel: string;
+  tz: string;
 }) {
   if (events.length === 0) {
     return (
@@ -23,7 +25,12 @@ function EventList({
       {events.map((event) => (
         <li key={event.id} className="text-sm leading-snug">
           <span className="text-muted-foreground">
-            {formatTimeRange(event.start_time, event.end_time, event.all_day)}
+            {formatTimeRange(
+              event.start_time,
+              event.end_time,
+              event.all_day,
+              tz,
+            )}
           </span>{" "}
           <span className="text-foreground">{event.title}</span>
         </li>
@@ -36,7 +43,13 @@ function EventList({
  * The kid Home sidebar's calendar: their own events for today and tomorrow.
  * The title opens the full Calendar app.
  */
-export function KidCalendarWidget({ agenda }: { agenda: KidAgenda }) {
+export function KidCalendarWidget({
+  agenda,
+  tz,
+}: {
+  agenda: KidAgenda;
+  tz: string;
+}) {
   return (
     <WidgetCard title="Calendar" icon={CalendarDays} href="/calendar">
       <div className="space-y-4">
@@ -44,7 +57,11 @@ export function KidCalendarWidget({ agenda }: { agenda: KidAgenda }) {
           <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">
             Today
           </div>
-          <EventList events={agenda.today} emptyLabel="No more events today." />
+          <EventList
+            events={agenda.today}
+            emptyLabel="No more events today."
+            tz={tz}
+          />
         </section>
         <section>
           <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">
@@ -53,6 +70,7 @@ export function KidCalendarWidget({ agenda }: { agenda: KidAgenda }) {
           <EventList
             events={agenda.tomorrow}
             emptyLabel="Nothing scheduled tomorrow."
+            tz={tz}
           />
         </section>
       </div>
