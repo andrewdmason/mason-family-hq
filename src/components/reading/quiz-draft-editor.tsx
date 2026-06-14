@@ -30,6 +30,7 @@ export function QuizDraftEditor({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  const isEssay = quiz.questions.some((q) => q.type === "essay");
   const mcCount = quiz.questions.filter((q) => q.type === "multiple_choice").length;
   const ftCount = quiz.questions.filter((q) => q.type === "free_text").length;
 
@@ -88,8 +89,10 @@ export function QuizDraftEditor({
             <Badge variant="secondary">Draft</Badge>
           </div>
           <p className="mt-1 text-sm capitalize text-muted-foreground">
-            {quizRangeLabel(quiz.from_page, quiz.through_page)} · {mcCount}{" "}
-            multiple-choice · {ftCount} writing
+            {quizRangeLabel(quiz.from_page, quiz.through_page)} ·{" "}
+            {isEssay
+              ? "longform essay"
+              : `${mcCount} multiple-choice · ${ftCount} writing`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -178,7 +181,11 @@ function QuestionCard({
             Q{index + 1}
           </span>
           <Badge variant="outline">
-            {question.type === "multiple_choice" ? "Multiple choice" : "Writing"}
+            {question.type === "multiple_choice"
+              ? "Multiple choice"
+              : question.type === "essay"
+                ? "Essay"
+                : "Writing"}
           </Badge>
         </div>
         {!editing && (
@@ -210,6 +217,44 @@ function QuestionCard({
 }
 
 function QuestionPreview({ question }: { question: ReadingQuizQuestion }) {
+  if (question.type === "essay") {
+    return (
+      <div className="mt-2">
+        <p className="text-sm leading-relaxed text-foreground">{question.prompt}</p>
+        <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+          {question.anchor_summary && (
+            <p>
+              <span className="font-medium text-foreground">
+                Anchor (hidden from the reader):
+              </span>{" "}
+              {question.anchor_summary}
+            </p>
+          )}
+          {question.essay_rubric && (
+            <>
+              <p>
+                <span className="font-medium text-foreground">Comprehension:</span>{" "}
+                {question.essay_rubric.comprehension}
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Mechanics:</span>{" "}
+                {question.essay_rubric.mechanics}
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Thinking:</span>{" "}
+                {question.essay_rubric.thinking}
+              </p>
+            </>
+          )}
+          <p>
+            <span className="font-medium text-foreground">Minimum words:</span>{" "}
+            {question.min_words ?? "—"}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-2">
       <p className="text-sm text-foreground">{question.prompt}</p>
@@ -276,6 +321,14 @@ function QuestionEditForm({
   const [explanation, setExplanation] = useState(question.explanation ?? "");
   const [rubric, setRubric] = useState(question.grading_rubric ?? "");
   const [sample, setSample] = useState(question.sample_answer ?? "");
+  const [comprehension, setComprehension] = useState(
+    question.essay_rubric?.comprehension ?? ""
+  );
+  const [mechanics, setMechanics] = useState(
+    question.essay_rubric?.mechanics ?? ""
+  );
+  const [thinking, setThinking] = useState(question.essay_rubric?.thinking ?? "");
+  const [minWords, setMinWords] = useState(String(question.min_words ?? 150));
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -287,6 +340,17 @@ function QuestionEditForm({
           await updateQuizQuestion(
             question.id,
             { prompt, options, correctIndex, explanation },
+            memberEmail
+          );
+        } else if (question.type === "essay") {
+          const words = Number(minWords);
+          await updateQuizQuestion(
+            question.id,
+            {
+              prompt,
+              essayRubric: { comprehension, mechanics, thinking },
+              ...(Number.isFinite(words) && words > 0 ? { minWords: words } : {}),
+            },
             memberEmail
           );
         } else {
@@ -306,7 +370,9 @@ function QuestionEditForm({
   return (
     <div className="mt-3 grid gap-3">
       <div className="grid gap-1.5">
-        <Label htmlFor={`prompt-${question.id}`}>Question</Label>
+        <Label htmlFor={`prompt-${question.id}`}>
+          {question.type === "essay" ? "Essay prompt" : "Question"}
+        </Label>
         <Textarea
           id={`prompt-${question.id}`}
           value={prompt}
@@ -314,7 +380,46 @@ function QuestionEditForm({
         />
       </div>
 
-      {question.type === "multiple_choice" ? (
+      {question.type === "essay" ? (
+        <>
+          <div className="grid gap-1.5">
+            <Label htmlFor={`comprehension-${question.id}`}>
+              Rubric · Comprehension
+            </Label>
+            <Textarea
+              id={`comprehension-${question.id}`}
+              value={comprehension}
+              onChange={(e) => setComprehension(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor={`mechanics-${question.id}`}>Rubric · Mechanics</Label>
+            <Textarea
+              id={`mechanics-${question.id}`}
+              value={mechanics}
+              onChange={(e) => setMechanics(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor={`thinking-${question.id}`}>Rubric · Thinking</Label>
+            <Textarea
+              id={`thinking-${question.id}`}
+              value={thinking}
+              onChange={(e) => setThinking(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor={`minwords-${question.id}`}>Minimum words</Label>
+            <Input
+              id={`minwords-${question.id}`}
+              type="number"
+              min={1}
+              value={minWords}
+              onChange={(e) => setMinWords(e.target.value)}
+            />
+          </div>
+        </>
+      ) : question.type === "multiple_choice" ? (
         <>
           <div className="grid gap-1.5">
             <Label>Options (select the correct one)</Label>

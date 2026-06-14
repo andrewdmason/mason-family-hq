@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button-variants";
 import { QuizResultsAnswers } from "@/components/reading/quiz-results-answers";
+import { EssayFeedback } from "@/components/reading/quiz-essay-feedback";
 import { QuizSuccessModal } from "@/components/reading/quiz-success-modal";
 import { CloseQuizButton } from "@/components/reading/close-quiz-button";
 import { getIsOwner } from "@/lib/members/auth";
@@ -64,6 +65,7 @@ export default async function QuizResultsPage({
   // A parent override is recorded as a perfect submission flagged with their email.
   // It shouldn't read (or celebrate) as the kid acing the quiz.
   const closedByParent = submission?.closed_by_email != null;
+  const isEssay = questions.some((q) => q.type === "essay");
   const viewedPerfect =
     !!submission &&
     !closedByParent &&
@@ -72,6 +74,96 @@ export default async function QuizResultsPage({
   const tz = await getUserTimezone();
   const dueDateLabel = nextFridayLabel(localDate(new Date(), tz));
   const readingHref = readingHomeHref(memberEmail);
+  const rangeLabel = quizRangeLabel(quiz.from_page, quiz.through_page);
+
+  // The essay format gets the doc-style feedback view — a continuation of the
+  // writing surface — rather than the per-question results cards.
+  if (isEssay) {
+    const essayQ = questions.find((q) => q.type === "essay") ?? questions[0];
+    const answer = essayQ ? answersByQuestionId[essayQ.id] : undefined;
+    const eyebrow = !submission
+      ? "Not started"
+      : closedByParent
+        ? "Closed by a parent"
+        : viewedPerfect
+          ? "Passed"
+          : passed
+            ? "Passed on another try"
+            : "Keep going";
+    const attemptLine =
+      submission && attempts.length > 1
+        ? ` · attempt ${submission.attempt_number} of ${attempts.length}`
+        : "";
+
+    return (
+      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pb-28 pt-12">
+        {viewedPerfect && (
+          <QuizSuccessModal
+            assignment={nextAssignment}
+            dueDateLabel={dueDateLabel}
+            readingHref={readingHref}
+            isEssay
+            essayPost={{ quizId: id, memberEmail }}
+          />
+        )}
+
+        <header className="mb-8">
+          <p className="font-serif text-sm text-muted-foreground">
+            {eyebrow}
+            {attemptLine}
+          </p>
+          <h1 className="mt-1 font-serif text-3xl tracking-tight text-foreground">
+            {quiz.title || `On ${rangeLabel}`}
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {bookTitle} · {rangeLabel}
+          </p>
+        </header>
+
+        {submission && attempts.length > 1 && (
+          <AttemptHistory
+            quizId={id}
+            memberEmail={memberEmail}
+            attempts={attempts}
+            viewedId={submission.id}
+          />
+        )}
+
+        <div className="mt-6 flex flex-1 flex-col">
+          <EssayFeedback
+            prompt={essayQ?.prompt ?? ""}
+            essay={answer?.response_text ?? null}
+            rubricScores={answer?.rubric_scores ?? null}
+            aiNotes={answer?.ai_notes ?? null}
+            attempted={!!submission}
+            closedByParent={closedByParent}
+            viewedPassed={viewedPerfect}
+            gradingComplete={submission?.grading_complete ?? true}
+          />
+        </div>
+
+        <div className="mt-10 flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
+          {!passed && (
+            <Link
+              href={quizTakeHref(id, memberEmail)}
+              className={cn(buttonVariants({ variant: "default", size: "sm" }))}
+            >
+              {submission ? "Revise essay" : "Start essay"}
+            </Link>
+          )}
+          <Link
+            href={readingHref}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+          >
+            Back to reading
+          </Link>
+          {isOwner && !passed && (
+            <CloseQuizButton quizId={id} memberEmail={memberEmail} />
+          )}
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-8">
@@ -80,6 +172,8 @@ export default async function QuizResultsPage({
           assignment={nextAssignment}
           dueDateLabel={dueDateLabel}
           readingHref={readingHref}
+          isEssay={isEssay}
+          essayPost={isEssay ? { quizId: id, memberEmail } : null}
         />
       )}
 

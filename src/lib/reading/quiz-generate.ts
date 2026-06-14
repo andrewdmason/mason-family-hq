@@ -1,116 +1,94 @@
 import { anthropic, JOURNAL_MODEL } from "@/lib/journal/anthropic";
+import type { EssayRubric } from "@/lib/types";
 
 /**
- * Generating a reading-comprehension quiz from a slice of book text. Pure and
+ * Generating a longform-essay assignment from a slice of book text. Pure and
  * self-contained (no Supabase, no auth) so the same call powers the manual
- * "Generate quiz" action today and an automatic per-check-in job later. Mirrors
- * the recommend.ts pattern: one forced tool call, defensive parsing, resilient to
- * failure (returns an empty quiz rather than throwing).
+ * "Generate quiz" action today and the automatic per-check-in job (ensureStretchQuiz).
+ * Mirrors the recommend.ts pattern: one forced tool call, defensive parsing,
+ * resilient to failure (returns an empty essay rather than throwing).
+ *
+ * The essay is ONE flowing prompt with two parts of a whole: it opens by
+ * requiring a concrete detail from the assigned pages (so it doubles as proof the
+ * child did the reading — the "anchor"), then widens into a broader theme that
+ * rewards original thinking. It carries a teacher-facing `anchorSummary` and a
+ * three-dimension `rubric` to ground grading later.
  */
 
-export type QuizQuestionDraft =
-  | {
-      type: "multiple_choice";
-      prompt: string;
-      options: string[];
-      correctIndex: number;
-      explanation: string;
-    }
-  | {
-      type: "free_text";
-      prompt: string;
-      gradingRubric: string;
-      sampleAnswer: string;
-    };
-
-export type GeneratedQuiz = {
+export type GeneratedEssay = {
+  /** A short label for the assignment, e.g. "Pages 130–180". */
   title: string | null;
-  questions: QuizQuestionDraft[];
+  /** The single flowing essay prompt (anchor → broader theme). Null on failure. */
+  prompt: string | null;
+  /** Grader-facing: the specific reading detail the opening must demonstrate. */
+  anchorSummary: string | null;
+  /** The three-dimension rubric to grade against. */
+  rubric: EssayRubric | null;
+  /** The soft minimum word count, passed in by the caller (age/settings driven). */
+  minWords: number;
 };
 
-/** Hard ceiling on questions kept from one generation, after filtering. */
-const MAX_QUESTIONS = 8;
-
-const REPORT_QUIZ_TOOL = {
-  name: "report_quiz",
+const REPORT_ESSAY_TOOL = {
+  name: "report_essay_assignment",
   description:
-    "Report a reading-comprehension quiz: a short title plus a mix of multiple-" +
-    "choice and free-text writing questions drawn only from the provided text.",
+    "Report ONE longform-essay assignment for the child: a single flowing prompt " +
+    "that opens by requiring a concrete detail from the assigned pages, then widens " +
+    "into a broader theme — plus the grader-facing anchor and a three-part rubric.",
   input_schema: {
     type: "object" as const,
     properties: {
       title: {
         type: "string",
         description:
-          'A short label for the quiz, e.g. "Through Chapter 4" or "Through page 84".',
+          'A short label for the assignment, e.g. "Pages 130–180" or "Through page 84".',
       },
-      questions: {
-        type: "array",
+      prompt: {
+        type: "string",
         description:
-          "The questions, best/most important first. Include BOTH multiple-choice " +
-          "and free-text writing questions.",
-        items: {
-          type: "object",
-          properties: {
-            type: {
-              type: "string",
-              enum: ["multiple_choice", "free_text"],
-              description:
-                "multiple_choice = one right answer among options; free_text = a " +
-                "short written response the reader composes in their own words.",
-            },
-            prompt: {
-              type: "string",
-              description: "The question, in warm, age-appropriate language.",
-            },
-            options: {
-              type: "array",
-              items: { type: "string" },
-              description:
-                "multiple_choice ONLY: exactly 4 answer options, plausible and " +
-                "distinct. Omit for free_text.",
-            },
-            correct_index: {
-              type: "integer",
-              description:
-                "multiple_choice ONLY: the 0-based index of the correct option. " +
-                "Omit for free_text.",
-            },
-            explanation: {
-              type: "string",
-              description:
-                "multiple_choice ONLY: one sentence on why that answer is correct, " +
-                "grounded in the text. Omit for free_text.",
-            },
-            grading_rubric: {
-              type: "string",
-              description:
-                "free_text ONLY: the specific points or understanding a correct " +
-                "answer must show, so an automated grader can judge it. Omit for MC.",
-            },
-            sample_answer: {
-              type: "string",
-              description:
-                "free_text ONLY: a concise model answer a strong reader might give. " +
-                "Omit for MC.",
-            },
+          "The single essay prompt the child reads — ONE short, flowing question of " +
+          "about 2–3 plain sentences (two parts of a whole, never numbered sub-" +
+          "questions). First ask them to write about a specific moment or detail from " +
+          "the assigned pages that they could only know if they read them, then open " +
+          "into a broader theme that needs real, creative thinking — not plot recap. " +
+          "Warm, brief, and age-appropriate. Do NOT mention word count, length, or how " +
+          "it will be graded — that lives elsewhere.",
+      },
+      anchor_summary: {
+        type: "string",
+        description:
+          "Teacher-facing, NEVER shown to the child: the specific reading detail or " +
+          "moment the opening paragraph must demonstrate, so a grader can verify the " +
+          "child actually read the assigned pages. One or two sentences.",
+      },
+      rubric: {
+        type: "object",
+        description:
+          "What a grader should look for, each pitched to the child's age.",
+        properties: {
+          comprehension: {
+            type: "string",
+            description:
+              "What the essay must show about understanding the reading — that the " +
+              "opening reflects the anchor and the essay stays accurate to the book.",
           },
-          required: ["type", "prompt"],
+          mechanics: {
+            type: "string",
+            description:
+              "The grammar, spelling, punctuation, paragraphing, and structure " +
+              "expected of a writer this age.",
+          },
+          thinking: {
+            type: "string",
+            description:
+              "What strong thinking looks like here — originality, depth, and how " +
+              "well ideas are supported. Reward insight over length.",
+          },
         },
+        required: ["comprehension", "mechanics", "thinking"],
       },
     },
-    required: ["questions"],
+    required: ["prompt", "anchor_summary", "rubric"],
   },
-};
-
-type RawQuestion = {
-  type?: unknown;
-  prompt?: unknown;
-  options?: unknown;
-  correct_index?: unknown;
-  explanation?: unknown;
-  grading_rubric?: unknown;
-  sample_answer?: unknown;
 };
 
 function rangeLabel(fromPage: number | null, throughPage: number): string {
@@ -125,7 +103,7 @@ function buildPrompt(input: {
   fromPage: number | null;
   throughPage: number;
   readerAge: number | null;
-  questionCount: number;
+  readerContext: string | null;
   text: string;
 }): string {
   const ranged = input.fromPage != null && input.fromPage > 1;
@@ -136,34 +114,45 @@ function buildPrompt(input: {
   );
   if (ranged) {
     parts.push(
-      `This quiz covers ONLY ${label} of the book. The text below is exactly that ` +
-        `stretch. Ask only about what happens within it — do NOT ask about earlier ` +
-        `pages, and do NOT reference, hint at, or spoil anything that happens after ` +
-        `page ${input.throughPage}.`
+      `This assignment covers ONLY ${label} of the book. The text below is exactly ` +
+        `that stretch. The anchor must come from within it — do NOT reference earlier ` +
+        `pages, and do NOT reference, hint at, or spoil anything after page ${input.throughPage}.`
     );
   } else {
     parts.push(
-      `This quiz covers the book from the very beginning THROUGH page ${input.throughPage} ` +
-        `(cumulative). The reader has only read up to that point — do NOT ask about, ` +
-        `hint at, or spoil anything that happens later in the book.`
+      `This assignment covers the book from the very beginning THROUGH page ${input.throughPage} ` +
+        `(cumulative). The reader has only read up to that point — do NOT reference, hint ` +
+        `at, or spoil anything that happens later in the book.`
     );
   }
   if (input.readerAge != null) {
     parts.push(
-      `The reader is ${input.readerAge} years old. Pitch the vocabulary, difficulty, ` +
-        `and tone for that age.`
+      `The reader is ${input.readerAge} years old. Pitch the prompt, vocabulary, and ` +
+        `rubric for that age.`
+    );
+  }
+  if (input.readerContext) {
+    parts.push(
+      `A little about this reader, ONLY so the broader theme can feel relevant when ` +
+        `it fits naturally:\n${input.readerContext}\n` +
+        `Use this sparingly. Do NOT center the essay on the reader's main hobby or ` +
+        `favorite topic, and vary your themes from one assignment to the next — a ` +
+        `theme that genuinely fits the reading is always better than a forced personal ` +
+        `connection.`
     );
   }
   parts.push(
-    `Write about ${input.questionCount} questions total: roughly two-thirds ` +
-      `multiple-choice and one-third free-text writing questions (you decide the ` +
-      `exact split, but include at least one of each). Multiple-choice questions ` +
-      `check comprehension and recall; free-text questions ask the reader to explain, ` +
-      `infer, or react in their own words — to practice writing and engage with the ` +
-      `material more deeply. Each multiple-choice question needs exactly 4 options ` +
-      `with one clearly correct answer. Base every question strictly on the text below.`
+    `Write ONE short essay prompt as a single, flowing question — two parts of a ` +
+      `whole, not separate numbered questions, and as few words as you can manage. ` +
+      `Part one (the anchor): in one sentence, ask the child to write about a specific ` +
+      `moment or detail from ${label} that they could only know if they did the reading. ` +
+      `Part two: in one or two more sentences, open into a broader theme that asks them ` +
+      `to reflect, connect, or imagine — something that needs real thinking, not summary. ` +
+      `Base the anchor strictly on the text below. Keep the whole prompt to about 2–3 ` +
+      `short, plain sentences the reader can hold in their head, and do NOT mention word ` +
+      `count, length, or how it will be graded — put grading criteria only in the rubric.`
   );
-  parts.push(`Call report_quiz exactly once.`);
+  parts.push(`Call report_essay_assignment exactly once.`);
   parts.push(`--- BOOK TEXT (${label}) ---\n${input.text}`);
   return parts.join("\n\n");
 }
@@ -172,82 +161,64 @@ function asString(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
-/** Keep only well-formed questions, coercing the AI's raw output into our union. */
-function sanitizeQuestions(raw: RawQuestion[]): QuizQuestionDraft[] {
-  const out: QuizQuestionDraft[] = [];
-  for (const q of raw) {
-    const prompt = asString(q.prompt);
-    if (!prompt) continue;
-
-    if (q.type === "multiple_choice") {
-      const options = Array.isArray(q.options)
-        ? q.options.map(asString).filter((o): o is string => o !== null)
-        : [];
-      const correctIndex =
-        typeof q.correct_index === "number" ? q.correct_index : -1;
-      // Need at least two distinct options and a valid correct index.
-      if (
-        options.length < 2 ||
-        correctIndex < 0 ||
-        correctIndex >= options.length
-      ) {
-        continue;
-      }
-      out.push({
-        type: "multiple_choice",
-        prompt,
-        options,
-        correctIndex,
-        explanation: asString(q.explanation) ?? "",
-      });
-    } else if (q.type === "free_text") {
-      const gradingRubric = asString(q.grading_rubric);
-      if (!gradingRubric) continue; // can't auto-grade without a rubric
-      out.push({
-        type: "free_text",
-        prompt,
-        gradingRubric,
-        sampleAnswer: asString(q.sample_answer) ?? "",
-      });
-    }
-    if (out.length >= MAX_QUESTIONS) break;
-  }
-  return out;
+/** Coerce the model's rubric object into our three-string shape, or null. */
+function sanitizeRubric(raw: unknown): EssayRubric | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const comprehension = asString(r.comprehension);
+  const mechanics = asString(r.mechanics);
+  const thinking = asString(r.thinking);
+  if (!comprehension && !mechanics && !thinking) return null;
+  return {
+    comprehension: comprehension ?? "",
+    mechanics: mechanics ?? "",
+    thinking: thinking ?? "",
+  };
 }
 
+const emptyEssay = (minWords: number): GeneratedEssay => ({
+  title: null,
+  prompt: null,
+  anchorSummary: null,
+  rubric: null,
+  minWords,
+});
+
 /**
- * Ask the model to write a quiz over the given text. Resilient: any failure (API
- * error, malformed output, no usable questions) resolves to an empty quiz so the
- * caller can surface a friendly "couldn't generate — try again".
+ * Ask the model to write a longform-essay assignment over the given text.
+ * Resilient: any failure (API error, malformed output, missing prompt) resolves to
+ * an empty essay (prompt: null) so the caller can surface "couldn't generate — try
+ * again" and leave a retryable draft.
  */
-export async function generateQuiz(input: {
+export async function generateEssayAssignment(input: {
   bookTitle: string;
   author: string | null;
   fromPage?: number | null;
   throughPage: number;
   text: string;
   readerAge?: number | null;
-  questionCount?: number;
-}): Promise<GeneratedQuiz> {
-  if (!input.text.trim()) return { title: null, questions: [] };
-
-  const questionCount = input.questionCount ?? 6;
-  let rawTitle: string | null = null;
-  let rawQuestions: RawQuestion[] = [];
+  readerContext?: string | null;
+  minWords: number;
+}): Promise<GeneratedEssay> {
+  if (!input.text.trim()) return emptyEssay(input.minWords);
 
   try {
     const client = anthropic();
     const message = await client.messages.create({
       model: JOURNAL_MODEL,
-      max_tokens: 3000,
+      max_tokens: 1500,
       system:
-        "You write warm, age-appropriate reading-comprehension quizzes for a child " +
-        "who is partway through a book. You only ever ask about material the child " +
-        "has already read — never spoil later events. You mix factual recall, " +
-        "inference (\"why do you think…\"), and short personal-response questions to " +
-        "build comprehension AND writing practice.",
-      tools: [REPORT_QUIZ_TOOL],
-      tool_choice: { type: "tool", name: REPORT_QUIZ_TOOL.name },
+        "You are a thoughtful English teacher who designs ONE short essay prompt for " +
+        "a child partway through a book. Every prompt opens by requiring a concrete " +
+        "detail from the exact pages the child just read — so it doubles as proof they " +
+        "did the reading — then widens into a broader theme that rewards original " +
+        "thinking, not plot summary. You write a single warm, flowing prompt of just a " +
+        "couple of plain sentences a child can hold in their head — never separate " +
+        "numbered questions, never padding. You never mention word counts or how the " +
+        "work will be graded, and never reference or spoil anything beyond the assigned " +
+        "pages.",
+      tools: [REPORT_ESSAY_TOOL],
+      tool_choice: { type: "tool", name: REPORT_ESSAY_TOOL.name },
       messages: [
         {
           role: "user",
@@ -257,28 +228,36 @@ export async function generateQuiz(input: {
             fromPage: input.fromPage ?? null,
             throughPage: input.throughPage,
             readerAge: input.readerAge ?? null,
-            questionCount,
+            readerContext: input.readerContext ?? null,
             text: input.text,
           }),
         },
       ],
     });
     const toolUse = message.content.find((b) => b.type === "tool_use");
-    if (!toolUse || toolUse.type !== "tool_use") {
-      return { title: null, questions: [] };
-    }
-    const parsed = toolUse.input as { title?: unknown; questions?: unknown };
-    rawTitle = asString(parsed.title);
-    if (Array.isArray(parsed.questions)) {
-      rawQuestions = parsed.questions as RawQuestion[];
-    }
+    if (!toolUse || toolUse.type !== "tool_use") return emptyEssay(input.minWords);
+
+    const parsed = toolUse.input as {
+      title?: unknown;
+      prompt?: unknown;
+      anchor_summary?: unknown;
+      rubric?: unknown;
+    };
+    const prompt = asString(parsed.prompt);
+    if (!prompt) return emptyEssay(input.minWords);
+
+    return {
+      title: asString(parsed.title),
+      prompt,
+      anchorSummary: asString(parsed.anchor_summary),
+      rubric: sanitizeRubric(parsed.rubric),
+      minWords: input.minWords,
+    };
   } catch (err) {
     console.error(
       "[reading/quiz-generate] Anthropic call failed:",
       err instanceof Error ? err.message : String(err)
     );
-    return { title: null, questions: [] };
+    return emptyEssay(input.minWords);
   }
-
-  return { title: rawTitle, questions: sanitizeQuestions(rawQuestions) };
 }

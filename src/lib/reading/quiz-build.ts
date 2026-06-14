@@ -1,4 +1,4 @@
-import type { QuizQuestionDraft } from "@/lib/reading/quiz-generate";
+import type { GeneratedEssay } from "@/lib/reading/quiz-generate";
 
 /** A readable fallback title from a quiz's covered page range. */
 export function defaultQuizTitle(
@@ -10,22 +10,24 @@ export function defaultQuizTitle(
     : `Through page ${throughPage}`;
 }
 
-/** Map generated question drafts to insertable reading_quiz_questions rows. */
-export function questionRows(
+/**
+ * The single insertable reading_quiz_questions row for a generated essay
+ * assignment. An essay quiz is always exactly one question (position 0); the
+ * anchor and rubric ride along so grading can ground itself later.
+ */
+export function essayQuestionRow(
   quizId: string,
   userId: string,
-  drafts: QuizQuestionDraft[]
+  essay: GeneratedEssay
 ) {
-  return drafts.map((q, i) => ({
+  return {
     quiz_id: quizId,
     user_id: userId,
-    position: i,
-    type: q.type,
-    prompt: q.prompt,
-    options: q.type === "multiple_choice" ? q.options : null,
-    correct_index: q.type === "multiple_choice" ? q.correctIndex : null,
-    explanation: q.type === "multiple_choice" ? q.explanation : null,
-    grading_rubric: q.type === "free_text" ? q.gradingRubric : null,
-    sample_answer: q.type === "free_text" ? q.sampleAnswer : null,
-  }));
+    position: 0,
+    type: "essay" as const,
+    prompt: essay.prompt ?? "",
+    anchor_summary: essay.anchorSummary,
+    essay_rubric: essay.rubric,
+    min_words: essay.minWords,
+  };
 }
