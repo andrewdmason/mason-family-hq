@@ -18,17 +18,22 @@ import { readerAge } from "@/lib/reading/reader-age";
 import { essayMinWords, loadReaderContext } from "@/lib/reading/reader-context";
 import { defaultQuizTitle, essayQuestionRow } from "@/lib/reading/quiz-build";
 import { advanceStretch } from "@/lib/reading/advance";
+import { archiveOtherOpenQuizzes } from "@/lib/reading/supersede";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
 import type {
   ActiveBookQuiz,
   EssayRubric,
   EssayRubricScores,
-  OwnerQuizListItem,
+  ReadingAdminAttempt,
+  ReadingAdminBook,
+  ReadingAdminMember,
+  ReadingAdminQuiz,
   ReadingEssayFeedback,
   ReadingQuiz,
   ReadingQuizAnswer,
   ReadingQuizQuestion,
   ReadingQuizResult,
+  ReadingQuizStatus,
   ReadingQuizSubmission,
   ReadingQuizWithQuestions,
 } from "@/lib/types";
@@ -310,10 +315,18 @@ export async function publishQuiz(
     .eq("id", quizId)
     .eq("user_id", userId)
     .eq("status", "draft")
-    .select("id")
+    .select("id, book_id")
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!quiz) throw new Error("This quiz is already published.");
+
+  // One live quiz per book: retire any other open quiz for this book.
+  await archiveOtherOpenQuizzes(
+    client,
+    userId,
+    quiz.book_id as string,
+    quiz.id as string
+  );
 
   revalidateQuizzes();
 }
@@ -1137,11 +1150,63 @@ export async function getQuizResult(
 }
 
 // ============================================================
-// Owner cross-kid list
+// Parent Admin (owner cross-kid console)
 // ============================================================
 
-/** Every quiz across all signed-in family members, with results. Owner-only. */
-export async function listAllQuizzes(): Promise<OwnerQuizListItem[]> {
+type AdminSubmissionRow = {
+  id: string;
+  quiz_id: string;
+  attempt_number: number;
+  submitted_at: string | null;
+  score_correct: number | null;
+  score_total: number | null;
+  grading_complete: boolean | null;
+  closed_by_email: string | null;
+};
+
+/** Shape a quiz row + its attempts into the admin view model. */
+function toAdminQuiz(
+  q: {
+    id: string;
+    status: string;
+    from_page: number | null;
+    through_page: number;
+    created_at: string;
+  },
+  subs: AdminSubmissionRow[]
+): ReadingAdminQuiz {
+  const attempts: ReadingAdminAttempt[] = subs.map((s) => ({
+    id: s.id,
+    attemptNumber: s.attempt_number,
+    submittedAt: s.submitted_at,
+    scoreCorrect: s.score_correct,
+    scoreTotal: s.score_total,
+    gradingComplete: s.grading_complete ?? true,
+    closedByParent: s.closed_by_email != null,
+  }));
+  return {
+    id: q.id,
+    status: q.status as ReadingQuizStatus,
+    fromPage: q.from_page,
+    throughPage: q.through_page,
+    createdAt: q.created_at,
+    passed: isPassed(
+      subs.map((s) => ({
+        score_correct: s.score_correct,
+        score_total: s.score_total,
+      }))
+    ),
+    closedByParent: subs.some((s) => s.closed_by_email != null),
+    attempts,
+  };
+}
+
+/**
+ * The Parent Admin console: every kid with reading, each of their relevant books
+ * (in progress, or with quiz history), the single live quiz + any draft, and the
+ * passed/archived quizzes as history. Owner-only. Drives /reader/quizzes.
+ */
+export async function getReadingAdmin(): Promise<ReadingAdminMember[]> {
   await requireOwner();
   const admin = createAdminClient();
 
@@ -1149,74 +1214,111 @@ export async function listAllQuizzes(): Promise<OwnerQuizListItem[]> {
     .from("family_members")
     .select("email, name, user_id")
     .not("user_id", "is", null);
-  const memberByUser = new Map(
-    (members ?? []).map((m) => [
-      m.user_id as string,
-      { email: m.email as string, name: (m.name as string | null) ?? null },
-    ])
-  );
-  const userIds = [...memberByUser.keys()];
+  const memberRows = (members ?? []).filter((m) => m.user_id);
+  const userIds = memberRows.map((m) => m.user_id as string);
   if (userIds.length === 0) return [];
 
-  const { data: quizzes } = await admin
-    .from("reading_quizzes")
-    .select("id, user_id, book_id, from_page, through_page, status, created_at")
-    .in("user_id", userIds)
-    .order("created_at", { ascending: false });
-  if (!quizzes || quizzes.length === 0) return [];
-
-  const quizIds = quizzes.map((q) => q.id as string);
-  const bookIds = [...new Set(quizzes.map((q) => q.book_id as string))];
-
-  const [{ data: books }, { data: submissions }] = await Promise.all([
-    admin.from("reading_books").select("id, title").in("id", bookIds),
+  const [{ data: books }, { data: quizzes }] = await Promise.all([
     admin
-      .from("reading_quiz_submissions")
+      .from("reading_books")
       .select(
-        "quiz_id, attempt_number, submitted_at, score_correct, score_total, grading_complete, closed_by_email"
+        "id, user_id, title, author, current_page, target_page, target_due, total_pages, status, updated_at"
       )
-      .in("quiz_id", quizIds)
-      .order("attempt_number", { ascending: true }),
+      .in("user_id", userIds),
+    admin
+      .from("reading_quizzes")
+      .select("id, user_id, book_id, from_page, through_page, status, created_at")
+      .in("user_id", userIds)
+      .order("created_at", { ascending: false }),
   ]);
 
-  const titleByBook = new Map(
-    (books ?? []).map((b) => [b.id as string, b.title as string])
-  );
-  // Collect attempts per quiz (already ordered by attempt_number ascending).
-  const attemptsByQuiz = new Map<string, typeof submissions>();
-  for (const s of submissions ?? []) {
-    const id = s.quiz_id as string;
-    const list = attemptsByQuiz.get(id) ?? [];
+  const quizIds = (quizzes ?? []).map((q) => q.id as string);
+  const { data: submissions } = quizIds.length
+    ? await admin
+        .from("reading_quiz_submissions")
+        .select(
+          "id, quiz_id, attempt_number, submitted_at, score_correct, score_total, grading_complete, closed_by_email"
+        )
+        .in("quiz_id", quizIds)
+        .order("attempt_number", { ascending: true })
+    : { data: [] as AdminSubmissionRow[] };
+
+  const subsByQuiz = new Map<string, AdminSubmissionRow[]>();
+  for (const s of (submissions ?? []) as AdminSubmissionRow[]) {
+    const list = subsByQuiz.get(s.quiz_id) ?? [];
     list.push(s);
-    attemptsByQuiz.set(id, list);
+    subsByQuiz.set(s.quiz_id, list);
   }
 
-  return quizzes.map((q) => {
-    const member = memberByUser.get(q.user_id as string);
-    const attempts = attemptsByQuiz.get(q.id as string) ?? [];
-    const last = attempts[attempts.length - 1];
-    return {
-      id: q.id as string,
-      status: q.status as OwnerQuizListItem["status"],
-      fromPage: (q.from_page as number | null) ?? null,
-      throughPage: q.through_page as number,
-      createdAt: q.created_at as string,
-      bookTitle: titleByBook.get(q.book_id as string) ?? "Unknown book",
-      memberEmail: member?.email ?? "",
-      memberName: member?.name ?? null,
-      attemptCount: attempts.length,
-      passed: isPassed(attempts),
-      // True when the completing attempt was a parent override, not a real pass.
-      closedByParent: attempts.some((s) => s.closed_by_email != null),
-      latest: last
-        ? {
-            attemptNumber: last.attempt_number as number,
-            submittedAt: last.submitted_at as string,
-            scoreCorrect: last.score_correct as number,
-            scoreTotal: last.score_total as number,
-            gradingComplete: last.grading_complete as boolean,
-          }
-        : null,
+  // Quizzes per book, newest first (the source order is created_at desc).
+  const quizzesByBook = new Map<string, ReadingAdminQuiz[]>();
+  for (const q of quizzes ?? []) {
+    const bookId = q.book_id as string;
+    const list = quizzesByBook.get(bookId) ?? [];
+    list.push(
+      toAdminQuiz(
+        {
+          id: q.id as string,
+          status: q.status as string,
+          from_page: (q.from_page as number | null) ?? null,
+          through_page: q.through_page as number,
+          created_at: q.created_at as string,
+        },
+        subsByQuiz.get(q.id as string) ?? []
+      )
+    );
+    quizzesByBook.set(bookId, list);
+  }
+
+  const booksByUser = new Map<string, ReadingAdminBook[]>();
+  for (const b of books ?? []) {
+    const bookQuizzes = quizzesByBook.get(b.id as string) ?? [];
+    const status = b.status as string;
+    // Show in-progress books (the active assignment) and any book that carries
+    // quiz history; skip queued/archived books with nothing to administer.
+    if (status !== "in_progress" && bookQuizzes.length === 0) continue;
+
+    const activeQuiz =
+      bookQuizzes.find((q) => q.status === "published" && !q.passed) ?? null;
+    const draftQuiz = bookQuizzes.find((q) => q.status === "draft") ?? null;
+    const history = bookQuizzes.filter(
+      (q) => q !== activeQuiz && q !== draftQuiz
+    );
+
+    const adminBook: ReadingAdminBook = {
+      bookId: b.id as string,
+      title: b.title as string,
+      author: (b.author as string | null) ?? null,
+      currentPage: (b.current_page as number | null) ?? 0,
+      targetPage: (b.target_page as number | null) ?? null,
+      targetDue: (b.target_due as string | null) ?? null,
+      totalPages: (b.total_pages as number | null) ?? null,
+      status,
+      activeQuiz,
+      draftQuiz,
+      history,
     };
-  });
+    const list = booksByUser.get(b.user_id as string) ?? [];
+    list.push(adminBook);
+    booksByUser.set(b.user_id as string, list);
+  }
+
+  const result: ReadingAdminMember[] = [];
+  for (const m of memberRows) {
+    const list = booksByUser.get(m.user_id as string);
+    if (!list || list.length === 0) continue;
+    // In-progress books first, then most-recently-updated.
+    list.sort((a, b) => {
+      const ai = a.status === "in_progress" ? 0 : 1;
+      const bi = b.status === "in_progress" ? 0 : 1;
+      return ai - bi;
+    });
+    result.push({
+      email: m.email as string,
+      name: (m.name as string | null) ?? null,
+      books: list,
+    });
+  }
+  result.sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email));
+  return result;
 }

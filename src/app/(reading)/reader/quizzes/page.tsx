@@ -2,47 +2,60 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button-variants";
+import { CloseQuizButton } from "@/components/reading/close-quiz-button";
+import {
+  DeleteQuizButton,
+  GenerateDraftButton,
+} from "@/components/reading/parent-admin-controls";
 import { getIsOwner } from "@/lib/members/auth";
-import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { quizEditHref, quizResultsHref, readingHomeHref } from "@/lib/reading/links";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
-import { isQuizDue } from "@/lib/reading/quiz-due";
-import type { OwnerQuizListItem } from "@/lib/types";
-import { listAllQuizzes } from "./actions";
+import { cn } from "@/lib/utils";
+import type { ReadingAdminBook, ReadingAdminQuiz } from "@/lib/types";
+import { getReadingAdmin } from "./actions";
 
 export const dynamic = "force-dynamic";
+
+export const metadata = {
+  title: "Parent Admin",
+};
 
 function firstName(name: string | null, email: string): string {
   return name?.trim().split(/\s+/)[0] || email;
 }
 
-export const metadata = {
-  title: "Reading Quizzes",
-};
+function formatDue(due: string | null): string | null {
+  if (!due) return null;
+  return new Date(`${due}T12:00:00`).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
 
-export default async function QuizzesListPage() {
+/** The page range to generate a fresh quiz over: the unread stretch up to the
+ * week's target. Null when there's nothing sensible to cover yet. */
+function generateRange(
+  book: ReadingAdminBook
+): { from: number | null; through: number } | null {
+  const through =
+    book.targetPage ?? (book.currentPage > 0 ? book.currentPage : null);
+  if (through == null || through < 1) return null;
+  const from = book.currentPage > 0 ? Math.min(book.currentPage, through) : null;
+  return { from, through };
+}
+
+export default async function ParentAdminPage() {
   if (!(await getIsOwner())) redirect("/reader");
 
-  const [quizzes, tz] = await Promise.all([listAllQuizzes(), getUserTimezone()]);
-  // The weekly quiz is due every Friday — an unattempted published quiz reads as
-  // "Due now" from Friday through the weekend, but only once its stretch began
-  // before this window's Friday (a just-prepared quiz isn't due the same week).
-  const today = localDate(new Date(), tz);
-  const dayOfWeek = new Date(`${today}T12:00:00`).getDay();
-
-  // Group by reader so each kid's quizzes sit together.
-  const byMember = new Map<string, OwnerQuizListItem[]>();
-  for (const q of quizzes) {
-    const list = byMember.get(q.memberEmail) ?? [];
-    list.push(q);
-    byMember.set(q.memberEmail, list);
-  }
+  const members = await getReadingAdmin();
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-serif text-2xl tracking-tight text-foreground">
-          Quizzes
+          Parent Admin
         </h1>
         <Link
           href={readingHomeHref(null)}
@@ -52,29 +65,21 @@ export default async function QuizzesListPage() {
         </Link>
       </div>
 
-      {quizzes.length === 0 ? (
+      {members.length === 0 ? (
         <p className="mt-8 rounded-lg border border-dashed border-border px-6 py-12 text-center text-sm text-muted-foreground">
-          No quizzes yet. Open a kid&apos;s book with an uploaded file and choose
-          &ldquo;Generate quiz&rdquo; from its menu.
+          No reading to administer yet. Add a kid&apos;s book from the reading
+          home to get started.
         </p>
       ) : (
-        <div className="mt-6 space-y-8">
-          {[...byMember.entries()].map(([email, items]) => (
-            <section key={email}>
+        <div className="mt-6 space-y-10">
+          {members.map((m) => (
+            <section key={m.email}>
               <h2 className="font-serif text-lg text-foreground">
-                {firstName(items[0].memberName, email)}
+                {firstName(m.name, m.email)}
               </h2>
-              <div className="mt-3 space-y-2">
-                {items.map((q) => (
-                  <QuizRow
-                    key={q.id}
-                    quiz={q}
-                    dueNow={isQuizDue(
-                      dayOfWeek,
-                      localDate(new Date(q.createdAt), tz),
-                      today
-                    )}
-                  />
+              <div className="mt-3 space-y-5">
+                {m.books.map((book) => (
+                  <BookBlock key={book.bookId} book={book} memberEmail={m.email} />
                 ))}
               </div>
             </section>
@@ -85,76 +90,194 @@ export default async function QuizzesListPage() {
   );
 }
 
-function QuizRow({
-  quiz,
-  dueNow,
+function BookBlock({
+  book,
+  memberEmail,
 }: {
-  quiz: OwnerQuizListItem;
-  dueNow: boolean;
+  book: ReadingAdminBook;
+  memberEmail: string;
 }) {
-  // Every quiz opens to a detail view: drafts to the editor, published quizzes to
-  // their detail/results page (where the owner can view it and close it without
-  // passing) — including ones the kid hasn't attempted yet.
-  const href =
-    quiz.status === "draft"
-      ? quizEditHref(quiz.id, quiz.memberEmail)
-      : quizResultsHref(quiz.id, quiz.memberEmail);
-  const action = quiz.status === "draft" ? "Review draft" : "View quiz";
+  const due = formatDue(book.targetDue);
+  const total = book.totalPages ? ` of ${book.totalPages}` : "";
+  const genRange = generateRange(book);
 
   return (
-    <Link
-      href={href}
-      className="flex flex-wrap items-center gap-3 rounded-lg border border-border px-4 py-3 transition-colors hover:bg-accent"
-    >
-      <div className="min-w-0 flex-1">
-        <p className="text-sm text-foreground">{quiz.bookTitle}</p>
-        <p className="text-xs capitalize text-muted-foreground">
-          {quizRangeLabel(quiz.fromPage, quiz.throughPage)}
+    <div className="rounded-xl border border-border">
+      {/* Assignment state (read-only). */}
+      <div className="border-b border-border px-4 py-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <p className="font-serif text-base text-foreground">{book.title}</p>
+          {book.status !== "in_progress" && (
+            <Badge variant="outline" className="capitalize">
+              {book.status}
+            </Badge>
+          )}
+        </div>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Page {book.currentPage}
+          {total}
+          {" · "}
+          {book.targetPage != null
+            ? `goal p.${book.targetPage}${due ? ` by ${due}` : ""}`
+            : "no target set"}
         </p>
       </div>
-      <div className="flex items-center gap-3">
-        {quiz.status === "draft" ? (
-          <Badge variant="secondary">Draft</Badge>
-        ) : quiz.latest ? (
-          <div className="flex items-center gap-2">
-            {quiz.passed ? (
-              quiz.closedByParent ? (
-                <Badge variant="secondary">Closed by parent</Badge>
-              ) : (
-                <Badge className="bg-emerald-600 text-white">Passed</Badge>
-              )
-            ) : (
-              <Badge
-                variant="outline"
-                className="border-destructive/40 text-destructive"
-              >
-                Needs retake
-              </Badge>
-            )}
-            <div className="text-right">
-              <span className="text-sm tabular-nums text-foreground">
-                {quiz.latest.scoreCorrect}/{quiz.latest.scoreTotal}
-                {!quiz.latest.gradingComplete && (
-                  <span className="ml-1 text-xs text-muted-foreground">*</span>
-                )}
-              </span>
-              <p className="text-xs text-muted-foreground">
-                {quiz.attemptCount === 1
-                  ? "1 attempt"
-                  : `latest of ${quiz.attemptCount} attempts`}
+
+      <div className="space-y-4 px-4 py-4">
+        {book.draftQuiz && (
+          <DraftCard quiz={book.draftQuiz} memberEmail={memberEmail} />
+        )}
+
+        {book.activeQuiz ? (
+          <ActiveQuizCard
+            quiz={book.activeQuiz}
+            book={book}
+            memberEmail={memberEmail}
+          />
+        ) : (
+          !book.draftQuiz && (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                No quiz for this stretch yet.
               </p>
+              {genRange ? (
+                <GenerateDraftButton
+                  bookId={book.bookId}
+                  memberEmail={memberEmail}
+                  fromPage={genRange.from}
+                  throughPage={genRange.through}
+                  label={`Generate quiz for ${quizRangeLabel(genRange.from, genRange.through)}`}
+                />
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Set a target page to generate one.
+                </p>
+              )}
             </div>
-          </div>
-        ) : dueNow ? (
-          <Badge className="bg-amber-500 text-white">Due now</Badge>
+          )
+        )}
+
+        {book.history.length > 0 && (
+          <details className="group">
+            <summary className="cursor-pointer list-none text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground">
+              Older quizzes ({book.history.length})
+            </summary>
+            <div className="mt-2 space-y-1.5">
+              {book.history.map((q) => (
+                <Link
+                  key={q.id}
+                  href={quizResultsHref(q.id, memberEmail)}
+                  className="flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2 text-sm transition-colors hover:bg-accent"
+                >
+                  <span className="capitalize text-muted-foreground">
+                    {quizRangeLabel(q.fromPage, q.throughPage)}
+                  </span>
+                  <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {historyLabel(q)}
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ActiveQuizCard({
+  quiz,
+  book,
+  memberEmail,
+}: {
+  quiz: ReadingAdminQuiz;
+  book: ReadingAdminBook;
+  memberEmail: string;
+}) {
+  const attempted = quiz.attempts.length > 0;
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm capitalize text-foreground">
+          {quizRangeLabel(quiz.fromPage, quiz.throughPage)}
+        </p>
+        {attempted ? (
+          <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-400">
+            In progress · needs revision
+          </Badge>
         ) : (
           <Badge variant="outline">Awaiting submission</Badge>
         )}
-        <span className="flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground">
-          {action}
-          <ChevronRight className="h-4 w-4" />
-        </span>
       </div>
-    </Link>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {attempted
+          ? `${quiz.attempts.length} ${quiz.attempts.length === 1 ? "attempt" : "attempts"} so far`
+          : "Not started yet"}
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Link
+          href={quizResultsHref(quiz.id, memberEmail)}
+          className={cn(buttonVariants({ variant: "default", size: "sm" }))}
+        >
+          View quiz
+        </Link>
+        <GenerateDraftButton
+          bookId={book.bookId}
+          memberEmail={memberEmail}
+          fromPage={quiz.fromPage}
+          throughPage={quiz.throughPage}
+          label="Regenerate"
+          regenerate
+        />
+        <CloseQuizButton
+          quizId={quiz.id}
+          memberEmail={memberEmail}
+          variant="ghost"
+        />
+        <DeleteQuizButton quizId={quiz.id} memberEmail={memberEmail} />
+      </div>
+    </div>
   );
+}
+
+function DraftCard({
+  quiz,
+  memberEmail,
+}: {
+  quiz: ReadingAdminQuiz;
+  memberEmail: string;
+}) {
+  return (
+    <div className="rounded-lg border border-dashed border-border px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm capitalize text-foreground">
+          {quizRangeLabel(quiz.fromPage, quiz.throughPage)}
+        </p>
+        <Badge variant="secondary">Draft — not published</Badge>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Review and publish it to make it the live quiz (this replaces any current
+        one).
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Link
+          href={quizEditHref(quiz.id, memberEmail)}
+          className={cn(buttonVariants({ variant: "default", size: "sm" }))}
+        >
+          Review draft
+        </Link>
+        <DeleteQuizButton quizId={quiz.id} memberEmail={memberEmail} />
+      </div>
+    </div>
+  );
+}
+
+function historyLabel(quiz: ReadingAdminQuiz): string {
+  if (quiz.closedByParent) return "Closed by parent";
+  if (quiz.passed) return "Passed";
+  if (quiz.status === "archived") return "Replaced";
+  if (quiz.status === "draft") return "Draft";
+  return "—";
 }
