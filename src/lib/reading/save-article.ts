@@ -8,7 +8,7 @@ import { countWords, sanitizeArticleHtml } from "@/lib/reading/article-sanitize"
  * client and stamps the trusted user_id resolved from the token.
  *
  * Idempotent by canonical URL per user (a partial unique index on articles, see
- * migration 00140): re-saving the same URL refreshes the existing item and its
+ * migration 00141): re-saving the same URL refreshes the existing item and its
  * stored HTML rather than creating a duplicate. The cleaned HTML lands in the
  * existing reading-books bucket and the content row is marked ready immediately —
  * articles skip the PDF/EPUB conversion step entirely.

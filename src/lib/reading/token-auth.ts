@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
  * Authenticate a request to the reading ingest endpoint with a personal API
- * token (mirrors the todo ingest auth, migration 00140). The raw bearer token is
+ * token (mirrors the todo ingest auth, migration 00141). The raw bearer token is
  * SHA-256 hashed and matched against reading_api_tokens; the token's member is
  * then resolved to a user_id, since saved articles are stamped with user_id.
  * Verified with the service-role client (no browser session in an extension
