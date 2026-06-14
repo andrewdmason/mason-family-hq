@@ -986,7 +986,40 @@ export type ReadingBookState = {
 // ============================================================
 
 export type ReadingQuizStatus = "draft" | "published";
-export type ReadingQuizQuestionType = "multiple_choice" | "free_text";
+export type ReadingQuizQuestionType = "multiple_choice" | "free_text" | "essay";
+
+/**
+ * The three dimensions an essay is written and graded against, pitched to the
+ * reader's age: comprehension of the reading, writing mechanics, and quality of
+ * thinking. On a question these hold the rubric prose; on an answer (see
+ * `EssayRubricScores`) they hold the grades.
+ */
+export type EssayRubric = {
+  comprehension: string;
+  mechanics: string;
+  thinking: string;
+};
+
+/** One graded dimension: a 1–4 score (null = couldn't grade) plus a short note. */
+export type EssayRubricScore = { score: number | null; note: string };
+
+/** The graded breakdown stored on an essay answer row. */
+export type EssayRubricScores = {
+  comprehension: EssayRubricScore;
+  mechanics: EssayRubricScore;
+  thinking: EssayRubricScore;
+};
+
+/** A graded essay attempt's feedback, shown as a grade card on the results and
+ * (during a revision) the writing page. */
+export type ReadingEssayFeedback = {
+  rubricScores: EssayRubricScores | null;
+  aiNotes: string | null;
+  /** True when the attempt met the standard. */
+  passed: boolean;
+  /** False when the AI grade didn't land. */
+  gradingComplete: boolean;
+};
 
 /** A quiz scoped to a book's material from the start through `through_page`. */
 export type ReadingQuiz = {
@@ -1029,6 +1062,12 @@ export type ReadingQuizQuestion = {
   grading_rubric: string | null;
   /** free_text: a model answer, to ground the grader. */
   sample_answer: string | null;
+  /** essay: the reading detail the opening must demonstrate (grader-facing). */
+  anchor_summary: string | null;
+  /** essay: the three-dimension rubric the grader scores against. */
+  essay_rubric: EssayRubric | null;
+  /** essay: the soft minimum word count, baked in at generation time. */
+  min_words: number | null;
   created_at: string;
 };
 
@@ -1080,8 +1119,10 @@ export type ReadingQuizAnswer = {
   response_text: string | null;
   /** Null = ungraded (an AI grade failed). */
   is_correct: boolean | null;
-  /** free_text: the AI's note on why the answer was good/bad. */
+  /** free_text/essay: the AI's note on why the answer was good/bad. */
   ai_notes: string | null;
+  /** essay: the per-dimension rubric grades (comprehension/mechanics/thinking). */
+  rubric_scores: EssayRubricScores | null;
   created_at: string;
 };
 

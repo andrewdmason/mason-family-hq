@@ -1,33 +1,265 @@
 "use client";
 
-import { type ReactNode, useState, useTransition } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { submitQuiz } from "@/app/(reading)/reader/quizzes/actions";
+import { EssayGradeCard } from "@/components/reading/quiz-essay-feedback";
 import { quizResultsHref } from "@/lib/reading/links";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
 import { cn } from "@/lib/utils";
-import type { ReadingQuizWithQuestions } from "@/lib/types";
+import type {
+  ReadingEssayFeedback,
+  ReadingQuizQuestion,
+  ReadingQuizWithQuestions,
+} from "@/lib/types";
+
+/** Default floor when a quiz predates the per-reader essay_min_words setting. */
+const DEFAULT_MIN_WORDS = 150;
+
+function countWords(text: string): number {
+  const trimmed = text.trim();
+  return trimmed ? trimmed.split(/\s+/).length : 0;
+}
 
 /**
- * The reader takes a published quiz: pick an option for each multiple-choice
- * question, write a response for each free-text one, then submit. Submitting
- * auto-grades and routes to the results page with full feedback.
+ * The reader takes a published quiz. New quizzes are a single longform essay — one
+ * flowing prompt with a word floor and pasting disabled (so the writing is their
+ * own). Legacy multiple-choice / short-answer quizzes still render the per-question
+ * form. Submitting auto-grades and routes to the results page with full feedback.
  */
 export function QuizRunner({
   quiz,
   memberEmail = null,
   retake = false,
+  priorEssay = null,
+  priorFeedback = null,
+  allowPaste = false,
   ownerSlot = null,
 }: {
   quiz: ReadingQuizWithQuestions;
   memberEmail?: string | null;
-  /** True when this is a retake showing only the questions missed last time. */
+  /** True when this is a retake (a fresh try at the essay / the missed questions). */
   retake?: boolean;
+  /** The reader's prior essay, so a revision opens with it instead of a blank box. */
+  priorEssay?: string | null;
+  /** The prior attempt's grade + notes, kept on screen while they revise. */
+  priorFeedback?: ReadingEssayFeedback | null;
+  /** Allow pasting into the essay (owner/parent testing); kids must type. */
+  allowPaste?: boolean;
   /** Owner-only controls (e.g. close without passing), shown in the header. */
   ownerSlot?: ReactNode;
+}) {
+  // An essay quiz is exactly one essay question; anything else is the legacy form.
+  const essay =
+    quiz.questions.length === 1 && quiz.questions[0].type === "essay"
+      ? quiz.questions[0]
+      : null;
+
+  if (essay) {
+    return (
+      <EssayRunner
+        quiz={quiz}
+        essay={essay}
+        memberEmail={memberEmail}
+        priorEssay={priorEssay}
+        priorFeedback={priorFeedback}
+        allowPaste={allowPaste}
+        ownerSlot={ownerSlot}
+      />
+    );
+  }
+
+  return (
+    <LegacyRunner
+      quiz={quiz}
+      memberEmail={memberEmail}
+      retake={retake}
+      ownerSlot={ownerSlot}
+    />
+  );
+}
+
+function EssayRunner({
+  quiz,
+  essay,
+  memberEmail,
+  priorEssay,
+  priorFeedback,
+  allowPaste,
+  ownerSlot,
+}: {
+  quiz: ReadingQuizWithQuestions;
+  essay: ReadingQuizQuestion;
+  memberEmail: string | null;
+  priorEssay: string | null;
+  priorFeedback: ReadingEssayFeedback | null;
+  allowPaste: boolean;
+  ownerSlot: ReactNode;
+}) {
+  const router = useRouter();
+  // A revision opens with the prior draft so the reader edits rather than retypes.
+  const isRevision = priorEssay != null;
+
+  // Autosave the in-progress essay to localStorage so a refresh or accidental
+  // navigation doesn't lose 20+ minutes of writing. Keyed per quiz, restored
+  // straight into initial state (so there's no flash), and cleared on a successful
+  // turn-in. The textarea suppresses the hydration warning since a restored draft
+  // legitimately differs from the server-rendered empty value.
+  const storageKey = `reading-essay-draft:${quiz.id}`;
+  const [text, setText] = useState(() => {
+    if (typeof window === "undefined") return priorEssay ?? "";
+    try {
+      return window.localStorage.getItem(storageKey) ?? priorEssay ?? "";
+    } catch {
+      return priorEssay ?? "";
+    }
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  // Auto-grow the writing surface so it reads like a page that gets longer as you
+  // write, not a fixed scrolling box (mirrors the journal's composer).
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text]);
+
+  function updateText(value: string) {
+    setText(value);
+    try {
+      window.localStorage.setItem(storageKey, value);
+    } catch {
+      // Ignore storage write failures (quota, private mode).
+    }
+  }
+
+  const minWords = essay.min_words ?? DEFAULT_MIN_WORDS;
+  const words = useMemo(() => countWords(text), [text]);
+  const enough = words >= minWords;
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!enough) return;
+    setError(null);
+    startTransition(async () => {
+      try {
+        await submitQuiz(
+          quiz.id,
+          [{ questionId: essay.id, responseText: text }],
+          memberEmail
+        );
+        // Turned in successfully — the saved draft is no longer needed.
+        try {
+          window.localStorage.removeItem(storageKey);
+        } catch {
+          // Ignore storage failures.
+        }
+        router.push(quizResultsHref(quiz.id, memberEmail));
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Couldn't submit your essay."
+        );
+      }
+    });
+  }
+
+  // Block pasting and dropping text in so the essay is the reader's own writing.
+  // The owner/parent is allowed to paste so they can test with sample essays.
+  const blockPaste = allowPaste
+    ? undefined
+    : (e: React.ClipboardEvent | React.DragEvent) => e.preventDefault();
+
+  return (
+    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pb-28 pt-12">
+      <header className="mb-8">
+        <p className="font-serif text-sm text-muted-foreground">
+          {isRevision ? "Your revision" : "Writing assignment"}
+        </p>
+        <h1 className="mt-1 font-serif text-3xl tracking-tight text-foreground">
+          {quiz.title || `On ${quizRangeLabel(quiz.from_page, quiz.through_page)}`}
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {isRevision
+            ? "Your last essay is here to build on — use the notes from last time, then turn it in again."
+            : "Write one essay — start with the book, then take it further."}
+        </p>
+      </header>
+
+      <form onSubmit={handleSubmit} className="flex flex-1 flex-col">
+        {/* Revising: keep the last round of feedback in view while they rework it. */}
+        {priorFeedback && (
+          <EssayGradeCard
+            feedback={priorFeedback}
+            heading="Last round of feedback"
+            className="mb-10"
+          />
+        )}
+
+        {/* The prompt reads like the journal's question: italic, set off by a
+            quiet left rule, with the writing flowing beneath it. */}
+        <div className="border-l-2 border-muted pl-6 font-serif text-lg italic leading-relaxed text-muted-foreground">
+          {essay.prompt}
+        </div>
+
+        <textarea
+          ref={textareaRef}
+          aria-label="Your essay"
+          placeholder="Start writing…"
+          value={text}
+          onChange={(e) => updateText(e.target.value)}
+          onPaste={blockPaste}
+          onDrop={blockPaste}
+          rows={1}
+          className="mt-8 min-h-[40vh] w-full resize-none overflow-hidden border-0 bg-transparent font-serif text-lg leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-60"
+          suppressHydrationWarning
+        />
+
+        {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
+
+        <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
+          <Button type="submit" disabled={pending || !enough}>
+            {pending ? "Turning it in…" : "Turn in essay"}
+          </Button>
+          {ownerSlot}
+          <span
+            className={cn(
+              "ml-auto font-serif text-sm tabular-nums",
+              enough
+                ? "text-emerald-700 dark:text-emerald-400"
+                : "text-muted-foreground"
+            )}
+          >
+            {words} {words === 1 ? "word" : "words"} (min {minWords})
+          </span>
+        </div>
+      </form>
+    </main>
+  );
+}
+
+function LegacyRunner({
+  quiz,
+  memberEmail,
+  retake,
+  ownerSlot,
+}: {
+  quiz: ReadingQuizWithQuestions;
+  memberEmail: string | null;
+  retake: boolean;
+  ownerSlot: ReactNode;
 }) {
   const router = useRouter();
   const [choices, setChoices] = useState<Record<string, number>>({});
