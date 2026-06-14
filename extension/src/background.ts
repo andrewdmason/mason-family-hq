@@ -17,11 +17,24 @@ type ExtractedArticle = {
 
 type Config = { baseUrl: string; token: string };
 
+// Add a scheme if the stored URL lacks one (http for localhost, https
+// otherwise) — older saves stored a bare host, which fetch rejects with
+// `URL scheme "localhost" is not supported`.
+function normalizeBaseUrl(raw: string): string {
+  let v = raw.trim().replace(/\/+$/, "");
+  if (!v) return "";
+  if (!/^https?:\/\//i.test(v)) {
+    const isLocal = /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(v);
+    v = (isLocal ? "http://" : "https://") + v;
+  }
+  return v;
+}
+
 async function getConfig(): Promise<Config | null> {
   const { baseUrl, token } = await chrome.storage.sync.get(["baseUrl", "token"]);
   if (typeof baseUrl !== "string" || typeof token !== "string") return null;
   if (!baseUrl.trim() || !token.trim()) return null;
-  return { baseUrl: baseUrl.replace(/\/+$/, ""), token: token.trim() };
+  return { baseUrl: normalizeBaseUrl(baseUrl), token: token.trim() };
 }
 
 function setBadge(tabId: number, text: string, color: string): void {
