@@ -35,6 +35,11 @@ export default async function TakeQuizPage({
       quiz={result.quiz}
       memberEmail={memberEmail}
       retake={result.retake}
+      priorEssay={result.priorEssay}
+      priorFeedback={result.priorFeedback}
+      // The kid must type their essay. The owner/parent may paste so they can test —
+      // and in local dev pasting is always allowed regardless of who's signed in.
+      allowPaste={isOwner || process.env.NODE_ENV !== "production"}
       ownerSlot={
         isOwner ? (
           <CloseQuizButton

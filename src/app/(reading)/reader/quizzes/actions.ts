@@ -8,14 +8,23 @@ import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { isQuizDue } from "@/lib/reading/quiz-due";
 import { getTextForRange } from "@/lib/reading/extract-text";
-import { generateQuiz } from "@/lib/reading/quiz-generate";
-import { gradeFreeText, gradeMultipleChoice } from "@/lib/reading/quiz-grade";
+import { generateEssayAssignment } from "@/lib/reading/quiz-generate";
+import {
+  gradeEssay,
+  gradeFreeText,
+  gradeMultipleChoice,
+} from "@/lib/reading/quiz-grade";
 import { readerAge } from "@/lib/reading/reader-age";
-import { defaultQuizTitle, questionRows } from "@/lib/reading/quiz-build";
+import { essayMinWords, loadReaderContext } from "@/lib/reading/reader-context";
+import { defaultQuizTitle, essayQuestionRow } from "@/lib/reading/quiz-build";
 import { advanceStretch } from "@/lib/reading/advance";
+import { quizRangeLabel } from "@/lib/reading/quiz-format";
 import type {
   ActiveBookQuiz,
+  EssayRubric,
+  EssayRubricScores,
   OwnerQuizListItem,
+  ReadingEssayFeedback,
   ReadingQuiz,
   ReadingQuizAnswer,
   ReadingQuizQuestion,
@@ -24,8 +33,16 @@ import type {
   ReadingQuizWithQuestions,
 } from "@/lib/types";
 
+// Full columns, including the essay's grader-facing anchor — used where the owner
+// edits a draft or the server grades a submission.
 const QUESTION_COLUMNS =
-  "id, quiz_id, user_id, position, type, prompt, options, correct_index, explanation, grading_rubric, sample_answer, created_at";
+  "id, quiz_id, user_id, position, type, prompt, options, correct_index, explanation, grading_rubric, sample_answer, anchor_summary, essay_rubric, min_words, created_at";
+// Results view: same minus anchor_summary, which is grader-only and must not reach
+// the reader's browser (it would hint at what the opening should say).
+const RESULT_QUESTION_COLUMNS =
+  "id, quiz_id, user_id, position, type, prompt, options, correct_index, explanation, grading_rubric, sample_answer, essay_rubric, min_words, created_at";
+const ANSWER_COLUMNS =
+  "id, submission_id, question_id, user_id, selected_index, response_text, is_correct, ai_notes, rubric_scores, created_at";
 const QUIZ_COLUMNS =
   "id, user_id, book_id, from_page, through_page, status, title, created_by_email, source, generation_error, published_at, created_at, updated_at";
 
@@ -40,7 +57,7 @@ function isPassed(
 }
 
 const GENERATION_FAILED_NOTE =
-  "Couldn't write questions from this book — try generating again.";
+  "Couldn't write an essay prompt from this book — try generating again.";
 
 /** The signed-in caller's email (the owner authoring a quiz), from the session. */
 async function callerEmail(): Promise<string> {
@@ -104,13 +121,19 @@ export async function generateQuizDraft(input: {
   }
 
   const age = await readerAge(email);
-  const generated = await generateQuiz({
+  const [minWords, readerContext] = await Promise.all([
+    essayMinWords(email, age),
+    loadReaderContext(client, userId),
+  ]);
+  const generated = await generateEssayAssignment({
     bookTitle: book.title as string,
     author: (book.author as string) ?? null,
     fromPage,
     throughPage,
     text: slice.text,
     readerAge: age,
+    readerContext,
+    minWords,
   });
 
   const { data: quiz, error: quizError } = await client
@@ -124,17 +147,17 @@ export async function generateQuizDraft(input: {
       title: generated.title ?? defaultQuizTitle(fromPage, throughPage),
       created_by_email: author,
       source: "manual",
-      generation_error: generated.questions.length ? null : GENERATION_FAILED_NOTE,
+      generation_error: generated.prompt ? null : GENERATION_FAILED_NOTE,
     })
     .select("id")
     .single();
   if (quizError) throw new Error(quizError.message);
   const quizId = quiz.id as string;
 
-  if (generated.questions.length) {
+  if (generated.prompt) {
     const { error: qError } = await client
       .from("reading_quiz_questions")
-      .insert(questionRows(quizId, userId, generated.questions));
+      .insert(essayQuestionRow(quizId, userId, generated));
     if (qError) throw new Error(qError.message);
   }
 
@@ -180,20 +203,26 @@ export async function regenerateQuizDraft(
   if (!slice) throw new Error("This book isn't ready for a quiz yet.");
 
   const age = await readerAge(email);
-  const generated = await generateQuiz({
+  const [minWords, readerContext] = await Promise.all([
+    essayMinWords(email, age),
+    loadReaderContext(client, userId),
+  ]);
+  const generated = await generateEssayAssignment({
     bookTitle: book.title as string,
     author: (book.author as string) ?? null,
     fromPage,
     throughPage,
     text: slice.text,
     readerAge: age,
+    readerContext,
+    minWords,
   });
 
   await client.from("reading_quiz_questions").delete().eq("quiz_id", quizId);
-  if (generated.questions.length) {
+  if (generated.prompt) {
     const { error: qError } = await client
       .from("reading_quiz_questions")
-      .insert(questionRows(quizId, userId, generated.questions));
+      .insert(essayQuestionRow(quizId, userId, generated));
     if (qError) throw new Error(qError.message);
   }
 
@@ -201,7 +230,7 @@ export async function regenerateQuizDraft(
     .from("reading_quizzes")
     .update({
       title: generated.title ?? defaultQuizTitle(fromPage, throughPage),
-      generation_error: generated.questions.length ? null : GENERATION_FAILED_NOTE,
+      generation_error: generated.prompt ? null : GENERATION_FAILED_NOTE,
     })
     .eq("id", quizId)
     .eq("user_id", userId);
@@ -219,6 +248,8 @@ export async function updateQuizQuestion(
     explanation?: string;
     gradingRubric?: string;
     sampleAnswer?: string;
+    essayRubric?: EssayRubric;
+    minWords?: number;
   },
   memberEmail?: string | null
 ): Promise<void> {
@@ -242,6 +273,8 @@ export async function updateQuizQuestion(
   if (patch.explanation !== undefined) update.explanation = patch.explanation;
   if (patch.gradingRubric !== undefined) update.grading_rubric = patch.gradingRubric;
   if (patch.sampleAnswer !== undefined) update.sample_answer = patch.sampleAnswer;
+  if (patch.essayRubric !== undefined) update.essay_rubric = patch.essayRubric;
+  if (patch.minWords !== undefined) update.min_words = patch.minWords;
   if (Object.keys(update).length === 0) return;
 
   const { error } = await client
@@ -413,6 +446,7 @@ type PriorAnswer = {
   response_text: string | null;
   is_correct: boolean | null;
   ai_notes: string | null;
+  rubric_scores: EssayRubricScores | null;
 };
 
 /**
@@ -442,7 +476,9 @@ async function latestAttempt(
 
   const { data: rows } = await client
     .from("reading_quiz_answers")
-    .select("question_id, selected_index, response_text, is_correct, ai_notes")
+    .select(
+      "question_id, selected_index, response_text, is_correct, ai_notes, rubric_scores"
+    )
     .eq("submission_id", sub.id)
     .eq("user_id", userId);
 
@@ -453,6 +489,7 @@ async function latestAttempt(
       response_text: (r.response_text as string | null) ?? null,
       is_correct: (r.is_correct as boolean | null) ?? null,
       ai_notes: (r.ai_notes as string | null) ?? null,
+      rubric_scores: (r.rubric_scores as EssayRubricScores | null) ?? null,
     });
   }
   const total = (sub.score_total as number | null) ?? 0;
@@ -496,7 +533,14 @@ function partitionForAttempt<Q extends { id: string }>(
 export async function getQuizForTaking(
   quizId: string,
   memberEmail?: string | null
-): Promise<{ quiz: ReadingQuizWithQuestions; retake: boolean } | null> {
+): Promise<{
+  quiz: ReadingQuizWithQuestions;
+  retake: boolean;
+  /** The reader's prior essay text, so a revision pre-fills instead of retyping. */
+  priorEssay: string | null;
+  /** The prior attempt's grade + notes, kept on screen while they revise. */
+  priorFeedback: ReadingEssayFeedback | null;
+} | null> {
   const { client, userId } = await resolveReadingScope(memberEmail);
 
   const { data: quiz } = await client
@@ -510,11 +554,14 @@ export async function getQuizForTaking(
 
   const { data: questions } = await client
     .from("reading_quiz_questions")
-    .select("id, quiz_id, user_id, position, type, prompt, options, created_at")
+    .select("id, quiz_id, user_id, position, type, prompt, options, min_words, created_at")
     .eq("quiz_id", quizId)
     .eq("user_id", userId)
     .order("position", { ascending: true });
 
+  // Strip everything grader-facing before this reaches the browser: the MC key,
+  // explanations, rubrics, and the essay's anchor. The reader keeps only what they
+  // need to write — the prompt, MC options, and the essay's word floor.
   const stripped: ReadingQuizQuestion[] = (questions ?? []).map((q) => ({
     id: q.id as string,
     quiz_id: q.quiz_id as string,
@@ -527,6 +574,9 @@ export async function getQuizForTaking(
     explanation: null,
     grading_rubric: null,
     sample_answer: null,
+    anchor_summary: null,
+    essay_rubric: null,
+    min_words: (q.min_words as number | null) ?? null,
     created_at: q.created_at as string,
   }));
 
@@ -535,7 +585,28 @@ export async function getQuizForTaking(
   const { ask } = partitionForAttempt(stripped, latest);
   const retake = ask.length < stripped.length;
 
-  return { quiz: { ...(quiz as ReadingQuiz), questions: ask }, retake };
+  // For a single-essay quiz nothing carries forward, so `retake` stays false; a
+  // re-attempt is signalled instead by handing back the prior draft to revise.
+  const essayQ = stripped.find((q) => q.type === "essay");
+  const priorAnswer = essayQ && latest ? latest.answers.get(essayQ.id) : null;
+  const priorEssay = priorAnswer?.response_text ?? null;
+  // Keep the last round of feedback to show while they revise (only once graded).
+  const priorFeedback: ReadingEssayFeedback | null =
+    priorAnswer && (priorAnswer.rubric_scores || priorAnswer.ai_notes)
+      ? {
+          rubricScores: priorAnswer.rubric_scores,
+          aiNotes: priorAnswer.ai_notes,
+          passed: priorAnswer.is_correct === true,
+          gradingComplete: priorAnswer.is_correct !== null,
+        }
+      : null;
+
+  return {
+    quiz: { ...(quiz as ReadingQuiz), questions: ask },
+    retake,
+    priorEssay,
+    priorFeedback,
+  };
 }
 
 /**
@@ -622,6 +693,30 @@ export async function submitQuiz(
           response_text: null,
           is_correct: isCorrect,
           ai_notes: null,
+          rubric_scores: null as EssayRubricScores | null,
+        };
+      }
+      if (q.type === "essay") {
+        const responseText = submitted?.responseText ?? "";
+        const grade = await gradeEssay({
+          prompt: q.prompt,
+          anchorSummary: q.anchor_summary ?? "",
+          rubric: q.essay_rubric ?? null,
+          essay: responseText,
+          readerAge: age,
+          minWords: q.min_words ?? null,
+        });
+        return {
+          question_id: q.id,
+          user_id: userId,
+          submission_id: submissionId,
+          selected_index: null,
+          response_text: responseText,
+          // An ungraded essay (AI failed) stays null so the attempt saves without
+          // counting as a pass; "meets standard" is the gate when it did grade.
+          is_correct: grade.graded ? grade.meetsStandard : null,
+          ai_notes: grade.notes || null,
+          rubric_scores: grade.scores,
         };
       }
       const responseText = submitted?.responseText ?? "";
@@ -640,6 +735,7 @@ export async function submitQuiz(
         response_text: responseText,
         is_correct: grade.correct,
         ai_notes: grade.notes || null,
+        rubric_scores: null as EssayRubricScores | null,
       };
     })
   );
@@ -656,6 +752,7 @@ export async function submitQuiz(
       response_text: previous.response_text,
       is_correct: true as boolean | null,
       ai_notes: previous.ai_notes,
+      rubric_scores: null as EssayRubricScores | null,
     };
   });
 
@@ -714,6 +811,137 @@ export async function submitQuiz(
 
   revalidateQuizzes();
   return { submissionId, attemptNumber, advanced, finished };
+}
+
+/**
+ * Post a passed essay to the family journal — the one-tap "share it" from the
+ * success screen, opt-in. Creates a closed, family-visible STANDARD entry authored
+ * by the reader and bound to the book, with the essay prompt stored as the entry's
+ * opening question (and shown as the journal's italic question prompt) followed by
+ * the essay as the reader's written answer — so it reads exactly like a journal
+ * entry the kid wrote in response to a prompt, and the family can comment on it.
+ * Idempotent on (reader, book, title): tapping twice returns the same entry.
+ */
+export async function postEssayToFamilyJournal(
+  quizId: string,
+  memberEmail?: string | null
+): Promise<{ entryId: string }> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+
+  const { data: quiz } = await client
+    .from("reading_quizzes")
+    .select("id, book_id, from_page, through_page")
+    .eq("id", quizId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!quiz) throw new Error("This quiz isn't available.");
+
+  // Only a passed essay can be shared.
+  const { data: subs } = await client
+    .from("reading_quiz_submissions")
+    .select("score_correct, score_total")
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId);
+  if (!isPassed(subs ?? [])) throw new Error("Pass the essay before sharing it.");
+
+  // The essay prompt and the reader's written response on the (single) essay question.
+  const { data: essayQ } = await client
+    .from("reading_quiz_questions")
+    .select("id, prompt")
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId)
+    .eq("type", "essay")
+    .order("position", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (!essayQ) throw new Error("This quiz has no essay to share.");
+  const prompt = (essayQ.prompt as string | null)?.trim() || "Reading essay";
+
+  const { data: answer } = await client
+    .from("reading_quiz_answers")
+    .select("response_text")
+    .eq("question_id", essayQ.id as string)
+    .eq("user_id", userId)
+    .not("response_text", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const essay = (answer?.response_text as string | null)?.trim();
+  if (!essay) throw new Error("There's no written essay to share yet.");
+
+  const { data: book } = await client
+    .from("reading_books")
+    .select("title")
+    .eq("id", quiz.book_id as string)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const bookTitle = (book?.title as string) ?? "this book";
+  const rangeLabel = quizRangeLabel(
+    (quiz.from_page as number | null) ?? null,
+    quiz.through_page as number
+  );
+  const title = `On ${bookTitle} (${rangeLabel})`;
+
+  // Idempotency: don't post the same essay twice.
+  const { data: existing } = await client
+    .from("journal_entries")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("reading_book_id", quiz.book_id as string)
+    .eq("entry_type", "standard")
+    .eq("title", title)
+    .maybeSingle();
+  if (existing) return { entryId: existing.id as string };
+
+  const tz = await getUserTimezone();
+  const { data: entry, error } = await client
+    .from("journal_entries")
+    .insert({
+      entry_date: localDate(new Date(), tz),
+      user_id: userId,
+      entry_type: "standard",
+      // The prompt rides along as the entry's opening question so the journal shows
+      // it the same way it shows any question the writer answered.
+      opening_question: prompt,
+      question_mode: true,
+      title,
+      summary: `An essay on ${bookTitle}, ${rangeLabel}.`,
+      visibility: "family",
+      status: "closed",
+      closed_at: new Date().toISOString(),
+      reading_book_id: quiz.book_id as string,
+    })
+    .select("id")
+    .single();
+  if (error || !entry) {
+    throw new Error(error?.message ?? "Couldn't post to the journal.");
+  }
+  const entryId = entry.id as string;
+
+  // The transcript: the prompt as the interviewer's question, then the essay as the
+  // reader's answer. Explicit, ordered timestamps so the question always renders first.
+  const now = Date.now();
+  const { error: msgError } = await client.from("journal_messages").insert([
+    {
+      entry_id: entryId,
+      user_id: userId,
+      role: "assistant",
+      content: prompt,
+      created_at: new Date(now).toISOString(),
+    },
+    {
+      entry_id: entryId,
+      user_id: userId,
+      role: "user",
+      content: essay,
+      created_at: new Date(now + 1000).toISOString(),
+    },
+  ]);
+  if (msgError) throw new Error(msgError.message);
+
+  revalidatePath("/journal");
+  revalidatePath("/family");
+  return { entryId };
 }
 
 const SUBMISSION_COLUMNS =
@@ -859,16 +1087,14 @@ export async function getQuizResult(
     await Promise.all([
       client
         .from("reading_quiz_questions")
-        .select(QUESTION_COLUMNS)
+        .select(RESULT_QUESTION_COLUMNS)
         .eq("quiz_id", quizId)
         .eq("user_id", userId)
         .order("position", { ascending: true }),
       viewed
         ? client
             .from("reading_quiz_answers")
-            .select(
-              "id, submission_id, question_id, user_id, selected_index, response_text, is_correct, ai_notes, created_at"
-            )
+            .select(ANSWER_COLUMNS)
             .eq("submission_id", viewed.id)
             .eq("user_id", userId)
         : Promise.resolve({ data: [] as ReadingQuizAnswer[] }),

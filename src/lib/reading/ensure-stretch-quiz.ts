@@ -2,9 +2,10 @@ import "server-only";
 import { revalidatePath } from "next/cache";
 import type { ReadingScope } from "@/lib/reading/scope";
 import { getTextForRange } from "@/lib/reading/extract-text";
-import { generateQuiz } from "@/lib/reading/quiz-generate";
+import { generateEssayAssignment } from "@/lib/reading/quiz-generate";
 import { readerAge } from "@/lib/reading/reader-age";
-import { defaultQuizTitle, questionRows } from "@/lib/reading/quiz-build";
+import { essayMinWords, loadReaderContext } from "@/lib/reading/reader-context";
+import { defaultQuizTitle, essayQuestionRow } from "@/lib/reading/quiz-build";
 
 export type EnsureStretchResult = {
   quizId: string | null;
@@ -59,16 +60,22 @@ export async function ensureStretchQuiz(
   if (!slice) return { quizId: null, status: "no_content" };
 
   const age = await readerAge(email);
-  const generated = await generateQuiz({
+  const [minWords, readerContext] = await Promise.all([
+    essayMinWords(email, age),
+    loadReaderContext(client, userId),
+  ]);
+  const generated = await generateEssayAssignment({
     bookTitle: book.title as string,
     author: (book.author as string) ?? null,
     fromPage,
     throughPage,
     text: slice.text,
     readerAge: age,
+    readerContext,
+    minWords,
   });
-  // Don't publish an empty quiz — the caller surfaces "still preparing / retry".
-  if (!generated.questions.length) return { quizId: null, status: "error" };
+  // Don't publish an empty essay — the caller surfaces "still preparing / retry".
+  if (!generated.prompt) return { quizId: null, status: "error" };
 
   const { data: quiz, error } = await client
     .from("reading_quizzes")
@@ -90,7 +97,7 @@ export async function ensureStretchQuiz(
 
   const { error: qError } = await client
     .from("reading_quiz_questions")
-    .insert(questionRows(quizId, userId, generated.questions));
+    .insert(essayQuestionRow(quizId, userId, generated));
   if (qError) return { quizId: null, status: "error" };
 
   revalidatePath("/reader");

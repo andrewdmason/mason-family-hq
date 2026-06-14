@@ -1,7 +1,9 @@
 "use client";
 
+import { useState, useTransition } from "react";
 import Link from "next/link";
-import { CheckCircle2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { CheckCircle2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { buttonVariants } from "@/components/ui/button-variants";
+import { postEssayToFamilyJournal } from "@/app/(reading)/reader/quizzes/actions";
 import { cn } from "@/lib/utils";
 import type { ReadingQuizNextAssignment } from "@/lib/types";
 
@@ -41,11 +44,40 @@ export function QuizSuccessModal({
   assignment,
   dueDateLabel,
   readingHref,
+  isEssay = false,
+  essayPost = null,
 }: {
   assignment: ReadingQuizNextAssignment;
   dueDateLabel: string;
   readingHref: string;
+  /** True for the essay format — tunes the copy. */
+  isEssay?: boolean;
+  /** When present, offers a one-tap "post to the family journal" action. */
+  essayPost?: { quizId: string; memberEmail: string | null } | null;
 }) {
+  const router = useRouter();
+  const [posting, startPosting] = useTransition();
+  const [posted, setPosted] = useState(false);
+  const [postError, setPostError] = useState<string | null>(null);
+
+  function handlePost() {
+    setPostError(null);
+    startPosting(async () => {
+      try {
+        const { entryId } = await postEssayToFamilyJournal(
+          essayPost!.quizId,
+          essayPost!.memberEmail
+        );
+        setPosted(true);
+        router.push(`/journal/${entryId}`);
+      } catch (err) {
+        setPostError(
+          err instanceof Error ? err.message : "Couldn't post to the journal."
+        );
+      }
+    });
+  }
+
   return (
     <Dialog defaultOpen>
       <DialogContent className="sm:max-w-md">
@@ -53,9 +85,11 @@ export function QuizSuccessModal({
           <div className="mb-1 flex size-10 items-center justify-center rounded-full bg-emerald-600/10 text-emerald-700 dark:text-emerald-400">
             <CheckCircle2 className="size-5" />
           </div>
-          <DialogTitle>Quiz passed</DialogTitle>
+          <DialogTitle>{isEssay ? "Essay passed" : "Quiz passed"}</DialogTitle>
           <DialogDescription>
-            Every answer is correct. Nice work.
+            {isEssay
+              ? "You met the standard on every part. Really nice work."
+              : "Every answer is correct. Nice work."}
           </DialogDescription>
         </DialogHeader>
 
@@ -63,9 +97,30 @@ export function QuizSuccessModal({
           {assignmentText(assignment, dueDateLabel)}
         </p>
 
+        {essayPost && (
+          <div className="grid gap-1.5">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handlePost}
+              disabled={posting || posted}
+            >
+              <Send className="size-4" />
+              {posted
+                ? "Posted to the family journal"
+                : posting
+                  ? "Posting…"
+                  : "Post it to the family journal"}
+            </Button>
+            {postError && (
+              <p className="text-xs text-destructive">{postError}</p>
+            )}
+          </div>
+        )}
+
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>
-            View answers
+            {isEssay ? "View feedback" : "View answers"}
           </DialogClose>
           <Link
             href={readingHref}

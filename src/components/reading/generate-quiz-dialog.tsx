@@ -93,9 +93,10 @@ export function GenerateQuizDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Generate a quiz for {book.title}</DialogTitle>
+          <DialogTitle>Generate an essay for {book.title}</DialogTitle>
           <DialogDescription>
-            We&apos;ll write a comprehension quiz on the pages you set. Leave the
+            We&apos;ll write a longform essay assignment on the pages you set —
+            anchored in the reading, then opening into a broader theme. Leave the
             start blank to cover the book from the beginning. You can review and
             edit it before it goes to {memberEmail ? "them" : "the reader"}.
           </DialogDescription>
