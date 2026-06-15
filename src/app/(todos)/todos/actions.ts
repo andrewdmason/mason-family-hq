@@ -7,7 +7,11 @@ import { requireUserId } from "@/lib/members/auth";
 import { todayLocal } from "@/lib/journal/today";
 import { createClient } from "@/lib/supabase/server";
 import { plainTextToNotesHtml } from "@/lib/todos/notes";
-import { getSelfEmail, markInboxSeen } from "@/lib/todos/queries";
+import {
+  getProjectLoggedTasks,
+  getSelfEmail,
+  markInboxSeen,
+} from "@/lib/todos/queries";
 import {
   TASK_COLUMNS,
   taskFromRow,
@@ -267,6 +271,17 @@ export async function uncompleteTask(taskId: string): Promise<void> {
     .update({ completed_at: null, completed_by_email: null })
     .eq("id", taskId);
   if (error) throw error;
+}
+
+/**
+ * A project's completed ("logged") tasks, fetched on demand when the
+ * ProjectLogged toggle is first expanded. Lazy so the views shell's initial
+ * payload never carries every project's history — the one slice of project data
+ * that isn't already in the active superset.
+ */
+export async function getProjectLogged(projectId: string): Promise<TodoTask[]> {
+  const { supabase } = await ctx();
+  return getProjectLoggedTasks(supabase, projectId);
 }
 
 /** Batch soft delete for multi-selection — confirmed via modal, no undo toast. */

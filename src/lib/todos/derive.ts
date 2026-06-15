@@ -62,3 +62,20 @@ export function deriveViewTasks(
         );
   }
 }
+
+/**
+ * A project's active tasks — every assignee, in manual order — filtered from
+ * the household active set the shell holds, so opening a project is an in-memory
+ * filter, not a server fetch. Expects a swept set (see localSnoozeSweep).
+ */
+export function deriveProjectTasks(
+  tasks: TodoTask[],
+  projectId: string
+): TodoTask[] {
+  return tasks
+    .filter((t) => t.projectId === projectId)
+    .sort(
+      (a, b) =>
+        a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt)
+    );
+}

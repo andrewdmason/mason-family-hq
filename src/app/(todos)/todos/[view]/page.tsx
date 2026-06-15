@@ -2,10 +2,10 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { resolveViewedMember } from "@/lib/todos/member-context";
 import {
+  getAllActiveTasks,
   getAreas,
   getLogbookProjects,
   getLogbookTasks,
-  getMemberActiveTasks,
   getProjects,
   getSelfEmail,
   getTaskAttachments,
@@ -70,7 +70,10 @@ export default async function TodoViewPage({
   }
   const [activeTasks, logbookTasks, projects, areas, logbookProjects, journalNudge] =
     await Promise.all([
-      getMemberActiveTasks(supabase, viewed.email),
+      // The whole household's active set: the shell derives each member view
+      // (filtered by assignee/creator) *and* any project (every assignee) from
+      // it, so view↔project switches never hit the server.
+      getAllActiveTasks(supabase),
       getLogbookTasks(supabase, viewed.email),
       getProjects(supabase),
       getAreas(supabase),

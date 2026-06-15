@@ -3,30 +3,53 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { uncompleteTask } from "@/app/(todos)/todos/actions";
+import { getProjectLogged, uncompleteTask } from "@/app/(todos)/todos/actions";
 import { TaskCheckbox } from "@/components/todos/task-row";
 import type { TodoTask } from "@/lib/todos/types";
 
 /**
  * Things' "Show N logged items": a quiet toggle under a project's task list
- * that reveals its completed to-dos. Unchecking one restores it to the live
- * list (the page refresh slots it back in).
+ * that reveals its completed to-dos. The list is fetched lazily on first expand
+ * (getProjectLogged) so the views shell never carries every project's history;
+ * unchecking one restores it to the live list (the reconcile refresh slots it
+ * back in). The count only shows once loaded — it isn't known up front.
  */
-export function ProjectLogged({ initialTasks }: { initialTasks: TodoTask[] }) {
+export function ProjectLogged({ projectId }: { projectId: string }) {
   const router = useRouter();
-  const [tasks, setTasks] = useState(initialTasks);
+  const [tasks, setTasks] = useState<TodoTask[] | null>(null);
   const [shown, setShown] = useState(false);
 
-  useEffect(() => setTasks(initialTasks), [initialTasks]);
+  // A project switch (new id) drops any previously loaded history and collapses.
+  useEffect(() => {
+    setTasks(null);
+    setShown(false);
+  }, [projectId]);
 
-  if (tasks.length === 0) return null;
+  // Load on first expand; re-fetch on later expands so an uncomplete elsewhere
+  // (or a freshly completed task) is reflected.
+  useEffect(() => {
+    if (!shown) return;
+    let alive = true;
+    void getProjectLogged(projectId).then((rows) => {
+      if (alive) setTasks(rows);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [shown, projectId]);
 
   const handleUncomplete = (task: TodoTask) => {
-    setTasks((prev) => prev.filter((t) => t.id !== task.id));
+    setTasks((prev) => prev?.filter((t) => t.id !== task.id) ?? null);
     uncompleteTask(task.id).finally(() => router.refresh());
   };
 
   const Chevron = shown ? ChevronDown : ChevronRight;
+  const loadedEmpty = shown && tasks !== null && tasks.length === 0;
+  const label = !shown
+    ? tasks === null
+      ? "Show logged items"
+      : `Show ${tasks.length} logged item${tasks.length === 1 ? "" : "s"}`
+    : "Hide logged items";
 
   return (
     <div className="mt-4">
@@ -36,12 +59,16 @@ export function ProjectLogged({ initialTasks }: { initialTasks: TodoTask[] }) {
         className="inline-flex items-center gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
       >
         <Chevron className="size-3.5" />
-        {shown
-          ? "Hide logged items"
-          : `Show ${tasks.length} logged item${tasks.length === 1 ? "" : "s"}`}
+        {label}
       </button>
 
-      {shown && (
+      {loadedEmpty && (
+        <p className="mt-1 px-2 text-xs text-muted-foreground/70">
+          No logged items yet.
+        </p>
+      )}
+
+      {shown && tasks && tasks.length > 0 && (
         <div className="mt-1 space-y-0.5">
           {tasks.map((task) => (
             <div
