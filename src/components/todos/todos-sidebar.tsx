@@ -55,7 +55,7 @@ import {
 import { withAs } from "@/lib/todos/member-context";
 import { useReconciler } from "@/lib/todos/reconcile";
 import { sortBetween } from "@/lib/todos/sort";
-import { requestViewSwitch } from "@/lib/todos/view-switch";
+import { requestProjectSwitch, requestViewSwitch } from "@/lib/todos/view-switch";
 import type {
   SidebarCounts,
   TodoArea,
@@ -229,6 +229,7 @@ function SidebarLink({
   badge,
   href,
   view,
+  projectId,
   hint,
   chordHint,
   dropKey,
@@ -243,6 +244,8 @@ function SidebarLink({
   href: string;
   /** A fixed view's link switches instantly when the views shell is mounted. */
   view?: TodoView;
+  /** A project link switches instantly the same way (mutually exclusive with `view`). */
+  projectId?: string;
   hint?: string;
   /** While `g` is held: the chord's follow-up key, shown in place of the badge. */
   chordHint?: string | null;
@@ -257,11 +260,12 @@ function SidebarLink({
       href={href}
       title={hint}
       onClick={(e) => {
-        // Plain left-clicks switch views client-side when the shell is up
-        // (todos-views.tsx) — instant. Modified clicks (new tab) and pages
-        // without the shell (projects, browse) keep the real navigation.
-        if (!view || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-        if (requestViewSwitch(view)) e.preventDefault();
+        // Plain left-clicks switch views/projects client-side when the shell is
+        // up (todos-views.tsx) — instant. Modified clicks (new tab) and pages
+        // without the shell (browse, settings) keep the real navigation.
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        if (view && requestViewSwitch(view)) e.preventDefault();
+        else if (projectId && requestProjectSwitch(projectId)) e.preventDefault();
       }}
       // Anchors are natively draggable; a native drag's dragstart makes
       // dnd-kit cancel the row's sort, so rows would never reorder.
@@ -458,6 +462,7 @@ function ProjectsSection({
               active={activeProjectId === project.id}
               badge={0}
               href={href(`/todos/project/${project.id}`)}
+              projectId={project.id}
               dropKey={projectDropKey(project.id)}
               dropActive={dropTarget === projectDropKey(project.id)}
               size={size}

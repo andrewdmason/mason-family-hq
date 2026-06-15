@@ -1,27 +1,30 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { resolveViewedMember, withAs } from "@/lib/todos/member-context";
+import { resolveViewedMember } from "@/lib/todos/member-context";
 import {
+  getAllActiveTasks,
   getAreas,
-  getProjectLoggedTasks,
+  getLogbookProjects,
+  getLogbookTasks,
   getProjects,
-  getProjectTasks,
   getSelfEmail,
-  getSidebarCounts,
   getTaskAttachments,
   getTodoMembers,
   sweepElapsedSnoozes,
 } from "@/lib/todos/queries";
-import { BackToLists } from "@/components/todos/back-to-lists";
-import { InlineNewButton } from "@/components/todos/inline-new-button";
-import { ProjectHeader } from "@/components/todos/project-header";
-import { ProjectLogged } from "@/components/todos/project-logged";
-import { TaskList } from "@/components/todos/task-list";
-import { TodosSidebar } from "@/components/todos/todos-sidebar";
-import { ViewingBanner } from "@/components/todos/viewing-banner";
+import { getJournalNudgePending } from "@/lib/todos/journal-nudge";
+import { TodosViews } from "@/components/todos/todos-views";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * A project is just another destination the views shell (todos-views.tsx)
+ * renders from the in-memory household task set — so this route fetches the
+ * *same* superset as /todos/[view] and hands it to the same shell, which reads
+ * the project id from the URL. The only reason to SSR here at all is the hard
+ * navigation / deep link / reload path (and the notFound() for a bad id);
+ * in-app, sidebar clicks switch to a project instantly, no roundtrip.
+ */
 export default async function ProjectPage({
   params,
   searchParams,
@@ -39,73 +42,40 @@ export default async function ProjectPage({
   const viewed = resolveViewedMember(as, selfEmail, members);
 
   await sweepElapsedSnoozes(supabase);
-  const [projects, areas, tasks, loggedTasks, counts] = await Promise.all([
-    getProjects(supabase),
-    getAreas(supabase),
-    getProjectTasks(supabase, id),
-    getProjectLoggedTasks(supabase, id),
-    getSidebarCounts(supabase, viewed.email),
-  ]);
+  const [activeTasks, logbookTasks, projects, areas, logbookProjects, journalNudge] =
+    await Promise.all([
+      getAllActiveTasks(supabase),
+      getLogbookTasks(supabase, viewed.email),
+      getProjects(supabase),
+      getAreas(supabase),
+      getLogbookProjects(supabase),
+      viewed.email === selfEmail
+        ? getJournalNudgePending(supabase)
+        : Promise.resolve(false),
+    ]);
 
-  const project = projects.find((p) => p.id === id);
-  if (!project) notFound();
+  if (!projects.some((p) => p.id === id)) notFound();
 
-  const attachmentsByTask = await getTaskAttachments(supabase, tasks.map((t) => t.id));
+  const attachmentsByTask = await getTaskAttachments(
+    supabase,
+    activeTasks.map((t) => t.id)
+  );
 
-  const area = areas.find((a) => a.id === project.areaId) ?? null;
-  const openTasksByMember: Record<string, number> = {};
-  for (const task of tasks) {
-    openTasksByMember[task.assigneeEmail] =
-      (openTasksByMember[task.assigneeEmail] ?? 0) + 1;
-  }
-
+  // initialView is only the SSR fallback the shell uses when the URL names no
+  // view — here the URL names a project, so the shell renders project mode.
   return (
-    <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-6 sm:px-6">
-      <div className="md:flex md:gap-8">
-        <TodosSidebar
-          active={null}
-          activeProjectId={project.id}
-          counts={counts}
-          viewedEmail={viewed.email}
-          selfEmail={selfEmail}
-          members={members}
-          projects={projects}
-          areas={areas}
-        />
-
-        <div className="min-w-0 flex-1">
-          <BackToLists href={withAs("/todos/browse", viewed.email, selfEmail)} />
-
-          {viewed.email !== selfEmail && <ViewingBanner viewed={viewed} />}
-
-          <ProjectHeader
-            project={project}
-            area={area}
-            areas={areas}
-            members={members}
-            openTaskCount={tasks.length}
-            openTasksByMember={openTasksByMember}
-            homeHref={withAs("/todos/today", viewed.email, selfEmail)}
-            logbookHref={withAs("/todos/logbook", viewed.email, selfEmail)}
-          />
-
-          <div className="mb-1 flex justify-end">
-            <InlineNewButton />
-          </div>
-
-          <TaskList
-            context={{ mode: "project", projectId: project.id }}
-            initialTasks={tasks}
-            members={members}
-            projects={projects}
-            attachmentsByTask={attachmentsByTask}
-            viewedEmail={viewed.email}
-            selfEmail={selfEmail}
-          />
-
-          <ProjectLogged initialTasks={loggedTasks} />
-        </div>
-      </div>
-    </main>
+    <TodosViews
+      initialView="today"
+      activeTasks={activeTasks}
+      logbookTasks={logbookTasks}
+      logbookProjects={logbookProjects}
+      attachmentsByTask={attachmentsByTask}
+      members={members}
+      projects={projects}
+      areas={areas}
+      viewed={viewed}
+      selfEmail={selfEmail}
+      journalNudge={journalNudge}
+    />
   );
 }

@@ -170,21 +170,18 @@ async function getDelegatedTasks(
 }
 
 /**
- * Every task the views shell can show for a member, in one read: active
- * (not completed/deleted) tasks they're assigned (the buckets + Snoozed) or
- * created for someone else (Delegated). The client derives each sidebar view
- * from this set (lib/todos/derive.ts) so switching views never waits on the
- * server. A family's active set is small — this is barely more data than any
- * single view's query returned.
+ * Every member's active task set in one query — no member filter. The views
+ * shell (todos-views.tsx) needs this so it can render any project (which shows
+ * every assignee's tasks) from memory, the same way it already derives each
+ * member view. Member-scoped views stay correct because deriveViewTasks filters
+ * by assignee/creator. RLS is household-wide and a family's active set is small.
  */
-export async function getMemberActiveTasks(
-  supabase: Supabase,
-  memberEmail: string
+export async function getAllActiveTasks(
+  supabase: Supabase
 ): Promise<TodoTask[]> {
   const { data } = await supabase
     .from("todo_tasks")
     .select(TASK_COLUMNS)
-    .or(`assignee_email.eq.${memberEmail},creator_email.eq.${memberEmail}`)
     .is("completed_at", null)
     .is("deleted_at", null)
     .order("sort_order", { ascending: true })
@@ -264,21 +261,9 @@ export async function getProjectLoggedTasks(
   return ((data ?? []) as TodoTaskRow[]).map(taskFromRow);
 }
 
-/** Active tasks in a project, every assignee, in manual order. */
-export async function getProjectTasks(
-  supabase: Supabase,
-  projectId: string
-): Promise<TodoTask[]> {
-  const { data } = await supabase
-    .from("todo_tasks")
-    .select(TASK_COLUMNS)
-    .eq("project_id", projectId)
-    .is("completed_at", null)
-    .is("deleted_at", null)
-    .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true });
-  return ((data ?? []) as TodoTaskRow[]).map(taskFromRow);
-}
+// A project's active tasks (every assignee, manual order) come from the
+// household active set the views shell already holds — see deriveProjectTasks
+// in lib/todos/derive.ts. No dedicated query: opening a project is a filter.
 
 export type TodoTaskAttachment = {
   id: string;
