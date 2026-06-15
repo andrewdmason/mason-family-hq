@@ -216,6 +216,28 @@ export function TaskAudioDialog({
     } catch {}
   }, []);
 
+  // Browsers withhold device labels — and collapse the input list to a single
+  // generic placeholder — until getUserMedia has been granted at least once on
+  // the page. Without this probe, enumerateDevices on dialog open can't see or
+  // name external interfaces (e.g. a USB audio device), so the picker only
+  // offers "System default" + an unlabeled "Microphone". Acquire a throwaway
+  // stream to unlock permission, stop it immediately, then re-enumerate so the
+  // full, labeled device list (including external inputs) populates the picker.
+  const probeAndRefreshInputs = useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      await refreshAvailableInputs();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+    } catch {
+      // Permission denied or unavailable — the Record button surfaces the
+      // error. Still enumerate so any already-permitted devices show up.
+    }
+    await refreshAvailableInputs();
+  }, [refreshAvailableInputs]);
+
   // Concrete inputs for the picker — exclude pseudo "default"/"communications".
   const concreteInputs = useMemo(
     () =>
@@ -473,7 +495,7 @@ export function TaskAudioDialog({
       setTitleBaseline(existingAudioTitle ?? "");
       void loadPlayback(existingAudioPath);
     } else if (initialMode === "record") {
-      void refreshAvailableInputs();
+      void probeAndRefreshInputs();
     }
     // Record mode: stay idle until the user clicks the Record button.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1148,7 +1170,13 @@ function InputMonitor({
                 <CheckIcon className="size-3.5" />
               ) : null}
             </span>
-            <span className="truncate">System default</span>
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate">System default</span>
+              <span className="truncate text-[11px] text-muted-foreground">
+                Browser default — may differ from your OS input. Pick a device
+                below to be sure.
+              </span>
+            </span>
           </DropdownMenuItem>
           {concreteInputs.map((d) => {
             const name = formatDeviceLabel(d.label) || "Microphone";
