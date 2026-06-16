@@ -9,6 +9,7 @@ import {
 import type { EntryBlock } from "@/lib/journal/entry-blocks";
 import type { JournalInlineCommentWithAuthor } from "@/lib/types";
 import { InlineCommentThread } from "@/components/journal/inline-comment-thread";
+import { PostBody } from "@/components/journal/post-body";
 
 /**
  * Renders a finished, shared post's body as a sequence of blocks, each followed
@@ -114,14 +115,15 @@ function BlockContent({ block }: { block: EntryBlock }) {
   if (block.kind === "assistant") {
     return (
       <div className="italic text-muted-foreground pl-6 border-l-2 border-muted font-serif text-lg leading-relaxed">
-        <p className="whitespace-pre-wrap">{block.content}</p>
+        <PostBody content={block.content} />
       </div>
     );
   }
   // user / freeform — a person's own words.
   return (
-    <p className="whitespace-pre-wrap font-serif text-lg leading-relaxed text-foreground">
-      {block.content}
-    </p>
+    <PostBody
+      content={block.content}
+      className="font-serif text-lg leading-relaxed text-foreground"
+    />
   );
 }
