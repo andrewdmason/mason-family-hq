@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Lock, MessageCircle, Send, Users } from "lucide-react";
+import { CheckCircle2, Lock, MessageCircle, Send } from "lucide-react";
 import { TypingIndicator } from "@/components/journal/typing-indicator";
 import { JournalPhotoGallery } from "@/components/journal/journal-photo-gallery";
+import { PostBody } from "@/components/journal/post-body";
 import {
   appendUserMessage,
   closeEntry,
@@ -490,31 +491,33 @@ export function ChatSurface({
                   : "text-foreground"
               }
             >
-              <p className="whitespace-pre-wrap">
-                {m.content}
-                {isLiveQuestion && (
-                  <span className="ml-1.5 inline-flex translate-y-[0.15em] gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                    <button
-                      type="button"
-                      onClick={handleRegenerate}
-                      aria-label="Ask a different question"
-                      title="Ask a different question"
-                      className="inline-flex text-muted-foreground/40 transition-colors hover:text-foreground"
-                    >
-                      <RegenerateIcon />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleDeleteQuestion}
-                      aria-label="Delete this question"
-                      title="Delete this question"
-                      className="inline-flex text-muted-foreground/40 transition-colors hover:text-destructive"
-                    >
-                      <TrashIcon />
-                    </button>
-                  </span>
-                )}
-              </p>
+              <PostBody
+                content={m.content}
+                trailing={
+                  isLiveQuestion ? (
+                    <span className="ml-1.5 inline-flex translate-y-[0.15em] gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                      <button
+                        type="button"
+                        onClick={handleRegenerate}
+                        aria-label="Ask a different question"
+                        title="Ask a different question"
+                        className="inline-flex text-muted-foreground/40 transition-colors hover:text-foreground"
+                      >
+                        <RegenerateIcon />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeleteQuestion}
+                        aria-label="Delete this question"
+                        title="Delete this question"
+                        className="inline-flex text-muted-foreground/40 transition-colors hover:text-destructive"
+                      >
+                        <TrashIcon />
+                      </button>
+                    </span>
+                  ) : null
+                }
+              />
             </div>
           );
         })}
@@ -691,11 +694,7 @@ function VisibilityModeToggle({
       disabled={disabled}
       className="inline-flex items-center gap-2 font-serif text-sm text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
     >
-      {isFamily ? (
-        <Users className="size-4" aria-hidden />
-      ) : (
-        <Lock className="size-4" aria-hidden />
-      )}
+      <Lock className="size-4" aria-hidden />
       <span
         aria-hidden
         className={
