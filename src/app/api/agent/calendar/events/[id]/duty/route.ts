@@ -1,11 +1,13 @@
 // Agent API: set who's doing drop-off / pick-up for a kid's event.
-// `assignment` is a parent's email, "na" (explicitly no drive needed), or null
-// to clear back to unset. Drive blocks on the parent's Google calendar are
-// reconciled after the response, exactly like duty taps in the UI.
+// `assignment` is a parent's email, a caregiver name (e.g. "Marina" — see
+// caregivers.ts), "na" (explicitly no drive needed), or null to clear back to
+// unset. Drive blocks on the parent's Google calendar are reconciled after the
+// response, exactly like duty taps in the UI.
 
 import { NextResponse, type NextRequest } from "next/server";
 import { agentAuthorized, agentUnauthorized } from "@/lib/agent/auth";
 import { setDuty, type DutyState } from "@/lib/calendar/mutations";
+import { normalizeCaregiver } from "@/lib/calendar/caregivers";
 
 export const dynamic = "force-dynamic";
 
@@ -36,10 +38,16 @@ export async function POST(
   } else if (body.assignment === "na") {
     state = { assignee: null, isNa: true };
   } else if (typeof body.assignment === "string") {
-    state = { assignee: body.assignment.trim().toLowerCase(), isNa: false };
+    const caregiver = normalizeCaregiver(body.assignment);
+    state = caregiver
+      ? { assignee: null, isNa: false, caregiver }
+      : { assignee: body.assignment.trim().toLowerCase(), isNa: false };
   } else {
     return NextResponse.json(
-      { error: 'assignment must be a parent email, "na", or null.' },
+      {
+        error:
+          'assignment must be a parent email, a caregiver name, "na", or null.',
+      },
       { status: 400 },
     );
   }

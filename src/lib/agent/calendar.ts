@@ -73,7 +73,7 @@ export async function loadAgentCalendar(range: {
       .eq("going", true),
     admin
       .from("event_duty_assignments")
-      .select("event_id, duty, assignee_email, is_na"),
+      .select("event_id, duty, assignee_email, is_na, caregiver"),
     admin
       .from("calendar_logistics_settings")
       .select("home_address")
@@ -117,6 +117,7 @@ export async function loadAgentCalendar(range: {
     d[r.duty as "dropoff" | "pickup"] = {
       assignee: r.assignee_email as string | null,
       isNa: r.is_na as boolean,
+      caregiver: r.caregiver as string | null,
     };
     duties.set(r.event_id as string, d);
   }
@@ -174,10 +175,18 @@ export function serializeEvent(ev: CalendarEvent, data: AgentCalendarData) {
     duties: isKidEvent
       ? {
           dropoff: duties.dropoff
-            ? { assignee: duties.dropoff.assignee, is_na: duties.dropoff.isNa }
+            ? {
+                assignee: duties.dropoff.assignee,
+                is_na: duties.dropoff.isNa,
+                caregiver: duties.dropoff.caregiver,
+              }
             : null,
           pickup: duties.pickup
-            ? { assignee: duties.pickup.assignee, is_na: duties.pickup.isNa }
+            ? {
+                assignee: duties.pickup.assignee,
+                is_na: duties.pickup.isNa,
+                caregiver: duties.pickup.caregiver,
+              }
             : null,
         }
       : null,

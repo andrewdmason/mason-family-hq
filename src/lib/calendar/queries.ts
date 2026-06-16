@@ -143,7 +143,7 @@ export async function getEventDuties(
   const supabase = await createClient();
   const { data } = await supabase
     .from("event_duty_assignments")
-    .select("event_id, duty, assignee_email, is_na");
+    .select("event_id, duty, assignee_email, is_na, caregiver");
 
   const wanted = new Set(eventIds);
   const out: Record<string, EventDuties> = {};
@@ -152,6 +152,7 @@ export async function getEventDuties(
     (out[r.event_id as string] ??= {})[r.duty as "dropoff" | "pickup"] = {
       assignee: r.assignee_email as string | null,
       isNa: r.is_na as boolean,
+      caregiver: r.caregiver as string | null,
     };
   }
   return out;

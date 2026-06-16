@@ -12,10 +12,10 @@ export interface EventAttendee {
   color: string;
 }
 
-// A duty slot as the cards render it: the assigned parent's initial in their
-// color, "na" (explicitly no drive needed — renders nothing), or "unset" (the
-// attention state — a hollow amber dot, shown only when the event has a
-// location to drive to).
+// A duty slot as the cards render it: an initial in a color (the assigned
+// parent in their color, or a caregiver in neutral slate), "na" (explicitly no
+// drive needed — renders nothing), or "unset" (the attention state — a hollow
+// amber dot, shown only when the event has a location to drive to).
 export type DutyChip = { initial: string; color: string } | "na" | "unset";
 
 export interface EventDutyChips {

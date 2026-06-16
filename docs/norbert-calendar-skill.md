@@ -60,7 +60,9 @@ GET /api/agent/calendar/events/<id>
 - `going` — family member emails marked as attending (this is how PARENT
   attendance is tracked)
 - `duties` — kid events only: `dropoff`/`pickup`, each `null` (unset) or
-  `{assignee, is_na}` (`is_na: true` = explicitly no drive needed)
+  `{assignee, is_na, caregiver}` (`is_na: true` = explicitly no drive needed;
+  `caregiver` = a nanny/babysitter name like "Marina" or "Elias" who's doing
+  it — tracked, but no drive block, same as N/A)
 - `drive_block` — set on the auto-generated drive events on parents'
   calendars; points at the kid event it serves. Never edit drive blocks —
   they're managed automatically from the duty assignments.
@@ -128,6 +130,7 @@ POST /api/agent/calendar/events/<id>/going    {"member_email": "jenny@mason.io",
 
 ```
 POST /api/agent/calendar/events/<id>/duty     {"duty": "dropoff", "assignment": "andrew@mason.io"}
+POST /api/agent/calendar/events/<id>/duty     {"duty": "pickup",  "assignment": "Marina"}  # caregiver (nanny/babysitter)
 POST /api/agent/calendar/events/<id>/duty     {"duty": "pickup",  "assignment": "na"}     # no drive needed
 POST /api/agent/calendar/events/<id>/duty     {"duty": "pickup",  "assignment": null}     # clear back to unset
 ```

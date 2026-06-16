@@ -62,9 +62,11 @@ export interface CalendarEvent {
 }
 
 // A drop-off/pick-up duty's saved state. Unset is the absence of the key.
+// Exactly one of {assignee, isNa, caregiver} carries the state.
 export interface EventDuty {
-  assignee: string | null; // a parent's email, or null when isNa
+  assignee: string | null; // a parent's email, else null
   isNa: boolean; // explicitly "no drive needed"
+  caregiver: string | null; // a nanny/babysitter name (see caregivers.ts)
 }
 
 export type EventDuties = { dropoff?: EventDuty; pickup?: EventDuty };
