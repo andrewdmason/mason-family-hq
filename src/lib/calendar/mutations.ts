@@ -32,6 +32,7 @@ import {
   type Duty,
 } from "@/lib/calendar/drive-events";
 import { allDayInstant, isHomeLocation } from "@/lib/calendar/calendar-utils";
+import { normalizeCaregiver } from "@/lib/calendar/caregivers";
 
 export type ManualEventInput = {
   // The Google source to write into, or null for an app-only ("manual") event.
@@ -618,9 +619,14 @@ export async function setGoing(
   return warning ? { ok: true, warning } : { ok: true };
 }
 
-/** A duty's saved state: assigned to a parent, explicitly not needed (N/A), or
- * unset (null — no row). */
-export type DutyState = { assignee: string | null; isNa: boolean } | null;
+/** A duty's saved state: assigned to a parent, explicitly not needed (N/A),
+ * done by a caregiver (nanny/babysitter — see caregivers.ts), or unset (null —
+ * no row). At most one of assignee/isNa/caregiver carries the state. */
+export type DutyState = {
+  assignee: string | null;
+  isNa: boolean;
+  caregiver?: string | null;
+} | null;
 
 /** Set (or clear) who's doing drop-off / pick-up for a kid's event. Only the
  * DB write (the source of truth) happens before the response — every Google
@@ -669,6 +675,14 @@ export async function setDuty(
       return { error: "Only a parent can be assigned." };
     }
   }
+  // A caregiver is a free-text label, but must be one we know about.
+  const caregiver =
+    !state?.assignee && state?.caregiver
+      ? normalizeCaregiver(state.caregiver)
+      : null;
+  if (state?.caregiver && !state.assignee && !caregiver) {
+    return { error: "Unknown caregiver." };
+  }
 
   const { data: existing } = await admin
     .from("event_duty_assignments")
@@ -712,7 +726,8 @@ export async function setDuty(
         event_id: eventId,
         duty,
         assignee_email: state.assignee,
-        is_na: state.assignee ? false : state.isNa,
+        is_na: state.assignee || caregiver ? false : state.isNa,
+        caregiver,
       },
       { onConflict: "event_id,duty" },
     )

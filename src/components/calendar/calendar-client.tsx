@@ -59,6 +59,7 @@ import {
   toLogicalEvents,
 } from "@/lib/calendar/calendar-utils";
 import { detectConflicts } from "@/lib/calendar/conflicts";
+import { CAREGIVER_COLOR } from "@/lib/calendar/caregivers";
 import {
   driveBlockWindow,
   driveEventTitle,
@@ -816,12 +817,21 @@ export function CalendarClient({
         const d = dutiesFor(event.id);
         const chip = (v: EventDuty | undefined): DutyChip => {
           if (!v) return "unset";
-          if (v.isNa || !v.assignee) return "na";
-          const name = memberNames.get(v.assignee) ?? v.assignee;
-          return {
-            initial: name.charAt(0).toUpperCase(),
-            color: memberColors.get(v.assignee) ?? memberColor(v.assignee),
-          };
+          if (v.assignee) {
+            const name = memberNames.get(v.assignee) ?? v.assignee;
+            return {
+              initial: name.charAt(0).toUpperCase(),
+              color: memberColors.get(v.assignee) ?? memberColor(v.assignee),
+            };
+          }
+          // A caregiver (nanny/babysitter) — tracked, but no member color.
+          if (v.caregiver) {
+            return {
+              initial: v.caregiver.charAt(0).toUpperCase(),
+              color: CAREGIVER_COLOR,
+            };
+          }
+          return "na";
         };
         duties = { dropoff: chip(d.dropoff), pickup: chip(d.pickup) };
       }

@@ -42,6 +42,7 @@ import {
   utcDateKey,
 } from "@/lib/calendar/calendar-utils";
 import { describeRRule } from "@/lib/calendar/recurrence";
+import { CAREGIVERS, CAREGIVER_COLOR } from "@/lib/calendar/caregivers";
 import type {
   CalendarEvent,
   CalendarMember,
@@ -1009,7 +1010,9 @@ export function LogisticsRows({
                 onClick={() =>
                   set(
                     duty,
-                    selected ? null : { assignee: p.email, isNa: false },
+                    selected
+                      ? null
+                      : { assignee: p.email, isNa: false, caregiver: null },
                   )
                 }
                 aria-pressed={selected}
@@ -1030,11 +1033,49 @@ export function LogisticsRows({
               </button>
             );
           })}
+          {CAREGIVERS.map((name) => {
+            const selected = current?.caregiver === name;
+            return (
+              <button
+                key={name}
+                type="button"
+                disabled={!canManage}
+                onClick={() =>
+                  set(
+                    duty,
+                    selected
+                      ? null
+                      : { assignee: null, isNa: false, caregiver: name },
+                  )
+                }
+                aria-pressed={selected}
+                title={`${name}${selected ? ` is doing ${isDropoff ? "drop-off" : "pick-up"}` : ""}`}
+                className={cn(
+                  "rounded-full transition-opacity disabled:cursor-not-allowed",
+                  selected ? "opacity-100" : "opacity-35 hover:opacity-60",
+                )}
+                style={
+                  selected
+                    ? {
+                        boxShadow: `0 0 0 2px var(--background), 0 0 0 4px ${CAREGIVER_COLOR}`,
+                      }
+                    : undefined
+                }
+              >
+                <MemberAvatar name={name} size="md" />
+              </button>
+            );
+          })}
           <button
             type="button"
             disabled={!canManage}
             onClick={() =>
-              set(duty, current?.isNa ? null : { assignee: null, isNa: true })
+              set(
+                duty,
+                current?.isNa
+                  ? null
+                  : { assignee: null, isNa: true, caregiver: null },
+              )
             }
             aria-pressed={!!current?.isNa}
             title="No drive needed"
