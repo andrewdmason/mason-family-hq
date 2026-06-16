@@ -650,6 +650,21 @@ export function EventPanelContent({
                     )}
                     {event.rrule && ` · ${describeRRule(event.rrule)}`}
                   </div>
+                  {/* A TeamSnap game can carry an arrival time earlier than the
+                      game start — the row above is the game time, this is the
+                      separate "be there by". */}
+                  {event.teamsnap_arrival_time &&
+                    new Date(event.teamsnap_arrival_time).getTime() <
+                      new Date(event.start_time).getTime() && (
+                      <div className="text-xs text-muted-foreground">
+                        Arrive by{" "}
+                        {formatTimeRange(
+                          event.teamsnap_arrival_time,
+                          null,
+                          false,
+                        )}
+                      </div>
+                    )}
                 </div>
               </div>
               {event.location && (

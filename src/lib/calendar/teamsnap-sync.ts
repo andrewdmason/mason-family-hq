@@ -26,23 +26,6 @@ import {
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
-// Where the calendar event begins. TeamSnap games often carry an arrival time
-// ("be there by"), earlier than the game start — we start the event at arrival
-// when it's set and genuinely earlier, so the event reads as the whole
-// commitment (arrive → game end) and lines up with the drop-off block, which
-// already anchors on the arrival time (see drive-window.ts). The raw arrival is
-// still stored separately in teamsnap_arrival_time; TeamSnap stays the source of
-// truth, so the game's own start isn't lost — every sync re-derives this.
-export function effectiveStartTime(
-  gameStart: string,
-  arrival: string | null,
-): string {
-  if (arrival && new Date(arrival).getTime() < new Date(gameStart).getTime()) {
-    return arrival;
-  }
-  return gameStart;
-}
-
 // Title without the team prefix (the team is shown as a colored chip in the UI).
 export function buildEventTitle(event: TeamsnapEvent): string {
   if (event.is_game && event.opponent_name) {
@@ -153,7 +136,7 @@ export async function syncTeamEvents(
       title: buildEventTitle(tsEvent),
       description: tsEvent.notes,
       location: tsEvent.location_name,
-      start_time: effectiveStartTime(tsEvent.start_date, tsEvent.arrival_date),
+      start_time: tsEvent.start_date,
       end_time: tsEvent.end_date,
       source_type: "teamsnap" as const,
       external_id: externalId,

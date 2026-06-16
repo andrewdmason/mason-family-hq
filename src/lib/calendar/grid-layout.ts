@@ -51,7 +51,17 @@ export const localMin = (iso: string) => {
   const d = new Date(iso);
   return d.getHours() * 60 + d.getMinutes();
 };
-export const startMin = (e: CalendarEvent) => localMin(e.start_time);
+// Where the block visually begins. A TeamSnap game can carry an arrival time
+// ("be there by") earlier than the game start; the block spans the whole
+// commitment — arrival → end — so its top sits at the arrival when one is set
+// and genuinely earlier. start_time stays the true game start (shown, labeled,
+// in the detail panel); only the block's geometry uses this.
+export const eventStartIso = (e: CalendarEvent) =>
+  e.teamsnap_arrival_time &&
+  new Date(e.teamsnap_arrival_time).getTime() < new Date(e.start_time).getTime()
+    ? e.teamsnap_arrival_time
+    : e.start_time;
+export const startMin = (e: CalendarEvent) => localMin(eventStartIso(e));
 export const endMin = (e: CalendarEvent) => {
   const s = startMin(e);
   if (!e.end_time) return s + 30; // give a point-in-time event a visible block
@@ -59,7 +69,7 @@ export const endMin = (e: CalendarEvent) => {
   return em <= s ? 24 * 60 : Math.max(em, s + 15); // clamp events crossing midnight
 };
 export const byStart = (a: CalendarEvent, b: CalendarEvent) =>
-  a.start_time.localeCompare(b.start_time) || endMin(a) - endMin(b);
+  eventStartIso(a).localeCompare(eventStartIso(b)) || endMin(a) - endMin(b);
 
 export type Placed = { event: CalendarEvent; lane: number; lanes: number };
 
