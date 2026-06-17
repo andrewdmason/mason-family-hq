@@ -825,10 +825,19 @@ function ReplyBox({
   function handleInput() {
     const el = editorRef.current;
     if (!el) return;
+    // Markdown-style autoformat: a line that's just "* " becomes a bullet list.
+    maybeStartList(el);
     // Deleting everything can leave a stray <div><br></div> (textContent ""), so
     // hard-clear that the :empty placeholder shows again — but only when there's
-    // truly no text, so a line the writer typed as spaces is left alone.
-    if (el.textContent === "" && el.innerHTML !== "") el.innerHTML = "";
+    // truly no text and no list (a freshly-started "* " bullet is empty too), so
+    // a line typed as spaces or a new empty bullet is left alone.
+    if (
+      el.textContent === "" &&
+      el.innerHTML !== "" &&
+      !el.querySelector("ul,ol,li")
+    ) {
+      el.innerHTML = "";
+    }
     const text = readEditor(el);
     latest.current = text;
     const present = text.trim().length > 0;
@@ -881,7 +890,7 @@ function ReplyBox({
         onPaste={handlePaste}
         onBlur={flushDraft}
         className={
-          "min-h-10 w-full whitespace-pre-wrap break-words border-0 bg-transparent py-1 font-serif text-lg leading-relaxed text-foreground focus:outline-none [&>div]:mt-4 empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]" +
+          "min-h-10 w-full whitespace-pre-wrap break-words border-0 bg-transparent py-1 font-serif text-lg leading-relaxed text-foreground focus:outline-none [&>div]:mt-4 [&>ul]:mt-4 [&_ul]:list-disc [&_ul]:pl-6 empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]" +
           (disabled ? " opacity-60" : "")
         }
       />
@@ -908,31 +917,111 @@ function ReplyBox({
 }
 
 /**
- * Seed a contentEditable with a stored draft: the first paragraph as a bare text
- * node and each subsequent one as a <div>, matching the structure the browser
- * produces as you type (so the styled <div> children all get the paragraph gap).
- * Splits on runs of newlines, so a single or double break both become one gap.
+ * Seed a contentEditable from a stored draft. Each line is a block: runs of
+ * "* "/"- " lines become a <ul> of <li>s, the first plain line is a bare text
+ * node (matching what the browser produces as you type, so the styled block
+ * children all get the paragraph gap) and later plain lines are <div>s.
  */
 function seedEditor(el: HTMLDivElement | null, text: string) {
   if (!el) return;
   el.textContent = "";
   if (!text) return;
-  const paragraphs = text.split(/\n+/);
-  el.appendChild(document.createTextNode(paragraphs[0] ?? ""));
-  for (const para of paragraphs.slice(1)) {
-    const div = document.createElement("div");
-    div.textContent = para;
-    el.appendChild(div);
+  const lines = text.split("\n");
+  let firstDone = false;
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim() === "") {
+      i++;
+      continue;
+    }
+    if (/^[*-]\s+/.test(line)) {
+      const ul = document.createElement("ul");
+      while (i < lines.length && /^[*-]\s+/.test(lines[i])) {
+        const li = document.createElement("li");
+        li.textContent = lines[i].replace(/^[*-]\s+/, "");
+        ul.appendChild(li);
+        i++;
+      }
+      el.appendChild(ul);
+      firstDone = true;
+    } else {
+      if (!firstDone) {
+        el.appendChild(document.createTextNode(line));
+        firstDone = true;
+      } else {
+        const div = document.createElement("div");
+        div.textContent = line;
+        el.appendChild(div);
+      }
+      i++;
+    }
   }
 }
 
-/** Read a contentEditable back to text — innerText joins the blocks with "\n". */
+const BLOCK_TAGS = new Set(["DIV", "P", "LI", "UL", "OL"]);
+
+/**
+ * Read a contentEditable back to text. innerText alone drops the bullet markers,
+ * so walk the tree: insert a newline at each block boundary, and prefix every
+ * <li> with "* " so lists round-trip as markdown the published post can render.
+ */
 function readEditor(el: HTMLDivElement | null): string {
-  return el?.innerText ?? "";
+  if (!el) return "";
+  let out = "";
+  const newline = () => {
+    if (out && !out.endsWith("\n")) out += "\n";
+  };
+  const walk = (node: Node) => {
+    node.childNodes.forEach((child) => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        out += (child.textContent ?? "").replace(/\u00A0/g, " ");
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        const tag = (child as Element).tagName;
+        if (tag === "BR") {
+          newline();
+          return;
+        }
+        const isBlock = BLOCK_TAGS.has(tag);
+        if (isBlock) newline();
+        if (tag === "LI") out += "* ";
+        walk(child);
+        if (isBlock) newline();
+      }
+    });
+  };
+  walk(el);
+  return out.replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
 }
 
 function clearEditor(el: HTMLDivElement | null) {
   if (el) el.innerHTML = "";
+}
+
+/**
+ * Markdown-style list autoformat: when the line the caret sits on is just "* "
+ * (or "- "), drop the marker and turn the line into a bullet. The browser then
+ * handles Enter-to-continue and Enter-on-empty-to-exit natively. No-op unless
+ * the line is exactly the marker and we're not already inside a list.
+ */
+function maybeStartList(el: HTMLElement): boolean {
+  const sel = window.getSelection();
+  if (!sel || !sel.isCollapsed || !sel.anchorNode) return false;
+  const node = sel.anchorNode;
+  if (node.nodeType !== Node.TEXT_NODE || !el.contains(node)) return false;
+  const marker = (node.textContent ?? "").replace(/\u00A0/g, " ");
+  if ((marker !== "* " && marker !== "- ") || sel.anchorOffset !== marker.length) {
+    return false;
+  }
+  if (node.parentElement?.closest("ul,ol")) return false;
+  const range = document.createRange();
+  range.setStart(node, 0);
+  range.setEnd(node, (node.textContent ?? "").length);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  document.execCommand("delete");
+  document.execCommand("insertUnorderedList");
+  return true;
 }
 
 function RegenerateIcon() {
