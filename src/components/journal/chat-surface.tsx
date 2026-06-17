@@ -7,6 +7,10 @@ import { TypingIndicator } from "@/components/journal/typing-indicator";
 import { JournalPhotoGallery } from "@/components/journal/journal-photo-gallery";
 import { PostBody } from "@/components/journal/post-body";
 import {
+  parseMarkdownBlocks,
+  type MarkdownBlock,
+} from "@/lib/journal/markdown-blocks";
+import {
   appendUserMessage,
   closeEntry,
   deleteLatestQuestion,
@@ -847,12 +851,23 @@ function ReplyBox({
     saveTimer.current = setTimeout(flushDraft, 800);
   }
 
-  // Keep the editor plain text: insert the clipboard's text and let the browser
-  // build the same block structure rather than pasting foreign markup.
+  // Translate pasted markdown into rich text: headings, bullet lists, and
+  // paragraphs become real elements. A single plain line is inserted as text so
+  // pasting into the middle of a sentence stays inline; anything with structure
+  // (a heading/list, or multiple lines) is inserted as HTML we build ourselves
+  // (escaped — never the clipboard's own markup), which the serializer reads back.
   function handlePaste(e: React.ClipboardEvent<HTMLDivElement>) {
     e.preventDefault();
     const text = e.clipboardData.getData("text/plain");
-    document.execCommand("insertText", false, text);
+    const blocks = parseMarkdownBlocks(text);
+    const hasStructure =
+      blocks.length > 1 || blocks.some((b) => b.type !== "paragraph");
+    if (hasStructure) {
+      document.execCommand("insertHTML", false, blocksToHtml(blocks));
+    } else {
+      document.execCommand("insertText", false, text);
+    }
+    handleInput();
   }
 
   function submit() {
@@ -890,7 +905,7 @@ function ReplyBox({
         onPaste={handlePaste}
         onBlur={flushDraft}
         className={
-          "min-h-10 w-full whitespace-pre-wrap break-words border-0 bg-transparent py-1 font-serif text-lg leading-relaxed text-foreground focus:outline-none [&>div]:mt-4 [&>ul]:mt-4 [&_ul]:list-disc [&_ul]:pl-6 empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]" +
+          "min-h-10 w-full whitespace-pre-wrap break-words border-0 bg-transparent py-1 font-serif text-lg leading-relaxed text-foreground focus:outline-none [&>div]:mt-4 [&>ul]:mt-4 [&>h1]:mt-4 [&>h2]:mt-4 [&>h3]:mt-4 [&_ul]:list-disc [&_ul]:pl-6 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:font-semibold empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]" +
           (disabled ? " opacity-60" : "")
         }
       />
@@ -916,55 +931,84 @@ function ReplyBox({
   );
 }
 
+/** Build the editor's DOM for a parsed block (heading, list, or paragraph). */
+function blockToNode(block: MarkdownBlock): Node {
+  if (block.type === "heading") {
+    const h = document.createElement(`h${block.level}`);
+    h.textContent = block.text;
+    return h;
+  }
+  if (block.type === "list") {
+    const ul = document.createElement("ul");
+    for (const item of block.items) {
+      const li = document.createElement("li");
+      li.textContent = item;
+      ul.appendChild(li);
+    }
+    return ul;
+  }
+  const div = document.createElement("div");
+  div.textContent = block.text;
+  return div;
+}
+
+/** Escape text for the HTML we build ourselves before insertHTML. */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/** Render parsed blocks to the HTML inserted on a markdown paste. */
+function blocksToHtml(blocks: MarkdownBlock[]): string {
+  return blocks
+    .map((block) => {
+      if (block.type === "heading") {
+        return `<h${block.level}>${escapeHtml(block.text)}</h${block.level}>`;
+      }
+      if (block.type === "list") {
+        return `<ul>${block.items
+          .map((item) => `<li>${escapeHtml(item)}</li>`)
+          .join("")}</ul>`;
+      }
+      return `<div>${escapeHtml(block.text) || "<br>"}</div>`;
+    })
+    .join("");
+}
+
 /**
- * Seed a contentEditable from a stored draft. Each line is a block: runs of
- * "* "/"- " lines become a <ul> of <li>s, the first plain line is a bare text
- * node (matching what the browser produces as you type, so the styled block
- * children all get the paragraph gap) and later plain lines are <div>s.
+ * Seed a contentEditable from a stored draft. Markdown-ish lines become headings,
+ * <ul> lists, and paragraphs; the first plain paragraph is a bare text node
+ * (matching what the browser produces as you type, so the styled block children
+ * all get the gap) and later paragraphs are <div>s.
  */
 function seedEditor(el: HTMLDivElement | null, text: string) {
   if (!el) return;
   el.textContent = "";
   if (!text) return;
-  const lines = text.split("\n");
-  let firstDone = false;
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    if (line.trim() === "") {
-      i++;
-      continue;
-    }
-    if (/^[*-]\s+/.test(line)) {
-      const ul = document.createElement("ul");
-      while (i < lines.length && /^[*-]\s+/.test(lines[i])) {
-        const li = document.createElement("li");
-        li.textContent = lines[i].replace(/^[*-]\s+/, "");
-        ul.appendChild(li);
-        i++;
-      }
-      el.appendChild(ul);
-      firstDone = true;
+  const blocks = parseMarkdownBlocks(text);
+  blocks.forEach((block, i) => {
+    if (block.type === "paragraph" && i === 0) {
+      el.appendChild(document.createTextNode(block.text));
     } else {
-      if (!firstDone) {
-        el.appendChild(document.createTextNode(line));
-        firstDone = true;
-      } else {
-        const div = document.createElement("div");
-        div.textContent = line;
-        el.appendChild(div);
-      }
-      i++;
+      el.appendChild(blockToNode(block));
     }
-  }
+  });
 }
 
-const BLOCK_TAGS = new Set(["DIV", "P", "LI", "UL", "OL"]);
+const BLOCK_TAGS = new Set(["DIV", "P", "LI", "UL", "OL", "H1", "H2", "H3"]);
+const HEADING_MARKER: Record<string, string> = {
+  H1: "# ",
+  H2: "## ",
+  H3: "### ",
+};
 
 /**
- * Read a contentEditable back to text. innerText alone drops the bullet markers,
- * so walk the tree: insert a newline at each block boundary, and prefix every
- * <li> with "* " so lists round-trip as markdown the published post can render.
+ * Read a contentEditable back to text. innerText alone drops the markers, so walk
+ * the tree: insert a newline at each block boundary, prefix every <li> with "* "
+ * and each heading with its "#"s, so headings and lists round-trip as markdown
+ * the published post can render.
  */
 function readEditor(el: HTMLDivElement | null): string {
   if (!el) return "";
@@ -985,6 +1029,7 @@ function readEditor(el: HTMLDivElement | null): string {
         const isBlock = BLOCK_TAGS.has(tag);
         if (isBlock) newline();
         if (tag === "LI") out += "* ";
+        else if (HEADING_MARKER[tag]) out += HEADING_MARKER[tag];
         walk(child);
         if (isBlock) newline();
       }
