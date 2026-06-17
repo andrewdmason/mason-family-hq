@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireUserId } from "@/lib/members/auth";
 import { runCalendarSync } from "@/lib/calendar/sync";
+import { getCalendarEvents } from "@/lib/calendar/queries";
+import { fingerprint } from "@/lib/sync/fingerprint";
 import {
   getValidToken,
   getTeamsnapMe,
@@ -172,12 +174,18 @@ export async function deleteSource(id: string): Promise<void> {
 
 /** Lightweight sync run on page load: refreshes the event list but skips the
  * per-event TeamSnap RSVP fetch, so it doesn't compete with the first event the
- * user opens (which loads its own availability live). */
-export async function triggerSync(): Promise<void> {
+ * user opens (which loads its own availability live).
+ *
+ * Returns whether the synced events actually differ from what's already on the
+ * page (by content fingerprint, not the upsert-bumped `updated_at`). The client
+ * only calls `router.refresh()` when `changed` is true, so the common "nothing
+ * new" load doesn't flash the loading skeleton. */
+export async function triggerSync(): Promise<{ changed: boolean }> {
   await requireUserId(await createClient()); // any signed-in member may trigger
+  const before = fingerprint(await getCalendarEvents());
   // Page-load: light + no Google writes (those run on the cron/full sync only).
   await runCalendarSync({ teamsnapRsvp: false, materialize: false });
-  revalidatePath("/calendar");
+  return { changed: fingerprint(await getCalendarEvents()) !== before };
 }
 
 /** Full sync including every player's RSVP — used by the manual "Sync" button,
