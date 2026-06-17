@@ -1117,6 +1117,7 @@ export function CalendarClient({
           canManage={canManage}
           onGridDraft={handleGridDraft}
           onEventTimeChange={moveEventTime}
+          onJumpToDate={(date) => setAnchor(new Date(date))}
         />
       )}
       {view === "feed" && (
