@@ -3,7 +3,9 @@
 import { requireUserId } from "@/lib/members/auth";
 import { createClient } from "@/lib/supabase/server";
 import { hasAnyConnection, syncAllAssignments } from "@/lib/assignments/sync";
+import { getAssignmentsForViewer } from "@/lib/assignments/queries";
 import { DEFAULT_SCHOOL_HOST } from "@/lib/assignments/myschoolapp";
+import { fingerprint } from "@/lib/sync/fingerprint";
 
 /** Resolve the caller's family_members row, or null if not provisioned. */
 async function currentMember(
@@ -96,7 +98,11 @@ export async function disconnectBentley(): Promise<void> {
  * SyncTrigger). A no-op until a parent has connected a portal session, so it's
  * safe to call on every visit. Only provisioned members may trigger it.
  */
-export async function triggerAssignmentSync(): Promise<void> {
+/** Returns whether the synced assignments actually differ from what's on the
+ * page (by content fingerprint, not the upsert-bumped `updated_at`). The client
+ * only refreshes when `changed` is true, so a "nothing new" load doesn't flash
+ * the loading skeleton. */
+export async function triggerAssignmentSync(): Promise<{ changed: boolean }> {
   try {
     const supabase = await createClient();
     const userId = await requireUserId(supabase);
@@ -106,12 +112,20 @@ export async function triggerAssignmentSync(): Promise<void> {
       .select("role")
       .eq("user_id", userId)
       .maybeSingle();
-    if (!me) return; // not a provisioned member
+    if (!me) return { changed: false }; // not a provisioned member
 
-    if (!(await hasAnyConnection())) return;
+    if (!(await hasAnyConnection())) return { changed: false };
+    // Drop the sync-bookkeeping timestamps the query selects but the page
+    // doesn't render — the upsert bumps them every run and would always look
+    // "changed".
+    const VOLATILE = ["last_synced_at", "updated_at", "created_at"];
+    const before = fingerprint(await getAssignmentsForViewer(), VOLATILE);
     await syncAllAssignments();
+    const after = fingerprint(await getAssignmentsForViewer(), VOLATILE);
+    return { changed: after !== before };
   } catch (err) {
     // Best-effort background sync — never let it bubble into a page crash.
     console.error("triggerAssignmentSync failed:", err);
+    return { changed: false };
   }
 }
