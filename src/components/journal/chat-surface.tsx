@@ -7,6 +7,10 @@ import { TypingIndicator } from "@/components/journal/typing-indicator";
 import { JournalPhotoGallery } from "@/components/journal/journal-photo-gallery";
 import { PostBody } from "@/components/journal/post-body";
 import {
+  parseMarkdownBlocks,
+  type MarkdownBlock,
+} from "@/lib/journal/markdown-blocks";
+import {
   appendUserMessage,
   closeEntry,
   deleteLatestQuestion,
@@ -137,12 +141,17 @@ export function ChatSurface({
     const updatePinned = () => {
       const distanceFromBottom =
         document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
-      pinnedToBottom.current = distanceFromBottom < 120;
+      // While writing there's a tall bottom pad (pb-[25vh]) the caret scrolls
+      // into, so "at the bottom" means within that pad plus a little, not
+      // literally touching the document end — otherwise streamed replies would
+      // stop auto-following the moment the pad pushes us off the true bottom.
+      const threshold = isViewingOnly ? 120 : window.innerHeight * 0.25 + 120;
+      pinnedToBottom.current = distanceFromBottom < threshold;
     };
     updatePinned();
     window.addEventListener("scroll", updatePinned, { passive: true });
     return () => window.removeEventListener("scroll", updatePinned);
-  }, []);
+  }, [isViewingOnly]);
 
   // Follow new content only while pinned to the bottom — and never in a
   // view-only post, which should open at the top.
@@ -176,6 +185,22 @@ export function ChatSurface({
     setQuestionMode(false);
     void flipQuestionModeOffOnce(entryId).catch(() => {});
   }, [timerDone, timerFlippedOff, viewMode, status, entryId]);
+
+  // Give the caret breathing room above the bottom edge while writing. The page
+  // scrolls on the document, and the browser's native caret-scroll (and our own
+  // smooth scrollIntoView) honor scroll-padding on the scroll root — so the
+  // active line never ends up flush against the window's bottom as the post grows
+  // or a line wraps. Paired with the writing area's matching bottom padding so
+  // there's room to actually scroll that far. Scoped to the editable view.
+  useEffect(() => {
+    if (isViewingOnly) return;
+    const root = document.documentElement;
+    const previous = root.style.scrollPaddingBottom;
+    root.style.scrollPaddingBottom = "25vh";
+    return () => {
+      root.style.scrollPaddingBottom = previous;
+    };
+  }, [isViewingOnly]);
 
   function toggleQuestionMode(next: boolean) {
     if (streaming || closing) return;
@@ -386,7 +411,15 @@ export function ChatSurface({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pb-24 pt-12">
+    <div
+      className={
+        "mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pt-12 " +
+        // A tall bottom pad while writing gives the caret room to sit above the
+        // window edge (the scroll-padding above scrolls into it); read views keep
+        // a normal pad so a finished post doesn't trail off into empty space.
+        (isViewingOnly ? "pb-24" : "pb-[25vh]")
+      }
+    >
       {showWritingControls && (
         <div
           className={
@@ -778,24 +811,41 @@ function ReplyBox({
   onSubmit: (text: string) => void;
   onDraftPresenceChange: (hasDraft: boolean) => void;
 }) {
-  const [draft, setDraft] = useState(initialDraft);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const hasDraft = draft.trim().length > 0;
+  // A contentEditable surface rather than a textarea: a textarea can't put space
+  // between paragraphs, so the writer's hard breaks read as one tight block. Here
+  // each paragraph after the first is a styled <div> (the structure the browser
+  // creates on Enter, and the one we seed on mount), so pressing Enter shows a
+  // real gap that matches the published post.
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const [hasDraft, setHasDraft] = useState(initialDraft.trim().length > 0);
 
   // The latest draft and what's persisted, so autosave skips no-op writes.
   const latest = useRef(initialDraft);
   const saved = useRef(initialDraft);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Seed the editor's block structure once on mount, then leave it uncontrolled
+  // so React never rewrites the DOM out from under the caret.
   useEffect(() => {
-    latest.current = draft;
-  }, [draft]);
+    seedEditor(editorRef.current, initialDraft);
+    onDraftPresenceChange(initialDraft.trim().length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the editor focused on mount and after streaming ends.
+  useEffect(() => {
+    if (active) editorRef.current?.focus();
+  }, [active]);
 
   // Let the parent pull (and clear) the current draft when finishing a
   // blog-mode post, where there's no Send button to commit it.
   flushRef.current = () => {
-    const text = latest.current;
-    setDraft("");
-    onDraftPresenceChange(false);
+    const text = readEditor(editorRef.current);
+    clearEditor(editorRef.current);
+    latest.current = "";
     saved.current = "";
+    setHasDraft(false);
+    onDraftPresenceChange(false);
     return text;
   };
 
@@ -805,50 +855,63 @@ function ReplyBox({
     void saveReplyDraft(entryId, latest.current).catch(() => {});
   }
 
-  // Auto-grow textarea
-  useEffect(() => {
-    const el = textareaRef.current;
+  function handleInput() {
+    const el = editorRef.current;
     if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [draft]);
+    // Markdown-style autoformat: a line that's just "* " becomes a bullet list.
+    maybeStartList(el);
+    // Deleting everything can leave a stray <div><br></div> (textContent ""), so
+    // hard-clear that the :empty placeholder shows again — but only when there's
+    // truly no text and no list (a freshly-started "* " bullet is empty too), so
+    // a line typed as spaces or a new empty bullet is left alone.
+    if (
+      el.textContent === "" &&
+      el.innerHTML !== "" &&
+      !el.querySelector("ul,ol,li")
+    ) {
+      el.innerHTML = "";
+    }
+    const text = readEditor(el);
+    latest.current = text;
+    const present = text.trim().length > 0;
+    setHasDraft(present);
+    onDraftPresenceChange(present);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(flushDraft, 800);
+  }
 
-  // Seed presence from a restored draft, and focus on mount.
-  useEffect(() => {
-    onDraftPresenceChange(initialDraft.trim().length > 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Debounced autosave of the unsent draft.
-  useEffect(() => {
-    if (draft === saved.current) return;
-    const id = setTimeout(() => flushDraft(), 800);
-    return () => clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft]);
-
-  // Keep the reply box focused on mount and after streaming ends.
-  useEffect(() => {
-    if (active) textareaRef.current?.focus();
-  }, [active]);
+  // Translate pasted markdown into rich text: headings, bullet lists, and
+  // paragraphs become real elements. A single plain line is inserted as text so
+  // pasting into the middle of a sentence stays inline; anything with structure
+  // (a heading/list, or multiple lines) is inserted as HTML we build ourselves
+  // (escaped — never the clipboard's own markup), which the serializer reads back.
+  function handlePaste(e: React.ClipboardEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const text = e.clipboardData.getData("text/plain");
+    const blocks = parseMarkdownBlocks(text);
+    const hasStructure =
+      blocks.length > 1 || blocks.some((b) => b.type !== "paragraph");
+    if (hasStructure) {
+      document.execCommand("insertHTML", false, blocksToHtml(blocks));
+    } else {
+      document.execCommand("insertText", false, text);
+    }
+    handleInput();
+  }
 
   function submit() {
-    const text = draft.trim();
+    const text = readEditor(editorRef.current).trim();
     if (!text || disabled) return;
-    setDraft("");
-    onDraftPresenceChange(false);
-    // Clear the persisted draft now that it's been committed.
+    clearEditor(editorRef.current);
+    latest.current = "";
     saved.current = "";
+    setHasDraft(false);
+    onDraftPresenceChange(false);
     void saveReplyDraft(entryId, "").catch(() => {});
     onSubmit(text);
   }
 
-  function updateDraft(next: string) {
-    setDraft(next);
-    onDraftPresenceChange(next.trim().length > 0);
-  }
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+  function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     // Only chat mode submits on ⌘/Ctrl+Enter; blog mode is plain writing.
     if (questionMode && e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -858,16 +921,22 @@ function ReplyBox({
 
   return (
     <div className={(questionMode ? "mt-12" : "mt-6") + " flex flex-col gap-3"}>
-      <textarea
-        ref={textareaRef}
-        value={draft}
-        onChange={(e) => updateDraft(e.target.value)}
+      <div
+        ref={editorRef}
+        contentEditable={!disabled}
+        suppressContentEditableWarning
+        role="textbox"
+        aria-multiline="true"
+        aria-label={placeholder}
+        data-placeholder={placeholder}
+        onInput={handleInput}
         onKeyDown={onKeyDown}
+        onPaste={handlePaste}
         onBlur={flushDraft}
-        disabled={disabled}
-        rows={1}
-        placeholder={placeholder}
-        className="min-h-10 w-full resize-none overflow-hidden border-0 bg-transparent py-1 font-serif text-lg leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-60"
+        className={
+          "min-h-10 w-full whitespace-pre-wrap break-words border-0 bg-transparent py-1 font-serif text-lg leading-relaxed text-foreground focus:outline-none [&>div]:mt-4 [&>ul]:mt-4 [&>h1]:mt-4 [&>h2]:mt-4 [&>h3]:mt-4 [&_ul]:list-disc [&_ul]:pl-6 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:font-semibold empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]" +
+          (disabled ? " opacity-60" : "")
+        }
       />
       {/* Chat mode has a Send button; blog mode commits when you finish the
           post, so it shows no button — just keep writing. */}
@@ -889,6 +958,144 @@ function ReplyBox({
       )}
     </div>
   );
+}
+
+/** Build the editor's DOM for a parsed block (heading, list, or paragraph). */
+function blockToNode(block: MarkdownBlock): Node {
+  if (block.type === "heading") {
+    const h = document.createElement(`h${block.level}`);
+    h.textContent = block.text;
+    return h;
+  }
+  if (block.type === "list") {
+    const ul = document.createElement("ul");
+    for (const item of block.items) {
+      const li = document.createElement("li");
+      li.textContent = item;
+      ul.appendChild(li);
+    }
+    return ul;
+  }
+  const div = document.createElement("div");
+  div.textContent = block.text;
+  return div;
+}
+
+/** Escape text for the HTML we build ourselves before insertHTML. */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/** Render parsed blocks to the HTML inserted on a markdown paste. */
+function blocksToHtml(blocks: MarkdownBlock[]): string {
+  return blocks
+    .map((block) => {
+      if (block.type === "heading") {
+        return `<h${block.level}>${escapeHtml(block.text)}</h${block.level}>`;
+      }
+      if (block.type === "list") {
+        return `<ul>${block.items
+          .map((item) => `<li>${escapeHtml(item)}</li>`)
+          .join("")}</ul>`;
+      }
+      return `<div>${escapeHtml(block.text) || "<br>"}</div>`;
+    })
+    .join("");
+}
+
+/**
+ * Seed a contentEditable from a stored draft. Markdown-ish lines become headings,
+ * <ul> lists, and paragraphs; the first plain paragraph is a bare text node
+ * (matching what the browser produces as you type, so the styled block children
+ * all get the gap) and later paragraphs are <div>s.
+ */
+function seedEditor(el: HTMLDivElement | null, text: string) {
+  if (!el) return;
+  el.textContent = "";
+  if (!text) return;
+  const blocks = parseMarkdownBlocks(text);
+  blocks.forEach((block, i) => {
+    if (block.type === "paragraph" && i === 0) {
+      el.appendChild(document.createTextNode(block.text));
+    } else {
+      el.appendChild(blockToNode(block));
+    }
+  });
+}
+
+const BLOCK_TAGS = new Set(["DIV", "P", "LI", "UL", "OL", "H1", "H2", "H3"]);
+const HEADING_MARKER: Record<string, string> = {
+  H1: "# ",
+  H2: "## ",
+  H3: "### ",
+};
+
+/**
+ * Read a contentEditable back to text. innerText alone drops the markers, so walk
+ * the tree: insert a newline at each block boundary, prefix every <li> with "* "
+ * and each heading with its "#"s, so headings and lists round-trip as markdown
+ * the published post can render.
+ */
+function readEditor(el: HTMLDivElement | null): string {
+  if (!el) return "";
+  let out = "";
+  const newline = () => {
+    if (out && !out.endsWith("\n")) out += "\n";
+  };
+  const walk = (node: Node) => {
+    node.childNodes.forEach((child) => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        out += (child.textContent ?? "").replace(/\u00A0/g, " ");
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        const tag = (child as Element).tagName;
+        if (tag === "BR") {
+          newline();
+          return;
+        }
+        const isBlock = BLOCK_TAGS.has(tag);
+        if (isBlock) newline();
+        if (tag === "LI") out += "* ";
+        else if (HEADING_MARKER[tag]) out += HEADING_MARKER[tag];
+        walk(child);
+        if (isBlock) newline();
+      }
+    });
+  };
+  walk(el);
+  return out.replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
+}
+
+function clearEditor(el: HTMLDivElement | null) {
+  if (el) el.innerHTML = "";
+}
+
+/**
+ * Markdown-style list autoformat: when the line the caret sits on is just "* "
+ * (or "- "), drop the marker and turn the line into a bullet. The browser then
+ * handles Enter-to-continue and Enter-on-empty-to-exit natively. No-op unless
+ * the line is exactly the marker and we're not already inside a list.
+ */
+function maybeStartList(el: HTMLElement): boolean {
+  const sel = window.getSelection();
+  if (!sel || !sel.isCollapsed || !sel.anchorNode) return false;
+  const node = sel.anchorNode;
+  if (node.nodeType !== Node.TEXT_NODE || !el.contains(node)) return false;
+  const marker = (node.textContent ?? "").replace(/\u00A0/g, " ");
+  if ((marker !== "* " && marker !== "- ") || sel.anchorOffset !== marker.length) {
+    return false;
+  }
+  if (node.parentElement?.closest("ul,ol")) return false;
+  const range = document.createRange();
+  range.setStart(node, 0);
+  range.setEnd(node, (node.textContent ?? "").length);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  document.execCommand("delete");
+  document.execCommand("insertUnorderedList");
+  return true;
 }
 
 function RegenerateIcon() {
