@@ -778,24 +778,41 @@ function ReplyBox({
   onSubmit: (text: string) => void;
   onDraftPresenceChange: (hasDraft: boolean) => void;
 }) {
-  const [draft, setDraft] = useState(initialDraft);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const hasDraft = draft.trim().length > 0;
+  // A contentEditable surface rather than a textarea: a textarea can't put space
+  // between paragraphs, so the writer's hard breaks read as one tight block. Here
+  // each paragraph after the first is a styled <div> (the structure the browser
+  // creates on Enter, and the one we seed on mount), so pressing Enter shows a
+  // real gap that matches the published post.
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const [hasDraft, setHasDraft] = useState(initialDraft.trim().length > 0);
 
   // The latest draft and what's persisted, so autosave skips no-op writes.
   const latest = useRef(initialDraft);
   const saved = useRef(initialDraft);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Seed the editor's block structure once on mount, then leave it uncontrolled
+  // so React never rewrites the DOM out from under the caret.
   useEffect(() => {
-    latest.current = draft;
-  }, [draft]);
+    seedEditor(editorRef.current, initialDraft);
+    onDraftPresenceChange(initialDraft.trim().length > 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the editor focused on mount and after streaming ends.
+  useEffect(() => {
+    if (active) editorRef.current?.focus();
+  }, [active]);
 
   // Let the parent pull (and clear) the current draft when finishing a
   // blog-mode post, where there's no Send button to commit it.
   flushRef.current = () => {
-    const text = latest.current;
-    setDraft("");
-    onDraftPresenceChange(false);
+    const text = readEditor(editorRef.current);
+    clearEditor(editorRef.current);
+    latest.current = "";
     saved.current = "";
+    setHasDraft(false);
+    onDraftPresenceChange(false);
     return text;
   };
 
@@ -805,50 +822,43 @@ function ReplyBox({
     void saveReplyDraft(entryId, latest.current).catch(() => {});
   }
 
-  // Auto-grow textarea
-  useEffect(() => {
-    const el = textareaRef.current;
+  function handleInput() {
+    const el = editorRef.current;
     if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [draft]);
+    // Deleting everything can leave a stray <div><br></div> (textContent ""), so
+    // hard-clear that the :empty placeholder shows again — but only when there's
+    // truly no text, so a line the writer typed as spaces is left alone.
+    if (el.textContent === "" && el.innerHTML !== "") el.innerHTML = "";
+    const text = readEditor(el);
+    latest.current = text;
+    const present = text.trim().length > 0;
+    setHasDraft(present);
+    onDraftPresenceChange(present);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(flushDraft, 800);
+  }
 
-  // Seed presence from a restored draft, and focus on mount.
-  useEffect(() => {
-    onDraftPresenceChange(initialDraft.trim().length > 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Debounced autosave of the unsent draft.
-  useEffect(() => {
-    if (draft === saved.current) return;
-    const id = setTimeout(() => flushDraft(), 800);
-    return () => clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft]);
-
-  // Keep the reply box focused on mount and after streaming ends.
-  useEffect(() => {
-    if (active) textareaRef.current?.focus();
-  }, [active]);
+  // Keep the editor plain text: insert the clipboard's text and let the browser
+  // build the same block structure rather than pasting foreign markup.
+  function handlePaste(e: React.ClipboardEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const text = e.clipboardData.getData("text/plain");
+    document.execCommand("insertText", false, text);
+  }
 
   function submit() {
-    const text = draft.trim();
+    const text = readEditor(editorRef.current).trim();
     if (!text || disabled) return;
-    setDraft("");
-    onDraftPresenceChange(false);
-    // Clear the persisted draft now that it's been committed.
+    clearEditor(editorRef.current);
+    latest.current = "";
     saved.current = "";
+    setHasDraft(false);
+    onDraftPresenceChange(false);
     void saveReplyDraft(entryId, "").catch(() => {});
     onSubmit(text);
   }
 
-  function updateDraft(next: string) {
-    setDraft(next);
-    onDraftPresenceChange(next.trim().length > 0);
-  }
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+  function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     // Only chat mode submits on ⌘/Ctrl+Enter; blog mode is plain writing.
     if (questionMode && e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -858,16 +868,22 @@ function ReplyBox({
 
   return (
     <div className={(questionMode ? "mt-12" : "mt-6") + " flex flex-col gap-3"}>
-      <textarea
-        ref={textareaRef}
-        value={draft}
-        onChange={(e) => updateDraft(e.target.value)}
+      <div
+        ref={editorRef}
+        contentEditable={!disabled}
+        suppressContentEditableWarning
+        role="textbox"
+        aria-multiline="true"
+        aria-label={placeholder}
+        data-placeholder={placeholder}
+        onInput={handleInput}
         onKeyDown={onKeyDown}
+        onPaste={handlePaste}
         onBlur={flushDraft}
-        disabled={disabled}
-        rows={1}
-        placeholder={placeholder}
-        className="min-h-10 w-full resize-none overflow-hidden border-0 bg-transparent py-1 font-serif text-lg leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-60"
+        className={
+          "min-h-10 w-full whitespace-pre-wrap break-words border-0 bg-transparent py-1 font-serif text-lg leading-relaxed text-foreground focus:outline-none [&>div]:mt-4 empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]" +
+          (disabled ? " opacity-60" : "")
+        }
       />
       {/* Chat mode has a Send button; blog mode commits when you finish the
           post, so it shows no button — just keep writing. */}
@@ -889,6 +905,34 @@ function ReplyBox({
       )}
     </div>
   );
+}
+
+/**
+ * Seed a contentEditable with a stored draft: the first paragraph as a bare text
+ * node and each subsequent one as a <div>, matching the structure the browser
+ * produces as you type (so the styled <div> children all get the paragraph gap).
+ * Splits on runs of newlines, so a single or double break both become one gap.
+ */
+function seedEditor(el: HTMLDivElement | null, text: string) {
+  if (!el) return;
+  el.textContent = "";
+  if (!text) return;
+  const paragraphs = text.split(/\n+/);
+  el.appendChild(document.createTextNode(paragraphs[0] ?? ""));
+  for (const para of paragraphs.slice(1)) {
+    const div = document.createElement("div");
+    div.textContent = para;
+    el.appendChild(div);
+  }
+}
+
+/** Read a contentEditable back to text — innerText joins the blocks with "\n". */
+function readEditor(el: HTMLDivElement | null): string {
+  return el?.innerText ?? "";
+}
+
+function clearEditor(el: HTMLDivElement | null) {
+  if (el) el.innerHTML = "";
 }
 
 function RegenerateIcon() {
