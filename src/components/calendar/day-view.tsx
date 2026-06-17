@@ -23,6 +23,12 @@ import {
 } from "@/lib/calendar/grid-layout";
 import { DutyGlyphs, type EventDisplay } from "./event-card";
 import { MemberAvatar } from "@/components/journal/member-avatar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { MiniCalendar } from "@/components/ui/mini-calendar";
 import { cn } from "@/lib/utils";
 
 // A true vertical time axis: position encodes when, height encodes how long.
@@ -104,6 +110,7 @@ export function DayView({
   canManage = false,
   onGridDraft,
   onEventTimeChange,
+  onJumpToDate,
 }: {
   events: CalendarEvent[];
   anchorDate: Date;
@@ -124,6 +131,8 @@ export function DayView({
     start: string,
     end: string | null,
   ) => void;
+  /** Tapping the date badge in the gutter jumps to the picked day. */
+  onJumpToDate?: (date: Date) => void;
 }) {
   // A live clock so the "now" line tracks the real time. Starts null so the
   // server and the first client render agree (no Date-dependent output during
@@ -155,6 +164,10 @@ export function DayView({
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
   }, []);
+
+  // The gutter date badge doubles as a "jump to a date" trigger — a small
+  // month-grid popover.
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
 
   const dayKey = toDateKey(anchorDate);
   const dayEvents = events.filter((e) => eventDayKey(e) === dayKey);
@@ -1078,24 +1091,73 @@ export function DayView({
               filled badge — so the strip earns its place even on days with no
               all-day events. */}
           <div className="flex border-y border-border/60 bg-muted/20">
-            <div
-              className="flex shrink-0 flex-col items-center justify-center gap-0.5 py-1 pr-1"
-              style={{ width: GUTTER }}
-            >
-              <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
-                {weekday}
-              </span>
-              <span
-                className={cn(
-                  "flex size-6 items-center justify-center rounded-full font-sans text-sm font-semibold tabular-nums leading-none",
-                  isToday
-                    ? "bg-primary text-primary-foreground"
-                    : "text-foreground",
-                )}
+            {onJumpToDate ? (
+              <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+                <PopoverTrigger
+                  aria-label="Jump to date"
+                  title="Jump to date"
+                  className={cn(
+                    "flex shrink-0 flex-col items-center justify-center gap-0.5 py-1 pr-1 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                    datePickerOpen && "bg-accent/60",
+                  )}
+                  style={{ width: GUTTER }}
+                >
+                  <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {weekday}
+                  </span>
+                  <span
+                    className={cn(
+                      "flex size-6 items-center justify-center rounded-full font-sans text-sm font-semibold tabular-nums leading-none",
+                      isToday
+                        ? "bg-primary text-primary-foreground"
+                        : "text-foreground",
+                    )}
+                  >
+                    {dayNum}
+                  </span>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-64 p-2 font-sans">
+                  <MiniCalendar
+                    selected={anchorDate}
+                    onSelect={(day) => {
+                      onJumpToDate(day);
+                      setDatePickerOpen(false);
+                    }}
+                  />
+                  {now != null && !isToday && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onJumpToDate(new Date());
+                        setDatePickerOpen(false);
+                      }}
+                      className="mt-1 w-full rounded-md py-1.5 text-center text-sm font-medium text-primary transition-colors hover:bg-accent"
+                    >
+                      Today
+                    </button>
+                  )}
+                </PopoverContent>
+              </Popover>
+            ) : (
+              <div
+                className="flex shrink-0 flex-col items-center justify-center gap-0.5 py-1 pr-1"
+                style={{ width: GUTTER }}
               >
-                {dayNum}
-              </span>
-            </div>
+                <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {weekday}
+                </span>
+                <span
+                  className={cn(
+                    "flex size-6 items-center justify-center rounded-full font-sans text-sm font-semibold tabular-nums leading-none",
+                    isToday
+                      ? "bg-primary text-primary-foreground"
+                      : "text-foreground",
+                  )}
+                >
+                  {dayNum}
+                </span>
+              </div>
+            )}
             <div className="flex min-w-0 flex-1">
               {columns.map((c, i) => (
                 <div
