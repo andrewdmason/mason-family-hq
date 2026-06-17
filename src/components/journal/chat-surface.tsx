@@ -141,12 +141,17 @@ export function ChatSurface({
     const updatePinned = () => {
       const distanceFromBottom =
         document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
-      pinnedToBottom.current = distanceFromBottom < 120;
+      // While writing there's a tall bottom pad (pb-[25vh]) the caret scrolls
+      // into, so "at the bottom" means within that pad plus a little, not
+      // literally touching the document end — otherwise streamed replies would
+      // stop auto-following the moment the pad pushes us off the true bottom.
+      const threshold = isViewingOnly ? 120 : window.innerHeight * 0.25 + 120;
+      pinnedToBottom.current = distanceFromBottom < threshold;
     };
     updatePinned();
     window.addEventListener("scroll", updatePinned, { passive: true });
     return () => window.removeEventListener("scroll", updatePinned);
-  }, []);
+  }, [isViewingOnly]);
 
   // Follow new content only while pinned to the bottom — and never in a
   // view-only post, which should open at the top.
@@ -180,6 +185,22 @@ export function ChatSurface({
     setQuestionMode(false);
     void flipQuestionModeOffOnce(entryId).catch(() => {});
   }, [timerDone, timerFlippedOff, viewMode, status, entryId]);
+
+  // Give the caret breathing room above the bottom edge while writing. The page
+  // scrolls on the document, and the browser's native caret-scroll (and our own
+  // smooth scrollIntoView) honor scroll-padding on the scroll root — so the
+  // active line never ends up flush against the window's bottom as the post grows
+  // or a line wraps. Paired with the writing area's matching bottom padding so
+  // there's room to actually scroll that far. Scoped to the editable view.
+  useEffect(() => {
+    if (isViewingOnly) return;
+    const root = document.documentElement;
+    const previous = root.style.scrollPaddingBottom;
+    root.style.scrollPaddingBottom = "25vh";
+    return () => {
+      root.style.scrollPaddingBottom = previous;
+    };
+  }, [isViewingOnly]);
 
   function toggleQuestionMode(next: boolean) {
     if (streaming || closing) return;
@@ -390,7 +411,15 @@ export function ChatSurface({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pb-24 pt-12">
+    <div
+      className={
+        "mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pt-12 " +
+        // A tall bottom pad while writing gives the caret room to sit above the
+        // window edge (the scroll-padding above scrolls into it); read views keep
+        // a normal pad so a finished post doesn't trail off into empty space.
+        (isViewingOnly ? "pb-24" : "pb-[25vh]")
+      }
+    >
       {showWritingControls && (
         <div
           className={
