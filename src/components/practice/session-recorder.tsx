@@ -135,6 +135,18 @@ export function SessionRecorder() {
     return concreteInputs.some((d) => d.deviceId === deviceId) ? deviceId : null;
   }, [deviceId, concreteInputs]);
 
+  // The device we'll actually record from. An explicit pick wins; otherwise pick
+  // a concrete NON-iPhone input (built-in preferred) so we never fall through to
+  // "default", which is what macOS Continuity hijacks to a nearby iPhone.
+  const resolvedDeviceId = useMemo(() => {
+    if (effectiveDeviceId) return effectiveDeviceId;
+    const notPhone = concreteInputs.filter(
+      (d) => !/iphone|ipad|continuity/i.test(d.label)
+    );
+    const builtin = notPhone.find((d) => /built.?in|macbook/i.test(d.label));
+    return (builtin ?? notPhone[0])?.deviceId ?? null;
+  }, [effectiveDeviceId, concreteInputs]);
+
   function chooseDevice(id: string | null) {
     setDeviceId(id);
     try {
@@ -200,7 +212,7 @@ export function SessionRecorder() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          deviceId: effectiveDeviceId ? { exact: effectiveDeviceId } : { ideal: "default" },
+          deviceId: resolvedDeviceId ? { exact: resolvedDeviceId } : { ideal: "default" },
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false,
@@ -301,7 +313,7 @@ export function SessionRecorder() {
               Microphone:{" "}
               <select
                 className="rounded border bg-background px-1.5 py-0.5 text-xs"
-                value={effectiveDeviceId ?? "default"}
+                value={resolvedDeviceId ?? "default"}
                 onChange={(e) =>
                   chooseDevice(e.target.value === "default" ? null : e.target.value)
                 }
