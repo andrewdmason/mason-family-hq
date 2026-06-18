@@ -16,4 +16,4 @@ if [ ! -x ".venv/bin/uvicorn" ]; then
 fi
 
 echo "practice-alignment worker → http://127.0.0.1:$PORT  (Ctrl-C to stop)"
-exec ./.venv/bin/uvicorn server:app --host 127.0.0.1 --port "$PORT"
+exec ./.venv/bin/uvicorn server:app --host 127.0.0.1 --port "$PORT" --reload

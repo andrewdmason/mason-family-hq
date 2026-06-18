@@ -85,6 +85,11 @@ export function SessionRecorder() {
   async function finish() {
     try {
       const blob = new Blob(chunksRef.current, { type: recorderRef.current?.mimeType });
+      if (blob.size < 2000) {
+        setError("That recording was too short — play for a few seconds before stopping.");
+        setPhase("error");
+        return;
+      }
       const { sessionId, path, token } = await createSession(extRef.current);
       const supabase = createClient();
       const { error: upErr } = await supabase.storage

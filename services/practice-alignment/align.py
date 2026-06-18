@@ -74,7 +74,14 @@ def _region(frac_lo, frac_hi):
 
 def align(audio_path, references):
     """references: list of {"pieceId": str, "midi": bytes}. Returns the contract dict."""
-    audio_c, duration = audio_chroma(audio_path)
+    # Empty / undecodable / too-short recordings (e.g. an instant start-stop)
+    # degrade to "nothing recognized" rather than crashing the worker.
+    try:
+        audio_c, duration = audio_chroma(audio_path)
+    except Exception:
+        return {"segments": [], "confidence": 0.0}
+    if duration < 2.5 or audio_c.shape[1] < 8:
+        return {"segments": [], "confidence": 0.0}
     refs = []
     for r in references:
         try:
