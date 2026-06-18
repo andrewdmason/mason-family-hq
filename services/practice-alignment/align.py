@@ -22,9 +22,14 @@ HOP = int(SR * FRAME_SEC)
 WINDOW_SEC = 12.0
 WINDOW_STEP_SEC = 6.0           # 50% overlap
 HAND_SPLIT = 60                 # C4
-COST_MATCH = 0.36               # two-factor gate (tuned in the spike)
-MARGIN_MATCH = 0.10
-MIN_SEGMENT_SEC = 8.0           # ignore blips shorter than this
+# A window's best-guess piece is accepted when it's the top guess for a sustained
+# RUN of windows at decent confidence — not per-window margin. With many
+# chroma-similar reference pieces the runner-up is always close (margins compress),
+# so a stable run of the same correct guess is the reliable signal, while scales/
+# noodling jump between pieces and stay low-confidence.
+CONF_FLOOR = 0.66              # median confidence (1 - cost) a run needs to count
+MIN_RUN = 2                    # a piece must be the top guess for >= this many windows
+MIN_SEGMENT_SEC = 8.0          # ignore segments shorter than this
 
 
 def _l2(m):
@@ -108,96 +113,104 @@ def align(audio_path, references):
         scored.sort(key=lambda x: x[0])
         best = scored[0]
         margin = (scored[1][0] - best[0]) if len(scored) > 1 else 1.0
-        matched = best[0] < COST_MATCH and margin > MARGIN_MATCH
         windows.append({
             "start_sec": start * FRAME_SEC,
             "end_sec": min((start + win) * FRAME_SEC, duration),
-            "label": best[1]["pieceId"] if matched else None,
             "best_piece": best[1]["pieceId"],
             "variant": best[2],
             "tpl": best[1]["tpl"],
             "ref_center": (best[3] + best[4]) / 2,
             "n": best[1]["tpl"]["n"],
             "cost": best[0],
+            "conf": 1 - best[0],
             "margin": margin,
         })
 
-    _smooth_labels(windows)
-    segments = _stitch(windows)
+    _smooth_guesses(windows)
+    segments = segment_runs(windows)
     segments = [s for s in segments if s["endSec"] - s["startSec"] >= MIN_SEGMENT_SEC]
-    overall = float(np.mean([1 - w["cost"] for w in windows])) if windows else 0.0
+    overall = float(np.mean([w["conf"] for w in windows])) if windows else 0.0
     # Per-window debug trace — the moment-by-moment reasoning behind the segments.
     windows_out = [{
         "startSec": round(w["start_sec"], 1),
         "endSec": round(w["end_sec"], 1),
         "guess": w["best_piece"],
-        "matched": w["label"] is not None,
-        "confidence": round(1 - w["cost"], 3),
+        "matched": w.get("accepted", False),
+        "confidence": round(w["conf"], 3),
         "margin": round(w["margin"], 3),
-        "refFrac": round(w["ref_center"] / w["n"], 3) if w["n"] else None,
+        "refFrac": round(w["ref_center"] / w["n"], 3) if w.get("n") else None,
         "variant": w["variant"],
     } for w in windows]
     return {"segments": segments, "confidence": round(overall, 3), "windows": windows_out}
 
 
-def _smooth_labels(windows):
-    """De-noise per-window labels so a continuous passage isn't chopped into
-    alternating piece/free slivers: (1) fill a lone gap flanked by the same piece,
-    (2) drop a lone matched window surrounded by non-matches."""
-    labels = [w["label"] for w in windows]
-    n = len(labels)
+def _smooth_guesses(windows):
+    """Absorb lone (1- or 2-window) outliers in the best-guess sequence that sit
+    between identical neighbors — e.g. one stray 'Gigue' window inside a long run
+    of 'Impromptu', or a 2-window blip inside a 'Ballade' run."""
+    g = [w["best_piece"] for w in windows]
+    n = len(g)
     for i in range(1, n - 1):
-        if labels[i] is None and labels[i - 1] is not None and labels[i - 1] == labels[i + 1]:
-            windows[i]["label"] = labels[i - 1]      # fill gap
-    labels = [w["label"] for w in windows]
-    for i in range(n):
-        prev = labels[i - 1] if i > 0 else None
-        nxt = labels[i + 1] if i < n - 1 else None
-        if labels[i] is not None and prev != labels[i] and nxt != labels[i]:
-            windows[i]["label"] = None               # drop singleton
+        if g[i] != g[i - 1] and g[i - 1] == g[i + 1]:
+            windows[i]["best_piece"] = g[i] = g[i - 1]
+    for i in range(1, n - 2):
+        if g[i - 1] == g[i + 2] and g[i] != g[i - 1] and g[i + 1] != g[i - 1]:
+            windows[i]["best_piece"] = windows[i + 1]["best_piece"] = g[i - 1]
+            g[i] = g[i + 1] = g[i - 1]
 
 
-def _stitch(windows):
-    segments, cur = [], None
+def segment_runs(windows):
+    """Group windows into runs of the same best-guess; accept a run as that piece
+    when it's sustained (>= MIN_RUN windows) at decent median confidence."""
+    runs, cur = [], None
     for w in windows:
-        key = w["label"] if w["label"] else "__free__"
-        if cur and cur["_key"] == key:
-            cur["endSec"] = w["end_sec"]
-            cur["_windows"].append(w)
+        if cur and cur[-1]["best_piece"] == w["best_piece"]:
+            cur.append(w)
         else:
             if cur:
-                segments.append(_finalize(cur))
-            cur = {"_key": key, "startSec": w["start_sec"], "endSec": w["end_sec"], "_windows": [w]}
+                runs.append(cur)
+            cur = [w]
     if cur:
-        segments.append(_finalize(cur))
-    return segments
+        runs.append(cur)
+
+    segments = []
+    for run in runs:
+        med = float(np.median([w["conf"] for w in run]))
+        accepted = len(run) >= MIN_RUN and med >= CONF_FLOOR
+        for w in run:
+            w["accepted"] = accepted
+        segments.append(_finalize_run(run, accepted))
+    return _merge_free(segments)
 
 
-def _finalize(seg):
-    ws = seg["_windows"]
+def _finalize_run(run, accepted):
     base = {
-        "startSec": round(seg["startSec"], 1), "endSec": round(seg["endSec"], 1),
-        "confidence": round(float(np.mean([1 - w["cost"] for w in ws])), 3),
+        "startSec": round(run[0]["start_sec"], 1),
+        "endSec": round(run[-1]["end_sec"], 1),
+        "confidence": round(float(np.mean([w["conf"] for w in run])), 3),
     }
-    if seg["_key"] == "__free__":
+    if not accepted:
         return {**base, "kind": "free", "pieceId": None, "region": None,
                 "tempoBpm": None, "handsSeparate": False, "repetitionCount": None}
-
-    tpl = ws[0]["tpl"]
-    n = tpl["n"]
-    # Region from the most-confident (lowest-cost) window, not the span of all
-    # centers — averaging smears a localized passage toward "the middle".
-    anchor = min(ws, key=lambda w: w["cost"])["ref_center"]
-    hand_votes = sum(1 for w in ws if w["variant"] in ("lh", "rh"))
-    # NOTE (v1): tempoBpm and repetitionCount are intentionally null. The naive
-    # ref-span/audio-span ratios produced nonsense (relTempo up to 24x); a sound
-    # tempo estimate (local DTW-path slope) and repetition detector (tight ref-
-    # center clustering across windows) are deferred refinements. Region +
-    # hands-separate are reliable today, so the narrative leans on those.
+    # Region from the most-confident window's position in the reference.
+    anchor_w = min(run, key=lambda w: w["cost"])
+    n = anchor_w.get("n")
+    region = _region(anchor_w["ref_center"] / n, anchor_w["ref_center"] / n) if n else None
+    hand_votes = sum(1 for w in run if w["variant"] in ("lh", "rh"))
     return {
-        **base, "kind": "piece", "pieceId": seg["_key"],
-        "region": _region(anchor / n, anchor / n),
-        "tempoBpm": None,
-        "handsSeparate": hand_votes > len(ws) / 2,
+        **base, "kind": "piece", "pieceId": run[0]["best_piece"],
+        "region": region, "tempoBpm": None,
+        "handsSeparate": hand_votes > len(run) / 2,
         "repetitionCount": None,
     }
+
+
+def _merge_free(segments):
+    """Coalesce consecutive free segments (rejected runs sitting next to real gaps)."""
+    out = []
+    for s in segments:
+        if out and out[-1]["kind"] == "free" and s["kind"] == "free":
+            out[-1]["endSec"] = s["endSec"]
+        else:
+            out.append(s)
+    return out
