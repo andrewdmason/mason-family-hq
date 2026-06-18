@@ -49,11 +49,18 @@ export function SessionRecorder() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ taskCount: number; retain: boolean } | null>(null);
 
+  const [level, setLevel] = useState(0); // live input level 0..1
+  const [silent, setSilent] = useState(false); // no input heard after a few seconds
+
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const extRef = useRef<"webm" | "m4a">("webm");
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const levelRafRef = useRef<number | null>(null);
+  const heardRef = useRef(false);
+  const meterUpdatedRef = useRef(0);
 
   const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState<string | null>(() => {
@@ -114,14 +121,58 @@ export function SessionRecorder() {
     }
   }
 
+  // Live input-level meter: taps the mic stream so a dead/muted/wrong device is
+  // visible while recording, instead of silently producing a useless session.
+  function startMeter(stream: MediaStream) {
+    try {
+      const ctx = new AudioContext();
+      audioCtxRef.current = ctx;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      const buf = new Float32Array(analyser.fftSize);
+      heardRef.current = false;
+      const startedAt = performance.now();
+      const tick = () => {
+        analyser.getFloatTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+        const rms = Math.sqrt(sum / buf.length);
+        if (rms > 0.008) heardRef.current = true;
+        const now = performance.now();
+        if (now - meterUpdatedRef.current > 60) {
+          meterUpdatedRef.current = now;
+          setLevel(Math.min(1, rms * 5));
+          setSilent(!heardRef.current && now - startedAt > 4000);
+        }
+        levelRafRef.current = requestAnimationFrame(tick);
+      };
+      levelRafRef.current = requestAnimationFrame(tick);
+    } catch {
+      /* meter is best-effort */
+    }
+  }
+
+  function stopMeter() {
+    if (levelRafRef.current) cancelAnimationFrame(levelRafRef.current);
+    levelRafRef.current = null;
+    void audioCtxRef.current?.close();
+    audioCtxRef.current = null;
+  }
+
   function cleanupStream() {
     if (timerRef.current) clearInterval(timerRef.current);
+    stopMeter();
     streamRef.current?.getTracks().forEach((t) => t.stop());
   }
+
+  useEffect(() => () => cleanupStream(), []);
 
   async function start() {
     setError(null);
     setResult(null);
+    setLevel(0);
+    setSilent(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -140,6 +191,7 @@ export function SessionRecorder() {
         /* ignore */
       }
       streamRef.current = stream;
+      startMeter(stream);
       const { mime, ext } = pickMimeType();
       extRef.current = ext;
       const mr = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 256000 } : undefined);
@@ -170,6 +222,11 @@ export function SessionRecorder() {
       const blob = new Blob(chunksRef.current, { type: recorderRef.current?.mimeType });
       if (blob.size < 2000) {
         setError("That recording was too short — play for a few seconds before stopping.");
+        setPhase("error");
+        return;
+      }
+      if (!heardRef.current) {
+        setError("We didn't pick up any audio — check your microphone selection and try again.");
         setPhase("error");
         return;
       }
@@ -237,7 +294,19 @@ export function SessionRecorder() {
             <span className="size-3 animate-pulse rounded-full bg-red-500" />
             {fmt(seconds)}
           </div>
-          <p className="text-sm text-muted-foreground">Listening…</p>
+          <div className="h-2 w-48 overflow-hidden rounded-full bg-muted" aria-label="Input level">
+            <div
+              className={`h-full transition-[width] duration-75 ${silent ? "bg-destructive" : "bg-emerald-500"}`}
+              style={{ width: `${Math.round(level * 100)}%` }}
+            />
+          </div>
+          {silent ? (
+            <p className="text-sm text-destructive">
+              We&apos;re not hearing anything — check your microphone selection.
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">Listening…</p>
+          )}
           <Button size="lg" variant="secondary" onClick={stop}>
             <SquareIcon /> Stop &amp; log
           </Button>
