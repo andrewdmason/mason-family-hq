@@ -29,6 +29,30 @@ function fmt(s: number) {
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
+type StatusResult = {
+  status: string;
+  taskCount?: number;
+  error?: string | null;
+  audioRetained?: boolean;
+};
+
+async function pollStatus(sessionId: string): Promise<StatusResult> {
+  const deadline = Date.now() + 25 * 60 * 1000; // ceiling for very long sessions
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3000));
+    try {
+      const r = await fetch(`/practice/session/api/status?sessionId=${sessionId}`);
+      if (r.ok) {
+        const s = (await r.json()) as StatusResult;
+        if (s.status === "ready" || s.status === "failed") return s;
+      }
+    } catch {
+      /* transient network blip — keep polling */
+    }
+  }
+  return { status: "failed", error: "Timed out waiting for processing" };
+}
+
 // Shared with the task-audio recorder so the chosen mic carries over. Picking an
 // explicit input avoids macOS Continuity hijacking the mic to a nearby iPhone.
 const INPUT_DEVICE_STORAGE_KEY = "task-audio-input-device-id";
@@ -244,9 +268,15 @@ export function SessionRecorder() {
       });
       const data = await res.json();
       if (!res.ok || data.status === "failed") {
-        throw new Error(data.error ?? "Processing failed");
+        throw new Error(data.error ?? "Couldn't start processing");
       }
-      setResult({ taskCount: data.taskCount ?? 0, retain: !!data.retain });
+      // Processing runs in the background (long recordings take minutes); poll
+      // the status route until it's ready or failed.
+      const final = await pollStatus(sessionId);
+      if (final.status !== "ready") {
+        throw new Error(final.error ?? "Processing failed");
+      }
+      setResult({ taskCount: final.taskCount ?? 0, retain: !!final.audioRetained });
       setPhase("done");
       router.refresh();
     } catch (e) {
