@@ -24,6 +24,8 @@ import {
 import { getSections, getProgressSnapshots } from "@/app/practice/repertoire/section-actions";
 import { getVideos, getTimestamps } from "@/app/practice/repertoire/video-actions";
 import { getPerformances } from "@/app/practice/repertoire/performance-actions";
+import { getReferenceMidi } from "@/app/practice/repertoire/midi-actions";
+import { ReferenceMidiPanel } from "@/components/repertoire/reference-midi-panel";
 import { PerformancesPanel } from "@/components/repertoire/performances-panel";
 import { getPieceCumulativeData, getPieceCompletionByWeek } from "@/app/practice/reports/actions";
 import type { Piece, Work } from "@/lib/types";
@@ -52,7 +54,7 @@ export default async function PieceDetailPage({
 
   const typedPiece = piece as Piece;
 
-  const [{ data: allWorks }, focusData, cumulativeData, sections, videos, progressSnapshots, performances] = await Promise.all([
+  const [{ data: allWorks }, focusData, cumulativeData, sections, videos, progressSnapshots, performances, referenceMidi] = await Promise.all([
     supabase.from("works").select("*").order("name"),
     getAssignmentsForPiece(id),
     getPieceCumulativeData(id),
@@ -60,6 +62,7 @@ export default async function PieceDetailPage({
     getVideos(id),
     getProgressSnapshots(id),
     getPerformances({ pieceId: id }),
+    getReferenceMidi(id),
   ]);
 
   const works = (allWorks ?? []) as Work[];
@@ -99,6 +102,10 @@ export default async function PieceDetailPage({
           initialVideos={videos}
           initialTimestamps={videoTimestamps}
         />
+
+        <Separator />
+
+        <ReferenceMidiPanel pieceId={id} initial={referenceMidi} />
 
         <Separator />
 

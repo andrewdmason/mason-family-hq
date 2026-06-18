@@ -1193,6 +1193,7 @@ export function PracticeTable({
         audio_trim_start_seconds: null,
         audio_trim_end_seconds: null,
         audio_title: null,
+        session_id: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         piece_name: detail.pieceName,

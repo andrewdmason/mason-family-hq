@@ -21,12 +21,18 @@ const TABS: TabValue[] = ["active", "upcoming", "archived", "all"];
 export function RepertoireList({
   pieces,
   works,
+  recognizablePieceIds = [],
 }: {
   pieces: Piece[];
   works: WorkWithPieces[];
+  recognizablePieceIds?: string[];
 }) {
   const [activeTab, setActiveTab] = useState<TabValue>("active");
   const allWorks: Work[] = works;
+  const recognizable = useMemo(
+    () => new Set(recognizablePieceIds),
+    [recognizablePieceIds]
+  );
 
   const allPieces = useMemo(() => {
     const standalone = pieces.filter((p) => p.work_id === null);
@@ -135,7 +141,11 @@ export function RepertoireList({
           )}
 
           {tabPieces.length > 0 && (
-            <RepertoireGroupedList pieces={tabPieces} works={allWorks} />
+            <RepertoireGroupedList
+              pieces={tabPieces}
+              works={allWorks}
+              recognizablePieceIds={recognizable}
+            />
           )}
         </div>
       </div>

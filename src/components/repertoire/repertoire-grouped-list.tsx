@@ -100,9 +100,11 @@ function buildGroups(
 export function RepertoireGroupedList({
   pieces,
   works,
+  recognizablePieceIds,
 }: {
   pieces: Piece[];
   works: Work[];
+  recognizablePieceIds?: Set<string>;
 }) {
   const groups = useMemo(
     () => buildGroups(pieces, works),
@@ -128,12 +130,17 @@ export function RepertoireGroupedList({
           <div>
             {group.items.map((item) =>
               item.type === "piece" ? (
-                <PieceRow key={item.piece.id} piece={item.piece} />
+                <PieceRow
+                  key={item.piece.id}
+                  piece={item.piece}
+                  recognizable={recognizablePieceIds?.has(item.piece.id)}
+                />
               ) : (
                 <WorkRow
                   key={item.work.id}
                   work={item.work}
                   pieces={item.pieces}
+                  recognizablePieceIds={recognizablePieceIds}
                 />
               )
             )}
