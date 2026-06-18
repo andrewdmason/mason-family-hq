@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PlayIcon, PauseIcon } from "lucide-react";
+import { PlayIcon, PauseIcon, Loader2Icon } from "lucide-react";
+import { SplendidGrandPiano } from "smplr";
 import { Button } from "@/components/ui/button";
 import type { PracticeSegment, PracticeWindow } from "@/lib/types";
 
@@ -29,12 +30,13 @@ export function SessionDebugView({
   const dur = Math.max(durationSec, 1);
   const [playing, setPlaying] = useState(false);
   const [playhead, setPlayhead] = useState(0);
+  const [loadingInstrument, setLoadingInstrument] = useState(false);
 
   const audioRef = useRef<AudioContext | null>(null);
+  const pianoRef = useRef<SplendidGrandPiano | null>(null);
   const startedAtRef = useRef(0); // audioContext time when playback (re)started
   const offsetRef = useRef(0); // seconds into the session at that start
   const rafRef = useRef<number | null>(null);
-  const nodesRef = useRef<{ osc: OscillatorNode; gain: GainNode }[]>([]);
 
   const pitchRange = useMemo(() => {
     if (!notes.length) return { lo: 48, hi: 84 };
@@ -48,35 +50,33 @@ export function SessionDebugView({
     ROLL_H - ((midi - pitchRange.lo) / (pitchRange.hi - pitchRange.lo)) * ROLL_H;
 
   function stopAudio() {
-    nodesRef.current.forEach(({ osc }) => {
-      try { osc.stop(); } catch { /* already stopped */ }
-    });
-    nodesRef.current = [];
+    try { pianoRef.current?.stop(); } catch { /* not started */ }
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
   }
 
-  function play(from: number) {
-    const ctx = audioRef.current ?? new AudioContext();
-    audioRef.current = ctx;
-    void ctx.resume();
+  async function ensurePiano() {
+    if (!audioRef.current) audioRef.current = new AudioContext();
+    const ctx = audioRef.current;
+    await ctx.resume();
+    if (!pianoRef.current) {
+      setLoadingInstrument(true);
+      pianoRef.current = new SplendidGrandPiano(ctx);
+      await pianoRef.current.load;
+      setLoadingInstrument(false);
+    }
+    return { ctx, piano: pianoRef.current };
+  }
+
+  async function play(from: number) {
+    const { ctx, piano } = await ensurePiano();
     stopAudio();
     startedAtRef.current = ctx.currentTime;
     offsetRef.current = from;
     for (const n of notes) {
       if (n.endSec < from) continue;
-      const start = ctx.currentTime + Math.max(0, n.startSec - from);
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "triangle";
-      osc.frequency.value = 440 * 2 ** ((n.midi - 69) / 12);
-      const len = Math.min(n.endSec - Math.max(n.startSec, from), 6);
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.18, start + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + Math.max(0.05, len));
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(start);
-      osc.stop(start + Math.max(0.06, len) + 0.05);
-      nodesRef.current.push({ osc, gain });
+      const time = ctx.currentTime + Math.max(0, n.startSec - from);
+      const duration = Math.min(n.endSec - Math.max(n.startSec, from), 8);
+      piano.start({ note: n.midi, time, duration: Math.max(0.1, duration), velocity: 80 });
     }
     setPlaying(true);
     const tick = () => {
@@ -98,7 +98,7 @@ export function SessionDebugView({
       stopAudio();
       setPlaying(false);
     } else {
-      play(playhead >= dur ? 0 : playhead);
+      void play(playhead >= dur ? 0 : playhead);
     }
   }
 
@@ -107,18 +107,31 @@ export function SessionDebugView({
     const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     const t = frac * dur;
     setPlayhead(t);
-    if (playing) play(t);
+    if (playing) void play(t);
   }
 
-  useEffect(() => () => stopAudio(), []);
+  useEffect(
+    () => () => {
+      stopAudio();
+      void audioRef.current?.close();
+    },
+    []
+  );
 
   const playheadPct = (playhead / dur) * 100;
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-3">
-        <Button size="sm" variant="secondary" onClick={toggle}>
-          {playing ? <PauseIcon /> : <PlayIcon />} {playing ? "Pause" : "Play"}
+        <Button size="sm" variant="secondary" onClick={toggle} disabled={loadingInstrument}>
+          {loadingInstrument ? (
+            <Loader2Icon className="animate-spin" />
+          ) : playing ? (
+            <PauseIcon />
+          ) : (
+            <PlayIcon />
+          )}
+          {loadingInstrument ? "Loading piano…" : playing ? "Pause" : "Play"}
         </Button>
         <span className="text-sm tabular-nums text-muted-foreground">
           {fmt(playhead)} / {fmt(dur)}
