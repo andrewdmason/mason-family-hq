@@ -53,7 +53,11 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith("/api/reading/ingest") &&
     // The agent API authenticates with a bearer secret (it's called by the
     // family assistant, which has no session) — see src/lib/agent/auth.ts.
-    !request.nextUrl.pathname.startsWith("/api/agent")
+    !request.nextUrl.pathname.startsWith("/api/agent") &&
+    // The practice-session result callback authenticates with WORKER_SECRET
+    // (it's POSTed by the Modal alignment worker, which has no session) — see
+    // src/app/practice/session/api/callback/route.ts.
+    !request.nextUrl.pathname.startsWith("/practice/session/api/callback")
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
