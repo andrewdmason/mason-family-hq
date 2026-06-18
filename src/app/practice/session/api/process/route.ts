@@ -8,8 +8,7 @@ export const maxDuration = 300;
 
 const RECORDING_BUCKET = "task-audio";
 const MIDI_BUCKET = "piece-midi";
-// Below this overall confidence we keep the audio so a rare miss can be checked (R3).
-const LOW_CONFIDENCE = 0.7;
+const SESSION_MIDI_BUCKET = "practice-session-midi";
 
 /**
  * Kick off processing for a recorded session (plan U7). Claims the session
@@ -93,32 +92,47 @@ export async function POST(request: Request) {
     if (!res.ok) {
       throw new Error(`Worker error ${res.status}: ${await res.text()}`);
     }
-    const result = (await res.json()) as PracticeAlignmentResult;
+    const result = (await res.json()) as PracticeAlignmentResult & {
+      transcriptionMidiB64?: string | null;
+    };
 
     const taskCount = await writeSessionTasks(supabase, sessionId, result, {
       date: session.date,
       sessionNumber: session.session_number,
     });
 
-    const retain = (result.confidence ?? 0) < LOW_CONFIDENCE;
-    if (!retain) {
-      await supabase.storage
-        .from(RECORDING_BUCKET)
-        .remove([session.recording_path]);
+    // Store the transcribed performance MIDI (tiny, less sensitive than audio),
+    // then ALWAYS delete the recording — we keep the MIDI instead.
+    let transcriptionPath: string | null = null;
+    if (result.transcriptionMidiB64) {
+      const midiBytes = Buffer.from(result.transcriptionMidiB64, "base64");
+      const path = session.recording_path.replace(/\.(m4a|webm)$/, ".mid");
+      const { error: upErr } = await supabase.storage
+        .from(SESSION_MIDI_BUCKET)
+        .upload(path, midiBytes, { contentType: "audio/midi", upsert: true });
+      if (!upErr) transcriptionPath = path;
     }
+    await supabase.storage
+      .from(RECORDING_BUCKET)
+      .remove([session.recording_path]);
+
+    // Don't persist the base64 blob in the row — the MIDI lives in storage.
+    const { transcriptionMidiB64: _omit, ...storedResult } = result;
+    void _omit;
 
     await supabase
       .from("practice_sessions")
       .update({
         status: "ready",
         confidence: result.confidence,
-        result,
-        audio_retained: retain,
-        recording_path: retain ? session.recording_path : null,
+        result: storedResult,
+        audio_retained: false,
+        recording_path: null,
+        transcription_path: transcriptionPath,
       })
       .eq("id", sessionId);
 
-    return NextResponse.json({ status: "ready", taskCount, retain });
+    return NextResponse.json({ status: "ready", taskCount });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Processing failed";
     await supabase

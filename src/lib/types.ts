@@ -119,6 +119,7 @@ export type PracticeSession = {
   confidence: number | null;
   audio_retained: boolean;
   result: PracticeAlignmentResult | null;
+  transcription_path: string | null;
   claimed_at: string | null;
   created_at: string;
   updated_at: string;
@@ -139,9 +140,22 @@ export type PracticeSegment = {
   confidence: number;
 };
 
+/** Per-window debug trace — the moment-by-moment reasoning behind the segments. */
+export type PracticeWindow = {
+  startSec: number;
+  endSec: number;
+  guess: string | null; // best-match pieceId before the confidence gate
+  matched: boolean; // survived the gate + smoothing
+  confidence: number; // 1 - match cost
+  margin: number; // best vs second-best (higher = less ambiguous)
+  refFrac: number | null; // position within the matched reference, 0..1
+  variant: "both" | "lh" | "rh";
+};
+
 export type PracticeAlignmentResult = {
   segments: PracticeSegment[];
   confidence: number;
+  windows: PracticeWindow[];
 };
 
 export type ReferenceMidiStatus = "uploaded" | "ready" | "failed";

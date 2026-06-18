@@ -13,6 +13,7 @@ Auth: optional shared secret via the X-Worker-Secret header (set WORKER_SECRET).
 
 Run locally:  ./.venv/bin/uvicorn server:app --port $(node ../../scripts/free-port.js)
 """
+import base64
 import os
 import tempfile
 import urllib.request
@@ -21,6 +22,7 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from align import align
+from transcribe import transcribe_to_midi_bytes
 
 app = FastAPI(title="practice-alignment")
 
@@ -59,4 +61,15 @@ def do_align(req: AlignRequest, x_worker_secret: str | None = Header(default=Non
     with tempfile.NamedTemporaryFile(suffix=".m4a") as f:
         f.write(audio)
         f.flush()
-        return align(f.name, refs)
+        result = align(f.name, refs)
+        # Transcribe the playing to MIDI so the app can store it (and drop the
+        # audio). Failure here shouldn't sink the segments — the narrative/log
+        # only needs the alignment; transcription is the extra artifact.
+        try:
+            result["transcriptionMidiB64"] = base64.b64encode(
+                transcribe_to_midi_bytes(f.name)
+            ).decode()
+        except Exception as e:  # noqa: BLE001
+            result["transcriptionMidiB64"] = None
+            result["transcriptionError"] = str(e)[:300]
+    return result

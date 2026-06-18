@@ -79,9 +79,9 @@ def align(audio_path, references):
     try:
         audio_c, duration = audio_chroma(audio_path)
     except Exception:
-        return {"segments": [], "confidence": 0.0}
+        return {"segments": [], "confidence": 0.0, "windows": []}
     if duration < 2.5 or audio_c.shape[1] < 8:
-        return {"segments": [], "confidence": 0.0}
+        return {"segments": [], "confidence": 0.0, "windows": []}
     refs = []
     for r in references:
         try:
@@ -113,17 +113,31 @@ def align(audio_path, references):
             "start_sec": start * FRAME_SEC,
             "end_sec": min((start + win) * FRAME_SEC, duration),
             "label": best[1]["pieceId"] if matched else None,
-            "variant": best[2] if matched else "both",
+            "best_piece": best[1]["pieceId"],
+            "variant": best[2],
             "tpl": best[1]["tpl"],
             "ref_center": (best[3] + best[4]) / 2,
+            "n": best[1]["tpl"]["n"],
             "cost": best[0],
+            "margin": margin,
         })
 
     _smooth_labels(windows)
     segments = _stitch(windows)
     segments = [s for s in segments if s["endSec"] - s["startSec"] >= MIN_SEGMENT_SEC]
     overall = float(np.mean([1 - w["cost"] for w in windows])) if windows else 0.0
-    return {"segments": segments, "confidence": round(overall, 3)}
+    # Per-window debug trace — the moment-by-moment reasoning behind the segments.
+    windows_out = [{
+        "startSec": round(w["start_sec"], 1),
+        "endSec": round(w["end_sec"], 1),
+        "guess": w["best_piece"],
+        "matched": w["label"] is not None,
+        "confidence": round(1 - w["cost"], 3),
+        "margin": round(w["margin"], 3),
+        "refFrac": round(w["ref_center"] / w["n"], 3) if w["n"] else None,
+        "variant": w["variant"],
+    } for w in windows]
+    return {"segments": segments, "confidence": round(overall, 3), "windows": windows_out}
 
 
 def _smooth_labels(windows):

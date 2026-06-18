@@ -3,3 +3,5 @@ numpy
 fastapi
 uvicorn[standard]
 # ffmpeg must be available on PATH to decode .m4a/.webm recordings.
+piano_transcription_inference
+torch

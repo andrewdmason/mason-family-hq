@@ -451,6 +451,30 @@ sequenceDiagram
 
 ---
 
+### Phase 5 — Note-level transcription + debug view (v2) — ✅ DONE (2026-06-18)
+
+> Built + integration-verified end-to-end. Worker now transcribes (ByteDance) and emits the per-window trace; the process route stores the performance MIDI in a new `practice-session-midi` bucket and **always deletes the audio**; the debug view (`/practice/session/[id]`) renders the transcribed notes as a piano roll with segment bands + the confidence trace on a synced timeline, browser-verified on a seeded session. Migration `00145`. Production still needs the worker on GPU (CPU transcription is slow but fine locally).
+
+> **Why now (no longer "on spec"):** a ByteDance transcription spike on Andrew's 5 real recordings (`experiments/bytedance-transcription/`) confirmed it captures the right notes even on the hard takes — every take transcribed into the correct key (F minor for all 3 Chopin takes, G major for Bach), and Andrew confirmed the renderings sound faithful by ear. This unlocks three things at once: (1) store a tiny **performance MIDI** instead of audio → **the audio never has to be kept** (Andrew's hard requirement), and a MIDI is also less sensitive than a room recording; (2) a real **debug/inspection view**; (3) the path to note-level feedback later. Chroma alignment stays the matcher (robust on messy audio); transcription is an added artifact, not a replacement.
+
+- U10. **Worker: add ByteDance transcription + per-window debug output**
+  - **Goal:** After alignment, transcribe the recording to MIDI and return it (base64) alongside the segments; also emit the per-window detail (guess, cost, margin, matched reference position) currently discarded after stitching.
+  - **Files:** `services/practice-alignment/` (graduate `experiments/bytedance-transcription/transcribe.py`; add torch + the model to the worker image), `requirements.txt`.
+  - **Approach:** Load audio at 16 kHz, run `PianoTranscription` (CPU locally; **GPU on Modal for production** — the real cost of this phase, accepted). Bypass the package's broken `load_audio` (use librosa). Worker auto-downloads the checkpoint via curl, not wget. Output adds `transcriptionMidiB64` + `windows[]`.
+  - **Risk:** CPU transcription is slow (tens of seconds–minutes/session) — fine locally behind the flag; production wants GPU.
+
+- U11. **Persist performance MIDI; always drop audio**
+  - **Goal:** Store the transcribed MIDI per session; stop keeping audio entirely.
+  - **Files:** migration (new `practice-session-midi` bucket + `practice_sessions.transcription_path`, persist `result.windows`), `src/app/practice/session/api/process/route.ts`.
+  - **Approach:** Process route stores the MIDI, **always deletes the recording** (the low-confidence audio-retention branch goes away — we keep the MIDI instead), persists per-window debug data in `result`.
+
+- U12. **Session debug / inspection view**
+  - **Goal:** Play back a session's transcribed MIDI with the recognizer's reasoning annotated on the scrubber.
+  - **Files:** a sessions list + `src/app/practice/session/[id]/page.tsx` + a piano-roll/playback client component (JS synth — Tone.js or a soundfont player).
+  - **Approach:** Render the performance MIDI as a piano roll + playback; annotate the timeline with segment bands (piece/region/free/hands-separate) and the per-window confidence track; optional reference-notes overlay aligned by the DTW path. Gated by the same flag.
+
+---
+
 ## System-Wide Impact
 
 - **Interaction graph:** New writes to `practice_tasks` (family-shared) from a webhook callback path; new buckets/tables; new external HTTP egress to the worker + Anthropic; new env vars/secrets (`PRACTICE_AUTOLOG_ENABLED`, `PRACTICE_MODEL`, worker URL + shared secret, webhook signing secret).
