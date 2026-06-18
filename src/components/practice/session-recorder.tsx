@@ -29,6 +29,19 @@ function fmt(s: number) {
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
+// The task-audio bucket only allows audio/mp4|webm|mpeg|ogg. Files can report
+// other types (e.g. audio/x-m4a), so map to a supported label — the worker
+// decodes by content (ffmpeg), so the label only needs to pass the bucket.
+function supportedContentType(type: string | undefined, ext: string): string {
+  const allowed = ["audio/webm", "audio/mp4", "audio/mpeg", "audio/ogg"];
+  if (type && allowed.some((a) => type.startsWith(a))) return type;
+  const e = ext.toLowerCase();
+  if (e === "webm") return "audio/webm";
+  if (e === "mp3") return "audio/mpeg";
+  if (e === "ogg" || e === "oga") return "audio/ogg";
+  return "audio/mp4"; // m4a / aac / wav / etc. — decoded by content regardless
+}
+
 type StatusResult = {
   status: string;
   taskCount?: number;
@@ -264,7 +277,10 @@ export function SessionRecorder() {
       const supabase = createClient();
       const { error: upErr } = await supabase.storage
         .from("task-audio")
-        .uploadToSignedUrl(path, token, blob, { upsert: true, contentType: blob.type || undefined });
+        .uploadToSignedUrl(path, token, blob, {
+          upsert: true,
+          contentType: supportedContentType(blob.type, ext),
+        });
       if (upErr) throw new Error(upErr.message);
 
       const res = await fetch("/practice/session/api/process", {
