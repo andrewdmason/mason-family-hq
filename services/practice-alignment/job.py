@@ -11,6 +11,7 @@ import tempfile
 import urllib.request
 
 from align import align
+from scales import classify_scales
 from transcribe import transcribe_to_midi_bytes
 
 
@@ -29,9 +30,10 @@ def run_and_callback(payload: dict) -> None:
             f.flush()
             result = align(f.name, refs)
             try:
-                result["transcriptionMidiB64"] = base64.b64encode(
-                    transcribe_to_midi_bytes(f.name)
-                ).decode()
+                midi = transcribe_to_midi_bytes(f.name)
+                # Reclassify unmatched stretches that are scale runs (needs the notes).
+                classify_scales(midi, result["segments"])
+                result["transcriptionMidiB64"] = base64.b64encode(midi).decode()
             except Exception as e:  # noqa: BLE001
                 result["transcriptionMidiB64"] = None
                 result["transcriptionError"] = str(e)[:300]

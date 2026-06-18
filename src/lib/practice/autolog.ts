@@ -5,6 +5,8 @@ import { generatePieceNarrative } from "./narrative";
 
 // Free-play stretches shorter than this are absorbed, not logged (R7).
 const MIN_FREE_SECONDS = 120;
+// Scale practice is worth logging even when brief.
+const MIN_SCALE_SECONDS = 10;
 
 /**
  * Turn the worker's segments into practice_tasks: one task per recognized piece
@@ -26,6 +28,8 @@ export async function writeSessionTasks(
     { seconds: number; regionSeconds: Map<string, number>; handsSeparate: boolean }
   >();
   let freeSeconds = 0;
+  let scaleSeconds = 0;
+  const scaleKeys = new Set<string>();
 
   for (const seg of result.segments) {
     const dur = Math.max(0, seg.endSec - seg.startSec);
@@ -41,6 +45,9 @@ export async function writeSessionTasks(
       }
       g.handsSeparate = g.handsSeparate || seg.handsSeparate;
       byPiece.set(seg.pieceId, g);
+    } else if (seg.kind === "scale") {
+      scaleSeconds += dur;
+      if (seg.key) scaleKeys.add(seg.key);
     } else {
       freeSeconds += dur;
     }
@@ -68,6 +75,21 @@ export async function writeSessionTasks(
       handsSeparate: g.handsSeparate,
     });
     rows.push(taskRow(pieceId, g.seconds, text, sessionId, opts, sortOrder++));
+  }
+
+  if (scaleSeconds >= MIN_SCALE_SECONDS) {
+    const keys = [...scaleKeys];
+    const keyText = keys.length ? ` — ${keys.join(", ")}` : "";
+    rows.push(
+      taskRow(
+        TECHNIQUE_PIECE_ID,
+        scaleSeconds,
+        `Scale practice${keyText}.`,
+        sessionId,
+        opts,
+        sortOrder++
+      )
+    );
   }
 
   if (freeSeconds >= MIN_FREE_SECONDS) {
