@@ -11,7 +11,7 @@ const BUCKET = "task-audio";
  * session-scoped (one recording fans out into several tasks).
  */
 export async function createSession(
-  ext: "webm" | "m4a"
+  ext: string
 ): Promise<{ sessionId: string; path: string; token: string }> {
   const supabase = await createClient();
   const {
@@ -20,7 +20,8 @@ export async function createSession(
   if (!user) throw new Error("Not authenticated");
 
   const sessionId = crypto.randomUUID();
-  const path = `${user.id}/sessions/${sessionId}.${ext}`;
+  const safeExt = (ext.replace(/[^a-z0-9]/gi, "").slice(0, 5) || "m4a").toLowerCase();
+  const path = `${user.id}/sessions/${sessionId}.${safeExt}`;
 
   const { data, error } = await supabase.storage
     .from(BUCKET)

@@ -35,7 +35,7 @@ export async function applySessionResult(
   let transcriptionPath: string | null = null;
   if (result.transcriptionMidiB64 && session.recording_path) {
     const midiBytes = Buffer.from(result.transcriptionMidiB64, "base64");
-    const path = session.recording_path.replace(/\.(m4a|webm)$/, ".mid");
+    const path = session.recording_path.replace(/\.[^./]+$/, ".mid");
     const { error: upErr } = await supabase.storage
       .from(SESSION_MIDI_BUCKET)
       .upload(path, midiBytes, { contentType: "audio/midi", upsert: true });
