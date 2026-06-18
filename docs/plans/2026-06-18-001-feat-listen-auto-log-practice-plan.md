@@ -348,7 +348,9 @@ sequenceDiagram
 
 ---
 
-- U7. **Vercel orchestration routes**
+- U7. **Vercel orchestration routes** — ✅ DONE (2026-06-18); v1 synchronous
+
+> `src/app/practice/session/api/process/route.ts` (claim lease → sign URLs → call worker → fan-out → delete/retain audio → status) and `status/route.ts` (poll). v1 calls the worker synchronously inside the kickoff route (short clips); the async+webhook split is the Modal-deploy follow-up. Integration-tested end-to-end against the local worker (see U8). Needs `PRACTICE_WORKER_URL` (+ optional `WORKER_SECRET`) env.
 
 **Goal:** Kick off processing, receive the worker's result, and drive the session to a terminal state.
 
@@ -380,7 +382,9 @@ sequenceDiagram
 
 ---
 
-- U8. **Narrative generation + task fan-out write**
+- U8. **Narrative generation + task fan-out write** — ✅ DONE (2026-06-18)
+
+> `src/lib/practice/anthropic.ts` (PRACTICE_MODEL), `narrative.ts` (Anthropic note, neutral voice — no invented names; templated fallback), `autolog.ts` (group segments by piece → one task each with duration in the timer columns + narrative; free play → Technique system piece above the 120s floor; idempotent via delete-by-session before insert). Integration-tested with a real Anthropic call: produced *"Spent 2 minutes on Ballade No. 4, focusing on an early section hands together."*; re-run stayed idempotent (1 task).
 
 **Goal:** Turn worker segments into a teacher-legible narrative and write one editable task per piece (plus scale/free-play entries).
 
