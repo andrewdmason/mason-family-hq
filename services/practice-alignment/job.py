@@ -41,6 +41,13 @@ def run_and_callback(payload: dict) -> None:
         out["ok"] = False
         out["error"] = str(e)[:500]
 
+    # Don't follow redirects: an auth/login redirect must surface as an error
+    # rather than silently "succeeding" against a login page.
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+
+    opener = urllib.request.build_opener(_NoRedirect)
     try:
         req = urllib.request.Request(
             payload["callbackUrl"],
@@ -48,6 +55,7 @@ def run_and_callback(payload: dict) -> None:
             headers={"content-type": "application/json"},
             method="POST",
         )
-        urllib.request.urlopen(req, timeout=120)  # noqa: S310
-    except Exception:  # noqa: BLE001
-        pass  # callback unreachable; session stays "processing" until re-run
+        resp = opener.open(req, timeout=120)  # noqa: S310
+        print(f"callback {payload['callbackUrl']} -> {resp.status}")
+    except Exception as e:  # noqa: BLE001
+        print(f"callback to {payload['callbackUrl']} FAILED: {e}")
