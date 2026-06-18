@@ -50,8 +50,8 @@ app = modal.App("practice-alignment", image=image)
 
 
 @app.function(
-    # gpu="T4",  # uncomment for ~seconds transcription instead of minutes; costs
-    #            #   ~pennies/session (scale-to-zero). CPU below is the cheap default.
+    gpu="T4",  # ~seconds transcription instead of minutes (~pennies/session,
+    #          #   scale-to-zero). transcribe.py auto-uses CUDA when present.
     timeout=600,
     scaledown_window=300,  # keep a warm container (model loaded) for 5 min after a request
     secrets=[modal.Secret.from_name("practice-worker")],
