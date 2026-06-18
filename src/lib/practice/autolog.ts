@@ -23,7 +23,7 @@ export async function writeSessionTasks(
 ): Promise<number> {
   const byPiece = new Map<
     string,
-    { seconds: number; regions: Set<string>; handsSeparate: boolean }
+    { seconds: number; regionSeconds: Map<string, number>; handsSeparate: boolean }
   >();
   let freeSeconds = 0;
 
@@ -32,27 +32,17 @@ export async function writeSessionTasks(
     if (seg.kind === "piece" && seg.pieceId) {
       const g = byPiece.get(seg.pieceId) ?? {
         seconds: 0,
-        regions: new Set<string>(),
+        regionSeconds: new Map<string, number>(),
         handsSeparate: false,
       };
       g.seconds += dur;
-      if (seg.region) g.regions.add(seg.region);
+      if (seg.region) {
+        g.regionSeconds.set(seg.region, (g.regionSeconds.get(seg.region) ?? 0) + dur);
+      }
       g.handsSeparate = g.handsSeparate || seg.handsSeparate;
       byPiece.set(seg.pieceId, g);
     } else {
       freeSeconds += dur;
-    }
-  }
-
-  const pieceIds = [...byPiece.keys()];
-  const names = new Map<string, string>();
-  if (pieceIds.length) {
-    const { data } = await supabase
-      .from("pieces")
-      .select("id, name")
-      .in("id", pieceIds);
-    for (const p of (data ?? []) as { id: string; name: string }[]) {
-      names.set(p.id, p.name);
     }
   }
 
@@ -70,10 +60,11 @@ export async function writeSessionTasks(
 
   const rows: Record<string, unknown>[] = [];
   for (const [pieceId, g] of byPiece) {
+    const sections = [...g.regionSeconds.entries()]
+      .sort((a, b) => b[1] - a[1]) // most-practiced section first
+      .map(([name, secs]) => ({ name, minutes: Math.max(1, Math.round(secs / 60)) }));
     const text = await generatePieceNarrative({
-      pieceName: names.get(pieceId) ?? "this piece",
-      totalSeconds: g.seconds,
-      regions: [...g.regions],
+      sections,
       handsSeparate: g.handsSeparate,
     });
     rows.push(taskRow(pieceId, g.seconds, text, sessionId, opts, sortOrder++));
