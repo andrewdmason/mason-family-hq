@@ -85,6 +85,7 @@ export function SessionRecorder() {
   const levelRafRef = useRef<number | null>(null);
   const heardRef = useRef(false);
   const meterUpdatedRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState<string | null>(() => {
@@ -253,20 +254,13 @@ export function SessionRecorder() {
     recorderRef.current?.stop(); // triggers finish()
   }
 
-  async function finish() {
+  // Upload a blob (recorded or picked) and run it through the pipeline, polling
+  // for the result. Shared by the mic recorder and the "process a file" path.
+  async function processBlob(blob: Blob, ext: string) {
+    setError(null);
+    setPhase("working");
     try {
-      const blob = new Blob(chunksRef.current, { type: recorderRef.current?.mimeType });
-      if (blob.size < 2000) {
-        setError("That recording was too short — play for a few seconds before stopping.");
-        setPhase("error");
-        return;
-      }
-      if (!heardRef.current) {
-        setError("We didn't pick up any audio — check your microphone selection and try again.");
-        setPhase("error");
-        return;
-      }
-      const { sessionId, path, token } = await createSession(extRef.current);
+      const { sessionId, path, token } = await createSession(ext);
       const supabase = createClient();
       const { error: upErr } = await supabase.storage
         .from("task-audio")
@@ -295,6 +289,27 @@ export function SessionRecorder() {
       setError(e instanceof Error ? e.message : "Something went wrong while processing.");
       setPhase("error");
     }
+  }
+
+  async function finish() {
+    const blob = new Blob(chunksRef.current, { type: recorderRef.current?.mimeType });
+    if (blob.size < 2000) {
+      setError("That recording was too short — play for a few seconds before stopping.");
+      setPhase("error");
+      return;
+    }
+    if (!heardRef.current) {
+      setError("We didn't pick up any audio — check your microphone selection and try again.");
+      setPhase("error");
+      return;
+    }
+    await processBlob(blob, extRef.current);
+  }
+
+  function handleFilePick(file: File) {
+    setResult(null);
+    const ext = file.name.includes(".") ? file.name.split(".").pop()! : "m4a";
+    void processBlob(file, ext);
   }
 
   return (
@@ -327,6 +342,27 @@ export function SessionRecorder() {
               </select>
             </label>
           )}
+          <div className="text-xs text-muted-foreground">
+            or{" "}
+            <button
+              type="button"
+              className="underline underline-offset-2 hover:text-foreground"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              process an existing audio file
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleFilePick(f);
+                e.target.value = "";
+              }}
+            />
+          </div>
         </>
       )}
 
