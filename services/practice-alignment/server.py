@@ -18,10 +18,11 @@ import os
 import tempfile
 import urllib.request
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from align import align
+from job import run_and_callback
 from transcribe import transcribe_to_midi_bytes
 
 app = FastAPI(title="practice-alignment")
@@ -51,6 +52,16 @@ def _check_secret(secret: str | None):
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+@app.post("/process")
+def process(payload: dict, background_tasks: BackgroundTasks):
+    """Async kickoff for local dev (mirrors the Modal `process` endpoint): validate
+    the secret, run the job in the background, return immediately. The job POSTs the
+    result to payload['callbackUrl'] when done."""
+    _check_secret(payload.get("secret"))
+    background_tasks.add_task(run_and_callback, payload)
+    return {"status": "accepted"}
 
 
 @app.post("/align")

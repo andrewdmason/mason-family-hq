@@ -29,6 +29,30 @@ function fmt(s: number) {
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
+type StatusResult = {
+  status: string;
+  taskCount?: number;
+  error?: string | null;
+  audioRetained?: boolean;
+};
+
+async function pollStatus(sessionId: string): Promise<StatusResult> {
+  const deadline = Date.now() + 25 * 60 * 1000; // ceiling for very long sessions
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3000));
+    try {
+      const r = await fetch(`/practice/session/api/status?sessionId=${sessionId}`);
+      if (r.ok) {
+        const s = (await r.json()) as StatusResult;
+        if (s.status === "ready" || s.status === "failed") return s;
+      }
+    } catch {
+      /* transient network blip — keep polling */
+    }
+  }
+  return { status: "failed", error: "Timed out waiting for processing" };
+}
+
 // Shared with the task-audio recorder so the chosen mic carries over. Picking an
 // explicit input avoids macOS Continuity hijacking the mic to a nearby iPhone.
 const INPUT_DEVICE_STORAGE_KEY = "task-audio-input-device-id";
@@ -49,11 +73,18 @@ export function SessionRecorder() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ taskCount: number; retain: boolean } | null>(null);
 
+  const [level, setLevel] = useState(0); // live input level 0..1
+  const [silent, setSilent] = useState(false); // no input heard after a few seconds
+
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const extRef = useRef<"webm" | "m4a">("webm");
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const levelRafRef = useRef<number | null>(null);
+  const heardRef = useRef(false);
+  const meterUpdatedRef = useRef(0);
 
   const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState<string | null>(() => {
@@ -104,6 +135,18 @@ export function SessionRecorder() {
     return concreteInputs.some((d) => d.deviceId === deviceId) ? deviceId : null;
   }, [deviceId, concreteInputs]);
 
+  // The device we'll actually record from. An explicit pick wins; otherwise pick
+  // a concrete NON-iPhone input (built-in preferred) so we never fall through to
+  // "default", which is what macOS Continuity hijacks to a nearby iPhone.
+  const resolvedDeviceId = useMemo(() => {
+    if (effectiveDeviceId) return effectiveDeviceId;
+    const notPhone = concreteInputs.filter(
+      (d) => !/iphone|ipad|continuity/i.test(d.label)
+    );
+    const builtin = notPhone.find((d) => /built.?in|macbook/i.test(d.label));
+    return (builtin ?? notPhone[0])?.deviceId ?? null;
+  }, [effectiveDeviceId, concreteInputs]);
+
   function chooseDevice(id: string | null) {
     setDeviceId(id);
     try {
@@ -114,18 +157,62 @@ export function SessionRecorder() {
     }
   }
 
+  // Live input-level meter: taps the mic stream so a dead/muted/wrong device is
+  // visible while recording, instead of silently producing a useless session.
+  function startMeter(stream: MediaStream) {
+    try {
+      const ctx = new AudioContext();
+      audioCtxRef.current = ctx;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      const buf = new Float32Array(analyser.fftSize);
+      heardRef.current = false;
+      const startedAt = performance.now();
+      const tick = () => {
+        analyser.getFloatTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+        const rms = Math.sqrt(sum / buf.length);
+        if (rms > 0.008) heardRef.current = true;
+        const now = performance.now();
+        if (now - meterUpdatedRef.current > 60) {
+          meterUpdatedRef.current = now;
+          setLevel(Math.min(1, rms * 5));
+          setSilent(!heardRef.current && now - startedAt > 4000);
+        }
+        levelRafRef.current = requestAnimationFrame(tick);
+      };
+      levelRafRef.current = requestAnimationFrame(tick);
+    } catch {
+      /* meter is best-effort */
+    }
+  }
+
+  function stopMeter() {
+    if (levelRafRef.current) cancelAnimationFrame(levelRafRef.current);
+    levelRafRef.current = null;
+    void audioCtxRef.current?.close();
+    audioCtxRef.current = null;
+  }
+
   function cleanupStream() {
     if (timerRef.current) clearInterval(timerRef.current);
+    stopMeter();
     streamRef.current?.getTracks().forEach((t) => t.stop());
   }
+
+  useEffect(() => () => cleanupStream(), []);
 
   async function start() {
     setError(null);
     setResult(null);
+    setLevel(0);
+    setSilent(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          deviceId: effectiveDeviceId ? { exact: effectiveDeviceId } : { ideal: "default" },
+          deviceId: resolvedDeviceId ? { exact: resolvedDeviceId } : { ideal: "default" },
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false,
@@ -140,6 +227,7 @@ export function SessionRecorder() {
         /* ignore */
       }
       streamRef.current = stream;
+      startMeter(stream);
       const { mime, ext } = pickMimeType();
       extRef.current = ext;
       const mr = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 256000 } : undefined);
@@ -173,6 +261,11 @@ export function SessionRecorder() {
         setPhase("error");
         return;
       }
+      if (!heardRef.current) {
+        setError("We didn't pick up any audio — check your microphone selection and try again.");
+        setPhase("error");
+        return;
+      }
       const { sessionId, path, token } = await createSession(extRef.current);
       const supabase = createClient();
       const { error: upErr } = await supabase.storage
@@ -187,9 +280,15 @@ export function SessionRecorder() {
       });
       const data = await res.json();
       if (!res.ok || data.status === "failed") {
-        throw new Error(data.error ?? "Processing failed");
+        throw new Error(data.error ?? "Couldn't start processing");
       }
-      setResult({ taskCount: data.taskCount ?? 0, retain: !!data.retain });
+      // Processing runs in the background (long recordings take minutes); poll
+      // the status route until it's ready or failed.
+      const final = await pollStatus(sessionId);
+      if (final.status !== "ready") {
+        throw new Error(final.error ?? "Processing failed");
+      }
+      setResult({ taskCount: final.taskCount ?? 0, retain: !!final.audioRetained });
       setPhase("done");
       router.refresh();
     } catch (e) {
@@ -214,7 +313,7 @@ export function SessionRecorder() {
               Microphone:{" "}
               <select
                 className="rounded border bg-background px-1.5 py-0.5 text-xs"
-                value={effectiveDeviceId ?? "default"}
+                value={resolvedDeviceId ?? "default"}
                 onChange={(e) =>
                   chooseDevice(e.target.value === "default" ? null : e.target.value)
                 }
@@ -237,7 +336,19 @@ export function SessionRecorder() {
             <span className="size-3 animate-pulse rounded-full bg-red-500" />
             {fmt(seconds)}
           </div>
-          <p className="text-sm text-muted-foreground">Listening…</p>
+          <div className="h-2 w-48 overflow-hidden rounded-full bg-muted" aria-label="Input level">
+            <div
+              className={`h-full transition-[width] duration-75 ${silent ? "bg-destructive" : "bg-emerald-500"}`}
+              style={{ width: `${Math.round(level * 100)}%` }}
+            />
+          </div>
+          {silent ? (
+            <p className="text-sm text-destructive">
+              We&apos;re not hearing anything — check your microphone selection.
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">Listening…</p>
+          )}
           <Button size="lg" variant="secondary" onClick={stop}>
             <SquareIcon /> Stop &amp; log
           </Button>

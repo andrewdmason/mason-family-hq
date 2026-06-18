@@ -43,21 +43,41 @@ image = (
         "torch",
     )
     .run_function(_bake_checkpoint)
-    .add_local_python_source("server", "align", "transcribe", "midi")
+    .add_local_python_source("server", "align", "transcribe", "midi", "job")
 )
 
 app = modal.App("practice-alignment", image=image)
+SECRET = modal.Secret.from_name("practice-worker")
 
 
-@app.function(
-    # gpu="T4",  # uncomment for ~seconds transcription instead of minutes; costs
-    #            #   ~pennies/session (scale-to-zero). CPU below is the cheap default.
-    timeout=600,
-    scaledown_window=300,  # keep a warm container (model loaded) for 5 min after a request
-    secrets=[modal.Secret.from_name("practice-worker")],
-)
+@app.function(gpu="T4", timeout=1800, secrets=[SECRET])
+def run_job(payload: dict):
+    """The heavy job, spawned as a background call so it survives long recordings
+    without any Vercel function holding open. Posts the result to the callback."""
+    from job import run_and_callback
+
+    run_and_callback(payload)
+
+
+@app.function(secrets=[SECRET])
+@modal.fastapi_endpoint(method="POST")
+def process(payload: dict):
+    """Kickoff endpoint Vercel calls: validate the shared secret, spawn the job,
+    return immediately (the spawned run_job finishes and calls back)."""
+    import os
+
+    from fastapi import Response
+
+    if payload.get("secret") != os.environ.get("WORKER_SECRET"):
+        return Response(status_code=401)
+    run_job.spawn(payload)
+    return {"status": "accepted"}
+
+
+@app.function(timeout=300, scaledown_window=300, secrets=[SECRET])
 @modal.asgi_app()
 def fastapi_app():
+    """Kept for /health and sync /align (local-style testing)."""
     from server import app as web_app
 
     return web_app
