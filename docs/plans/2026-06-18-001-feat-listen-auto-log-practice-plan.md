@@ -416,7 +416,9 @@ sequenceDiagram
 
 ---
 
-### Phase 4 — Surface and ship
+### Phase 4 — Surface and ship — ✅ DONE (2026-06-18)
+
+> U5 + U9 built. U5: `src/app/practice/session/{page,actions}.ts` + `src/components/practice/session-recorder.tsx` — record (MediaRecorder, mime-pick copied from the task-audio recorder) → create session + signed upload → upload → POST the process route → reveal "Logged N entries" / link to the log. U9: `src/lib/practice/flags.ts` (`NEXT_PUBLIC_PRACTICE_AUTOLOG_ENABLED`), the page `notFound()`s when off, and the header "Listen" nav link is conditional. **Browser-verified: flag off → page 404 + no nav link.** The record→log pipeline is verified via the U7/U8 integration test (headless Chromium can't feed real piano audio through getUserMedia; Next 16 won't run a 2nd dev server beside the human's :3001 to show the flag-on UI). Synchronous process route, so the reveal awaits the result (no polling yet — `status` route is there for the async/Modal switch).
 
 - U9. **Results reveal UI + rollout gating**
 

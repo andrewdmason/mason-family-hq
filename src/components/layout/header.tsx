@@ -11,6 +11,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { PRACTICE_AUTOLOG_ENABLED } from "@/lib/practice/flags";
 
 const navItems = [
   { label: "Practice Log", href: "/practice" },
@@ -18,6 +19,9 @@ const navItems = [
   { label: "Repertoire", href: "/practice/repertoire" },
   { label: "Reports", href: "/practice/reports" },
   { label: "Recordings", href: "/practice/recordings" },
+  ...(PRACTICE_AUTOLOG_ENABLED
+    ? [{ label: "Listen", href: "/practice/session" }]
+    : []),
 ];
 
 function NavLink({
