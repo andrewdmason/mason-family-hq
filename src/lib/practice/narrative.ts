@@ -29,8 +29,10 @@ export async function generatePieceNarrative(s: PieceSummary): Promise<string> {
         "specific, and warm. Write in a neutral voice (e.g. \"Worked on...\", " +
         "\"Practiced...\") — do NOT invent or use any person's name, and do not " +
         "use 'I'. Use only the facts provided. NEVER invent measure numbers, " +
-        "specific notes, mistakes, or tempos that aren't given. Output only the " +
-        "note, no preamble.",
+        "specific notes, mistakes, or tempos that aren't given. Only mention " +
+        "hands-separate practice if the facts include it — never describe playing " +
+        "as 'hands together', which is the normal default and adds nothing. Output " +
+        "only the note, no preamble.",
       messages: [
         {
           role: "user",
@@ -38,7 +40,9 @@ export async function generatePieceNarrative(s: PieceSummary): Promise<string> {
             piece: s.pieceName,
             minutes,
             sectionsWorked: s.regions,
-            handsSeparate: s.handsSeparate,
+            // Only surface hands-separate when it actually happened — otherwise the
+            // model narrates "hands together" on every entry.
+            ...(s.handsSeparate ? { handsSeparate: true } : {}),
           }),
         },
       ],
