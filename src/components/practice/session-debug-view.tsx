@@ -44,6 +44,11 @@ export function SessionDebugView({
     return { lo: Math.min(...ps) - 2, hi: Math.max(...ps) + 2 };
   }, [notes]);
 
+  const sortedNotes = useMemo(
+    () => [...notes].sort((a, b) => a.startSec - b.startSec),
+    [notes]
+  );
+
   const x = (t: number) => (t / dur) * VW;
   const ROLL_H = 260;
   const y = (midi: number) =>
@@ -72,15 +77,19 @@ export function SessionDebugView({
     stopAudio();
     startedAtRef.current = ctx.currentTime;
     offsetRef.current = from;
-    for (const n of notes) {
-      if (n.endSec < from) continue;
-      const time = ctx.currentTime + Math.max(0, n.startSec - from);
-      const duration = Math.min(n.endSec - Math.max(n.startSec, from), 8);
-      piano.start({ note: n.midi, time, duration: Math.max(0.1, duration), velocity: 80 });
-    }
     setPlaying(true);
+    // Trigger notes as the playhead reaches them (rather than pre-scheduling the
+    // whole session) so stop()/seek can actually cancel everything — smplr's
+    // stop() only affects sounding voices, not future-scheduled ones.
+    let cursor = 0;
+    while (cursor < sortedNotes.length && sortedNotes[cursor].startSec < from) cursor++;
     const tick = () => {
       const t = offsetRef.current + (ctx.currentTime - startedAtRef.current);
+      while (cursor < sortedNotes.length && sortedNotes[cursor].startSec <= t) {
+        const n = sortedNotes[cursor++];
+        const duration = Math.max(0.1, Math.min(n.endSec - n.startSec, 8));
+        piano.start({ note: n.midi, time: ctx.currentTime, duration, velocity: 80 });
+      }
       if (t >= dur) {
         setPlayhead(0);
         setPlaying(false);
