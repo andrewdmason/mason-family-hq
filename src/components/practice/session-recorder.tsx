@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { MicIcon, SquareIcon, Loader2Icon, CheckCircle2Icon, AlertCircleIcon } from "lucide-react";
@@ -29,6 +29,17 @@ function fmt(s: number) {
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
+// Shared with the task-audio recorder so the chosen mic carries over. Picking an
+// explicit input avoids macOS Continuity hijacking the mic to a nearby iPhone.
+const INPUT_DEVICE_STORAGE_KEY = "task-audio-input-device-id";
+
+function formatDeviceLabel(raw: string): string {
+  if (!raw) return "Microphone";
+  let out = raw.replace(/^Default\s*[-:—]\s*/i, "");
+  out = out.replace(/\s*\(([^()]*)\)\s*$/, "").trim();
+  return out || raw;
+}
+
 type Phase = "idle" | "recording" | "working" | "done" | "error";
 
 export function SessionRecorder() {
@@ -44,6 +55,65 @@ export function SessionRecorder() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const extRef = useRef<"webm" | "m4a">("webm");
 
+  const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
+  const [deviceId, setDeviceId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return localStorage.getItem(INPUT_DEVICE_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
+      try {
+        let devices = await navigator.mediaDevices.enumerateDevices();
+        let audio = devices.filter((d) => d.kind === "audioinput");
+        // Labels are withheld until mic permission is granted once; a throwaway
+        // probe reveals the real device names (incl. the iPhone) so the picker works.
+        if (audio.length && audio.every((d) => !d.label)) {
+          try {
+            const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+            s.getTracks().forEach((t) => t.stop());
+            devices = await navigator.mediaDevices.enumerateDevices();
+            audio = devices.filter((d) => d.kind === "audioinput");
+          } catch {
+            /* permission denied — leave list as-is */
+          }
+        }
+        if (!cancelled) setInputs(audio);
+      } catch {
+        /* ignore */
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const concreteInputs = useMemo(
+    () => inputs.filter((d) => d.deviceId !== "default" && d.deviceId !== "communications"),
+    [inputs]
+  );
+  const effectiveDeviceId = useMemo(() => {
+    if (!deviceId) return null;
+    return concreteInputs.some((d) => d.deviceId === deviceId) ? deviceId : null;
+  }, [deviceId, concreteInputs]);
+
+  function chooseDevice(id: string | null) {
+    setDeviceId(id);
+    try {
+      if (id) localStorage.setItem(INPUT_DEVICE_STORAGE_KEY, id);
+      else localStorage.removeItem(INPUT_DEVICE_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+
   function cleanupStream() {
     if (timerRef.current) clearInterval(timerRef.current);
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -54,8 +124,21 @@ export function SessionRecorder() {
     setResult(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 },
+        audio: {
+          deviceId: effectiveDeviceId ? { exact: effectiveDeviceId } : { ideal: "default" },
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          channelCount: 2,
+        },
       });
+      // Refresh the labeled list now that permission is granted.
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        setInputs(devices.filter((d) => d.kind === "audioinput"));
+      } catch {
+        /* ignore */
+      }
       streamRef.current = stream;
       const { mime, ext } = pickMimeType();
       extRef.current = ext;
@@ -126,6 +209,25 @@ export function SessionRecorder() {
           <Button size="lg" onClick={start}>
             <MicIcon /> Start listening
           </Button>
+          {concreteInputs.length > 1 && (
+            <label className="text-xs text-muted-foreground">
+              Microphone:{" "}
+              <select
+                className="rounded border bg-background px-1.5 py-0.5 text-xs"
+                value={effectiveDeviceId ?? "default"}
+                onChange={(e) =>
+                  chooseDevice(e.target.value === "default" ? null : e.target.value)
+                }
+              >
+                <option value="default">System default</option>
+                {concreteInputs.map((d) => (
+                  <option key={d.deviceId} value={d.deviceId}>
+                    {formatDeviceLabel(d.label)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </>
       )}
 
