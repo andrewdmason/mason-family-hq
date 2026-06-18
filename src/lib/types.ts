@@ -98,8 +98,50 @@ export type PracticeTask = {
   audio_trim_start_seconds: number | null;
   audio_trim_end_seconds: number | null;
   audio_title: string | null;
+  session_id: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type PracticeSessionStatus =
+  | "uploaded"
+  | "processing"
+  | "ready"
+  | "failed";
+
+export type PracticeSession = {
+  id: string;
+  date: string;
+  session_number: number;
+  recording_path: string | null;
+  status: PracticeSessionStatus;
+  error_message: string | null;
+  confidence: number | null;
+  audio_retained: boolean;
+  result: PracticeAlignmentResult | null;
+  claimed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** The alignment worker's output contract (plan U6). */
+export type PracticeSegmentKind = "piece" | "scale" | "free";
+
+export type PracticeSegment = {
+  kind: PracticeSegmentKind;
+  pieceId: string | null;
+  region: string | null; // coarse location label, e.g. "the opening" / "the coda"
+  tempoBpm: number | null;
+  handsSeparate: boolean;
+  repetitionCount: number | null;
+  startSec: number;
+  endSec: number;
+  confidence: number;
+};
+
+export type PracticeAlignmentResult = {
+  segments: PracticeSegment[];
+  confidence: number;
 };
 
 export type ReferenceMidiStatus = "uploaded" | "ready" | "failed";

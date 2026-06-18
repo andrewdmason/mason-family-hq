@@ -248,7 +248,9 @@ sequenceDiagram
 
 ### Phase 3 — Capture and processing pipeline
 
-- U4. **Session + job data model**
+- U4. **Session + job data model** — ✅ DONE (2026-06-18)
+
+> Migration `00144` applied + verified: `practice_sessions` (status machine), `practice_tasks.session_id`, and the `claim_practice_session` SECURITY DEFINER lease (tested: first claim → true, duplicate → false). TS types added (`PracticeSession`, `PracticeSegment`, `PracticeAlignmentResult`).
 
 **Goal:** Track a recording's processing lifecycle and guarantee idempotent task writes.
 
@@ -309,9 +311,11 @@ sequenceDiagram
 
 ---
 
-- U6. **Alignment worker service (external, CPU Python)**
+- U6. **Alignment worker service (external, CPU Python)** — ✅ BUILT + validated (2026-06-18); not yet deployed
 
-**Goal:** Given a recording + the active reference MIDIs, return structured segments (piece, measure range, tempo, repetition, hands-separate, confidence) plus scale/free-play classification.
+> `services/practice-alignment/` (midi.py lenient parser, align.py windowed segmenter, server.py FastAPI `/align`). Validated on the 5 real recordings: piece ID 4/4 + scale→free; region accurate (loop→"the coda", chopin→"an early section", bach→"the opening"); hands-separate detected. **Refinements deferred (documented in the service README):** `tempoBpm`/`repetitionCount` are null (naive ratios gave nonsense — need DTW-slope + ref-center clustering); scale segments are generic `free` (no key id yet — needs pyin); endpoint is synchronous (fine for short clips; async+webhook when on Modal). Not yet deployed to Modal / not yet wired to the app (U7).
+
+**Goal:** Given a recording + the active reference MIDIs, return structured segments (piece, region, hands-separate, confidence) plus scale/free-play classification.
 
 **Requirements:** R4, R5, R6, R7
 
