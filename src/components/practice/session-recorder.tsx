@@ -275,12 +275,14 @@ export function SessionRecorder() {
     try {
       const { sessionId, path, token } = await createSession(ext);
       const supabase = createClient();
+      // The SDK ignores the contentType option for Blob bodies and uses the
+      // blob's own .type, so re-wrap the blob with a bucket-supported type.
+      const contentType = supportedContentType(blob.type, ext);
+      const upload =
+        blob.type === contentType ? blob : new Blob([blob], { type: contentType });
       const { error: upErr } = await supabase.storage
         .from("task-audio")
-        .uploadToSignedUrl(path, token, blob, {
-          upsert: true,
-          contentType: supportedContentType(blob.type, ext),
-        });
+        .uploadToSignedUrl(path, token, upload, { upsert: true });
       if (upErr) throw new Error(upErr.message);
 
       const res = await fetch("/practice/session/api/process", {
