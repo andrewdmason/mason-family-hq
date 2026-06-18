@@ -102,6 +102,21 @@ export type PracticeTask = {
   updated_at: string;
 };
 
+export type ReferenceMidiStatus = "uploaded" | "ready" | "failed";
+
+export type ReferenceMidi = {
+  piece_id: string;
+  midi_path: string;
+  status: ReferenceMidiStatus;
+  measure_count: number | null;
+  ppq: number | null;
+  note_count: number | null;
+  error_message: string | null;
+  uploaded_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type LessonEntry = {
   id: string;
   lesson_id: string;

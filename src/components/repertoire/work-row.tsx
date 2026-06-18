@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { Fragment } from "react";
+import { MusicIcon } from "lucide-react";
 import type { Work, Piece } from "@/lib/types";
 
 export function WorkRow({
   work,
   pieces,
+  recognizablePieceIds,
 }: {
   work: Work;
   pieces: Piece[];
+  recognizablePieceIds?: Set<string>;
 }) {
   return (
     <div className="px-3 py-2 text-sm">
@@ -31,6 +34,12 @@ export function WorkRow({
               >
                 {piece.name}
               </Link>
+              {recognizablePieceIds?.has(piece.id) && (
+                <MusicIcon
+                  className="ml-1 inline size-3 align-middle text-green-600 dark:text-green-500"
+                  aria-label="Reference MIDI on file — recognizable"
+                />
+              )}
             </Fragment>
           ))}
         </>

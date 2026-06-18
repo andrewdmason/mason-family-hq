@@ -1,0 +1,8 @@
+# Reference-side (validated): pure-python MIDI parsing
+mido
+
+# Audio-side (install when recordings are in hand): chroma + subsequence DTW
+librosa
+numpy
+# librosa pulls soundfile/audioread; ffmpeg may be needed to decode .m4a/.webm:
+#   brew install ffmpeg
