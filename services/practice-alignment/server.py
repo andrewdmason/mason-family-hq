@@ -23,6 +23,7 @@ from pydantic import BaseModel
 
 from align import align
 from job import run_and_callback
+from scales import classify_scales
 from transcribe import transcribe_to_midi_bytes
 
 app = FastAPI(title="practice-alignment")
@@ -74,12 +75,12 @@ def do_align(req: AlignRequest, x_worker_secret: str | None = Header(default=Non
         f.flush()
         result = align(f.name, refs)
         # Transcribe the playing to MIDI so the app can store it (and drop the
-        # audio). Failure here shouldn't sink the segments — the narrative/log
-        # only needs the alignment; transcription is the extra artifact.
+        # audio), and use the notes to flag scale runs. Failure here shouldn't
+        # sink the segments — the alignment is the essential part.
         try:
-            result["transcriptionMidiB64"] = base64.b64encode(
-                transcribe_to_midi_bytes(f.name)
-            ).decode()
+            midi = transcribe_to_midi_bytes(f.name)
+            classify_scales(midi, result["segments"])
+            result["transcriptionMidiB64"] = base64.b64encode(midi).decode()
         except Exception as e:  # noqa: BLE001
             result["transcriptionMidiB64"] = None
             result["transcriptionError"] = str(e)[:300]

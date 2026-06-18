@@ -43,7 +43,7 @@ image = (
         "torch",
     )
     .run_function(_bake_checkpoint)
-    .add_local_python_source("server", "align", "transcribe", "midi", "job")
+    .add_local_python_source("server", "align", "transcribe", "midi", "job", "scales")
 )
 
 app = modal.App("practice-alignment", image=image)

@@ -132,6 +132,7 @@ export type PracticeSegment = {
   kind: PracticeSegmentKind;
   pieceId: string | null;
   region: string | null; // coarse location label, e.g. "the opening" / "the coda"
+  key?: string | null; // for kind="scale": detected key, e.g. "B major"
   tempoBpm: number | null;
   handsSeparate: boolean;
   repetitionCount: number | null;
