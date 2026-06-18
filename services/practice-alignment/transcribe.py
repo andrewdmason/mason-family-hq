@@ -18,6 +18,7 @@ import urllib.request
 from pathlib import Path
 
 import librosa
+import torch
 from piano_transcription_inference import PianoTranscription, sample_rate
 
 _CKPT = f"{Path.home()}/piano_transcription_inference_data/note_F1=0.9677_pedal_F1=0.9186.pth"
@@ -39,7 +40,8 @@ def _get_model():
     global _model
     if _model is None:
         _ensure_checkpoint()
-        _model = PianoTranscription(device="cpu", checkpoint_path=_CKPT)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        _model = PianoTranscription(device=device, checkpoint_path=_CKPT)
     return _model
 
 
