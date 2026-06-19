@@ -1,4 +1,4 @@
-import type { GeneratedEssay } from "@/lib/reading/quiz-generate";
+import type { GeneratedEssaySet } from "@/lib/reading/quiz-generate";
 
 /** A readable fallback title from a quiz's covered page range. */
 export function defaultQuizTitle(
@@ -11,23 +11,24 @@ export function defaultQuizTitle(
 }
 
 /**
- * The single insertable reading_quiz_questions row for a generated essay
- * assignment. An essay quiz is always exactly one question (position 0); the
- * anchor and rubric ride along so grading can ground itself later.
+ * The insertable reading_quiz_questions rows for a generated essay assignment —
+ * one per candidate prompt (positions 0, 1, 2…), each carrying its own anchor and
+ * rubric so grading the chosen one can ground itself later. The reader commits to
+ * one of these before writing.
  */
-export function essayQuestionRow(
+export function essayQuestionRows(
   quizId: string,
   userId: string,
-  essay: GeneratedEssay
+  set: GeneratedEssaySet
 ) {
-  return {
+  return set.options.map((option, i) => ({
     quiz_id: quizId,
     user_id: userId,
-    position: 0,
+    position: i,
     type: "essay" as const,
-    prompt: essay.prompt ?? "",
-    anchor_summary: essay.anchorSummary,
-    essay_rubric: essay.rubric,
-    min_words: essay.minWords,
-  };
+    prompt: option.prompt,
+    anchor_summary: option.anchorSummary,
+    essay_rubric: option.rubric,
+    min_words: set.minWords,
+  }));
 }
