@@ -128,6 +128,13 @@ export function QuizDraftEditor({
       {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
 
       <div className="mt-6 space-y-4">
+        {quiz.questions.length > 1 &&
+          quiz.questions.every((q) => q.type === "essay") && (
+            <p className="text-sm text-muted-foreground">
+              Prompt choices — the reader reads all of these and picks one to write
+              about.
+            </p>
+          )}
         {quiz.questions.map((question, i) => (
           <QuestionCard
             key={question.id}

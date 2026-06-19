@@ -2,10 +2,10 @@ import "server-only";
 import { revalidatePath } from "next/cache";
 import type { ReadingScope } from "@/lib/reading/scope";
 import { getTextForRange } from "@/lib/reading/extract-text";
-import { generateEssayAssignment } from "@/lib/reading/quiz-generate";
+import { generateEssayAssignments } from "@/lib/reading/quiz-generate";
 import { readerAge } from "@/lib/reading/reader-age";
 import { essayMinWords, loadReaderContext } from "@/lib/reading/reader-context";
-import { defaultQuizTitle, essayQuestionRow } from "@/lib/reading/quiz-build";
+import { defaultQuizTitle, essayQuestionRows } from "@/lib/reading/quiz-build";
 import { archiveOtherOpenQuizzes } from "@/lib/reading/supersede";
 
 export type EnsureStretchResult = {
@@ -65,7 +65,7 @@ export async function ensureStretchQuiz(
     essayMinWords(email, age),
     loadReaderContext(client, userId),
   ]);
-  const generated = await generateEssayAssignment({
+  const generated = await generateEssayAssignments({
     bookTitle: book.title as string,
     author: (book.author as string) ?? null,
     fromPage,
@@ -75,8 +75,8 @@ export async function ensureStretchQuiz(
     readerContext,
     minWords,
   });
-  // Don't publish an empty essay — the caller surfaces "still preparing / retry".
-  if (!generated.prompt) return { quizId: null, status: "error" };
+  // Don't publish an empty quiz — the caller surfaces "still preparing / retry".
+  if (!generated.options.length) return { quizId: null, status: "error" };
 
   const { data: quiz, error } = await client
     .from("reading_quizzes")
@@ -98,7 +98,7 @@ export async function ensureStretchQuiz(
 
   const { error: qError } = await client
     .from("reading_quiz_questions")
-    .insert(essayQuestionRow(quizId, userId, generated));
+    .insert(essayQuestionRows(quizId, userId, generated));
   if (qError) return { quizId: null, status: "error" };
 
   // One live quiz per book: retire any other open quiz left for this book.

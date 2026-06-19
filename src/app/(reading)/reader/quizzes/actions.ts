@@ -8,7 +8,7 @@ import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { isQuizDue } from "@/lib/reading/quiz-due";
 import { getTextForRange } from "@/lib/reading/extract-text";
-import { generateEssayAssignment } from "@/lib/reading/quiz-generate";
+import { generateEssayAssignments } from "@/lib/reading/quiz-generate";
 import {
   gradeEssay,
   gradeFreeText,
@@ -16,7 +16,7 @@ import {
 } from "@/lib/reading/quiz-grade";
 import { readerAge } from "@/lib/reading/reader-age";
 import { essayMinWords, loadReaderContext } from "@/lib/reading/reader-context";
-import { defaultQuizTitle, essayQuestionRow } from "@/lib/reading/quiz-build";
+import { defaultQuizTitle, essayQuestionRows } from "@/lib/reading/quiz-build";
 import { advanceStretch } from "@/lib/reading/advance";
 import { archiveOtherOpenQuizzes } from "@/lib/reading/supersede";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
@@ -49,7 +49,7 @@ const RESULT_QUESTION_COLUMNS =
 const ANSWER_COLUMNS =
   "id, submission_id, question_id, user_id, selected_index, response_text, is_correct, ai_notes, rubric_scores, created_at";
 const QUIZ_COLUMNS =
-  "id, user_id, book_id, from_page, through_page, status, title, created_by_email, source, generation_error, published_at, created_at, updated_at";
+  "id, user_id, book_id, from_page, through_page, status, title, created_by_email, source, generation_error, chosen_question_id, published_at, created_at, updated_at";
 
 /** True once any of a quiz's attempts answered every question correctly. */
 function isPassed(
@@ -130,7 +130,7 @@ export async function generateQuizDraft(input: {
     essayMinWords(email, age),
     loadReaderContext(client, userId),
   ]);
-  const generated = await generateEssayAssignment({
+  const generated = await generateEssayAssignments({
     bookTitle: book.title as string,
     author: (book.author as string) ?? null,
     fromPage,
@@ -152,17 +152,17 @@ export async function generateQuizDraft(input: {
       title: generated.title ?? defaultQuizTitle(fromPage, throughPage),
       created_by_email: author,
       source: "manual",
-      generation_error: generated.prompt ? null : GENERATION_FAILED_NOTE,
+      generation_error: generated.options.length ? null : GENERATION_FAILED_NOTE,
     })
     .select("id")
     .single();
   if (quizError) throw new Error(quizError.message);
   const quizId = quiz.id as string;
 
-  if (generated.prompt) {
+  if (generated.options.length) {
     const { error: qError } = await client
       .from("reading_quiz_questions")
-      .insert(essayQuestionRow(quizId, userId, generated));
+      .insert(essayQuestionRows(quizId, userId, generated));
     if (qError) throw new Error(qError.message);
   }
 
@@ -212,7 +212,7 @@ export async function regenerateQuizDraft(
     essayMinWords(email, age),
     loadReaderContext(client, userId),
   ]);
-  const generated = await generateEssayAssignment({
+  const generated = await generateEssayAssignments({
     bookTitle: book.title as string,
     author: (book.author as string) ?? null,
     fromPage,
@@ -223,11 +223,18 @@ export async function regenerateQuizDraft(
     minWords,
   });
 
+  // Replacing the questions; clear any commitment so the new prompts start fresh
+  // (a draft is never chosen, but the FK would SET NULL anyway — be explicit).
+  await client
+    .from("reading_quizzes")
+    .update({ chosen_question_id: null })
+    .eq("id", quizId)
+    .eq("user_id", userId);
   await client.from("reading_quiz_questions").delete().eq("quiz_id", quizId);
-  if (generated.prompt) {
+  if (generated.options.length) {
     const { error: qError } = await client
       .from("reading_quiz_questions")
-      .insert(essayQuestionRow(quizId, userId, generated));
+      .insert(essayQuestionRows(quizId, userId, generated));
     if (qError) throw new Error(qError.message);
   }
 
@@ -235,7 +242,7 @@ export async function regenerateQuizDraft(
     .from("reading_quizzes")
     .update({
       title: generated.title ?? defaultQuizTitle(fromPage, throughPage),
-      generation_error: generated.prompt ? null : GENERATION_FAILED_NOTE,
+      generation_error: generated.options.length ? null : GENERATION_FAILED_NOTE,
     })
     .eq("id", quizId)
     .eq("user_id", userId);
@@ -593,32 +600,120 @@ export async function getQuizForTaking(
     created_at: q.created_at as string,
   }));
 
-  // On a failed retake, only re-ask what they missed last time.
   const latest = await latestAttempt(client, userId, quizId);
+
+  // Build the prior-attempt revision context for one essay question (the draft to
+  // pre-fill and last round of feedback to keep on screen while they rework it).
+  const reviseContext = (essayQ: ReadingQuizQuestion | undefined) => {
+    const priorAnswer = essayQ && latest ? latest.answers.get(essayQ.id) : null;
+    const priorEssay = priorAnswer?.response_text ?? null;
+    const priorFeedback: ReadingEssayFeedback | null =
+      priorAnswer && (priorAnswer.rubric_scores || priorAnswer.ai_notes)
+        ? {
+            rubricScores: priorAnswer.rubric_scores,
+            aiNotes: priorAnswer.ai_notes,
+            passed: priorAnswer.is_correct === true,
+            gradingComplete: priorAnswer.is_correct !== null,
+          }
+        : null;
+    return { priorEssay, priorFeedback };
+  };
+
+  // Essay quiz: the reader picks one of several prompts and commits before writing.
+  // Until they commit (chosen_question_id null) hand back every candidate so the
+  // chooser can render; once committed, hand back only the chosen prompt's writing
+  // surface — forever, including retakes (the pick can't be changed). Nothing
+  // carries forward, so `retake` stays false; a re-attempt is signalled by the
+  // prior draft instead.
+  if (stripped.length > 0 && stripped.every((q) => q.type === "essay")) {
+    const chosenId = (quiz as ReadingQuiz).chosen_question_id;
+    const chosen = chosenId
+      ? stripped.find((q) => q.id === chosenId)
+      : undefined;
+    // Committed → just the chosen prompt; otherwise the full set for the chooser.
+    const questions = chosen != null ? [chosen] : stripped;
+    const { priorEssay, priorFeedback } = reviseContext(
+      chosen ?? stripped.find((q) => q.type === "essay")
+    );
+    return {
+      quiz: { ...(quiz as ReadingQuiz), questions },
+      retake: false,
+      priorEssay,
+      priorFeedback,
+    };
+  }
+
+  // Legacy MC/free-text: on a failed retake, only re-ask what they missed last time.
   const { ask } = partitionForAttempt(stripped, latest);
   const retake = ask.length < stripped.length;
-
-  // For a single-essay quiz nothing carries forward, so `retake` stays false; a
-  // re-attempt is signalled instead by handing back the prior draft to revise.
-  const essayQ = stripped.find((q) => q.type === "essay");
-  const priorAnswer = essayQ && latest ? latest.answers.get(essayQ.id) : null;
-  const priorEssay = priorAnswer?.response_text ?? null;
-  // Keep the last round of feedback to show while they revise (only once graded).
-  const priorFeedback: ReadingEssayFeedback | null =
-    priorAnswer && (priorAnswer.rubric_scores || priorAnswer.ai_notes)
-      ? {
-          rubricScores: priorAnswer.rubric_scores,
-          aiNotes: priorAnswer.ai_notes,
-          passed: priorAnswer.is_correct === true,
-          gradingComplete: priorAnswer.is_correct !== null,
-        }
-      : null;
+  const { priorEssay, priorFeedback } = reviseContext(
+    stripped.find((q) => q.type === "essay")
+  );
 
   return {
     quiz: { ...(quiz as ReadingQuiz), questions: ask },
     retake,
     priorEssay,
     priorFeedback,
+  };
+}
+
+/**
+ * The reader commits to one of an essay quiz's candidate prompts. The pick is
+ * final: this only sets chosen_question_id when it's still null, so a second call
+ * (a refresh, a double-tap, a retake) is a no-op and they can't switch prompts.
+ * Validates the question belongs to this quiz and is an essay before recording it.
+ */
+export async function chooseEssayQuestion(
+  quizId: string,
+  questionId: string,
+  memberEmail?: string | null
+): Promise<{ chosenQuestionId: string }> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+
+  const { data: quiz } = await client
+    .from("reading_quizzes")
+    .select("id, status, chosen_question_id")
+    .eq("id", quizId)
+    .eq("user_id", userId)
+    .eq("status", "published")
+    .maybeSingle();
+  if (!quiz) throw new Error("This quiz isn't available.");
+
+  // Already committed — keep the original pick (the choice can't be changed).
+  const existing = (quiz.chosen_question_id as string | null) ?? null;
+  if (existing) return { chosenQuestionId: existing };
+
+  const { data: question } = await client
+    .from("reading_quiz_questions")
+    .select("id")
+    .eq("id", questionId)
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId)
+    .eq("type", "essay")
+    .maybeSingle();
+  if (!question) throw new Error("That prompt isn't part of this quiz.");
+
+  // Guard against a race (two tabs committing at once): only set it if still null,
+  // and re-read so a loser returns the winning pick rather than its own.
+  await client
+    .from("reading_quizzes")
+    .update({ chosen_question_id: questionId })
+    .eq("id", quizId)
+    .eq("user_id", userId)
+    .is("chosen_question_id", null);
+
+  const { data: after } = await client
+    .from("reading_quizzes")
+    .select("chosen_question_id")
+    .eq("id", quizId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  revalidateQuizzes();
+  return {
+    chosenQuestionId:
+      (after?.chosen_question_id as string | null) ?? questionId,
   };
 }
 
@@ -644,7 +739,7 @@ export async function submitQuiz(
 
   const { data: quiz } = await client
     .from("reading_quizzes")
-    .select("id, status, book_id, through_page")
+    .select("id, status, book_id, through_page, chosen_question_id")
     .eq("id", quizId)
     .eq("user_id", userId)
     .eq("status", "published")
@@ -683,41 +778,91 @@ export async function submitQuiz(
     .order("position", { ascending: true });
   const qs = (questions ?? []) as ReadingQuizQuestion[];
 
-  // After a failed attempt, only grade the questions being re-asked; the ones
-  // they already got right carry their prior answer into this attempt so the
-  // submission stays a complete, comparable snapshot of the whole quiz.
-  const { ask, carry } = partitionForAttempt(qs, prior);
   const byId = new Map(answers.map((a) => [a.questionId, a]));
   const age = await readerAge(email);
 
-  // Grade the re-asked questions (free-text calls run in parallel; each is
-  // independently resilient inside gradeFreeText).
-  const gradedAsk = await Promise.all(
-    ask.map(async (q) => {
-      const submitted = byId.get(q.id);
-      if (q.type === "multiple_choice") {
-        const selectedIndex = submitted?.selectedIndex ?? null;
-        const isCorrect = gradeMultipleChoice(selectedIndex, q.correct_index ?? -1);
-        return {
-          question_id: q.id,
-          user_id: userId,
-          submission_id: submissionId,
-          selected_index: selectedIndex,
-          response_text: null,
-          is_correct: isCorrect,
-          ai_notes: null,
-          rubric_scores: null as EssayRubricScores | null,
-        };
-      }
-      if (q.type === "essay") {
+  type GradedAnswerRow = {
+    question_id: string;
+    user_id: string;
+    submission_id: string;
+    selected_index: number | null;
+    response_text: string | null;
+    is_correct: boolean | null;
+    ai_notes: string | null;
+    rubric_scores: EssayRubricScores | null;
+  };
+
+  // An essay quiz offers several candidate prompts, but only the one the reader
+  // committed to is answered and graded — so it scores out of 1, exactly like the
+  // old single-essay quiz did. (Falling back to the lone or submitted question
+  // keeps any pre-existing one-prompt essay quiz working.)
+  const isEssayQuiz = qs.length > 0 && qs.every((q) => q.type === "essay");
+
+  let graded: GradedAnswerRow[];
+  let scoreTotal: number;
+
+  if (isEssayQuiz) {
+    const chosenId =
+      (quiz.chosen_question_id as string | null) ??
+      (qs.length === 1 ? qs[0].id : answers[0]?.questionId ?? null);
+    const chosen = qs.find((q) => q.id === chosenId) ?? qs[0];
+    const responseText =
+      byId.get(chosen.id)?.responseText ?? answers[0]?.responseText ?? "";
+    const grade = await gradeEssay({
+      prompt: chosen.prompt,
+      anchorSummary: chosen.anchor_summary ?? "",
+      rubric: chosen.essay_rubric ?? null,
+      essay: responseText,
+      readerAge: age,
+      minWords: chosen.min_words ?? null,
+    });
+    graded = [
+      {
+        question_id: chosen.id,
+        user_id: userId,
+        submission_id: submissionId,
+        selected_index: null,
+        response_text: responseText,
+        // An ungraded essay (AI failed) stays null so the attempt saves without
+        // counting as a pass; "meets standard" is the gate when it did grade.
+        is_correct: grade.graded ? grade.meetsStandard : null,
+        ai_notes: grade.notes || null,
+        rubric_scores: grade.scores,
+      },
+    ];
+    scoreTotal = 1;
+  } else {
+    // Legacy MC/free-text: after a failed attempt, only grade the questions being
+    // re-asked; the ones already right carry their prior answer forward so the
+    // submission stays a complete, comparable snapshot of the whole quiz.
+    const { ask, carry } = partitionForAttempt(qs, prior);
+
+    // Grade the re-asked questions (free-text calls run in parallel; each is
+    // independently resilient inside gradeFreeText).
+    const gradedAsk = await Promise.all(
+      ask.map(async (q): Promise<GradedAnswerRow> => {
+        const submitted = byId.get(q.id);
+        if (q.type === "multiple_choice") {
+          const selectedIndex = submitted?.selectedIndex ?? null;
+          const isCorrect = gradeMultipleChoice(selectedIndex, q.correct_index ?? -1);
+          return {
+            question_id: q.id,
+            user_id: userId,
+            submission_id: submissionId,
+            selected_index: selectedIndex,
+            response_text: null,
+            is_correct: isCorrect,
+            ai_notes: null,
+            rubric_scores: null,
+          };
+        }
         const responseText = submitted?.responseText ?? "";
-        const grade = await gradeEssay({
-          prompt: q.prompt,
-          anchorSummary: q.anchor_summary ?? "",
-          rubric: q.essay_rubric ?? null,
-          essay: responseText,
+        const grade = await gradeFreeText({
+          question: q.prompt,
+          rubric: q.grading_rubric ?? "",
+          sampleAnswer: q.sample_answer ?? "",
+          answer: responseText,
           readerAge: age,
-          minWords: q.min_words ?? null,
         });
         return {
           question_id: q.id,
@@ -725,51 +870,32 @@ export async function submitQuiz(
           submission_id: submissionId,
           selected_index: null,
           response_text: responseText,
-          // An ungraded essay (AI failed) stays null so the attempt saves without
-          // counting as a pass; "meets standard" is the gate when it did grade.
-          is_correct: grade.graded ? grade.meetsStandard : null,
+          is_correct: grade.correct,
           ai_notes: grade.notes || null,
-          rubric_scores: grade.scores,
+          rubric_scores: null,
         };
-      }
-      const responseText = submitted?.responseText ?? "";
-      const grade = await gradeFreeText({
-        question: q.prompt,
-        rubric: q.grading_rubric ?? "",
-        sampleAnswer: q.sample_answer ?? "",
-        answer: responseText,
-        readerAge: age,
-      });
+      })
+    );
+
+    // Carry the previously-correct answers forward verbatim (prior is non-null
+    // whenever carry is non-empty).
+    const carried: GradedAnswerRow[] = carry.map((q) => {
+      const previous = prior!.answers.get(q.id)!;
       return {
         question_id: q.id,
         user_id: userId,
         submission_id: submissionId,
-        selected_index: null,
-        response_text: responseText,
-        is_correct: grade.correct,
-        ai_notes: grade.notes || null,
-        rubric_scores: null as EssayRubricScores | null,
+        selected_index: previous.selected_index,
+        response_text: previous.response_text,
+        is_correct: true,
+        ai_notes: previous.ai_notes,
+        rubric_scores: null,
       };
-    })
-  );
+    });
 
-  // Carry the previously-correct answers forward verbatim (prior is non-null
-  // whenever carry is non-empty).
-  const carried = carry.map((q) => {
-    const previous = prior!.answers.get(q.id)!;
-    return {
-      question_id: q.id,
-      user_id: userId,
-      submission_id: submissionId,
-      selected_index: previous.selected_index,
-      response_text: previous.response_text,
-      is_correct: true as boolean | null,
-      ai_notes: previous.ai_notes,
-      rubric_scores: null as EssayRubricScores | null,
-    };
-  });
-
-  const graded = [...gradedAsk, ...carried];
+    graded = [...gradedAsk, ...carried];
+    scoreTotal = qs.length;
+  }
 
   if (graded.length) {
     const { error: ansError } = await client
@@ -779,7 +905,6 @@ export async function submitQuiz(
   }
 
   const scoreCorrect = graded.filter((g) => g.is_correct === true).length;
-  const scoreTotal = qs.length;
   const gradingComplete = graded.every((g) => g.is_correct !== null);
 
   await client
@@ -843,7 +968,7 @@ export async function postEssayToFamilyJournal(
 
   const { data: quiz } = await client
     .from("reading_quizzes")
-    .select("id, book_id, from_page, through_page")
+    .select("id, book_id, from_page, through_page, chosen_question_id")
     .eq("id", quizId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -857,16 +982,19 @@ export async function postEssayToFamilyJournal(
     .eq("user_id", userId);
   if (!isPassed(subs ?? [])) throw new Error("Pass the essay before sharing it.");
 
-  // The essay prompt and the reader's written response on the (single) essay question.
-  const { data: essayQ } = await client
+  // The essay prompt and the reader's written response on the prompt they chose
+  // (falling back to the first essay question for a pre-existing one-prompt quiz).
+  const chosenId = quiz.chosen_question_id as string | null;
+  let essayQuery = client
     .from("reading_quiz_questions")
     .select("id, prompt")
     .eq("quiz_id", quizId)
     .eq("user_id", userId)
-    .eq("type", "essay")
-    .order("position", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .eq("type", "essay");
+  essayQuery = chosenId
+    ? essayQuery.eq("id", chosenId)
+    : essayQuery.order("position", { ascending: true }).limit(1);
+  const { data: essayQ } = await essayQuery.maybeSingle();
   if (!essayQ) throw new Error("This quiz has no essay to share.");
   const prompt = (essayQ.prompt as string | null)?.trim() || "Reading essay";
 

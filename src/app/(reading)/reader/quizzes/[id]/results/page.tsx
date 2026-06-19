@@ -79,8 +79,17 @@ export default async function QuizResultsPage({
   // The essay format gets the doc-style feedback view — a continuation of the
   // writing surface — rather than the per-question results cards.
   if (isEssay) {
-    const essayQ = questions.find((q) => q.type === "essay") ?? questions[0];
+    // Show the prompt the reader committed to (the only one with an answer); fall
+    // back to the first essay for a pre-existing one-prompt quiz.
+    const essayQ =
+      questions.find((q) => q.id === quiz.chosen_question_id) ??
+      questions.find((q) => q.type === "essay") ??
+      questions[0];
     const answer = essayQ ? answersByQuestionId[essayQ.id] : undefined;
+    // Before the reader commits, every candidate prompt is still on the table —
+    // show them all (rather than presenting the first as if it were decided).
+    const essayPrompts = questions.filter((q) => q.type === "essay");
+    const showingChoices = !quiz.chosen_question_id && essayPrompts.length > 1;
     const eyebrow = !submission
       ? "Not started"
       : closedByParent
@@ -130,16 +139,38 @@ export default async function QuizResultsPage({
         )}
 
         <div className="mt-6 flex flex-1 flex-col">
-          <EssayFeedback
-            prompt={essayQ?.prompt ?? ""}
-            essay={answer?.response_text ?? null}
-            rubricScores={answer?.rubric_scores ?? null}
-            aiNotes={answer?.ai_notes ?? null}
-            attempted={!!submission}
-            closedByParent={closedByParent}
-            viewedPassed={viewedPerfect}
-            gradingComplete={submission?.grading_complete ?? true}
-          />
+          {showingChoices ? (
+            <div className="flex flex-col gap-4">
+              <p className="text-sm text-muted-foreground">
+                Three prompts to choose from — they read all three and pick one to
+                write about when they start.
+              </p>
+              {essayPrompts.map((q, i) => (
+                <div
+                  key={q.id}
+                  className="rounded-lg border border-border px-5 py-4"
+                >
+                  <p className="font-serif text-xs uppercase tracking-wide text-muted-foreground">
+                    Prompt {i + 1}
+                  </p>
+                  <p className="mt-2 font-serif text-lg italic leading-relaxed text-foreground">
+                    {q.prompt}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EssayFeedback
+              prompt={essayQ?.prompt ?? ""}
+              essay={answer?.response_text ?? null}
+              rubricScores={answer?.rubric_scores ?? null}
+              aiNotes={answer?.ai_notes ?? null}
+              attempted={!!submission}
+              closedByParent={closedByParent}
+              viewedPassed={viewedPerfect}
+              gradingComplete={submission?.grading_complete ?? true}
+            />
+          )}
         </div>
 
         <div className="mt-10 flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
@@ -148,7 +179,11 @@ export default async function QuizResultsPage({
               href={quizTakeHref(id, memberEmail)}
               className={cn(buttonVariants({ variant: "default", size: "sm" }))}
             >
-              {submission ? "Revise essay" : "Start essay"}
+              {submission
+                ? "Revise essay"
+                : showingChoices
+                  ? "Pick a prompt & start"
+                  : "Start essay"}
             </Link>
           )}
           <Link

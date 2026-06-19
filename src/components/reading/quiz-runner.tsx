@@ -12,7 +12,10 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { submitQuiz } from "@/app/(reading)/reader/quizzes/actions";
+import {
+  chooseEssayQuestion,
+  submitQuiz,
+} from "@/app/(reading)/reader/quizzes/actions";
 import { EssayGradeCard } from "@/components/reading/quiz-essay-feedback";
 import { quizResultsHref } from "@/lib/reading/links";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
@@ -59,17 +62,30 @@ export function QuizRunner({
   /** Owner-only controls (e.g. close without passing), shown in the header. */
   ownerSlot?: ReactNode;
 }) {
-  // An essay quiz is exactly one essay question; anything else is the legacy form.
-  const essay =
-    quiz.questions.length === 1 && quiz.questions[0].type === "essay"
-      ? quiz.questions[0]
-      : null;
+  // An essay quiz is all-essay questions; anything else is the legacy form. A
+  // fresh essay quiz hands back several candidate prompts to choose between; once
+  // the reader has committed (or there's only one), it's a single writing surface.
+  const isEssay =
+    quiz.questions.length > 0 &&
+    quiz.questions.every((q) => q.type === "essay");
 
-  if (essay) {
+  if (isEssay) {
+    if (quiz.questions.length > 1 && !quiz.chosen_question_id) {
+      return (
+        <EssayChooser
+          quiz={quiz}
+          options={quiz.questions}
+          memberEmail={memberEmail}
+        />
+      );
+    }
+    const chosen =
+      quiz.questions.find((q) => q.id === quiz.chosen_question_id) ??
+      quiz.questions[0];
     return (
       <EssayRunner
         quiz={quiz}
-        essay={essay}
+        essay={chosen}
         memberEmail={memberEmail}
         priorEssay={priorEssay}
         priorFeedback={priorFeedback}
@@ -86,6 +102,101 @@ export function QuizRunner({
       retake={retake}
       ownerSlot={ownerSlot}
     />
+  );
+}
+
+/**
+ * The reader picks one of several candidate essay prompts. The choice is
+ * deliberate and final — a confirm step makes that clear, and once committed the
+ * server records it (chosen_question_id) so a refresh or retake can't reopen it.
+ * On commit we refresh; getQuizForTaking then returns just the chosen prompt and
+ * the writing surface takes over.
+ */
+function EssayChooser({
+  quiz,
+  options,
+  memberEmail,
+}: {
+  quiz: ReadingQuizWithQuestions;
+  options: ReadingQuizQuestion[];
+  memberEmail: string | null;
+}) {
+  const router = useRouter();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function commit() {
+    if (!selectedId) return;
+    setError(null);
+    startTransition(async () => {
+      try {
+        await chooseEssayQuestion(quiz.id, selectedId, memberEmail);
+        // The take page re-fetches as the chosen single-prompt writing surface.
+        router.refresh();
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Couldn't lock in your choice."
+        );
+      }
+    });
+  }
+
+  return (
+    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pb-28 pt-12">
+      <header className="mb-8">
+        <p className="font-serif text-sm text-muted-foreground">
+          Writing assignment
+        </p>
+        <h1 className="mt-1 font-serif text-3xl tracking-tight text-foreground">
+          {quiz.title || `On ${quizRangeLabel(quiz.from_page, quiz.through_page)}`}
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Choose the prompt you want to write about. Read all three first — once
+          you pick one, you can&apos;t switch.
+        </p>
+      </header>
+
+      <div className="flex flex-1 flex-col gap-4">
+        {options.map((option, i) => {
+          const selected = selectedId === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setSelectedId(option.id)}
+              aria-pressed={selected}
+              className={cn(
+                "rounded-lg border px-5 py-4 text-left transition-colors",
+                selected
+                  ? "border-primary bg-primary/5"
+                  : "border-border hover:bg-accent"
+              )}
+            >
+              <p className="font-serif text-xs uppercase tracking-wide text-muted-foreground">
+                Prompt {i + 1}
+              </p>
+              <p className="mt-2 font-serif text-lg italic leading-relaxed text-foreground">
+                {option.prompt}
+              </p>
+            </button>
+          );
+        })}
+      </div>
+
+      {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
+
+      <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
+        <Button type="button" onClick={commit} disabled={pending || !selectedId}>
+          {pending ? "Locking it in…" : "Write about this one"}
+        </Button>
+        <span className="text-sm text-muted-foreground">
+          {selectedId
+            ? "You won't be able to switch after this."
+            : "Pick a prompt to get started."}
+        </span>
+      </div>
+    </main>
   );
 }
 
@@ -115,7 +226,7 @@ function EssayRunner({
   // straight into initial state (so there's no flash), and cleared on a successful
   // turn-in. The textarea suppresses the hydration warning since a restored draft
   // legitimately differs from the server-rendered empty value.
-  const storageKey = `reading-essay-draft:${quiz.id}`;
+  const storageKey = `reading-essay-draft:${quiz.id}:${essay.id}`;
   const [text, setText] = useState(() => {
     if (typeof window === "undefined") return priorEssay ?? "";
     try {

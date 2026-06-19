@@ -1111,6 +1111,12 @@ export type ReadingQuiz = {
   source: "manual" | "checkin";
   /** Last generation failure, surfaced in the draft editor. */
   generation_error: string | null;
+  /**
+   * For a multi-prompt essay quiz: the question row the reader committed to. Null
+   * until they pick (they still see the chooser); once set it's final — every
+   * take/retake, grading, results, and journal share key off it.
+   */
+  chosen_question_id: string | null;
   published_at: string | null;
   created_at: string;
   updated_at: string;

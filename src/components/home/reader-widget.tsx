@@ -21,10 +21,11 @@ const QUIZ_BADGE = {
 
 /**
  * A window into the active book. For parents (`variant="default"`) it shows this
- * week's progress toward the page goal plus a "quiz ready" flag. For kids
- * (`variant="goal"`) it strips that chrome down to the single thing they need to
- * see — the page they're aiming for ("Goal: Page 180") and a loud alert when
- * they've blown past the deadline. The title opens the Reader either way.
+ * week's progress toward the page goal. For kids (`variant="goal"`) it strips that
+ * chrome down to the page they're aiming for ("Goal: Page 180") and a loud alert
+ * when they've blown past the deadline. Either way, a published, unpassed quiz on
+ * the book surfaces a "Take quiz" CTA (the kid needs that nudge most). The title
+ * opens the Reader either way.
  */
 export function ReaderWidget({
   book,
@@ -121,8 +122,7 @@ export function ReaderWidget({
                 </p>
               )
             ))}
-          {variant === "default" &&
-            activeQuiz &&
+          {activeQuiz &&
             (() => {
               const state = activeQuizState(
                 activeQuiz.attempted,
