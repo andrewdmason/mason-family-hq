@@ -2,7 +2,6 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeftIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { PRACTICE_AUTOLOG_ENABLED } from "@/lib/practice/flags";
 import { parsePerformanceMidi, type PerformanceNote } from "@/lib/practice/midi";
 import { SessionDebugView } from "@/components/practice/session-debug-view";
 import type { PracticeAlignmentResult } from "@/lib/types";
@@ -14,7 +13,6 @@ export default async function SessionDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  if (!PRACTICE_AUTOLOG_ENABLED) notFound();
   const { id } = await params;
   const supabase = await createClient();
 

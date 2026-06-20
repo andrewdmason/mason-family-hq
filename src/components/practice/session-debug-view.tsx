@@ -49,6 +49,24 @@ export function SessionDebugView({
     [notes]
   );
 
+  const markers = useMemo(
+    () =>
+      [...segments]
+        .sort((a, b) => a.startSec - b.startSec)
+        .map((s) => ({
+          startSec: s.startSec,
+          endSec: s.endSec,
+          label:
+            s.kind === "piece"
+              ? `${pieceNames[s.pieceId ?? ""] ?? "piece"}${s.region ? ` · ${s.region}` : ""}${s.handsSeparate ? " · hands sep." : ""}`
+              : s.kind === "scale"
+                ? "scale"
+                : "free play",
+          isPiece: s.kind === "piece",
+        })),
+    [segments, pieceNames]
+  );
+
   const x = (t: number) => (t / dur) * VW;
   const ROLL_H = 260;
   const y = (midi: number) =>
@@ -115,8 +133,13 @@ export function SessionDebugView({
     const rect = el.getBoundingClientRect();
     const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     const t = frac * dur;
-    setPlayhead(t);
-    if (playing) void play(t);
+    seekTo(t);
+  }
+
+  function seekTo(t: number) {
+    const clamped = Math.max(0, Math.min(dur, t));
+    setPlayhead(clamped);
+    if (playing) void play(clamped);
   }
 
   useEffect(
@@ -151,6 +174,35 @@ export function SessionDebugView({
           </span>
         )}
       </div>
+
+      {markers.length > 0 && (
+        <ul className="divide-y rounded-lg border bg-card text-sm">
+          {markers.map((m, i) => {
+            const active = playhead >= m.startSec && playhead < m.endSec;
+            return (
+              <li key={i}>
+                <button
+                  type="button"
+                  onClick={() => seekTo(m.startSec)}
+                  className={`flex w-full items-center gap-3 px-3 py-1.5 text-left hover:bg-accent ${
+                    active ? "bg-accent font-medium" : ""
+                  }`}
+                >
+                  <span className="w-12 shrink-0 tabular-nums text-muted-foreground">
+                    {fmt(m.startSec)}
+                  </span>
+                  <span
+                    className={`size-1.5 shrink-0 rounded-full ${
+                      m.isPiece ? "bg-emerald-500" : "bg-zinc-400"
+                    }`}
+                  />
+                  <span className="truncate">{m.label}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       <div
         className="relative cursor-pointer select-none rounded-lg border bg-card"

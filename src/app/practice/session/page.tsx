@@ -1,8 +1,6 @@
-import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ChevronRightIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { PRACTICE_AUTOLOG_ENABLED } from "@/lib/practice/flags";
 import { SessionRecorder } from "@/components/practice/session-recorder";
 
 export const metadata = {
@@ -10,8 +8,6 @@ export const metadata = {
 };
 
 export default async function SessionPage() {
-  if (!PRACTICE_AUTOLOG_ENABLED) notFound();
-
   const supabase = await createClient();
   const { data: recent } = await supabase
     .from("practice_sessions")
