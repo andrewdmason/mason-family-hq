@@ -84,11 +84,21 @@ export function JournalNudgeRow({ onDismissed }: { onDismissed: () => void }) {
               Write in your journal
             </span>
           </span>
-          <Link href="/journal/new?audience=family" className={chipClass}>
+          <Link
+            href="/journal/new?audience=family"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={chipClass}
+          >
             <Users className="size-3" />
             Family
           </Link>
-          <Link href="/journal/new?audience=private" className={chipClass}>
+          <Link
+            href="/journal/new?audience=private"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={chipClass}
+          >
             <Lock className="size-3" />
             Personal
           </Link>
