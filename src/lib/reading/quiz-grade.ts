@@ -124,7 +124,7 @@ export async function gradeFreeText(input: {
 export type EssayGrade = {
   /** False when the AI grade failed/parsed badly — the answer stays ungraded. */
   graded: boolean;
-  /** True when every dimension is graded at >= 2 (the pass that advances the book). */
+  /** True when every dimension is graded at >= 3 (the pass that advances the book). */
   meetsStandard: boolean;
   /** The per-dimension grades to store on the answer row. */
   scores: EssayRubricScores;
@@ -145,8 +145,10 @@ const GRADE_ESSAY_TOOL = {
         description:
           "1–4. Does the essay open by showing they truly read and understood the " +
           "assigned pages (judged against the anchor) and stay accurate to the book? " +
-          "1 = didn't show the reading, 2 = meets the standard for their grade, " +
-          "3 = strong, 4 = exceptional.",
+          "The 1–4 scale: 1 = needs a lot of work, 2 = developing / not yet there, " +
+          "3 = meets the standard for their grade, 4 = exceptional. A 3 (the passing " +
+          "bar) requires a clear, accurate anchor; if the opening is vague, partly " +
+          "wrong, or only loosely tied to the assigned pages, score 2 or below.",
       },
       comprehension_note: {
         type: "string",
@@ -156,18 +158,31 @@ const GRADE_ESSAY_TOOL = {
         type: "integer",
         description:
           "1–4 for grammar, spelling, punctuation, paragraphing, and structure at " +
-          "this child's age. Same 1–4 meaning as comprehension.",
+          "this child's age. Same scale (3 = meets the standard, the passing bar). Be " +
+          "exacting and hold the bar high: REPEATED spelling errors, a misspelled or " +
+          "uncapitalized proper noun (a character or place name), run-on sentences, or " +
+          "missing commas each keep this at 2 or below — a 3 means the writing is " +
+          "largely clean, the kind of thing handed in after a careful proofread. The " +
+          "essay MUST be broken into more than one paragraph: a single undivided block " +
+          "of text cannot score above 2 no matter how few other errors it has.",
       },
       mechanics_note: {
         type: "string",
-        description: "One short, specific sentence on the mechanics score.",
+        description:
+          "One short sentence naming the KINDS of mechanics problems you found " +
+          "(e.g. spelling slips, a name not capitalized, run-on sentences, no " +
+          "paragraph breaks) so the child knows what to hunt for — but do NOT correct " +
+          "them or rewrite any words yourself.",
       },
       thinking_score: {
         type: "integer",
         description:
           "1–4 for originality, depth, and support of ideas in the broader-theme " +
-          "part. Reward genuine insight over length; never reward padding. Same " +
-          "1–4 meaning as the others.",
+          "part. Same scale (3 = meets the standard, the passing bar). A 3 develops a " +
+          "real idea across more than a sentence or two and backs it with something " +
+          "specific from the book; a thin, one-note, or mostly-plot-summary answer " +
+          "that never really digs into the broader question scores 2 or below. Reward " +
+          "genuine insight, never padding or length on its own.",
       },
       thinking_note: {
         type: "string",
@@ -177,9 +192,11 @@ const GRADE_ESSAY_TOOL = {
         type: "string",
         description:
           "2-3 warm sentences addressed to the child (\"you\"): name one real " +
-          "strength and one specific thing to work on. If the essay falls short, " +
-          "coach toward a revision — point to the part of the book or the idea to " +
-          "develop — without writing it for them.",
+          "strength, then name the KINDS of things to fix so they learn what to look " +
+          "for — e.g. \"reread for spelling and run-on sentences,\" \"break this into " +
+          "paragraphs,\" \"capitalize names,\" or \"push your idea further with an " +
+          "example from the book.\" Point them to it; do NOT fix the errors, correct " +
+          "spellings, or rewrite sentences for them — the revision is theirs to do.",
       },
     },
     required: [
@@ -216,7 +233,7 @@ const ungraded = (): EssayGrade => ({
  * short-circuits to a graded fail (no API call). Any API/parse failure resolves
  * to an ungraded result so the caller records it without failing the submission.
  * "Meets standard" — the pass that advances the book — means every dimension is
- * graded at 2 or better.
+ * graded at 3 or better (a 2 is "close, but revise and resubmit").
  */
 export async function gradeEssay(input: {
   prompt: string;
@@ -256,14 +273,21 @@ export async function gradeEssay(input: {
       system:
         "You are an encouraging but honest middle-school English teacher grading a " +
         "child's longform essay about a book they're partway through. Grade three " +
-        "dimensions, each 1–4 (1 = needs a lot of work, 2 = meets the standard for " +
-        "the child's grade, 3 = strong, 4 = exceptional): comprehension of the " +
-        "reading (the opening must show they actually read and understood the " +
-        "assigned pages, judged against the anchor, and the essay must stay accurate " +
-        "to the book), writing mechanics, and quality of thinking (reward genuine " +
-        "insight over length — never reward padding). Then write a short, warm note " +
-        "naming one real strength and one specific thing to improve. Coach toward a " +
-        "revision without writing it for them.",
+        "dimensions, each 1–4 (1 = needs a lot of work, 2 = developing / not yet " +
+        "there, 3 = meets the standard for the child's grade, 4 = exceptional): " +
+        "comprehension of the reading (the opening must show they actually read and " +
+        "understood the assigned pages, judged against the anchor, and the essay must " +
+        "stay accurate to the book), writing mechanics, and quality of thinking " +
+        "(reward genuine insight over length — never reward padding). Hold a real " +
+        "bar: 3 is the passing standard, and a 2 means the work is close but not yet " +
+        "good enough to advance. Be exacting on mechanics — repeated spelling errors, " +
+        "an uncapitalized or misspelled name, run-on sentences, or a single " +
+        "undivided block with no paragraph breaks all keep mechanics below a 3 — and " +
+        "expect the broader-theme idea to be genuinely developed, not a thin " +
+        "afterthought. Then write a short, warm note: name one real strength and the " +
+        "KINDS of things to fix, so the child knows what to look for. Coach toward a " +
+        "revision — point them at the problems — but never fix spellings, correct " +
+        "errors, or rewrite sentences for them; the revision is theirs to do.",
       tools: [GRADE_ESSAY_TOOL],
       tool_choice: { type: "tool", name: GRADE_ESSAY_TOOL.name },
       messages: [
@@ -300,7 +324,7 @@ export async function gradeEssay(input: {
     const graded =
       comprehension != null && mechanics != null && thinking != null;
     const meetsStandard =
-      graded && comprehension >= 2 && mechanics >= 2 && thinking >= 2;
+      graded && comprehension >= 3 && mechanics >= 3 && thinking >= 3;
     return { graded, meetsStandard, scores, notes: noteOf(p.notes) };
   } catch (err) {
     console.error(

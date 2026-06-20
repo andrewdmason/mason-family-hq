@@ -81,7 +81,7 @@ export function EssayGradeCard({
             {ESSAY_DIMENSIONS.map(({ key, label }) => {
               const dim = rubricScores[key];
               const score = dim?.score ?? null;
-              const meets = score != null && score >= 2;
+              const meets = score != null && score >= 3;
               return (
                 <div key={key} className="flex items-baseline gap-3">
                   <span
