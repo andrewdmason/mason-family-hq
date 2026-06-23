@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, PlusIcon } from "lucide-react";
 import { useTaskTimer } from "@/components/timer/task-timer-context";
 import {
   DropdownMenu,
@@ -165,25 +165,15 @@ export function PracticeLogHeader() {
     ? activePieces.find((p) => p.id === focusedPieceId)
     : null;
 
-  const focusPiece = useCallback(
-    (pieceId: string) => {
-      setActivePieceInstance(null);
-      if (focusedPieceId === pieceId) {
-        setFocusedPieceId(null);
-        setUrlState(null, currentView);
-        return;
-      }
-      setFocusedPieceId(pieceId);
-      setUrlState(pieceId, currentView);
-    },
-    [
-      focusedPieceId,
-      setActivePieceInstance,
-      setFocusedPieceId,
-      setUrlState,
-      currentView,
-    ]
-  );
+  // The "Pieces" menu is a quick-add action, not a filter: picking a piece
+  // appends it to today and makes it the active timer item. PracticeTable owns
+  // the add + timer-start (it knows today's sessions), so we just announce the
+  // pick here.
+  const quickAddPiece = useCallback((pieceId: string) => {
+    window.dispatchEvent(
+      new CustomEvent("practice-quick-add-piece", { detail: { pieceId } })
+    );
+  }, []);
 
   const menuEntries = useMemo(
     () => groupPiecesForMenu(activePieces, worksById),
@@ -225,12 +215,11 @@ export function PracticeLogHeader() {
                 <DropdownMenuTrigger
                   className={cn(
                     "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors",
-                    focusedPiece
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                    "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
                   )}
                 >
-                  {focusedPiece?.name ?? "Pieces"}
+                  <PlusIcon className="size-3" />
+                  Pieces
                   <ChevronDownIcon className="size-3" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="max-h-80 w-56">
@@ -238,31 +227,20 @@ export function PracticeLogHeader() {
                     entry.kind === "piece" ? (
                       <DropdownMenuItem
                         key={entry.piece.id}
-                        onClick={() => focusPiece(entry.piece.id)}
-                        className={cn(
-                          focusedPieceId === entry.piece.id && "bg-accent"
-                        )}
+                        onClick={() => quickAddPiece(entry.piece.id)}
                       >
                         {entry.piece.name}
                       </DropdownMenuItem>
                     ) : (
                       <DropdownMenuSub key={entry.workId}>
-                        <DropdownMenuSubTrigger
-                          className={cn(
-                            entry.pieces.some((p) => p.id === focusedPieceId) &&
-                              "bg-accent"
-                          )}
-                        >
+                        <DropdownMenuSubTrigger>
                           {entry.name}
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent>
                           {entry.pieces.map((piece) => (
                             <DropdownMenuItem
                               key={piece.id}
-                              onClick={() => focusPiece(piece.id)}
-                              className={cn(
-                                focusedPieceId === piece.id && "bg-accent"
-                              )}
+                              onClick={() => quickAddPiece(piece.id)}
                             >
                               {piece.name}
                             </DropdownMenuItem>
