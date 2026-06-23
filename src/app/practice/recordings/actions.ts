@@ -18,16 +18,21 @@ export type Recording = {
   taskText: string;
 };
 
-export async function getRecordings(): Promise<Recording[]> {
+export async function getRecordings(pieceId?: string): Promise<Recording[]> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("practice_tasks")
     .select(
       "id, date, text, audio_path, audio_duration_seconds, audio_trim_start_seconds, audio_trim_end_seconds, audio_title, created_at, pieces(name, composer, works(name)), piece_sections(label)"
     )
-    .not("audio_path", "is", null)
-    .order("created_at", { ascending: false });
+    .not("audio_path", "is", null);
+
+  if (pieceId) query = query.eq("piece_id", pieceId);
+
+  const { data, error } = await query.order("created_at", {
+    ascending: false,
+  });
 
   if (error) throw new Error(error.message);
 

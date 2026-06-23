@@ -10,6 +10,19 @@ export type ParsedPerformance = {
   notes: PerformanceNote[];
 };
 
+/** A note positioned in MIDI ticks, for the reference-MIDI piano roll. */
+export type ReferenceRollNote = { midi: number; startTick: number; endTick: number };
+/** A single measure's tick span. `measure` is 1-indexed; `endTick` is the next
+ *  barline (startTick + a full measure of ticks) so interpolation stays uniform
+ *  even when the final bar runs slightly past the last note. */
+export type MeasureBoundary = { measure: number; startTick: number; endTick: number };
+export type ParsedReferenceRoll = {
+  ppq: number;
+  notes: ReferenceRollNote[];
+  measures: MeasureBoundary[];
+  maxTick: number;
+};
+
 /**
  * Parse a transcribed performance MIDI into timed note events for the debug
  * view's piano roll. Same lenient SMF walk as parseReferenceMidi, but it keeps
@@ -210,4 +223,131 @@ export function parseReferenceMidi(
   }
 
   return { ppq, noteCount, measureCount: Math.round(measures) };
+}
+
+/**
+ * Parse a reference MIDI into tick-positioned notes plus explicit per-measure
+ * tick boundaries, for the "Measure view" piano roll. Same lenient SMF walk as
+ * the other two parsers; it keeps note on/off in ticks (geometry is tick-based,
+ * no tempo map needed) and emits one boundary per measure derived from the
+ * time-signature map. Server-side only. Throws only if the bytes aren't a
+ * note-bearing MIDI.
+ */
+export function parseReferenceRoll(
+  bytes: ArrayBuffer | Uint8Array
+): ParsedReferenceRoll {
+  const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+
+  if (
+    buf.length < 14 ||
+    buf[0] !== 0x4d || buf[1] !== 0x54 || buf[2] !== 0x68 || buf[3] !== 0x64 // "MThd"
+  ) {
+    throw new Error("Not a MIDI file");
+  }
+
+  const division = dv.getUint16(12);
+  const ppq = division & 0x8000 ? 480 : division;
+  const ntracks = dv.getUint16(10);
+
+  let p = 14;
+  let maxTick = 0;
+  const timesigs: Array<{ tick: number; num: number; den: number }> = [];
+  const raw: Array<{ tick: number; on: boolean; pitch: number }> = [];
+
+  const readVarlen = (): number => {
+    let val = 0;
+    for (;;) {
+      const b = buf[p++];
+      val = (val << 7) | (b & 0x7f);
+      if (!(b & 0x80)) return val;
+    }
+  };
+
+  for (let t = 0; t < ntracks && p + 8 <= buf.length; t++) {
+    if (!(buf[p] === 0x4d && buf[p + 1] === 0x54 && buf[p + 2] === 0x72 && buf[p + 3] === 0x6b)) {
+      break;
+    }
+    const len = dv.getUint32(p + 4);
+    p += 8;
+    const end = Math.min(p + len, buf.length);
+    let tick = 0;
+    let running = 0;
+    while (p < end) {
+      tick += readVarlen();
+      let status = buf[p];
+      if (status & 0x80) {
+        p++;
+        running = status;
+      } else {
+        status = running;
+      }
+      const hi = status & 0xf0;
+      if (status === 0xff) {
+        const type = buf[p++];
+        const mlen = readVarlen();
+        if (type === 0x58 && mlen >= 2) {
+          timesigs.push({ tick, num: buf[p], den: 1 << buf[p + 1] });
+        }
+        p += mlen;
+      } else if (status === 0xf0 || status === 0xf7) {
+        p += readVarlen();
+      } else if (hi === 0x90) {
+        raw.push({ tick, on: buf[p + 1] > 0, pitch: buf[p] });
+        p += 2;
+      } else if (hi === 0x80) {
+        raw.push({ tick, on: false, pitch: buf[p] });
+        p += 2;
+      } else if (hi === 0xa0 || hi === 0xb0 || hi === 0xe0) {
+        p += 2;
+      } else if (hi === 0xc0 || hi === 0xd0) {
+        p += 1;
+      } else {
+        p++;
+      }
+      if (tick > maxTick) maxTick = tick;
+    }
+    p = end;
+  }
+
+  // Pair note-on → note-off (polyphony-safe), keeping ticks.
+  const pending: Record<number, number[]> = {};
+  const notes: ReferenceRollNote[] = [];
+  for (const e of raw) {
+    if (e.on) {
+      (pending[e.pitch] ??= []).push(e.tick);
+    } else if (pending[e.pitch]?.length) {
+      const startTick = pending[e.pitch].shift()!;
+      notes.push({ midi: e.pitch, startTick, endTick: e.tick });
+    }
+  }
+
+  if (notes.length === 0) {
+    throw new Error("MIDI contains no notes");
+  }
+
+  // Per-measure tick boundaries from the time-signature map (defaults to 4/4).
+  // Each measure is a full meter's worth of ticks; the final bar may extend a
+  // little past maxTick, which keeps the x-interpolation uniform.
+  const segs = timesigs.length ? timesigs : [{ tick: 0, num: 4, den: 4 }];
+  segs.sort((a, b) => a.tick - b.tick);
+  const measures: MeasureBoundary[] = [];
+  let measureNum = 1;
+  for (let i = 0; i < segs.length; i++) {
+    const segStart = segs[i].tick;
+    const segEnd = i + 1 < segs.length ? segs[i + 1].tick : maxTick;
+    const ticksPerMeasure = (ppq * 4 * segs[i].num) / segs[i].den;
+    if (ticksPerMeasure <= 0) continue;
+    let t2 = segStart;
+    // Guard against a degenerate file producing an unbounded number of bars.
+    while (t2 < segEnd && measures.length < 5000) {
+      measures.push({ measure: measureNum++, startTick: t2, endTick: t2 + ticksPerMeasure });
+      t2 += ticksPerMeasure;
+    }
+  }
+  if (measures.length === 0) {
+    measures.push({ measure: 1, startTick: 0, endTick: (ppq * 4) || 1 });
+  }
+
+  return { ppq, notes, measures, maxTick };
 }

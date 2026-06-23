@@ -47,6 +47,20 @@ export function getPwaApp(key: string): PwaApp | undefined {
   return byKey.get(key);
 }
 
+// Resolve which app a pathname belongs to by its top-level route prefix
+// (e.g. "/practice/repertoire/abc" → the "practice" app). The `/` guard keeps
+// "/home" from matching "/homework".
+export function getPwaAppByPath(pathname: string): PwaApp | undefined {
+  return PWA_APPS.find(
+    (app) => pathname === app.startUrl || pathname.startsWith(`${app.startUrl}/`)
+  );
+}
+
+// localStorage key (dev only) for the last app you were in, so the root `/`
+// can send you straight back there. Read by DevRootRedirect, written by
+// LastAppTracker.
+export const LAST_APP_STORAGE_KEY = "hq:last-app";
+
 // iOS launch screens. A standalone web app launches to plain white unless an
 // apple-touch-startup-image whose pixel size exactly matches the device is
 // linked (iOS ignores the manifest's background_color for this), so we list
