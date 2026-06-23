@@ -173,7 +173,11 @@ export async function WorkoutSessionView({ sessionId }: { sessionId: string }) {
             {session.title ?? "Workout"}
           </h1>
           {/* Edit / Reopen live here, next to the title, in the completed state. */}
-          <SessionActionsMenu sessionId={session.id} completed={completed} />
+          <SessionActionsMenu
+            sessionId={session.id}
+            completed={completed}
+            source={session.source}
+          />
         </div>
       </header>
 

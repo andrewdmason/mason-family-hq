@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireUserId } from "@/lib/members/auth";
 import { WORKOUTS_MODEL } from "@/lib/workouts/anthropic";
-import { parseWorkoutDescription } from "@/lib/workouts/parse";
+import { parseWorkoutDescription, buildSessionSourceText } from "@/lib/workouts/parse";
 import { loadMovementVocabulary } from "@/lib/workouts/canonicalize";
 import { materializeSession } from "@/lib/workouts/materialize";
 import { computeSetE1rm } from "@/lib/workouts/e1rm";
@@ -35,10 +35,13 @@ export async function reimportSession(sessionId: string): Promise<void> {
 
   const { data: session } = await supabase
     .from("workout_sessions")
-    .select("id, raw_description")
+    .select("id, title, raw_description")
     .eq("id", sessionId)
     .maybeSingle();
-  if (!session?.raw_description) return;
+  // The workout may live entirely in the title (calendar events with no
+  // description body), so parse from title + description, not description alone.
+  const sourceText = buildSessionSourceText(session?.title, session?.raw_description);
+  if (!sourceText) return;
 
   // Blocks cascade to entries and sets. Reset to a freshly-imported state.
   await supabase.from("workout_blocks").delete().eq("session_id", sessionId);
@@ -48,7 +51,7 @@ export async function reimportSession(sessionId: string): Promise<void> {
     .eq("id", sessionId);
 
   const vocab = await loadMovementVocabulary(supabase);
-  const parsed = await parseWorkoutDescription(session.raw_description, vocab);
+  const parsed = await parseWorkoutDescription(sourceText, vocab);
   if (parsed.parsed) {
     const admin = createAdminClient();
     await materializeSession({ user: supabase, admin, userId, sessionId, parsed });
@@ -87,7 +90,10 @@ export async function createManualSession(input: {
 
   if (input.description.trim()) {
     const vocab = await loadMovementVocabulary(supabase);
-    const parsed = await parseWorkoutDescription(input.description, vocab);
+    const parsed = await parseWorkoutDescription(
+      buildSessionSourceText(input.title, input.description),
+      vocab
+    );
     if (parsed.parsed) {
       const admin = createAdminClient();
       await materializeSession({ user: supabase, admin, userId, sessionId, parsed });
@@ -106,7 +112,12 @@ export async function deleteSession(sessionId: string): Promise<void> {
   await requireUserId(supabase);
   await supabase.from("workout_sessions").delete().eq("id", sessionId);
   revalidatePath("/workouts");
-  redirect("/workouts");
+  revalidatePath("/home");
+  // Land on Upcoming rather than Today: a calendar-backed workout is still
+  // scheduled, so the Today tab would immediately re-open (and re-parse) it,
+  // making the delete look like it did nothing. Upcoming shows it as a
+  // not-yet-opened event instead.
+  redirect("/workouts?tab=upcoming");
 }
 
 // ---------- Edits to logged results ----------

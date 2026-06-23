@@ -320,6 +320,23 @@ function normalizeBlock(raw: RawBlock): ParsedBlock {
  * Parse a workout description into structured blocks/movements/sets. Returns
  * { parsed: false } on any failure so the caller can fall back to the raw text.
  */
+/**
+ * Build the text handed to the parser for a session. The workout often lives in
+ * the calendar event's *title* with no description body (e.g. "Deadlift
+ * 5-5-5-5-5"), so the title has to be part of the source text — otherwise the
+ * parse sees nothing and the session never structures. Title goes first so it
+ * reads as the heading; either part may be empty.
+ */
+export function buildSessionSourceText(
+  title: string | null | undefined,
+  description: string | null | undefined
+): string {
+  return [title, description]
+    .map((p) => p?.trim())
+    .filter((p): p is string => !!p)
+    .join("\n");
+}
+
 export async function parseWorkoutDescription(
   description: string,
   vocabulary: MovementVocabularyEntry[]
