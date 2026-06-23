@@ -32,12 +32,14 @@ function showsStreak(pathname: string | null) {
   );
 }
 
-// The calendar publishes its whole toolbar into the header's app slot (see
-// AppHeaderContent in calendar-client), and its content runs wider than the
-// journal-ish apps — widen the header there so the controls line up with the
-// page below.
+// The calendar and practice apps publish their toolbars into the header's app
+// slot (see AppHeaderContent in calendar-client / practice-nav), and their
+// content runs wider than the journal-ish apps — widen the header there so the
+// controls line up with the page below.
 function headerWidthClass(pathname: string | null) {
-  return pathname?.startsWith("/calendar") ? "max-w-5xl" : "max-w-3xl";
+  if (pathname?.startsWith("/practice")) return "max-w-7xl";
+  if (pathname?.startsWith("/calendar")) return "max-w-5xl";
+  return "max-w-3xl";
 }
 
 export function GlobalHeaderClient({
@@ -81,10 +83,15 @@ export function GlobalHeaderClient({
  * streak badge will land so nothing shifts when it arrives. The switcher
  * assumes non-owner until the real header replaces it — the only difference is
  * an extra dropdown item, visible only if the menu is opened in that moment.
+ * The exception is practice, an owner-gated route: anyone seeing this shell
+ * there is an owner, so we say so up front — otherwise the switcher would name
+ * the fallback's first app ("Home") for a frame before resolving to "Practice".
  */
 export function GlobalHeaderShell() {
   const pathname = usePathname();
   if (hidesGlobalChrome(pathname)) return null;
+
+  const ownerByRoute = pathname?.startsWith("/practice") ?? false;
 
   return (
     <header className="sticky top-0 z-50 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -94,7 +101,7 @@ export function GlobalHeaderShell() {
           headerWidthClass(pathname)
         )}
       >
-        <AppSwitcher isOwner={false} />
+        <AppSwitcher isOwner={ownerByRoute} />
         <AppHeaderSlot />
         <div className="flex shrink-0 items-center gap-2">
           {showsStreak(pathname) && (

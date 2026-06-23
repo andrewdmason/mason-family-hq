@@ -1,4 +1,5 @@
-import { Header } from "@/components/layout/header";
+import { GlobalHeader } from "@/components/layout/global-header";
+import { PracticeNav } from "@/components/layout/practice-nav";
 import { TransportBar } from "@/components/layout/transport-bar";
 import { MetronomeProvider } from "@/components/metronome/metronome-context";
 import { TaskTimerProvider } from "@/components/timer/task-timer-context";
@@ -53,7 +54,8 @@ export default async function AppLayout({
                 worksById={worksById}
                 initialDailySeconds={initialDailySeconds}
               >
-                <Header />
+                <GlobalHeader />
+                <PracticeNav />
                 <div className="flex flex-1 flex-col">{children}</div>
                 <TransportBar />
               </TaskTimerProvider>
