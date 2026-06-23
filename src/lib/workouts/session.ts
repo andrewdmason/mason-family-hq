@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { WORKOUTS_MODEL } from "@/lib/workouts/anthropic";
-import { parseWorkoutDescription } from "@/lib/workouts/parse";
+import { parseWorkoutDescription, buildSessionSourceText } from "@/lib/workouts/parse";
 import { loadMovementVocabulary } from "@/lib/workouts/canonicalize";
 import { materializeSession } from "@/lib/workouts/materialize";
 import { getWorkoutEventById, stripCfoPrefix } from "@/lib/workouts/calendar";
@@ -34,6 +34,8 @@ export async function ensureSessionForEvent(
   const tz = await getUserTimezone();
   const sessionDate = localDate(new Date(event.startTime), tz);
 
+  const title = stripCfoPrefix(event.rawTitle) || null;
+
   let sessionId = existing?.id ?? null;
   if (!sessionId) {
     const { data, error } = await supabase
@@ -41,7 +43,7 @@ export async function ensureSessionForEvent(
       .insert({
         user_id: userId,
         session_date: sessionDate,
-        title: stripCfoPrefix(event.rawTitle) || null,
+        title,
         source: "calendar",
         calendar_event_id: eventId,
         raw_description: event.description,
@@ -61,7 +63,10 @@ export async function ensureSessionForEvent(
   if (!sessionId) throw new Error("Could not resolve session id");
 
   const vocab = await loadMovementVocabulary(supabase);
-  const parsed = await parseWorkoutDescription(event.description ?? "", vocab);
+  const parsed = await parseWorkoutDescription(
+    buildSessionSourceText(title, event.description),
+    vocab
+  );
   if (parsed.parsed) {
     const admin = createAdminClient();
     await materializeSession({ user: supabase, admin, userId, sessionId, parsed });
