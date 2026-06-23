@@ -161,10 +161,6 @@ export function PracticeLogHeader() {
     };
   }, []);
 
-  const focusedPiece = focusedPieceId
-    ? activePieces.find((p) => p.id === focusedPieceId)
-    : null;
-
   // The "Pieces" menu is a quick-add action, not a filter: picking a piece
   // appends it to today and makes it the active timer item. PracticeTable owns
   // the add + timer-start (it knows today's sessions), so we just announce the
@@ -180,17 +176,8 @@ export function PracticeLogHeader() {
     [activePieces, worksById]
   );
 
-  const title = focusedPiece
-    ? `Practice Log: ${focusedPiece.name}`
-    : "Practice Log";
-
   return (
     <div onClick={handleHeaderClick}>
-      <div className="mx-auto w-full max-w-7xl px-4 pt-6 sm:px-6">
-        <div className="pl-8">
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        </div>
-      </div>
       <div
         ref={stickyRef}
         className={cn(
