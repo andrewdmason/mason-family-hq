@@ -189,6 +189,29 @@ export async function updateSectionName(
   return { success: true };
 }
 
+/** Set, move, or clear a section's measure marker for the Measure view.
+ *  Pass null to clear. Snapping to an integer barline happens client-side. */
+export async function updateSectionStartMeasure(
+  sectionId: string,
+  startMeasure: number | null
+) {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("piece_sections")
+    .update({ start_measure: startMeasure })
+    .eq("id", sectionId)
+    .select("piece_id")
+    .single();
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  revalidate(data.piece_id);
+  return { success: true };
+}
+
 export async function updateSectionNotes(
   sectionId: string,
   notes: string | null

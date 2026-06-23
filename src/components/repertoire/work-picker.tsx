@@ -26,16 +26,29 @@ export function WorkPicker({
   work,
   works,
   composer,
+  defaultOpen = false,
+  onClose,
 }: {
   piece: Piece;
   work: Work | null;
   works: Work[];
   composer: string;
+  /** Start straight in the picker (used when opened from the overflow menu). */
+  defaultOpen?: boolean;
+  /** Called once the picker resolves (selection made or cancelled). */
+  onClose?: () => void;
 }) {
   const router = useRouter();
-  const [mode, setMode] = useState<"display" | "picking" | "new">("display");
+  const [mode, setMode] = useState<"display" | "picking" | "new">(
+    defaultOpen ? "picking" : "display"
+  );
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
+
+  function finish() {
+    setMode("display");
+    onClose?.();
+  }
 
   const composerKey = composer.trim().toLowerCase();
   const available = composerKey
@@ -48,7 +61,7 @@ export function WorkPicker({
     setSaving(true);
     await updatePieceField(piece.id, "work_id", workId);
     setSaving(false);
-    setMode("display");
+    finish();
     router.refresh();
   }
 
@@ -64,8 +77,8 @@ export function WorkPicker({
       await updatePieceField(piece.id, "work_id", result.workId);
     }
     setSaving(false);
-    setMode("display");
     setNewName("");
+    finish();
     router.refresh();
   }
 
@@ -83,8 +96,8 @@ export function WorkPicker({
               e.preventDefault();
               createAndSet();
             } else if (e.key === "Escape") {
-              setMode("display");
               setNewName("");
+              finish();
             }
           }}
         />
@@ -99,8 +112,8 @@ export function WorkPicker({
           size="sm"
           variant="ghost"
           onClick={() => {
-            setMode("display");
             setNewName("");
+            finish();
           }}
         >
           Cancel

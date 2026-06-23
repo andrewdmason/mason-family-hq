@@ -39,7 +39,6 @@ import {
 } from "@/app/practice/repertoire/section-actions";
 import {
   createVideo,
-  deleteVideo,
   deleteTimestamp,
   getVideos,
   getTimestamps,
@@ -59,20 +58,12 @@ import {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { extractYouTubeId } from "@/lib/youtube";
+import {
+  nextSectionLetter,
+  nextSubsectionLabel,
+} from "@/lib/practice/section-labels";
 
 /* ---------------------------- helpers ---------------------------- */
-
-function nextSectionLetter(sections: PieceSectionWithChildren[]): string {
-  if (sections.length === 0) return "A";
-  const letters = sections.map((s) => s.label);
-  const lastLetter = letters[letters.length - 1];
-  return String.fromCharCode(lastLetter.charCodeAt(0) + 1);
-}
-
-function nextSubsectionLabel(parent: PieceSectionWithChildren): string {
-  const num = parent.children.length + 1;
-  return `${parent.label}${num}`;
-}
 
 function formatMMSS(seconds: number | null): string {
   if (seconds == null) return "";
@@ -720,6 +711,13 @@ export function SectionEditor({
     return () => window.removeEventListener("sections-changed", handler);
   }, [refreshSections]);
 
+  // The overflow menu (in PieceDetailView) can remove the video; re-sync when it does.
+  useEffect(() => {
+    const handler = () => refreshVideo();
+    window.addEventListener("piece-video-changed", handler);
+    return () => window.removeEventListener("piece-video-changed", handler);
+  }, [refreshVideo]);
+
   useEffect(() => {
     const handler = (e: Event) => {
       const { sectionId, status } = (e as CustomEvent).detail;
@@ -781,7 +779,7 @@ export function SectionEditor({
       }
       await createSection(pieceId, `${parent.label}2`, parent.id);
     } else {
-      const label = nextSubsectionLabel(parent);
+      const label = nextSubsectionLabel(parent.label, parent.children.length);
       await createSection(pieceId, label, parent.id);
     }
     await refreshSections();
@@ -916,12 +914,7 @@ export function SectionEditor({
     setVideoUrl("");
     setAddingVideo(false);
     await refreshVideo();
-  };
-
-  const handleDeleteVideo = async () => {
-    if (!activeVideo) return;
-    await deleteVideo(activeVideo.id);
-    await refreshVideo();
+    window.dispatchEvent(new CustomEvent("piece-video-changed"));
   };
 
   const flatRows = buildFlatRows(sections);
@@ -965,22 +958,9 @@ export function SectionEditor({
         </div>
       </div>
 
-      {/* Video panel */}
+      {/* Video panel — removal lives in the piece's overflow menu */}
       {hasVideo ? (
-        <div className="space-y-2">
-          <div className="flex items-center justify-end">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={handleDeleteVideo}
-              className="h-7 text-xs text-muted-foreground hover:text-destructive shrink-0"
-            >
-              <Trash2Icon className="size-3 mr-1" />
-              Remove video
-            </Button>
-          </div>
-          <YouTubePlayer />
-        </div>
+        <YouTubePlayer />
       ) : (
         <div className="flex items-center gap-2">
           <LinkIcon className="size-3.5 shrink-0 text-muted-foreground" />

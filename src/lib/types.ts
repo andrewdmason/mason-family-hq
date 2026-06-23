@@ -431,6 +431,9 @@ export type PieceSection = {
   sort_order: number;
   status: SectionStatus;
   target_tempo: number | null;
+  /** Optional measure marker for the reference-MIDI "Measure view". A section
+   *  runs from start_measure until the next marker at the same level. */
+  start_measure: number | null;
   created_at: string;
   updated_at: string;
 };

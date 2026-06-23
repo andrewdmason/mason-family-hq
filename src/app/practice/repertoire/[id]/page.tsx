@@ -2,31 +2,14 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeftIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { PieceDetailHeader } from "@/components/repertoire/piece-detail-header";
-import { SectionEditor } from "@/components/repertoire/section-editor";
-import { AssignmentList } from "@/components/repertoire/assignment-list";
-import dynamic from "next/dynamic";
-
-const PieceCumulativeChart = dynamic(() =>
-  import("@/components/repertoire/piece-cumulative-chart").then(
-    (m) => m.PieceCumulativeChart
-  )
-);
-const ProgressGrid = dynamic(() =>
-  import("@/components/repertoire/progress-grid").then(
-    (m) => m.ProgressGrid
-  )
-);
-import { Separator } from "@/components/ui/separator";
-import {
-  getAssignmentsForPiece,
-} from "@/app/practice/focus-panel/actions";
+import { PieceDetailView } from "@/components/repertoire/piece-detail-view";
+import { getAssignmentsForPiece } from "@/app/practice/focus-panel/actions";
 import { getSections, getProgressSnapshots } from "@/app/practice/repertoire/section-actions";
 import { getVideos, getTimestamps } from "@/app/practice/repertoire/video-actions";
 import { getPerformances } from "@/app/practice/repertoire/performance-actions";
 import { getReferenceMidi } from "@/app/practice/repertoire/midi-actions";
-import { ReferenceMidiPanel } from "@/components/repertoire/reference-midi-panel";
-import { PerformancesPanel } from "@/components/repertoire/performances-panel";
+import { parseReferenceRoll, type ParsedReferenceRoll } from "@/lib/practice/midi";
+import { getRecordings } from "@/app/practice/recordings/actions";
 import { getPieceCumulativeData, getPieceCompletionByWeek } from "@/app/practice/reports/actions";
 import type { Piece, Work } from "@/lib/types";
 
@@ -54,7 +37,7 @@ export default async function PieceDetailPage({
 
   const typedPiece = piece as Piece;
 
-  const [{ data: allWorks }, focusData, cumulativeData, sections, videos, progressSnapshots, performances, referenceMidi] = await Promise.all([
+  const [{ data: allWorks }, focusData, cumulativeData, sections, videos, progressSnapshots, performances, recordings, referenceMidi] = await Promise.all([
     supabase.from("works").select("*").order("name"),
     getAssignmentsForPiece(id),
     getPieceCumulativeData(id),
@@ -62,6 +45,7 @@ export default async function PieceDetailPage({
     getVideos(id),
     getProgressSnapshots(id),
     getPerformances({ pieceId: id }),
+    getRecordings(id),
     getReferenceMidi(id),
   ]);
 
@@ -80,45 +64,47 @@ export default async function PieceDetailPage({
     completionPct: completionByWeek.get(d.weekStart) ?? 0,
   }));
 
+  // Parse the reference MIDI into a tick-positioned roll for the MIDI tab's
+  // measure view (download server-side, pass plain data down).
+  let roll: ParsedReferenceRoll | null = null;
+  if (referenceMidi?.status === "ready" && referenceMidi.midi_path) {
+    const { data: file } = await supabase.storage
+      .from("piece-midi")
+      .download(referenceMidi.midi_path);
+    if (file) {
+      try {
+        roll = parseReferenceRoll(await file.arrayBuffer());
+      } catch {
+        /* leave null — the MIDI tab falls back to its empty/failed state */
+      }
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 sm:px-6">
       <Link
         href="/practice/repertoire"
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
+        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <ArrowLeftIcon className="size-3.5" />
         Back to repertoire
       </Link>
 
-      <PerformancesPanel performances={performances} owner={{ pieceId: id }} />
-
-      <PieceDetailHeader piece={typedPiece} work={work} works={works} />
-
-      <div className="mt-6 space-y-6">
-        <SectionEditor
-          pieceId={typedPiece.id}
-          pieceTargetTempo={typedPiece.target_tempo}
-          initialSections={sections}
-          initialVideos={videos}
-          initialTimestamps={videoTimestamps}
-        />
-
-        <Separator />
-
-        <ReferenceMidiPanel pieceId={id} initial={referenceMidi} />
-
-        <Separator />
-
-        <AssignmentList pieceId={id} initialAssignments={[...focusData.openAssignments, ...focusData.completedAssignments]} />
-
-        <Separator />
-
-        <PieceCumulativeChart data={chartData} />
-
-        <Separator />
-
-        <ProgressGrid sections={sections} snapshots={progressSnapshots} />
-      </div>
+      <PieceDetailView
+        piece={typedPiece}
+        work={work}
+        works={works}
+        initialSections={sections}
+        initialVideos={videos}
+        initialTimestamps={videoTimestamps}
+        assignments={[...focusData.openAssignments, ...focusData.completedAssignments]}
+        performances={performances}
+        recordings={recordings}
+        referenceMidi={referenceMidi}
+        roll={roll}
+        chartData={chartData}
+        progressSnapshots={progressSnapshots}
+      />
     </div>
   );
 }
