@@ -8,7 +8,11 @@ export function anthropic(): Anthropic {
   if (!apiKey) {
     throw new Error("ANTHROPIC_API_KEY is not set");
   }
-  cached = new Anthropic({ apiKey });
+  // Bump retries above the SDK default of 2: the API returns transient 429s and
+  // 529s (overloaded) under load, and the SDK retries those with exponential
+  // backoff. A few extra attempts ride out a brief overload instead of bubbling
+  // a raw error up to the user.
+  cached = new Anthropic({ apiKey, maxRetries: 5 });
   return cached;
 }
 
