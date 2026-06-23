@@ -1368,6 +1368,72 @@ export function PracticeTable({
     return () => window.removeEventListener("task-auto-advance", handler);
   }, []);
 
+  // Quick-add from the header's "Pieces" menu: append the piece to today's
+  // latest session and make it the active timer item immediately. Uses a ref so
+  // the always-attached listener reads fresh state without re-subscribing.
+  const quickAddContextRef = useRef({
+    days,
+    activePieces,
+    startTaskTimer,
+    setActivePieceInstance,
+  });
+  quickAddContextRef.current = {
+    days,
+    activePieces,
+    startTaskTimer,
+    setActivePieceInstance,
+  };
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { pieceId } = (e as CustomEvent<{ pieceId: string }>).detail;
+      const { days, activePieces, startTaskTimer, setActivePieceInstance } =
+        quickAddContextRef.current;
+      const piece = activePieces.find((p) => p.id === pieceId);
+      if (!piece) return;
+
+      const today = localDate();
+      const todayDay = days.find((d) => d.date === today);
+      const sessionNumber = (todayDay?.tasks ?? []).reduce(
+        (max, t) => Math.max(max, t.session_number ?? 1),
+        1
+      );
+
+      void createTaskOptimistic({
+        pieceId: piece.id,
+        sectionId: null,
+        date: today,
+        metronomeSpeed: null,
+        pieceName: piece.name,
+        pieceComposer: piece.composer,
+        pieceKind: piece.kind,
+        sectionLabel: null,
+        sectionStatus: null,
+        sessionNumber,
+      })
+        .then((result) => {
+          startTaskTimer(result.id, result.timer_remaining_seconds, {
+            pieceId: piece.id,
+            pieceName: piece.name,
+            pieceComposer: piece.composer,
+            pieceKind: piece.kind,
+            sectionLabel: null,
+            sectionStatus: null,
+            text: "",
+            goalSeconds: result.timer_seconds,
+            metronomeSpeed: null,
+            date: today,
+          });
+          setActivePieceInstance({
+            pieceId: piece.id,
+            key: `${today}:${sessionNumber}:${piece.id}`,
+          });
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("practice-quick-add-piece", handler);
+    return () => window.removeEventListener("practice-quick-add-piece", handler);
+  }, []);
+
   // On initial load, if the feed has tomorrow entries, scroll so Today sits
   // at the top of the viewport instead of Tomorrow.
   const didInitialScrollRef = useRef(false);

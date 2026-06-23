@@ -88,7 +88,11 @@ export async function createTaskOptimistic(
   input: Omit<OptimisticTaskDetail, "tempId"> & {
     autoFocusNotes?: { selectAll: boolean };
   }
-): Promise<void> {
+): Promise<{
+  id: string;
+  timer_seconds: number;
+  timer_remaining_seconds: number;
+}> {
   const { autoFocusNotes, ...detail } = input;
   const tempId = emitOptimisticTask(detail);
   if (autoFocusNotes) {
@@ -109,6 +113,7 @@ export async function createTaskOptimistic(
       detail.timerSeconds
     );
     emitOptimisticTaskRename(tempId, result.id);
+    return result;
   } catch (err) {
     rollbackOptimisticTask(tempId);
     throw err;
