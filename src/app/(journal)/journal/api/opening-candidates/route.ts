@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { generateCandidates } from "@/lib/journal/opening-candidates";
 import { normalizeCandidates } from "@/lib/journal/candidates";
-import { toErrorMessage } from "@/lib/journal/errors";
+import { toJournalApiError } from "@/lib/journal/errors";
 import type { JournalOpeningCandidate } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -64,7 +64,8 @@ export async function POST(req: NextRequest) {
     );
   } catch (err) {
     console.error("[opening-candidates] generation failed:", err);
-    return new Response(toErrorMessage(err), { status: 500 });
+    const { message, status } = toJournalApiError(err);
+    return new Response(message, { status });
   }
 
   const { error: writeErr } = await supabase
