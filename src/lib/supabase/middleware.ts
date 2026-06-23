@@ -28,12 +28,19 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims() verifies the JWT locally via the Web Crypto API + a cached JWKS
+  // when the project uses asymmetric signing keys (the default for new Supabase
+  // projects), so the auth gate no longer pays a network round-trip to the auth
+  // server on every request — that round-trip ran before any byte could stream,
+  // so it was pure latency on every page load. It still refreshes the session and
+  // writes refreshed cookies via the setAll callback above, exactly like
+  // getUser() did. With symmetric (legacy) keys it transparently falls back to a
+  // getUser() call, so this is never slower than before. `sub` is the user id.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims?.sub ?? null;
 
   if (
-    !user &&
+    !userId &&
     !request.nextUrl.pathname.startsWith("/login") &&
     !request.nextUrl.pathname.startsWith("/auth") &&
     // The family-status feed is intentionally public (no login) so the family
@@ -64,7 +71,7 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && request.nextUrl.pathname.startsWith("/login")) {
+  if (userId && request.nextUrl.pathname.startsWith("/login")) {
     const url = request.nextUrl.clone();
     url.pathname = "/home";
     return NextResponse.redirect(url);
@@ -73,11 +80,11 @@ export async function updateSession(request: NextRequest) {
   // The practice book is owner-only. Resolve the role from the membership table
   // (authoritative, and /practice is owner-only/low-traffic so the extra lookup
   // is negligible). RLS scopes the read to the caller's own row.
-  if (user && request.nextUrl.pathname.startsWith("/practice")) {
+  if (userId && request.nextUrl.pathname.startsWith("/practice")) {
     const { data: membership } = await supabase
       .from("family_members")
       .select("role")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .maybeSingle();
     if (membership?.role !== "owner") {
       const url = request.nextUrl.clone();
