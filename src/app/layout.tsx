@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Lora } from "next/font/google";
 import { GlobalQuickAdd } from "@/components/todos/global-quick-add";
+import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 import { appleStartupImages } from "@/lib/pwa/apps";
 import "./globals.css";
 
@@ -76,6 +77,8 @@ export default function RootLayout({
         {children}
         {/* Global to-do quick-add: press `c` anywhere (see quick-add.tsx). */}
         <GlobalQuickAdd />
+        {/* Caches the app shell so re-launching the PWA paints instantly. */}
+        <ServiceWorkerRegister />
       </body>
     </html>
   );
