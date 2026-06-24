@@ -1419,6 +1419,12 @@ export function DayView({
     for (const c of columns) {
       if (c.isMe) continue;
       for (const { placed, fused } of placedFor(c)) {
+        // A standalone drive block — another parent's drop-off/pick-up they
+        // aren't themselves attending — is pure logistics for someone else.
+        // The kid's own event already carries the commitment in this view, so
+        // it doesn't earn a separate label here. Fused drives stay (they're
+        // absorbed into the attended bracket, not a loose row).
+        if (!fused && placed.event.drive_source_event_id) continue;
         const src = fused ? fused.event : placed.event;
         const d = display(src);
         raw.push({
@@ -1694,11 +1700,23 @@ export function DayView({
                   onPointerUp={onColPointerUp}
                   onPointerCancel={onColPointerCancel}
                 >
-                  {placedFor(c).map(({ placed, fused }) =>
-                    pinActive && !isFull(i)
+                  {placedFor(c).map(({ placed, fused }) => {
+                    // Mirror the labels column: in pin mode a non-self member's
+                    // standalone drive block is hidden — it's their drive duty,
+                    // not a commitment the viewer acts on, and the kid's event
+                    // already says it. Keep it as a full card in card mode.
+                    if (
+                      pinActive &&
+                      !isFull(i) &&
+                      !fused &&
+                      placed.event.drive_source_event_id
+                    ) {
+                      return null;
+                    }
+                    return pinActive && !isFull(i)
                       ? renderPinMark(placed, fused)
-                      : renderBlock(placed, isFull(i), fused),
-                  )}
+                      : renderBlock(placed, isFull(i), fused);
+                  })}
                 </div>
               ))}
               {labelsLayout && labelsColumn()}
