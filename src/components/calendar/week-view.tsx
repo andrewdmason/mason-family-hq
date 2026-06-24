@@ -27,23 +27,33 @@ import { DutyGlyphs, type EventDisplay } from "./event-card";
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import { cn } from "@/lib/utils";
 
-// The week as seven shared day columns on one time axis. Every family member's
-// events share the day's column (overlaps pack side-by-side, same as the day
-// view), so each event keeps enough width to carry its title — who it belongs
-// to is said by color, not by position. The signed-in user's events keep the
-// day view's white-card identity; everyone else's render as washed member-color
-// blocks, so "mine" stays the loudest layer without costing anyone legibility.
-// The only vivid ink is what needs attention: amber for conflicts and
-// unassigned duties, red for now.
+// The week as seven shared day columns on one time axis — the day view, fanned
+// across the week. Each day column is a miniature of it: your own events as
+// white titled cards filling the column, and everyone else's collapsed to a thin
+// dot-rail down the leading edge (a colored dot per event, diamonds for drive
+// legs, overlaps stacked on one line). Who an event belongs to is said by color;
+// the others' titles stay hidden until you hover a dot (there's no room for a
+// labels column across seven days). The only other vivid ink is what needs
+// attention: amber for conflicts and unassigned duties, red for now.
 //
-// Mobile transposes the same chart: days become rows (Mon top), time flows
-// rightward, each row is one shared track — the whole week reads on one screen
-// like seven lines of text, and the day view is a tap away.
+// Mobile transposes a single shared chart: days become rows (Mon top), time
+// flows rightward, each row is one track holding the whole family — the week
+// reads on one screen like seven lines of text, and the day view is a tap away.
 const PX_PER_HOUR = 30; // denser than the day view's 48 — week over detail
 const GUTTER = 44; // px reserved for the hour labels (desktop)
 const MIN_BLOCK = 16; // px floor so a short event still shows its title line
 const DATE_COL = 44; // px reserved for the date labels (mobile)
 const TRACK_H = 22; // px height of a mobile day row's time track
+// Desktop week borrows the day view's pin treatment for everyone-but-you: a set
+// of thin per-member lanes down each day column's TRAILING (right) edge, one lane
+// per other family member, each holding that member's events as colored dots
+// (diamonds for drive legs) with overlaps stacked on one line. Titles stay hidden
+// until you hover a dot (no room for a labels column across seven days). Your own
+// events keep the white titled cards filling the rest of the column to the left.
+const LANE = 12; // px — width of one other member's dot lane
+const DOT = 7; // px — an other member's start marker
+const RULE_W = 2; // px — the marker's duration rule
+const RAIL_MIN = 9; // px floor so a short event's rule still reads under its dot
 // A block grows text the moment it's actually wide and tall enough to hold it,
 // so a crowded cluster degrades to silhouette instead of clipped letters.
 const TEXT_MIN_W = 42;
@@ -53,7 +63,11 @@ type DayData = {
   date: Date;
   key: string;
   allDay: CalendarEvent[];
+  // Mobile packs every event into one shared track; desktop splits them: the
+  // signed-in user's events (lane-packed cards) vs. everyone else's (rail dots).
   placed: Placed[];
+  minePlaced: Placed[];
+  others: CalendarEvent[];
 };
 
 export function WeekView({
@@ -129,31 +143,47 @@ export function WeekView({
     const displayById = new Map<string, EventDisplay>();
     for (const e of weekEvents) displayById.set(e.id, display(e));
 
+    const mine = (e: CalendarEvent) =>
+      !!currentMemberEmail && e.member_email === currentMemberEmail;
     const days: DayData[] = weekDays.map((date, i) => {
       const key = keys[i];
+      const dayTimed = timed.filter((e) => eventDayKey(e) === key);
       return {
         date,
         key,
         allDay: weekEvents
           .filter((e) => e.all_day && eventDayKey(e) === key)
           .sort(byStart),
-        placed: pack(timed.filter((e) => eventDayKey(e) === key)),
+        placed: pack(dayTimed),
+        minePlaced: pack(dayTimed.filter(mine)),
+        others: dayTimed.filter((e) => !mine(e)).sort(byStart),
       };
     });
 
     const { minH, maxH } = timeWindow(timed, { startH: 7, endH: 22 });
     return { days, minH, maxH, displayById };
-  }, [events, anchorDate, display]);
+  }, [events, anchorDate, display, currentMemberEmail]);
 
   const totalMin = (maxH - minH) * 60;
   const winTop = minH * 60;
   const dGet = (e: CalendarEvent) => displayById.get(e.id) ?? display(e);
-  const isMine = (e: CalendarEvent) =>
-    !!currentMemberEmail && e.member_email === currentMemberEmail;
 
-  // Unused when every member is shown, but a one-person filter changes what
-  // "context" means — keep members referenced for future per-member emphasis.
-  void members;
+  // The other family members, each its own lane on the right edge of every day —
+  // a fixed left-to-right order so a member reads as one column down the week.
+  // Their lanes' combined width is reserved out of each day column.
+  const otherCols = useMemo(
+    () => members.filter((m) => m.email !== currentMemberEmail),
+    [members, currentMemberEmail],
+  );
+  const laneOf = useMemo(() => {
+    const map = new Map<string, number>();
+    otherCols.forEach((m, i) => map.set(m.email, i));
+    return (e: CalendarEvent) => {
+      const i = e.member_email ? map.get(e.member_email) : undefined;
+      return i ?? 0;
+    };
+  }, [otherCols]);
+  const railW = otherCols.length * LANE;
 
   // The desktop hover card: one shared fixed-position element fed by plain
   // mouse handlers — not a popover primitive per block, which would mount a
@@ -190,19 +220,21 @@ export function WeekView({
 
   // ---- Desktop: 7 shared day columns on a vertical axis --------------------
 
-  function desktopBlock(placed: Placed, dayColPx: number) {
+  // Your own event: the day view's white titled card, lane-packed in the card
+  // area to the right of the dot-rail. `cardPx` is that area's width (per lane)
+  // so the title only renders when it'll actually fit.
+  function desktopMineCard(placed: Placed, cardPx: number) {
     const { event } = placed;
     const d = dGet(event);
     const isDrive = !!event.drive_source_event_id;
     const isDraft = event.id.startsWith("draft:");
-    const mine = isMine(event);
     const top = ((startMin(event) - winTop) / 60) * PX_PER_HOUR;
     const height = Math.max(
       ((endMin(event) - startMin(event)) / 60) * PX_PER_HOUR,
       isDrive ? 8 : MIN_BLOCK,
     );
     const widthPct = 100 / placed.lanes;
-    const blockPx = dayColPx / placed.lanes;
+    const blockPx = cardPx / placed.lanes;
     const showText = blockPx >= TEXT_MIN_W && height >= TEXT_MIN_H;
     const duty = isDrive ? driveDutyOf(event) : null;
     return (
@@ -210,14 +242,8 @@ export function WeekView({
         key={event.id}
         type="button"
         data-event-id={event.id}
-        onClick={() => {
-          setHover(null);
-          onEventClick(event);
-        }}
-        onMouseEnter={(e) =>
-          setHover({ event, rect: e.currentTarget.getBoundingClientRect() })
-        }
-        onMouseLeave={() => setHover(null)}
+        onClick={() => onEventClick(event)}
+        title={event.title}
         style={{
           top,
           height,
@@ -225,29 +251,20 @@ export function WeekView({
           width: `calc(${widthPct}% - 3px)`,
           ...(isDrive
             ? { backgroundColor: mutedColor(d.color) }
-            : mine
-              ? { borderLeftColor: mutedColor(d.color) }
-              : {
-                  backgroundColor: wash(mutedColor(d.color)),
-                  borderLeftColor: mutedColor(d.color),
-                }),
+            : { borderLeftColor: mutedColor(d.color) }),
           ...(duty ? { clipPath: driveArrowClip(duty, 5) } : null),
         }}
         className={cn(
           "absolute z-10 overflow-hidden text-left transition-[filter] hover:brightness-95",
-          // Mine: the day view's white card. Others: a washed member-color
-          // block that still carries its title — context, but legible context.
           isDrive
             ? "rounded-[2px]"
-            : mine
-              ? "rounded-sm border border-border/70 border-l-[3px] bg-white hover:bg-muted/40 dark:bg-card"
-              : "rounded-sm border-l-2",
+            : "rounded-sm border border-border/70 border-l-[3px] bg-white hover:bg-muted/40 dark:bg-card",
           event.id === selectedEventId && "z-20 ring-1 ring-ring",
           d.pendingDrive && "animate-pulse opacity-60",
           isDraft &&
-            (mine
-              ? "border-dashed bg-white/70 opacity-70 dark:bg-card/70"
-              : "border border-dashed border-foreground/40 opacity-70"),
+            (isDrive
+              ? "border border-dashed border-foreground/40 opacity-70"
+              : "border-dashed bg-white/70 opacity-70 dark:bg-card/70"),
         )}
       >
         {!isDrive && alertDots(event, d)}
@@ -267,6 +284,74 @@ export function WeekView({
             {event.title}
           </span>
         )}
+      </button>
+    );
+  }
+
+  // Another member's event: a colored dot (◆ for a drive leg) at its start with a
+  // thin rule down its duration, in that member's lane on the day's right edge. No
+  // title — hovering reveals the label card. Overlapping events in one member's
+  // lane stack on the same line.
+  function desktopRailPin(event: CalendarEvent) {
+    const d = dGet(event);
+    const color = mutedColor(d.color);
+    const top = ((startMin(event) - winTop) / 60) * PX_PER_HOUR;
+    const height = Math.max(
+      ((endMin(event) - startMin(event)) / 60) * PX_PER_HOUR,
+      RAIL_MIN,
+    );
+    const isDrive = !!event.drive_source_event_id;
+    const selected = event.id === selectedEventId;
+    const hot = hover?.event.id === event.id;
+    const ruleW = hot ? RULE_W + 1 : RULE_W;
+    const markerSize = isDrive ? DOT - 1 : DOT;
+    return (
+      <button
+        key={event.id}
+        type="button"
+        data-event-id={event.id}
+        onClick={() => {
+          setHover(null);
+          onEventClick(event);
+        }}
+        onMouseEnter={(e) =>
+          setHover({ event, rect: e.currentTarget.getBoundingClientRect() })
+        }
+        onMouseLeave={() => setHover(null)}
+        style={{ top, height, left: laneOf(event) * LANE, width: LANE }}
+        className={cn(
+          "group absolute flex justify-center overflow-visible",
+          hot ? "z-20" : "z-10",
+          d.pendingDrive && "animate-pulse opacity-60",
+        )}
+      >
+        <span className="relative shrink-0" style={{ width: DOT }} aria-hidden>
+          <span
+            className="absolute rounded-full"
+            style={{
+              left: (DOT - ruleW) / 2,
+              top: 0,
+              bottom: 0,
+              width: ruleW,
+              backgroundColor: color,
+            }}
+          />
+          <span
+            className={cn(
+              "absolute transition-transform",
+              hot && "scale-125",
+              isDrive ? "rotate-45 rounded-[1px]" : "rounded-full",
+              selected && "ring-2 ring-ring ring-offset-1 ring-offset-background",
+            )}
+            style={{
+              left: (DOT - markerSize) / 2,
+              top: -markerSize / 2,
+              width: markerSize,
+              height: markerSize,
+              backgroundColor: color,
+            }}
+          />
+        </span>
       </button>
     );
   }
@@ -464,7 +549,22 @@ export function WeekView({
                     onDayOpen(day.date);
                   }}
                 >
-                  {day.placed.map((p) => desktopBlock(p, dayColPx))}
+                  {/* Your titled cards fill the column, left of the lanes. */}
+                  <div
+                    className="absolute inset-y-0 left-0"
+                    style={{ right: railW }}
+                  >
+                    {day.minePlaced.map((p) =>
+                      desktopMineCard(p, Math.max(dayColPx - railW, 0)),
+                    )}
+                  </div>
+                  {/* One lane per other member, down the day's right edge. */}
+                  <div
+                    className="absolute inset-y-0 right-0"
+                    style={{ width: railW }}
+                  >
+                    {day.others.map((e) => desktopRailPin(e))}
+                  </div>
                   {showNow && (
                     <div
                       className="pointer-events-none absolute inset-x-0 z-20"
