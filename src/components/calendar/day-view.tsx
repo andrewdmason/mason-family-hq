@@ -574,6 +574,21 @@ export function DayView({
   // the color says whose thing it is, with no cross-column frame physically
   // linking them. Ownerless events fall to the Family column.
   const familyTimed = timed.filter(isFamily);
+  // Which source events each member has a drive leg for — a real travel
+  // commitment, as opposed to merely being "going". Used just below so an event
+  // several members attend doesn't draw a duplicate block in every column.
+  const drivesByMember = new Map<string, Set<string>>();
+  for (const e of timed) {
+    if (
+      e.drive_source_event_id &&
+      e.member_email &&
+      memberEmails.has(e.member_email)
+    ) {
+      const s = drivesByMember.get(e.member_email) ?? new Set<string>();
+      s.add(e.drive_source_event_id);
+      drivesByMember.set(e.member_email, s);
+    }
+  }
   const soloByEmail = new Map<string, CalendarEvent[]>();
   const attendByEmail = new Map<string, CalendarEvent[]>();
   for (const e of timed) {
@@ -590,6 +605,13 @@ export function DayView({
     soloByEmail.set(owner, arr);
     for (const g of attending) {
       if (g === owner) continue;
+      // A shared event renders as ONE card in the owner's column (carrying
+      // every attendee's avatar), not a copy in each attendee's column — two
+      // parents at the same game shouldn't read as two events. The exception is
+      // a member who actually DRIVES to it: their drop-off/pick-up legs fuse
+      // into a block in their own column, since that travel is a real, separate
+      // commitment worth seeing on their day.
+      if (!drivesByMember.get(g)?.has(e.id)) continue;
       const a = attendByEmail.get(g) ?? [];
       a.push(e);
       attendByEmail.set(g, a);
@@ -949,10 +971,23 @@ export function DayView({
     // the driving visibly bracketing the being-there.
     if (fused) {
       const e = fused.event;
-      const evTop = Math.max(y(startMin(e)) - top, 0);
-      const evEnd = Math.min(y(endMin(e)) - top, height);
       const hasTop = !!fused.legTop;
       const hasBottom = !!fused.legBottom;
+      // Floor the being-there span to one readable line so a short or
+      // zero-length event's title never clips below a fused drive leg. The
+      // drive legs keep their true height; only the event span gets a floor,
+      // and the block grows DOWN to absorb it (Fantastical's min-height for
+      // short events). `top` is the block's start (leg start, or the event
+      // start when there's no top leg), so the leg heights fall out as the
+      // gaps before/after the true event span.
+      const legTopH = Math.max(y(startMin(e)) - top, 0);
+      const legBottomH = hasBottom
+        ? Math.max(y(endMin(shown)) - y(endMin(e)), 0)
+        : 0;
+      const eventH = Math.max(y(endMin(e)) - y(startMin(e)), MIN_BLOCK);
+      const evTop = legTopH;
+      const evEnd = legTopH + eventH;
+      const fusedHeight = legTopH + eventH + legBottomH;
       return (
         <button
           key={event.id}
@@ -962,6 +997,7 @@ export function DayView({
           title={`${e.title} — you're going`}
           style={{
             ...pos,
+            height: fusedHeight,
             backgroundColor: full ? mute(d.color) : wash(mute(d.color)),
           }}
           className={cn(
@@ -1108,6 +1144,18 @@ export function DayView({
     // The start time is already encoded by the card's position on the axis, so
     // it's the first thing to drop when a short card can't fit it and the title.
     const showTime = height >= 46;
+    // A shared event (someone else is attending) shows every attendee's avatar
+    // — the owner's included — so a single card reads as a joint commitment now
+    // that it no longer duplicates into each attendee's column. Plain solo
+    // events (no attendees) show none.
+    const ownerMember = members.find((m) => m.email === event.member_email);
+    const avatarPeople =
+      d.attendees.length > 0 && ownerMember
+        ? [
+            { email: ownerMember.email, name: ownerMember.name ?? ownerMember.email },
+            ...d.attendees,
+          ]
+        : d.attendees;
     return (
       <button
         key={event.id}
@@ -1150,9 +1198,9 @@ export function DayView({
                   hasLocation={!!event.location}
                 />
               )}
-              {d.attendees.length > 0 && (
+              {avatarPeople.length > 0 && (
                 <span className="flex -space-x-1">
-                  {d.attendees.slice(0, 3).map((a) => (
+                  {avatarPeople.slice(0, 3).map((a) => (
                     <span key={a.email} title={a.name ?? a.email} className="inline-flex">
                       <MemberAvatar name={a.name} size="xs" className="ring-1 ring-card" />
                     </span>
@@ -1182,7 +1230,7 @@ export function DayView({
               const needsNudge =
                 d.duties &&
                 (d.duties.dropoff === "unset" || d.duties.pickup === "unset");
-              if (!needsNudge && d.attendees.length === 0) return null;
+              if (!needsNudge && avatarPeople.length === 0) return null;
               return (
                 <span className="ml-auto flex shrink-0 items-center gap-1">
                   {needsNudge && d.duties && (
@@ -1192,9 +1240,9 @@ export function DayView({
                       className="text-[10px]"
                     />
                   )}
-                  {d.attendees.length > 0 && (
+                  {avatarPeople.length > 0 && (
                     <span className="flex -space-x-1">
-                      {d.attendees.slice(0, 2).map((a) => (
+                      {avatarPeople.slice(0, 2).map((a) => (
                         <span
                           key={a.email}
                           title={a.name ?? a.email}
