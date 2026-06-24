@@ -97,6 +97,9 @@ export interface CalendarMember {
   name: string | null;
   role: "owner" | "parent" | "kid";
   color: string | null;
+  // Signed display URL for the member's primary profile photo (1h TTL), or null
+  // when they have none. Drives the day-view pin markers.
+  avatar_url: string | null;
   // The one Google calendar everything imports into. Null until set up.
   primary_calendar_id: string | null;
   primary_calendar_connection: string | null;

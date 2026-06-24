@@ -27,12 +27,33 @@ export async function getCalendarMembers(): Promise<CalendarMember[]> {
     .order("role", { ascending: true })
     .order("name", { ascending: true });
 
+  // Each member's primary profile photo, as a short-lived signed URL — the
+  // day-view pin markers render these (falling back to initials when absent).
+  const avatars = new Map<string, string>();
+  const { data: photos } = await supabase
+    .from("journal_member_photos")
+    .select("member_email, storage_path")
+    .eq("is_primary", true);
+  if (photos?.length) {
+    const { data: signed } = await supabase.storage
+      .from("member-photos")
+      .createSignedUrls(
+        photos.map((p) => p.storage_path as string),
+        60 * 60,
+      );
+    photos.forEach((p, i) => {
+      const url = signed?.[i]?.signedUrl;
+      if (url) avatars.set((p.member_email as string).toLowerCase(), url);
+    });
+  }
+
   return (data ?? []).map((m) => ({
     email: m.email,
     name: m.name,
     role: m.role,
     // Official color when set, else a deterministic per-email hash color.
     color: m.color ?? memberColor(m.email),
+    avatar_url: avatars.get(m.email.toLowerCase()) ?? null,
     primary_calendar_id: m.primary_calendar_id ?? null,
     primary_calendar_connection: m.primary_calendar_connection ?? null,
     primary_calendar_mode: m.primary_calendar_mode ?? null,
