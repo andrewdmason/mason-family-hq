@@ -1,7 +1,8 @@
 "use client";
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Flag, MapPin } from "lucide-react";
+import { createPortal } from "react-dom";
+import { AlertTriangle, ChevronRight, Flag, MapPin } from "lucide-react";
 import {
   eventDayKey,
   formatTimeRange,
@@ -44,6 +45,22 @@ const TALL = 34;
 // On the phone layout the signed-in user's column is this many times as wide as
 // the others, so it has room for event titles while the rest stay thin ticks.
 const ME_WEIGHT = 3;
+// Pin-mark geometry (the Tufte-style treatment for everyone-but-you): a thin
+// colored rule the height of the event, with a marker at its start instant. The
+// rule's length says how long, the marker says when it begins, the color says
+// who — three facts, almost no ink, so your own full cards stay the loudest read.
+const RULE_W = 2; // px — the duration rule's thickness
+const DOT = 8; // px — the start marker's box, and the rule lane's width
+const PIN_MIN = 12; // px floor so a short event's rule still reads beneath its dot
+const PIN_MODE_KEY = "dayview-pin-mode";
+// In pin mode each non-self member gets a narrow fixed-width column holding just
+// their rule lane — overlapping events stack on the same line rather than fanning
+// into sub-lanes. The titles all move to a single labels column on the right
+// (desktop only), Google-Docs-comments style, stacked to avoid overlap.
+const PIN_COL = 28; // px — a non-self member's narrow rule column
+const AVATAR = 22; // px — the member's photo marking each event's start
+const LABEL_H = 18; // px — a labels-column row's height, for collision spacing
+const LABEL_GAP = 2; // px — minimum gap between stacked labels
 // A faint wash marking the signed-in user's own column — derived from their own
 // color (like the prototype's Andrew-blue at low alpha) so it stays warm and on
 // theme, rather than a fixed cool blue. color-mix works for hex or oklch alike.
@@ -84,6 +101,33 @@ function BaseballGlyph({ className }: { className?: string }) {
       <circle cx="8" cy="8" r="6.5" />
       <path d="M3.5 4.2 C5.5 6 5.5 10 3.5 11.8" />
       <path d="M12.5 4.2 C10.5 6 10.5 10 12.5 11.8" />
+    </svg>
+  );
+}
+
+// The day-view's layout toggle glyph: a dot-over-rule "pin" when pins are on, a
+// small rounded card when they're off — so the corner control previews what a
+// tap switches TO sits in its title, and what's active reads at a glance.
+function ViewModeGlyph({ pins }: { pins: boolean }) {
+  return (
+    <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden>
+      {pins ? (
+        <g fill="currentColor">
+          <circle cx="8" cy="4" r="2.4" />
+          <rect x="7" y="6" width="2" height="7" rx="1" />
+        </g>
+      ) : (
+        <rect
+          x="2.5"
+          y="3.5"
+          width="11"
+          height="9"
+          rx="2"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+        />
+      )}
     </svg>
   );
 }
@@ -164,6 +208,89 @@ export function DayView({
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
   }, []);
+
+  // Pin mode: render everyone-but-you's events as sparse dot+rule marks instead
+  // of filled blocks, and (on desktop) give the signed-in column the same extra
+  // width it gets on the phone — so the day reads as YOUR commitments in full,
+  // with the family's as quiet colored ticks in the margins. Start false (the
+  // card layout, which is also the SSR-safe baseline) and read the saved choice
+  // on mount, like the clock and breakpoint above; a first-time visitor defaults
+  // to pins so the new treatment is what they see.
+  const [pinMode, setPinMode] = useState(false);
+  useEffect(() => {
+    const apply = () => {
+      const saved = window.localStorage.getItem(PIN_MODE_KEY);
+      setPinMode(saved === null ? true : saved === "1");
+    };
+    apply();
+  }, []);
+  const togglePinMode = () =>
+    setPinMode((on) => {
+      const next = !on;
+      window.localStorage.setItem(PIN_MODE_KEY, next ? "1" : "0");
+      return next;
+    });
+  // The event whose pin (or label) the pointer is over — set from both the pin
+  // line and its row in the labels column, so hovering either lights up the
+  // other and you can tell which line a label belongs to.
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  // Mobile peek: tapping a non-self pin line first raises a light card at the
+  // bottom with the event's basics (no labels column to read on a phone); a tap
+  // on that card opens the full drawer, and a drag down dismisses it.
+  //   peekEvent — the tapped event (null = no card mounted)
+  //   peekUp    — resting position: raised (true) vs hidden below (false)
+  //   peekDragY — live downward offset during a drag (null = resting, animated)
+  // The card mounts hidden and is raised the next frame so the transform
+  // transitions up; closing drops peekUp, and the card unmounts only after it
+  // has slid back down (onTransitionEnd), so the exit animates too. The mount
+  // effect keys on peekEvent alone, so flipping peekUp on close never re-raises.
+  const [peekEvent, setPeekEvent] = useState<CalendarEvent | null>(null);
+  const [peekUp, setPeekUp] = useState(false);
+  const [peekDragY, setPeekDragY] = useState<number | null>(null);
+  const peekDrag = useRef<{ startY: number; y: number; moved: boolean } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!peekEvent) return;
+    const id = requestAnimationFrame(() => setPeekUp(true));
+    return () => cancelAnimationFrame(id);
+  }, [peekEvent]);
+  const closePeek = () => {
+    setPeekDragY(null);
+    setPeekUp(false);
+  };
+  // Past this much downward drag, release dismisses; short of it, it snaps back.
+  const PEEK_DISMISS = 56;
+  function onPeekPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    peekDrag.current = { startY: e.clientY, y: 0, moved: false };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+  function onPeekPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const d = peekDrag.current;
+    if (!d) return;
+    const y = Math.max(0, e.clientY - d.startY); // downward only
+    d.y = y;
+    if (y > 4) d.moved = true;
+    setPeekDragY(y);
+  }
+  function onPeekPointerUp() {
+    const d = peekDrag.current;
+    peekDrag.current = null;
+    if (!d) return;
+    if (!d.moved) {
+      // A tap (no real drag): open the full drawer, then let the peek slide away.
+      if (peekEvent) onEventClick(peekEvent);
+      closePeek();
+      return;
+    }
+    if (d.y > PEEK_DISMISS) closePeek();
+    else setPeekDragY(null); // snap back up (peekUp is still true)
+  }
+  function onPeekPointerCancel() {
+    peekDrag.current = null;
+    setPeekDragY(null);
+  }
 
   // The gutter date badge doubles as a "jump to a date" trigger — a small
   // month-grid popover.
@@ -514,16 +641,44 @@ export function DayView({
   // tick. Desktop keeps them equal. The shared-event overlay positions off these
   // same weights so it stays aligned with the columns underneath.
   const meColIndex = columns.findIndex((c) => c.isMe);
-  const weights = columns.map((c) => (isMobile && c.isMe ? ME_WEIGHT : 1));
+  // Pin mode only engages when there's a signed-in column to anchor it — a
+  // family-only view (no "me") keeps the card layout so nothing goes all-ticks.
+  const pinActive = pinMode && meColIndex >= 0;
+  // The signed-in column gets the extra width on the phone OR whenever pins are
+  // on, so the desktop pin layout matches the phone's "wide me + thin rest".
+  const weighted = isMobile || pinActive;
+  const weights = columns.map((c) => (weighted && c.isMe ? ME_WEIGHT : 1));
   const totalWeight = weights.reduce((sum, w) => sum + w, 0);
   // Explicit percentage widths, NOT flexGrow/flexBasis: 0 — with border-box a
   // zero basis is floored at each cell's padding+border, so rows whose cells
   // pad differently (padded name cells vs border-only axis columns) would
   // distribute the same weights differently and the columns would misalign.
   const colWidth = (i: number) => `${(weights[i] / totalWeight) * 100}%`;
-  // A column renders full (titled) blocks on desktop, or when it's the signed-in
+  // A column renders full (titled) cards on desktop, or when it's the signed-in
   // user's wide column on the phone; the other phone columns render thin ticks.
-  const isFull = (i: number) => !isMobile || i === meColIndex;
+  // In pin mode ONLY the signed-in column is full — every other column (and the
+  // family column) drops to dot+rule marks, on the phone and the desktop alike.
+  const isFull = (i: number) =>
+    pinActive ? i === meColIndex : !isMobile || i === meColIndex;
+
+  // The labels column (Google-Docs-comments style) only earns its keep on the
+  // desktop, where there's room beside the narrow rule columns; the phone keeps
+  // the wide-me + thin-pins read with no titles.
+  const labelsLayout = pinActive && !isMobile;
+  // Per-column sizing. Card mode (and the phone) keeps the weighted percentages.
+  // Pin mode swaps to: a flexible signed-in column, a narrow fixed lane per other
+  // member, and (desktop) a flexible labels column appended after them all.
+  const colStyle = (i: number): React.CSSProperties => {
+    if (!pinActive) return { width: colWidth(i) };
+    return columns[i].isMe
+      ? { flexGrow: 2, flexBasis: 0, minWidth: isMobile ? 0 : 240 }
+      : { width: PIN_COL, flexGrow: 0, flexShrink: 0 };
+  };
+  const labelsColStyle: React.CSSProperties = {
+    flexGrow: 3,
+    flexBasis: 0,
+    minWidth: 200,
+  };
 
   // An attended (not owned) event, with this member's own one-way drive legs
   // fused in: drive → attend → drive reads as ONE commitment in their column,
@@ -614,6 +769,139 @@ export function DayView({
   // every block whenever state changes — which destroys the DOM node holding a
   // drag's pointer capture mid-gesture (the drag would only track while the
   // cursor stayed over the card). Plain JSX keeps the nodes stable.
+  // The pin mark — pin mode's stand-in for a thin/washed block, drawn in a narrow
+  // one-per-member column. A colored rule the height of the event encodes how
+  // long; a marker at its start instant encodes when (● a plain event, ○ a
+  // TeamSnap game, ◆ a drive leg); the muted member color encodes who. A fused
+  // attended event draws its full driving span as a faint rule with the
+  // being-there core picked out solid, so the bracket survives. Overlapping
+  // events in the same column simply stack on the same line — the title lives in
+  // the labels column, and hovering the line lights its label up.
+  function renderPinMark(placed: Placed, fused?: FusedAttend) {
+    const { event } = placed;
+    const src = fused ? fused.event : event;
+    const d = display(src);
+    const color = mute(d.color);
+    const top = y(startMin(event));
+    const height = Math.max(y(endMin(event)) - top, PIN_MIN);
+    const selected = src.id === selectedEventId;
+    // Emphasized while hovered (desktop) or while its peek card is open (mobile).
+    const hot = hoveredId === src.id || peekEvent?.id === src.id;
+    const isDrive = !!event.drive_source_event_id;
+    // The marker is the owner's profile photo (a circle) when we can resolve the
+    // member, a diamond for a drive leg, else a small colored dot.
+    const owner = members.find((m) => m.email === src.member_email) ?? null;
+    const isPhoto = !isDrive && !!owner;
+    // The being-there core within the (possibly drive-extended) span: the whole
+    // height for a plain event, the true event start→end for a fused one.
+    const coreTop = fused ? Math.max(y(startMin(fused.event)) - top, 0) : 0;
+    const coreEnd = fused ? Math.min(y(endMin(fused.event)) - top, height) : height;
+    const ruleW = hot ? RULE_W + 1.5 : RULE_W;
+    const ruleLeft = (DOT - ruleW) / 2;
+    const markerSize = isPhoto ? AVATAR : isDrive ? DOT - 2 : DOT;
+    const markerTop = coreTop - markerSize / 2;
+    const markerLeft = (DOT - markerSize) / 2;
+    return (
+      <button
+        key={event.id}
+        type="button"
+        data-event-id={src.id}
+        // On a phone the first tap raises the peek card (basics only); the full
+        // drawer opens from there. On the desktop a pin opens the drawer directly
+        // — the labels column already carries the title.
+        onClick={(e) => {
+          if (isMobile) {
+            e.stopPropagation();
+            setPeekEvent(src);
+          } else {
+            onEventClick(src);
+          }
+        }}
+        onMouseEnter={() => setHoveredId(src.id)}
+        onMouseLeave={() => setHoveredId((id) => (id === src.id ? null : id))}
+        title={d.calendarLabel ? `${d.calendarLabel}: ${src.title}` : src.title}
+        // Full column width so the whole narrow lane is an easy hover/tap target,
+        // and centered so stacked events share one line.
+        style={{ top, height, left: 0, right: 0 }}
+        className={cn(
+          "group absolute flex justify-center overflow-visible",
+          hot ? "z-30" : "z-20",
+          d.pendingDrive && "animate-pulse opacity-60",
+          event.id.startsWith("draft:") && "opacity-70",
+        )}
+      >
+        {/* The rule + start marker, in a fixed lane the width of one marker. */}
+        <span className="relative shrink-0" style={{ width: DOT }} aria-hidden>
+          {/* A fused event's full driving span, faint behind the solid core. */}
+          {fused && (
+            <span
+              className="absolute rounded-full"
+              style={{
+                left: (DOT - RULE_W) / 2,
+                top: 0,
+                bottom: 0,
+                width: RULE_W,
+                backgroundColor: color,
+                opacity: 0.3,
+              }}
+            />
+          )}
+          {/* The being-there rule — the part that counts as a commitment. */}
+          <span
+            className="absolute rounded-full"
+            style={{
+              left: ruleLeft,
+              top: coreTop,
+              height: Math.max(coreEnd - coreTop, 2),
+              width: ruleW,
+              backgroundColor: color,
+            }}
+          />
+          {/* The start marker: the owner's photo in a circle, a drive leg's ◆,
+              or a fallback ● for ownerless/family events. */}
+          {!isDrive && owner ? (
+            <span
+              className={cn(
+                "absolute overflow-hidden rounded-full ring-1 ring-background transition-transform",
+                hot && "scale-110 ring-2",
+                selected && "ring-2 ring-ring",
+              )}
+              style={{
+                left: markerLeft,
+                top: markerTop,
+                width: markerSize,
+                height: markerSize,
+              }}
+            >
+              <MemberAvatar
+                name={owner.name}
+                url={owner.avatar_url}
+                size="sm"
+                className="h-full w-full"
+              />
+            </span>
+          ) : (
+            <span
+              className={cn(
+                "absolute transition-transform",
+                hot && "scale-125",
+                isDrive ? "rotate-45 rounded-[1px]" : "rounded-full",
+                selected && "ring-2 ring-ring ring-offset-1 ring-offset-background",
+              )}
+              style={{
+                left: markerLeft,
+                top: markerTop,
+                width: markerSize,
+                height: markerSize,
+                backgroundColor: color,
+              }}
+            />
+          )}
+        </span>
+      </button>
+    );
+  }
+
   function renderBlock(placed: Placed, full: boolean, fused?: FusedAttend) {
     const { event } = placed;
     const d = display(fused ? fused.event : event);
@@ -960,10 +1248,29 @@ export function DayView({
   // An all-day marker: a flag plus the title in a full (titled) column, matching
   // the agenda's treatment; a textless member-colored chip in a thin phone column.
   // A shared all-day event carries the same attendance glyph as the timed ones.
-  function allDayItem(event: CalendarEvent, full: boolean) {
+  function allDayItem(event: CalendarEvent, full: boolean, pin: boolean) {
     const d = display(event);
     const attending = attendingMembersOf(event);
     if (!full) {
+      // Pin mode renders a thin column's all-day event as a small colored dot —
+      // the same sparse vocabulary as the timed pins above it — rather than a
+      // washed bar, so the margin stays quiet.
+      if (pin) {
+        return (
+          <button
+            key={event.id}
+            type="button"
+            data-event-id={event.id}
+            onClick={() => onEventClick(event)}
+            title={event.title}
+            style={{ backgroundColor: mute(d.color) }}
+            className={cn(
+              "block h-2 w-2 rounded-full transition-transform hover:scale-125",
+              event.id === selectedEventId && "ring-1 ring-ring",
+            )}
+          />
+        );
+      }
       return (
         <button
           key={event.id}
@@ -1047,6 +1354,95 @@ export function DayView({
     ));
   }
 
+  // The labels column's rows: one per non-self event, anchored to its pin's
+  // start Y, then pushed down greedily so none overlap (Google-Docs comments).
+  // The hover wiring ties each row back to its line.
+  type PinLabel = {
+    id: string;
+    src: CalendarEvent;
+    color: string;
+    time: string;
+    title: string;
+    calendarLabel: string | null;
+    top: number;
+  };
+  function buildPinLabels(): PinLabel[] {
+    const raw: (Omit<PinLabel, "top"> & { anchorY: number })[] = [];
+    for (const c of columns) {
+      if (c.isMe) continue;
+      for (const { placed, fused } of placedFor(c)) {
+        const src = fused ? fused.event : placed.event;
+        const d = display(src);
+        raw.push({
+          id: src.id,
+          src,
+          color: mute(d.color),
+          time: formatTimeRange(src.start_time, null, false),
+          title: src.title,
+          calendarLabel: d.calendarLabel,
+          anchorY: y(startMin(fused ? fused.event : placed.event)),
+        });
+      }
+    }
+    raw.sort((a, b) => a.anchorY - b.anchorY);
+    const out: PinLabel[] = [];
+    let prevBottom = -Infinity;
+    for (const e of raw) {
+      // Center the row on the dot (anchorY is the start instant = the dot's
+      // center), so by default the text sits level with its marker; collision
+      // then only pushes a row down when it would overlap the one above.
+      const top = Math.max(e.anchorY - LABEL_H / 2, prevBottom + LABEL_GAP);
+      out.push({ ...e, top });
+      prevBottom = top + LABEL_H;
+    }
+    return out;
+  }
+
+  function labelsColumn() {
+    return (
+      <div className="relative" style={labelsColStyle}>
+        {buildPinLabels().map((e) => {
+          const hot = hoveredId === e.id;
+          return (
+            <button
+              key={e.id}
+              type="button"
+              onClick={() => onEventClick(e.src)}
+              onMouseEnter={() => setHoveredId(e.id)}
+              onMouseLeave={() =>
+                setHoveredId((id) => (id === e.id ? null : id))
+              }
+              title={e.calendarLabel ? `${e.calendarLabel}: ${e.title}` : e.title}
+              style={{ top: e.top, backgroundColor: hot ? wash(e.color) : undefined }}
+              className={cn(
+                "absolute inset-x-0 flex items-center rounded px-1.5 py-0.5 text-left transition-colors",
+                hot ? "z-10" : "opacity-80 hover:opacity-100",
+              )}
+            >
+              <span
+                className="truncate text-[11px] leading-tight"
+                style={{ color: e.color }}
+              >
+                <span
+                  className={cn(
+                    "tabular-nums",
+                    hot ? "font-medium" : "opacity-70",
+                  )}
+                >
+                  {e.time}
+                </span>{" "}
+                <span className={cn(hot && "font-medium")}>
+                  {e.calendarLabel ? `${e.calendarLabel}: ` : ""}
+                  {e.title}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     // Serif (Lora) for the view's text — the prototype's editorial voice — while
     // the header controls stay sans. Warm cream ground and hairlines come from the
@@ -1063,28 +1459,56 @@ export function DayView({
             overflow-x: clip — an overflow: hidden scrollport would swallow
             the stickiness. */}
         <div className="sticky top-14 z-30 bg-background">
-          {/* Column headers — first name only on mobile to fit the narrow columns. */}
-          <div className="flex" style={{ paddingLeft: GUTTER }}>
-            {columns.map((c, i) => (
-              <div
-                key={c.key}
-                className="flex min-w-0 shrink-0 items-center gap-1 px-1 pb-1.5 pt-1 text-[11px] font-medium text-foreground md:gap-1.5 md:px-2 md:pb-2 md:text-sm"
-                style={{
-                  width: colWidth(i),
-                  ...(c.isMe
-                    ? { backgroundColor: meTint(mute(c.color)) }
-                    : null),
-                }}
-              >
-                <span
-                  className="h-2 w-2 shrink-0 rounded-full md:h-2.5 md:w-2.5"
-                  style={{ backgroundColor: mute(c.color) }}
-                  aria-hidden
-                />
-                <span className="truncate md:hidden">{c.label.split(" ")[0]}</span>
-                <span className="hidden truncate md:inline">{c.label}</span>
-              </div>
-            ))}
+          {/* Column headers — first name only on mobile to fit the narrow columns.
+              The gutter corner holds the Pins/Cards toggle. */}
+          <div className="flex">
+            <button
+              type="button"
+              onClick={togglePinMode}
+              aria-pressed={pinMode}
+              title={
+                pinMode
+                  ? "Pin marks for others — switch to cards"
+                  : "Event cards for everyone — switch to pins"
+              }
+              className="flex shrink-0 items-center justify-center self-stretch text-muted-foreground/70 transition-colors hover:text-foreground"
+              style={{ width: GUTTER }}
+            >
+              <ViewModeGlyph pins={pinMode} />
+            </button>
+            {columns.map((c, i) => {
+              // In pin mode the other members' names go away — their color on the
+              // line and in the labels column carries identity — so their header
+              // cell is just an empty spacer that keeps the columns aligned.
+              const named = !pinActive || c.isMe;
+              return (
+                <div
+                  key={c.key}
+                  className="flex min-w-0 shrink-0 items-center gap-1 px-1 pb-1.5 pt-1 text-[11px] font-medium text-foreground md:gap-1.5 md:px-2 md:pb-2 md:text-sm"
+                  style={{
+                    ...colStyle(i),
+                    ...(c.isMe
+                      ? { backgroundColor: meTint(mute(c.color)) }
+                      : null),
+                  }}
+                >
+                  {named && (
+                    <>
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full md:h-2.5 md:w-2.5"
+                        style={{ backgroundColor: mute(c.color) }}
+                        aria-hidden
+                      />
+                      <span className="truncate md:hidden">
+                        {c.label.split(" ")[0]}
+                      </span>
+                      <span className="hidden truncate md:inline">{c.label}</span>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+            {labelsLayout && <div style={labelsColStyle} />}
           </div>
 
           {/* All-day strip. Its gutter shows the viewed date — today gets the
@@ -1162,17 +1586,25 @@ export function DayView({
               {columns.map((c, i) => (
                 <div
                   key={c.key}
-                  className="min-w-0 shrink-0 space-y-0.5 border-l border-border/40 px-1 py-1"
+                  className={cn(
+                    "min-w-0 shrink-0 border-l border-border/40 px-1 py-1",
+                    pinActive && !isFull(i)
+                      ? "flex flex-wrap items-center gap-1"
+                      : "space-y-0.5",
+                  )}
                   style={{
-                    width: colWidth(i),
+                    ...colStyle(i),
                     ...(c.isMe
                       ? { backgroundColor: meTint(mute(c.color)) }
                       : null),
                   }}
                 >
-                  {c.allDay.map((event) => allDayItem(event, isFull(i)))}
+                  {c.allDay.map((event) =>
+                    allDayItem(event, isFull(i), pinActive && !isFull(i)),
+                  )}
                 </div>
               ))}
+              {labelsLayout && <div style={labelsColStyle} />}
             </div>
           </div>
         </div>
@@ -1191,13 +1623,18 @@ export function DayView({
             <div
               className="absolute inset-y-0 flex"
               style={{ left: GUTTER, right: 0 }}
+              // A tap on empty grid (or any card — pins stop propagation) closes
+              // the mobile peek card.
+              onClick={() => {
+                if (peekEvent) closePeek();
+              }}
             >
               {columns.map((c, i) => (
                 <div
                   key={c.key}
                   className="relative min-w-0 shrink-0 border-l border-border/60"
                   style={{
-                    width: colWidth(i),
+                    ...colStyle(i),
                     ...(c.isMe
                       ? { backgroundColor: meTint(mute(c.color)) }
                       : null),
@@ -1210,15 +1647,104 @@ export function DayView({
                   onPointerCancel={onColPointerCancel}
                 >
                   {placedFor(c).map(({ placed, fused }) =>
-                    renderBlock(placed, isFull(i), fused),
+                    pinActive && !isFull(i)
+                      ? renderPinMark(placed, fused)
+                      : renderBlock(placed, isFull(i), fused),
                   )}
                 </div>
               ))}
+              {labelsLayout && labelsColumn()}
             </div>
             {nowLine()}
           </div>
         )}
       </div>
+
+      {/* Mobile peek card — portaled to the body so `fixed` anchors to the
+          viewport, not the transformed swipe track. Tap it to open the full
+          drawer; drag it down to dismiss. The wrapper is click-through; only the
+          card catches the pointer. */}
+      {peekEvent &&
+        createPortal(
+          (() => {
+            const d = display(peekEvent);
+            const color = mute(d.color);
+            return (
+              <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 p-3">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onPointerDown={onPeekPointerDown}
+                  onPointerMove={onPeekPointerMove}
+                  onPointerUp={onPeekPointerUp}
+                  onPointerCancel={onPeekPointerCancel}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onEventClick(peekEvent);
+                      closePeek();
+                    } else if (e.key === "Escape") {
+                      closePeek();
+                    }
+                  }}
+                  onTransitionEnd={() => {
+                    if (!peekUp && peekDragY == null) setPeekEvent(null);
+                  }}
+                  style={{
+                    transform:
+                      peekDragY != null
+                        ? `translateY(${peekDragY}px)`
+                        : peekUp
+                          ? "translateY(0)"
+                          : "translateY(140%)",
+                  }}
+                  className={cn(
+                    "pointer-events-auto mx-auto flex max-w-lg touch-none cursor-grab select-none flex-col rounded-2xl bg-background pb-3 pt-2 font-serif shadow-lg ring-1 ring-foreground/10 active:cursor-grabbing",
+                    peekDragY == null && "transition-transform duration-200 ease-out",
+                  )}
+                >
+                  {/* Grab handle — signals the drag-down-to-dismiss gesture. */}
+                  <div
+                    className="mx-auto mb-1.5 h-1 w-9 shrink-0 rounded-full bg-muted-foreground/30"
+                    aria-hidden
+                  />
+                  <div className="flex items-center gap-3 px-4">
+                    <span
+                      className="h-9 w-1 shrink-0 rounded-full"
+                      style={{ backgroundColor: color }}
+                      aria-hidden
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11px] italic tabular-nums text-muted-foreground">
+                        {formatTimeRange(
+                          peekEvent.start_time,
+                          peekEvent.end_time,
+                          peekEvent.all_day,
+                        )}
+                      </div>
+                      <div
+                        className="truncate text-sm leading-snug"
+                        style={{ color }}
+                      >
+                        {d.calendarLabel && (
+                          <span className="opacity-70">
+                            {d.calendarLabel}:{" "}
+                          </span>
+                        )}
+                        {peekEvent.title}
+                      </div>
+                    </div>
+                    <ChevronRight
+                      className="h-4 w-4 shrink-0 text-muted-foreground"
+                      aria-hidden
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })(),
+          document.body,
+        )}
     </div>
   );
 }
