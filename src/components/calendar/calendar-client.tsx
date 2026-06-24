@@ -19,7 +19,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  List,
   ListFilter,
   Plus,
   type LucideIcon,
@@ -77,7 +76,6 @@ import type {
   EventDuty,
 } from "@/lib/calendar/types";
 import { DayView, type GridDraft } from "./day-view";
-import { AgendaView } from "./agenda-view";
 import { WeekView } from "./week-view";
 import { MonthView } from "./month-view";
 import { EventPanelHost } from "./event-panel-host";
@@ -90,14 +88,13 @@ import {
   updateManualEvent,
 } from "@/app/(calendar)/calendar/actions";
 
-type View = "day" | "feed" | "week" | "month";
+type View = "day" | "week" | "month";
 
-const VIEWS: View[] = ["day", "feed", "week", "month"];
+const VIEWS: View[] = ["day", "week", "month"];
 
 // Icons for the mobile nav sheet's view picker.
 const VIEW_ICONS: Record<View, LucideIcon> = {
   day: Calendar,
-  feed: List,
   week: CalendarRange,
   month: CalendarDays,
 };
@@ -1118,16 +1115,6 @@ export function CalendarClient({
           onGridDraft={handleGridDraft}
           onEventTimeChange={moveEventTime}
           onJumpToDate={(date) => setAnchor(new Date(date))}
-        />
-      )}
-      {view === "feed" && (
-        <AgendaView
-          events={visibleEvents}
-          anchorDate={anchorDate}
-          members={agendaMembers}
-          display={display}
-          onEventClick={openDetail}
-          selectedEventId={panel?.kind === "event" ? panel.event.id : null}
         />
       )}
       {view === "week" && (
