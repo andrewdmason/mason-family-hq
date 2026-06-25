@@ -8,6 +8,10 @@ import { getIsOwner, requireUserId } from "@/lib/members/auth";
 import { getJournalNotifications } from "@/lib/journal/notifications";
 import { getTodoNotifications } from "@/lib/todos/notifications";
 import { getReadingMilestoneNotifications } from "@/lib/reading/milestone-notifications";
+import {
+  getBucksClaimNotifications,
+  getBucksRedemptionNotifications,
+} from "@/lib/bucks/notifications";
 import { createClient } from "@/lib/supabase/server";
 
 export type JournalStreakStats = {
@@ -51,20 +55,38 @@ async function GlobalHeaderData() {
   const supabase = await createClient();
   const userId = await requireUserId(supabase);
 
-  const [streak, journalNotifications, todoItems, milestoneItems, isOwner] =
-    await Promise.all([
-      getJournalStreakStats(supabase, userId),
-      getJournalNotifications(supabase, userId),
-      getTodoNotifications(supabase, userId).catch(() => []),
-      getReadingMilestoneNotifications(supabase).catch(() => []),
-      getIsOwner(supabase),
-    ]);
+  const [
+    streak,
+    journalNotifications,
+    todoItems,
+    milestoneItems,
+    bucksClaimItems,
+    bucksRedemptionItems,
+    isOwner,
+  ] = await Promise.all([
+    getJournalStreakStats(supabase, userId),
+    getJournalNotifications(supabase, userId),
+    getTodoNotifications(supabase, userId).catch(() => []),
+    getReadingMilestoneNotifications(supabase).catch(() => []),
+    getBucksClaimNotifications(supabase).catch(() => []),
+    getBucksRedemptionNotifications(supabase).catch(() => []),
+    getIsOwner(supabase),
+  ]);
 
-  // Todo tasks and reached reward milestones ride in the same bell.
+  // Todo tasks, reward milestones, and Mason Bucks approvals ride in the same bell.
+  const bucksItems = [...bucksClaimItems, ...bucksRedemptionItems];
   const notifications = {
     count:
-      journalNotifications.count + todoItems.length + milestoneItems.length,
-    items: [...milestoneItems, ...todoItems, ...journalNotifications.items],
+      journalNotifications.count +
+      todoItems.length +
+      milestoneItems.length +
+      bucksItems.length,
+    items: [
+      ...bucksItems,
+      ...milestoneItems,
+      ...todoItems,
+      ...journalNotifications.items,
+    ],
   };
 
   return (
