@@ -24,7 +24,8 @@ export function bonusForAdvance(
  * the line. Called from advanceStretch (the single advance choke point) on every
  * pass/override/no-content advance. Best-effort: a ledger or milestone failure is
  * logged and swallowed so it never rolls back the advance the reader earned.
- * Writes nothing when the page didn't actually move forward.
+ * Writes nothing when the page didn't actually move forward. Returns the titles of
+ * any milestones this advance just reached, for a celebratory hand-off to the UI.
  */
 export async function recordAdvanceAndCheckMilestones(
   scope: ReadingScope,
@@ -36,10 +37,11 @@ export async function recordAdvanceAndCheckMilestones(
     advancedOn: string;
     quizId?: string | null;
   }
-): Promise<void> {
+): Promise<string[]> {
   const { client, userId } = scope;
+  const reached: string[] = [];
   const pagesAdvanced = Math.max(0, input.newCurrent - input.oldCurrent);
-  if (pagesAdvanced === 0) return;
+  if (pagesAdvanced === 0) return reached;
 
   try {
     const { error } = await client.from("reading_stretch_advances").insert({
@@ -56,13 +58,13 @@ export async function recordAdvanceAndCheckMilestones(
     });
     if (error) {
       console.error("[reading] ledger insert failed:", error.message);
-      return;
+      return reached;
     }
 
     // Stamp any not-yet-achieved milestone whose metric just crossed its threshold.
     const { data: milestones } = await client
       .from("reading_milestones")
-      .select("id, metric, threshold, start_on")
+      .select("id, title, metric, threshold, start_on")
       .eq("user_id", userId)
       .is("achieved_at", null);
     for (const m of milestones ?? []) {
@@ -73,12 +75,13 @@ export async function recordAdvanceAndCheckMilestones(
         (m.start_on as string | null) ?? null
       );
       if (total >= (m.threshold as number)) {
-        await client
+        const { error: stampError } = await client
           .from("reading_milestones")
           .update({ achieved_at: new Date().toISOString() })
           .eq("id", m.id as string)
           .eq("user_id", userId)
           .is("achieved_at", null);
+        if (!stampError) reached.push(m.title as string);
       }
     }
   } catch (err) {
@@ -87,4 +90,5 @@ export async function recordAdvanceAndCheckMilestones(
       err instanceof Error ? err.message : String(err)
     );
   }
+  return reached;
 }

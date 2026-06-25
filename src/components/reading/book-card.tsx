@@ -186,6 +186,8 @@ export function BookCard({
             <MarkReachedButton
               bookId={book.id}
               targetPage={book.target_page}
+              currentPage={book.current_page}
+              totalPages={book.total_pages}
               activeQuiz={activeQuiz}
               emphasize={emphasizeCheckIn}
               memberEmail={memberEmail}

@@ -39,11 +39,20 @@ export default async function QuizResultsPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ member?: string; submission?: string }>;
+  searchParams: Promise<{
+    member?: string;
+    submission?: string;
+    celebrate?: string;
+  }>;
 }) {
   const { id } = await params;
-  const { member, submission: submissionParam } = await searchParams;
+  const {
+    member,
+    submission: submissionParam,
+    celebrate,
+  } = await searchParams;
   const memberEmail = member?.trim().toLowerCase() || null;
+  const celebrateMilestone = celebrate?.trim() || null;
 
   const [result, isOwner] = await Promise.all([
     getQuizResult(id, memberEmail, submissionParam ?? null),
@@ -113,6 +122,7 @@ export default async function QuizResultsPage({
             readingHref={readingHref}
             isEssay
             essayPost={{ quizId: id, memberEmail }}
+            celebrateMilestone={celebrateMilestone}
           />
         )}
 
@@ -209,6 +219,7 @@ export default async function QuizResultsPage({
           readingHref={readingHref}
           isEssay={isEssay}
           essayPost={isEssay ? { quizId: id, memberEmail } : null}
+          celebrateMilestone={celebrateMilestone}
         />
       )}
 

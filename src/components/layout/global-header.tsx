@@ -7,6 +7,7 @@ import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { getIsOwner, requireUserId } from "@/lib/members/auth";
 import { getJournalNotifications } from "@/lib/journal/notifications";
 import { getTodoNotifications } from "@/lib/todos/notifications";
+import { getReadingMilestoneNotifications } from "@/lib/reading/milestone-notifications";
 import { createClient } from "@/lib/supabase/server";
 
 export type JournalStreakStats = {
@@ -50,17 +51,20 @@ async function GlobalHeaderData() {
   const supabase = await createClient();
   const userId = await requireUserId(supabase);
 
-  const [streak, journalNotifications, todoItems, isOwner] = await Promise.all([
-    getJournalStreakStats(supabase, userId),
-    getJournalNotifications(supabase, userId),
-    getTodoNotifications(supabase, userId).catch(() => []),
-    getIsOwner(supabase),
-  ]);
+  const [streak, journalNotifications, todoItems, milestoneItems, isOwner] =
+    await Promise.all([
+      getJournalStreakStats(supabase, userId),
+      getJournalNotifications(supabase, userId),
+      getTodoNotifications(supabase, userId).catch(() => []),
+      getReadingMilestoneNotifications(supabase).catch(() => []),
+      getIsOwner(supabase),
+    ]);
 
-  // Todo items (tasks someone put on your list) ride in the same bell.
+  // Todo tasks and reached reward milestones ride in the same bell.
   const notifications = {
-    count: journalNotifications.count + todoItems.length,
-    items: [...todoItems, ...journalNotifications.items],
+    count:
+      journalNotifications.count + todoItems.length + milestoneItems.length,
+    items: [...milestoneItems, ...todoItems, ...journalNotifications.items],
   };
 
   return (

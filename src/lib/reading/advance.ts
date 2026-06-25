@@ -77,7 +77,12 @@ export async function advanceStretch(
   book: StretchBook,
   reachedPage?: number,
   quizId?: string | null
-): Promise<{ finished: boolean; nextTarget: number | null; newCurrent: number }> {
+): Promise<{
+  finished: boolean;
+  nextTarget: number | null;
+  newCurrent: number;
+  reachedMilestones: string[];
+}> {
   const { client, userId, email } = scope;
   const candidate =
     reachedPage ?? book.target_page ?? book.total_pages ?? book.current_page;
@@ -115,7 +120,7 @@ export async function advanceStretch(
 
   // Bank bonus pages for this advance and stamp any milestone it just reached.
   // Best-effort inside the helper — never rolls back the advance.
-  await recordAdvanceAndCheckMilestones(scope, {
+  const reachedMilestones = await recordAdvanceAndCheckMilestones(scope, {
     bookId: book.id,
     oldCurrent: book.current_page,
     newCurrent,
@@ -134,5 +139,5 @@ export async function advanceStretch(
       total_pages: book.total_pages,
     });
   }
-  return { finished, nextTarget, newCurrent };
+  return { finished, nextTarget, newCurrent, reachedMilestones };
 }
