@@ -4,13 +4,14 @@ import {
   GlobalHeaderShell,
 } from "@/components/layout/global-header-client";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
-import { getIsOwner, requireUserId } from "@/lib/members/auth";
+import { getIsAdult, getIsOwner, requireUserId } from "@/lib/members/auth";
 import { getJournalNotifications } from "@/lib/journal/notifications";
 import { getTodoNotifications } from "@/lib/todos/notifications";
 import {
   getBucksClaimNotifications,
   getBucksRedemptionNotifications,
 } from "@/lib/bucks/notifications";
+import { balanceFromLedger, loadLedger } from "@/lib/bucks/ledger";
 import { createClient } from "@/lib/supabase/server";
 
 export type JournalStreakStats = {
@@ -61,6 +62,8 @@ async function GlobalHeaderData() {
     bucksClaimItems,
     bucksRedemptionItems,
     isOwner,
+    isAdult,
+    ledger,
   ] = await Promise.all([
     getJournalStreakStats(supabase, userId),
     getJournalNotifications(supabase, userId),
@@ -68,7 +71,12 @@ async function GlobalHeaderData() {
     getBucksClaimNotifications(supabase).catch(() => []),
     getBucksRedemptionNotifications(supabase).catch(() => []),
     getIsOwner(supabase),
+    getIsAdult(supabase),
+    loadLedger(supabase, userId).catch(() => []),
   ]);
+
+  // Kids carry their Mason Bucks balance in the header; adults don't have a wallet.
+  const bucksBalance = isAdult ? null : balanceFromLedger(ledger);
 
   // Todo tasks and Mason Bucks approvals ride in the same bell. (Reading reward
   // milestones were retired in favor of Mason Bucks prizes.)
@@ -83,6 +91,7 @@ async function GlobalHeaderData() {
       streak={streak}
       notifications={notifications}
       isOwner={isOwner}
+      bucksBalance={bucksBalance}
     />
   );
 }
