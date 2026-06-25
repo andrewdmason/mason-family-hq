@@ -1031,8 +1031,6 @@ export type ReadingHome = {
   checkedInThisWeek: boolean;
   /** Lifetime bonus pages this member has banked (proven beyond their goal). */
   bonusPagesTotal: number;
-  /** Active (not-yet-awarded) milestones, nearest-to-completion first. */
-  milestones: MilestoneProgress[];
 };
 
 /** Lifecycle of an uploaded book file as it converts into the reading experience. */

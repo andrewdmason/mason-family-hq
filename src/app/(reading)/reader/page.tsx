@@ -111,7 +111,7 @@ export default async function ReadingPage({
 
       <ReadingProgressHeader
         bonusPagesTotal={home.bonusPagesTotal}
-        milestones={home.milestones}
+        memberEmail={viewingEmail}
       />
 
       <ReadingList

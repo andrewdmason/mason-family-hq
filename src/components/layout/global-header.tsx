@@ -4,10 +4,14 @@ import {
   GlobalHeaderShell,
 } from "@/components/layout/global-header-client";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
-import { getIsOwner, requireUserId } from "@/lib/members/auth";
+import { getIsAdult, getIsOwner, requireUserId } from "@/lib/members/auth";
 import { getJournalNotifications } from "@/lib/journal/notifications";
 import { getTodoNotifications } from "@/lib/todos/notifications";
-import { getReadingMilestoneNotifications } from "@/lib/reading/milestone-notifications";
+import {
+  getBucksClaimNotifications,
+  getBucksRedemptionNotifications,
+} from "@/lib/bucks/notifications";
+import { balanceFromLedger, loadLedger } from "@/lib/bucks/ledger";
 import { createClient } from "@/lib/supabase/server";
 
 export type JournalStreakStats = {
@@ -51,20 +55,35 @@ async function GlobalHeaderData() {
   const supabase = await createClient();
   const userId = await requireUserId(supabase);
 
-  const [streak, journalNotifications, todoItems, milestoneItems, isOwner] =
-    await Promise.all([
-      getJournalStreakStats(supabase, userId),
-      getJournalNotifications(supabase, userId),
-      getTodoNotifications(supabase, userId).catch(() => []),
-      getReadingMilestoneNotifications(supabase).catch(() => []),
-      getIsOwner(supabase),
-    ]);
+  const [
+    streak,
+    journalNotifications,
+    todoItems,
+    bucksClaimItems,
+    bucksRedemptionItems,
+    isOwner,
+    isAdult,
+    ledger,
+  ] = await Promise.all([
+    getJournalStreakStats(supabase, userId),
+    getJournalNotifications(supabase, userId),
+    getTodoNotifications(supabase, userId).catch(() => []),
+    getBucksClaimNotifications(supabase).catch(() => []),
+    getBucksRedemptionNotifications(supabase).catch(() => []),
+    getIsOwner(supabase),
+    getIsAdult(supabase),
+    loadLedger(supabase, userId).catch(() => []),
+  ]);
 
-  // Todo tasks and reached reward milestones ride in the same bell.
+  // Kids carry their Mason Bucks balance in the header; adults don't have a wallet.
+  const bucksBalance = isAdult ? null : balanceFromLedger(ledger);
+
+  // Todo tasks and Mason Bucks approvals ride in the same bell. (Reading reward
+  // milestones were retired in favor of Mason Bucks prizes.)
+  const bucksItems = [...bucksClaimItems, ...bucksRedemptionItems];
   const notifications = {
-    count:
-      journalNotifications.count + todoItems.length + milestoneItems.length,
-    items: [...milestoneItems, ...todoItems, ...journalNotifications.items],
+    count: journalNotifications.count + todoItems.length + bucksItems.length,
+    items: [...bucksItems, ...todoItems, ...journalNotifications.items],
   };
 
   return (
@@ -72,6 +91,7 @@ async function GlobalHeaderData() {
       streak={streak}
       notifications={notifications}
       isOwner={isOwner}
+      bucksBalance={bucksBalance}
     />
   );
 }

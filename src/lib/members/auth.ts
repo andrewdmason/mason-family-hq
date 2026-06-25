@@ -64,3 +64,26 @@ export async function requireOwner(
   if (!(await getIsOwner())) throw new Error("Not authorized");
   return userId;
 }
+
+/**
+ * Resolve whether the current user is an adult (owner or parent) — the people who
+ * approve kids' claims and fulfill redemptions. Reads the caller's own membership
+ * row (RLS-scoped).
+ */
+export async function getIsAdult(
+  supabase?: Awaited<ReturnType<typeof createClient>>
+): Promise<boolean> {
+  void supabase; // kept for call-site compatibility — see note above
+  const role = await getRole();
+  return role === "owner" || role === "parent";
+}
+
+/** Throw unless the current user is an adult (owner or parent). Returns their id. */
+export async function requireAdult(
+  supabase?: Awaited<ReturnType<typeof createClient>>
+): Promise<string> {
+  void supabase; // kept for call-site compatibility — see note above
+  const userId = await requireUserId();
+  if (!(await getIsAdult())) throw new Error("Not authorized");
+  return userId;
+}

@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Flame, Pencil, Star, Trophy } from "lucide-react";
+import { Coins, Flame, Pencil, Star, Trophy } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -46,10 +47,12 @@ export function GlobalHeaderClient({
   streak,
   notifications,
   isOwner,
+  bucksBalance,
 }: {
   streak: JournalStreakStats;
   notifications: JournalNotifications;
   isOwner: boolean;
+  bucksBalance: number | null;
 }) {
   const pathname = usePathname();
   if (hidesGlobalChrome(pathname)) return null;
@@ -67,6 +70,7 @@ export function GlobalHeaderClient({
           <AppHeaderSlot />
           <div className="flex shrink-0 items-center gap-2">
             {showsStreak(pathname) && <JournalStreakBadge streak={streak} />}
+            {bucksBalance !== null && <BucksBalanceBadge balance={bucksBalance} />}
             {notifications.count > 0 && (
               <NotificationBell notifications={notifications} />
             )}
@@ -74,6 +78,26 @@ export function GlobalHeaderClient({
         </div>
       </header>
     </TooltipProvider>
+  );
+}
+
+/** A kid's current Mason Bucks balance, linking to the wallet. */
+function BucksBalanceBadge({ balance }: { balance: number }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Link href="/bucks" aria-label={`${balance} Mason Bucks`} />
+        }
+        className="inline-flex h-8 items-center gap-1.5 rounded-full bg-muted/70 px-2.5 text-sm font-semibold tabular-nums text-foreground transition-colors hover:bg-muted"
+      >
+        <Coins className="h-4 w-4 text-amber-500" />
+        <span>{balance.toLocaleString()}</span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="end" className="rounded-lg px-3 py-2">
+        <p className="font-medium">{balance.toLocaleString()} Mason Bucks</p>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

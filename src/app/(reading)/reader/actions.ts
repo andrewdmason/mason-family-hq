@@ -18,7 +18,7 @@ import {
   ensureStretchQuizInline,
   readingIncrement,
 } from "@/lib/reading/advance";
-import { loadDashboardMilestones, sumMetricSince } from "@/lib/reading/milestones";
+import { sumMetricSince } from "@/lib/reading/milestones";
 import { getActiveQuizzesByBook } from "./quizzes/actions";
 import type {
   ReadingBook,
@@ -275,11 +275,8 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
     .filter((b) => b.status === "in_progress")
     .reduce((sum, b) => sum + b.pagesReadThisWeek, 0);
 
-  // Lifetime bonus pages + the reader's active reward milestones (R4/R8).
-  const [bonusPagesTotal, milestones] = await Promise.all([
-    sumMetricSince(client, userId, "bonus_pages", null),
-    loadDashboardMilestones(client, userId),
-  ]);
+  // Lifetime bonus pages (now credited 1:1 as Mason Bucks; see the bucks app).
+  const bonusPagesTotal = await sumMetricSince(client, userId, "bonus_pages", null);
 
   return {
     books: withProgress,
@@ -287,7 +284,6 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
     totalReadThisWeek,
     checkedInThisWeek,
     bonusPagesTotal,
-    milestones,
   };
 }
 

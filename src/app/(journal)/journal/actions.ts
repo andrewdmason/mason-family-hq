@@ -12,6 +12,7 @@ import { summarizeRecap } from "@/lib/journal/recap-summary";
 import { candidateByText, candidateTexts, normalizeCandidates } from "@/lib/journal/candidates";
 import { applyProfileDocChange } from "@/lib/journal/profile-suggestions";
 import { runEntryPhotoGeneration } from "@/lib/journal/generated-photo";
+import { awardJournalEntryBucks } from "@/lib/bucks/earn";
 import type { CategoryContextSpec } from "@/lib/journal/question-sources";
 import type {
   JournalAgentFileName,
@@ -932,12 +933,19 @@ export async function deleteLatestQuestion(entryId: string) {
  */
 export async function closeEntry(entryId: string): Promise<void> {
   const supabase = await createClient();
-  const { error } = await supabase
+  const { data: closed, error } = await supabase
     .from("journal_entries")
     .update({ status: "closed", closed_at: new Date().toISOString() })
     .eq("id", entryId)
-    .eq("status", "open");
+    .eq("status", "open")
+    .select("id");
   if (error) throw new Error(error.message);
+
+  // Award Mason Bucks for a substantial entry, only when this call actually
+  // closed it (not a no-op re-close). Idempotent + best-effort inside the helper.
+  if (closed && closed.length > 0) {
+    await awardJournalEntryBucks(entryId);
+  }
   revalidatePath("/journal");
 }
 

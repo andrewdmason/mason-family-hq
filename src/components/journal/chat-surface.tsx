@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Lock, MessageCircle, Send } from "lucide-react";
+import { CheckCircle2, Coins, Lock, MessageCircle, Send } from "lucide-react";
 import { TypingIndicator } from "@/components/journal/typing-indicator";
 import { JournalPhotoGallery } from "@/components/journal/journal-photo-gallery";
 import { PostBody } from "@/components/journal/post-body";
@@ -21,6 +21,11 @@ import {
   setEntryVisibility,
 } from "@/app/(journal)/journal/actions";
 import { useJournalTimer } from "@/components/journal/timer-context";
+import {
+  JOURNAL_MIN_SECONDS,
+  JOURNAL_MIN_WORDS,
+  countWords,
+} from "@/lib/bucks/gate";
 import type {
   JournalMediaType,
   JournalMessageRole,
@@ -461,6 +466,9 @@ export function ChatSurface({
           </div>
         </div>
       )}
+      {showWritingControls && viewMode === "today" && status === "open" && timerStartedAt && (
+        <BucksEarnNudge words={countUserWords(messages)} startedAt={timerStartedAt} />
+      )}
       {showComposerHeader && (
         // Notion-style header: the attach action and the chat toggle sit on one
         // row that fades in when you hover the title region, with the editable
@@ -786,6 +794,48 @@ function TimerGlyph({
  * which otherwise blocks the main thread and tanks INP. Also debounce-saves the
  * unsent draft so leaving mid-sentence loses nothing.
  */
+// Live nudge toward the journal Bucks reward. The gate (word/time thresholds and
+// the word counter) is shared with the server-side award via @/lib/bucks/gate, so
+// the two can't drift. Only the writer's committed turns count — same as the
+// server, which sums role='user' messages.
+function countUserWords(messages: Msg[]): number {
+  return countWords(
+    messages.filter((m) => m.role === "user").map((m) => m.content).join(" ")
+  );
+}
+
+/** Live progress toward the journal Bucks reward, shown while writing. */
+function BucksEarnNudge({ words, startedAt }: { words: number; startedAt: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  const elapsed = Math.max(0, Math.floor((now - Date.parse(startedAt)) / 1000));
+  const met = words >= JOURNAL_MIN_WORDS && elapsed >= JOURNAL_MIN_SECONDS;
+
+  useEffect(() => {
+    if (met) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [met]);
+
+  const shown = Math.min(elapsed, JOURNAL_MIN_SECONDS);
+  const clock = `${Math.floor(shown / 60)}:${String(shown % 60).padStart(2, "0")}`;
+
+  return (
+    <div className="mb-6 flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+      <Coins className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+      {met ? (
+        <span className="text-amber-700 dark:text-amber-400">
+          Nice — this entry will earn 5 Mason Bucks when you finish it.
+        </span>
+      ) : (
+        <span className="tabular-nums">
+          {Math.min(words, JOURNAL_MIN_WORDS)} / {JOURNAL_MIN_WORDS} words · {clock} / 5:00
+          <span className="ml-1 not-italic">— keep going to earn 5 Mason Bucks</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
 function ReplyBox({
   entryId,
   initialDraft,
