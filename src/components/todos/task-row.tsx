@@ -184,8 +184,14 @@ export function TaskRow({
       // Marks the row (incl. its expanded editor) for the background-click
       // deselect listener in TaskList.
       data-task-row=""
+      // select-none: shift-clicking to build a multi-selection otherwise drags
+      // a native text range across the rows, and that native dragstart cancels
+      // dnd-kit's pointer drag (same trap the sidebar links dodge with
+      // draggable={false}) — so a multi-select drag to the sidebar never landed.
+      // It also kills the text-smear while range-selecting. The expanded editor
+      // re-enables selection (select-text on the title input + body below).
       className={cn(
-        "rounded-lg transition-all duration-200 ease-out",
+        "select-none rounded-lg transition-all duration-200 ease-out",
         open && "my-3 bg-card shadow-sm ring-1 ring-foreground/10",
         dragOver && "ring-2 ring-primary/50"
       )}
@@ -381,7 +387,7 @@ function TitleInput({
         }
       }}
       placeholder="New To-Do"
-      className="min-w-0 flex-1 bg-transparent text-sm font-medium text-foreground outline-none placeholder:text-muted-foreground/60"
+      className="min-w-0 flex-1 select-text bg-transparent text-sm font-medium text-foreground outline-none placeholder:text-muted-foreground/60"
       aria-label="Task title"
     />
   );
@@ -417,8 +423,9 @@ function ExpandedEditor({
   return (
     <div
       // Left padding lines the body up under the title text (row padding +
-      // checkbox + gap).
-      className="space-y-3 pt-1 pr-3 pb-3 pl-9"
+      // checkbox + gap). select-text restores selection inside the editor body
+      // (notes, controls) — the row chrome is select-none (see the outer div).
+      className="select-text space-y-3 pt-1 pr-3 pb-3 pl-9"
       // Pasting a screenshot (or any copied file) anywhere in the detail
       // attaches it; text pastes pass through to the focused input/editor.
       onPasteCapture={(e) => {
