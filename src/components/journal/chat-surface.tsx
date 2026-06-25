@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Lock, MessageCircle, Send } from "lucide-react";
+import { CheckCircle2, Coins, Lock, MessageCircle, Send } from "lucide-react";
 import { TypingIndicator } from "@/components/journal/typing-indicator";
 import { JournalPhotoGallery } from "@/components/journal/journal-photo-gallery";
 import { PostBody } from "@/components/journal/post-body";
@@ -461,6 +461,9 @@ export function ChatSurface({
           </div>
         </div>
       )}
+      {showWritingControls && viewMode === "today" && status === "open" && timerStartedAt && (
+        <BucksEarnNudge words={countUserWords(messages)} startedAt={timerStartedAt} />
+      )}
       {showComposerHeader && (
         // Notion-style header: the attach action and the chat toggle sit on one
         // row that fades in when you hover the title region, with the editable
@@ -786,6 +789,54 @@ function TimerGlyph({
  * which otherwise blocks the main thread and tanks INP. Also debounce-saves the
  * unsent draft so leaving mid-sentence loses nothing.
  */
+// Mason Bucks journal gate (mirrors the server-side award in lib/bucks/earn.ts):
+// a finished entry earns 5 Bucks once it has 150+ of the writer's own words and
+// 5+ minutes of wall-clock. Only the writer's committed turns count — same as the
+// server, which sums role='user' messages.
+const BUCKS_WORDS = 150;
+const BUCKS_SECONDS = 5 * 60;
+
+function countUserWords(messages: Msg[]): number {
+  const text = messages
+    .filter((m) => m.role === "user")
+    .map((m) => m.content)
+    .join(" ")
+    .trim();
+  return text ? text.split(/\s+/).filter(Boolean).length : 0;
+}
+
+/** Live progress toward the journal Bucks reward, shown while writing. */
+function BucksEarnNudge({ words, startedAt }: { words: number; startedAt: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  const elapsed = Math.max(0, Math.floor((now - Date.parse(startedAt)) / 1000));
+  const met = words >= BUCKS_WORDS && elapsed >= BUCKS_SECONDS;
+
+  useEffect(() => {
+    if (met) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [met]);
+
+  const shown = Math.min(elapsed, BUCKS_SECONDS);
+  const clock = `${Math.floor(shown / 60)}:${String(shown % 60).padStart(2, "0")}`;
+
+  return (
+    <div className="mb-6 flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+      <Coins className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+      {met ? (
+        <span className="text-amber-700 dark:text-amber-400">
+          Nice — this entry will earn 5 Mason Bucks when you finish it.
+        </span>
+      ) : (
+        <span className="tabular-nums">
+          {Math.min(words, BUCKS_WORDS)} / {BUCKS_WORDS} words · {clock} / 5:00
+          <span className="ml-1 not-italic">— keep going to earn 5 Mason Bucks</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
 function ReplyBox({
   entryId,
   initialDraft,

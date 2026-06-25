@@ -188,7 +188,11 @@ AS $$
    WHERE user_id = p_user_id;
 $$;
 
-GRANT EXECUTE ON FUNCTION bucks_balance(uuid) TO service_role, authenticated;
+-- service_role only: these take a target user/claim id, so the action layer must
+-- call them with a trusted id (never client input). Granting to `authenticated`
+-- would let a kid pass another kid's id. SECURITY DEFINER internal calls (e.g.
+-- redeem_prize → bucks_balance) run as the owner and don't need the grant.
+GRANT EXECUTE ON FUNCTION bucks_balance(uuid) TO service_role;
 
 -- Redeem a prize: verify it's available and affordable, then insert the
 -- redemption + the negative ledger row in one transaction. A per-user advisory
@@ -239,7 +243,7 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION redeem_prize(uuid, uuid, text) TO service_role, authenticated;
+GRANT EXECUTE ON FUNCTION redeem_prize(uuid, uuid, text) TO service_role;
 
 -- Approve a pending claim: stamp it, insert the credit, and archive the task if
 -- it's one-time. The ledger's unique (source, reference_id) guarantees a single
@@ -288,7 +292,7 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION approve_task_claim(uuid, text) TO service_role, authenticated;
+GRANT EXECUTE ON FUNCTION approve_task_claim(uuid, text) TO service_role;
 
 -- Reject a pending claim: stamp it rejected, no ledger row.
 CREATE OR REPLACE FUNCTION reject_task_claim(
@@ -317,4 +321,4 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION reject_task_claim(uuid, text) TO service_role, authenticated;
+GRANT EXECUTE ON FUNCTION reject_task_claim(uuid, text) TO service_role;

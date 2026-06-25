@@ -34,6 +34,7 @@ import {
   GraduationCap,
   Dumbbell,
   Music,
+  Coins,
 } from "lucide-react";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -63,6 +64,7 @@ const APPS = [
   { key: "todos", group: "(todos)", glyph: ListTodo, top: "#5f9183", bottom: "#3a6356" },
   { key: "reader", group: "(reading)", glyph: BookOpen, top: "#bd924a", bottom: "#8a6526" },
   { key: "journal", group: "(journal)", glyph: NotebookPen, top: "#a07258", bottom: "#70492f" },
+  { key: "bucks", group: "(bucks)", glyph: Coins, top: "#cda23f", bottom: "#9c7414" },
   { key: "timeline", group: "(timeline)", glyph: CalendarDays, top: "#a8718f", bottom: "#774a63" },
   { key: "calendar", group: "(calendar)", glyph: CalendarRange, top: "#7c8a55", bottom: "#515c33" },
   { key: "assignments", group: "(assignments)", glyph: GraduationCap, top: "#6f8a96", bottom: "#415c68" },

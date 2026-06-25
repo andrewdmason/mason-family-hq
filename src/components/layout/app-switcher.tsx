@@ -10,6 +10,7 @@ import {
   CalendarRange,
   Check,
   ChevronDown,
+  Coins,
   Dumbbell,
   GraduationCap,
   House,
@@ -80,6 +81,13 @@ const APPS: App[] = [
     match: "/journal",
     description: "Your personal journal",
     icon: NotebookPen,
+  },
+  {
+    href: "/bucks",
+    label: "Mason Bucks",
+    match: "/bucks",
+    description: "Earn & spend family currency",
+    icon: Coins,
   },
   {
     href: "/timeline",
