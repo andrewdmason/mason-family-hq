@@ -222,6 +222,9 @@ export async function approveClaim(claimId: string): Promise<void> {
     if (error.message.includes("CLAIM_NOT_PENDING")) {
       throw new Error("That claim was already handled.");
     }
+    if (error.message.includes("TASK_ALREADY_CLAIMED")) {
+      throw new Error("That one-time task has already been granted.");
+    }
     throw new Error(error.message);
   }
   revalidateBucks();

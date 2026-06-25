@@ -39,8 +39,33 @@ if (!kid?.user_id) {
 }
 const userId = kid.user_id as string;
 
+const { data: owner } = await admin
+  .from("family_members")
+  .select("email")
+  .eq("role", "owner")
+  .limit(1)
+  .maybeSingle();
+const ownerEmail = (owner?.email as string) ?? "owner@example.com";
+
 const createdEntries: string[] = [];
 const createdRefs: string[] = [];
+const createdPrizes: string[] = [];
+const createdTasks: string[] = [];
+const createdClaims: string[] = [];
+const createdRedemptions: string[] = [];
+
+async function balance(): Promise<number> {
+  const { data } = await admin.rpc("bucks_balance", { p_user_id: userId });
+  return (data as number) ?? 0;
+}
+
+async function expectRpcError(
+  label: string,
+  fn: () => PromiseLike<{ error: unknown }>
+): Promise<void> {
+  const { error } = await fn();
+  check(label, Boolean(error));
+}
 
 async function ledgerFor(referenceId: string, source: string): Promise<number> {
   const { data } = await admin
@@ -134,10 +159,103 @@ try {
   createdRefs.push(zeroAdvance);
   await creditReadingBonus(userId, zeroAdvance, 0);
   check("zero bonus pages → no row", (await ledgerFor(zeroAdvance, "reading")) === 0);
+
+  // 6. redeem_prize RPC: balance-guarded, atomic, instant debit.
+  const seedRef = uuid();
+  createdRefs.push(seedRef);
+  await admin.from("bucks_ledger").insert({
+    user_id: userId,
+    amount: 500,
+    source: "adjustment",
+    reference_id: seedRef,
+    note: "test seed",
+  });
+  const before = await balance();
+
+  const { data: prize } = await admin
+    .from("bucks_prizes")
+    .insert({ title: "Test prize", price: 500, created_by_email: ownerEmail })
+    .select("id")
+    .single();
+  createdPrizes.push(prize!.id as string);
+
+  const { data: redemptionId } = await admin.rpc("redeem_prize", {
+    p_prize_id: prize!.id,
+    p_user_id: userId,
+    p_actor_email: ownerEmail,
+  });
+  if (redemptionId) createdRedemptions.push(redemptionId as string);
+  check("redeem debits balance by price", (await balance()) === before - 500);
+  check("redeem records an unfulfilled redemption", Boolean(redemptionId));
+
+  // Insufficient funds → raise, no debit.
+  const beforeInsufficient = await balance();
+  const { data: bigPrize } = await admin
+    .from("bucks_prizes")
+    .insert({ title: "Too pricey", price: beforeInsufficient + 100000, created_by_email: ownerEmail })
+    .select("id")
+    .single();
+  createdPrizes.push(bigPrize!.id as string);
+  await expectRpcError("redeem over balance raises", () =>
+    admin.rpc("redeem_prize", { p_prize_id: bigPrize!.id, p_user_id: userId, p_actor_email: ownerEmail })
+  );
+  check("balance unchanged after failed redeem", (await balance()) === beforeInsufficient);
+
+  // Archived prize → raise.
+  const { data: archPrize } = await admin
+    .from("bucks_prizes")
+    .insert({ title: "Archived", price: 1, archived_at: new Date().toISOString(), created_by_email: ownerEmail })
+    .select("id")
+    .single();
+  createdPrizes.push(archPrize!.id as string);
+  await expectRpcError("redeem archived prize raises", () =>
+    admin.rpc("redeem_prize", { p_prize_id: archPrize!.id, p_user_id: userId, p_actor_email: ownerEmail })
+  );
+
+  // 7. approve_task_claim: one-time task can't pay twice via stacked claims.
+  const { data: oneTime } = await admin
+    .from("bucks_earning_tasks")
+    .insert({ title: "One-time test", unit_value: 50, unit_label: "job", is_one_time: true, created_by_email: ownerEmail })
+    .select("id")
+    .single();
+  createdTasks.push(oneTime!.id as string);
+  const claimIds: string[] = [];
+  for (let i = 0; i < 2; i++) {
+    const { data: c } = await admin
+      .from("bucks_task_claims")
+      .insert({ task_id: oneTime!.id, user_id: userId, quantity: 1, unit_value: 50 })
+      .select("id")
+      .single();
+    claimIds.push(c!.id as string);
+    createdClaims.push(c!.id as string);
+  }
+  const beforeApprove = await balance();
+  await admin.rpc("approve_task_claim", { p_claim_id: claimIds[0], p_actor_email: ownerEmail });
+  check("one-time approval credits once", (await balance()) === beforeApprove + 50);
+  await expectRpcError("second one-time approval raises", () =>
+    admin.rpc("approve_task_claim", { p_claim_id: claimIds[1], p_actor_email: ownerEmail })
+  );
+  check("one-time task archived after first grant", await (async () => {
+    const { data } = await admin.from("bucks_earning_tasks").select("archived_at").eq("id", oneTime!.id).single();
+    return data?.archived_at != null;
+  })());
 } finally {
-  // Clean up everything this script created.
-  for (const ref of createdRefs) {
+  // Clean up everything this script created (ledger rows first — FK-free, keyed
+  // by reference_id — then the entities).
+  for (const ref of [...createdRefs, ...createdRedemptions, ...createdClaims]) {
     await admin.from("bucks_ledger").delete().eq("reference_id", ref);
+  }
+  for (const id of createdRedemptions) {
+    await admin.from("bucks_redemptions").delete().eq("id", id);
+  }
+  for (const id of createdClaims) {
+    await admin.from("bucks_task_claims").delete().eq("id", id);
+  }
+  for (const id of createdTasks) {
+    await admin.from("bucks_earning_tasks").delete().eq("id", id);
+  }
+  for (const id of createdPrizes) {
+    await admin.from("bucks_prizes").delete().eq("id", id);
   }
   for (const id of createdEntries) {
     await admin.from("journal_messages").delete().eq("entry_id", id);

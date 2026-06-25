@@ -7,7 +7,6 @@ import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { getIsOwner, requireUserId } from "@/lib/members/auth";
 import { getJournalNotifications } from "@/lib/journal/notifications";
 import { getTodoNotifications } from "@/lib/todos/notifications";
-import { getReadingMilestoneNotifications } from "@/lib/reading/milestone-notifications";
 import {
   getBucksClaimNotifications,
   getBucksRedemptionNotifications,
@@ -59,7 +58,6 @@ async function GlobalHeaderData() {
     streak,
     journalNotifications,
     todoItems,
-    milestoneItems,
     bucksClaimItems,
     bucksRedemptionItems,
     isOwner,
@@ -67,26 +65,17 @@ async function GlobalHeaderData() {
     getJournalStreakStats(supabase, userId),
     getJournalNotifications(supabase, userId),
     getTodoNotifications(supabase, userId).catch(() => []),
-    getReadingMilestoneNotifications(supabase).catch(() => []),
     getBucksClaimNotifications(supabase).catch(() => []),
     getBucksRedemptionNotifications(supabase).catch(() => []),
     getIsOwner(supabase),
   ]);
 
-  // Todo tasks, reward milestones, and Mason Bucks approvals ride in the same bell.
+  // Todo tasks and Mason Bucks approvals ride in the same bell. (Reading reward
+  // milestones were retired in favor of Mason Bucks prizes.)
   const bucksItems = [...bucksClaimItems, ...bucksRedemptionItems];
   const notifications = {
-    count:
-      journalNotifications.count +
-      todoItems.length +
-      milestoneItems.length +
-      bucksItems.length,
-    items: [
-      ...bucksItems,
-      ...milestoneItems,
-      ...todoItems,
-      ...journalNotifications.items,
-    ],
+    count: journalNotifications.count + todoItems.length + bucksItems.length,
+    items: [...bucksItems, ...todoItems, ...journalNotifications.items],
   };
 
   return (

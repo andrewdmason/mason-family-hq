@@ -47,6 +47,10 @@ export async function claimTask(
 
   const qty = Math.floor(quantity);
   if (!(qty > 0)) throw new Error("Quantity must be at least 1.");
+  // Sanity ceiling so a fat-fingered (or gamed) quantity can't request an absurd
+  // grant on a single tap; an adult still approves, but this keeps amounts sane
+  // and well clear of integer overflow in the approval credit.
+  if (qty > 1000) throw new Error("That's too many at once — claim in smaller batches.");
 
   // Read the task through the scoped client so audience/archived RLS applies.
   const { data: task } = await client

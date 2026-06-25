@@ -23,11 +23,17 @@ export async function signedPrizeImageUrl(
   imagePath: string | null
 ): Promise<string | null> {
   if (!imagePath) return null;
-  const admin = createAdminClient();
-  const { data } = await admin.storage
-    .from(READING_MILESTONES_BUCKET)
-    .createSignedUrl(imagePath, 60 * 60);
-  return data?.signedUrl ?? null;
+  try {
+    const admin = createAdminClient();
+    const { data } = await admin.storage
+      .from(READING_MILESTONES_BUCKET)
+      .createSignedUrl(imagePath, 60 * 60);
+    return data?.signedUrl ?? null;
+  } catch {
+    // A storage hiccup (e.g. 502 after a local reset) must degrade to a missing
+    // thumbnail, never blank the whole wallet/admin render.
+    return null;
+  }
 }
 
 /**

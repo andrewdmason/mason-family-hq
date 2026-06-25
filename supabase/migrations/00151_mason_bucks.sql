@@ -189,9 +189,13 @@ AS $$
 $$;
 
 -- service_role only: these take a target user/claim id, so the action layer must
--- call them with a trusted id (never client input). Granting to `authenticated`
--- would let a kid pass another kid's id. SECURITY DEFINER internal calls (e.g.
--- redeem_prize → bucks_balance) run as the owner and don't need the grant.
+-- call them with a trusted id (never client input). CREATE FUNCTION grants EXECUTE
+-- to PUBLIC by default and `authenticated` is a member of PUBLIC, so we must REVOKE
+-- it — otherwise a kid could call these SECURITY DEFINER functions directly via
+-- PostgREST rpc() and bypass RLS (e.g. self-approve a claim to mint Bucks).
+-- Internal SECURITY DEFINER calls (redeem_prize → bucks_balance) run as the owner,
+-- so revoking PUBLIC doesn't break them. Mirrors 00144's claim_practice_session.
+REVOKE ALL ON FUNCTION bucks_balance(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION bucks_balance(uuid) TO service_role;
 
 -- Redeem a prize: verify it's available and affordable, then insert the
@@ -243,6 +247,7 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION redeem_prize(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION redeem_prize(uuid, uuid, text) TO service_role;
 
 -- Approve a pending claim: stamp it, insert the credit, and archive the task if
@@ -261,19 +266,24 @@ DECLARE
   v_claim bucks_task_claims%ROWTYPE;
   v_task bucks_earning_tasks%ROWTYPE;
 BEGIN
+  SELECT * INTO v_claim FROM bucks_task_claims WHERE id = p_claim_id FOR UPDATE;
+  IF NOT FOUND OR v_claim.status <> 'pending' THEN
+    RAISE EXCEPTION 'CLAIM_NOT_PENDING';
+  END IF;
+
+  -- Lock the task row so concurrent approvals of stacked claims on a one-time
+  -- task serialize: once the first archives it, the rest see archived_at set and
+  -- raise — a one-time task can never pay more than once.
+  SELECT * INTO v_task FROM bucks_earning_tasks WHERE id = v_claim.task_id FOR UPDATE;
+  IF v_task.id IS NOT NULL AND v_task.is_one_time AND v_task.archived_at IS NOT NULL THEN
+    RAISE EXCEPTION 'TASK_ALREADY_CLAIMED';
+  END IF;
+
   UPDATE bucks_task_claims
      SET status = 'approved',
          resolved_at = now(),
          resolved_by_email = p_actor_email
-   WHERE id = p_claim_id
-     AND status = 'pending'
-  RETURNING * INTO v_claim;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'CLAIM_NOT_PENDING';
-  END IF;
-
-  SELECT * INTO v_task FROM bucks_earning_tasks WHERE id = v_claim.task_id;
+   WHERE id = p_claim_id;
 
   INSERT INTO bucks_ledger (user_id, amount, source, reference_id, note, created_by_email)
   VALUES (
@@ -292,6 +302,7 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION approve_task_claim(uuid, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION approve_task_claim(uuid, text) TO service_role;
 
 -- Reject a pending claim: stamp it rejected, no ledger row.
@@ -321,4 +332,5 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION reject_task_claim(uuid, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION reject_task_claim(uuid, text) TO service_role;

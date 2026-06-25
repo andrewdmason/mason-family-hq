@@ -90,7 +90,14 @@ export async function loadPendingClaims(): Promise<BucksAdminClaim[]> {
   );
 
   return rows.map((r) => {
-    const task = r.bucks_earning_tasks as { title?: string } | null;
+    // A to-one PostgREST embed can arrive as a single object or a one-element
+    // array depending on how the relationship resolves — normalize both (the
+    // codebase does the same in journal/calendar).
+    const rel = r.bucks_earning_tasks as
+      | { title?: string }
+      | { title?: string }[]
+      | null;
+    const task = Array.isArray(rel) ? rel[0] : rel;
     return {
       id: r.id as string,
       taskTitle: task?.title ?? "Earning task",
