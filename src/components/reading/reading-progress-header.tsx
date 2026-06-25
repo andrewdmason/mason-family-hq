@@ -32,7 +32,7 @@ function MilestoneRow({
           <img
             src={imageUrl}
             alt={`Reward: ${title}`}
-            className="h-full w-full object-cover"
+            className="h-full w-full object-contain"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-muted-foreground">
