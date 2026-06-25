@@ -21,25 +21,26 @@ function MilestoneRow({
 
   return (
     <div className="flex items-center gap-3">
-      <div
-        className={cn(
-          "relative shrink-0 overflow-hidden rounded-md bg-muted",
-          featured ? "h-14 w-14" : "h-10 w-10"
-        )}
-      >
-        {imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={imageUrl}
-            alt={`Reward: ${title}`}
-            className="h-full w-full object-contain"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-            <Trophy className={featured ? "h-6 w-6" : "h-4 w-4"} />
-          </div>
-        )}
-      </div>
+      {imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={imageUrl}
+          alt={`Reward: ${title}`}
+          className={cn(
+            "shrink-0 rounded-md object-contain",
+            featured ? "h-14 w-auto max-w-16" : "h-10 w-auto max-w-12"
+          )}
+        />
+      ) : (
+        <div
+          className={cn(
+            "flex shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground",
+            featured ? "h-14 w-14" : "h-10 w-10"
+          )}
+        >
+          <Trophy className={featured ? "h-6 w-6" : "h-4 w-4"} />
+        </div>
+      )}
 
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
@@ -99,7 +100,7 @@ export function ReadingProgressHeader({
       </div>
 
       {featured && (
-        <div className="mt-3.5 border-t border-border pt-3.5">
+        <div className="mt-4 border-t border-border pt-4">
           <MilestoneRow milestone={featured} featured />
           {rest.length > 0 && (
             <div className="mt-3 space-y-2.5">
