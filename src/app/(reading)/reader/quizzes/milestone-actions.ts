@@ -24,6 +24,31 @@ function normalizeStartOn(value: string | null | undefined): string | null {
 }
 
 /**
+ * Stamp achieved_at when the kid already meets a milestone — so a parent who sets
+ * (or lowers) a threshold the kid has already passed gets the dashboard celebration
+ * and bell notification immediately, not only after the kid's next advance. Runs on
+ * the owner's scoped (service-role) client; no-op if not yet reached.
+ */
+async function stampIfAlreadyReached(
+  client: Awaited<ReturnType<typeof resolveReadingScope>>["client"],
+  userId: string,
+  milestoneId: string,
+  metric: MilestoneMetric,
+  threshold: number,
+  startOn: string | null
+): Promise<void> {
+  const current = await sumMetricSince(client, userId, metric, startOn);
+  if (current >= threshold) {
+    await client
+      .from("reading_milestones")
+      .update({ achieved_at: new Date().toISOString() })
+      .eq("id", milestoneId)
+      .eq("user_id", userId)
+      .is("achieved_at", null);
+  }
+}
+
+/**
  * Sign an upload URL for a milestone's reward image. Owner-only. Mirrors
  * createBookUploadUrl: the path lives under the kid's folder
  * ({user_id}/{milestone_id}.{ext}), which the owner's own session couldn't write
@@ -161,8 +186,18 @@ export async function createMilestone(input: {
     .single();
   if (error || !data) throw new Error(error?.message ?? "Couldn't create the milestone.");
 
+  const milestoneId = data.id as string;
+  await stampIfAlreadyReached(
+    client,
+    userId,
+    milestoneId,
+    input.metric,
+    threshold,
+    normalizeStartOn(input.startOn)
+  );
+
   revalidateMilestones();
-  return { milestoneId: data.id as string };
+  return { milestoneId };
 }
 
 /** Edit a milestone (any subset of fields, including its reward image). Owner-only. */
@@ -215,6 +250,26 @@ export async function updateMilestone(
     .eq("id", milestoneId)
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
+
+  // The bar may have moved (or an image-only edit left it unchanged) — re-stamp if
+  // the kid already meets the current threshold, so it isn't stuck unreached.
+  const { data: current } = await client
+    .from("reading_milestones")
+    .select("metric, threshold, start_on, achieved_at")
+    .eq("id", milestoneId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (current && current.achieved_at == null) {
+    await stampIfAlreadyReached(
+      client,
+      userId,
+      milestoneId,
+      current.metric as MilestoneMetric,
+      current.threshold as number,
+      (current.start_on as string | null) ?? null
+    );
+  }
+
   revalidateMilestones();
 }
 

@@ -1,4 +1,5 @@
 import "server-only";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { ReadingScope } from "@/lib/reading/scope";
 import { loadAdvanceLedger, sumFromLedger } from "@/lib/reading/milestones";
 
@@ -38,7 +39,12 @@ export async function recordAdvanceAndCheckMilestones(
     quizId?: string | null;
   }
 ): Promise<string[]> {
-  const { client, userId } = scope;
+  // Writes here are system bookkeeping that fire while the reader is in self mode
+  // (a kid passing their own quiz), where the session client has SELECT-only RLS
+  // on these tables. Use the service role for the writes + the threshold scan,
+  // always scoped to the trusted userId — matching the tables' write design.
+  const { userId } = scope;
+  const client = createAdminClient();
   const reached: string[] = [];
   const pagesAdvanced = Math.max(0, input.newCurrent - input.oldCurrent);
   if (pagesAdvanced === 0) return reached;

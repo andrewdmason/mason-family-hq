@@ -64,9 +64,11 @@ export function MarkReachedButton({
 
   const emphasizeButton = emphasize || state === "due" || state === "retake";
 
-  // The reader declares a page only when there's a target to push past. A retake
-  // (the prompt's already committed) skips the dialog and goes straight back in.
-  const canDeclare = targetPage != null && state !== "retake";
+  // The reader declares a page only when there's a target to push past and the
+  // book has a known length to bound it. A retake (prompt already committed) skips
+  // the dialog and goes straight back in.
+  const canDeclare =
+    targetPage != null && totalPages != null && state !== "retake";
 
   function submit(reachedPage?: number | null) {
     setNote(null);
@@ -152,7 +154,7 @@ export function MarkReachedButton({
             <Button
               type="button"
               onClick={() => {
-                const n = Number(page);
+                const n = page.trim() === "" ? NaN : Number(page);
                 submit(Number.isFinite(n) ? Math.floor(n) : (targetPage ?? null));
               }}
               disabled={pending}

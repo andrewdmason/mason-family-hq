@@ -617,15 +617,16 @@ export async function markTargetReached(
   const totalPages = (book.total_pages as number | null) ?? null;
 
   // Bonus opt-in: clamp the declared page to [normal target, last page] and bump
-  // the stretch target to it. `bumped` forces quiz regeneration below.
+  // the stretch target to it. `bumped` forces quiz regeneration below. Only honored
+  // when the book has a known length to bound the declaration; otherwise it falls
+  // back to the binary "reached my target" behavior.
   let targetPage = oldTarget;
   let bumped = false;
-  if (reachedPage != null) {
+  if (reachedPage != null && totalPages != null) {
     const increment = await readingIncrement(client, email);
     const normalTarget = defaultTargetPage(currentPage, increment, totalPages);
     const floor = normalTarget ?? currentPage + 1;
-    const ceiling = totalPages ?? Math.floor(reachedPage);
-    const declared = Math.min(Math.max(Math.floor(reachedPage), floor), ceiling);
+    const declared = Math.min(Math.max(Math.floor(reachedPage), floor), totalPages);
     if (declared !== oldTarget) {
       const tz = await getUserTimezone();
       const today = localDate(new Date(), tz);
