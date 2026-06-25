@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { BookCover } from "@/components/reading/book-cover";
 import { MarkReachedButton } from "@/components/reading/mark-reached-button";
+import { ChangeTargetButton } from "@/components/reading/change-target-button";
 import { EditBookDialog } from "@/components/reading/edit-book-dialog";
 import { GenerateQuizDialog } from "@/components/reading/generate-quiz-dialog";
 import { RatingControl } from "@/components/reading/rating-control";
@@ -158,6 +159,18 @@ export function BookCard({
             <p className="mt-2 text-xs text-muted-foreground">
               <span className="text-foreground">Goal: Page {book.target_page}</span>{" "}
               · {dueLabel}
+              {book.total_pages != null && (
+                <>
+                  {" · "}
+                  <ChangeTargetButton
+                    bookId={book.id}
+                    targetPage={book.target_page}
+                    currentPage={book.current_page}
+                    totalPages={book.total_pages}
+                    memberEmail={memberEmail}
+                  />
+                </>
+              )}
             </p>
           ) : (book.status === "in_progress" || book.status === "paused") ? (
             <p className="mt-2 text-xs tabular-nums text-muted-foreground">
@@ -186,8 +199,6 @@ export function BookCard({
             <MarkReachedButton
               bookId={book.id}
               targetPage={book.target_page}
-              currentPage={book.current_page}
-              totalPages={book.total_pages}
               activeQuiz={activeQuiz}
               emphasize={emphasizeCheckIn}
               memberEmail={memberEmail}
