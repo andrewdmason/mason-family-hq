@@ -1,7 +1,7 @@
 ---
 title: "feat: Reader bonus pages + parent milestones"
 type: feat
-status: active
+status: completed
 date: 2026-06-25
 ---
 
