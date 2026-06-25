@@ -18,6 +18,7 @@ import {
   ensureStretchQuizInline,
   readingIncrement,
 } from "@/lib/reading/advance";
+import { loadDashboardMilestones, sumMetricSince } from "@/lib/reading/milestones";
 import { getActiveQuizzesByBook } from "./quizzes/actions";
 import type {
   ReadingBook,
@@ -274,11 +275,19 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
     .filter((b) => b.status === "in_progress")
     .reduce((sum, b) => sum + b.pagesReadThisWeek, 0);
 
+  // Lifetime bonus pages + the reader's active reward milestones (R4/R8).
+  const [bonusPagesTotal, milestones] = await Promise.all([
+    sumMetricSince(client, userId, "bonus_pages", null),
+    loadDashboardMilestones(client, userId),
+  ]);
+
   return {
     books: withProgress,
     weeklyPageGoal: goalRow?.weekly_page_goal ?? 0,
     totalReadThisWeek,
     checkedInThisWeek,
+    bonusPagesTotal,
+    milestones,
   };
 }
 

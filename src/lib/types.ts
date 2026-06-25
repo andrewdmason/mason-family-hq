@@ -993,12 +993,30 @@ export type ReadingBookWithProgress = ReadingBook & {
   relatedEntries: ReadingBookJournalEntry[];
 };
 
+/** A reward milestone with the reader's progress toward it, for the dashboard. */
+export type MilestoneProgress = {
+  id: string;
+  title: string;
+  metric: "bonus_pages" | "total_pages";
+  threshold: number;
+  /** The reader's current count for this milestone's metric + start date. */
+  current: number;
+  /** Signed URL for the reward image, or null when none was uploaded. */
+  imageUrl: string | null;
+  /** Reached the threshold (count >= threshold or already stamped achieved). */
+  reached: boolean;
+};
+
 /** Everything the reading home renders for the signed-in member. */
 export type ReadingHome = {
   books: ReadingBookWithProgress[];
   weeklyPageGoal: number;
   totalReadThisWeek: number;
   checkedInThisWeek: boolean;
+  /** Lifetime bonus pages this member has banked (proven beyond their goal). */
+  bonusPagesTotal: number;
+  /** Active (not-yet-awarded) milestones, nearest-to-completion first. */
+  milestones: MilestoneProgress[];
 };
 
 /** Lifecycle of an uploaded book file as it converts into the reading experience. */
