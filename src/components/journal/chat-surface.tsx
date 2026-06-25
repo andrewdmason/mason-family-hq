@@ -21,6 +21,11 @@ import {
   setEntryVisibility,
 } from "@/app/(journal)/journal/actions";
 import { useJournalTimer } from "@/components/journal/timer-context";
+import {
+  JOURNAL_MIN_SECONDS,
+  JOURNAL_MIN_WORDS,
+  countWords,
+} from "@/lib/bucks/gate";
 import type {
   JournalMediaType,
   JournalMessageRole,
@@ -789,27 +794,21 @@ function TimerGlyph({
  * which otherwise blocks the main thread and tanks INP. Also debounce-saves the
  * unsent draft so leaving mid-sentence loses nothing.
  */
-// Mason Bucks journal gate (mirrors the server-side award in lib/bucks/earn.ts):
-// a finished entry earns 5 Bucks once it has 150+ of the writer's own words and
-// 5+ minutes of wall-clock. Only the writer's committed turns count — same as the
+// Live nudge toward the journal Bucks reward. The gate (word/time thresholds and
+// the word counter) is shared with the server-side award via @/lib/bucks/gate, so
+// the two can't drift. Only the writer's committed turns count — same as the
 // server, which sums role='user' messages.
-const BUCKS_WORDS = 150;
-const BUCKS_SECONDS = 5 * 60;
-
 function countUserWords(messages: Msg[]): number {
-  const text = messages
-    .filter((m) => m.role === "user")
-    .map((m) => m.content)
-    .join(" ")
-    .trim();
-  return text ? text.split(/\s+/).filter(Boolean).length : 0;
+  return countWords(
+    messages.filter((m) => m.role === "user").map((m) => m.content).join(" ")
+  );
 }
 
 /** Live progress toward the journal Bucks reward, shown while writing. */
 function BucksEarnNudge({ words, startedAt }: { words: number; startedAt: string }) {
   const [now, setNow] = useState(() => Date.now());
   const elapsed = Math.max(0, Math.floor((now - Date.parse(startedAt)) / 1000));
-  const met = words >= BUCKS_WORDS && elapsed >= BUCKS_SECONDS;
+  const met = words >= JOURNAL_MIN_WORDS && elapsed >= JOURNAL_MIN_SECONDS;
 
   useEffect(() => {
     if (met) return;
@@ -817,7 +816,7 @@ function BucksEarnNudge({ words, startedAt }: { words: number; startedAt: string
     return () => clearInterval(id);
   }, [met]);
 
-  const shown = Math.min(elapsed, BUCKS_SECONDS);
+  const shown = Math.min(elapsed, JOURNAL_MIN_SECONDS);
   const clock = `${Math.floor(shown / 60)}:${String(shown % 60).padStart(2, "0")}`;
 
   return (
@@ -829,7 +828,7 @@ function BucksEarnNudge({ words, startedAt }: { words: number; startedAt: string
         </span>
       ) : (
         <span className="tabular-nums">
-          {Math.min(words, BUCKS_WORDS)} / {BUCKS_WORDS} words · {clock} / 5:00
+          {Math.min(words, JOURNAL_MIN_WORDS)} / {JOURNAL_MIN_WORDS} words · {clock} / 5:00
           <span className="ml-1 not-italic">— keep going to earn 5 Mason Bucks</span>
         </span>
       )}

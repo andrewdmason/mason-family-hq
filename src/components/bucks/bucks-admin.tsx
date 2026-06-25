@@ -1,7 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRef, useState } from "react";
 import { Check, Plus, Trophy, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,26 +26,9 @@ import {
   type BucksManageData,
 } from "@/app/(bucks)/bucks/manage/actions";
 import { uploadPrizeImage } from "@/lib/bucks/prize-image-upload";
+import { useBucksAction } from "@/lib/bucks/use-bucks-action";
 
 const SHARED = "__shared__";
-
-function useAction() {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const run = (fn: () => Promise<void>) => {
-    setError(null);
-    startTransition(async () => {
-      try {
-        await fn();
-        router.refresh();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Something went wrong.");
-      }
-    });
-  };
-  return { pending, error, run };
-}
 
 function AudienceSelect({
   kids,
@@ -86,7 +68,7 @@ function audienceLabel(userId: string | null, kids: BucksKid[]): string {
 // ---- Approvals -----------------------------------------------------------
 
 function ApprovalsSection({ data }: { data: BucksManageData }) {
-  const { pending, error, run } = useAction();
+  const { pending, error, run } = useBucksAction();
   if (data.claims.length === 0) return null;
   return (
     <section>
@@ -133,7 +115,7 @@ function ApprovalsSection({ data }: { data: BucksManageData }) {
 // ---- Redemptions to fulfill ----------------------------------------------
 
 function RedemptionsSection({ data }: { data: BucksManageData }) {
-  const { pending, error, run } = useAction();
+  const { pending, error, run } = useBucksAction();
   if (data.redemptions.length === 0) return null;
   return (
     <section>
@@ -169,7 +151,7 @@ function RedemptionsSection({ data }: { data: BucksManageData }) {
 // ---- Earning tasks -------------------------------------------------------
 
 function TasksSection({ data }: { data: BucksManageData }) {
-  const { pending, error, run } = useAction();
+  const { pending, error, run } = useBucksAction();
   const [title, setTitle] = useState("");
   const [value, setValue] = useState(10);
   const [unit, setUnit] = useState("time");
@@ -269,7 +251,7 @@ function TasksSection({ data }: { data: BucksManageData }) {
 // ---- Prizes --------------------------------------------------------------
 
 function PrizesSection({ data }: { data: BucksManageData }) {
-  const { pending, error, run } = useAction();
+  const { pending, error, run } = useBucksAction();
   const [title, setTitle] = useState("");
   const [price, setPrice] = useState(100);
   const [audience, setAudience] = useState(SHARED);

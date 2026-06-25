@@ -1,17 +1,11 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-
-/** Journal entry reward + its quality gate. */
-export const JOURNAL_BUCKS = 5;
-export const JOURNAL_MIN_WORDS = 150;
-export const JOURNAL_MIN_SECONDS = 5 * 60;
-
-/** Count words in a blob of the kid's own writing. */
-export function countWords(text: string): number {
-  const trimmed = text.trim();
-  if (!trimmed) return 0;
-  return trimmed.split(/\s+/).filter(Boolean).length;
-}
+import {
+  JOURNAL_BUCKS,
+  JOURNAL_MIN_SECONDS,
+  JOURNAL_MIN_WORDS,
+  countWords,
+} from "@/lib/bucks/gate";
 
 /**
  * Credit a reading advance's bonus pages to the wallet, 1:1. Keyed to the advance

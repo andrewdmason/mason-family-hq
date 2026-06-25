@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { BookOpen, Coins, NotebookPen, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useBucksAction } from "@/lib/bucks/use-bucks-action";
 import { claimTask, redeemPrize } from "@/app/(bucks)/bucks/actions";
 import type {
   BucksEarnTask,
@@ -13,24 +13,6 @@ import type {
   BucksPrize,
   BucksWallet,
 } from "@/lib/bucks/types";
-
-function useAction() {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const run = (fn: () => Promise<void>) => {
-    setError(null);
-    startTransition(async () => {
-      try {
-        await fn();
-        router.refresh();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Something went wrong.");
-      }
-    });
-  };
-  return { pending, error, run };
-}
 
 function EarnTaskRow({
   task,
@@ -41,7 +23,7 @@ function EarnTaskRow({
 }) {
   const [open, setOpen] = useState(false);
   const [qty, setQty] = useState(1);
-  const { pending, error, run } = useAction();
+  const { pending, error, run } = useBucksAction();
 
   function submit() {
     run(async () => {
@@ -112,7 +94,7 @@ function PrizeCard({
   memberEmail: string | null;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const { pending, error, run } = useAction();
+  const { pending, error, run } = useBucksAction();
 
   function redeem() {
     run(async () => {
