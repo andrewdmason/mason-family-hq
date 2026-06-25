@@ -137,10 +137,25 @@ export async function POST(req: NextRequest) {
     try {
       const { data: book } = await client
         .from("reading_books")
-        .select("status, current_page, target_page")
+        .select("status, current_page, target_page, cover_image_url")
         .eq("id", bookId)
         .eq("user_id", userId)
         .maybeSingle();
+      // An EPUB's embedded cover fills in for books with no cover yet (e.g.
+      // uploaded without an Open Library match). Never clobber a cover the
+      // user already has.
+      if (result.coverImageDataUrl && book && !book.cover_image_url) {
+        const { error: coverError } = await client
+          .from("reading_books")
+          .update({ cover_image_url: result.coverImageDataUrl })
+          .eq("id", bookId)
+          .eq("user_id", userId);
+        if (coverError) {
+          log("cover update failed", { error: coverError.message });
+        } else {
+          log("cover set from epub");
+        }
+      }
       if (book?.status === "in_progress" && book.target_page != null) {
         const current = book.current_page as number;
         await ensureStretchQuiz(

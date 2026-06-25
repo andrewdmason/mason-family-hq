@@ -41,6 +41,13 @@ export type ConversionResult = {
   hasRealPages: boolean;
   /** Total characters of body text — the substrate for future quiz scoping. */
   charCount: number;
+  /**
+   * The EPUB's embedded cover, as a `data:` URL ready to drop straight into an
+   * <img src>, or null if the file ships no cover (PDFs always null). Inlined
+   * rather than uploaded so it matches the existing cover_image_url contract (a
+   * stable, directly-renderable URL) without a signed-URL expiry.
+   */
+  coverImageDataUrl: string | null;
 };
 
 export class ConversionError extends Error {}
@@ -404,6 +411,7 @@ async function convertPdf(buffer: ArrayBuffer): Promise<ConversionResult> {
     pageCount: doc.numPages,
     hasRealPages: true,
     charCount,
+    coverImageDataUrl: null,
   };
 }
 
@@ -618,6 +626,114 @@ async function readEpubToc(
   return byFile;
 }
 
+/**
+ * Cap on the inlined cover, measured on the base64 string (~1.37× the raw image
+ * bytes). Covers are stored as a data URL on reading_books.cover_image_url and
+ * ship in every book-list query, so a pathologically large cover would bloat
+ * those payloads — past this we skip the embedded cover and leave the placeholder.
+ * 2.7M base64 ≈ a ~2MB image, comfortably above normal cover sizes.
+ */
+const EPUB_COVER_MAX_BASE64 = 2_700_000;
+
+/** Best-effort image MIME for a cover, preferring the OPF's declared type. */
+function coverImageMime(path: string, declaredType: string | null): string | null {
+  if (declaredType && declaredType.startsWith("image/")) return declaredType;
+  const ext = path.includes(".") ? path.slice(path.lastIndexOf(".") + 1).toLowerCase() : "";
+  switch (ext) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
+    case "svg":
+      return "image/svg+xml";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Pull the EPUB's embedded cover out of the archive as an inlined `data:` URL.
+ * Covers are declared three different ways across EPUB versions, so we try each:
+ * the EPUB3 manifest item with properties="cover-image", the EPUB2
+ * <meta name="cover" content="{itemId}"/> pointer, and finally a manifest image
+ * whose id/href just looks like a cover. Returns null when there's no usable
+ * cover (none declared, missing file, non-image, or over the size cap).
+ */
+async function extractEpubCover(
+  zip: JSZip,
+  opf: XmlDocument,
+  opfDir: string
+): Promise<string | null> {
+  const items = opf.getElementsByTagName("item");
+
+  let coverHref: string | null = null;
+  let declaredType: string | null = null;
+
+  // 1. EPUB3: the manifest item flagged properties="cover-image".
+  for (let i = 0; i < items.length; i++) {
+    const props = items[i].getAttribute("properties") ?? "";
+    if (/\bcover-image\b/.test(props)) {
+      coverHref = items[i].getAttribute("href");
+      declaredType = items[i].getAttribute("media-type");
+      break;
+    }
+  }
+
+  // 2. EPUB2: <meta name="cover" content="{itemId}"/> -> that manifest item.
+  if (!coverHref) {
+    const metas = opf.getElementsByTagName("meta");
+    let coverId: string | null = null;
+    for (let i = 0; i < metas.length; i++) {
+      if ((metas[i].getAttribute("name") ?? "").toLowerCase() === "cover") {
+        coverId = metas[i].getAttribute("content");
+        break;
+      }
+    }
+    if (coverId) {
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].getAttribute("id") === coverId) {
+          coverHref = items[i].getAttribute("href");
+          declaredType = items[i].getAttribute("media-type");
+          break;
+        }
+      }
+    }
+  }
+
+  // 3. Fallback: any image item whose id or href reads like a cover.
+  if (!coverHref) {
+    for (let i = 0; i < items.length; i++) {
+      const type = items[i].getAttribute("media-type") ?? "";
+      if (!type.startsWith("image/")) continue;
+      const id = items[i].getAttribute("id") ?? "";
+      const href = items[i].getAttribute("href") ?? "";
+      if (/cover/i.test(id) || /cover/i.test(href)) {
+        coverHref = href;
+        declaredType = type;
+        break;
+      }
+    }
+  }
+
+  if (!coverHref) return null;
+
+  const coverPath = resolvePath(opfDir, coverHref);
+  const mime = coverImageMime(coverPath, declaredType);
+  if (!mime || mime === "image/svg+xml") return null; // raster covers only
+
+  const file = zip.file(coverPath);
+  if (!file) return null;
+  const base64 = await file.async("base64");
+  if (!base64 || base64.length > EPUB_COVER_MAX_BASE64) return null;
+
+  return `data:${mime};base64,${base64}`;
+}
+
 async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
   const zip = await JSZip.loadAsync(buffer);
   const parser = new DOMParser();
@@ -648,6 +764,14 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
     const id = items[i].getAttribute("id");
     const href = items[i].getAttribute("href");
     if (id && href) manifest.set(id, resolvePath(opfDir, href));
+  }
+
+  // The publisher's cover art, inlined as a data URL — best-effort, never fatal.
+  let coverImageDataUrl: string | null = null;
+  try {
+    coverImageDataUrl = await extractEpubCover(zip, opf as unknown as XmlDocument, opfDir);
+  } catch {
+    coverImageDataUrl = null;
   }
 
   // Spine: ordered list of content documents.
@@ -773,6 +897,7 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
     pageCount: hasRealPages ? pages.length : null,
     hasRealPages,
     charCount: charCursor,
+    coverImageDataUrl,
   };
 }
 
