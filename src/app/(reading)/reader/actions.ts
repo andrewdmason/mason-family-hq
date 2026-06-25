@@ -576,17 +576,24 @@ export type MarkReachedResult =
   | { outcome: "quiz_pending" };
 
 /**
- * Mark a book's weekly target reached — binary, no page entry. For a book with an
- * uploaded+converted file, this routes the reader into the stretch quiz (passing
- * it is what advances the milestone — see submitQuiz). For a book without a file,
- * it advances the milestone directly.
+ * Mark a book's weekly target reached. For a book with an uploaded+converted file,
+ * this routes the reader into the stretch quiz (passing it is what advances the
+ * milestone — see submitQuiz). For a book without a file, it advances directly.
+ *
+ * `reachedPage` is the bonus opt-in: the reader declares they read past their
+ * weekly target. It's clamped to [normal weekly target, last page] — they can dial
+ * up for bonus pages or back down to their normal goal, never below. Declaring a
+ * higher page bumps the stretch target and regenerates the quiz to cover the wider
+ * range (the old one is superseded); bonus banks when that quiz is passed. Omitting
+ * it keeps the original binary behavior.
  */
 export async function markTargetReached(
   bookId: string,
-  memberEmail?: string | null
+  memberEmail?: string | null,
+  reachedPage?: number | null
 ): Promise<MarkReachedResult> {
   const scope = await resolveReadingScope(memberEmail);
-  const { client, userId } = scope;
+  const { client, userId, email } = scope;
 
   const { data: book, error } = await client
     .from("reading_books")
@@ -596,18 +603,52 @@ export async function markTargetReached(
     .single();
   if (error) throw new Error(error.message);
 
+  const currentPage = book.current_page as number;
+  const oldTarget = (book.target_page as number | null) ?? null;
+  const totalPages = (book.total_pages as number | null) ?? null;
+
+  // Bonus opt-in: clamp the declared page to [normal target, last page] and bump
+  // the stretch target to it. `bumped` forces quiz regeneration below.
+  let targetPage = oldTarget;
+  let bumped = false;
+  if (reachedPage != null) {
+    const increment = await readingIncrement(client, email);
+    const normalTarget = defaultTargetPage(currentPage, increment, totalPages);
+    const floor = normalTarget ?? currentPage + 1;
+    const ceiling = totalPages ?? Math.floor(reachedPage);
+    const declared = Math.min(Math.max(Math.floor(reachedPage), floor), ceiling);
+    if (declared !== oldTarget) {
+      const tz = await getUserTimezone();
+      const today = localDate(new Date(), tz);
+      const { error: bumpError } = await client
+        .from("reading_books")
+        .update({
+          target_page: declared,
+          target_locked: false,
+          target_due: readingTargetDueDateKey(today),
+        })
+        .eq("id", bookId)
+        .eq("user_id", userId);
+      if (bumpError) throw new Error(bumpError.message);
+      bumped = true;
+    }
+    targetPage = declared;
+  }
+
   const stretchBook = {
     id: book.id as string,
-    current_page: book.current_page as number,
-    target_page: (book.target_page as number | null) ?? null,
-    total_pages: (book.total_pages as number | null) ?? null,
+    current_page: currentPage,
+    target_page: targetPage,
+    total_pages: totalPages,
   };
 
-  // A published, unpassed quiz is authoritative for this stretch even if the
-  // original converted book text is not present in a lightweight seed reset.
-  const active = await getActiveQuizzesByBook([bookId], memberEmail);
-  const activeQuiz = active[bookId];
-  if (activeQuiz) return { outcome: "quiz", quizId: activeQuiz.quizId };
+  // No bump: a published, unpassed quiz is authoritative for this stretch even if
+  // the converted book text isn't present (e.g. a lightweight seed reset).
+  if (!bumped) {
+    const active = await getActiveQuizzesByBook([bookId], memberEmail);
+    const activeQuiz = active[bookId];
+    if (activeQuiz) return { outcome: "quiz", quizId: activeQuiz.quizId };
+  }
 
   // A book "with quizzes" is one whose uploaded file has converted to ready text.
   const { data: content } = await client
@@ -619,13 +660,15 @@ export async function markTargetReached(
   const hasContent = content?.status === "ready";
 
   if (!hasContent) {
+    // No file to quiz on — advance directly (declared page banks any bonus).
     const { finished, nextTarget } = await advanceStretch(scope, stretchBook);
     return { outcome: "advanced", finished, nextTarget };
   }
 
-  // Quiz-gated: hand back the active (published, unpassed) stretch quiz. Passing
-  // it advances the milestone; we don't advance here.
-  // None ready yet (generation still running or failed) — try once on demand.
+  // Quiz-gated: ensure a published quiz for the (possibly bumped) stretch range —
+  // a bump regenerates it at the new through_page and supersedes the old one
+  // (ensureStretchQuiz idempotency + archiveOtherOpenQuizzes). Passing it advances
+  // the milestone; we don't advance here. None ready yet → try once on demand.
   const ensured = await ensureStretchQuizInline(scope, stretchBook);
   if (ensured.quizId) return { outcome: "quiz", quizId: ensured.quizId };
   return { outcome: "quiz_pending" };
