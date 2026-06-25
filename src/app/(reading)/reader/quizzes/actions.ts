@@ -940,7 +940,8 @@ export async function submitQuiz(
           target_page: (book.target_page as number | null) ?? null,
           total_pages: (book.total_pages as number | null) ?? null,
         },
-        throughPage
+        throughPage,
+        quizId
       );
       advanced = true;
       finished = res.finished;
@@ -1176,7 +1177,8 @@ export async function closeQuizWithoutPassing(
         target_page: (book.target_page as number | null) ?? null,
         total_pages: (book.total_pages as number | null) ?? null,
       },
-      throughPage
+      throughPage,
+      quizId
     );
     advanced = true;
     finished = res.finished;
