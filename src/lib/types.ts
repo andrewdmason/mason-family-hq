@@ -1007,6 +1007,22 @@ export type MilestoneProgress = {
   reached: boolean;
 };
 
+/** A milestone in the Parent Admin console, with the kid's progress + state. */
+export type ReadingAdminMilestone = {
+  id: string;
+  title: string;
+  metric: "bonus_pages" | "total_pages";
+  threshold: number;
+  current: number;
+  imageUrl: string | null;
+  /** Count start date (YYYY-MM-DD), or null for all-time. */
+  startOn: string | null;
+  /** Reached the threshold (achieved_at stamped). */
+  achieved: boolean;
+  /** Parent has marked the reward handed over. */
+  awarded: boolean;
+};
+
 /** Everything the reading home renders for the signed-in member. */
 export type ReadingHome = {
   books: ReadingBookWithProgress[];
