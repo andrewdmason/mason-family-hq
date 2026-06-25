@@ -6,12 +6,15 @@ import {
   formatSetMetric,
 } from "@/lib/workouts/format";
 
-// Session effort, mirrored from session-effort.tsx for the read-only badge.
-const RPE_LABEL: Record<number, { emoji: string; label: string }> = {
-  6: { emoji: "😌", label: "Easier than normal" },
-  8: { emoji: "😤", label: "Normal" },
-  9: { emoji: "🥵", label: "Hard" },
-  10: { emoji: "💀", label: "Max" },
+// Session effort/energy flags, mirrored from session-flags.tsx for the read-only
+// recap. Both are nullable: null means a normal day and shows no chip.
+const EFFORT_LABEL: Record<string, { emoji: string; label: string }> = {
+  easier: { emoji: "😌", label: "Easier than normal" },
+  harder: { emoji: "🥵", label: "Harder than normal" },
+};
+const ENERGY_LABEL: Record<string, { emoji: string; label: string }> = {
+  low: { emoji: "🪫", label: "Low energy" },
+  high: { emoji: "⚡", label: "High energy" },
 };
 
 const trimNum = (n: number): string =>
@@ -38,7 +41,13 @@ function summarizeEntry(e: EntryView): { detail: string; e1rm: number | null } {
   // A metcon movement's result lives on the block score; show its scheme only.
   const isMetcon = (sets[0].context ?? "strength") === "metcon";
   if (isMetcon) {
-    return { detail: sets.map(setLabel).filter((l) => l !== "—").join(", "), e1rm: null };
+    return {
+      detail: sets
+        .map(setLabel)
+        .filter((l) => l !== "—")
+        .join(", "),
+      e1rm: null,
+    };
   }
 
   const first = sets[0];
@@ -46,15 +55,21 @@ function summarizeEntry(e: EntryView): { detail: string; e1rm: number | null } {
     (s) =>
       s.metricType === first.metricType &&
       s.actual.reps === first.actual.reps &&
-      s.actual.load === first.actual.load
+      s.actual.load === first.actual.load,
   );
   const label = setLabel(first);
   if (uniform) {
     if (label === "—") return { detail: "", e1rm };
-    return { detail: sets.length > 1 ? `${sets.length} × ${label}` : label, e1rm };
+    return {
+      detail: sets.length > 1 ? `${sets.length} × ${label}` : label,
+      e1rm,
+    };
   }
   return {
-    detail: sets.map(setLabel).filter((l) => l !== "—").join(", "),
+    detail: sets
+      .map(setLabel)
+      .filter((l) => l !== "—")
+      .join(", "),
     e1rm,
   };
 }
@@ -87,7 +102,11 @@ export function WorkoutSummary({
       if (s.metricType === "load_reps" && s.actual.load && s.actual.reps) {
         volume += s.actual.load * s.actual.reps;
       }
-      if (s.e1rm != null && !s.e1rmIsLoose && (top === null || s.e1rm > top.value)) {
+      if (
+        s.e1rm != null &&
+        !s.e1rmIsLoose &&
+        (top === null || s.e1rm > top.value)
+      ) {
         top = { name, value: s.e1rm };
       }
     }
@@ -98,13 +117,17 @@ export function WorkoutSummary({
     { value: String(setCount), label: setCount === 1 ? "set" : "sets" },
   ];
   if (volume > 0) {
-    stats.push({ value: Math.round(volume).toLocaleString(), label: "lb volume" });
+    stats.push({
+      value: Math.round(volume).toLocaleString(),
+      label: "lb volume",
+    });
   }
   if (top) {
     stats.push({ value: trimNum(top.value), label: `${top.name} e1RM` });
   }
 
-  const effort = session.rpe != null ? RPE_LABEL[session.rpe] : null;
+  const effort = session.effort ? EFFORT_LABEL[session.effort] : null;
+  const energy = session.energy ? ENERGY_LABEL[session.energy] : null;
   const note = session.notes?.trim();
 
   const sectionBorder = "border-t border-emerald-600/15";
@@ -118,10 +141,20 @@ export function WorkoutSummary({
           <span className="text-sm font-medium text-emerald-700">
             Completed — nice work
           </span>
-          {effort && (
-            <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
-              <span className="text-base leading-none">{effort.emoji}</span>
-              {effort.label}
+          {(effort || energy) && (
+            <span className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              {effort && (
+                <span className="inline-flex items-center gap-1">
+                  <span className="text-base leading-none">{effort.emoji}</span>
+                  {effort.label}
+                </span>
+              )}
+              {energy && (
+                <span className="inline-flex items-center gap-1">
+                  <span className="text-base leading-none">{energy.emoji}</span>
+                  {energy.label}
+                </span>
+              )}
             </span>
           )}
         </div>
@@ -189,7 +222,9 @@ export function WorkoutSummary({
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             Notes
           </p>
-          <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{note}</p>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">
+            {note}
+          </p>
         </div>
       )}
 

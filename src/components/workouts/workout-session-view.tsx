@@ -24,7 +24,10 @@ import {
   type BenchmarkAttempt,
 } from "@/components/workouts/benchmark-banner";
 import { SessionNotes } from "@/components/workouts/session-notes";
-import { SessionEffort } from "@/components/workouts/session-effort";
+import {
+  SessionEffort,
+  SessionEnergy,
+} from "@/components/workouts/session-flags";
 import { ReparseButton } from "@/components/workouts/reparse-button";
 import { CompleteToggle } from "@/components/workouts/complete-toggle";
 import { WhoopSyncPanel } from "@/components/workouts/whoop-sync-panel";
@@ -68,7 +71,9 @@ export async function WorkoutSessionView({ sessionId }: { sessionId: string }) {
     .select("email")
     .eq("user_id", userId)
     .maybeSingle();
-  const whoopConnected = me?.email ? await hasWhoopConnection(me.email as string) : false;
+  const whoopConnected = me?.email
+    ? await hasWhoopConnection(me.email as string)
+    : false;
 
   // A completed session locks to a read-only "done" view (Edit reopens it). The
   // WHOOP follow-up — with a preview of exactly what's sent — is offered once the
@@ -90,7 +95,7 @@ export async function WorkoutSessionView({ sessionId }: { sessionId: string }) {
           excludeSessionId: session.id,
         }).then((rows) => {
           benchmarkAttempts.set(block.id, rows);
-        })
+        }),
       );
     }
     for (const entry of block.entries) {
@@ -100,7 +105,7 @@ export async function WorkoutSessionView({ sessionId }: { sessionId: string }) {
             excludeSessionId: session.id,
           }).then((h) => {
             entryHistory.set(entry.id, h);
-          })
+          }),
         );
       }
     }
@@ -116,13 +121,13 @@ export async function WorkoutSessionView({ sessionId }: { sessionId: string }) {
         e.movementId &&
         e.isLoaded &&
         (entryHistory.get(e.id)?.bestE1rmStrict ?? null) === null &&
-        (entryHistory.get(e.id)?.recent.length ?? 0) === 0
+        (entryHistory.get(e.id)?.recent.length ?? 0) === 0,
     );
   const siblingHints: Map<string, SiblingHint> =
     needHints.length > 0
       ? await getSiblingHints(
           supabase,
-          needHints.map((e) => e.movementId as string)
+          needHints.map((e) => e.movementId as string),
         )
       : new Map();
   const hintByEntry = new Map<string, SiblingHint>();
@@ -136,7 +141,7 @@ export async function WorkoutSessionView({ sessionId }: { sessionId: string }) {
   const allEntries = session.blocks.flatMap((b) => b.entries);
   const substitutes = await getSubstitutesForMovements(
     supabase,
-    allEntries.map((e) => e.movementId).filter((id): id is string => !!id)
+    allEntries.map((e) => e.movementId).filter((id): id is string => !!id),
   );
   const subByEntry = new Map<string, { id: string; name: string }>();
   for (const e of allEntries) {
@@ -192,7 +197,10 @@ export async function WorkoutSessionView({ sessionId }: { sessionId: string }) {
             </p>
           )}
           <div className="mt-3">
-            <ReparseButton sessionId={session.id} label="Structure this workout" />
+            <ReparseButton
+              sessionId={session.id}
+              label="Structure this workout"
+            />
           </div>
         </div>
       )}
@@ -238,15 +246,18 @@ export async function WorkoutSessionView({ sessionId }: { sessionId: string }) {
                 entryHistory={entryHistory}
                 hintByEntry={hintByEntry}
                 subByEntry={subByEntry}
-                benchmarkAttempts={benchmarkAttempts.get(group.blocks[0].id) ?? []}
+                benchmarkAttempts={
+                  benchmarkAttempts.get(group.blocks[0].id) ?? []
+                }
                 today={today}
               />
-            )
+            ),
           )}
         </div>
 
         <div className="mt-6 flex flex-col gap-4">
-          <SessionEffort sessionId={session.id} initial={session.rpe} />
+          <SessionEffort sessionId={session.id} initial={session.effort} />
+          <SessionEnergy sessionId={session.id} initial={session.energy} />
           <SessionNotes sessionId={session.id} initial={session.notes} />
         </div>
 
@@ -270,10 +281,15 @@ export async function WorkoutSessionView({ sessionId }: { sessionId: string }) {
 // sessions parsed before group_label existed still group correctly.
 type WodGroup = { key: string; label: string | null; blocks: BlockView[] };
 
-function groupKeyFor(block: BlockView): { key: string | null; label: string | null } {
-  if (block.groupLabel) return { key: block.groupLabel, label: block.groupLabel };
+function groupKeyFor(block: BlockView): {
+  key: string | null;
+  label: string | null;
+} {
+  if (block.groupLabel)
+    return { key: block.groupLabel, label: block.groupLabel };
   const derived = parseWodTitle(block.title);
-  if (derived.part && derived.base) return { key: derived.base, label: derived.base };
+  if (derived.part && derived.base)
+    return { key: derived.base, label: derived.base };
   return { key: null, label: null };
 }
 
@@ -318,7 +334,10 @@ function BlockBody({
     <>
       {block.benchmarkName && (
         <div className="mb-3">
-          <BenchmarkBanner name={block.benchmarkName} attempts={benchmarkAttempts} />
+          <BenchmarkBanner
+            name={block.benchmarkName}
+            attempts={benchmarkAttempts}
+          />
         </div>
       )}
 
@@ -345,7 +364,9 @@ function BlockBody({
         ))}
       </div>
 
-      {block.scoreType !== "none" || block.entries.length > 0 ? (
+      {/* Only scored blocks have a result to log; 'none'/'load' render nothing
+          (load lives on the strength set, and effort/notes are session-level). */}
+      {block.scoreType !== "none" && block.scoreType !== "load" ? (
         <div className="mt-4">
           <BlockScore block={block} sessionId={sessionId} />
         </div>
@@ -418,7 +439,9 @@ function WodGroupCard({
         {group.blocks.map((block) => (
           <div key={block.id} className="py-3 first:pt-0 last:pb-0">
             <div className="mb-2 flex items-baseline justify-between gap-2">
-              <h3 className="font-medium text-foreground">{partLabelFor(block)}</h3>
+              <h3 className="font-medium text-foreground">
+                {partLabelFor(block)}
+              </h3>
               <span className="text-xs uppercase tracking-wide text-muted-foreground">
                 {BLOCK_TYPE_LABEL[block.blockType]}
               </span>
@@ -484,7 +507,6 @@ function MovementEntry({
             entryId={entry.id}
             sessionId={sessionId}
             movementName={name}
-            initialNotes={entry.notes}
             sets={isMetcon ? entry.sets : []}
           />
         </div>
@@ -496,10 +518,6 @@ function MovementEntry({
           </div>
         )}
       </div>
-
-      {entry.notes && (
-        <p className="mb-2 text-xs text-muted-foreground italic">{entry.notes}</p>
-      )}
 
       {substitute && (
         <div className="mb-2">
@@ -526,20 +544,25 @@ function MovementEntry({
 
       {isMetcon ? (
         metconLabels.length > 0 ? (
-          <p className="text-xs text-muted-foreground">{metconLabels.join(" · ")}</p>
+          <p className="text-xs text-muted-foreground">
+            {metconLabels.join(" · ")}
+          </p>
         ) : null
       ) : (
         <div className="flex flex-col gap-1.5">
           {entry.sets.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              {formatSetMetric(refSet?.metricType ?? "reps", refSet?.prescribed ?? {
-                reps: null,
-                load: null,
-                unit: null,
-                distance: null,
-                duration: null,
-                calories: null,
-              })}
+              {formatSetMetric(
+                refSet?.metricType ?? "reps",
+                refSet?.prescribed ?? {
+                  reps: null,
+                  load: null,
+                  unit: null,
+                  distance: null,
+                  duration: null,
+                  calories: null,
+                },
+              )}
             </p>
           ) : (
             entry.sets.map((s, i) => (

@@ -6,11 +6,18 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireUserId } from "@/lib/members/auth";
 import { WORKOUTS_MODEL } from "@/lib/workouts/anthropic";
-import { parseWorkoutDescription, buildSessionSourceText } from "@/lib/workouts/parse";
+import {
+  parseWorkoutDescription,
+  buildSessionSourceText,
+} from "@/lib/workouts/parse";
 import { loadMovementVocabulary } from "@/lib/workouts/canonicalize";
 import { materializeSession } from "@/lib/workouts/materialize";
 import { computeSetE1rm } from "@/lib/workouts/e1rm";
-import { pushSessionToWhoop, markSessionWhoopDirty, type PushResult } from "@/lib/whoop/push";
+import {
+  pushSessionToWhoop,
+  markSessionWhoopDirty,
+  type PushResult,
+} from "@/lib/whoop/push";
 import { ensureSessionForEvent } from "@/lib/workouts/session";
 import type { WorkoutRxLevel } from "@/lib/workouts/types";
 
@@ -40,7 +47,10 @@ export async function reimportSession(sessionId: string): Promise<void> {
     .maybeSingle();
   // The workout may live entirely in the title (calendar events with no
   // description body), so parse from title + description, not description alone.
-  const sourceText = buildSessionSourceText(session?.title, session?.raw_description);
+  const sourceText = buildSessionSourceText(
+    session?.title,
+    session?.raw_description,
+  );
   if (!sourceText) return;
 
   // Blocks cascade to entries and sets. Reset to a freshly-imported state.
@@ -54,10 +64,19 @@ export async function reimportSession(sessionId: string): Promise<void> {
   const parsed = await parseWorkoutDescription(sourceText, vocab);
   if (parsed.parsed) {
     const admin = createAdminClient();
-    await materializeSession({ user: supabase, admin, userId, sessionId, parsed });
+    await materializeSession({
+      user: supabase,
+      admin,
+      userId,
+      sessionId,
+      parsed,
+    });
     await supabase
       .from("workout_sessions")
-      .update({ parsed_at: new Date().toISOString(), parse_model: WORKOUTS_MODEL })
+      .update({
+        parsed_at: new Date().toISOString(),
+        parse_model: WORKOUTS_MODEL,
+      })
       .eq("id", sessionId);
   }
   revalidatePath(`/workouts/${sessionId}`);
@@ -85,21 +104,31 @@ export async function createManualSession(input: {
     })
     .select("id")
     .single();
-  if (error || !data) throw new Error(`create manual session: ${error?.message}`);
+  if (error || !data)
+    throw new Error(`create manual session: ${error?.message}`);
   const sessionId = data.id;
 
   if (input.description.trim()) {
     const vocab = await loadMovementVocabulary(supabase);
     const parsed = await parseWorkoutDescription(
       buildSessionSourceText(input.title, input.description),
-      vocab
+      vocab,
     );
     if (parsed.parsed) {
       const admin = createAdminClient();
-      await materializeSession({ user: supabase, admin, userId, sessionId, parsed });
+      await materializeSession({
+        user: supabase,
+        admin,
+        userId,
+        sessionId,
+        parsed,
+      });
       await supabase
         .from("workout_sessions")
-        .update({ parsed_at: new Date().toISOString(), parse_model: WORKOUTS_MODEL })
+        .update({
+          parsed_at: new Date().toISOString(),
+          parse_model: WORKOUTS_MODEL,
+        })
         .eq("id", sessionId);
     }
   }
@@ -136,7 +165,7 @@ export type SetActualPatch = {
 export async function updateSet(
   setId: string,
   sessionId: string,
-  patch: SetActualPatch
+  patch: SetActualPatch,
 ): Promise<void> {
   const supabase = await createClient();
   await requireUserId(supabase);
@@ -145,7 +174,7 @@ export async function updateSet(
     .from("workout_sets")
     .select(
       `metric_type, actual_load, actual_reps, actual_unit,
-       workout_movement_entries!inner ( movements ( is_loaded ) )`
+       workout_movement_entries!inner ( movements ( is_loaded ) )`,
     )
     .eq("id", setId)
     .maybeSingle();
@@ -193,7 +222,7 @@ export type BlockPatch = {
 export async function updateBlock(
   blockId: string,
   sessionId: string,
-  patch: BlockPatch
+  patch: BlockPatch,
 ): Promise<void> {
   const supabase = await createClient();
   await requireUserId(supabase);
@@ -219,7 +248,10 @@ export async function getMovementOptions(): Promise<
   const supabase = await createClient();
   await requireUserId(supabase);
   const [{ data: movements }, { data: aliases }] = await Promise.all([
-    supabase.from("movements").select("id, canonical_name").order("canonical_name"),
+    supabase
+      .from("movements")
+      .select("id, canonical_name")
+      .order("canonical_name"),
     supabase.from("movement_aliases").select("movement_id, alias"),
   ]);
   const aliasMap = new Map<string, string[]>();
@@ -229,7 +261,11 @@ export async function getMovementOptions(): Promise<
     aliasMap.set(a.movement_id, list);
   }
   return ((movements ?? []) as { id: string; canonical_name: string }[]).map(
-    (m) => ({ id: m.id, name: m.canonical_name, aliases: aliasMap.get(m.id) ?? [] })
+    (m) => ({
+      id: m.id,
+      name: m.canonical_name,
+      aliases: aliasMap.get(m.id) ?? [],
+    }),
   );
 }
 
@@ -240,7 +276,7 @@ export async function getMovementOptions(): Promise<
 export async function swapEntryMovement(
   entryId: string,
   sessionId: string,
-  newMovementId: string
+  newMovementId: string,
 ): Promise<void> {
   const supabase = await createClient();
   await requireUserId(supabase);
@@ -288,27 +324,12 @@ export async function swapEntryMovement(
   revalidatePath(`/workouts/${sessionId}`);
 }
 
-export async function updateEntry(
-  entryId: string,
-  sessionId: string,
-  patch: { rpe?: number | null; notes?: string | null }
-): Promise<void> {
-  const supabase = await createClient();
-  await requireUserId(supabase);
-  const cols: Record<string, unknown> = {};
-  if ("rpe" in patch) cols.rpe = patch.rpe;
-  if ("notes" in patch) cols.notes = patch.notes;
-  if (Object.keys(cols).length === 0) return;
-  await supabase.from("workout_movement_entries").update(cols).eq("id", entryId);
-  revalidatePath(`/workouts/${sessionId}`);
-}
-
 /** Mark a session done (or reopen it). Drives the home widget's focus shift.
  * Sending to WHOOP is a separate, manual step (the "Send to WHOOP" chip) rather
  * than automatic on completion — see resendToWhoop. */
 export async function setSessionCompleted(
   sessionId: string,
-  completed: boolean
+  completed: boolean,
 ): Promise<void> {
   const supabase = await createClient();
   await requireUserId(supabase);
@@ -341,7 +362,7 @@ export async function resendToWhoop(sessionId: string): Promise<PushResult> {
 
 export async function saveSessionNotes(
   sessionId: string,
-  notes: string
+  notes: string,
 ): Promise<void> {
   const supabase = await createClient();
   await requireUserId(supabase);
@@ -352,13 +373,31 @@ export async function saveSessionNotes(
   revalidatePath(`/workouts/${sessionId}`);
 }
 
-/** Set the whole session's perceived effort (RPE 1–10), or clear it. */
-export async function setSessionRpe(
+/** Flag the session's effort vs. a normal day ("easier"/"harder"), or clear it.
+ * Null is the common case (a normal-effort session, left unselected). */
+export async function setSessionEffort(
   sessionId: string,
-  rpe: number | null
+  effort: "easier" | "harder" | null,
 ): Promise<void> {
   const supabase = await createClient();
   await requireUserId(supabase);
-  await supabase.from("workout_sessions").update({ rpe }).eq("id", sessionId);
+  await supabase
+    .from("workout_sessions")
+    .update({ effort })
+    .eq("id", sessionId);
+  revalidatePath(`/workouts/${sessionId}`);
+}
+
+/** Flag how the body felt going in ("low"/"high" energy), or clear it. */
+export async function setSessionEnergy(
+  sessionId: string,
+  energy: "low" | "high" | null,
+): Promise<void> {
+  const supabase = await createClient();
+  await requireUserId(supabase);
+  await supabase
+    .from("workout_sessions")
+    .update({ energy })
+    .eq("id", sessionId);
   revalidatePath(`/workouts/${sessionId}`);
 }

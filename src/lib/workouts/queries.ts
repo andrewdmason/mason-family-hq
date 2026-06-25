@@ -3,10 +3,7 @@
 // All reads are RLS-scoped to the caller (the views use security_invoker).
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  percentOfE1rm,
-  suggestedLoad,
-} from "./normalization";
+import { percentOfE1rm, suggestedLoad } from "./normalization";
 import type {
   MovementFamily,
   WorkoutBlockType,
@@ -85,7 +82,8 @@ export type SessionDetail = {
   calendarEventId: string | null;
   rawDescription: string | null;
   notes: string | null;
-  rpe: number | null;
+  effort: "easier" | "harder" | null;
+  energy: "low" | "high" | null;
   parsedAt: string | null;
   completedAt: string | null;
   whoopSyncStatus: "synced" | "dirty" | "failed" | "syncing" | null;
@@ -95,7 +93,7 @@ export type SessionDetail = {
 };
 
 const SESSION_SELECT = `
-  id, session_date, title, source, calendar_event_id, raw_description, notes, rpe,
+  id, session_date, title, source, calendar_event_id, raw_description, notes, effort, energy,
   parsed_at, completed_at,
   whoop_sync_status, whoop_synced_at, whoop_sync_error,
   workout_blocks (
@@ -195,7 +193,7 @@ function mapBlock(b: any): BlockView {
 
 export async function getSessionDetail(
   supabase: SupabaseClient,
-  sessionId: string
+  sessionId: string,
 ): Promise<SessionDetail | null> {
   const { data, error } = await supabase
     .from("workout_sessions")
@@ -213,7 +211,8 @@ export async function getSessionDetail(
     calendarEventId: d.calendar_event_id,
     rawDescription: d.raw_description,
     notes: d.notes,
-    rpe: d.rpe,
+    effort: d.effort,
+    energy: d.energy,
     parsedAt: d.parsed_at,
     completedAt: d.completed_at,
     whoopSyncStatus: d.whoop_sync_status,
@@ -228,7 +227,7 @@ export async function getSessionDetail(
 /** Look up an existing session for a CFO event (parse-on-open dedup). */
 export async function findSessionByEvent(
   supabase: SupabaseClient,
-  calendarEventId: string
+  calendarEventId: string,
 ): Promise<{ id: string; parsedAt: string | null } | null> {
   const { data } = await supabase
     .from("workout_sessions")
@@ -243,7 +242,7 @@ export async function findSessionByEvent(
 /** Map of movement_id → the user's preferred substitute {id, name}. */
 export async function getSubstitutesForMovements(
   supabase: SupabaseClient,
-  movementIds: string[]
+  movementIds: string[],
 ): Promise<Map<string, { id: string; name: string }>> {
   const map = new Map<string, { id: string; name: string }>();
   const ids = [...new Set(movementIds)];
@@ -267,7 +266,7 @@ export async function getSubstitutesForMovements(
     ((names ?? []) as { id: string; canonical_name: string }[]).map((m) => [
       m.id,
       m.canonical_name,
-    ])
+    ]),
   );
 
   for (const r of rows) {
@@ -306,7 +305,7 @@ export type MovementHistory = {
 export async function getMovementHistory(
   supabase: SupabaseClient,
   movementId: string,
-  opts: { limit?: number; excludeSessionId?: string } = {}
+  opts: { limit?: number; excludeSessionId?: string } = {},
 ): Promise<MovementHistory> {
   const limit = opts.limit ?? 12;
 
@@ -327,14 +326,15 @@ export async function getMovementHistory(
            session_id,
            workout_sessions!inner ( id, session_date )
          )
-       )`
+       )`,
     )
     .eq("workout_movement_entries.movement_id", movementId);
   if (error) throw new Error(`getMovementHistory: ${error.message}`);
 
   const recent: HistorySet[] = ((setsData ?? []) as any[])
     .map((s) => {
-      const session = s.workout_movement_entries?.workout_blocks?.workout_sessions;
+      const session =
+        s.workout_movement_entries?.workout_blocks?.workout_sessions;
       return {
         sessionId: session?.id as string | undefined,
         date: session?.session_date as string,
@@ -397,14 +397,14 @@ export type BenchmarkAttemptRow = {
 export async function getBenchmarkAttempts(
   supabase: SupabaseClient,
   benchmarkId: string,
-  opts: { excludeSessionId?: string } = {}
+  opts: { excludeSessionId?: string } = {},
 ): Promise<BenchmarkAttemptRow[]> {
   const { data, error } = await supabase
     .from("workout_blocks")
     .select(
       `score_type, score_seconds, score_rounds, score_reps, score_load,
        score_distance, score_calories, rx_level, session_id,
-       workout_sessions!inner ( session_date )`
+       workout_sessions!inner ( session_date )`,
     )
     .eq("benchmark_id", benchmarkId);
   if (error) throw new Error(`getBenchmarkAttempts: ${error.message}`);
@@ -440,7 +440,7 @@ export type SessionListItem = {
 
 export async function listSessions(
   supabase: SupabaseClient,
-  opts: { limit?: number } = {}
+  opts: { limit?: number } = {},
 ): Promise<SessionListItem[]> {
   const { data, error } = await supabase
     .from("workout_sessions")
