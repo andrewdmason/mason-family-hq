@@ -613,11 +613,16 @@ export async function markTargetReached(
     total_pages: (book.total_pages as number | null) ?? null,
   };
 
-  // A published, unpassed quiz is authoritative for this stretch even if the
-  // original converted book text is not present in a lightweight seed reset.
+  // Reuse the live (published, unpassed) quiz only when it still covers the current
+  // goal. If the goal moved (changeStretchTarget leaves the quiz alone for speed),
+  // the existing quiz is stale and we regenerate it here — this is where the brief
+  // "building your quiz" wait belongs, since the reader is about to take it.
+  const target = stretchBook.target_page;
   const active = await getActiveQuizzesByBook([bookId], memberEmail);
   const activeQuiz = active[bookId];
-  if (activeQuiz) return { outcome: "quiz", quizId: activeQuiz.quizId };
+  if (activeQuiz && (target == null || activeQuiz.throughPage === target)) {
+    return { outcome: "quiz", quizId: activeQuiz.quizId };
+  }
 
   // A book "with quizzes" is one whose uploaded file has converted to ready text.
   const { data: content } = await client
@@ -629,14 +634,19 @@ export async function markTargetReached(
   const hasContent = content?.status === "ready";
 
   if (!hasContent) {
+    // Can't (re)build a quiz without content: use a live one if it exists (even at
+    // a stale range — better than nothing), else advance directly.
+    if (activeQuiz) return { outcome: "quiz", quizId: activeQuiz.quizId };
     const { finished, nextTarget } = await advanceStretch(scope, stretchBook);
     return { outcome: "advanced", finished, nextTarget };
   }
 
-  // Quiz-gated: hand back the active (published, unpassed) stretch quiz. Passing
-  // it advances the milestone; we don't advance here. None ready yet → try once.
+  // Quiz-gated: build (or rebuild) the quiz for the current range; this supersedes
+  // a stale one. Passing it advances the milestone; we don't advance here.
   const ensured = await ensureStretchQuizInline(scope, stretchBook);
   if (ensured.quizId) return { outcome: "quiz", quizId: ensured.quizId };
+  // Generation not ready — fall back to a stale live quiz rather than blocking.
+  if (activeQuiz) return { outcome: "quiz", quizId: activeQuiz.quizId };
   return { outcome: "quiz_pending" };
 }
 
@@ -644,10 +654,10 @@ export async function markTargetReached(
  * Change a book's stretch target page — the bonus opt-in. The reader (or a parent
  * viewing as them) sets how far they're aiming this stretch, clamped to [normal
  * weekly target, last page]: push past the goal for bonus pages, or dial back down
- * to the weekly goal, never below. Regenerates the stretch quiz to cover the new
- * range (the old one is superseded), so taking the quiz next will cover what they
- * actually read; bonus banks when that quiz is passed. Doesn't route — the card
- * just refreshes with the new goal. Returns the clamped target.
+ * to the weekly goal, never below. Fast: this only moves the goal — the stretch
+ * quiz is (re)built lazily when the quiz is next taken (see markTargetReached), so
+ * changing the goal doesn't wait on quiz generation. Bonus banks when the quiz that
+ * covers the new range is passed. Returns the clamped target.
  */
 export async function changeStretchTarget(
   bookId: string,
@@ -695,15 +705,6 @@ export async function changeStretchTarget(
     .eq("id", bookId)
     .eq("user_id", userId);
   if (updateError) throw new Error(updateError.message);
-
-  // Regenerate the stretch quiz to the new range (idempotent; supersedes the old
-  // one). No-op for a book without ready content.
-  await ensureStretchQuizInline(scope, {
-    id: bookId,
-    current_page: currentPage,
-    target_page: clamped,
-    total_pages: totalPages,
-  });
 
   revalidatePath("/reader");
   return { target: clamped };
