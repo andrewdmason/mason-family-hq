@@ -1,7 +1,7 @@
 ---
 title: "feat: Mason Bucks app"
 type: feat
-status: active
+status: completed
 date: 2026-06-25
 origin: docs/brainstorms/mason-bucks-requirements.md
 ---
