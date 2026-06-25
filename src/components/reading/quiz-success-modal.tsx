@@ -46,6 +46,7 @@ export function QuizSuccessModal({
   readingHref,
   isEssay = false,
   essayPost = null,
+  celebrateMilestone = null,
 }: {
   assignment: ReadingQuizNextAssignment;
   dueDateLabel: string;
@@ -54,6 +55,8 @@ export function QuizSuccessModal({
   isEssay?: boolean;
   /** When present, offers a one-tap "post to the family journal" action. */
   essayPost?: { quizId: string; memberEmail: string | null } | null;
+  /** Title of a reward milestone this pass just reached, celebrated up top. */
+  celebrateMilestone?: string | null;
 }) {
   const router = useRouter();
   const [posting, startPosting] = useTransition();
@@ -92,6 +95,12 @@ export function QuizSuccessModal({
               : "Every answer is correct. Nice work."}
           </DialogDescription>
         </DialogHeader>
+
+        {celebrateMilestone && (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-800 dark:text-amber-300">
+            🎉 You reached a reward milestone: {celebrateMilestone}!
+          </p>
+        )}
 
         <p className="rounded-lg border border-emerald-600/20 bg-emerald-600/5 px-3 py-2 text-sm text-foreground">
           {assignmentText(assignment, dueDateLabel)}

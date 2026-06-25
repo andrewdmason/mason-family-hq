@@ -3,6 +3,7 @@ import { GraduationCap, Settings } from "lucide-react";
 import { AddBookDialog } from "@/components/reading/add-book-dialog";
 import { MemberViewSwitcher } from "@/components/reading/member-view-switcher";
 import { ReadingList } from "@/components/reading/reading-list";
+import { ReadingProgressHeader } from "@/components/reading/reading-progress-header";
 import { listFamilyMembers } from "@/app/(journal)/settings/family/actions";
 import { getIsOwner } from "@/lib/members/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
@@ -107,6 +108,11 @@ export default async function ReadingPage({
           &apos;s reading. Anything you add or check in is saved to their account.
         </p>
       )}
+
+      <ReadingProgressHeader
+        bonusPagesTotal={home.bonusPagesTotal}
+        milestones={home.milestones}
+      />
 
       <ReadingList
         books={home.books}

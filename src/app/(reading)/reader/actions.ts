@@ -18,6 +18,7 @@ import {
   ensureStretchQuizInline,
   readingIncrement,
 } from "@/lib/reading/advance";
+import { loadDashboardMilestones, sumMetricSince } from "@/lib/reading/milestones";
 import { getActiveQuizzesByBook } from "./quizzes/actions";
 import type {
   ReadingBook,
@@ -274,11 +275,19 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
     .filter((b) => b.status === "in_progress")
     .reduce((sum, b) => sum + b.pagesReadThisWeek, 0);
 
+  // Lifetime bonus pages + the reader's active reward milestones (R4/R8).
+  const [bonusPagesTotal, milestones] = await Promise.all([
+    sumMetricSince(client, userId, "bonus_pages", null),
+    loadDashboardMilestones(client, userId),
+  ]);
+
   return {
     books: withProgress,
     weeklyPageGoal: goalRow?.weekly_page_goal ?? 0,
     totalReadThisWeek,
     checkedInThisWeek,
+    bonusPagesTotal,
+    milestones,
   };
 }
 
@@ -577,9 +586,10 @@ export type MarkReachedResult =
 
 /**
  * Mark a book's weekly target reached — binary, no page entry. For a book with an
- * uploaded+converted file, this routes the reader into the stretch quiz (passing
- * it is what advances the milestone — see submitQuiz). For a book without a file,
- * it advances the milestone directly.
+ * uploaded+converted file, this routes the reader into the stretch quiz (passing it
+ * is what advances the milestone — see submitQuiz). For a book without a file, it
+ * advances directly. Changing the target page (for bonus reading) is a separate
+ * action — see changeStretchTarget.
  */
 export async function markTargetReached(
   bookId: string,
@@ -603,11 +613,16 @@ export async function markTargetReached(
     total_pages: (book.total_pages as number | null) ?? null,
   };
 
-  // A published, unpassed quiz is authoritative for this stretch even if the
-  // original converted book text is not present in a lightweight seed reset.
+  // Reuse the live (published, unpassed) quiz only when it still covers the current
+  // goal. If the goal moved (changeStretchTarget leaves the quiz alone for speed),
+  // the existing quiz is stale and we regenerate it here — this is where the brief
+  // "building your quiz" wait belongs, since the reader is about to take it.
+  const target = stretchBook.target_page;
   const active = await getActiveQuizzesByBook([bookId], memberEmail);
   const activeQuiz = active[bookId];
-  if (activeQuiz) return { outcome: "quiz", quizId: activeQuiz.quizId };
+  if (activeQuiz && (target == null || activeQuiz.throughPage === target)) {
+    return { outcome: "quiz", quizId: activeQuiz.quizId };
+  }
 
   // A book "with quizzes" is one whose uploaded file has converted to ready text.
   const { data: content } = await client
@@ -619,16 +634,80 @@ export async function markTargetReached(
   const hasContent = content?.status === "ready";
 
   if (!hasContent) {
+    // Can't (re)build a quiz without content: use a live one if it exists (even at
+    // a stale range — better than nothing), else advance directly.
+    if (activeQuiz) return { outcome: "quiz", quizId: activeQuiz.quizId };
     const { finished, nextTarget } = await advanceStretch(scope, stretchBook);
     return { outcome: "advanced", finished, nextTarget };
   }
 
-  // Quiz-gated: hand back the active (published, unpassed) stretch quiz. Passing
-  // it advances the milestone; we don't advance here.
-  // None ready yet (generation still running or failed) — try once on demand.
+  // Quiz-gated: build (or rebuild) the quiz for the current range; this supersedes
+  // a stale one. Passing it advances the milestone; we don't advance here.
   const ensured = await ensureStretchQuizInline(scope, stretchBook);
   if (ensured.quizId) return { outcome: "quiz", quizId: ensured.quizId };
+  // Generation not ready — fall back to a stale live quiz rather than blocking.
+  if (activeQuiz) return { outcome: "quiz", quizId: activeQuiz.quizId };
   return { outcome: "quiz_pending" };
+}
+
+/**
+ * Change a book's stretch target page — the bonus opt-in. The reader (or a parent
+ * viewing as them) sets how far they're aiming this stretch, clamped to [normal
+ * weekly target, last page]: push past the goal for bonus pages, or dial back down
+ * to the weekly goal, never below. Fast: this only moves the goal — the stretch
+ * quiz is (re)built lazily when the quiz is next taken (see markTargetReached), so
+ * changing the goal doesn't wait on quiz generation. Bonus banks when the quiz that
+ * covers the new range is passed. Returns the clamped target.
+ */
+export async function changeStretchTarget(
+  bookId: string,
+  targetPage: number,
+  memberEmail?: string | null
+): Promise<{ target: number }> {
+  const scope = await resolveReadingScope(memberEmail);
+  const { client, userId, email } = scope;
+
+  const { data: book, error } = await client
+    .from("reading_books")
+    .select("id, current_page, target_page, total_pages, status")
+    .eq("id", bookId)
+    .eq("user_id", userId)
+    .single();
+  if (error) throw new Error(error.message);
+  if (book.status !== "in_progress") {
+    throw new Error("This book isn't being read right now.");
+  }
+
+  const currentPage = book.current_page as number;
+  const totalPages = (book.total_pages as number | null) ?? null;
+  if (totalPages == null) {
+    throw new Error("Add this book's page count before changing the goal.");
+  }
+
+  const increment = await readingIncrement(client, email);
+  const normalTarget = defaultTargetPage(currentPage, increment, totalPages);
+  const floor = normalTarget ?? currentPage + 1;
+  const clamped = Math.min(Math.max(Math.floor(targetPage), floor), totalPages);
+
+  // No change (e.g. already at this goal, or clamped back to the same value).
+  if (clamped === book.target_page) return { target: clamped };
+
+  const tz = await getUserTimezone();
+  const today = localDate(new Date(), tz);
+  const { error: updateError } = await client
+    .from("reading_books")
+    .update({
+      target_page: clamped,
+      // The reader's own declaration, not an owner override — keep it unlocked.
+      target_locked: false,
+      target_due: readingTargetDueDateKey(today),
+    })
+    .eq("id", bookId)
+    .eq("user_id", userId);
+  if (updateError) throw new Error(updateError.message);
+
+  revalidatePath("/reader");
+  return { target: clamped };
 }
 
 const RATINGS: ReadingRating[] = ["loved", "liked", "neutral", "disliked"];

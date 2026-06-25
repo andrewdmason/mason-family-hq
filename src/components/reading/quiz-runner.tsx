@@ -267,7 +267,7 @@ function EssayRunner({
     setError(null);
     startTransition(async () => {
       try {
-        await submitQuiz(
+        const res = await submitQuiz(
           quiz.id,
           [{ questionId: essay.id, responseText: text }],
           memberEmail
@@ -278,7 +278,9 @@ function EssayRunner({
         } catch {
           // Ignore storage failures.
         }
-        router.push(quizResultsHref(quiz.id, memberEmail));
+        router.push(
+          quizResultsHref(quiz.id, memberEmail, res.reachedMilestone)
+        );
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Couldn't submit your essay."
@@ -401,8 +403,10 @@ function LegacyRunner({
             ? { questionId: q.id, selectedIndex: choices[q.id] ?? null }
             : { questionId: q.id, responseText: texts[q.id] ?? "" }
         );
-        await submitQuiz(quiz.id, answers, memberEmail);
-        router.push(quizResultsHref(quiz.id, memberEmail));
+        const res = await submitQuiz(quiz.id, answers, memberEmail);
+        router.push(
+          quizResultsHref(quiz.id, memberEmail, res.reachedMilestone)
+        );
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Couldn't submit your quiz."

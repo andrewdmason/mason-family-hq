@@ -11,8 +11,9 @@ import type { ActiveBookQuiz } from "@/lib/types";
 /**
  * Binary "I reached my target" check-in. No page entry. For a book with a quiz it
  * routes into the stretch quiz (passing advances the milestone); otherwise it
- * advances directly. The kid never types a page number. When the quiz is due this
- * week or a failed attempt needs a retake, the button says so.
+ * advances directly. The kid never types a page number here — changing the target
+ * for bonus reading is the separate "Change" control next to the goal. When the
+ * quiz is due this week or a failed attempt needs a retake, the button says so.
  */
 export function MarkReachedButton({
   bookId,

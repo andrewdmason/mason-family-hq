@@ -733,6 +733,8 @@ export async function submitQuiz(
   attemptNumber: number;
   advanced: boolean;
   finished: boolean;
+  /** Title of a reward milestone this pass just reached, for a celebration. */
+  reachedMilestone: string | null;
 }> {
   const scope = await resolveReadingScope(memberEmail);
   const { client, userId, email } = scope;
@@ -922,6 +924,7 @@ export async function submitQuiz(
   // ground beyond the current page, so retaking an already-passed stretch is a no-op.
   let advanced = false;
   let finished = false;
+  let reachedMilestone: string | null = null;
   const passed = scoreTotal > 0 && scoreCorrect === scoreTotal;
   if (passed) {
     const throughPage = quiz.through_page as number | null;
@@ -940,15 +943,17 @@ export async function submitQuiz(
           target_page: (book.target_page as number | null) ?? null,
           total_pages: (book.total_pages as number | null) ?? null,
         },
-        throughPage
+        throughPage,
+        quizId
       );
       advanced = true;
       finished = res.finished;
+      reachedMilestone = res.reachedMilestones[0] ?? null;
     }
   }
 
   revalidateQuizzes();
-  return { submissionId, attemptNumber, advanced, finished };
+  return { submissionId, attemptNumber, advanced, finished, reachedMilestone };
 }
 
 /**
@@ -1176,7 +1181,8 @@ export async function closeQuizWithoutPassing(
         target_page: (book.target_page as number | null) ?? null,
         total_pages: (book.total_pages as number | null) ?? null,
       },
-      throughPage
+      throughPage,
+      quizId
     );
     advanced = true;
     finished = res.finished;

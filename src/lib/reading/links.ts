@@ -33,7 +33,14 @@ export function quizTakeHref(quizId: string, memberEmail?: string | null): strin
   return withMember(`/reader/quizzes/${quizId}`, memberEmail);
 }
 
-/** A graded quiz's results/feedback. */
-export function quizResultsHref(quizId: string, memberEmail?: string | null): string {
-  return withMember(`/reader/quizzes/${quizId}/results`, memberEmail);
+/** A graded quiz's results/feedback. `celebrate` shows a milestone-reached banner. */
+export function quizResultsHref(
+  quizId: string,
+  memberEmail?: string | null,
+  celebrate?: string | null
+): string {
+  const base = withMember(`/reader/quizzes/${quizId}/results`, memberEmail);
+  if (!celebrate) return base;
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}celebrate=${encodeURIComponent(celebrate)}`;
 }

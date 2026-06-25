@@ -5,6 +5,7 @@ import type { ReadingScope } from "@/lib/reading/scope";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { defaultTargetPage } from "@/lib/reading/targets";
 import { readingTargetDueDateKey } from "@/lib/reading/target-due";
+import { recordAdvanceAndCheckMilestones } from "@/lib/reading/bonus";
 import {
   ensureStretchQuiz,
   type EnsureStretchResult,
@@ -68,13 +69,20 @@ export async function ensureStretchQuizInline(
  * archive when the book is finished, log a check-in to keep weekly math intact,
  * and pre-generate the next stretch's quiz. `reachedPage` defaults to the book's
  * current target; pass the quiz's through_page when advancing from a passed quiz.
- * Never moves current_page backward.
+ * Never moves current_page backward. `quizId` (when this advance came from a quiz)
+ * is recorded on the bonus-ledger row.
  */
 export async function advanceStretch(
   scope: ReadingScope,
   book: StretchBook,
-  reachedPage?: number
-): Promise<{ finished: boolean; nextTarget: number | null; newCurrent: number }> {
+  reachedPage?: number,
+  quizId?: string | null
+): Promise<{
+  finished: boolean;
+  nextTarget: number | null;
+  newCurrent: number;
+  reachedMilestones: string[];
+}> {
   const { client, userId, email } = scope;
   const candidate =
     reachedPage ?? book.target_page ?? book.total_pages ?? book.current_page;
@@ -110,6 +118,17 @@ export async function advanceStretch(
     page: newCurrent,
   });
 
+  // Bank bonus pages for this advance and stamp any milestone it just reached.
+  // Best-effort inside the helper — never rolls back the advance.
+  const reachedMilestones = await recordAdvanceAndCheckMilestones(scope, {
+    bookId: book.id,
+    oldCurrent: book.current_page,
+    newCurrent,
+    increment,
+    advancedOn: today,
+    quizId,
+  });
+
   revalidatePath("/reader");
 
   if (!finished && nextTarget != null) {
@@ -120,5 +139,5 @@ export async function advanceStretch(
       total_pages: book.total_pages,
     });
   }
-  return { finished, nextTarget, newCurrent };
+  return { finished, nextTarget, newCurrent, reachedMilestones };
 }

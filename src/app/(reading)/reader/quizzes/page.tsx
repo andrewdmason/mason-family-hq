@@ -8,12 +8,18 @@ import {
   DeleteQuizButton,
   GenerateDraftButton,
 } from "@/components/reading/parent-admin-controls";
+import { MilestoneAdmin } from "@/components/reading/milestone-admin";
 import { getIsOwner } from "@/lib/members/auth";
 import { quizEditHref, quizResultsHref, readingHomeHref } from "@/lib/reading/links";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
 import { cn } from "@/lib/utils";
-import type { ReadingAdminBook, ReadingAdminQuiz } from "@/lib/types";
+import type {
+  ReadingAdminBook,
+  ReadingAdminMilestone,
+  ReadingAdminQuiz,
+} from "@/lib/types";
 import { getReadingAdmin } from "./actions";
+import { getReadingMilestonesForAdmin } from "./milestone-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +56,15 @@ export default async function ParentAdminPage() {
   if (!(await getIsOwner())) redirect("/reader");
 
   const members = await getReadingAdmin();
+  const milestonesByMember: Record<string, ReadingAdminMilestone[]> =
+    Object.fromEntries(
+      await Promise.all(
+        members.map(
+          async (m) =>
+            [m.email, await getReadingMilestonesForAdmin(m.email)] as const
+        )
+      )
+    );
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
@@ -81,6 +96,10 @@ export default async function ParentAdminPage() {
                 {m.books.map((book) => (
                   <BookBlock key={book.bookId} book={book} memberEmail={m.email} />
                 ))}
+                <MilestoneAdmin
+                  milestones={milestonesByMember[m.email] ?? []}
+                  memberEmail={m.email}
+                />
               </div>
             </section>
           ))}
