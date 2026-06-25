@@ -14,7 +14,7 @@ import {
   updateMilestone,
 } from "@/app/(reading)/reader/quizzes/milestone-actions";
 import { uploadMilestoneImage } from "@/lib/reading/milestone-image-upload";
-import { cn } from "@/lib/utils";
+import { ProgressBar } from "@/components/reading/progress-bar";
 import type { ReadingAdminMilestone } from "@/lib/types";
 
 type Metric = "bonus_pages" | "total_pages";
@@ -82,15 +82,7 @@ function MilestoneItem({
             {METRIC_LABEL[milestone.metric]}
             {milestone.startOn ? ` · since ${milestone.startOn}` : " · all time"}
           </p>
-          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
-            <div
-              className={cn(
-                "h-full rounded-full",
-                milestone.achieved ? "bg-amber-500" : "bg-foreground/70"
-              )}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
+          <ProgressBar pct={pct} reached={milestone.achieved} className="mt-1.5" />
         </div>
       </div>
 

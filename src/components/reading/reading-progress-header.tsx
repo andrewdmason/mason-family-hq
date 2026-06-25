@@ -1,4 +1,5 @@
 import { Sparkles, Trophy } from "lucide-react";
+import { ProgressBar } from "@/components/reading/progress-bar";
 import { cn } from "@/lib/utils";
 import type { MilestoneProgress } from "@/lib/types";
 
@@ -60,15 +61,7 @@ function MilestoneRow({
             )}
           </span>
         </div>
-        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
-          <div
-            className={cn(
-              "h-full rounded-full transition-all",
-              reached ? "bg-amber-500" : "bg-foreground/70"
-            )}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
+        <ProgressBar pct={pct} reached={reached} className="mt-1.5" />
         {featured && !reached && (
           <p className="mt-1 text-[0.7rem] text-muted-foreground">
             {remaining.toLocaleString()} {metricLabel(metric)} to go

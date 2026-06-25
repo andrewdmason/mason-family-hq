@@ -7,6 +7,9 @@ import { requireOwner } from "@/lib/members/auth";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { READING_MILESTONES_BUCKET } from "@/lib/reading/constants";
 import {
+  loadAdvanceLedger,
+  signedMilestoneImageUrl,
+  sumFromLedger,
   sumMetricSince,
   type MilestoneMetric,
 } from "@/lib/reading/milestones";
@@ -75,34 +78,31 @@ export async function getReadingMilestonesForAdmin(
   await requireOwner();
   const { client, userId } = await resolveReadingScope(memberEmail);
 
-  const { data: rows } = await client
-    .from("reading_milestones")
-    .select("id, title, metric, threshold, image_path, start_on, achieved_at, awarded_at")
-    .eq("user_id", userId)
-    .is("awarded_at", null)
-    .order("created_at", { ascending: true });
+  const [{ data: rows }, ledger] = await Promise.all([
+    client
+      .from("reading_milestones")
+      .select("id, title, metric, threshold, image_path, start_on, achieved_at, awarded_at")
+      .eq("user_id", userId)
+      .is("awarded_at", null)
+      .order("created_at", { ascending: true }),
+    loadAdvanceLedger(client, userId),
+  ]);
   if (!rows || rows.length === 0) return [];
 
   return Promise.all(
     rows.map(async (m): Promise<ReadingAdminMilestone> => {
       const metric = m.metric as MilestoneMetric;
       const startOn = (m.start_on as string | null) ?? null;
-      const current = await sumMetricSince(client, userId, metric, startOn);
-      const imagePath = (m.image_path as string | null) ?? null;
-      let imageUrl: string | null = null;
-      if (imagePath) {
-        const { data: signed } = await client.storage
-          .from(READING_MILESTONES_BUCKET)
-          .createSignedUrl(imagePath, 60 * 60);
-        imageUrl = signed?.signedUrl ?? null;
-      }
       return {
         id: m.id as string,
         title: m.title as string,
         metric,
         threshold: m.threshold as number,
-        current,
-        imageUrl,
+        current: sumFromLedger(ledger, metric, startOn),
+        imageUrl: await signedMilestoneImageUrl(
+          client,
+          (m.image_path as string | null) ?? null
+        ),
         startOn,
         achieved: m.achieved_at != null,
         awarded: false,
@@ -201,7 +201,11 @@ export async function updateMilestone(
 
   // Editing the metric/threshold/start can change whether it's reached — let the
   // next advance re-stamp it, so clear a stale achievement when the bar moves.
-  if (update.metric !== undefined || update.threshold !== undefined || "startOn" in patch) {
+  if (
+    update.metric !== undefined ||
+    update.threshold !== undefined ||
+    update.start_on !== undefined
+  ) {
     update.achieved_at = null;
   }
 

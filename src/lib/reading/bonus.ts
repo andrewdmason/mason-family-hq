@@ -1,6 +1,6 @@
 import "server-only";
 import type { ReadingScope } from "@/lib/reading/scope";
-import { sumMetricSince } from "@/lib/reading/milestones";
+import { loadAdvanceLedger, sumFromLedger } from "@/lib/reading/milestones";
 
 /**
  * Bonus pages earned by an advance: the pages read beyond the normal weekly
@@ -61,16 +61,20 @@ export async function recordAdvanceAndCheckMilestones(
       return reached;
     }
 
-    // Stamp any not-yet-achieved milestone whose metric just crossed its threshold.
+    // Stamp any not-yet-achieved milestone whose metric just crossed its
+    // threshold. Load the ledger once and sum each milestone in memory.
     const { data: milestones } = await client
       .from("reading_milestones")
       .select("id, title, metric, threshold, start_on")
       .eq("user_id", userId)
       .is("achieved_at", null);
+    const ledger =
+      milestones && milestones.length > 0
+        ? await loadAdvanceLedger(client, userId)
+        : [];
     for (const m of milestones ?? []) {
-      const total = await sumMetricSince(
-        client,
-        userId,
+      const total = sumFromLedger(
+        ledger,
         m.metric as "bonus_pages" | "total_pages",
         (m.start_on as string | null) ?? null
       );

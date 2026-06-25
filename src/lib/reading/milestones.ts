@@ -5,35 +5,69 @@ import type { MilestoneProgress } from "@/lib/types";
 /** Which ledger sum a milestone thresholds against. */
 export type MilestoneMetric = "bonus_pages" | "total_pages";
 
+/** A reading_stretch_advances row, the substrate for every milestone sum. */
+export type AdvanceLedgerRow = {
+  bonus_pages: number;
+  pages_advanced: number;
+  advanced_on: string;
+};
+
 /** The reading_stretch_advances column each metric sums. */
-export function metricColumn(metric: MilestoneMetric): "bonus_pages" | "pages_advanced" {
+function metricColumn(metric: MilestoneMetric): "bonus_pages" | "pages_advanced" {
   return metric === "bonus_pages" ? "bonus_pages" : "pages_advanced";
 }
 
 /**
- * Sum a kid's ledger for one metric, optionally only counting advances on/after a
- * start date (a seasonal milestone). The per-kid ledger is small (one row per
- * stretch advance), so we fetch and sum in JS rather than an rpc. Must be called
- * with an already-scoped client; always filters by the passed userId.
+ * The kid's full advance ledger, fetched once so many milestone sums can be
+ * computed in memory rather than one query each. Small per kid (one row per
+ * stretch advance). Must be called with an already-scoped client + userId.
  */
+export async function loadAdvanceLedger(
+  client: SupabaseClient,
+  userId: string
+): Promise<AdvanceLedgerRow[]> {
+  const { data } = await client
+    .from("reading_stretch_advances")
+    .select("bonus_pages, pages_advanced, advanced_on")
+    .eq("user_id", userId);
+  return (data ?? []) as AdvanceLedgerRow[];
+}
+
+/** Sum a metric over already-loaded ledger rows, optionally from a start date. */
+export function sumFromLedger(
+  rows: AdvanceLedgerRow[],
+  metric: MilestoneMetric,
+  startOn: string | null
+): number {
+  const column = metricColumn(metric);
+  return rows.reduce(
+    (sum, row) =>
+      startOn && row.advanced_on < startOn ? sum : sum + (row[column] ?? 0),
+    0
+  );
+}
+
+/** Sum one metric for a kid in a single query — for one-off counts (previews). */
 export async function sumMetricSince(
   client: SupabaseClient,
   userId: string,
   metric: MilestoneMetric,
   startOn: string | null
 ): Promise<number> {
-  const column = metricColumn(metric);
-  let query = client
-    .from("reading_stretch_advances")
-    .select(column)
-    .eq("user_id", userId);
-  if (startOn) query = query.gte("advanced_on", startOn);
-  const { data, error } = await query;
-  if (error || !data) return 0;
-  return data.reduce(
-    (sum, row) => sum + ((row as Record<string, number>)[column] ?? 0),
-    0
-  );
+  const rows = await loadAdvanceLedger(client, userId);
+  return sumFromLedger(rows, metric, startOn);
+}
+
+/** A short-lived signed URL for a milestone reward image, or null when none. */
+export async function signedMilestoneImageUrl(
+  client: SupabaseClient,
+  imagePath: string | null
+): Promise<string | null> {
+  if (!imagePath) return null;
+  const { data } = await client.storage
+    .from(READING_MILESTONES_BUCKET)
+    .createSignedUrl(imagePath, 60 * 60);
+  return data?.signedUrl ?? null;
 }
 
 /**
@@ -46,38 +80,35 @@ export async function loadDashboardMilestones(
   client: SupabaseClient,
   userId: string
 ): Promise<MilestoneProgress[]> {
-  const { data: rows } = await client
-    .from("reading_milestones")
-    .select("id, title, metric, threshold, image_path, start_on, achieved_at")
-    .eq("user_id", userId)
-    .is("awarded_at", null);
+  const [{ data: rows }, ledger] = await Promise.all([
+    client
+      .from("reading_milestones")
+      .select("id, title, metric, threshold, image_path, start_on, achieved_at")
+      .eq("user_id", userId)
+      .is("awarded_at", null),
+    loadAdvanceLedger(client, userId),
+  ]);
   if (!rows || rows.length === 0) return [];
 
   const milestones = await Promise.all(
     rows.map(async (m): Promise<MilestoneProgress> => {
       const metric = m.metric as MilestoneMetric;
       const threshold = m.threshold as number;
-      const current = await sumMetricSince(
-        client,
-        userId,
+      const current = sumFromLedger(
+        ledger,
         metric,
         (m.start_on as string | null) ?? null
       );
-      const imagePath = (m.image_path as string | null) ?? null;
-      let imageUrl: string | null = null;
-      if (imagePath) {
-        const { data: signed } = await client.storage
-          .from(READING_MILESTONES_BUCKET)
-          .createSignedUrl(imagePath, 60 * 60);
-        imageUrl = signed?.signedUrl ?? null;
-      }
       return {
         id: m.id as string,
         title: m.title as string,
         metric,
         threshold,
         current,
-        imageUrl,
+        imageUrl: await signedMilestoneImageUrl(
+          client,
+          (m.image_path as string | null) ?? null
+        ),
         reached: m.achieved_at != null || current >= threshold,
       };
     })
