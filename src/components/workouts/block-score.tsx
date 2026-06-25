@@ -2,15 +2,17 @@
 
 import { useState, useTransition } from "react";
 import { Loader2, Check } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { updateBlock, type BlockPatch } from "@/app/(workouts)/workouts/actions";
+import {
+  updateBlock,
+  type BlockPatch,
+} from "@/app/(workouts)/workouts/actions";
 import type { BlockView } from "@/lib/workouts/queries";
 import { SCORE_TYPE_LABEL } from "@/lib/workouts/format";
 
 /**
  * Logs the block's result — the field shape follows its score type (a finish
- * time, AMRAP rounds+reps, calories, …) — plus a freeform note. Perceived effort
- * is logged once per session, not per block. Saves on change.
+ * time, AMRAP rounds+reps, calories, …). Effort, energy, and notes are logged
+ * once per session, not per block. Saves on change.
  */
 export function BlockScore({
   block,
@@ -23,16 +25,15 @@ export function BlockScore({
   const [saved, setSaved] = useState(false);
 
   const [minutes, setMinutes] = useState(
-    block.score.seconds != null ? Math.floor(block.score.seconds / 60) : null
+    block.score.seconds != null ? Math.floor(block.score.seconds / 60) : null,
   );
   const [seconds, setSeconds] = useState(
-    block.score.seconds != null ? block.score.seconds % 60 : null
+    block.score.seconds != null ? block.score.seconds % 60 : null,
   );
   const [rounds, setRounds] = useState(block.score.rounds);
   const [reps, setReps] = useState(block.score.reps);
   const [distance, setDistance] = useState(block.score.distance);
   const [calories, setCalories] = useState(block.score.calories);
-  const [notes, setNotes] = useState(block.notes ?? "");
 
   function save(patch: BlockPatch) {
     startTransition(async () => {
@@ -47,7 +48,7 @@ export function BlockScore({
     value: number | null,
     setter: (v: number | null) => void,
     commit: () => void,
-    step = 1
+    step = 1,
   ) => (
     <label className="flex flex-col gap-0.5">
       <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -72,19 +73,11 @@ export function BlockScore({
     save({ scoreSeconds: minutes == null && seconds == null ? null : total });
   };
 
-  // 'load' is logged on the strength movement's own set (which feeds e1RM), so a
-  // separate block-level load field would be a duplicate entry — show only the
-  // rx/effort/notes meta for both 'none' and 'load' blocks.
+  // 'load' is logged on the strength movement's own set (which feeds e1RM), and
+  // 'none' has nothing of its own to record — so these blocks have no result
+  // field to show. (Effort/energy/notes are session-level now.)
   if (block.scoreType === "none" || block.scoreType === "load") {
-    return (
-      <BlockMeta
-        notes={notes}
-        setNotes={setNotes}
-        save={save}
-        pending={pending}
-        saved={saved}
-      />
-    );
+    return null;
   }
 
   return (
@@ -105,7 +98,9 @@ export function BlockScore({
         )}
         {block.scoreType === "rounds_reps" && (
           <>
-            {num("Rounds", rounds, setRounds, () => save({ scoreRounds: rounds }))}
+            {num("Rounds", rounds, setRounds, () =>
+              save({ scoreRounds: rounds }),
+            )}
             {num("+ Reps", reps, setReps, () => save({ scoreReps: reps }))}
           </>
         )}
@@ -113,51 +108,13 @@ export function BlockScore({
           num("Reps", reps, setReps, () => save({ scoreReps: reps }))}
         {block.scoreType === "distance" &&
           num("Meters", distance, setDistance, () =>
-            save({ scoreDistance: distance })
+            save({ scoreDistance: distance }),
           )}
         {block.scoreType === "calories" &&
-          num("Cal", calories, setCalories, () => save({ scoreCalories: calories }))}
+          num("Cal", calories, setCalories, () =>
+            save({ scoreCalories: calories }),
+          )}
       </div>
-
-      <BlockMeta
-        notes={notes}
-        setNotes={setNotes}
-        save={save}
-        pending={pending}
-        saved={false}
-        compact
-      />
-    </div>
-  );
-}
-
-function BlockMeta({
-  notes,
-  setNotes,
-  save,
-  pending,
-  saved,
-  compact,
-}: {
-  notes: string;
-  setNotes: (v: string) => void;
-  save: (patch: BlockPatch) => void;
-  pending: boolean;
-  saved: boolean;
-  compact?: boolean;
-}) {
-  return (
-    <div className={cn("flex flex-wrap items-center gap-2", compact ? "mt-3" : "")}>
-      {!compact && <SaveDot pending={pending} saved={saved} />}
-
-      <input
-        type="text"
-        value={notes}
-        placeholder="Notes — felt heavy, grip gave out…"
-        onChange={(e) => setNotes(e.target.value)}
-        onBlur={() => save({ notes })}
-        className="h-9 min-w-[12rem] flex-1 rounded-md border border-input bg-background px-2.5 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-      />
     </div>
   );
 }
