@@ -40,6 +40,7 @@ const ARTICLE_PROSE = [
 ].join(" ");
 
 type Anchor = { pageNumber: number; docTop: number; id: string };
+type Chapter = { title: string; docTop: number; startPage: number | null };
 
 export function BookReader({
   bookId,
@@ -76,14 +77,21 @@ export function BookReader({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number | null>(null);
   const [percent, setPercent] = useState(0);
+  // The chapter the reading line currently sits in, plus how far through it we
+  // are — shown in the header alongside the overall progress.
+  const [chapter, setChapter] = useState<{ title: string; detail: string | null } | null>(null);
   // The book header stays out of the way: revealed only when the mouse is up in
   // the top region, or while the contents menu is open.
   const [hoverTop, setHoverTop] = useState(false);
   const [tocOpen, setTocOpen] = useState(false);
-  const headerVisible = hoverTop || tocOpen;
+  // Touch devices have no hover: a tap (not a scroll) anywhere toggles the chrome,
+  // the way the Kindle app reveals/hides its bars.
+  const [chromeTapped, setChromeTapped] = useState(false);
+  const headerVisible = hoverTop || tocOpen || chromeTapped;
 
   const contentRef = useRef<HTMLDivElement>(null);
   const anchorsRef = useRef<Anchor[]>([]);
+  const chaptersRef = useRef<Chapter[]>([]);
   const positionRef = useRef({ anchorId: resumeAnchorId, scrollRatio: 0, pageNumber: null as number | null });
   const restoredRef = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -124,7 +132,28 @@ export function BookReader({
     });
     anchors.sort((a, b) => a.docTop - b.docTop);
     anchorsRef.current = anchors;
-  }, []);
+
+    // Resolve each table-of-contents heading to its document position, plus the
+    // source page it starts on, so the header can show progress within a chapter.
+    // Skip the entry that's just the book's own title (some TOCs lead with it) —
+    // it isn't a chapter, and treating it as one makes the readout repeat itself.
+    const bookTitle = title.trim().toLowerCase();
+    const chapters: Chapter[] = [];
+    for (const entry of toc) {
+      if (entry.title.trim().toLowerCase() === bookTitle) continue;
+      const el = document.getElementById(entry.anchorId);
+      if (!el) continue;
+      const docTop = el.getBoundingClientRect().top + window.scrollY;
+      let startPage: number | null = null;
+      for (const a of anchors) {
+        if (a.docTop <= docTop + READING_LINE_OFFSET) startPage = a.pageNumber;
+        else break;
+      }
+      chapters.push({ title: entry.title, docTop, startPage });
+    }
+    chapters.sort((a, b) => a.docTop - b.docTop);
+    chaptersRef.current = chapters;
+  }, [toc, title]);
 
   const flush = useCallback(() => {
     const pos = positionRef.current;
@@ -151,6 +180,38 @@ export function BookReader({
     const pageNumber = current?.pageNumber ?? (anchors[0]?.pageNumber ?? null);
     setCurrentPage(pageNumber);
 
+    // Which chapter is the reading line in, and how far through it are we? With
+    // real pages we show "page N of M to the next chapter"; otherwise a chapter-
+    // relative percent. Before the first heading (front matter) there's no chapter.
+    // Only worth showing chapter context when the book actually has multiple
+    // chapters — with one (or none) it would just echo the overall progress.
+    const chapters = chaptersRef.current;
+    let chIdx = -1;
+    for (let i = 0; i < chapters.length; i++) {
+      if (chapters[i].docTop <= line) chIdx = i;
+      else break;
+    }
+    const cur = chIdx >= 0 && chapters.length >= 2 ? chapters[chIdx] : null;
+    if (cur) {
+      const next = chapters[chIdx + 1] ?? null;
+      let detail: string | null = null;
+      if (hasRealPages && cur.startPage != null && pageNumber != null) {
+        const inChapter = pageNumber - cur.startPage + 1;
+        const endPage = next?.startPage ?? pageCount;
+        const span = endPage != null ? endPage - cur.startPage : null;
+        detail = span && span > 0 ? `Page ${inChapter} of ${span}` : `Page ${inChapter}`;
+      } else {
+        const endTop =
+          next?.docTop ?? document.documentElement.scrollHeight - window.innerHeight;
+        const span = endTop - cur.docTop;
+        const chPct = span > 0 ? Math.round(((line - cur.docTop) / span) * 100) : 0;
+        detail = `${Math.min(100, Math.max(0, chPct))}% through`;
+      }
+      setChapter({ title: cur.title, detail });
+    } else {
+      setChapter(null);
+    }
+
     positionRef.current = {
       anchorId: current?.id ?? null,
       scrollRatio: ratio,
@@ -163,7 +224,7 @@ export function BookReader({
     if (!restoredRef.current) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(flush, 1500);
-  }, [flush, hasRealPages]);
+  }, [flush, hasRealPages, pageCount]);
 
   // Resolve once the document height has stopped changing (images decoding,
   // web-font swaps), so a ratio/anchor restore lands in the right place instead
@@ -302,6 +363,51 @@ export function BookReader({
     });
   }, []);
 
+  // Mobile: a clean tap (not a scroll, not a tap on a link/button) toggles the
+  // reader chrome. A drag past a few pixels or a long press is treated as a
+  // scroll/select and left alone.
+  useEffect(() => {
+    let startX = 0;
+    let startY = 0;
+    let startT = 0;
+    let moved = false;
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) {
+        moved = true;
+        return;
+      }
+      const t = e.touches[0];
+      startX = t.clientX;
+      startY = t.clientY;
+      startT = e.timeStamp;
+      moved = false;
+    };
+    const onMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      if (Math.abs(t.clientX - startX) > 10 || Math.abs(t.clientY - startY) > 10) {
+        moved = true;
+      }
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (moved || e.timeStamp - startT > 500) return;
+      const target = e.target as HTMLElement | null;
+      // Don't hijack taps meant for links, buttons, or the contents menu.
+      if (target?.closest('a, button, [role="menuitem"], input, textarea, select')) {
+        return;
+      }
+      setChromeTapped((v) => !v);
+    };
+    document.addEventListener("touchstart", onStart, { passive: true });
+    document.addEventListener("touchmove", onMove, { passive: true });
+    document.addEventListener("touchend", onEnd);
+    return () => {
+      document.removeEventListener("touchstart", onStart);
+      document.removeEventListener("touchmove", onMove);
+      document.removeEventListener("touchend", onEnd);
+    };
+  }, []);
+
   return (
     <div className="flex flex-1 flex-col">
       {/* The book header: a fixed bar at the very top that the reader only sees
@@ -314,7 +420,7 @@ export function BookReader({
       >
         <div
           className={cn(
-            "h-full border-b border-border/60 bg-background/80 backdrop-blur transition-opacity duration-200 focus-within:opacity-100 focus-within:pointer-events-auto",
+            "relative h-full border-b border-border/60 bg-background/80 backdrop-blur transition-opacity duration-200 focus-within:opacity-100 focus-within:pointer-events-auto",
             headerVisible ? "opacity-100" : "pointer-events-none opacity-0"
           )}
         >
@@ -363,6 +469,15 @@ export function BookReader({
               </DropdownMenu>
             )}
           </div>
+          {/* Slim completion bar along the header's bottom edge. */}
+          {html != null && !loadError && (
+            <div className="absolute inset-x-0 bottom-0 h-0.5 bg-border/50">
+              <div
+                className="h-full bg-foreground/70 transition-[width] duration-200"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -414,13 +529,31 @@ export function BookReader({
         </article>
       )}
 
-      {/* Fixed progress indicator, Kindle-style. */}
+      {/* Progress indicator, bottom-center where it's always lived — but it only
+          fades in while the top bar is active (hovered or contents open), so it
+          stays out of the way during reading. */}
       {html != null && !loadError && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center">
-          <span className="rounded-full bg-foreground/85 px-3 py-1 text-xs font-medium tabular-nums text-background shadow-sm backdrop-blur">
-            {hasRealPages && currentPage != null
-              ? `Page ${currentPage}${pageCount ? ` of ${pageCount}` : ""}`
-              : `${percent}%`}
+        <div
+          className={cn(
+            "pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-6 transition-opacity duration-200",
+            headerVisible ? "opacity-100" : "opacity-0"
+          )}
+        >
+          <span className="flex max-w-full items-center gap-2 rounded-full bg-foreground/85 px-3.5 py-1.5 text-xs font-medium text-background shadow-sm backdrop-blur">
+            <span className="whitespace-nowrap tabular-nums">
+              {hasRealPages && currentPage != null
+                ? `Page ${currentPage}${pageCount ? ` of ${pageCount}` : ""}`
+                : `${percent}%`}
+            </span>
+            {chapter && (
+              <>
+                <span className="opacity-40">·</span>
+                <span className="truncate opacity-90">
+                  {chapter.title}
+                  {chapter.detail ? ` · ${chapter.detail}` : ""}
+                </span>
+              </>
+            )}
           </span>
         </div>
       )}
