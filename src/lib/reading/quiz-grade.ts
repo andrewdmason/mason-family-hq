@@ -1,4 +1,5 @@
 import { anthropic, JOURNAL_MODEL } from "@/lib/journal/anthropic";
+import { ESSAY_PASS_MIN } from "@/lib/reading/essay-scoring";
 import type { EssayRubric, EssayRubricScores } from "@/lib/types";
 
 /**
@@ -124,8 +125,11 @@ export async function gradeFreeText(input: {
 export type EssayGrade = {
   /** False when the AI grade failed/parsed badly — the answer stays ungraded. */
   graded: boolean;
-  /** True when every dimension is graded at >= 3 (the pass that advances the book). */
+  /** True when the three dimensions sum to at least ESSAY_PASS_MIN (the pass that
+   *  advances the book) — a weak part can be carried by a strong one. */
   meetsStandard: boolean;
+  /** Sum of the three dimensions (out of 12), or null when not fully graded. */
+  total: number | null;
   /** The per-dimension grades to store on the answer row. */
   scores: EssayRubricScores;
   /** A warm, holistic note to the child. */
@@ -146,9 +150,9 @@ const GRADE_ESSAY_TOOL = {
           "1–4. Does the essay open by showing they truly read and understood the " +
           "assigned pages (judged against the anchor) and stay accurate to the book? " +
           "The 1–4 scale: 1 = needs a lot of work, 2 = developing / not yet there, " +
-          "3 = meets the standard for their grade, 4 = exceptional. A 3 (the passing " +
-          "bar) requires a clear, accurate anchor; if the opening is vague, partly " +
-          "wrong, or only loosely tied to the assigned pages, score 2 or below.",
+          "3 = meets the standard for their grade, 4 = exceptional. A 3 requires a " +
+          "clear, accurate anchor; if the opening is vague, partly wrong, or only " +
+          "loosely tied to the assigned pages, score 2 or below.",
       },
       comprehension_note: {
         type: "string",
@@ -158,7 +162,7 @@ const GRADE_ESSAY_TOOL = {
         type: "integer",
         description:
           "1–4 for grammar, spelling, punctuation, paragraphing, and structure at " +
-          "this child's age. Same scale (3 = meets the standard, the passing bar). Be " +
+          "this child's age. Same scale (3 = meets the grade-level standard). Be " +
           "exacting and hold the bar high: REPEATED spelling errors, a misspelled or " +
           "uncapitalized proper noun (a character or place name), run-on sentences, or " +
           "missing commas each keep this at 2 or below — a 3 means the writing is " +
@@ -178,7 +182,7 @@ const GRADE_ESSAY_TOOL = {
         type: "integer",
         description:
           "1–4 for originality, depth, and support of ideas in the broader-theme " +
-          "part. Same scale (3 = meets the standard, the passing bar). A 3 develops a " +
+          "part. Same scale (3 = meets the grade-level standard). A 3 develops a " +
           "real idea across more than a sentence or two and backs it with something " +
           "specific from the book; a thin, one-note, or mostly-plot-summary answer " +
           "that never really digs into the broader question scores 2 or below. Reward " +
@@ -220,6 +224,7 @@ function toScore(v: unknown): number | null {
 const ungraded = (): EssayGrade => ({
   graded: false,
   meetsStandard: false,
+  total: null,
   scores: {
     comprehension: { score: null, note: "" },
     mechanics: { score: null, note: "" },
@@ -232,8 +237,9 @@ const ungraded = (): EssayGrade => ({
  * Grade one longform essay against its three-dimension rubric. A blank essay
  * short-circuits to a graded fail (no API call). Any API/parse failure resolves
  * to an ungraded result so the caller records it without failing the submission.
- * "Meets standard" — the pass that advances the book — means every dimension is
- * graded at 3 or better (a 2 is "close, but revise and resubmit").
+ * "Meets standard" — the pass that advances the book — means the three dimensions
+ * sum to at least ESSAY_PASS_MIN of 12, so a weak part can be carried by a strong
+ * one (a total below that is "close, but revise and resubmit").
  */
 export async function gradeEssay(input: {
   prompt: string;
@@ -247,6 +253,7 @@ export async function gradeEssay(input: {
     return {
       graded: true,
       meetsStandard: false,
+      total: 3,
       scores: {
         comprehension: { score: 1, note: "There's nothing written yet." },
         mechanics: { score: 1, note: "There's nothing written yet." },
@@ -278,9 +285,9 @@ export async function gradeEssay(input: {
         "comprehension of the reading (the opening must show they actually read and " +
         "understood the assigned pages, judged against the anchor, and the essay must " +
         "stay accurate to the book), writing mechanics, and quality of thinking " +
-        "(reward genuine insight over length — never reward padding). Hold a real " +
-        "bar: 3 is the passing standard, and a 2 means the work is close but not yet " +
-        "good enough to advance. Be exacting on mechanics — repeated spelling errors, " +
+        "(reward genuine insight over length — never reward padding). Score each " +
+        "dimension honestly on its own merits: 3 is solid grade-level work, 2 is " +
+        "developing, 4 is exceptional. Be exacting on mechanics — repeated spelling errors, " +
         "an uncapitalized or misspelled name, run-on sentences, or a single " +
         "undivided block with no paragraph breaks all keep mechanics below a 3 — and " +
         "expect the broader-theme idea to be genuinely developed, not a thin " +
@@ -321,11 +328,14 @@ export async function gradeEssay(input: {
       mechanics: { score: mechanics, note: noteOf(p.mechanics_note) },
       thinking: { score: thinking, note: noteOf(p.thinking_note) },
     };
-    const graded =
-      comprehension != null && mechanics != null && thinking != null;
-    const meetsStandard =
-      graded && comprehension >= 3 && mechanics >= 3 && thinking >= 3;
-    return { graded, meetsStandard, scores, notes: noteOf(p.notes) };
+    const total =
+      comprehension != null && mechanics != null && thinking != null
+        ? comprehension + mechanics + thinking
+        : null;
+    const graded = total != null;
+    // Pass on the total, not each part: a strong dimension can carry a weak one.
+    const meetsStandard = total != null && total >= ESSAY_PASS_MIN;
+    return { graded, meetsStandard, total, scores, notes: noteOf(p.notes) };
   } catch (err) {
     console.error(
       "[reading/quiz-grade] Essay grade failed:",

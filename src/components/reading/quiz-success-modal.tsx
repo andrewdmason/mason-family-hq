@@ -17,6 +17,7 @@ import {
 import { buttonVariants } from "@/components/ui/button-variants";
 import { postEssayToFamilyJournal } from "@/app/(reading)/reader/quizzes/actions";
 import { cn } from "@/lib/utils";
+import { ESSAY_BONUS_BUCKS } from "@/lib/reading/essay-scoring";
 import type { ReadingQuizNextAssignment } from "@/lib/types";
 
 function assignmentText(
@@ -47,6 +48,7 @@ export function QuizSuccessModal({
   isEssay = false,
   essayPost = null,
   celebrateMilestone = null,
+  earnedBonus = false,
 }: {
   assignment: ReadingQuizNextAssignment;
   dueDateLabel: string;
@@ -57,6 +59,8 @@ export function QuizSuccessModal({
   essayPost?: { quizId: string; memberEmail: string | null } | null;
   /** Title of a reward milestone this pass just reached, celebrated up top. */
   celebrateMilestone?: string | null;
+  /** True when this essay scored high enough to earn the Mason Bucks bonus. */
+  earnedBonus?: boolean;
 }) {
   const router = useRouter();
   const [posting, startPosting] = useTransition();
@@ -91,10 +95,16 @@ export function QuizSuccessModal({
           <DialogTitle>{isEssay ? "Essay passed" : "Quiz passed"}</DialogTitle>
           <DialogDescription>
             {isEssay
-              ? "You met the standard on every part. Really nice work."
+              ? "You cleared the bar with a strong essay. Really nice work."
               : "Every answer is correct. Nice work."}
           </DialogDescription>
         </DialogHeader>
+
+        {earnedBonus && (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-800 dark:text-amber-300">
+            🪙 Standout essay — you earned {ESSAY_BONUS_BUCKS} Mason Bucks!
+          </p>
+        )}
 
         {celebrateMilestone && (
           <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-800 dark:text-amber-300">

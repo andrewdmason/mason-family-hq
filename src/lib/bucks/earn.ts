@@ -6,6 +6,7 @@ import {
   JOURNAL_MIN_WORDS,
   countWords,
 } from "@/lib/bucks/gate";
+import { ESSAY_BONUS_BUCKS } from "@/lib/reading/essay-scoring";
 
 /**
  * Credit a reading advance's bonus pages to the wallet, 1:1. Keyed to the advance
@@ -34,6 +35,37 @@ export async function creditReadingBonus(
   } catch (err) {
     console.error(
       "[bucks] creditReadingBonus failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
+/**
+ * Credit the one-time bonus for a standout essay (a top-band rubric total) to the
+ * wallet. Keyed to the submission id, so the ledger's unique (source, reference_id)
+ * makes a double-fire a no-op. Best-effort: a failure here never rolls back the
+ * pass the reader earned.
+ */
+export async function creditEssayBonus(
+  userId: string,
+  submissionId: string
+): Promise<void> {
+  try {
+    const admin = createAdminClient();
+    const { error } = await admin.from("bucks_ledger").insert({
+      user_id: userId,
+      amount: ESSAY_BONUS_BUCKS,
+      source: "reading",
+      reference_id: submissionId,
+      note: "Standout essay bonus",
+    });
+    // 23505 = unique violation: this submission was already credited. Expected.
+    if (error && error.code !== "23505") {
+      console.error("[bucks] essay bonus credit failed:", error.message);
+    }
+  } catch (err) {
+    console.error(
+      "[bucks] creditEssayBonus failed:",
       err instanceof Error ? err.message : String(err)
     );
   }
