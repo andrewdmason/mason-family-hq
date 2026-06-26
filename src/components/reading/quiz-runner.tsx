@@ -17,6 +17,12 @@ import {
   submitQuiz,
 } from "@/app/(reading)/reader/quizzes/actions";
 import { EssayGradeCard } from "@/components/reading/quiz-essay-feedback";
+import { GradingCriteriaDialog } from "@/components/reading/quiz-grading-criteria";
+import {
+  ESSAY_BONUS_BUCKS,
+  ESSAY_BONUS_MIN,
+  ESSAY_MAX_SCORE,
+} from "@/lib/reading/essay-scoring";
 import { quizResultsHref } from "@/lib/reading/links";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
 import { cn } from "@/lib/utils";
@@ -304,10 +310,10 @@ function EssayRunner({
         <h1 className="mt-1 font-serif text-3xl tracking-tight text-foreground">
           {quiz.title || `On ${quizRangeLabel(quiz.from_page, quiz.through_page)}`}
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {isRevision
-            ? "Your last essay is here to build on — use the notes from last time, then turn it in again."
-            : "Write one essay — start with the book, then take it further."}
+        <p className="mt-3 text-sm text-muted-foreground">
+          <GradingCriteriaDialog triggerClassName="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80" />
+          . Score an {ESSAY_BONUS_MIN} or {ESSAY_MAX_SCORE} to earn{" "}
+          {ESSAY_BONUS_BUCKS} Mason Bucks.
         </p>
       </header>
 

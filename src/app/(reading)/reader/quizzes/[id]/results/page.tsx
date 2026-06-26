@@ -13,6 +13,7 @@ import {
   readingHomeHref,
 } from "@/lib/reading/links";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
+import { ESSAY_BONUS_MIN, essayTotalScore } from "@/lib/reading/essay-scoring";
 import { cn } from "@/lib/utils";
 import type { ReadingQuizAttemptSummary } from "@/lib/types";
 import { getQuizResult } from "../../actions";
@@ -95,6 +96,10 @@ export default async function QuizResultsPage({
       questions.find((q) => q.type === "essay") ??
       questions[0];
     const answer = essayQ ? answersByQuestionId[essayQ.id] : undefined;
+    // A standout pass (11–12 of 12) earned the Mason Bucks bonus — celebrate it.
+    const essayTotal = essayTotalScore(answer?.rubric_scores ?? null);
+    const earnedBonus =
+      viewedPerfect && essayTotal != null && essayTotal >= ESSAY_BONUS_MIN;
     // Before the reader commits, every candidate prompt is still on the table —
     // show them all (rather than presenting the first as if it were decided).
     const essayPrompts = questions.filter((q) => q.type === "essay");
@@ -123,6 +128,7 @@ export default async function QuizResultsPage({
             isEssay
             essayPost={{ quizId: id, memberEmail }}
             celebrateMilestone={celebrateMilestone}
+            earnedBonus={earnedBonus}
           />
         )}
 

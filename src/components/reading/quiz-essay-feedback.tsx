@@ -1,5 +1,11 @@
 import { CheckCircle2, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  ESSAY_BONUS_BUCKS,
+  ESSAY_BONUS_MIN,
+  ESSAY_MAX_SCORE,
+  essayTotalScore,
+} from "@/lib/reading/essay-scoring";
 import type { EssayRubricScores, ReadingEssayFeedback } from "@/lib/types";
 
 const ESSAY_DIMENSIONS = [
@@ -25,6 +31,8 @@ export function EssayGradeCard({
   className?: string;
 }) {
   const { rubricScores, aiNotes, passed, gradingComplete } = feedback;
+  const total = essayTotalScore(rubricScores);
+  const earnedBonus = passed && total != null && total >= ESSAY_BONUS_MIN;
   return (
     <div
       className={cn(
@@ -63,7 +71,28 @@ export function EssayGradeCard({
               : "Not there yet — revise and resubmit."}
           </p>
         </div>
+        {total != null && (
+          <span
+            className={cn(
+              "ml-auto shrink-0 font-serif text-lg tabular-nums",
+              passed
+                ? "text-emerald-800 dark:text-emerald-300"
+                : "text-foreground"
+            )}
+          >
+            {total}
+            <span className="text-xs text-muted-foreground/60">
+              /{ESSAY_MAX_SCORE}
+            </span>
+          </span>
+        )}
       </div>
+
+      {earnedBonus && (
+        <p className="flex items-center gap-2 border-b border-border bg-amber-500/10 px-5 py-2.5 text-sm font-medium text-amber-800 dark:text-amber-300">
+          🪙 Standout essay — you earned {ESSAY_BONUS_BUCKS} Mason Bucks!
+        </p>
+      )}
 
       <div className="space-y-4 bg-card px-5 py-4">
         {!gradingComplete && (

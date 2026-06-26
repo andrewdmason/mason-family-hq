@@ -18,6 +18,8 @@ import { readerAge } from "@/lib/reading/reader-age";
 import { essayMinWords, loadReaderContext } from "@/lib/reading/reader-context";
 import { defaultQuizTitle, essayQuestionRows } from "@/lib/reading/quiz-build";
 import { advanceStretch } from "@/lib/reading/advance";
+import { creditEssayBonus } from "@/lib/bucks/earn";
+import { ESSAY_BONUS_MIN } from "@/lib/reading/essay-scoring";
 import { archiveOtherOpenQuizzes } from "@/lib/reading/supersede";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
 import type {
@@ -802,6 +804,8 @@ export async function submitQuiz(
 
   let graded: GradedAnswerRow[];
   let scoreTotal: number;
+  // The essay's rubric total (out of 12), captured for the standout bonus below.
+  let essayTotal: number | null = null;
 
   if (isEssayQuiz) {
     const chosenId =
@@ -818,6 +822,7 @@ export async function submitQuiz(
       readerAge: age,
       minWords: chosen.min_words ?? null,
     });
+    essayTotal = grade.total;
     graded = [
       {
         question_id: chosen.id,
@@ -950,6 +955,13 @@ export async function submitQuiz(
       finished = res.finished;
       reachedMilestone = res.reachedMilestones[0] ?? null;
     }
+  }
+
+  // A standout essay (11–12 of 12) earns a one-time 30-Buck bonus. Gated on a real
+  // advance and keyed to this submission, so re-scoring an already-passed stretch
+  // can't farm it.
+  if (advanced && essayTotal != null && essayTotal >= ESSAY_BONUS_MIN) {
+    await creditEssayBonus(userId, submissionId);
   }
 
   revalidateQuizzes();
