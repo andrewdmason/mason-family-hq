@@ -1,0 +1,41 @@
+{
+  "_note": "Shape of a per-team-season capture (scripts/baseball/.cache/<gc_team_id>.json). Internally consistent ids so the generator + FK subqueries resolve.",
+  "team": {
+    "gc_team_id": "t-test-1",
+    "gc_public_id": "PUBTEST1",
+    "name": "Test Stars 10U",
+    "season_name": "Summer 2023",
+    "season_year": 2023,
+    "level": "10U",
+    "org_name": "NOLL"
+  },
+  "roster": [
+    { "gc_player_id": "pl-seb", "name": "Sebastian Mason", "jersey": "28" },
+    { "gc_player_id": "pl-marc", "name": "Marc Hauser", "jersey": "5" },
+    { "gc_player_id": "pl-carter", "name": "Carter Dela Cruz", "jersey": "2" }
+  ],
+  "games": [
+    { "gc_game_id": "g-1", "gc_stream_id": "s-1", "opponent_id": "o-1", "home_away": "home", "team_score": 16, "opponent_score": 2, "result": "W", "status": "completed", "played_on": "2023-06-04", "opponent_name": "SFAL 9U All Stars" },
+    { "gc_game_id": "g-2", "gc_stream_id": "s-2", "opponent_id": "o-2", "home_away": "away", "team_score": 5, "opponent_score": 13, "result": "L", "status": "completed", "played_on": "2023-06-10", "opponent_name": "SF 10U All Stars" }
+  ],
+  "seasonStats": [
+    { "gc_player_id": "pl-seb", "stats": { "offense": { "AVG": 0.5, "OPS": 1.2, "H": 6, "AB": 12, "HR": 1 }, "defense": { "IP": 5 }, "general": { "GP": 2 } } },
+    { "gc_player_id": "pl-marc", "stats": { "offense": { "AVG": 0.3, "OPS": 0.7, "H": 3, "AB": 10 }, "general": { "GP": 2 } } },
+    { "gc_player_id": "pl-carter", "stats": { "offense": { "AVG": 0.4, "OPS": 0.9, "H": 4, "AB": 10 }, "general": { "GP": 2 } } }
+  ],
+  "gameStats": {
+    "g-1": {
+      "linked": [
+        { "gc_player_id": "pl-seb", "batting": { "AB": 3, "R": 2, "H": 2, "RBI": 2, "BB": 1, "SO": 0, "2B": 1, "3B": 0, "HR": 0, "SB": 0 }, "pitching": { "IP": 2, "H": 1, "R": 0, "ER": 0, "BB": 1, "SO": 3 } },
+        { "gc_player_id": "pl-carter", "batting": { "AB": 4, "R": 1, "H": 3, "RBI": 1, "BB": 0, "SO": 1, "2B": 0, "3B": 0, "HR": 1, "SB": 0 }, "pitching": null }
+      ],
+      "events": { "gc_stream_id": "s-1", "events": [{ "code": "set_teams" }, { "code": "plate_appearance" }] }
+    },
+    "g-2": {
+      "linked": [
+        { "gc_player_id": "pl-marc", "batting": { "AB": 3, "R": 0, "H": 1, "RBI": 0, "BB": 0, "SO": 1, "2B": 0, "3B": 0, "HR": 0, "SB": 0 }, "pitching": null }
+      ],
+      "events": { "gc_stream_id": "s-2", "events": [] }
+    }
+  }
+}

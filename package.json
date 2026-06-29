@@ -12,7 +12,9 @@
     "seed:media": "node supabase/seed-journal-photos.mjs",
     "seed:photos": "npm run seed:media",
     "db:heal": "bash scripts/db-heal-local.sh",
-    "db:reset": "supabase db reset && npm run seed:media && npm run db:heal"
+    "db:reset": "supabase db reset && npm run seed:media && npm run db:heal",
+    "baseball:capture": "node scripts/baseball/capture.mts",
+    "baseball:generate": "node scripts/baseball/generate-migration.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
