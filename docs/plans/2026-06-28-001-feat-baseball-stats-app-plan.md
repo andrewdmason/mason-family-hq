@@ -1,7 +1,7 @@
 ---
 title: "feat: Baseball Stats app + GameChanger importer"
 type: feat
-status: active
+status: completed
 date: 2026-06-28
 origin: docs/brainstorms/baseball-stats-requirements.md
 ---

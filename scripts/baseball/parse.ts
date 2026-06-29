@@ -70,9 +70,8 @@ export function parseLabel(label: string): { name: string; jersey: string | null
 }
 
 // ---- box score ----------------------------------------------------------
-
-const BATTING_COLS = ["AB", "R", "H", "RBI", "BB", "SO"] as const;
-const PITCHING_COLS = ["IP", "H", "R", "ER", "BB", "SO"] as const;
+// Batting cells render in order AB, R, H, RBI, BB, SO; pitching as IP, H, R,
+// ER, BB, SO (indices used directly below).
 
 // Per-player extras live in the team "notes" block, e.g. "2B: Robi McRay 5, Sebastian Mason".
 // A bare name = 1; "Name N" = N. Returns normalized-name -> count.
