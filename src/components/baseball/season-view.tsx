@@ -32,15 +32,19 @@ function RosterTable({
   blob,
   showMore,
   teamName,
+  defaultSortKey = NAME_KEY,
+  defaultDir = "asc",
 }: {
   cols: StatCol[];
   rows: RosterStatRow[];
   blob: "batting" | "pitching";
   showMore: boolean;
   teamName: string;
+  defaultSortKey?: string;
+  defaultDir?: "asc" | "desc";
 }) {
-  const [sortKey, setSortKey] = useState<string>(NAME_KEY);
-  const [dir, setDir] = useState<"asc" | "desc">("asc");
+  const [sortKey, setSortKey] = useState<string>(defaultSortKey);
+  const [dir, setDir] = useState<"asc" | "desc">(defaultDir);
 
   const sorted = [...rows].sort((a, b) => {
     const cmp =
@@ -137,11 +141,11 @@ export function SeasonView({ kidSlug, detail }: { kidSlug: string; detail: Seaso
 
       <div className="mt-4">
         {tab === "batting" && (
-          <RosterTable cols={SEASON_BATTING} rows={roster} blob="batting" showMore teamName={team.name} />
+          <RosterTable cols={SEASON_BATTING} rows={roster} blob="batting" showMore teamName={team.name} defaultSortKey="AVG" defaultDir="desc" />
         )}
 
         {tab === "pitching" && pitchers.length > 0 && (
-          <RosterTable cols={SEASON_PITCHING} rows={pitchers} blob="pitching" showMore={false} teamName={team.name} />
+          <RosterTable cols={SEASON_PITCHING} rows={pitchers} blob="pitching" showMore={false} teamName={team.name} defaultSortKey="ERA" defaultDir="asc" />
         )}
 
         {tab === "games" &&
