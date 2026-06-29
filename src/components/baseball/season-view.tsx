@@ -1,6 +1,9 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
-import { ChevronLeft } from "lucide-react";
-import { SEASON_BATTING, SEASON_PITCHING, row as statRow, formatGameDate } from "@/lib/baseball/stats";
+import { ChevronLeft, ChevronDown, ChevronUp } from "lucide-react";
+import { SEASON_BATTING, SEASON_PITCHING, row as statRow, num, formatGameDate, type StatCol } from "@/lib/baseball/stats";
 import type { RosterStatRow, SeasonDetail } from "@/lib/baseball/types";
 import { MoreStatsSheet } from "./more-stats-sheet";
 import { cn } from "@/lib/utils";
@@ -12,14 +15,99 @@ function record(games: SeasonDetail["games"]): string {
   return t ? `${w}-${l}-${t}` : `${w}-${l}`;
 }
 
-function focusFirst(a: RosterStatRow, b: RosterStatRow) {
-  return Number(b.isFocus) - Number(a.isFocus) || a.name.localeCompare(b.name);
+const NAME_KEY = "__name__";
+
+function SortArrow({ active, dir }: { active: boolean; dir: "asc" | "desc" }) {
+  if (!active) return null;
+  return dir === "asc" ? <ChevronUp className="inline h-3 w-3" /> : <ChevronDown className="inline h-3 w-3" />;
+}
+
+// Sortable roster stat table. Click a header to sort by it; click again to flip
+// direction. Default is alphabetical by player (the focus player is highlighted
+// but not pinned). Numeric columns sort high-to-low first.
+function RosterTable({
+  cols,
+  rows,
+  blob,
+  showMore,
+  teamName,
+}: {
+  cols: StatCol[];
+  rows: RosterStatRow[];
+  blob: "batting" | "pitching";
+  showMore: boolean;
+  teamName: string;
+}) {
+  const [sortKey, setSortKey] = useState<string>(NAME_KEY);
+  const [dir, setDir] = useState<"asc" | "desc">("asc");
+
+  const sorted = [...rows].sort((a, b) => {
+    const cmp =
+      sortKey === NAME_KEY
+        ? a.name.localeCompare(b.name)
+        : (num(a[blob], sortKey) ?? -Infinity) - (num(b[blob], sortKey) ?? -Infinity);
+    return dir === "asc" ? cmp : -cmp;
+  });
+
+  const onHeader = (key: string, numeric: boolean) => {
+    if (sortKey === key) setDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(key);
+      setDir(numeric ? "desc" : "asc"); // stats read best high-to-low
+    }
+  };
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-border">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
+            <th
+              onClick={() => onHeader(NAME_KEY, false)}
+              aria-sort={sortKey === NAME_KEY ? (dir === "asc" ? "ascending" : "descending") : "none"}
+              className="cursor-pointer select-none px-3 py-2 text-left font-medium hover:text-foreground"
+            >
+              Player <SortArrow active={sortKey === NAME_KEY} dir={dir} />
+            </th>
+            {cols.map((c) => (
+              <th
+                key={c.key}
+                onClick={() => onHeader(c.key, true)}
+                aria-sort={sortKey === c.key ? (dir === "asc" ? "ascending" : "descending") : "none"}
+                className="cursor-pointer select-none px-2 py-2 text-right font-medium tabular-nums hover:text-foreground"
+              >
+                {c.label} <SortArrow active={sortKey === c.key} dir={dir} />
+              </th>
+            ))}
+            {showMore && <th className="px-2 py-2" />}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((p) => (
+            <tr key={p.teamPlayerId} className={cn("border-b border-border/60 last:border-0", p.isFocus && "bg-amber-500/10")}>
+              <td className="whitespace-nowrap px-3 py-2">
+                <span className={cn("text-foreground", p.isFocus && "font-semibold")}>{p.name}</span>
+                {p.jersey ? <span className="ml-1 text-xs text-muted-foreground">#{p.jersey}</span> : null}
+              </td>
+              {statRow(p[blob], cols).map((cell, i) => (
+                <td key={i} className="px-2 py-2 text-right tabular-nums text-foreground">{cell.value}</td>
+              ))}
+              {showMore && (
+                <td className="px-2 py-2 text-right">
+                  {p.isFocus && <MoreStatsSheet title={`${p.name} · ${teamName}`} gcStats={p.gcStats} />}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 export function SeasonView({ kidSlug, detail }: { kidSlug: string; detail: SeasonDetail }) {
   const { team, roster, games } = detail;
-  const batters = [...roster].sort(focusFirst);
-  const pitchers = roster.filter((r) => r.pitching).sort(focusFirst);
+  const pitchers = roster.filter((r) => r.pitching);
 
   return (
     <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-8">
@@ -35,65 +123,13 @@ export function SeasonView({ kidSlug, detail }: { kidSlug: string; detail: Seaso
 
       <section className="mt-6">
         <h2 className="mb-2 text-sm font-semibold text-foreground">Batting</h2>
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
-                <th className="px-3 py-2 text-left font-medium">Player</th>
-                {SEASON_BATTING.map((c) => (
-                  <th key={c.key} className="px-2 py-2 text-right font-medium tabular-nums">{c.label}</th>
-                ))}
-                <th className="px-2 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {batters.map((p) => (
-                <tr key={p.teamPlayerId} className={cn("border-b border-border/60 last:border-0", p.isFocus && "bg-amber-500/10")}>
-                  <td className="whitespace-nowrap px-3 py-2">
-                    <span className={cn("text-foreground", p.isFocus && "font-semibold")}>{p.name}</span>
-                    {p.jersey ? <span className="ml-1 text-xs text-muted-foreground">#{p.jersey}</span> : null}
-                  </td>
-                  {statRow(p.batting, SEASON_BATTING).map((cell, i) => (
-                    <td key={i} className="px-2 py-2 text-right tabular-nums text-foreground">{cell.value}</td>
-                  ))}
-                  <td className="px-2 py-2 text-right">
-                    {p.isFocus && <MoreStatsSheet title={`${p.name} · ${team.name}`} gcStats={p.gcStats} />}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <RosterTable cols={SEASON_BATTING} rows={roster} blob="batting" showMore teamName={team.name} />
       </section>
 
       {pitchers.length > 0 && (
         <section className="mt-8">
           <h2 className="mb-2 text-sm font-semibold text-foreground">Pitching</h2>
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/40 text-xs text-muted-foreground">
-                  <th className="px-3 py-2 text-left font-medium">Player</th>
-                  {SEASON_PITCHING.map((c) => (
-                    <th key={c.key} className="px-2 py-2 text-right font-medium tabular-nums">{c.label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {pitchers.map((p) => (
-                  <tr key={p.teamPlayerId} className={cn("border-b border-border/60 last:border-0", p.isFocus && "bg-amber-500/10")}>
-                    <td className="whitespace-nowrap px-3 py-2">
-                      <span className={cn("text-foreground", p.isFocus && "font-semibold")}>{p.name}</span>
-                      {p.jersey ? <span className="ml-1 text-xs text-muted-foreground">#{p.jersey}</span> : null}
-                    </td>
-                    {statRow(p.pitching, SEASON_PITCHING).map((cell, i) => (
-                      <td key={i} className="px-2 py-2 text-right tabular-nums text-foreground">{cell.value}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <RosterTable cols={SEASON_PITCHING} rows={pitchers} blob="pitching" showMore={false} teamName={team.name} />
         </section>
       )}
 
