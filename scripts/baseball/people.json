@@ -1,0 +1,8 @@
+{
+  "_doc": "Cross-season player identity registry — the source of truth the migration generator consumes. people: slug -> person record. kind 'kid' people carry family_member (matched against family_members.name where role='kid') so the generated migration resolves user_id via subquery and stays portable across prod/local. aliases: gc_player_id -> slug, the team-scoped GameChanger player id mapped to a person. The importer proposes new aliases on each capture; Andrew confirms; accepted entries land here.",
+  "people": {
+    "oscar": { "display_name": "Oscar Mason", "kind": "kid", "family_member": "Oscar" },
+    "sebastian": { "display_name": "Sebastian Mason", "kind": "kid", "family_member": "Sebastian" }
+  },
+  "aliases": {}
+}
