@@ -121,6 +121,19 @@ check("Sebastian links by name", linkBoxScoreToRoster(sebLine, collideRoster).li
 const strayLine = [{ name: "Random Kid", jersey: "5", batting: null, pitching: null }];
 check("named stray (no name match) is unmatched, not jersey-guessed", linkBoxScoreToRoster(strayLine, collideRoster).unmatched.length === 1);
 
+// abbreviated "First L" box labels (teams you don't score) match full roster names
+const abbrevRoster = [
+  { gc_player_id: "osc", name: "Oscar Mason", jersey: "3" },
+  { gc_player_id: "lor", name: "Lorenzo Abrams", jersey: "9" },
+];
+const abbrevLines = [
+  { name: "Oscar M", jersey: "3", batting: { AB: 2, R: 1, H: 1, RBI: 0, BB: 1, SO: 0, "2B": 0, "3B": 0, HR: 0, SB: 0 }, pitching: null },
+  { name: "Lorenzo A", jersey: "9", batting: { AB: 3, R: 0, H: 2, RBI: 1, BB: 0, SO: 1, "2B": 1, "3B": 0, HR: 0, SB: 0 }, pitching: null },
+];
+const abbrev = linkBoxScoreToRoster(abbrevLines, abbrevRoster);
+check("'Oscar M' links to Oscar Mason by initial", abbrev.linked.some((l) => l.gc_player_id === "osc"));
+check("'Lorenzo A' links to Lorenzo Abrams by initial", abbrev.linked.some((l) => l.gc_player_id === "lor"));
+
 // ---- events ----
 console.log("parseEvents");
 const ev = parseEvents(fix("game-events-sample.json"));

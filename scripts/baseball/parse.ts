@@ -90,15 +90,25 @@ function parseNoteCounts(note: string | undefined): Map<string, number> {
   return out;
 }
 
-// Box-score batting labels are often first-name-only (jersey is the join key),
-// while the notes block carries fuller names — so match when one name's tokens
-// are a subset of the other's ("Levi" matches note "Levi Evans").
-function nameMatches(playerName: string, noteName: string): boolean {
-  const a = normalizeName(playerName).split(" ").filter(Boolean);
-  const b = normalizeName(noteName).split(" ").filter(Boolean);
-  if (!a.length || !b.length) return false;
-  const [small, big] = a.length <= b.length ? [a, new Set(b)] : [b, new Set(a)];
-  return small.every((t) => big.has(t));
+// Match two names token-by-token, tolerant of the abbreviated forms GameChanger
+// renders: "Levi" vs "Levi Evans" (subset), and "Oscar M" vs "Oscar Mason" (last
+// name shown as an initial — common for teams you don't personally score). Every
+// token of the shorter name must align to a distinct token of the longer one, by
+// equality or by initial (a single letter that begins the other token).
+function nameMatches(a: string, b: string): boolean {
+  const ta = normalizeName(a).split(" ").filter(Boolean);
+  const tb = normalizeName(b).split(" ").filter(Boolean);
+  if (!ta.length || !tb.length) return false;
+  const [small, big] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+  const tokenMatch = (x: string, y: string) =>
+    x === y || (x.length === 1 && y.startsWith(x)) || (y.length === 1 && x.startsWith(y));
+  const used = new Array(big.length).fill(false);
+  for (const t of small) {
+    const i = big.findIndex((u, idx) => !used[idx] && tokenMatch(t, u));
+    if (i < 0) return false;
+    used[i] = true;
+  }
+  return true;
 }
 
 function toInt(v: string | undefined): number {
