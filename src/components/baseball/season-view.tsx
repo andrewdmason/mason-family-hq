@@ -57,7 +57,7 @@ export function SeasonView({ kidSlug, detail }: { kidSlug: string; detail: Seaso
                     <td key={i} className="px-2 py-2 text-right tabular-nums text-foreground">{cell.value}</td>
                   ))}
                   <td className="px-2 py-2 text-right">
-                    {p.isFocus && <MoreStatsSheet title={`${p.name} · ${team.name}`} batting={p.batting} pitching={p.pitching} />}
+                    {p.isFocus && <MoreStatsSheet title={`${p.name} · ${team.name}`} gcStats={p.gcStats} />}
                   </td>
                 </tr>
               ))}

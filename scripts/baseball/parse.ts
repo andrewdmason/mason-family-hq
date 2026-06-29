@@ -270,9 +270,13 @@ export type LinkedGameStat = {
   pitching: PitchingLine | null;
 };
 
-// Match each box-score player to a roster entry: jersey first (unique within a
-// team), then normalized name. Unmatched lines are returned separately so the
-// importer can surface them rather than silently dropping a player's game.
+// Match each box-score player to a roster entry. NAME first — jersey numbers are
+// reused across games by guest/substitute players, so jersey-first would
+// misattribute a guest's line to whoever holds that number on the roster (e.g. a
+// guest #5 in a game our #5 sat out). Match order: exact name, then a unique
+// flexible name match (first-name-only labels vs fuller roster names), and ONLY a
+// jersey fallback for rows that carry no name at all. A named line that matches no
+// roster name is left unmatched rather than guessed by jersey.
 export function linkBoxScoreToRoster(
   boxPlayers: BoxScorePlayer[],
   roster: RosterPlayer[],
@@ -286,8 +290,17 @@ export function linkBoxScoreToRoster(
   const linked: LinkedGameStat[] = [];
   const unmatched: BoxScorePlayer[] = [];
   for (const bp of boxPlayers) {
-    const match =
-      (bp.jersey && byJersey.get(bp.jersey)) || byName.get(normalizeName(bp.name)) || null;
+    const nm = normalizeName(bp.name);
+    let match: RosterPlayer | null = null;
+    if (nm) {
+      match = byName.get(nm) ?? null;
+      if (!match) {
+        const flex = roster.filter((r) => nameMatches(r.name, bp.name));
+        if (flex.length === 1) match = flex[0]; // unique flexible match only
+      }
+    } else if (bp.jersey) {
+      match = byJersey.get(bp.jersey) ?? null; // no name to match on
+    }
     if (!match) {
       unmatched.push(bp);
       continue;

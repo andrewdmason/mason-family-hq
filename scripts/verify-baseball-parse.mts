@@ -105,9 +105,21 @@ const roster = parseRoster(fix("roster-sample.json"));
 check("10 roster players", roster.length === 10, roster.length);
 check("jersey is string", roster[0].jersey === "14");
 const { linked, unmatched } = linkBoxScoreToRoster(away, roster);
-check("all away players linked (jersey match despite first-name-only labels)", unmatched.length === 0, unmatched.map((u) => u.name));
-check("Parker links to gc-away-14 by jersey", linked.some((l) => l.gc_player_id === "gc-away-14" && l.batting!.AB === 2));
+check("all away players linked (flexible first-name match + jersey for no-name)", unmatched.length === 0, unmatched.map((u) => u.name));
+check("Parker links to gc-away-14", linked.some((l) => l.gc_player_id === "gc-away-14" && l.batting!.AB === 2));
 check("no-name #32 links to gc-away-32 by jersey", linked.some((l) => l.gc_player_id === "gc-away-32"));
+
+// name-first linking: a guest reusing a roster jersey must NOT steal that line
+const collideRoster = [
+  { gc_player_id: "seb", name: "Sebastian Mason", jersey: "5" },
+  { gc_player_id: "guest", name: "ZZ Mac Guest", jersey: "5" },
+];
+const guestLine = [{ name: "ZZ Mac Guest", jersey: "5", batting: { AB: 1, R: 0, H: 0, RBI: 0, BB: 0, SO: 1, "2B": 0, "3B": 0, HR: 0, SB: 0 }, pitching: null }];
+check("guest #5 links to the guest, not the roster #5", linkBoxScoreToRoster(guestLine, collideRoster).linked[0]?.gc_player_id === "guest");
+const sebLine = [{ name: "Sebastian Mason", jersey: "5", batting: { AB: 3, R: 2, H: 3, RBI: 1, BB: 1, SO: 0, "2B": 1, "3B": 0, HR: 0, SB: 0 }, pitching: null }];
+check("Sebastian links by name", linkBoxScoreToRoster(sebLine, collideRoster).linked[0]?.gc_player_id === "seb");
+const strayLine = [{ name: "Random Kid", jersey: "5", batting: null, pitching: null }];
+check("named stray (no name match) is unmatched, not jersey-guessed", linkBoxScoreToRoster(strayLine, collideRoster).unmatched.length === 1);
 
 // ---- events ----
 console.log("parseEvents");

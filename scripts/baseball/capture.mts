@@ -28,13 +28,26 @@ import {
   type BoxScoreCapture,
   type GameSummary,
 } from "./parse";
+import { autoResolve, type Registry } from "./identity";
 import type { Cache } from "./sql";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cacheDir = join(here, ".cache");
 const profileDir = join(cacheDir, ".chrome-profile");
+const peopleFile = join(here, "people.json");
 const API = "https://api.team-manager.gc.com";
 const WEB = "https://web.gc.com";
+
+function loadRegistry(): Registry {
+  const raw = JSON.parse(readFileSync(peopleFile, "utf8"));
+  return { people: raw.people, aliases: raw.aliases };
+}
+function saveRegistry(reg: Registry) {
+  const raw = JSON.parse(readFileSync(peopleFile, "utf8"));
+  raw.people = reg.people;
+  raw.aliases = reg.aliases;
+  writeFileSync(peopleFile, JSON.stringify(raw, null, 2) + "\n");
+}
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -84,11 +97,15 @@ async function apiGet<T>(req: APIRequestContext, path: string): Promise<T> {
 
 type MeTeam = { id: string; name?: string; public_team_profile_id?: string; season?: string; season_year?: number };
 
-async function pickTeam(req: APIRequestContext, filter: string | undefined) {
+async function listTeams(req: APIRequestContext): Promise<MeTeam[]> {
   const teams = await apiGet<MeTeam[] | { teams: MeTeam[] }>(req, "/me/teams?include=user_team_associations,team_public_profile_id");
-  const list = Array.isArray(teams) ? teams : teams.teams;
+  return Array.isArray(teams) ? teams : teams.teams;
+}
+
+async function pickTeam(req: APIRequestContext, filter: string | undefined) {
+  const list = await listTeams(req);
   if (!filter) {
-    log("Teams on this account (re-run with --team <name or public id>):");
+    log("Teams on this account (re-run with --team <name or public id>, or --all):");
     for (const t of list) log(`  - ${t.name ?? "(unnamed)"}  [${t.public_team_profile_id ?? t.id}]`);
     process.exit(0);
   }
@@ -100,51 +117,58 @@ async function pickTeam(req: APIRequestContext, filter: string | undefined) {
   return match;
 }
 
-// Scrape the rendered box-score page into the BoxScoreCapture shape. Selector-light
-// and tolerant: it locates each team block, then its batting rows (6 trailing ints)
-// and pitching rows (IP + 5 ints), plus the per-team notes (2B/3B/HR/SB/…).
+// Scrape the rendered box-score page into the BoxScoreCapture shape. The page is
+// an AG-Grid: each side has BoxScore__{away,home}TeamName / {away,home}Lineup
+// (batting) / {away,home}Pitching grids, with per-player .ag-row text like
+// "Parker #14 (SS, P) 2 0 0 1 1 0", plus a boxScoreExtraStats notes block.
 async function scrapeBoxScore(page: Page, gcGameId: string): Promise<BoxScoreCapture> {
   return page.evaluate((gameId) => {
     const ROW = /^(.*?)((?:\d+\.\d|\d+)(?:\s+\d+){5})$/; // label + 6 stat cells
-    const text = (el: Element) => (el as HTMLElement).innerText.replace(/\s+/g, " ").trim();
+    const txt = (el: Element | null) => (el ? (el as HTMLElement).innerText.replace(/\s+/g, " ").trim() : "");
 
-    // Each team renders a heading then a LINEUP table and a PITCHING table.
-    const blocks = Array.from(document.querySelectorAll("section, [class*='team'], [class*='Team']"));
-    const teams: BoxScoreCapture["teams"] = [];
-    const seenNames = new Set<string>();
-
-    const rowsFrom = (root: Element, wantPitching: boolean) => {
+    const rowsIn = (sel: string) => {
+      const c = document.querySelector(sel);
       const out: { label: string; values: string[] }[] = [];
-      for (const el of Array.from(root.querySelectorAll("tr, li, div"))) {
-        const t = text(el);
-        const m = t.match(ROW);
-        if (!m || t.length > 90) continue;
+      if (!c) return out;
+      const seen = new Set<string>();
+      for (const r of Array.from(c.querySelectorAll(".ag-row"))) {
+        const m = (r as HTMLElement).innerText.replace(/\s+/g, " ").trim().match(ROW);
+        if (!m) continue;
         const label = m[1].trim();
-        const values = m[2].trim().split(/\s+/);
-        const looksPitch = /\d+\.\d/.test(values[0]); // IP has a decimal
-        if (wantPitching !== looksPitch) continue;
-        if (!out.some((r) => r.label === label)) out.push({ label, values });
+        if (!label || seen.has(label)) continue;
+        seen.add(label);
+        out.push({ label, values: m[2].trim().split(/\s+/) });
       }
       return out;
     };
 
-    for (const b of blocks) {
-      const heading = b.querySelector("h1,h2,h3,[class*='name'],[class*='Name']");
-      const name = heading ? text(heading) : "";
-      if (!name || seenNames.has(name) || name.length > 60) continue;
-      const batting = rowsFrom(b, false);
-      const pitching = rowsFrom(b, true);
-      if (!batting.length && !pitching.length) continue;
-      seenNames.add(name);
+    // The notes block (2B/3B/HR/SB/TB/E/…) for a side; we only consume the
+    // extra-base/steal keys downstream, but capture the line as rendered.
+    const notesFor = (marker: string) => {
       const notes: Record<string, string> = {};
-      for (const key of ["2B", "3B", "HR", "SB", "TB"]) {
-        const re = new RegExp(`${key}:\\s*([^\\n]+?)(?:\\s{2,}|$)`);
-        const mm = (b as HTMLElement).innerText.match(re);
-        if (mm) notes[key] = mm[1].trim();
+      for (const el of Array.from(document.querySelectorAll("[class*='boxScoreExtraStats']"))) {
+        if (!(el.className || "").toString().includes(marker)) continue;
+        for (const line of (el as HTMLElement).innerText.split("\n")) {
+          const i = line.indexOf(":");
+          if (i > 0) {
+            const k = line.slice(0, i).trim();
+            const v = line.slice(i + 1).trim();
+            if (v) notes[k] = v;
+          }
+        }
       }
-      teams.push({ side: teams.length === 0 ? "away" : "home", name, batting, pitching, notes });
+      return notes;
+    };
+
+    const teams: { side: "home" | "away"; name: string; batting: { label: string; values: string[] }[]; pitching: { label: string; values: string[] }[]; notes: Record<string, string> }[] = [];
+    for (const side of ["away", "home"] as const) {
+      const name = txt(document.querySelector(`[class*='${side}TeamName']`));
+      const batting = rowsIn(`[class*='${side}Lineup']`);
+      const pitching = rowsIn(`[class*='${side}Pitching']`);
+      if (!name && !batting.length) continue;
+      teams.push({ side, name, batting, pitching, notes: notesFor(side) });
     }
-    return { gc_game_id: gameId, teams: teams.slice(0, 2) };
+    return { gc_game_id: gameId, teams };
   }, gcGameId);
 }
 
@@ -158,78 +182,101 @@ async function main() {
     headless: false,
     viewport: { width: 1280, height: 900 },
   });
+  // tsx/esbuild transpiles page.evaluate callbacks with a `__name` helper
+  // (keepNames) that doesn't exist in the browser; shim it as a no-op. Passed as
+  // a raw string so esbuild doesn't re-inject __name into the shim itself.
+  await context.addInitScript({ content: "window.__name = window.__name || function (f) { return f; };" });
   const page = context.pages()[0] ?? (await context.newPage());
   captureHeaders(page);
 
   try {
     await waitForLogin(page);
     const req = context.request;
-    const team = await pickTeam(req, filter);
-    const gcTeamId = team.id;
-    const publicId = team.public_team_profile_id ?? gcTeamId;
-    log(`Capturing "${team.name}" (${gcTeamId})`);
+    const teams = filter === "all" || process.argv.includes("--all")
+      ? await listTeams(req)
+      : [await pickTeam(req, filter)];
+    if (teams.length > 1) log(`Capturing ${teams.length} teams…`);
 
-    const cacheFile = join(cacheDir, `${gcTeamId}.json`);
-    const prior: Partial<Cache> = existsSync(cacheFile) ? JSON.parse(readFileSync(cacheFile, "utf8")) : {};
-
-    const rosterRaw = await apiGet<unknown>(req, `/teams/${gcTeamId}/players`);
-    const roster = parseRoster(rosterRaw);
-    const scheduleRaw = await apiGet<unknown>(req, `/teams/${gcTeamId}/schedule?fetch_place_details=true`);
-    const schedule = parseSchedule(scheduleRaw);
-    const summariesRaw = await apiGet<unknown>(req, `/teams/${gcTeamId}/game-summaries`);
-    const summaries = parseGameSummaries(summariesRaw);
-    const seasonRaw = await apiGet<unknown>(req, `/teams/${gcTeamId}/season-stats`);
-    const seasonStats = parseSeasonStats(seasonRaw);
-    log(`roster ${roster.length} · games ${summaries.length} · season-stat players ${seasonStats.length}`);
-
-    const games = summaries.map((g: GameSummary) => {
-      const extra = schedule.get(g.gc_game_id);
-      return { ...g, played_on: extra?.played_on ?? null, opponent_name: extra?.opponent_name ?? null };
-    });
-
-    const gameStats: Cache["gameStats"] = { ...(prior.gameStats ?? {}) };
-    const completed = summaries.filter((g) => g.status === "completed");
-    for (const g of completed) {
-      if (gameStats[g.gc_game_id]?.linked?.length) {
-        log(`  game ${g.gc_game_id} already captured — skipping`);
-        continue;
+    let ok = 0;
+    for (const team of teams) {
+      try {
+        await captureTeam(req, page, team);
+        ok++;
+      } catch (e) {
+        log(`✗ ${team.name ?? team.id}: ${e instanceof Error ? e.message : e}`);
       }
-      // Find the team-season slug from a team page URL is unnecessary: the box-score
-      // route accepts the public id + any slug; GameChanger redirects to canonical.
-      await page.goto(`${WEB}/teams/${publicId}/x/schedule/${g.gc_game_id}/box-score`, { waitUntil: "domcontentloaded" });
-      await page.waitForTimeout(2500); // let the stat engine compute
-      const box = await scrapeBoxScore(page, g.gc_game_id);
-      // Match our side by team name first (DOM block order isn't guaranteed),
-      // falling back to the home/away flag.
-      const ourPlayers = parseBoxScore(box, { name: team.name ?? undefined, side: g.home_away ?? undefined });
-      const { linked, unmatched } = linkBoxScoreToRoster(ourPlayers, roster);
-      if (unmatched.length) log(`  ⚠ game ${g.gc_game_id}: ${unmatched.length} box rows unmatched to roster (${unmatched.map((u) => u.name || u.jersey).join(", ")})`);
-      const eventsRaw = await apiGet<unknown>(req, `/game-streams/gamestream-viewer-payload-lite/${g.gc_game_id}?include_stat_edits=true`);
-      gameStats[g.gc_game_id] = { linked, events: parseEvents(eventsRaw) };
-      log(`  game ${g.gc_game_id}: ${linked.length} player lines`);
     }
-
-    const out: Cache = {
-      team: {
-        gc_team_id: gcTeamId,
-        gc_public_id: publicId,
-        name: team.name ?? "Unknown Team",
-        season_name: team.season ?? null,
-        season_year: team.season_year ?? null,
-        level: null,
-        org_name: null,
-      },
-      roster,
-      games,
-      seasonStats,
-      gameStats,
-    };
-    writeFileSync(cacheFile, JSON.stringify(out, null, 2));
-    log(`Wrote ${cacheFile}`);
-    log("Next: confirm identities, then `npm run baseball:generate`.");
+    log(`Done: ${ok}/${teams.length} captured. Review the people.json diff, then \`npm run baseball:generate\`.`);
   } finally {
     await context.close();
   }
+}
+
+async function captureTeam(req: APIRequestContext, page: Page, team: MeTeam) {
+  const gcTeamId = team.id;
+  const publicId = team.public_team_profile_id ?? gcTeamId;
+  log(`Capturing "${team.name}" (${gcTeamId})`);
+
+  const cacheFile = join(cacheDir, `${gcTeamId}.json`);
+  const prior: Partial<Cache> = existsSync(cacheFile) ? JSON.parse(readFileSync(cacheFile, "utf8")) : {};
+
+  const rosterRaw = await apiGet<unknown>(req, `/teams/${gcTeamId}/players`);
+  const roster = parseRoster(rosterRaw);
+  const scheduleRaw = await apiGet<unknown>(req, `/teams/${gcTeamId}/schedule?fetch_place_details=true`);
+  const schedule = parseSchedule(scheduleRaw);
+  const summariesRaw = await apiGet<unknown>(req, `/teams/${gcTeamId}/game-summaries`);
+  const summaries = parseGameSummaries(summariesRaw);
+  const seasonRaw = await apiGet<unknown>(req, `/teams/${gcTeamId}/season-stats`);
+  const seasonStats = parseSeasonStats(seasonRaw);
+  log(`  roster ${roster.length} · games ${summaries.length} · season-stat players ${seasonStats.length}`);
+
+  const games = summaries.map((g: GameSummary) => {
+    const extra = schedule.get(g.gc_game_id);
+    return { ...g, played_on: extra?.played_on ?? null, opponent_name: extra?.opponent_name ?? null };
+  });
+
+  const gameStats: Cache["gameStats"] = { ...(prior.gameStats ?? {}) };
+  const completed = summaries.filter((g) => g.status === "completed");
+  for (const g of completed) {
+    if (gameStats[g.gc_game_id]?.linked?.length) continue; // resumable
+    // The box-score route accepts the public id + any slug; GameChanger redirects.
+    await page.goto(`${WEB}/teams/${publicId}/x/schedule/${g.gc_game_id}/box-score`, { waitUntil: "networkidle" }).catch(() => {});
+    // Wait for the AG-Grid lineup to render (the stat engine computes client-side).
+    await page.waitForSelector("[class*='Lineup'] .ag-row", { timeout: 20000 }).catch(() => {});
+    const box = await scrapeBoxScore(page, g.gc_game_id);
+    // Match our side by team name first (DOM block order isn't guaranteed),
+    // falling back to the home/away flag.
+    const ourPlayers = parseBoxScore(box, { name: team.name ?? undefined, side: g.home_away ?? undefined });
+    const { linked, unmatched } = linkBoxScoreToRoster(ourPlayers, roster);
+    if (unmatched.length) log(`  ⚠ game ${g.gc_game_id}: ${unmatched.length} box rows unmatched (${unmatched.map((u) => u.name || u.jersey).join(", ")})`);
+    const eventsRaw = await apiGet<unknown>(req, `/game-streams/gamestream-viewer-payload-lite/${g.gc_game_id}?include_stat_edits=true`);
+    gameStats[g.gc_game_id] = { linked, events: parseEvents(eventsRaw) };
+  }
+
+  const out: Cache = {
+    team: {
+      gc_team_id: gcTeamId,
+      gc_public_id: publicId,
+      name: team.name ?? "Unknown Team",
+      season_name: team.season ?? null,
+      season_year: team.season_year ?? null,
+      level: null,
+      org_name: null,
+    },
+    roster,
+    games,
+    seasonStats,
+    gameStats,
+  };
+  writeFileSync(cacheFile, JSON.stringify(out, null, 2));
+
+  // Resolve identities into the committed registry: the boys auto-link at
+  // full-name confidence (and are never cross-merged); previously-unseen
+  // teammates are registered as new people, accumulating across teams. Manual
+  // edits to people.json are preserved. Review the diff before generating.
+  const { registry, autoLinked, created } = autoResolve(roster, loadRegistry());
+  saveRegistry(registry);
+  log(`  ${Object.keys(gameStats).length} games · identities: ${autoLinked.length} linked, ${created.length} new`);
 }
 
 main().catch((e) => {

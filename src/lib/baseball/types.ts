@@ -5,15 +5,20 @@ export type StatBlob = Record<string, number | string | null | undefined>;
 
 export type Kid = { slug: string; displayName: string };
 
+// GameChanger's season-stats blob (offense + defense groups), kept for the
+// "more stats" sheet. NOTE: it excludes scrimmages, so it can undercount.
+export type GcSeasonStats = { offense?: StatBlob; defense?: StatBlob } | null;
+
 export type SeasonRow = {
   teamId: string;
   teamName: string;
   seasonName: string | null;
   seasonYear: number | null;
   level: string | null;
-  // The viewed boy's season aggregate (GameChanger groups).
-  batting: StatBlob | null; // offense group
-  pitching: StatBlob | null; // defense group, only when he pitched
+  // The viewed boy's season line, SUMMED from per-game box scores (complete).
+  batting: StatBlob | null;
+  pitching: StatBlob | null; // only when he pitched
+  gcStats: GcSeasonStats; // GameChanger's own summary, for the more-stats sheet
 };
 
 export type RosterStatRow = {
@@ -23,6 +28,7 @@ export type RosterStatRow = {
   isFocus: boolean;
   batting: StatBlob | null;
   pitching: StatBlob | null;
+  gcStats: GcSeasonStats;
 };
 
 export type GameRow = {

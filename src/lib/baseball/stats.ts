@@ -89,13 +89,6 @@ export const GAME_PITCHING: StatCol[] = [
   { key: "SO", label: "K", fmt: int },
 ];
 
-// A player pitched if GameChanger faced batters against them (BF) — the cleanest
-// signal that the "defense" blob carries pitching, not just fielding.
-export function pitchedSeason(defense: StatBlob | null | undefined): boolean {
-  if (!defense) return false;
-  return Number(defense["BF"] ?? 0) > 0 || Number(defense["GP:P"] ?? 0) > 0;
-}
-
 export function row(blob: StatBlob | null | undefined, cols: StatCol[]): { label: string; value: string }[] {
   return cols.map((c) => ({ label: c.label, value: blob ? c.fmt(blob[c.key]) : "—" }));
 }
@@ -104,4 +97,37 @@ export function num(blob: StatBlob | null | undefined, key: string): number | nu
   if (!blob) return null;
   const n = Number(blob[key]);
   return Number.isFinite(n) ? n : null;
+}
+
+// Season totals are SUMMED from the per-game box scores rather than read from
+// GameChanger's season-stats endpoint, which omits scrimmages and so undercounts.
+// This adds up GameChanger's own per-game numbers (not a re-implementation of
+// scoring) and derives the standard rates. Returns the same keys the SEASON_*
+// display columns read, so the views are unchanged.
+const sum = (lines: StatBlob[], key: string) => lines.reduce((a, l) => a + (Number(l?.[key]) || 0), 0);
+
+export function aggregateBatting(lines: (StatBlob | null | undefined)[]): StatBlob & { GP: number } {
+  const g = lines.filter((l): l is StatBlob => !!l);
+  const AB = sum(g, "AB"), H = sum(g, "H"), BB = sum(g, "BB");
+  const d2 = sum(g, "2B"), d3 = sum(g, "3B"), HR = sum(g, "HR");
+  const TB = H + d2 + 2 * d3 + 3 * HR; // 1B*1 + 2B*2 + 3B*3 + HR*4, with 1B = H-2B-3B-HR
+  const AVG = AB ? H / AB : 0;
+  const SLG = AB ? TB / AB : 0;
+  // OBP omits HBP/SF (not in the per-game box line) — a close approximation.
+  const OBP = AB + BB ? (H + BB) / (AB + BB) : 0;
+  return {
+    GP: g.length, AB, R: sum(g, "R"), H, "2B": d2, "3B": d3, HR, RBI: sum(g, "RBI"),
+    BB, SO: sum(g, "SO"), SB: sum(g, "SB"), TB, AVG, OBP, SLG, OPS: OBP + SLG,
+  };
+}
+
+export function aggregatePitching(lines: (StatBlob | null | undefined)[]): (StatBlob & { GP: number }) | null {
+  const g = lines.filter((l): l is StatBlob => !!l);
+  if (!g.length) return null;
+  const IP = sum(g, "IP"), ER = sum(g, "ER"), BB = sum(g, "BB"), H = sum(g, "H");
+  return {
+    GP: g.length, IP, H, R: sum(g, "R"), ER, BB, SO: sum(g, "SO"),
+    ERA: IP ? (ER * 9) / IP : 0,
+    WHIP: IP ? (BB + H) / IP : 0,
+  };
 }

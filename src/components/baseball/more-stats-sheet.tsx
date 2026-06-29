@@ -9,7 +9,7 @@ import {
   SheetDescription,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import type { StatBlob } from "@/lib/baseball/types";
+import type { GcSeasonStats } from "@/lib/baseball/types";
 
 function fmt(v: unknown): string {
   if (v === null || v === undefined || v === "") return "—";
@@ -18,7 +18,7 @@ function fmt(v: unknown): string {
   return String(v);
 }
 
-function StatGrid({ title, blob }: { title: string; blob: StatBlob | null }) {
+function StatGrid({ title, blob }: { title: string; blob: Record<string, unknown> | null | undefined }) {
   if (!blob || !Object.keys(blob).length) return null;
   const entries = Object.entries(blob).sort(([a], [b]) => a.localeCompare(b));
   return (
@@ -36,17 +36,10 @@ function StatGrid({ title, blob }: { title: string; blob: StatBlob | null }) {
   );
 }
 
-// Exposes the complete archived GameChanger stat set (R14 / AE5) — everything
-// the curated default lines leave out.
-export function MoreStatsSheet({
-  title,
-  batting,
-  pitching,
-}: {
-  title: string;
-  batting: StatBlob | null;
-  pitching: StatBlob | null;
-}) {
+// Exposes the complete archived GameChanger stat set (R14 / AE5) — everything the
+// curated default lines leave out. This is GameChanger's own season summary, which
+// excludes scrimmages, so its counts can trail the (complete) computed season line.
+export function MoreStatsSheet({ title, gcStats }: { title: string; gcStats: GcSeasonStats }) {
   return (
     <Sheet>
       <SheetTrigger className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
@@ -56,11 +49,19 @@ export function MoreStatsSheet({
       <SheetContent className="overflow-y-auto sm:max-w-lg">
         <SheetHeader>
           <SheetTitle>{title}</SheetTitle>
-          <SheetDescription>Every stat GameChanger tracks for this season.</SheetDescription>
+          <SheetDescription>
+            GameChanger&apos;s full season stat set (their summary excludes scrimmages, so counts may be lower than the season line).
+          </SheetDescription>
         </SheetHeader>
         <div className="px-4 pb-8">
-          <StatGrid title="Batting" blob={batting} />
-          <StatGrid title="Pitching & Fielding" blob={pitching} />
+          {!gcStats ? (
+            <p className="mt-4 text-sm text-muted-foreground">No GameChanger summary stored for this season.</p>
+          ) : (
+            <>
+              <StatGrid title="Batting" blob={gcStats.offense} />
+              <StatGrid title="Pitching &amp; Fielding" blob={gcStats.defense} />
+            </>
+          )}
         </div>
       </SheetContent>
     </Sheet>

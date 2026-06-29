@@ -1,11 +1,12 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
-import { pitchedSeason } from "./stats";
+import { aggregateBatting, aggregatePitching } from "./stats";
 import { resolvePerson } from "./people";
-import type { GameDetail, GameRow, SeasonDetail, SeasonRow, StatBlob } from "./types";
+import type { GameDetail, GameRow, GcSeasonStats, SeasonDetail, SeasonRow, StatBlob } from "./types";
 
 type TeamEmbed = { id: string; name: string; season_name: string | null; season_year: number | null; level: string | null };
+type GameLine = { batting: StatBlob | null; pitching: StatBlob | null };
 
 // PostgREST returns a to-one embed as a single object, but supabase-js types it
 // as an array without generated types — normalize to handle both.
@@ -22,10 +23,35 @@ function bySeasonDesc(a: SeasonRow, b: SeasonRow): number {
   return (b.seasonName ?? "").localeCompare(a.seasonName ?? "");
 }
 
-function splitStats(stats: StatBlob | null | undefined): { batting: StatBlob | null; pitching: StatBlob | null } {
-  const s = (stats ?? null) as { offense?: StatBlob; defense?: StatBlob } | null;
-  const defense = s?.defense ?? null;
-  return { batting: s?.offense ?? null, pitching: pitchedSeason(defense) ? defense : null };
+const gcStatsOf = (rows: unknown): GcSeasonStats =>
+  ((rows as { stats: GcSeasonStats }[] | null)?.[0]?.stats ?? null);
+
+// Season line for one player = their per-game box scores summed (complete;
+// GameChanger's season-stats endpoint omits scrimmages — see stats.ts).
+function seasonLine(lines: GameLine[]): { batting: StatBlob; pitching: StatBlob | null } {
+  return {
+    batting: aggregateBatting(lines.map((l) => l.batting)),
+    pitching: aggregatePitching(lines.map((l) => l.pitching)),
+  };
+}
+
+// Map team_player_id -> its per-game lines, for the given team_player ids.
+async function gameLinesByPlayer(
+  sb: Awaited<ReturnType<typeof createClient>>,
+  tpIds: string[],
+): Promise<Map<string, GameLine[]>> {
+  const byTp = new Map<string, GameLine[]>();
+  if (!tpIds.length) return byTp;
+  const { data } = await sb
+    .from("baseball_game_player_stats")
+    .select("team_player_id, batting, pitching")
+    .in("team_player_id", tpIds);
+  for (const g of data ?? []) {
+    const arr = byTp.get(g.team_player_id) ?? [];
+    arr.push({ batting: (g.batting ?? null) as StatBlob | null, pitching: (g.pitching ?? null) as StatBlob | null });
+    byTp.set(g.team_player_id, arr);
+  }
+  return byTp;
 }
 
 // A boy's career: every team-season he appears on, with his season line.
@@ -33,16 +59,17 @@ export async function getCareer(slug: string): Promise<{ name: string; seasons: 
   const sb = await createClient();
   const person = await resolvePerson(slug, sb); // the team_players query filters on person.id
   if (!person) return null;
-  const { data } = await sb
+  const { data: tps } = await sb
     .from("baseball_team_players")
     .select("id, baseball_teams(id, name, season_name, season_year, level), baseball_season_player_stats(stats)")
     .eq("person_id", person.id);
+  const rows = tps ?? [];
+  const lines = await gameLinesByPlayer(sb, rows.map((t) => t.id));
 
-  const seasons: SeasonRow[] = (data ?? []).flatMap((tp) => {
+  const seasons: SeasonRow[] = rows.flatMap((tp) => {
     const team = firstOf<TeamEmbed>(tp.baseball_teams);
     if (!team) return [];
-    const statRows = (tp.baseball_season_player_stats as { stats: StatBlob }[] | null) ?? [];
-    const { batting, pitching } = splitStats(statRows[0]?.stats);
+    const { batting, pitching } = seasonLine(lines.get(tp.id) ?? []);
     return [{
       teamId: team.id,
       teamName: team.name,
@@ -51,6 +78,7 @@ export async function getCareer(slug: string): Promise<{ name: string; seasons: 
       level: team.level,
       batting,
       pitching,
+      gcStats: gcStatsOf(tp.baseball_season_player_stats),
     }];
   });
   seasons.sort(bySeasonDesc);
@@ -60,7 +88,6 @@ export async function getCareer(slug: string): Promise<{ name: string; seasons: 
 // One team-season: roster stat table (boy highlighted) + game log.
 export async function getSeason(teamId: string, slug: string): Promise<SeasonDetail | null> {
   const sb = await createClient();
-  // These four reads are independent — run them together.
   const [{ data: team }, person, { data: roster }, { data: games }] = await Promise.all([
     sb.from("baseball_teams").select("id, name, season_name, season_year, level").eq("id", teamId).maybeSingle(),
     resolvePerson(slug, sb),
@@ -77,12 +104,14 @@ export async function getSeason(teamId: string, slug: string): Promise<SeasonDet
   ]);
   if (!team) return null;
 
+  const rosterRows = roster ?? [];
+  const lines = await gameLinesByPlayer(sb, rosterRows.map((r) => r.id));
+
   return {
     team: { id: team.id, name: team.name, seasonName: team.season_name, seasonYear: team.season_year, level: team.level },
     focusName: person?.displayName ?? "",
-    roster: (roster ?? []).map((r) => {
-      const statRows = (r.baseball_season_player_stats as { stats: StatBlob }[] | null) ?? [];
-      const { batting, pitching } = splitStats(statRows[0]?.stats);
+    roster: rosterRows.map((r) => {
+      const { batting, pitching } = seasonLine(lines.get(r.id) ?? []);
       return {
         teamPlayerId: r.id,
         name: r.name,
@@ -90,6 +119,7 @@ export async function getSeason(teamId: string, slug: string): Promise<SeasonDet
         isFocus: !!person && r.person_id === person.id,
         batting,
         pitching,
+        gcStats: gcStatsOf(r.baseball_season_player_stats),
       };
     }),
     games: (games ?? []).map(toGameRow),

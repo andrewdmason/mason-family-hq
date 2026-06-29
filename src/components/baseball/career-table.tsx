@@ -56,7 +56,7 @@ export function CareerTable({ kidSlug, seasons }: { kidSlug: string; seasons: Se
                     <td key={i} className="px-2 py-2 text-right tabular-nums text-foreground">{cell.value}</td>
                   ))}
                   <td className="px-2 py-2 text-right">
-                    <MoreStatsSheet title={`${seasonLabel(s)} · ${s.teamName}`} batting={s.batting} pitching={s.pitching} />
+                    <MoreStatsSheet title={`${seasonLabel(s)} · ${s.teamName}`} gcStats={s.gcStats} />
                   </td>
                 </tr>
               ))}
