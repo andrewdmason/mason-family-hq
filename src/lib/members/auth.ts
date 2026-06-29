@@ -3,17 +3,28 @@ import { createClient } from "@/lib/supabase/server";
 
 // Both lookups below are request-cached with React's cache(): a single page
 // render asks "who is this?" from several spots (the global header, the page,
-// nested helpers like getIsOwner), and each auth.getUser() is a network round
-// trip to Supabase. cache() collapses them to one call per request. The
-// optional `supabase` parameter is kept for callers that already hold a client,
-// but the cached lookup always resolves from the request's cookies — every
-// server client in a request sees the same session, so the answer is identical.
-const getAuthUser = cache(async () => {
+// nested helpers like getIsOwner). cache() collapses them to one call per
+// request. The optional `supabase` parameter is kept for callers that already
+// hold a client, but the cached lookup always resolves from the request's
+// cookies — every server client in a request sees the same session.
+//
+// We resolve identity with getClaims() (local JWT verification via Web Crypto +
+// a cached JWKS), exactly like the auth gate in src/lib/supabase/middleware.ts.
+// getUser() instead makes a network round-trip AND, when the access token has
+// expired, tries to refresh the session by writing cookies — which a server
+// component cannot do (only middleware / route handlers can). So getUser() would
+// return null even though the middleware just refreshed the session, surfacing
+// as a spurious "Not authenticated" on render (the dev-server wedge after the
+// access token rotates). getClaims() reads the middleware-refreshed cookie and
+// verifies it locally, so the gate and the page always agree — and there's no
+// per-render network call.
+const getAuthUser = cache(async (): Promise<{ id: string; email?: string } | null> => {
   const client = await createClient();
-  const {
-    data: { user },
-  } = await client.auth.getUser();
-  return user;
+  const { data } = await client.auth.getClaims();
+  const sub = data?.claims?.sub;
+  if (!sub) return null;
+  const email = data?.claims?.email;
+  return { id: sub, email: typeof email === "string" ? email : undefined };
 });
 
 const getRole = cache(async (): Promise<string | null> => {

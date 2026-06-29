@@ -12,7 +12,9 @@
     "seed:media": "node supabase/seed-journal-photos.mjs",
     "seed:photos": "npm run seed:media",
     "db:heal": "bash scripts/db-heal-local.sh",
-    "db:reset": "supabase db reset && npm run seed:media && npm run db:heal"
+    "db:reset": "supabase db reset && npm run seed:media && npm run db:heal",
+    "baseball:capture": "tsx scripts/baseball/capture.mts",
+    "baseball:generate": "tsx scripts/baseball/generate-migration.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
@@ -59,7 +61,9 @@
     "@types/sanitize-html": "^2.16.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.0",
+    "playwright": "^1.61.1",
     "tailwindcss": "^4",
+    "tsx": "^4.22.4",
     "typescript": "^5"
   }
 }
