@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronLeft, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { SEASON_BATTING, SEASON_PITCHING, row as statRow, num, formatGameDate, type StatCol } from "@/lib/baseball/stats";
 import type { RosterStatRow, SeasonDetail } from "@/lib/baseball/types";
 import { MoreStatsSheet } from "./more-stats-sheet";
@@ -130,9 +130,19 @@ export function SeasonView({ kidSlug, detail }: { kidSlug: string; detail: Seaso
       </Link>
       <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="font-serif text-2xl tracking-tight text-foreground">{team.name}</h1>
-        <span className="text-sm text-muted-foreground">
-          {[team.seasonName, team.level].filter(Boolean).join(" · ")} · {record(games)}
-        </span>
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <span>{[team.seasonName, team.level].filter(Boolean).join(" · ")} · {record(games)}</span>
+          {team.gcPublicId && (
+            <a
+              href={`https://web.gc.com/teams/${team.gcPublicId}/x/season-stats`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 whitespace-nowrap text-xs transition-colors hover:text-foreground"
+            >
+              GameChanger <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
       </div>
 
       <div className="mt-5">

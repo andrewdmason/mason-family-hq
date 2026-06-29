@@ -62,7 +62,7 @@ export type GameRow = {
 };
 
 export type SeasonDetail = {
-  team: { id: string; name: string; seasonName: string | null; seasonYear: number | null; level: string | null };
+  team: { id: string; name: string; seasonName: string | null; seasonYear: number | null; level: string | null; gcPublicId: string | null };
   focusName: string;
   roster: RosterStatRow[];
   games: GameRow[];

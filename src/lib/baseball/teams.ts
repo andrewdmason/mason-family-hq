@@ -154,7 +154,7 @@ export async function getCareer(slug: string): Promise<Career | null> {
 export async function getSeason(teamId: string, slug: string): Promise<SeasonDetail | null> {
   const sb = await createClient();
   const [{ data: team }, person, { data: roster }, { data: games }] = await Promise.all([
-    sb.from("baseball_teams").select("id, name, season_name, season_year, level").eq("id", teamId).maybeSingle(),
+    sb.from("baseball_teams").select("id, name, season_name, season_year, level, gc_public_id").eq("id", teamId).maybeSingle(),
     resolvePerson(slug, sb),
     sb
       .from("baseball_team_players")
@@ -173,7 +173,7 @@ export async function getSeason(teamId: string, slug: string): Promise<SeasonDet
   const lines = await gameLinesByPlayer(sb, rosterRows.map((r) => r.id));
 
   return {
-    team: { id: team.id, name: team.name, seasonName: team.season_name, seasonYear: team.season_year, level: team.level },
+    team: { id: team.id, name: team.name, seasonName: team.season_name, seasonYear: team.season_year, level: team.level, gcPublicId: team.gc_public_id },
     focusName: person?.displayName ?? "",
     roster: rosterRows.map((r) => {
       const { batting, pitching } = seasonLine(lines.get(r.id) ?? []);
