@@ -1,8 +1,1695 @@
 {
   "_doc": "Cross-season player identity registry — the source of truth the migration generator consumes. people: slug -> person record. kind 'kid' people carry family_member (matched against family_members.name where role='kid') so the generated migration resolves user_id via subquery and stays portable across prod/local. aliases: gc_player_id -> slug, the team-scoped GameChanger player id mapped to a person. The importer proposes new aliases on each capture; Andrew confirms; accepted entries land here.",
   "people": {
-    "oscar": { "display_name": "Oscar Mason", "kind": "kid", "family_member": "Oscar" },
-    "sebastian": { "display_name": "Sebastian Mason", "kind": "kid", "family_member": "Sebastian" }
+    "oscar": {
+      "display_name": "Oscar Mason",
+      "kind": "kid",
+      "family_member": "Oscar"
+    },
+    "sebastian": {
+      "display_name": "Sebastian Mason",
+      "kind": "kid",
+      "family_member": "Sebastian"
+    },
+    "elliott-chan": {
+      "display_name": "Elliott Chan",
+      "kind": "teammate"
+    },
+    "santino-rivasplata-jr": {
+      "display_name": "Santino Rivasplata Jr.",
+      "kind": "teammate"
+    },
+    "clive-alanis": {
+      "display_name": "Clive Alanis",
+      "kind": "teammate"
+    },
+    "wyatt-ellington": {
+      "display_name": "Wyatt Ellington",
+      "kind": "teammate"
+    },
+    "sal-botteril": {
+      "display_name": "Sal Botteril",
+      "kind": "teammate"
+    },
+    "conner-chaffin": {
+      "display_name": "Conner Chaffin",
+      "kind": "teammate"
+    },
+    "cj-brown": {
+      "display_name": "CJ Brown",
+      "kind": "teammate"
+    },
+    "camden-blanchard": {
+      "display_name": "Camden Blanchard",
+      "kind": "teammate"
+    },
+    "carter-delacruz": {
+      "display_name": "Carter DeLaCruz",
+      "kind": "teammate"
+    },
+    "lloyd-stockey": {
+      "display_name": "Lloyd Stockey",
+      "kind": "teammate"
+    },
+    "gerardo-delgado": {
+      "display_name": "Gerardo Delgado",
+      "kind": "teammate"
+    },
+    "syrus-bowling": {
+      "display_name": "Syrus Bowling",
+      "kind": "teammate"
+    },
+    "cameron-brown": {
+      "display_name": "Cameron Brown",
+      "kind": "teammate"
+    },
+    "teddy-davis": {
+      "display_name": "Teddy Davis",
+      "kind": "teammate"
+    },
+    "theo-schraderbrown": {
+      "display_name": "Theo SchraderBrown",
+      "kind": "teammate"
+    },
+    "obf-staff": {
+      "display_name": "OBF Staff",
+      "kind": "teammate"
+    },
+    "davis-brown": {
+      "display_name": "Davis Brown",
+      "kind": "teammate"
+    },
+    "miles-lewis": {
+      "display_name": "Miles Lewis",
+      "kind": "teammate"
+    },
+    "sylvain-allen": {
+      "display_name": "Sylvain Allen",
+      "kind": "teammate"
+    },
+    "avi-shiverdecker": {
+      "display_name": "Avi Shiverdecker",
+      "kind": "teammate"
+    },
+    "brian-mouton": {
+      "display_name": "Brian Mouton",
+      "kind": "teammate"
+    },
+    "brian-mouton-2": {
+      "display_name": "Brian Mouton",
+      "kind": "teammate"
+    },
+    "kinara-herron": {
+      "display_name": "Kinara Herron",
+      "kind": "teammate"
+    },
+    "caiden-robinson": {
+      "display_name": "Caiden Robinson",
+      "kind": "teammate"
+    },
+    "c-j": {
+      "display_name": "C J",
+      "kind": "teammate"
+    },
+    "arlo-blanchard": {
+      "display_name": "Arlo Blanchard",
+      "kind": "teammate"
+    },
+    "elias-garmendia": {
+      "display_name": "Elias Garmendia",
+      "kind": "teammate"
+    },
+    "julian-yarema": {
+      "display_name": "Julian Yarema",
+      "kind": "teammate"
+    },
+    "kiran-conger": {
+      "display_name": "Kiran Conger",
+      "kind": "teammate"
+    },
+    "lorenzo-angulo": {
+      "display_name": "Lorenzo Angulo",
+      "kind": "teammate"
+    },
+    "malikiel-odonal": {
+      "display_name": "Malikiel Odonal",
+      "kind": "teammate"
+    },
+    "reed-hannay": {
+      "display_name": "Reed Hannay",
+      "kind": "teammate"
+    },
+    "thiago-siegel": {
+      "display_name": "Thiago Siegel",
+      "kind": "teammate"
+    },
+    "wiley-osgood": {
+      "display_name": "Wiley Osgood",
+      "kind": "teammate"
+    },
+    "felix-li": {
+      "display_name": "Felix Li",
+      "kind": "teammate"
+    },
+    "aaron-wang": {
+      "display_name": "Aaron Wang",
+      "kind": "teammate"
+    },
+    "alexander-thynne": {
+      "display_name": "Alexander Thynne",
+      "kind": "teammate"
+    },
+    "andres-sandoval": {
+      "display_name": "Andres Sandoval",
+      "kind": "teammate"
+    },
+    "carter-betrock": {
+      "display_name": "Carter Betrock",
+      "kind": "teammate"
+    },
+    "carter-dela-cruz": {
+      "display_name": "Carter Dela Cruz",
+      "kind": "teammate"
+    },
+    "cole-lonergan": {
+      "display_name": "Cole Lonergan",
+      "kind": "teammate"
+    },
+    "connor-sanders": {
+      "display_name": "Connor Sanders",
+      "kind": "teammate"
+    },
+    "dashiell-hougan": {
+      "display_name": "Dashiell Hougan",
+      "kind": "teammate"
+    },
+    "mito-espinosa": {
+      "display_name": "Mito Espinosa",
+      "kind": "teammate"
+    },
+    "jax-vogt": {
+      "display_name": "Jax Vogt",
+      "kind": "teammate"
+    },
+    "myton-varlack": {
+      "display_name": "Myton Varlack",
+      "kind": "teammate"
+    },
+    "ryan-copp": {
+      "display_name": "Ryan Copp",
+      "kind": "teammate"
+    },
+    "theo-schrader-brown": {
+      "display_name": "Theo Schrader-Brown",
+      "kind": "teammate"
+    },
+    "griffin-tuholski": {
+      "display_name": "Griffin Tuholski",
+      "kind": "teammate"
+    },
+    "sasha-torgun": {
+      "display_name": "Sasha Torgun",
+      "kind": "teammate"
+    },
+    "gabriel-rice-brensilver": {
+      "display_name": "Gabriel Rice-Brensilver",
+      "kind": "teammate"
+    },
+    "sage-antin": {
+      "display_name": "Sage Antin",
+      "kind": "teammate"
+    },
+    "luke-lantner": {
+      "display_name": "Luke Lantner",
+      "kind": "teammate"
+    },
+    "clay-gerdts": {
+      "display_name": "Clay Gerdts",
+      "kind": "teammate"
+    },
+    "russell-smith": {
+      "display_name": "Russell Smith",
+      "kind": "teammate"
+    },
+    "ronan-l": {
+      "display_name": "Ronan L",
+      "kind": "teammate"
+    },
+    "theo-w": {
+      "display_name": "Theo W",
+      "kind": "teammate"
+    },
+    "mads-w": {
+      "display_name": "Mads W",
+      "kind": "teammate"
+    },
+    "alexander": {
+      "display_name": "Alexander",
+      "kind": "teammate"
+    },
+    "sal-botterelli": {
+      "display_name": "Sal Botterelli",
+      "kind": "teammate"
+    },
+    "asa-b": {
+      "display_name": "Asa B",
+      "kind": "teammate"
+    },
+    "ben-l": {
+      "display_name": "Ben L",
+      "kind": "teammate"
+    },
+    "mateo-f": {
+      "display_name": "Mateo F",
+      "kind": "teammate"
+    },
+    "isaac-b": {
+      "display_name": "Isaac B",
+      "kind": "teammate"
+    },
+    "jamari-b": {
+      "display_name": "Jamari B",
+      "kind": "teammate"
+    },
+    "eyal-s": {
+      "display_name": "Eyal S",
+      "kind": "teammate"
+    },
+    "malechi-s": {
+      "display_name": "Malechi S",
+      "kind": "teammate"
+    },
+    "hunter-p": {
+      "display_name": "Hunter P",
+      "kind": "teammate"
+    },
+    "jasper-m": {
+      "display_name": "Jasper M",
+      "kind": "teammate"
+    },
+    "diego-g": {
+      "display_name": "Diego G",
+      "kind": "teammate"
+    },
+    "pierre-j": {
+      "display_name": "Pierre J",
+      "kind": "teammate"
+    },
+    "jack-r": {
+      "display_name": "Jack R",
+      "kind": "teammate"
+    },
+    "porter-m": {
+      "display_name": "Porter M",
+      "kind": "teammate"
+    },
+    "dillon-hogan": {
+      "display_name": "Dillon Hogan",
+      "kind": "teammate"
+    },
+    "gael-arreola-beesley": {
+      "display_name": "Gael Arreola Beesley",
+      "kind": "teammate"
+    },
+    "henry-corwin": {
+      "display_name": "Henry Corwin",
+      "kind": "teammate"
+    },
+    "julian-wu": {
+      "display_name": "Julian Wu",
+      "kind": "teammate"
+    },
+    "nico-costa": {
+      "display_name": "Nico Costa",
+      "kind": "teammate"
+    },
+    "rafael-simas": {
+      "display_name": "Rafael Simas",
+      "kind": "teammate"
+    },
+    "rowan-tuholski": {
+      "display_name": "Rowan Tuholski",
+      "kind": "teammate"
+    },
+    "theodore-steele": {
+      "display_name": "Theodore Steele",
+      "kind": "teammate"
+    },
+    "calvin-spohn": {
+      "display_name": "Calvin Spohn",
+      "kind": "teammate"
+    },
+    "jackson-lopez": {
+      "display_name": "Jackson Lopez",
+      "kind": "teammate"
+    },
+    "sam-robison": {
+      "display_name": "Sam Robison",
+      "kind": "teammate"
+    },
+    "mateo-needham": {
+      "display_name": "Mateo Needham",
+      "kind": "teammate"
+    },
+    "james-rodriguez": {
+      "display_name": "James Rodriguez",
+      "kind": "teammate"
+    },
+    "adrian-schummers": {
+      "display_name": "Adrian Schummers",
+      "kind": "teammate"
+    },
+    "micah-escamillo": {
+      "display_name": "Micah Escamillo",
+      "kind": "teammate"
+    },
+    "james-rodriguez-2": {
+      "display_name": "James Rodriguez",
+      "kind": "teammate"
+    },
+    "kai-hseih": {
+      "display_name": "Kai Hseih",
+      "kind": "teammate"
+    },
+    "brian-mouton-jr": {
+      "display_name": "Brian Mouton Jr",
+      "kind": "teammate"
+    },
+    "arian-singh": {
+      "display_name": "Arian Singh",
+      "kind": "teammate"
+    },
+    "emiliano-taizan": {
+      "display_name": "Emiliano Taizan",
+      "kind": "teammate"
+    },
+    "callan-driscoll": {
+      "display_name": "Callan Driscoll",
+      "kind": "teammate"
+    },
+    "zayn-coolidge": {
+      "display_name": "Zayn Coolidge",
+      "kind": "teammate"
+    },
+    "anthony-gurnari": {
+      "display_name": "Anthony Gurnari",
+      "kind": "teammate"
+    },
+    "jake-sovern-newmann": {
+      "display_name": "Jake Sovern-Newmann",
+      "kind": "teammate"
+    },
+    "mateo-diaz": {
+      "display_name": "Mateo Diaz",
+      "kind": "teammate"
+    },
+    "ernie-kline": {
+      "display_name": "Ernie Kline",
+      "kind": "teammate"
+    },
+    "malik-o-donal": {
+      "display_name": "Malik O’Donal",
+      "kind": "teammate"
+    },
+    "theodore-siebert": {
+      "display_name": "Theodore Siebert",
+      "kind": "teammate"
+    },
+    "andrew-huerta": {
+      "display_name": "Andrew Huerta",
+      "kind": "teammate"
+    },
+    "tyson-lee": {
+      "display_name": "Tyson Lee",
+      "kind": "teammate"
+    },
+    "benjamin-buehmann": {
+      "display_name": "Benjamin Buehmann",
+      "kind": "teammate"
+    },
+    "logan-means": {
+      "display_name": "Logan Means",
+      "kind": "teammate"
+    },
+    "taz-khurshid": {
+      "display_name": "Taz Khurshid",
+      "kind": "teammate"
+    },
+    "maceo-shhalt": {
+      "display_name": "Maceo Shhalt",
+      "kind": "teammate"
+    },
+    "max-carver": {
+      "display_name": "Max Carver",
+      "kind": "teammate"
+    },
+    "wesley-rampton": {
+      "display_name": "Wesley Rampton",
+      "kind": "teammate"
+    },
+    "isaac-adams": {
+      "display_name": "Isaac Adams",
+      "kind": "teammate"
+    },
+    "ryden-tomczek": {
+      "display_name": "Ryden Tomczek",
+      "kind": "teammate"
+    },
+    "gabriel-lemberger": {
+      "display_name": "Gabriel Lemberger",
+      "kind": "teammate"
+    },
+    "graeme-howells": {
+      "display_name": "Graeme Howells",
+      "kind": "teammate"
+    },
+    "james-rodriguez-3": {
+      "display_name": "James Rodriguez",
+      "kind": "teammate"
+    },
+    "jacob-sovern-newmann": {
+      "display_name": "Jacob Sovern-Newmann",
+      "kind": "teammate"
+    },
+    "lyriq-davis": {
+      "display_name": "Lyriq Davis",
+      "kind": "teammate"
+    },
+    "maxwell-howng": {
+      "display_name": "Maxwell Howng",
+      "kind": "teammate"
+    },
+    "thiago-siegal": {
+      "display_name": "Thiago Siegal",
+      "kind": "teammate"
+    },
+    "andrew": {
+      "display_name": "Andrew",
+      "kind": "teammate"
+    },
+    "griffin": {
+      "display_name": "Griffin",
+      "kind": "teammate"
+    },
+    "adam": {
+      "display_name": "Adam",
+      "kind": "teammate"
+    },
+    "maxwell": {
+      "display_name": "Maxwell",
+      "kind": "teammate"
+    },
+    "levi": {
+      "display_name": "Levi",
+      "kind": "teammate"
+    },
+    "levi-2": {
+      "display_name": "Levi",
+      "kind": "teammate"
+    },
+    "lyriq-davis-2": {
+      "display_name": "Lyriq Davis",
+      "kind": "teammate"
+    },
+    "liam-saetern": {
+      "display_name": "Liam Saetern",
+      "kind": "teammate"
+    },
+    "madison": {
+      "display_name": "Madison",
+      "kind": "teammate"
+    },
+    "clay": {
+      "display_name": "Clay",
+      "kind": "teammate"
+    },
+    "asa-wroe": {
+      "display_name": "Asa Wroe",
+      "kind": "teammate"
+    },
+    "jaxon-gregory": {
+      "display_name": "Jaxon Gregory",
+      "kind": "teammate"
+    },
+    "jonah-costain": {
+      "display_name": "Jonah Costain",
+      "kind": "teammate"
+    },
+    "leif-moe": {
+      "display_name": "Leif Moe",
+      "kind": "teammate"
+    },
+    "lewin-lafranchi": {
+      "display_name": "Lewin LaFranchi",
+      "kind": "teammate"
+    },
+    "lexington-baldridge": {
+      "display_name": "Lexington Baldridge",
+      "kind": "teammate"
+    },
+    "reid-dunlap": {
+      "display_name": "Reid Dunlap",
+      "kind": "teammate"
+    },
+    "simon-sluis": {
+      "display_name": "Simon Sluis",
+      "kind": "teammate"
+    },
+    "ezra-anderson": {
+      "display_name": "Ezra Anderson",
+      "kind": "teammate"
+    },
+    "julian-garrett": {
+      "display_name": "Julian Garrett",
+      "kind": "teammate"
+    },
+    "lyriq-davis-3": {
+      "display_name": "Lyriq Davis",
+      "kind": "teammate"
+    },
+    "phoenix-joaquin-diaz": {
+      "display_name": "Phoenix Joaquin Diaz",
+      "kind": "teammate"
+    },
+    "sacha-many": {
+      "display_name": "Sacha Many",
+      "kind": "teammate"
+    },
+    "sal-botterill": {
+      "display_name": "Sal Botterill",
+      "kind": "teammate"
+    },
+    "sam-schneider": {
+      "display_name": "Sam Schneider",
+      "kind": "teammate"
+    },
+    "sam-swearngin": {
+      "display_name": "Sam Swearngin",
+      "kind": "teammate"
+    },
+    "tino-rivasplata": {
+      "display_name": "Tino Rivasplata",
+      "kind": "teammate"
+    },
+    "do-not-use": {
+      "display_name": "DO NOT USE",
+      "kind": "teammate"
+    },
+    "driskol-miller": {
+      "display_name": "Driskol Miller",
+      "kind": "teammate"
+    },
+    "ford-kelly": {
+      "display_name": "Ford Kelly",
+      "kind": "teammate"
+    },
+    "greg-afdahl-rice": {
+      "display_name": "Greg Afdahl-Rice",
+      "kind": "teammate"
+    },
+    "janav-subramanian": {
+      "display_name": "Janav Subramanian",
+      "kind": "teammate"
+    },
+    "river-sankey": {
+      "display_name": "River Sankey",
+      "kind": "teammate"
+    },
+    "teo-metcalf": {
+      "display_name": "Teo Metcalf",
+      "kind": "teammate"
+    },
+    "not-driskol-miller": {
+      "display_name": "Not Driskol Miller",
+      "kind": "teammate"
+    },
+    "carter-nguyen-sheen": {
+      "display_name": "Carter Nguyen-Sheen",
+      "kind": "teammate"
+    },
+    "carter-nguyen-sheen-2": {
+      "display_name": "Carter Nguyen-Sheen",
+      "kind": "teammate"
+    },
+    "isaiah-brown": {
+      "display_name": "Isaiah Brown",
+      "kind": "teammate"
+    },
+    "irving-howells": {
+      "display_name": "Irving Howells",
+      "kind": "teammate"
+    },
+    "noah-casal": {
+      "display_name": "Noah Casal",
+      "kind": "teammate"
+    },
+    "teddy-henderson": {
+      "display_name": "Teddy Henderson",
+      "kind": "teammate"
+    },
+    "reed-baron": {
+      "display_name": "Reed Baron",
+      "kind": "teammate"
+    },
+    "clay-delacruz": {
+      "display_name": "Clay DelaCruz",
+      "kind": "teammate"
+    },
+    "delonzo-logan": {
+      "display_name": "DeLonzo Logan",
+      "kind": "teammate"
+    },
+    "avery-moriarty": {
+      "display_name": "Avery Moriarty",
+      "kind": "teammate"
+    },
+    "liam-geaney": {
+      "display_name": "Liam Geaney",
+      "kind": "teammate"
+    },
+    "vinny-marvilla": {
+      "display_name": "Vinny Marvilla",
+      "kind": "teammate"
+    },
+    "jason-perry": {
+      "display_name": "Jason Perry",
+      "kind": "teammate"
+    },
+    "cornelius-anderson": {
+      "display_name": "Cornelius Anderson",
+      "kind": "teammate"
+    },
+    "otto-romito": {
+      "display_name": "Otto Romito",
+      "kind": "teammate"
+    },
+    "harrison-horn": {
+      "display_name": "Harrison Horn",
+      "kind": "teammate"
+    },
+    "brayden-forth": {
+      "display_name": "Brayden Forth",
+      "kind": "teammate"
+    },
+    "andrew-huy": {
+      "display_name": "Andrew Huy",
+      "kind": "teammate"
+    },
+    "osborne-woody": {
+      "display_name": "Osborne Woody",
+      "kind": "teammate"
+    },
+    "emmet-stout": {
+      "display_name": "Emmet Stout",
+      "kind": "teammate"
+    },
+    "levi-varilla": {
+      "display_name": "Levi Varilla",
+      "kind": "teammate"
+    },
+    "ansen-li": {
+      "display_name": "Ansen Li",
+      "kind": "teammate"
+    },
+    "odin-gunn": {
+      "display_name": "Odin Gunn",
+      "kind": "teammate"
+    },
+    "benjamin-lopatto": {
+      "display_name": "Benjamin Lopatto",
+      "kind": "teammate"
+    },
+    "niko-tyler": {
+      "display_name": "Niko Tyler",
+      "kind": "teammate"
+    },
+    "nico-garrett": {
+      "display_name": "Nico Garrett",
+      "kind": "teammate"
+    },
+    "xavier-padilla": {
+      "display_name": "Xavier Padilla",
+      "kind": "teammate"
+    },
+    "raymond-bailey": {
+      "display_name": "Raymond Bailey",
+      "kind": "teammate"
+    },
+    "fio-maietta": {
+      "display_name": "Fio Maietta",
+      "kind": "teammate"
+    },
+    "matteo-petrone": {
+      "display_name": "Matteo Petrone",
+      "kind": "teammate"
+    },
+    "james-rodriguez-4": {
+      "display_name": "James Rodriguez",
+      "kind": "teammate"
+    },
+    "langston-green": {
+      "display_name": "Langston Green",
+      "kind": "teammate"
+    },
+    "meyer-schindel-rockman": {
+      "display_name": "Meyer Schindel-Rockman",
+      "kind": "teammate"
+    },
+    "shannon-vogt": {
+      "display_name": "Shannon Vogt",
+      "kind": "teammate"
+    },
+    "stephen-kropp": {
+      "display_name": "Stephen Kropp",
+      "kind": "teammate"
+    },
+    "atticus-blecker": {
+      "display_name": "Atticus Blecker",
+      "kind": "teammate"
+    },
+    "sam-goldberg": {
+      "display_name": "Sam Goldberg",
+      "kind": "teammate"
+    },
+    "jacob-silva": {
+      "display_name": "Jacob Silva",
+      "kind": "teammate"
+    },
+    "sam-michael": {
+      "display_name": "Sam Michael",
+      "kind": "teammate"
+    },
+    "reed-hanney": {
+      "display_name": "Reed Hanney",
+      "kind": "teammate"
+    },
+    "andre-lee": {
+      "display_name": "Andre Lee",
+      "kind": "teammate"
+    },
+    "ethan-lee": {
+      "display_name": "Ethan Lee",
+      "kind": "teammate"
+    },
+    "juan-roberto-taizan-iii": {
+      "display_name": "Juan Roberto Taizan III",
+      "kind": "teammate"
+    },
+    "jonah-silver": {
+      "display_name": "Jonah Silver",
+      "kind": "teammate"
+    },
+    "mars-floresca-ogle": {
+      "display_name": "Mars Floresca-Ogle",
+      "kind": "teammate"
+    },
+    "hudson-hirota": {
+      "display_name": "Hudson Hirota",
+      "kind": "teammate"
+    },
+    "william": {
+      "display_name": "William",
+      "kind": "teammate"
+    },
+    "connor": {
+      "display_name": "Connor",
+      "kind": "teammate"
+    },
+    "joseph": {
+      "display_name": "Joseph",
+      "kind": "teammate"
+    },
+    "jake": {
+      "display_name": "Jake",
+      "kind": "teammate"
+    },
+    "grey": {
+      "display_name": "Grey",
+      "kind": "teammate"
+    },
+    "koko": {
+      "display_name": "Koko",
+      "kind": "teammate"
+    },
+    "horace": {
+      "display_name": "Horace",
+      "kind": "teammate"
+    },
+    "remy": {
+      "display_name": "Remy",
+      "kind": "teammate"
+    },
+    "kevan": {
+      "display_name": "Kevan",
+      "kind": "teammate"
+    },
+    "shaler": {
+      "display_name": "Shaler",
+      "kind": "teammate"
+    },
+    "jonah": {
+      "display_name": "Jonah",
+      "kind": "teammate"
+    },
+    "remy-2": {
+      "display_name": "Remy",
+      "kind": "teammate"
+    },
+    "dulan": {
+      "display_name": "Dulan",
+      "kind": "teammate"
+    },
+    "austin-yelton": {
+      "display_name": "Austin Yelton",
+      "kind": "teammate"
+    },
+    "ezra-becklund": {
+      "display_name": "Ezra Becklund",
+      "kind": "teammate"
+    },
+    "max-franzen": {
+      "display_name": "Max Franzen",
+      "kind": "teammate"
+    },
+    "miles-barr": {
+      "display_name": "Miles Barr",
+      "kind": "teammate"
+    },
+    "owen-fitzgerald": {
+      "display_name": "Owen FitzGerald",
+      "kind": "teammate"
+    },
+    "simon-jarmon-hom": {
+      "display_name": "Simon Jarmon Hom",
+      "kind": "teammate"
+    },
+    "thomas-little-cloud": {
+      "display_name": "Thomas Little Cloud",
+      "kind": "teammate"
+    },
+    "zain-carr": {
+      "display_name": "Zain Carr",
+      "kind": "teammate"
+    },
+    "brian-mouton-3": {
+      "display_name": "Brian Mouton",
+      "kind": "teammate"
+    },
+    "james-rodriguez-5": {
+      "display_name": "James Rodriguez",
+      "kind": "teammate"
+    },
+    "james-metcalfe": {
+      "display_name": "James Metcalfe",
+      "kind": "teammate"
+    },
+    "james-wiley-osgood": {
+      "display_name": "James Wiley Osgood",
+      "kind": "teammate"
+    },
+    "kai-hashitaka": {
+      "display_name": "Kai Hashitaka",
+      "kind": "teammate"
+    },
+    "max-lopez": {
+      "display_name": "Max Lopez",
+      "kind": "teammate"
+    },
+    "theo-siebert": {
+      "display_name": "Theo Siebert",
+      "kind": "teammate"
+    },
+    "malcolm-peoples": {
+      "display_name": "Malcolm Peoples",
+      "kind": "teammate"
+    },
+    "parker": {
+      "display_name": "Parker",
+      "kind": "teammate"
+    },
+    "wylie": {
+      "display_name": "Wylie",
+      "kind": "teammate"
+    },
+    "carter-nguyen-sheen-3": {
+      "display_name": "Carter Nguyen Sheen",
+      "kind": "teammate"
+    },
+    "beckett-van-der-schalie": {
+      "display_name": "Beckett van der Schalie",
+      "kind": "teammate"
+    },
+    "danilo-pavkovic": {
+      "display_name": "Danilo Pavkovic",
+      "kind": "teammate"
+    },
+    "henry-rose": {
+      "display_name": "Henry Rose",
+      "kind": "teammate"
+    },
+    "kameron-amen-averhoff": {
+      "display_name": "Kameron Amen Averhoff",
+      "kind": "teammate"
+    },
+    "nico-root": {
+      "display_name": "Nico Root",
+      "kind": "teammate"
+    },
+    "sammy-schneider": {
+      "display_name": "Sammy Schneider",
+      "kind": "teammate"
+    },
+    "sebastian-perez": {
+      "display_name": "Sebastian Perez",
+      "kind": "teammate"
+    },
+    "caesar-ford": {
+      "display_name": "Caesar Ford",
+      "kind": "teammate"
+    },
+    "levi-3": {
+      "display_name": "Levi",
+      "kind": "teammate"
+    },
+    "james-rodriguez-6": {
+      "display_name": "James Rodriguez",
+      "kind": "teammate"
+    },
+    "lyriq-davis-4": {
+      "display_name": "Lyriq Davis",
+      "kind": "teammate"
+    },
+    "huerta": {
+      "display_name": "Huerta",
+      "kind": "teammate"
+    },
+    "angela-huy": {
+      "display_name": "Angela Huy",
+      "kind": "teammate"
+    },
+    "elliot-goldman": {
+      "display_name": "Elliot Goldman",
+      "kind": "teammate"
+    },
+    "colton": {
+      "display_name": "Colton",
+      "kind": "teammate"
+    },
+    "conner-sanders": {
+      "display_name": "Conner Sanders",
+      "kind": "teammate"
+    },
+    "louis-bedard": {
+      "display_name": "Louis Bedard",
+      "kind": "teammate"
+    },
+    "miles-aguiar": {
+      "display_name": "Miles Aguiar",
+      "kind": "teammate"
+    },
+    "marc-hauser": {
+      "display_name": "Marc Hauser",
+      "kind": "teammate"
+    },
+    "evan-baron": {
+      "display_name": "Evan Baron",
+      "kind": "teammate"
+    },
+    "robi-mcray": {
+      "display_name": "Robi McRay",
+      "kind": "teammate"
+    },
+    "zac-bermingham": {
+      "display_name": "Zac Bermingham",
+      "kind": "teammate"
+    },
+    "zach-masquelier": {
+      "display_name": "Zach Masquelier",
+      "kind": "teammate"
+    },
+    "zz-teddy-guest": {
+      "display_name": "ZZ Teddy Guest",
+      "kind": "teammate"
+    },
+    "zz-mac-guest": {
+      "display_name": "ZZ Mac Guest",
+      "kind": "teammate"
+    },
+    "zz-quinton-guest": {
+      "display_name": "ZZ Quinton Guest",
+      "kind": "teammate"
+    },
+    "zz-charlie-guest": {
+      "display_name": "ZZ Charlie Guest",
+      "kind": "teammate"
+    },
+    "guest-vince-vince": {
+      "display_name": "Guest Vince Vince",
+      "kind": "teammate"
+    },
+    "guest-quinton-guest-quinton": {
+      "display_name": "Guest Quinton Guest Quinton",
+      "kind": "teammate"
+    },
+    "guest-armani-armani": {
+      "display_name": "Guest Armani Armani",
+      "kind": "teammate"
+    },
+    "collin-purcell": {
+      "display_name": "Collin Purcell",
+      "kind": "teammate"
+    },
+    "gianfranco-velazquez": {
+      "display_name": "Gianfranco Velazquez",
+      "kind": "teammate"
+    },
+    "jack-caygill": {
+      "display_name": "Jack Caygill",
+      "kind": "teammate"
+    },
+    "lukas-garnett": {
+      "display_name": "Lukas Garnett",
+      "kind": "teammate"
+    }
   },
-  "aliases": {}
+  "aliases": {
+    "194f36fc-f1f3-4647-8d6f-895b15604654": "sebastian",
+    "9696e309-dd5d-4b72-9403-49ba314cfedf": "elliott-chan",
+    "e989a231-a2fb-46a8-b02c-23f8e3c64d15": "santino-rivasplata-jr",
+    "20894d3c-c792-46cf-8e4f-b6e6ec49ba0a": "clive-alanis",
+    "9cd38e9e-cd24-4419-a883-bfb96b44fe7d": "wyatt-ellington",
+    "5a410602-7b03-4f14-89cd-72f267a04dbc": "sal-botteril",
+    "ebfbc33a-13f4-44cd-8e74-5dfa4a8dc123": "conner-chaffin",
+    "dcde4739-c84d-4051-bdc6-ad34a1b8e955": "cj-brown",
+    "856d9137-7701-446d-8f32-d1a702b814a8": "camden-blanchard",
+    "0285f342-0ada-41e3-8970-9223c45ce43d": "carter-delacruz",
+    "6271d2c0-44fb-4053-b287-d1caa2313bdd": "lloyd-stockey",
+    "d583de2e-724e-4143-a56c-d4795245b378": "gerardo-delgado",
+    "e22a7e2f-bf94-4728-b92b-b2c16ccdc59b": "syrus-bowling",
+    "abaf76c9-5b39-4d88-ba22-4cd5486ba833": "cameron-brown",
+    "e118d672-b58c-43b7-a194-e7fa3e76084e": "teddy-davis",
+    "d2fd4624-3b3f-435f-9f6e-26e4659c89c6": "theo-schraderbrown",
+    "886814d2-3304-48f4-801e-835e863369c1": "obf-staff",
+    "6498f8ed-a273-47a0-98d3-0152cabfe11f": "davis-brown",
+    "78b7f11c-4640-46d6-b2d2-4a84f37cf854": "miles-lewis",
+    "cbfe732f-9b4b-412f-baaa-75ebda41d637": "sylvain-allen",
+    "9dee24ea-cb7a-4a39-a5e8-fe12d871b2ca": "avi-shiverdecker",
+    "a9e0a035-3fd9-4e42-a0cb-9f1b49ec8a43": "brian-mouton",
+    "e93eacca-c7cf-4096-beed-32ca74e0495d": "brian-mouton-2",
+    "5456c86b-42fe-46b7-9332-4b9a6a5e9788": "kinara-herron",
+    "9723b984-f620-4249-b402-bc77f9b76173": "caiden-robinson",
+    "5ffae052-05dd-4683-9de8-2d21e275da94": "c-j",
+    "97c3ef6e-9481-4efa-88b9-8e7bdc8aff8c": "caiden-robinson",
+    "2b871d27-0a07-41d8-bd5c-d37aab94cab9": "cameron-brown",
+    "151b038c-bd91-472d-a986-883f8ec78810": "clive-alanis",
+    "30a23a5b-9880-4e4e-9e58-2160b8b4012a": "arlo-blanchard",
+    "ed71929f-a8e5-4918-a53a-1df5c97831c8": "elias-garmendia",
+    "2e85a6e2-7dc5-4ba9-a4d0-f9f3d99ef1bf": "julian-yarema",
+    "bdbbaedc-2cc4-4fde-95de-089b8c09f9a2": "kiran-conger",
+    "3be14083-ecf1-441e-b153-450bcca96e80": "lorenzo-angulo",
+    "2fb8104e-522c-442e-87b7-2ace48bc3e0b": "malikiel-odonal",
+    "b91f2ae4-6280-49e9-bd31-59118adb3eca": "reed-hannay",
+    "c4527b8a-c475-460b-a187-b02824a0e794": "thiago-siegel",
+    "50c5e989-e4ed-40e2-b810-f259ca34945c": "wiley-osgood",
+    "664702bd-bad5-4b1e-89fb-277300a983e5": "davis-brown",
+    "ef51400b-e092-440d-bec9-bfeafb8b28e0": "reed-hannay",
+    "cb666a71-04c0-4c19-83eb-8b90b1e13ac5": "sebastian",
+    "1822f3ee-c664-4b38-ade1-30ac3774cb8c": "elias-garmendia",
+    "52abd257-f432-4a22-8cd2-de5b3e09ca1a": "felix-li",
+    "89731f4a-2f84-435a-b8af-0ccce8948923": "aaron-wang",
+    "2a547ada-25c5-48f0-a436-ffc2c903fa15": "alexander-thynne",
+    "480c8fc1-025f-4280-8b75-b1151d775a70": "andres-sandoval",
+    "2e9583d5-42ae-4ae1-94c3-862ef5d33e31": "carter-betrock",
+    "3851974a-702f-4571-ba58-2affff5fbfd2": "carter-dela-cruz",
+    "f6061703-6ff3-4741-8bc4-0968766d8756": "cole-lonergan",
+    "bfd216e5-267b-4c5d-8585-67d99bafc1c5": "connor-sanders",
+    "2d0544df-6218-4db0-9bc1-03154cb2855f": "dashiell-hougan",
+    "8d64d3fb-d6d2-4ec7-a05d-9e88668ef478": "mito-espinosa",
+    "ee96f0ef-ecbf-47a1-977c-a887ea6cc9f3": "jax-vogt",
+    "d972d8de-8135-4b2d-9482-878226884efc": "myton-varlack",
+    "94bc7f11-e916-44b2-bf57-6787834d11e2": "ryan-copp",
+    "89cdd7cb-e525-47b9-a612-e866d26c33dc": "theo-schrader-brown",
+    "0e7f0afe-9aa0-4639-b7fc-b6182989c4e0": "griffin-tuholski",
+    "c90e23cc-4326-4808-abc0-fd8f17839d09": "syrus-bowling",
+    "f6c2f03f-f5f4-4802-8a9d-ff158b410e73": "davis-brown",
+    "fb2fb1b0-8849-4a12-8c90-8f3ff451d7f6": "sebastian",
+    "38a8af79-6ce2-4309-bb56-eedde67f797f": "avi-shiverdecker",
+    "66c7df93-cba9-400b-9c9e-49a644f9be66": "andres-sandoval",
+    "96916fcb-9366-43d7-9373-d02d0dbe0728": "sasha-torgun",
+    "cabd35ef-4c30-4a56-abca-8b734a9da0b4": "gabriel-rice-brensilver",
+    "d6619a06-ceaa-40c6-bf2b-add1644829df": "sage-antin",
+    "2f442cd1-1f75-465d-84b7-b8c363ccfd1a": "luke-lantner",
+    "672ba415-ea62-4db9-b37d-13e5d258f2c6": "clay-gerdts",
+    "c7b1f03f-4dc0-4170-af4c-b6383d052298": "russell-smith",
+    "37fe2476-0036-4e62-a1cc-7dcef35ed46b": "ronan-l",
+    "1d14c81e-5130-411d-9745-c18a927ee52a": "theo-w",
+    "38ff0b2c-2060-4048-9130-cc8f95bb125d": "mads-w",
+    "8bae407d-8104-4daa-9343-03c7a18104fd": "alexander",
+    "56d2fbc7-65b5-432d-b4d5-9f663d8a87a6": "sal-botterelli",
+    "7f043cf3-703e-4ee0-a85b-4594425587d0": "oscar",
+    "1695e38e-8a27-4173-8692-0eb9fb5a94b2": "asa-b",
+    "be3f44cf-69d9-46e9-be13-dd9774049bf7": "ben-l",
+    "0c9f133e-3718-4cbb-a493-8eac25b0ce8e": "mateo-f",
+    "c250eb42-f477-4d63-afb5-f47a9ebd89f5": "isaac-b",
+    "a6102039-9eb3-4ce2-a75e-401b166f7d5e": "jamari-b",
+    "104d5d14-004e-4d1a-960d-6e9dced19430": "eyal-s",
+    "72dbddbb-0f82-4b4a-981f-632c3f58f1b0": "malechi-s",
+    "d9703fb7-8373-4b55-81b4-7a1f56454169": "hunter-p",
+    "c461bd30-67f1-4c2d-8f50-0087d60d8ad6": "jasper-m",
+    "ae218795-1042-44d9-885d-bb7c0c18ffb4": "diego-g",
+    "22da61d9-03b2-4ab3-a941-7ed40c7cb470": "pierre-j",
+    "de39c7cf-e976-4890-935c-8d7deb87884c": "jack-r",
+    "94cbaa6b-e1d3-4e4c-b3e1-87c8445c06cb": "porter-m",
+    "4b11b6ef-88a2-47f0-90e6-f7f6efe5b1f6": "avi-shiverdecker",
+    "4acb7e07-8ddc-408f-9bf5-ceb04d586c16": "clay-gerdts",
+    "741ddb11-6143-42ca-99c5-b3e458a24482": "davis-brown",
+    "ae1feeb6-39a8-4436-8b30-8cec34d70737": "gabriel-rice-brensilver",
+    "8905027a-7151-435d-981c-09ebda4a8903": "sasha-torgun",
+    "96f874a2-2a80-4617-95c6-82ed1bf9d288": "sebastian",
+    "14e23379-7026-457c-b142-38a727b18961": "ronan-l",
+    "2d26b8f1-4fa7-406c-aa4a-9c77fdbf9785": "dillon-hogan",
+    "5a1a92ad-389a-4a50-a9d7-6439564dfda9": "gael-arreola-beesley",
+    "7f94950c-eee6-4f0b-b76b-2a51e2302717": "henry-corwin",
+    "7b009d87-111f-40f0-bfc8-d08c5ce1f966": "julian-wu",
+    "9b49be02-2f5d-411e-84e8-65b3df9ba791": "nico-costa",
+    "f14dd2b4-59cd-4bf7-9e81-b2a057c5db7a": "rafael-simas",
+    "4144a996-1c20-40d4-b36d-b9d1d3252e90": "rowan-tuholski",
+    "ddfff08c-8b82-407f-8bbc-3721befb5668": "theodore-steele",
+    "7b0935ad-12d0-4c92-80e9-e421e8da2a12": "felix-li",
+    "b4b0212e-702d-4074-84a8-bee54d71a866": "cole-lonergan",
+    "c01de151-4c67-48c6-a1f9-b8c8db952edb": "carter-dela-cruz",
+    "a511ed7d-3028-42b0-b1a0-2a77d04d31f3": "davis-brown",
+    "a1688813-94ac-4211-947c-50a191637256": "reed-hannay",
+    "b6bc1a27-648f-4bc8-aac1-c794b8d6152d": "theo-schrader-brown",
+    "3eb1207f-f3d6-46e8-9dd3-ef0d62c65289": "connor-sanders",
+    "5565f7c2-c718-4e6f-8dd2-cde1031dca6d": "dashiell-hougan",
+    "567a38f5-0b2d-46e3-9c31-adc76da2dfdf": "jax-vogt",
+    "e375bc07-0dc0-4fca-83cb-5f0efec386bd": "sebastian",
+    "d767f75c-6460-4a8d-ab21-0322ca4df032": "calvin-spohn",
+    "2d5e5bbf-a2b0-494b-8720-a8ec88099954": "jackson-lopez",
+    "b2b7ceeb-ac43-4493-a118-a09726b24d51": "sam-robison",
+    "d0b4ebcf-f53a-4418-be0e-70df4b7848cb": "mateo-needham",
+    "155f3026-35c9-4a7e-b2b0-afb713b2be5e": "james-rodriguez",
+    "060c36e4-2123-4986-be00-e52319b0bb85": "adrian-schummers",
+    "676734b6-e4d6-4c2a-b8e9-5dae2729ecfe": "micah-escamillo",
+    "2e74ae78-5bd2-45e2-94a2-b9cf7180cfee": "james-rodriguez-2",
+    "89cde77b-a029-4772-b013-d402622d9209": "andres-sandoval",
+    "69dffdd6-f2dc-4372-9991-ecc4a2495080": "julian-yarema",
+    "672d0822-3f56-4ffc-9dc8-29887e94d75a": "calvin-spohn",
+    "d9045c5f-16c0-4d7e-b3d0-54b3a3eec440": "reed-hannay",
+    "84c75134-4b97-4f5d-9457-44a8c18e508f": "lorenzo-angulo",
+    "15ae0353-5099-4659-8fe7-ca7de35bac13": "sebastian",
+    "bec0a176-c650-40d9-ae14-6d575dbc2cf1": "thiago-siegel",
+    "88bd8cc5-1c95-4cd4-99cb-9267053706bc": "theo-schrader-brown",
+    "b20e5768-ef1b-4de0-bbe0-8fc75582fe51": "wyatt-ellington",
+    "96cdbbe7-ceef-440f-a86b-ad7b35fa0f9b": "elliott-chan",
+    "0fdedcf3-86d8-4359-ad06-9359dad02d2e": "elias-garmendia",
+    "eec47c02-8199-4ec8-a290-bff11c26e131": "jax-vogt",
+    "0f93f105-e5b6-4d88-ac58-269fbbc12da2": "camden-blanchard",
+    "c81d5d70-5ea9-48a1-bcdb-8696ef8d2cb7": "andres-sandoval",
+    "b0ad719a-78ca-4ccc-a5a9-43985764eb08": "cameron-brown",
+    "a708a14d-701b-4e58-a082-b9daedb99400": "kai-hseih",
+    "e4562794-57b2-4a92-9cc3-229ede6b1053": "brian-mouton-jr",
+    "95187726-0e45-4464-a928-b610f12ecbbb": "arian-singh",
+    "bf880a96-29ff-4abb-a144-b472a5f362be": "emiliano-taizan",
+    "809afddb-e8a9-4a59-ab57-55fb637b4dd2": "callan-driscoll",
+    "96d06826-9a58-4a40-b264-ef9396bc5806": "zayn-coolidge",
+    "5135747a-9941-4e11-ad14-f08f2749fc83": "anthony-gurnari",
+    "64781f11-6461-4214-abe3-7f84acecb470": "jake-sovern-newmann",
+    "5d4e351a-d4a6-4db7-9c4f-d35770b5a882": "mateo-diaz",
+    "7fc27d50-5578-4dce-a392-3ef7c59dbfdf": "ernie-kline",
+    "49660653-6e6f-4f56-b232-3d2194cf47c7": "malik-o-donal",
+    "e691e69b-ede5-4987-b946-6d8e81126257": "theodore-siebert",
+    "b9925a07-fe19-4ea7-a365-36914c40940f": "andrew-huerta",
+    "f0919f81-5dcc-42e7-8599-bd5f842b756a": "tyson-lee",
+    "e62ddce9-0d3b-4ec1-98e1-fa534d98707c": "benjamin-buehmann",
+    "9e580182-604b-46c4-8497-81daf213b4bb": "logan-means",
+    "40ffb82e-ae6f-45ad-8b77-35302d2b3ba6": "taz-khurshid",
+    "1007a7eb-a6f3-4c2d-a71f-7621b826aef3": "maceo-shhalt",
+    "04667fbe-8934-41fb-b2d6-8cbd6362b318": "max-carver",
+    "3e0a15d7-33da-4b02-bed7-e34401081057": "wesley-rampton",
+    "e544f16d-e105-4d39-b7a5-e842f01c7b6a": "isaac-adams",
+    "18f0729e-b158-4971-a4ac-bc025975ad02": "ryden-tomczek",
+    "63554e96-c1d8-4baa-bb8a-624628242443": "gabriel-lemberger",
+    "34a5de37-ce89-4eee-b63d-294a41794c2b": "reed-hannay",
+    "b70e084a-2514-434d-a274-2b914032a570": "elias-garmendia",
+    "9edd7725-c159-4ba5-a707-79299ee459c8": "mateo-diaz",
+    "02f290fd-1d5e-4153-8a1d-5b447584a1d8": "andres-sandoval",
+    "bb9eccd2-d29f-4205-973b-791eaf52a5f7": "brian-mouton-jr",
+    "90675c98-c456-43c3-b4be-46be595f65b5": "cj-brown",
+    "8d855830-8fe6-40b1-a900-363c38c0b594": "theodore-siebert",
+    "4484c080-e5c4-439f-a778-5980ef859e00": "emiliano-taizan",
+    "7d98527d-285d-4673-ab6b-46fa48570900": "connor-sanders",
+    "899443bb-c3f6-4ade-a838-eeace650bd6c": "sebastian",
+    "2db62681-0a65-43c8-852b-8d6dbeada5d4": "tyson-lee",
+    "1474803b-f1c3-46bf-8e2c-2a3adb2fddec": "wyatt-ellington",
+    "1b47959f-ec69-4c9a-a47e-5d51daf5faba": "lorenzo-angulo",
+    "f4b889a6-2362-4ca6-9e9e-0079ff5f618c": "theo-schrader-brown",
+    "47af7c29-b4a7-4254-9cb1-010574defdfa": "griffin-tuholski",
+    "7b900cc0-d46b-4c0f-9f85-a192dd4ece38": "carter-dela-cruz",
+    "7bf36a8c-fa1d-41d5-ab2b-c4aaff553cd8": "davis-brown",
+    "a7e9d258-514b-44c2-ad82-6a5c77efadde": "cameron-brown",
+    "ad29fa11-7061-4943-a96b-9d73535965ce": "sage-antin",
+    "4c868b74-a314-4b7b-92f2-12b240911a5b": "jax-vogt",
+    "ed28bd50-eea3-4119-abdb-acde733d8bf3": "mateo-needham",
+    "a8266580-9167-46a0-bc1e-3d68bf89e33c": "camden-blanchard",
+    "035f1ee3-1ef1-4a96-8321-00a66453e385": "ernie-kline",
+    "e76fba00-fe30-4b3d-bcce-d7267c996a4e": "syrus-bowling",
+    "514e10d6-822d-4920-ab4d-3fbd43fc6d86": "kiran-conger",
+    "79fbc2d8-e50e-4fda-8a96-38e7901aa37b": "avi-shiverdecker",
+    "59957553-b29d-4141-ad50-fde5576ebcd7": "julian-yarema",
+    "0cdff7dc-3bbf-46ad-bc8b-5f488a907d0b": "anthony-gurnari",
+    "9b64a1cf-8862-43cd-aa0a-dd26103a42c4": "graeme-howells",
+    "bc033256-68ca-460b-95f3-d7dbb231dbb0": "james-rodriguez-3",
+    "879adfd3-4246-47bc-81d1-dd12f9646eae": "jacob-sovern-newmann",
+    "454b8387-fcf0-4e55-85ba-b7ad42959669": "lyriq-davis",
+    "b898a409-6cc1-42c7-a560-23a7e53789c6": "maxwell-howng",
+    "d3d59cfc-2581-45ee-a866-ec4293f3a0f5": "thiago-siegal",
+    "5bf70d63-3afa-4b1d-87ee-2910108de3a4": "andrew",
+    "2ae33744-9edd-49c1-b3b6-fcbe60ff47a7": "griffin",
+    "60c14a88-df62-430d-b2cf-223d99399fcc": "adam",
+    "249e9bda-b055-426b-9179-52b8e0f8352b": "maxwell",
+    "e3ad51ef-edd6-4de8-91b2-f30945663b7c": "levi",
+    "17809e57-46c7-47bc-bddc-4cf4f44e79df": "levi-2",
+    "9d23ddcf-f8e2-414f-99ed-8733dd8c867b": "lyriq-davis-2",
+    "9116f495-3ff0-4ffa-b37a-bc601439b994": "sage-antin",
+    "b4f545c8-c509-4f0f-8705-87e3b52e4063": "russell-smith",
+    "6fc45589-e225-44a4-a8f3-61e98189abd0": "sasha-torgun",
+    "1b98e316-b55d-473c-bd0b-e6ae6ae80509": "syrus-bowling",
+    "a2dae8ef-1e34-4ffd-a1e1-2a6bdc1088bf": "sebastian",
+    "d479788c-8ec4-40b1-980a-88264fc365e9": "miles-lewis",
+    "877d561b-e4c2-4597-9cf2-6dbb10b967b3": "avi-shiverdecker",
+    "8f2c5645-6f7d-4871-8a16-6e4df36f06f9": "davis-brown",
+    "6b3c13a2-43af-4724-9ef0-dfde715d74b6": "theo-w",
+    "f3c1da34-2151-4be9-8e91-02407cd96414": "luke-lantner",
+    "0d40de0c-30b9-403f-be79-dcb8229e8366": "gabriel-rice-brensilver",
+    "11f56473-9400-43f2-9564-076c2c1b6146": "andres-sandoval",
+    "3c541a85-37a4-4727-bcd9-cd9796b03db5": "liam-saetern",
+    "40c28337-2982-46f1-bd75-7d11d0ce0e2d": "madison",
+    "2a798ef3-655e-4d96-b8e9-4207734d43c8": "clay",
+    "0c346e91-1323-4058-bf6e-7d393a301d05": "theodore-siebert",
+    "eefe3fcc-6bba-412c-85e3-49d5b3d3b69a": "cj-brown",
+    "02fb181f-2401-4164-a31e-c0cd847ff694": "ernie-kline",
+    "4a55bdf9-19a3-49d7-97e1-1db50ff50fe7": "jax-vogt",
+    "eca21231-ddc6-42e0-b883-38528c91f8e3": "griffin-tuholski",
+    "a4d14a0f-14cc-45cd-9e16-3b3fef7e6294": "emiliano-taizan",
+    "5e6113d3-0788-4257-9cf7-01f5c2df9505": "sage-antin",
+    "ada8e4e2-7d6f-4e3d-a7ab-5f2cd6f853f9": "sebastian",
+    "e0ea22e0-b49a-4909-a756-557bc7389908": "lorenzo-angulo",
+    "3bdd356a-0209-43c1-a43c-b5936c8ee156": "wyatt-ellington",
+    "587e6960-2206-4345-aeab-1add5ac2ad50": "theo-schrader-brown",
+    "eed77f7f-8635-4f65-9d27-03a81699b81c": "cameron-brown",
+    "4bf81ca9-8f81-4535-9adf-ea3368136daa": "camden-blanchard",
+    "00f7b0f6-1883-45df-a7b0-2ac2ed39800d": "jacob-sovern-newmann",
+    "19fd05e6-4388-4d34-866a-adf16dbc5261": "davis-brown",
+    "67130031-6d6e-4396-8085-764e00743af7": "brian-mouton-jr",
+    "7a620df5-4eba-4918-817c-3c0d3057fbf7": "andres-sandoval",
+    "8ed7377c-0b14-435e-affc-dc79f81db55e": "mateo-diaz",
+    "e09cb8d9-d50b-41c8-bb51-c0b6c584e084": "connor-sanders",
+    "c4d380df-1f00-4a6b-bba6-3f279d3bcede": "elias-garmendia",
+    "288b1ca6-0691-476f-9371-ac5fac5836f4": "reed-hannay",
+    "287b1363-0e21-4334-82be-189ba8cdf1b9": "syrus-bowling",
+    "484d61cf-18eb-46f1-ad3e-febd0f8e6653": "asa-b",
+    "22a69e50-297a-4823-87af-5eb23795d421": "ben-l",
+    "e933769e-0829-4c30-8926-3c48272b2292": "hunter-p",
+    "50e33726-b80d-4cb3-a102-86c6d1ae05bc": "oscar",
+    "be49e118-826a-41e9-9f83-e3116484b332": "asa-wroe",
+    "6810e53b-3084-427c-88e9-0cd6d93f6de7": "jaxon-gregory",
+    "31f6e9b0-7fe2-4961-86a4-07a6841d699b": "jonah-costain",
+    "52f1728c-9827-4ba9-b081-d5b1b48afc9a": "leif-moe",
+    "0d7ee25d-866a-45a8-8994-927c52d8f786": "lewin-lafranchi",
+    "a2f23540-4a28-41b3-b845-8c2f72b6b4c3": "lexington-baldridge",
+    "86cc1b5d-0842-4973-b00d-9609ddfc371b": "reid-dunlap",
+    "780fedd4-b8a6-4ea5-88b2-e67fbcd83503": "simon-sluis",
+    "695a3131-f29e-4998-a882-975421a81224": "caiden-robinson",
+    "ed8d9638-b8d2-466b-833c-5126113f2c7a": "cameron-brown",
+    "44d03352-4671-4784-8f7f-f83386f55769": "clive-alanis",
+    "665cd810-1eec-4b30-a3af-8401e0fc5721": "wiley-osgood",
+    "f92a1597-29b2-4251-867f-6835b51177d3": "ezra-anderson",
+    "0b66f210-d3a7-40d0-aaf5-d095c1483840": "julian-garrett",
+    "a3fd22fc-fd5e-4d75-9804-a95f236e8f0a": "lyriq-davis-3",
+    "e68ee647-718e-4edf-b095-84c48f991a85": "phoenix-joaquin-diaz",
+    "02f2341e-e885-4e7c-b250-d93fca9a020c": "sacha-many",
+    "88178917-34cc-42a9-87cf-ac1f5ebf955c": "sal-botterill",
+    "dfec4208-e164-4845-a4f1-66a1dea2ddbd": "sam-schneider",
+    "718ff268-d6e8-4993-b604-b40ee42f5689": "sam-swearngin",
+    "b2c4528c-24d4-42d4-96ee-29ea9c1e6e0e": "tino-rivasplata",
+    "cf8a8012-6678-4ed3-b2b0-fbb53ef0a819": "do-not-use",
+    "693015c4-5b40-4c25-9526-00bbecc9d487": "sebastian",
+    "a9bd0625-193e-4e54-b135-e04248877e27": "jake-sovern-newmann",
+    "423f88c6-9d24-473a-a6dc-f5a02943532d": "avi-shiverdecker",
+    "68f2f9db-ef0d-412c-b302-58ca9c5792bc": "julian-wu",
+    "0331d4b7-ec5e-49b5-93fc-521fb683c5f9": "micah-escamillo",
+    "c21d4d54-b6cf-4691-b6c7-ea9418815df8": "sam-swearngin",
+    "a665533e-affc-4033-94c3-10480c2009d8": "nico-costa",
+    "cfc40d2a-e98f-40ad-99a9-3e39ed7b8f40": "nico-costa",
+    "f37c08e5-6250-4ea1-85e6-546c4b955a3e": "thiago-siegel",
+    "00c47b78-542a-4d0c-a011-bd36a87d6f73": "nico-costa",
+    "9486033f-e142-4673-926b-0eee76214475": "andres-sandoval",
+    "7f3cdfa4-d6b5-44ba-92ea-ec4ed4179abc": "driskol-miller",
+    "d44a8349-c711-4e8a-879a-cd2acebc5a85": "ford-kelly",
+    "c98e1971-a281-4e90-91e1-48e349eb49e8": "greg-afdahl-rice",
+    "e4b38b48-14b6-4aa6-a51d-3e88d268be64": "janav-subramanian",
+    "0c71e51a-e0bb-4628-a127-139b505dfb58": "river-sankey",
+    "678a1a0b-8a0e-4e09-99e0-c66a0bf58def": "teo-metcalf",
+    "9ce94338-cf99-4dd3-8485-0406f454ef1e": "not-driskol-miller",
+    "f46ec480-bc54-4ff9-960f-90f1920501b5": "carter-nguyen-sheen",
+    "3f6dde90-e1da-4f42-adfe-56d01ce27a37": "carter-nguyen-sheen-2",
+    "297d6a0b-b24b-42c1-b066-b51192ef8a46": "mateo-f",
+    "fe9837f7-a66a-4b9a-91aa-f3ad4ed43ee2": "ben-l",
+    "80dd9fcb-1a7f-4e21-b922-423a8de5b8ae": "oscar",
+    "79fef866-d782-47fb-8572-e2e9738cf731": "lewin-lafranchi",
+    "c0cf9744-d567-4110-a3ef-3a0058674da4": "isaiah-brown",
+    "2e791735-4f18-4dfc-a99a-7f052c6c826b": "irving-howells",
+    "3868e801-ffa0-4dfd-a71b-58b8f7dccb45": "noah-casal",
+    "800c0ba2-c5cd-4159-8e42-d7c14860a075": "teddy-henderson",
+    "cc7e0c76-0b48-4e53-b1f4-437765b44a5e": "reed-baron",
+    "44ecfa74-bd19-4ab0-acae-e1cca8d66f30": "clay-delacruz",
+    "3a44b3e8-3f66-4b85-a5da-54f3a5197b1c": "delonzo-logan",
+    "d16df916-fed4-4cb6-877a-5a45629ef8f4": "avery-moriarty",
+    "3d1b5aeb-8235-44b4-b166-5d7f22f233e7": "oscar",
+    "cc6e09f2-ceed-4471-99f9-5f1ee7d7c0f5": "mateo-f",
+    "831dcdde-f21f-4511-8687-9cd7ddbe5b70": "asa-wroe",
+    "93738bc8-76ff-43fb-b1af-f5f9cbe885e2": "liam-geaney",
+    "221fecf2-dc8e-4caa-b514-048bbb441c07": "vinny-marvilla",
+    "f58f8e1d-1df5-4850-a2de-d7938ec71c27": "jason-perry",
+    "b7d41c32-c75e-4923-a7b1-88634fb9ebc1": "cornelius-anderson",
+    "09dc2e31-6acc-4a14-84cb-68d9af412137": "otto-romito",
+    "a96ab2b7-af20-41d3-8349-68e95a14dfa8": "harrison-horn",
+    "e235b54f-9c1f-473c-8c08-b6b55bf0be8d": "brayden-forth",
+    "011e5cdb-58f8-4edd-b204-2d81ed40db31": "andrew-huy",
+    "dc15a032-37cd-4d49-8cf2-8c2f6b732e31": "osborne-woody",
+    "385d56ef-dc4f-4375-9c82-46d12dcb3181": "emmet-stout",
+    "d7e05ace-2985-434b-9af4-da487247a1a7": "levi-varilla",
+    "f0057603-0bde-473b-91f7-184066cd80a8": "ansen-li",
+    "81aef016-b681-4edd-9dcb-7c73d299a55a": "odin-gunn",
+    "fb6baa20-b673-4125-a0db-cfa70214f014": "benjamin-lopatto",
+    "f505d461-57d9-4656-992e-b604318dc569": "niko-tyler",
+    "a4bf385f-2e78-41fc-ae1b-c952e1d4945c": "nico-garrett",
+    "52e9c989-5cef-4898-8097-2bbe3b80fbf1": "carter-delacruz",
+    "839ae8b9-6a76-4a96-b7e5-4eb7b9887abe": "theo-schraderbrown",
+    "21182278-07e2-46a6-9e26-769c59e0f0d5": "avi-shiverdecker",
+    "3f4555d0-6370-44d6-a066-bd248e4a7c81": "sebastian",
+    "e1e0bfeb-5ca8-4061-85d7-bf0212b977d3": "sage-antin",
+    "893f4482-528a-4c4e-82a0-1755fdad8b0a": "davis-brown",
+    "a51b3cdc-a5d6-4d89-a782-208d64236fcb": "teddy-davis",
+    "cec13e94-0812-4769-bb0c-7cdf8706f81c": "syrus-bowling",
+    "6dc253fa-77de-4691-9cbc-038734661a15": "miles-lewis",
+    "c448c126-90c1-4b02-a32e-4f204b4ac6f5": "wyatt-ellington",
+    "d00f013d-bdb7-4d9b-838f-9fbec987d016": "cameron-brown",
+    "265d498b-48db-4a1e-8d14-ea2976b05d0b": "sylvain-allen",
+    "3e99ce7e-cbca-433a-9e37-2dbcde6a75da": "obf-staff",
+    "e94de00d-7419-4504-a28c-4cbd3ed0d927": "camden-blanchard",
+    "f4cb35a2-f2af-43ed-b814-cf41ece643d0": "sal-botteril",
+    "2200d3a8-58f9-4e15-9ba3-28291fadabeb": "julian-garrett",
+    "04d6e603-0128-4f17-9369-624df8f6d776": "elliott-chan",
+    "900e6578-4ae8-4a8c-ad50-1966f3aa5878": "clive-alanis",
+    "81c04ca3-2740-418f-84b7-2b406ca5ff2f": "santino-rivasplata-jr",
+    "1da22e5e-74d4-415f-b468-9380bc879016": "cj-brown",
+    "f2f307d8-faaf-437f-9f1d-9ae1b96441b5": "conner-chaffin",
+    "3418a11d-2a2f-47fd-b54d-2dca7438dc75": "lloyd-stockey",
+    "dda1369d-63a1-4de4-a8b3-3dfb17f41174": "gerardo-delgado",
+    "93fcd313-783d-4148-b4c0-5dce9d24f3b4": "xavier-padilla",
+    "8baad8cc-fa3a-45fd-8475-186586c219de": "raymond-bailey",
+    "79882256-fd6f-48fe-80a7-453c400f1c4a": "fio-maietta",
+    "d33c5e8d-d78b-4636-ad33-1e4e804d50bb": "matteo-petrone",
+    "6c5ccb8d-802c-469b-b0d0-df8607dfa2e5": "andres-sandoval",
+    "b2f9f15e-41e9-46e7-b16f-dc7901339576": "brian-mouton-jr",
+    "aaa9bea7-ff54-4923-b74b-8cce7cb6dab5": "camden-blanchard",
+    "ae247a16-93b1-431e-8fd6-42aedecf33ba": "cameron-brown",
+    "f13ad97d-a4eb-4da5-8cf1-69d841ae4366": "carter-dela-cruz",
+    "d87ac1e1-f185-4cf2-bf5e-888933eeacd3": "cole-lonergan",
+    "c820bebf-a07d-4dc0-8072-b081ebab26a2": "connor-sanders",
+    "d17e747f-d088-4835-8c7f-092a39910cb1": "davis-brown",
+    "7e678adf-2acc-4a7d-bb78-75c92c568fbd": "elias-garmendia",
+    "d58f75b9-ec42-49ac-a809-5b95b4dfe984": "emiliano-taizan",
+    "04723d8c-c424-490b-b694-9c071923b8fe": "graeme-howells",
+    "844fd7b6-38c1-4576-8846-704cca800a44": "griffin-tuholski",
+    "7f12abbc-21c3-445e-8ab7-0ad690ae5dee": "jackson-lopez",
+    "51169bc1-13b2-42d1-92e9-0ba060289afe": "jacob-sovern-newmann",
+    "c78ef81f-e6aa-4a75-86c1-d38c65760157": "jax-vogt",
+    "ba6a3a43-87e6-43b3-a6eb-3eef983f6032": "lorenzo-angulo",
+    "04edf050-4148-4980-8a8e-9481ea164018": "mateo-needham",
+    "8bed9cbe-c18f-4996-9b7d-9451e0b6eab1": "mateo-diaz",
+    "f7d860ab-251b-4862-b9c5-a64c0211c879": "myton-varlack",
+    "e291614a-e7bc-4460-bb9e-36f237200740": "reed-hannay",
+    "f6bbebef-baf1-4005-8e07-8ae8ee005e80": "sage-antin",
+    "127cf95b-2781-4656-991a-9aec081470ff": "sebastian",
+    "316fa91e-9758-4e97-b9ec-582cbd901afa": "theo-schrader-brown",
+    "8c21f137-2065-4e3e-94f4-35a2057780df": "theodore-siebert",
+    "dc8cbc19-ac55-45f4-ab55-9ad4742ccdbe": "tyson-lee",
+    "da5bd227-9843-4608-84bf-92152c156542": "ernie-kline",
+    "6aba2e21-f3f7-45a8-a1cb-7cd147b02098": "cj-brown",
+    "31eed87f-ccea-4988-97f0-529c6228d4c3": "wyatt-ellington",
+    "07e56a87-80c8-417c-88f7-982aa954d33d": "james-rodriguez-4",
+    "d42acd7c-9f8d-4a8b-a2bd-c1618eacf0a5": "langston-green",
+    "7cc361ff-87aa-4eef-8b54-94ad268c5e37": "meyer-schindel-rockman",
+    "8a73ae8b-087d-4602-9f89-c14c406125d5": "shannon-vogt",
+    "cdb95029-253a-4fb2-97a7-6b22120348e7": "stephen-kropp",
+    "fef11e7a-fe1c-49c6-88d2-4ba52e87942c": "atticus-blecker",
+    "0b131c0f-0f86-4ba7-b8b5-a61accae9129": "julian-garrett",
+    "c323db24-27c4-4cb5-89ca-a32d49fa0e2a": "sebastian",
+    "9d83841f-d775-47df-81db-4b5c36c36960": "sam-goldberg",
+    "3ecaf3d9-b5dc-407f-8077-66575043b430": "jacob-silva",
+    "4a368493-201e-4dc4-aa41-f5dfe74a256c": "sam-michael",
+    "586bfc9f-1319-4793-9067-d4758adbc8a3": "reed-hanney",
+    "03ec00e1-b834-470e-a375-061e074242a9": "andre-lee",
+    "e5d4f040-31ad-4900-9013-a924e6e79303": "ethan-lee",
+    "b179be3b-aaf3-423b-b6b1-d788719f7a09": "juan-roberto-taizan-iii",
+    "b5abf692-d360-4035-a166-a0900398dcff": "jonah-silver",
+    "a35ad8bf-d95b-4d57-b73d-456fe1f0acbf": "mars-floresca-ogle",
+    "215aca2d-8588-4927-b929-27979063051c": "hudson-hirota",
+    "3b3d40b0-1735-40c2-afa4-4f3493c2796e": "sebastian",
+    "c3083df3-fcb7-4570-99ab-75ef9548d3f5": "william",
+    "f2391b9a-4243-4bb7-aed5-bdb2c627076e": "connor",
+    "f4a8d4aa-aac8-408b-91ab-eb1fbf32acfb": "joseph",
+    "f477277b-7c06-4251-8264-93767d7322a0": "jake",
+    "7b1a306a-c53a-49cc-8b60-1b61f21a548f": "grey",
+    "6e89f4ae-f486-41a8-bb25-de179d57b77e": "koko",
+    "a1926d94-e0ff-4542-bfd7-942c223e9fe4": "horace",
+    "5ef1dd64-4d13-40ed-9dab-600f6e71b4d8": "remy",
+    "a3f7c3eb-0b9f-4363-8674-91182d0f1d03": "kevan",
+    "c89c5052-1ef3-4f39-a31d-201fcd620ba2": "shaler",
+    "9ebdb8b9-7520-4468-86c4-8e5023e9ebbc": "jonah",
+    "64d14fb6-25fe-47b0-a57b-95d16d270ad5": "remy-2",
+    "e0fcc244-d3ae-419b-b291-0353d470d280": "dulan",
+    "2d90f2e2-273f-4903-8bcc-48b34c848bf0": "clay-gerdts",
+    "21a25c70-30b2-411b-9ef4-d040b2ed3443": "russell-smith",
+    "106c3801-71c2-4628-974d-582272879a9b": "sage-antin",
+    "c5d3a2f1-72ee-4444-9112-a8b4ea072d3b": "sasha-torgun",
+    "55f824dc-d075-46b5-9df8-763a3407898a": "sebastian",
+    "cf4ad5d3-362d-494b-b6b8-5bf6eedf5955": "austin-yelton",
+    "e5de1b3f-5df1-4099-a0ee-50e44aee21a9": "ezra-becklund",
+    "b421c25f-3909-4c13-b435-2ea3fea65f48": "max-franzen",
+    "e71e175f-b93e-4c7a-a2ba-aa371b4ffed9": "miles-barr",
+    "be54862a-a1b8-4b8f-af30-abfbcdcca97c": "owen-fitzgerald",
+    "2460cb8c-a919-4964-b520-e7f3d4b0f1d8": "simon-jarmon-hom",
+    "22e184f2-5788-4995-9842-0d331a0a372c": "thomas-little-cloud",
+    "f41b1e4a-abdf-4445-a630-af8f71d49a5d": "zain-carr",
+    "2b99fbcf-e597-4e72-9248-79610985e2f4": "obf-staff",
+    "90e1aece-9147-447d-9275-57410df81293": "gerardo-delgado",
+    "858eea6a-c0bf-470c-9f67-844361474396": "sal-botteril",
+    "5884ba53-f545-4525-aaf8-64cde726919c": "carter-delacruz",
+    "cf9d16d7-3c4d-4968-82d8-dae6d89d3ba8": "teddy-davis",
+    "6bbf9ac1-ea27-4a2b-96d2-57aa2146d2ba": "cj-brown",
+    "c87fe056-b5fd-44f5-b9ff-896e47d2826e": "sebastian",
+    "d21b354a-9efa-46d7-a542-4644f9df3d18": "miles-lewis",
+    "76275228-095c-407c-8797-54bc6b87c2d8": "camden-blanchard",
+    "57a0291d-ec62-4749-abf6-99cbc449be6a": "theo-schraderbrown",
+    "7425f7ca-8d7a-45e0-bf4f-9d493d0c523b": "avi-shiverdecker",
+    "94b7dab3-064c-43cc-861f-6f9e6e2b492e": "syrus-bowling",
+    "6f5adcf3-3ec6-4cf6-9568-3dfdd4f8472d": "c-j",
+    "7c644834-0d82-4b13-916a-a1f83343a1b1": "clive-alanis",
+    "169209e6-50f8-4e36-bc62-f69288cbb24e": "caiden-robinson",
+    "194126ca-5cd3-4995-9bbe-636459e138b0": "kinara-herron",
+    "4768f6c5-b313-46b5-a4af-52a822d3cc59": "sylvain-allen",
+    "0ed8d15a-e331-430d-93b2-cd031638445b": "davis-brown",
+    "b34b34aa-7098-4def-9d8f-0294306cca6b": "cameron-brown",
+    "7d850478-3d8e-4593-ab01-d51bab894881": "santino-rivasplata-jr",
+    "37dc16c0-667e-433f-8fee-99a57bf8fbc0": "wyatt-ellington",
+    "0c782cc8-197b-483c-bd5d-702511dfe64e": "elliott-chan",
+    "f08f53b1-fad7-472d-b165-e91b83199d76": "conner-chaffin",
+    "0e99e97b-4b11-4dcc-8964-ecc810d3fcf8": "brian-mouton-3",
+    "3da5486a-7f24-4980-ada8-bf2c668e9efb": "aaron-wang",
+    "d4417971-5f28-4029-bbeb-ac10019d28ae": "andres-sandoval",
+    "99fa640c-a02f-4c29-9a3a-ce8d19a26241": "camden-blanchard",
+    "b119685f-2188-48b7-8c89-0d2ca5a7c70e": "carter-dela-cruz",
+    "a05388fd-2ba0-4ce4-b830-6f2998c0f9d6": "cole-lonergan",
+    "366a623e-ecf2-4d46-88aa-cc4177edf22c": "connor-sanders",
+    "fc9a0cbe-08c0-408f-90b7-455256a85cd3": "davis-brown",
+    "4263e7e5-7032-4931-a13e-d3a42f1f2609": "elias-garmendia",
+    "aa551544-521a-4a1a-9540-29506166d466": "emiliano-taizan",
+    "1ca3c5f6-2d54-411e-85dd-0345b7c61e11": "felix-li",
+    "296ffaae-38d5-47a6-81e9-79fb3ffee673": "graeme-howells",
+    "faac3545-7982-4c09-ac3e-2ff450cb321f": "griffin-tuholski",
+    "5cee63e5-b925-42cb-af23-4c15c99ff3c9": "jackson-lopez",
+    "5f4e2eec-2d2e-4385-9612-9572aa1f89fe": "jacob-sovern-newmann",
+    "2bf86384-c080-4b57-8c1a-d66ad1a123b8": "levi-varilla",
+    "39e99370-6e6a-4cbc-ab5d-d4f1c401ac5a": "mateo-needham",
+    "eff5144f-2017-4c70-8452-5fd4de5d4b34": "reed-hannay",
+    "bfefb281-21c3-424e-b4fd-2ec2c001d57d": "sebastian",
+    "a34065b1-7ba0-4554-917d-986e96c426df": "theo-schrader-brown",
+    "330a977e-aa79-4cfd-ac2b-3e1c27db4c52": "wyatt-ellington",
+    "9b35d20e-cdc5-49ad-8789-4f00eb7d7e3b": "james-rodriguez-5",
+    "de15fe3a-32e4-42f0-a020-4bdee0413f44": "james-metcalfe",
+    "16b59f9b-df66-4af3-8eb1-c7995fcf6e8e": "james-wiley-osgood",
+    "1a38c5e6-32fe-4338-9a32-38e74f4c2083": "kai-hashitaka",
+    "9cc76e29-c9df-4cd3-8ee5-dec8a19a2362": "max-lopez",
+    "fc000b98-7c37-471e-9f1b-451722e77700": "theo-siebert",
+    "a14672f1-139c-44ab-bbc1-9e1e3d2965de": "malcolm-peoples",
+    "d759fd6a-2d2f-4dd8-a121-ffc9b6825072": "parker",
+    "6e0a8997-127b-4725-9ba0-24a6db58e2da": "wylie",
+    "9f1301f3-7daa-4df0-9216-1a666e1afff3": "arlo-blanchard",
+    "9ed34cd4-fd7c-4463-bc02-42c35d9dd8ac": "kiran-conger",
+    "6fd0ed29-5a1f-4505-a9c2-1cbcb3d0e211": "sam-robison",
+    "3691efc2-7a19-430e-b3f2-2437f32561eb": "syrus-bowling",
+    "fea87a58-97aa-47ab-8418-793802cd71cb": "xavier-padilla",
+    "05bb12c5-19db-4fee-bd82-634d0bf0fab5": "carter-nguyen-sheen-3",
+    "ed14a84a-c9d4-4197-a549-a8472ee7b519": "beckett-van-der-schalie",
+    "64361cdd-4ba8-4484-8836-da57446d6e93": "danilo-pavkovic",
+    "d6e6d86d-a71e-4a88-a00c-fd6b5221e1de": "henry-rose",
+    "d11503bc-ce93-4fe2-8c8d-c9b48cb6bcc3": "kameron-amen-averhoff",
+    "957c0822-95c5-4c7c-90ce-322faa2d1e40": "nico-root",
+    "6fd5ec9c-0077-403e-9b27-8e1414badd20": "sammy-schneider",
+    "f09d65d4-ccf8-452e-b824-b19fbfdabdba": "sebastian-perez",
+    "0a0f0fb1-6104-43b7-825c-40ffa2f967e2": "sage-antin",
+    "0b06bc17-a1c9-498e-8ed7-c74864601261": "avi-shiverdecker",
+    "8ab2e24b-e860-4103-b0fd-c5f8fd4b9664": "sebastian",
+    "f4e02c84-4c6b-4b5e-b55f-1f094b590a21": "syrus-bowling",
+    "6feb0e96-d3d0-4d36-a225-d3644362fb27": "clay-gerdts",
+    "7613438e-8a26-4c93-8afe-6a8470756edd": "sal-botterill",
+    "2a597c14-ced0-4f5b-9f21-4093c2cfde5c": "davis-brown",
+    "e593291a-b1eb-4b4d-853c-d9eb1797fdad": "sasha-torgun",
+    "9493aec3-00ff-494c-82fc-4eaf73ffdf88": "jake-sovern-newmann",
+    "082ce00f-c608-405c-87f0-d7884a0295c5": "henry-corwin",
+    "cf65356c-fd55-47fd-9fdb-b3fe21476582": "andrew-huerta",
+    "4ad2485c-a653-46ff-a38d-a7555c8a4943": "julian-wu",
+    "d012d9ae-d2cc-4721-9703-eb8d03a6bd24": "dillon-hogan",
+    "8ca1878f-5a7f-47fe-b71b-38363780e6d9": "caesar-ford",
+    "c84f9ae2-f053-4d76-8c37-d1eab07e38f9": "theodore-siebert",
+    "ca3f3875-bd36-4fb2-9560-9568e8531a9d": "tyson-lee",
+    "affac6ba-0f78-4dc1-b87b-a2755cde8bb9": "sebastian",
+    "36b63751-ccd2-4306-b26d-4e2d22b197fa": "carter-dela-cruz",
+    "2e60ede0-98fb-4566-9c18-d19851f32cc5": "wyatt-ellington",
+    "514b807a-297a-4833-95d6-bea60f649de4": "graeme-howells",
+    "4bac1e0a-227c-4555-ad96-293e5d14bf59": "julian-yarema",
+    "562b746a-373c-4190-be4d-36b9a0c63c73": "cameron-brown",
+    "b96f2dc3-7988-4a67-a2bb-599ecbdbe77f": "griffin-tuholski",
+    "5a29e651-9b86-454b-8004-2088d52999da": "mateo-needham",
+    "f88e26ac-e1f1-46e7-85ab-db7e9f5031b0": "brian-mouton-jr",
+    "4131cbfb-79de-466b-b1f3-cc0f5c66e68e": "maxwell",
+    "b6fe6af0-5795-42b9-bc2c-6b79a6f914a6": "anthony-gurnari",
+    "df92ec03-8a91-4e51-b231-38ec559a6cdb": "theo-schrader-brown",
+    "c220efc7-13df-417c-b1ae-c33091d07a14": "syrus-bowling",
+    "128a452d-cbeb-4299-92b9-12706b8cfef2": "kiran-conger",
+    "b567e524-8841-4490-881b-d8f332f5680e": "adam",
+    "c0fde855-38a3-4906-9dd3-dc0868901b77": "lorenzo-angulo",
+    "f19421d9-04aa-4f89-907a-3bc2c2aa0e10": "emiliano-taizan",
+    "64dd0652-49a4-4ed8-b21c-dca92e6f9899": "thiago-siegel",
+    "b9e54d97-9f97-45e8-a626-363eae14e04a": "cj-brown",
+    "1d6256fd-0adc-465b-86a0-fb729b4eb545": "connor-sanders",
+    "d348ef9a-5fc5-4a9a-9a7a-417cc055e8ee": "mateo-diaz",
+    "a56d749c-9917-4dd8-b16e-bf1ce944a347": "andrew",
+    "63c58199-2b09-447f-b0f4-012519c43475": "ernie-kline",
+    "ffc1d05a-059d-4883-a5a2-e1fb998459ba": "jax-vogt",
+    "9feafee5-3819-4e91-9b1b-1c36b5ef8a0c": "camden-blanchard",
+    "105921a7-47e0-47a0-85c5-2628426b4904": "maxwell-howng",
+    "7875cf4f-3959-4262-8b01-e507e15a0973": "andres-sandoval",
+    "12b642d1-f1b9-448e-afe8-781c5cc3a8ab": "jacob-sovern-newmann",
+    "d7afc42d-1bbc-47ee-9453-77c75eaadd11": "elias-garmendia",
+    "85d585dc-c4f8-46e2-bd42-1f735a2db1b7": "sage-antin",
+    "873f09fc-9937-4a03-843f-f8c8aa960aaf": "reed-hannay",
+    "6191adbf-5d3b-4345-bd8e-c1566aaff0f2": "atticus-blecker",
+    "c8ced478-159b-4998-b34c-b18a80a08153": "theo-w",
+    "39efef53-0cb7-4cbb-ad8d-d889a7c9d8fc": "mateo-diaz",
+    "06e7231d-8db8-4f86-add0-4d2a627cc734": "langston-green",
+    "a127df41-d034-4d9a-8709-09ce7ba17eb5": "ernie-kline",
+    "4e4c8ef6-5b3c-467f-b4fc-80d8746acf66": "andrew-huerta",
+    "bf8414b1-8e33-4664-b047-9f742b87410e": "emiliano-taizan",
+    "154fa242-79ae-47e6-9640-7094f7ec0376": "andrew-huy",
+    "15cef289-9b96-4f10-a75a-0b2918be86d4": "cj-brown",
+    "fb73edc6-cac7-4cf0-970a-57deac762c4e": "levi-3",
+    "d0da0268-f0ea-49fe-92c9-011917a0e0be": "james-rodriguez-6",
+    "b42f8ce4-7a6e-4b1b-8e3d-dabaf237ee79": "lyriq-davis-4",
+    "632aa216-b0b7-4e84-bb37-1dc06464ca26": "huerta",
+    "68977590-3d65-4b2e-9a7e-60a4b73cb540": "angela-huy",
+    "58899ba9-097f-466c-9cc2-9f0e147cebd0": "elliot-goldman",
+    "6e364392-8925-47d2-91d6-0dcf8a08e7df": "colton",
+    "65f64c5f-ed1b-4ea7-8801-1b6ad8936d78": "conner-sanders",
+    "c5eb9b7e-cb31-4124-90aa-686a5bbd5708": "louis-bedard",
+    "8f94fcce-9e3b-4c28-bbc7-02a53bc6e966": "sage-antin",
+    "b0ec6e4e-2b23-4317-8843-acc4ad6091ce": "carter-dela-cruz",
+    "af32b2b6-0f0f-447f-b447-92c171726329": "miles-lewis",
+    "dacbabbe-977a-4506-abb7-abf2dc3523ca": "sacha-many",
+    "592fe1c3-4e7e-420e-96cc-34b206e228b5": "sebastian",
+    "8028e3f9-c623-4a9d-8518-b07db60b5f21": "theo-schrader-brown",
+    "e057c79e-d1d7-4074-a341-f2588050ebea": "miles-aguiar",
+    "3ff953ad-71a0-4af3-8af3-8cd82367278b": "marc-hauser",
+    "7bf01843-31ff-4e44-ad0a-7cb1b99846b6": "evan-baron",
+    "1bb7a9e8-489b-4e60-a8bd-a4333bfa729f": "robi-mcray",
+    "9c5f698f-e83c-4751-adbb-ba002f1eb3a2": "zac-bermingham",
+    "a5d4e969-245f-43b2-a46c-9bdf79863d39": "zach-masquelier",
+    "750809e9-e66a-4910-9338-e75363354fd8": "zz-teddy-guest",
+    "120b6598-4f3b-4928-ba67-35be2951718b": "zz-mac-guest",
+    "dacaf17a-96c1-4c39-aacb-88287a1f0253": "zz-quinton-guest",
+    "66f2dd7b-0e5d-4419-843f-5c2336e7841a": "zz-charlie-guest",
+    "94e28150-532c-4560-95ef-1eee30aa4fed": "guest-vince-vince",
+    "b3b03fef-873d-493f-8e0b-9c8c4263200b": "guest-quinton-guest-quinton",
+    "a938b4c6-23fb-479b-8b71-4151a0b04a8d": "guest-armani-armani",
+    "ae2d96da-4fef-47f3-a17d-1b509173f1fb": "elias-garmendia",
+    "9fa42d97-9472-4a99-aa86-d20b9affb11f": "evan-baron",
+    "3d705bda-f643-490d-b7db-49787e5fe680": "lorenzo-angulo",
+    "7816caea-5d81-47f0-92af-89475c0dd413": "nico-costa",
+    "4a63220b-f65b-4bd7-b300-4ae56c854fa0": "rafael-simas",
+    "28fddf04-2d03-456f-8c43-a6685f1e407c": "theo-siebert",
+    "a6ee5dc7-b395-4166-b4ee-9c45252002bc": "theodore-steele",
+    "03b5d1fb-d757-4b52-a154-75f213af0336": "thiago-siegel",
+    "05537ebc-4817-4805-b137-13cb723cdb3a": "collin-purcell",
+    "7ee0aad5-2522-4b5d-a55b-57af1284a747": "gianfranco-velazquez",
+    "1c52ed8d-3e5f-40f6-8350-7bda1178e1e1": "jack-caygill",
+    "3e9f6bc0-21cd-4437-b3af-bf14139777eb": "lukas-garnett",
+    "5bfda031-6d91-4054-879d-3b4947cb0953": "mateo-diaz",
+    "f73a0068-24ee-41b8-adff-17514f87892b": "theo-w",
+    "b112d69c-d633-4bde-ae56-96e942450d74": "kiran-conger",
+    "76f99124-1f72-48be-9a22-25da3f9d8cc5": "ernie-kline",
+    "256ab9ba-4a8a-48da-a849-3298ed51ade9": "lorenzo-angulo",
+    "35a5b713-5e9f-4ea6-89a2-7969a6afdd3a": "langston-green",
+    "42ade9e8-7ae3-4ef2-9c40-7abef5d6d4be": "elliot-goldman",
+    "c7007de4-da7e-4b04-b9d8-8005090772d7": "andrew-huy",
+    "09342f8c-cacf-4d19-9409-7eeb634ac4e2": "tyson-lee",
+    "ab1c76e5-a9c6-42e4-86ed-878864205fcf": "sage-antin",
+    "aa37f654-0d4d-49f8-a079-41793a47b891": "mateo-needham",
+    "93a475ec-5c17-4287-a596-765e9f750f00": "julian-yarema",
+    "65812987-33f5-4f82-b0bf-efb58abe4c29": "atticus-blecker",
+    "1fce119a-4af2-42d2-94f2-924b52a413a9": "graeme-howells",
+    "4f5916a6-ffb3-4d69-b5ec-89711916dbcb": "andrew-huerta",
+    "a2a728ae-18e2-4cee-9a73-23b3d458248c": "sebastian",
+    "7a6455e5-d88f-45f2-9a43-22e5353d3517": "colton",
+    "f1178cca-1c48-4df4-b605-7b95208e130f": "andres-sandoval",
+    "23926568-b532-40d7-a1df-4eee3414f5cf": "angela-huy",
+    "4f28d665-ae44-4da1-b94e-0cc02218e606": "jax-vogt",
+    "84c2f31d-24ba-4337-8535-8a9c52f0245b": "camden-blanchard",
+    "25665b91-0af3-4059-9411-7b7b8e429013": "anthony-gurnari",
+    "839eb7ee-95b4-4db3-a91a-aa690ac81f90": "theodore-siebert",
+    "543f84a4-66cd-4153-9e61-55b4db7dd0c0": "emiliano-taizan",
+    "64b967ff-4d02-4771-b560-82015f535acc": "brian-mouton-jr",
+    "6c371166-8545-4b7a-9007-d035d5ee6572": "theo-schrader-brown",
+    "9ac21e57-7835-4035-9bf6-4cc2678cf69e": "cameron-brown",
+    "e925fa1b-d089-4bd5-b4c4-e178861ea495": "cj-brown",
+    "e0c86667-f3f8-4a27-994b-98857030c096": "elias-garmendia",
+    "c84c3979-d98c-4f92-98f1-6041ff63938e": "reed-hannay",
+    "08b745a3-5e2a-44a3-b72e-9c846e129a84": "thiago-siegel",
+    "46bc4afe-6b15-4448-aaa3-ae5f309d4112": "conner-sanders",
+    "7b600617-e653-4846-b02f-440e79a0e090": "louis-bedard",
+    "fedd48ab-8342-455c-889f-267b7d73412a": "carter-dela-cruz",
+    "4aff7f95-b065-4a22-beca-9090040b114e": "callan-driscoll",
+    "d4c5c27e-069c-4084-ae27-88cbecdf56af": "arian-singh",
+    "843213e9-72aa-4eb0-92c0-078c510e4a45": "jake-sovern-newmann",
+    "e80164e7-cccb-4e18-aeb6-d61e25a470d1": "calvin-spohn",
+    "1e9f55a6-8379-42a4-b465-a5782b19d977": "elliott-chan",
+    "e9ce5db0-ac82-403f-b9ec-9ec526f65256": "zayn-coolidge",
+    "8b26c0a3-83c6-4807-9afd-a7c1c0de7844": "wyatt-ellington",
+    "adc84b81-0cec-4bc8-ab17-584458862112": "malik-o-donal",
+    "111d5436-0bb9-49a8-abda-5565fae64cac": "kai-hseih"
+  }
 }
