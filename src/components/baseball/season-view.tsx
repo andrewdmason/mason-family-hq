@@ -105,9 +105,18 @@ function RosterTable({
   );
 }
 
+type TabKey = "batting" | "pitching" | "games";
+
 export function SeasonView({ kidSlug, detail }: { kidSlug: string; detail: SeasonDetail }) {
   const { team, roster, games } = detail;
   const pitchers = roster.filter((r) => r.pitching);
+
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: "batting", label: "Batting" },
+    ...(pitchers.length > 0 ? [{ key: "pitching" as const, label: "Pitching" }] : []),
+    { key: "games", label: "Games" },
+  ];
+  const [tab, setTab] = useState<TabKey>("batting");
 
   return (
     <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-8">
@@ -121,50 +130,65 @@ export function SeasonView({ kidSlug, detail }: { kidSlug: string; detail: Seaso
         </span>
       </div>
 
-      <section className="mt-6">
-        <h2 className="mb-2 text-sm font-semibold text-foreground">Batting</h2>
-        <RosterTable cols={SEASON_BATTING} rows={roster} blob="batting" showMore teamName={team.name} />
-      </section>
+      <div role="tablist" className="mt-5 flex gap-1 border-b border-border">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            role="tab"
+            aria-selected={tab === t.key}
+            onClick={() => setTab(t.key)}
+            className={cn(
+              "-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+              tab === t.key
+                ? "border-foreground text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-      {pitchers.length > 0 && (
-        <section className="mt-8">
-          <h2 className="mb-2 text-sm font-semibold text-foreground">Pitching</h2>
-          <RosterTable cols={SEASON_PITCHING} rows={pitchers} blob="pitching" showMore={false} teamName={team.name} />
-        </section>
-      )}
-
-      <section className="mt-8">
-        <h2 className="mb-2 text-sm font-semibold text-foreground">Games</h2>
-        {games.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No games imported.</p>
-        ) : (
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            {games.map((g) => (
-              <li key={g.gameId}>
-                <Link href={`/baseball/${kidSlug}/${team.id}/games/${g.gameId}`} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-accent/50">
-                  <span className="flex items-center gap-3">
-                    {g.result && (
-                      <span className={cn(
-                        "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
-                        g.result === "W" && "bg-emerald-500/15 text-emerald-600",
-                        g.result === "L" && "bg-rose-500/15 text-rose-600",
-                        g.result === "T" && "bg-muted text-muted-foreground",
-                      )}>{g.result}</span>
-                    )}
-                    <span className="text-sm text-foreground">{g.homeAway === "away" ? "@ " : "vs "}{g.opponentName ?? "Opponent"}</span>
-                  </span>
-                  <span className="flex items-center gap-3 text-sm text-muted-foreground">
-                    {g.teamScore != null && g.opponentScore != null && (
-                      <span className="tabular-nums text-foreground">{g.teamScore}–{g.opponentScore}</span>
-                    )}
-                    <span className="text-xs">{formatGameDate(g.playedOn)}</span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+      <div className="mt-4">
+        {tab === "batting" && (
+          <RosterTable cols={SEASON_BATTING} rows={roster} blob="batting" showMore teamName={team.name} />
         )}
-      </section>
+
+        {tab === "pitching" && pitchers.length > 0 && (
+          <RosterTable cols={SEASON_PITCHING} rows={pitchers} blob="pitching" showMore={false} teamName={team.name} />
+        )}
+
+        {tab === "games" &&
+          (games.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No games imported.</p>
+          ) : (
+            <ul className="divide-y divide-border rounded-lg border border-border">
+              {games.map((g) => (
+                <li key={g.gameId}>
+                  <Link href={`/baseball/${kidSlug}/${team.id}/games/${g.gameId}`} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-accent/50">
+                    <span className="flex items-center gap-3">
+                      {g.result && (
+                        <span className={cn(
+                          "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
+                          g.result === "W" && "bg-emerald-500/15 text-emerald-600",
+                          g.result === "L" && "bg-rose-500/15 text-rose-600",
+                          g.result === "T" && "bg-muted text-muted-foreground",
+                        )}>{g.result}</span>
+                      )}
+                      <span className="text-sm text-foreground">{g.homeAway === "away" ? "@ " : "vs "}{g.opponentName ?? "Opponent"}</span>
+                    </span>
+                    <span className="flex items-center gap-3 text-sm text-muted-foreground">
+                      {g.teamScore != null && g.opponentScore != null && (
+                        <span className="tabular-nums text-foreground">{g.teamScore}–{g.opponentScore}</span>
+                      )}
+                      <span className="text-xs">{formatGameDate(g.playedOn)}</span>
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ))}
+      </div>
     </main>
   );
 }
