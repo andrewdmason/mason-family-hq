@@ -1,5 +1,5 @@
 // Headless verification for the migration generator (U5).
-// Run: node scripts/verify-baseball-generate.mts
+// Run: npx tsx scripts/verify-baseball-generate.mts
 //
 // Builds SQL from the cache fixture, asserts structure + the unresolved-player
 // guard, then applies the SQL TWICE inside a rolled-back transaction against the
@@ -10,8 +10,8 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { buildMigrationSql, type Cache } from "./baseball/sql.ts";
-import { autoResolve, type Registry } from "./baseball/identity.ts";
+import { buildMigrationSql, type Cache } from "./baseball/sql";
+import { autoResolve, type Registry } from "./baseball/identity";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cache = JSON.parse(readFileSync(join(here, "baseball/fixtures/cache-sample.json"), "utf8")) as Cache;

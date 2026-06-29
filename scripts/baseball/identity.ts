@@ -7,7 +7,7 @@
 // by name similarity; the boys resolve to themselves at full-name confidence and
 // are never auto-merged with anyone else (different last name => low score).
 
-import { normalizeName, type RosterPlayer } from "./parse.ts";
+import { normalizeName, type RosterPlayer } from "./parse";
 
 export type PersonRecord = {
   display_name: string;

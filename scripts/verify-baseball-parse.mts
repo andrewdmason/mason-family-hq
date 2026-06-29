@@ -1,5 +1,5 @@
 // Headless verification for the GameChanger parsers (U2).
-// Run: node scripts/verify-baseball-parse.mts
+// Run: npx tsx scripts/verify-baseball-parse.mts
 //
 // Pure — no DB, no network. Exercises parse.ts against the real captured sample
 // payloads in scripts/baseball/fixtures/. Exits non-zero on the first failure.
@@ -16,7 +16,7 @@ import {
   parseSchedule,
   linkBoxScoreToRoster,
   parseInnings,
-} from "./baseball/parse.ts";
+} from "./baseball/parse";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fix = (n: string) => JSON.parse(readFileSync(join(here, "baseball/fixtures", n), "utf8"));

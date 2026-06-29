@@ -7,7 +7,7 @@
 // duplicating (R7). Kid people resolve user_id via family_members so the same
 // migration works in prod and local.
 
-import type { Registry } from "./identity.ts";
+import type { Registry } from "./identity";
 
 export type CacheTeam = {
   gc_team_id: string;

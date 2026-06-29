@@ -27,8 +27,8 @@ import {
   linkBoxScoreToRoster,
   type BoxScoreCapture,
   type GameSummary,
-} from "./parse.ts";
-import type { Cache } from "./sql.ts";
+} from "./parse";
+import type { Cache } from "./sql";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cacheDir = join(here, ".cache");

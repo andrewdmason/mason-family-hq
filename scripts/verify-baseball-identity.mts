@@ -1,5 +1,5 @@
 // Headless verification for the identity matcher (U3).
-// Run: node scripts/verify-baseball-identity.mts
+// Run: npx tsx scripts/verify-baseball-identity.mts
 //
 // Pure — no DB, no network. Exercises identity.ts against the seeded registry.
 
@@ -12,8 +12,8 @@ import {
   autoResolve,
   nameSimilarity,
   type Registry,
-} from "./baseball/identity.ts";
-import type { RosterPlayer } from "./baseball/parse.ts";
+} from "./baseball/identity";
+import type { RosterPlayer } from "./baseball/parse";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const baseRegistry = (): Registry => {

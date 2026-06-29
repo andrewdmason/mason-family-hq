@@ -10,8 +10,8 @@
 import { readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { buildMigrationSql, type Cache } from "./sql.ts";
-import type { Registry } from "./identity.ts";
+import { buildMigrationSql, type Cache } from "./sql";
+import type { Registry } from "./identity";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..", "..");
