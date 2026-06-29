@@ -3,9 +3,6 @@
 //
 // Pure — no DB, no network. Exercises identity.ts against the seeded registry.
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import {
   proposeMatches,
   applyDecisions,
@@ -15,11 +12,15 @@ import {
 } from "./baseball/identity";
 import type { RosterPlayer } from "./baseball/parse";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const baseRegistry = (): Registry => {
-  const raw = JSON.parse(readFileSync(join(here, "baseball/people.json"), "utf8"));
-  return { people: raw.people, aliases: raw.aliases };
-};
+// Fixed seed (the two boys), independent of the live people.json which fills up
+// with real teammates as seasons are imported.
+const baseRegistry = (): Registry => ({
+  people: {
+    oscar: { display_name: "Oscar Mason", kind: "kid", family_member: "Oscar" },
+    sebastian: { display_name: "Sebastian Mason", kind: "kid", family_member: "Sebastian" },
+  },
+  aliases: {},
+});
 
 let failures = 0;
 function check(name: string, cond: boolean, detail?: unknown) {
@@ -40,6 +41,15 @@ console.log("boys: exact match, no cross-merge");
   check("Oscar Mason auto-links to 'oscar'", osc.status === "auto" && osc.slug === "oscar", osc);
   check("Sebastian not merged into 'oscar' (oscar only a 0.5 candidate)",
     seb.candidates.find((c) => c.slug === "oscar")!.score === 0.5);
+}
+
+// ---- abbreviated roster name ("Oscar M") links to the boy ----
+console.log("abbreviated 'Oscar M' roster name links to oscar");
+{
+  const reg = baseRegistry();
+  const props = proposeMatches([p("gc-oscm", "Oscar M")], reg);
+  check("Oscar M auto-links to oscar by last-initial", props[0].status === "auto" && props[0].slug === "oscar", props[0]);
+  check("nameSimilarity('Oscar M','Oscar Mason') = 0.9", nameSimilarity("Oscar M", "Oscar Mason") === 0.9);
 }
 
 // ---- AE2: same boy across two teams -> one slug ----

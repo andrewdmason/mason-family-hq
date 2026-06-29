@@ -23,8 +23,10 @@ export type Registry = {
 export const AUTO_ACCEPT = 0.9; // essentially a full-name match
 export const PROPOSE_FLOOR = 0.5;
 
-// 0..1 name similarity. Full normalized match = 1. Same last + same first initial
-// = 0.8. Same last only = 0.5. Same first only = 0.4. Else token Jaccard.
+// 0..1 name similarity. Full match = 1. First name + last-as-initial (GameChanger
+// abbreviates "Oscar Mason" to "Oscar M" on teams you don't score) = 0.9. Same
+// last + same first initial = 0.8. Same last only = 0.5. Same first only = 0.4.
+// Else token Jaccard.
 export function nameSimilarity(a: string, b: string): number {
   const na = normalizeName(a);
   const nb = normalizeName(b);
@@ -36,6 +38,10 @@ export function nameSimilarity(a: string, b: string): number {
   const lastB = tb[tb.length - 1];
   const firstA = ta[0];
   const firstB = tb[0];
+  // One last name is an initial of the other ("oscar m" ~ "oscar mason").
+  const lastInitial = lastA[0] === lastB[0] && (lastA.length === 1 || lastB.length === 1);
+  if (firstA === firstB && lastA === lastB) return 1;
+  if (firstA === firstB && lastInitial) return 0.9;
   if (lastA === lastB && firstA[0] === firstB[0]) return 0.8;
   if (lastA === lastB) return 0.5;
   if (firstA === firstB) return 0.4;

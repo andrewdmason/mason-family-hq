@@ -15,12 +15,14 @@ function firstOf<T>(v: unknown): T | null {
   return (v ?? null) as T | null;
 }
 
-// Newest season first; nulls sort last.
+// Newest season first: by year, then by season phase (spring→summer→fall→winter).
+const PHASE: Record<string, number> = { spring: 1, summer: 2, fall: 3, winter: 4 };
+const phaseRank = (name: string | null) => PHASE[(name ?? "").toLowerCase().match(/spring|summer|fall|winter/)?.[0] ?? ""] ?? 0;
 function bySeasonDesc(a: SeasonRow, b: SeasonRow): number {
   const ay = a.seasonYear ?? -Infinity;
   const by = b.seasonYear ?? -Infinity;
   if (ay !== by) return by - ay;
-  return (b.seasonName ?? "").localeCompare(a.seasonName ?? "");
+  return phaseRank(b.seasonName) - phaseRank(a.seasonName);
 }
 
 const gcStatsOf = (rows: unknown): GcSeasonStats =>

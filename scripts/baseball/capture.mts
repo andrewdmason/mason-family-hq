@@ -55,6 +55,13 @@ function arg(name: string): string | undefined {
 }
 const log = (...a: unknown[]) => console.log("[capture]", ...a);
 
+// "summer" + 2023 -> "Summer 2023"; tolerant of missing parts.
+function seasonLabel(name: string | undefined, year: number | undefined): string | null {
+  const s = name ? name.charAt(0).toUpperCase() + name.slice(1) : "";
+  const label = [s, year].filter(Boolean).join(" ").trim();
+  return label || null;
+}
+
 // Headers the web app sends to the API; we replay the ones the request listener
 // observes (gc-token rotates ~hourly — a fresh login refreshes it).
 let apiHeaders: Record<string, string> = {};
@@ -95,7 +102,15 @@ async function apiGet<T>(req: APIRequestContext, path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-type MeTeam = { id: string; name?: string; public_team_profile_id?: string; season?: string; season_year?: number };
+type MeTeam = {
+  id: string;
+  name?: string;
+  public_id?: string;
+  public_team_profile_id?: string;
+  season_name?: string;
+  season_year?: number;
+  age_group?: string;
+};
 
 async function listTeams(req: APIRequestContext): Promise<MeTeam[]> {
   const teams = await apiGet<MeTeam[] | { teams: MeTeam[] }>(req, "/me/teams?include=user_team_associations,team_public_profile_id");
@@ -214,7 +229,7 @@ async function main() {
 
 async function captureTeam(req: APIRequestContext, page: Page, team: MeTeam) {
   const gcTeamId = team.id;
-  const publicId = team.public_team_profile_id ?? gcTeamId;
+  const publicId = team.public_id ?? team.public_team_profile_id ?? gcTeamId;
   log(`Capturing "${team.name}" (${gcTeamId})`);
 
   const cacheFile = join(cacheDir, `${gcTeamId}.json`);
@@ -258,9 +273,11 @@ async function captureTeam(req: APIRequestContext, page: Page, team: MeTeam) {
       gc_team_id: gcTeamId,
       gc_public_id: publicId,
       name: team.name ?? "Unknown Team",
-      season_name: team.season ?? null,
+      // GameChanger gives season_name as "summer"/"fall"/… — title-case + year
+      // for a readable "Summer 2023".
+      season_name: seasonLabel(team.season_name, team.season_year),
       season_year: team.season_year ?? null,
-      level: null,
+      level: team.age_group ?? null,
       org_name: null,
     },
     roster,

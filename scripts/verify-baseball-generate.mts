@@ -51,8 +51,9 @@ check("3 team_player upserts", count(/INSERT INTO baseball_team_players/g) === 3
 check("2 game upserts", count(/INSERT INTO baseball_games/g) === 2);
 check("3 season stat upserts", count(/INSERT INTO baseball_season_player_stats/g) === 3);
 check("3 game player stat upserts", count(/INSERT INTO baseball_game_player_stats/g) === 3);
-check("2 game event upserts", count(/INSERT INTO baseball_game_events/g) === 2);
-check("17 INSERT statements", count(/INSERT INTO/g) === 17, count(/INSERT INTO/g));
+check("no game events by default (too large for the migration)", count(/INSERT INTO baseball_game_events/g) === 0);
+check("includeEvents emits 2 event upserts", (buildMigrationSql([cache], registry, { includeEvents: true }).match(/INSERT INTO baseball_game_events/g) ?? []).length === 2);
+check("15 INSERT statements (no events)", count(/INSERT INTO/g) === 15, count(/INSERT INTO/g));
 check("every statement is ON CONFLICT DO UPDATE", count(/ON CONFLICT/g) === count(/INSERT INTO/g) && count(/DO UPDATE/g) === count(/INSERT INTO/g));
 check("kid user_id resolved via family_members subquery", /family_members WHERE lower\(name\) = lower\('Sebastian'\)/.test(sql));
 // Escaping: a value containing an apostrophe is doubled, never emitted raw.
@@ -98,7 +99,7 @@ if (out) {
   check("games = 2", games === 2, games);
   check("game player stats = 3", gstats === 3, gstats);
   check("season stats = 3", sstats === 3, sstats);
-  check("game events = 2", events === 2, events);
+  check("game events = 0 (events excluded by default)", events === 0, events);
 }
 
 console.log("");

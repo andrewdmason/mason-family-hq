@@ -63,7 +63,12 @@ const teamPlayerRef = (gcTeam: string, gcPlayer: string) =>
 const familyMemberRef = (name: string) =>
   `(SELECT user_id FROM family_members WHERE lower(name) = lower(${q(name)}) AND role = 'kid')`;
 
-export function buildMigrationSql(caches: Cache[], registry: Registry): string {
+// Raw play-by-play event logs are huge (tens of MB across a full backlog) and
+// the app renders no view of them, so they are NOT embedded in the migration by
+// default — the queryable per-game box scores already provide the granular
+// archive. The raw logs remain in the capture cache; pass includeEvents to embed
+// them (impractical for a large batch).
+export function buildMigrationSql(caches: Cache[], registry: Registry, opts: { includeEvents?: boolean } = {}): string {
   // Guard: every captured roster player must already be resolved in the registry
   // (R8/R9 — identity is confirmed before generation, never guessed here).
   const unresolved: string[] = [];
@@ -143,7 +148,7 @@ export function buildMigrationSql(caches: Cache[], registry: Registry): string {
       );
     }
 
-    out.push("-- per-game box scores + raw events");
+    out.push(`-- per-game box scores${opts.includeEvents ? " + raw events" : ""}`);
     for (const [gcGameId, gs] of Object.entries(c.gameStats)) {
       for (const line of gs.linked) {
         if (!rosterIds.has(line.gc_player_id)) continue;
@@ -153,7 +158,7 @@ export function buildMigrationSql(caches: Cache[], registry: Registry): string {
             `  ON CONFLICT (game_id, team_player_id) DO UPDATE SET batting = EXCLUDED.batting, pitching = EXCLUDED.pitching;`,
         );
       }
-      if (gs.events) {
+      if (opts.includeEvents && gs.events) {
         out.push(
           `INSERT INTO baseball_game_events (game_id, gc_stream_id, events)\n` +
             `  VALUES (${gameRef(gcGameId)}, ${q(gs.events.gc_stream_id)}, ${jb(gs.events.events)})\n` +
