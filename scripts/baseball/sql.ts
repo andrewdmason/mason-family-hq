@@ -101,6 +101,11 @@ export function buildMigrationSql(caches: Cache[], registry: Registry): string {
 
   for (const c of caches) {
     const t = c.team;
+    // team_players are created from the roster; only stats for those players can
+    // resolve a team_player_id. GameChanger's season-stats blob often lists more
+    // players than the current roster (guests, departed) — skip them rather than
+    // emit a NULL FK that would abort the whole migration.
+    const rosterIds = new Set(c.roster.map((p) => p.gc_player_id));
     out.push(`-- ===== Team: ${t.name} (${t.season_name ?? ""}) =====`);
     out.push(
       `INSERT INTO baseball_teams (gc_team_id, gc_public_id, name, season_name, season_year, level, org_name)\n` +
@@ -127,8 +132,10 @@ export function buildMigrationSql(caches: Cache[], registry: Registry): string {
       );
     }
 
-    out.push("-- season stats");
+    const skippedSeason = c.seasonStats.filter((s) => !rosterIds.has(s.gc_player_id)).length;
+    out.push(`-- season stats${skippedSeason ? ` (skipped ${skippedSeason} not on roster)` : ""}`);
     for (const s of c.seasonStats) {
+      if (!rosterIds.has(s.gc_player_id)) continue;
       out.push(
         `INSERT INTO baseball_season_player_stats (team_id, team_player_id, stats)\n` +
           `  VALUES (${teamRef(t.gc_team_id)}, ${teamPlayerRef(t.gc_team_id, s.gc_player_id)}, ${jb(s.stats)})\n` +
@@ -139,6 +146,7 @@ export function buildMigrationSql(caches: Cache[], registry: Registry): string {
     out.push("-- per-game box scores + raw events");
     for (const [gcGameId, gs] of Object.entries(c.gameStats)) {
       for (const line of gs.linked) {
+        if (!rosterIds.has(line.gc_player_id)) continue;
         out.push(
           `INSERT INTO baseball_game_player_stats (game_id, team_player_id, batting, pitching)\n` +
             `  VALUES (${gameRef(gcGameId)}, ${teamPlayerRef(t.gc_team_id, line.gc_player_id)}, ${jb(line.batting)}, ${jb(line.pitching)})\n` +

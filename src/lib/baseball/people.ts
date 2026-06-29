@@ -15,8 +15,13 @@ export async function getKids(): Promise<Kid[]> {
   return (data ?? []).map((p) => ({ slug: p.slug, displayName: p.display_name }));
 }
 
-export async function resolvePerson(slug: string): Promise<{ id: string; displayName: string } | null> {
-  const sb = await createClient();
+type Client = Awaited<ReturnType<typeof createClient>>;
+
+export async function resolvePerson(
+  slug: string,
+  client?: Client,
+): Promise<{ id: string; displayName: string } | null> {
+  const sb = client ?? (await createClient());
   const { data } = await sb
     .from("baseball_people")
     .select("id, display_name")

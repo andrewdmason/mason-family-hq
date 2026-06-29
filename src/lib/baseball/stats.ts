@@ -13,11 +13,19 @@ const int = (v: unknown): string => {
   return Number.isFinite(n) ? String(Math.round(n)) : "—";
 };
 // Baseball rate stats render as ".273" (no leading zero), 3 places.
-const rate3 = (v: unknown): string => {
+export const rate3 = (v: unknown): string => {
   const n = Number(v);
   if (!Number.isFinite(n)) return "—";
   const s = n.toFixed(3);
   return s.startsWith("0") ? s.slice(1) : s;
+};
+
+// A YYYY-MM-DD game date as a short human label. Noon anchor avoids the UTC
+// off-by-one that bites bare `new Date("YYYY-MM-DD")`.
+export const formatGameDate = (date: string | null): string => {
+  if (!date) return "";
+  const d = new Date(`${date}T12:00:00`);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 };
 const dec2 = (v: unknown): string => {
   const n = Number(v);

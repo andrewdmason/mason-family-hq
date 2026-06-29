@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
-import { SEASON_BATTING, SEASON_PITCHING, row as statRow } from "@/lib/baseball/stats";
+import { SEASON_BATTING, SEASON_PITCHING, row as statRow, formatGameDate } from "@/lib/baseball/stats";
 import type { RosterStatRow, SeasonDetail } from "@/lib/baseball/types";
 import { MoreStatsSheet } from "./more-stats-sheet";
 import { cn } from "@/lib/utils";
@@ -121,7 +121,7 @@ export function SeasonView({ kidSlug, detail }: { kidSlug: string; detail: Seaso
                     {g.teamScore != null && g.opponentScore != null && (
                       <span className="tabular-nums text-foreground">{g.teamScore}–{g.opponentScore}</span>
                     )}
-                    <span className="text-xs">{g.playedOn ?? ""}</span>
+                    <span className="text-xs">{formatGameDate(g.playedOn)}</span>
                   </span>
                 </Link>
               </li>

@@ -2,6 +2,7 @@
 
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { rate3 } from "@/lib/baseball/stats";
 
 const COLORS = { avg: "#2563eb", ops: "#d97706" };
 
@@ -16,7 +17,7 @@ function ChartTooltip({ active, payload, label }: any) {
       {payload.map((p: { name: string; value: number; color: string }) => (
         <div key={p.name} className="flex items-center gap-2 text-muted-foreground">
           <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
-          {p.name}: <span className="text-foreground">{p.value?.toFixed(3).replace(/^0/, "")}</span>
+          {p.name}: <span className="text-foreground">{rate3(p.value)}</span>
         </div>
       ))}
     </div>

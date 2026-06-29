@@ -30,9 +30,9 @@ function splitStats(stats: StatBlob | null | undefined): { batting: StatBlob | n
 
 // A boy's career: every team-season he appears on, with his season line.
 export async function getCareer(slug: string): Promise<{ name: string; seasons: SeasonRow[] } | null> {
-  const person = await resolvePerson(slug);
-  if (!person) return null;
   const sb = await createClient();
+  const person = await resolvePerson(slug, sb); // the team_players query filters on person.id
+  if (!person) return null;
   const { data } = await sb
     .from("baseball_team_players")
     .select("id, baseball_teams(id, name, season_name, season_year, level), baseball_season_player_stats(stats)")
@@ -60,24 +60,22 @@ export async function getCareer(slug: string): Promise<{ name: string; seasons: 
 // One team-season: roster stat table (boy highlighted) + game log.
 export async function getSeason(teamId: string, slug: string): Promise<SeasonDetail | null> {
   const sb = await createClient();
-  const { data: team } = await sb
-    .from("baseball_teams")
-    .select("id, name, season_name, season_year, level")
-    .eq("id", teamId)
-    .maybeSingle();
+  // These four reads are independent — run them together.
+  const [{ data: team }, person, { data: roster }, { data: games }] = await Promise.all([
+    sb.from("baseball_teams").select("id, name, season_name, season_year, level").eq("id", teamId).maybeSingle(),
+    resolvePerson(slug, sb),
+    sb
+      .from("baseball_team_players")
+      .select("id, name, jersey, person_id, baseball_season_player_stats(stats)")
+      .eq("team_id", teamId)
+      .order("name"),
+    sb
+      .from("baseball_games")
+      .select("id, played_on, opponent_name, home_away, team_score, opponent_score, result")
+      .eq("team_id", teamId)
+      .order("played_on", { nullsFirst: false }),
+  ]);
   if (!team) return null;
-
-  const person = await resolvePerson(slug);
-  const { data: roster } = await sb
-    .from("baseball_team_players")
-    .select("id, name, jersey, person_id, baseball_season_player_stats(stats)")
-    .eq("team_id", teamId)
-    .order("name");
-  const { data: games } = await sb
-    .from("baseball_games")
-    .select("id, played_on, opponent_name, home_away, team_score, opponent_score, result")
-    .eq("team_id", teamId)
-    .order("played_on", { nullsFirst: false });
 
   return {
     team: { id: team.id, name: team.name, seasonName: team.season_name, seasonYear: team.season_year, level: team.level },
@@ -101,18 +99,19 @@ export async function getSeason(teamId: string, slug: string): Promise<SeasonDet
 // One game's full box score.
 export async function getGame(gameId: string, slug: string): Promise<GameDetail | null> {
   const sb = await createClient();
-  const { data: game } = await sb
-    .from("baseball_games")
-    .select("id, played_on, opponent_name, home_away, team_score, opponent_score, result, team_id, baseball_teams(id, name)")
-    .eq("id", gameId)
-    .maybeSingle();
+  const [{ data: game }, person, { data: rows }] = await Promise.all([
+    sb
+      .from("baseball_games")
+      .select("id, played_on, opponent_name, home_away, team_score, opponent_score, result, team_id, baseball_teams(id, name)")
+      .eq("id", gameId)
+      .maybeSingle(),
+    resolvePerson(slug, sb),
+    sb
+      .from("baseball_game_player_stats")
+      .select("batting, pitching, baseball_team_players(name, jersey, person_id)")
+      .eq("game_id", gameId),
+  ]);
   if (!game) return null;
-
-  const person = await resolvePerson(slug);
-  const { data: rows } = await sb
-    .from("baseball_game_player_stats")
-    .select("batting, pitching, baseball_team_players(name, jersey, person_id)")
-    .eq("game_id", gameId);
 
   const team = firstOf<{ id: string; name: string }>(game.baseball_teams);
   return {

@@ -85,6 +85,20 @@ check("Sebastian pitching IP2 SO3", seb.pitching!.IP === 2 && seb.pitching!.SO =
 // select-by-name also works
 check("select by team name", parseBoxScore(box, { name: "SFAL 9U All Stars" }).length === away.length);
 
+// extras attribution survives first-name-only labels vs full-name notes
+const fnBox = {
+  gc_game_id: "g",
+  teams: [{
+    side: "home" as const,
+    name: "Test",
+    batting: [{ label: "Levi #42", values: ["3", "1", "1", "0", "0", "0"] }],
+    pitching: [],
+    notes: { "2B": "Levi Evans", HR: "Levi Evans 2" },
+  }],
+};
+const fnLevi = parseBoxScore(fnBox, { side: "home" }).find((p) => p.jersey === "42");
+check("first-name label gets extras from full-name note", !!fnLevi && fnLevi.batting!["2B"] === 1 && fnLevi.batting!.HR === 2, fnLevi?.batting);
+
 // ---- roster + linking (AE: link box lines back to gc ids) ----
 console.log("parseRoster + linkBoxScoreToRoster");
 const roster = parseRoster(fix("roster-sample.json"));

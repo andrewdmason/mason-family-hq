@@ -90,6 +90,17 @@ function parseNoteCounts(note: string | undefined): Map<string, number> {
   return out;
 }
 
+// Box-score batting labels are often first-name-only (jersey is the join key),
+// while the notes block carries fuller names — so match when one name's tokens
+// are a subset of the other's ("Levi" matches note "Levi Evans").
+function nameMatches(playerName: string, noteName: string): boolean {
+  const a = normalizeName(playerName).split(" ").filter(Boolean);
+  const b = normalizeName(noteName).split(" ").filter(Boolean);
+  if (!a.length || !b.length) return false;
+  const [small, big] = a.length <= b.length ? [a, new Set(b)] : [b, new Set(a)];
+  return small.every((t) => big.has(t));
+}
+
 function toInt(v: string | undefined): number {
   const n = parseInt(String(v ?? "").replace(/[^\d-]/g, ""), 10);
   return Number.isFinite(n) ? n : 0;
@@ -119,18 +130,13 @@ export function parseBoxScore(
   ourSide: { side?: "home" | "away"; name?: string },
 ): BoxScorePlayer[] {
   if (!capture?.teams?.length) throw new Error("box score has no teams");
+  // Prefer matching our side by team name (robust to DOM block order); fall back
+  // to the home/away flag.
   const side =
-    capture.teams.find((t) =>
-      ourSide.side ? t.side === ourSide.side : normalizeName(t.name) === normalizeName(ourSide.name ?? ""),
-    ) ?? null;
+    (ourSide.name ? capture.teams.find((t) => normalizeName(t.name) === normalizeName(ourSide.name!)) : null) ??
+    (ourSide.side ? capture.teams.find((t) => t.side === ourSide.side) : null) ??
+    null;
   if (!side) throw new Error(`box score has no side matching ${JSON.stringify(ourSide)}`);
-
-  const extras: Record<string, Map<string, number>> = {
-    "2B": parseNoteCounts(side.notes?.["2B"]),
-    "3B": parseNoteCounts(side.notes?.["3B"]),
-    HR: parseNoteCounts(side.notes?.HR),
-    SB: parseNoteCounts(side.notes?.SB),
-  };
 
   const players = new Map<string, BoxScorePlayer>();
   const keyFor = (name: string, jersey: string | null) => `${normalizeName(name)}#${jersey ?? ""}`;
@@ -139,13 +145,9 @@ export function parseBoxScore(
     const { name, jersey } = parseLabel(row.label);
     if (normalizeName(name) === "team" || (!name && !jersey)) continue;
     const v = row.values;
-    const nk = normalizeName(name);
     const batting: BattingLine = {
       AB: toInt(v[0]), R: toInt(v[1]), H: toInt(v[2]), RBI: toInt(v[3]), BB: toInt(v[4]), SO: toInt(v[5]),
-      "2B": extras["2B"].get(nk) ?? 0,
-      "3B": extras["3B"].get(nk) ?? 0,
-      HR: extras.HR.get(nk) ?? 0,
-      SB: extras.SB.get(nk) ?? 0,
+      "2B": 0, "3B": 0, HR: 0, SB: 0,
     };
     players.set(keyFor(name, jersey), { name, jersey, batting, pitching: null });
   }
@@ -161,6 +163,16 @@ export function parseBoxScore(
     const existing = players.get(k);
     if (existing) existing.pitching = pitching;
     else players.set(k, { name, jersey, batting: null, pitching });
+  }
+
+  // Attribute extra-base/steal counts from the notes block to batters by flexible
+  // name match (labels may be first-name-only; notes carry fuller names).
+  const batters = [...players.values()].filter((p) => p.batting);
+  for (const stat of ["2B", "3B", "HR", "SB"] as const) {
+    for (const [noteName, count] of parseNoteCounts(side.notes?.[stat])) {
+      const target = batters.find((p) => nameMatches(p.name, noteName));
+      if (target && target.batting) target.batting[stat] += count;
+    }
   }
 
   return [...players.values()];
@@ -191,11 +203,14 @@ export function parseGameSummaries(arr: unknown): GameSummary[] {
   return arr.map((g) => {
     const team = g.owning_team_score ?? null;
     const opp = g.opponent_team_score ?? null;
+    const ha = g.home_away ?? g.game_stream?.home_away ?? null;
     return {
       gc_game_id: g.event_id,
       gc_stream_id: g.game_stream?.id ?? null,
       opponent_id: g.game_stream?.opponent_id ?? g.opponent_id ?? null,
-      home_away: g.home_away ?? g.game_stream?.home_away ?? null,
+      // Only the values the DB CHECK allows; anything else becomes null so it
+      // can't abort the generated migration.
+      home_away: ha === "home" || ha === "away" ? ha : null,
       team_score: team,
       opponent_score: opp,
       result: resultOf(team, opp),

@@ -21,7 +21,8 @@
   "seasonStats": [
     { "gc_player_id": "pl-seb", "stats": { "offense": { "AVG": 0.5, "OPS": 1.2, "H": 6, "AB": 12, "HR": 1 }, "defense": { "IP": 5 }, "general": { "GP": 2 } } },
     { "gc_player_id": "pl-marc", "stats": { "offense": { "AVG": 0.3, "OPS": 0.7, "H": 3, "AB": 10 }, "general": { "GP": 2 } } },
-    { "gc_player_id": "pl-carter", "stats": { "offense": { "AVG": 0.4, "OPS": 0.9, "H": 4, "AB": 10 }, "general": { "GP": 2 } } }
+    { "gc_player_id": "pl-carter", "stats": { "offense": { "AVG": 0.4, "OPS": 0.9, "H": 4, "AB": 10 }, "general": { "GP": 2 } } },
+    { "gc_player_id": "pl-ghost", "stats": { "offense": { "AVG": 0.2, "H": 1, "AB": 5 }, "general": { "GP": 1 } } }
   ],
   "gameStats": {
     "g-1": {

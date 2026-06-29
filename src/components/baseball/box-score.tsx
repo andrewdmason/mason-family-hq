@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
-import { GAME_BATTING, GAME_PITCHING, row as statRow } from "@/lib/baseball/stats";
+import { GAME_BATTING, GAME_PITCHING, row as statRow, formatGameDate } from "@/lib/baseball/stats";
 import type { GameDetail } from "@/lib/baseball/types";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +30,7 @@ export function BoxScore({ kidSlug, detail }: { kidSlug: string; detail: GameDet
           {game.teamScore != null && game.opponentScore != null && (
             <span className="tabular-nums text-foreground">{game.teamScore}–{game.opponentScore}</span>
           )}
-          <span className="text-xs text-muted-foreground">{game.playedOn ?? ""}</span>
+          <span className="text-xs text-muted-foreground">{formatGameDate(game.playedOn)}</span>
         </span>
       </div>
 

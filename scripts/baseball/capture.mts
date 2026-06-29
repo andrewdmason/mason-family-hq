@@ -199,7 +199,9 @@ async function main() {
       await page.goto(`${WEB}/teams/${publicId}/x/schedule/${g.gc_game_id}/box-score`, { waitUntil: "domcontentloaded" });
       await page.waitForTimeout(2500); // let the stat engine compute
       const box = await scrapeBoxScore(page, g.gc_game_id);
-      const ourPlayers = parseBoxScore(box, { side: g.home_away ?? "home" });
+      // Match our side by team name first (DOM block order isn't guaranteed),
+      // falling back to the home/away flag.
+      const ourPlayers = parseBoxScore(box, { name: team.name ?? undefined, side: g.home_away ?? undefined });
       const { linked, unmatched } = linkBoxScoreToRoster(ourPlayers, roster);
       if (unmatched.length) log(`  ⚠ game ${g.gc_game_id}: ${unmatched.length} box rows unmatched to roster (${unmatched.map((u) => u.name || u.jersey).join(", ")})`);
       const eventsRaw = await apiGet<unknown>(req, `/game-streams/gamestream-viewer-payload-lite/${g.gc_game_id}?include_stat_edits=true`);
