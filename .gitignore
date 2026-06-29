@@ -54,3 +54,6 @@ next-env.d.ts
 # chrome reader extension build artifacts
 /extension/node_modules/
 /extension/dist/
+
+# Baseball importer capture cache + browser profile (local, never committed)
+scripts/baseball/.cache/
