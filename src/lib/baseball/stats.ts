@@ -67,6 +67,22 @@ export const SEASON_PITCHING: StatCol[] = [
   { key: "H", label: "H", fmt: int },
 ];
 
+// Condensed lines for the career "Teams" overview — just the top-level rates +
+// a couple of counting stats.
+export const CAREER_BATTING: StatCol[] = [
+  { key: "AVG", label: "AVG", fmt: rate3 },
+  { key: "OPS", label: "OPS", fmt: rate3 },
+  { key: "HR", label: "HR", fmt: int },
+  { key: "RBI", label: "RBI", fmt: int },
+  { key: "SB", label: "SB", fmt: int },
+];
+
+export const CAREER_PITCHING: StatCol[] = [
+  { key: "IP", label: "IP", fmt: formatIP },
+  { key: "ERA", label: "ERA", fmt: dec2 },
+  { key: "SO", label: "K", fmt: int },
+];
+
 export const GAME_BATTING: StatCol[] = [
   { key: "AB", label: "AB", fmt: int },
   { key: "R", label: "R", fmt: int },

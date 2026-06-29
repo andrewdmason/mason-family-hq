@@ -229,18 +229,21 @@ export function parseGameSummaries(arr: unknown): GameSummary[] {
   });
 }
 
-// Schedule supplies date + opponent name (game-summaries only has opponent_id).
-// Defensive over GameChanger field-name variation; returns event_id -> details.
+// Schedule supplies the game date + opponent name (game-summaries only carries
+// an opponent_id). Each item is `{ event, pregame_data }`: the event holds the
+// id and `start.datetime`; pregame_data holds `opponent_name`. Tolerant of a
+// flat shape too. Returns event_id -> details.
 export function parseSchedule(arr: unknown): Map<string, { played_on: string | null; opponent_name: string | null }> {
   const out = new Map<string, { played_on: string | null; opponent_name: string | null }>();
   if (!Array.isArray(arr)) return out;
-  for (const e of arr) {
-    const id = e.event_id ?? e.id ?? e.game_id;
+  for (const item of arr) {
+    const e = item?.event ?? item;
+    const pre = item?.pregame_data ?? {};
+    const id = e?.id ?? e?.event_id ?? e?.game_id;
     if (!id) continue;
-    const start = e.start ?? e.start_at ?? e.scheduled_at ?? e.starttime ?? e.event_start;
+    const start = e?.start?.datetime ?? e?.start ?? e?.start_at ?? e?.scheduled_at;
     const played_on = start ? String(start).slice(0, 10) : null;
-    const opponent_name =
-      e.opponent_name ?? e.opponent?.name ?? e.opponent ?? e.opponent_label ?? null;
+    const opponent_name = pre?.opponent_name ?? e?.opponent_name ?? e?.opponent?.name ?? null;
     out.set(id, { played_on, opponent_name: opponent_name ? String(opponent_name) : null });
   }
   return out;

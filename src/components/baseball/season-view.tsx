@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronDown, ChevronUp } from "lucide-react";
 import { SEASON_BATTING, SEASON_PITCHING, row as statRow, num, formatGameDate, type StatCol } from "@/lib/baseball/stats";
 import type { RosterStatRow, SeasonDetail } from "@/lib/baseball/types";
 import { MoreStatsSheet } from "./more-stats-sheet";
+import { Tabs } from "./tabs";
 import { cn } from "@/lib/utils";
 
 function record(games: SeasonDetail["games"]): string {
@@ -130,23 +131,8 @@ export function SeasonView({ kidSlug, detail }: { kidSlug: string; detail: Seaso
         </span>
       </div>
 
-      <div role="tablist" className="mt-5 flex gap-1 border-b border-border">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            role="tab"
-            aria-selected={tab === t.key}
-            onClick={() => setTab(t.key)}
-            className={cn(
-              "-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors",
-              tab === t.key
-                ? "border-foreground text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="mt-5">
+        <Tabs<TabKey> tabs={tabs} active={tab} onChange={setTab} />
       </div>
 
       <div className="mt-4">

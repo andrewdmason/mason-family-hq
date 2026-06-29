@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { getCareer } from "@/lib/baseball/teams";
-import { CareerTable } from "@/components/baseball/career-table";
+import { CareerView } from "@/components/baseball/career-view";
 
 export const dynamic = "force-dynamic";
 
@@ -19,10 +19,12 @@ export default async function CareerPage({ params }: { params: Promise<{ kid: st
       <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="font-serif text-2xl tracking-tight text-foreground">{career.name}</h1>
         <span className="text-sm text-muted-foreground">
-          {career.seasons.length} season{career.seasons.length === 1 ? "" : "s"}
+          {career.seasons.length} team{career.seasons.length === 1 ? "" : "s"}
         </span>
       </div>
-      <CareerTable kidSlug={kid} seasons={career.seasons} />
+      <div className="mt-5">
+        <CareerView kidSlug={kid} career={career} />
+      </div>
     </main>
   );
 }

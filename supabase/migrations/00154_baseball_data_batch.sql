@@ -626,70 +626,70 @@ INSERT INTO baseball_team_players (team_id, gc_player_id, person_id, name, jerse
   ON CONFLICT (team_id, gc_player_id) DO UPDATE SET person_id = EXCLUDED.person_id, name = EXCLUDED.name, jersey = EXCLUDED.jersey;
 -- games
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '462908f8-6764-4e8a-ac1d-a19362c7ffac', NULL, NULL, 'away', 18, 2, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '462908f8-6764-4e8a-ac1d-a19362c7ffac', '2026-02-07', 'Show California Bears 12U', 'away', 18, 2, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '70acfafb-f4fe-465d-ab19-75e5e6c39528', NULL, NULL, 'away', 11, 2, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '70acfafb-f4fe-465d-ab19-75e5e6c39528', '2026-02-14', 'Moraga Mavericks 12U', 'away', 11, 2, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '0afffe52-b019-4987-9de8-efa9c6a98d50', NULL, NULL, 'away', 13, 6, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '0afffe52-b019-4987-9de8-efa9c6a98d50', '2026-02-15', 'Duby Baseball 13U', 'away', 13, 6, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), 'bb5f26ac-a6f3-4ea9-ab00-e24703578b97', NULL, NULL, 'home', 6, 10, 'L', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), 'bb5f26ac-a6f3-4ea9-ab00-e24703578b97', '2026-02-22', 'DVBC Navy 12U', 'home', 6, 10, 'L', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '2f9667bb-b0c1-4d05-9ed2-bf667f0f9ba5', NULL, NULL, 'away', 9, 1, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '2f9667bb-b0c1-4d05-9ed2-bf667f0f9ba5', '2026-02-28', 'Lab Rats Detwiler 12U', 'away', 9, 1, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '506e46ca-6a78-419e-a23c-b10a6b65cd61', NULL, NULL, 'away', 4, 8, 'L', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '506e46ca-6a78-419e-a23c-b10a6b65cd61', '2026-02-28', 'TV Tigers Black 12U', 'away', 4, 8, 'L', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '335f2295-d765-41e5-bf59-ad95cfe9addf', NULL, NULL, 'away', 11, 12, 'L', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '335f2295-d765-41e5-bf59-ad95cfe9addf', '2026-03-01', 'Knights Baseball Program 12U Archibald', 'away', 11, 12, 'L', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '429a0dee-91c7-4586-9f34-785b13b610ea', NULL, NULL, 'away', 10, 6, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '429a0dee-91c7-4586-9f34-785b13b610ea', '2026-03-21', 'Natomas Dirtbags 12U', 'away', 10, 6, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), 'b40b8707-c9ff-4744-ad3d-c5f5bd67a98e', NULL, NULL, 'away', 11, 2, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), 'b40b8707-c9ff-4744-ad3d-c5f5bd67a98e', '2026-03-21', 'DWC Elite 12U', 'away', 11, 2, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '068e4e24-58cb-404f-81b3-b9561092977c', NULL, NULL, 'home', 7, 5, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '068e4e24-58cb-404f-81b3-b9561092977c', '2026-03-22', 'Aces Baseball Club Mayo 12U', 'home', 7, 5, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '73ec7efa-a9bb-4958-aeab-3838b871a11e', NULL, NULL, 'home', 12, 4, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '73ec7efa-a9bb-4958-aeab-3838b871a11e', '2026-03-22', 'Club All Star 12U White 2025-26', 'home', 12, 4, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '429afbf1-41be-4374-8b3d-f4009a0667ec', NULL, NULL, 'away', 11, 2, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '429afbf1-41be-4374-8b3d-f4009a0667ec', '2026-04-18', 'Pleasanton Outlaws 12U', 'away', 11, 2, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), 'ff3a02e0-1746-4a19-af66-3af11576e455', NULL, NULL, 'away', 12, 0, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), 'ff3a02e0-1746-4a19-af66-3af11576e455', '2026-04-19', 'Sierra Nevada Wolves 12U', 'away', 12, 0, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '146790bc-702b-45af-a22a-c4224bae1ebf', NULL, NULL, 'away', 15, 0, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '146790bc-702b-45af-a22a-c4224bae1ebf', '2026-05-24', 'Redding Rattlers 12U', 'away', 15, 0, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), 'cfeeed1e-6ffd-4b58-819d-3e1a3352d760', NULL, NULL, 'away', 8, 0, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), 'cfeeed1e-6ffd-4b58-819d-3e1a3352d760', '2026-05-24', 'Top Performance 12U', 'away', 8, 0, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '27841082-30da-41bf-a334-9ccbda1be4c3', NULL, NULL, 'home', 7, 6, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '27841082-30da-41bf-a334-9ccbda1be4c3', '2026-05-24', 'Mustangs Navy 12U', 'home', 7, 6, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), 'ba356d42-2276-4a20-9733-b6c55095e85e', NULL, NULL, 'home', 0, 7, 'L', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), 'ba356d42-2276-4a20-9733-b6c55095e85e', '2026-05-25', 'Laguna 12u Purple All-Stars', 'home', 0, 7, 'L', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), 'b6cb82f4-3715-47b1-af30-e14dffe7258e', NULL, NULL, 'away', 8, 10, 'L', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), 'b6cb82f4-3715-47b1-af30-e14dffe7258e', '2026-05-30', 'DVBC Navy 12U', 'away', 8, 10, 'L', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '965515a9-bc5f-42a9-a4f7-5f80d04795b2', NULL, NULL, 'away', 12, 2, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '965515a9-bc5f-42a9-a4f7-5f80d04795b2', '2026-02-07', 'Show California Bears 12U', 'away', 12, 2, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '1dee3e48-8ef9-481a-a8fa-571d0182d17b', NULL, NULL, 'home', 11, 3, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '1dee3e48-8ef9-481a-a8fa-571d0182d17b', '2026-03-22', 'All Pro 12U 2026', 'home', 11, 3, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), 'f4ec38b8-3dd6-4843-aca6-ba9e9a624115', NULL, NULL, 'away', 24, 2, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), 'f4ec38b8-3dd6-4843-aca6-ba9e9a624115', '2026-04-04', 'Mt. Tam Bucs 12U', 'away', 24, 2, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '2b2f2dba-bf96-4720-8760-f13bc81f9efe', NULL, NULL, 'home', 4, 5, 'L', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '036de24f-097e-4144-8f95-cd88178a3ce1'), '2b2f2dba-bf96-4720-8760-f13bc81f9efe', '2026-04-19', 'Club All Star 12U Blue 2025-26', 'home', 4, 5, 'L', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 -- season stats
 INSERT INTO baseball_season_player_stats (team_id, team_player_id, stats)
@@ -1574,22 +1574,22 @@ INSERT INTO baseball_team_players (team_id, gc_player_id, person_id, name, jerse
   ON CONFLICT (team_id, gc_player_id) DO UPDATE SET person_id = EXCLUDED.person_id, name = EXCLUDED.name, jersey = EXCLUDED.jersey;
 -- games
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1594229c-67a7-4449-a65c-fe77ca5dbf4c'), '51d1039d-3a73-4f48-bf27-74fd096a1172', NULL, NULL, 'home', 11, 7, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1594229c-67a7-4449-a65c-fe77ca5dbf4c'), '51d1039d-3a73-4f48-bf27-74fd096a1172', '2026-06-16', 'DANV LL 12 Tournament', 'home', 11, 7, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1594229c-67a7-4449-a65c-fe77ca5dbf4c'), '48a819ca-18de-4700-be5d-daf6ba54e90c', NULL, NULL, 'away', 9, 4, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1594229c-67a7-4449-a65c-fe77ca5dbf4c'), '48a819ca-18de-4700-be5d-daf6ba54e90c', '2026-06-20', 'LLL 12u All Stars', 'away', 9, 4, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1594229c-67a7-4449-a65c-fe77ca5dbf4c'), '02b63503-d67e-42bd-8bef-2f773d5b491b', NULL, NULL, 'away', 10, 5, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1594229c-67a7-4449-a65c-fe77ca5dbf4c'), '02b63503-d67e-42bd-8bef-2f773d5b491b', '2026-06-17', 'SFLL AL 12U All Stars', 'away', 10, 5, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1594229c-67a7-4449-a65c-fe77ca5dbf4c'), '2e638645-bbea-4bbf-8874-2fef75e50878', NULL, NULL, 'away', 8, 7, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1594229c-67a7-4449-a65c-fe77ca5dbf4c'), '2e638645-bbea-4bbf-8874-2fef75e50878', '2026-06-20', 'WCLL 12u All-Stars', 'away', 8, 7, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1594229c-67a7-4449-a65c-fe77ca5dbf4c'), '4b2129b4-5605-4102-85bf-614634484369', NULL, NULL, 'home', 10, 9, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1594229c-67a7-4449-a65c-fe77ca5dbf4c'), '4b2129b4-5605-4102-85bf-614634484369', '2026-06-25', 'Alameda 12u All Stars 2026', 'home', 10, 9, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1594229c-67a7-4449-a65c-fe77ca5dbf4c'), 'e5df0cf3-e736-4c71-a7e9-ed3317b2562e', NULL, NULL, 'away', 1, 2, 'L', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1594229c-67a7-4449-a65c-fe77ca5dbf4c'), 'e5df0cf3-e736-4c71-a7e9-ed3317b2562e', '2026-06-27', 'Martinez 12U All Stars', 'away', 1, 2, 'L', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 -- season stats
 INSERT INTO baseball_season_player_stats (team_id, team_player_id, stats)
@@ -1883,28 +1883,28 @@ INSERT INTO baseball_team_players (team_id, gc_player_id, person_id, name, jerse
   ON CONFLICT (team_id, gc_player_id) DO UPDATE SET person_id = EXCLUDED.person_id, name = EXCLUDED.name, jersey = EXCLUDED.jersey;
 -- games
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), 'fe924638-3322-4cdd-a436-21380985619a', NULL, NULL, 'home', 0, 17, 'L', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), 'fe924638-3322-4cdd-a436-21380985619a', '2024-03-16', 'Pleasant Hill Hawks - Weiler 10U', 'home', 0, 17, 'L', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), '0b704819-ae4c-41d7-bec1-46280d8ed8b2', NULL, NULL, 'away', 3, 18, 'L', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), '0b704819-ae4c-41d7-bec1-46280d8ed8b2', '2024-03-16', 'Toros 10U', 'away', 3, 18, 'L', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), 'daa24966-092a-4843-99f8-f7354594bd54', NULL, NULL, 'away', 12, 3, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), 'daa24966-092a-4843-99f8-f7354594bd54', '2024-03-17', 'Knights Baseball Program 10U-Noa', 'away', 12, 3, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), 'dc8f7942-c8b1-42aa-9592-241086155230', NULL, NULL, 'away', 7, 14, 'L', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), 'dc8f7942-c8b1-42aa-9592-241086155230', '2024-03-17', 'Toros 10U', 'away', 7, 14, 'L', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), 'a4811974-7f93-4915-bf85-5b1f0cfa8d7b', NULL, NULL, 'away', 14, 7, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), 'a4811974-7f93-4915-bf85-5b1f0cfa8d7b', '2024-05-25', 'CCB 10U', 'away', 14, 7, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), 'ee29d986-0927-4ac6-938e-37e46b6383f8', NULL, NULL, 'home', 8, 11, 'L', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), 'ee29d986-0927-4ac6-938e-37e46b6383f8', '2024-05-28', 'CCB 10U', 'home', 8, 11, 'L', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), 'a95e179c-cb86-4d5c-8707-af3cca3e8c78', NULL, NULL, 'home', 7, 6, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), 'a95e179c-cb86-4d5c-8707-af3cca3e8c78', '2024-05-25', 'Orinda Bandits 10U', 'home', 7, 6, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), 'ef1481a6-0a7c-4855-8ab1-12bf46bb55c8', NULL, NULL, 'away', 9, 8, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1a829086-b973-4eb5-b281-469bc85a2b73'), 'ef1481a6-0a7c-4855-8ab1-12bf46bb55c8', '2024-05-26', 'Hollister Headhunters 10U', 'away', 9, 8, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 -- season stats
 INSERT INTO baseball_season_player_stats (team_id, team_player_id, stats)
@@ -2285,22 +2285,22 @@ INSERT INTO baseball_team_players (team_id, gc_player_id, person_id, name, jerse
   ON CONFLICT (team_id, gc_player_id) DO UPDATE SET person_id = EXCLUDED.person_id, name = EXCLUDED.name, jersey = EXCLUDED.jersey;
 -- games
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1baf81e6-648c-47ae-8355-405450a81576'), 'a8165963-be61-4ec2-a817-4ba1ff378721', NULL, NULL, 'away', 15, 7, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1baf81e6-648c-47ae-8355-405450a81576'), 'a8165963-be61-4ec2-a817-4ba1ff378721', '2025-06-14', 'SOLL Stars 11U', 'away', 15, 7, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1baf81e6-648c-47ae-8355-405450a81576'), '8e9cec0d-83eb-4af8-b780-0c8ce11f5b8d', NULL, NULL, 'away', 12, 2, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1baf81e6-648c-47ae-8355-405450a81576'), '8e9cec0d-83eb-4af8-b780-0c8ce11f5b8d', '2025-06-21', 'WCLL 11U District All Stars', 'away', 12, 2, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1baf81e6-648c-47ae-8355-405450a81576'), 'eac00fb1-3784-4998-aed3-3fdc2ded53d4', NULL, NULL, 'home', 0, 12, 'L', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1baf81e6-648c-47ae-8355-405450a81576'), 'eac00fb1-3784-4998-aed3-3fdc2ded53d4', '2025-06-28', 'Alameda 11U All Stars', 'home', 0, 12, 'L', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1baf81e6-648c-47ae-8355-405450a81576'), 'b97cfc9e-8aef-48e1-945b-a5a22652892a', NULL, NULL, 'away', 5, 9, 'L', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1baf81e6-648c-47ae-8355-405450a81576'), 'b97cfc9e-8aef-48e1-945b-a5a22652892a', '2025-06-15', 'SFLL 11U', 'away', 5, 9, 'L', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1baf81e6-648c-47ae-8355-405450a81576'), '22655b33-d892-422f-a034-c5cde78a0b60', NULL, NULL, 'home', 12, 9, 'W', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1baf81e6-648c-47ae-8355-405450a81576'), '22655b33-d892-422f-a034-c5cde78a0b60', '2025-06-19', '9-11 All Stars ECLL', 'home', 12, 9, 'W', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 INSERT INTO baseball_games (team_id, gc_game_id, played_on, opponent_name, home_away, team_score, opponent_score, result, status)
-  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1baf81e6-648c-47ae-8355-405450a81576'), '93b16b1a-3dbd-454a-8b33-43b23a00ddef', NULL, NULL, 'home', 2, 6, 'L', 'completed')
+  VALUES ((SELECT id FROM baseball_teams WHERE gc_team_id = '1baf81e6-648c-47ae-8355-405450a81576'), '93b16b1a-3dbd-454a-8b33-43b23a00ddef', '2025-07-01', 'Lafayette 11U Allstars', 'home', 2, 6, 'L', 'completed')
   ON CONFLICT (gc_game_id) DO UPDATE SET played_on = EXCLUDED.played_on, opponent_name = EXCLUDED.opponent_name, home_away = EXCLUDED.home_away, team_score = EXCLUDED.team_score, opponent_score = EXCLUDED.opponent_score, result = EXCLUDED.result, status = EXCLUDED.status;
 -- season stats
 INSERT INTO baseball_season_player_stats (team_id, team_player_id, stats)

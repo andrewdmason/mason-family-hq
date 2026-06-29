@@ -140,10 +140,13 @@ const ev = parseEvents(fix("game-events-sample.json"));
 check("stream id present", typeof ev.gc_stream_id === "string" && ev.gc_stream_id.length > 0);
 check("360 raw events archived", ev.events.length === 360, ev.events.length);
 
-// ---- schedule (defensive) ----
+// ---- schedule (real { event, pregame_data } wrapper) ----
 console.log("parseSchedule");
-const sched = parseSchedule([{ event_id: "g1", start: "2023-06-04T17:00:00Z", opponent_name: "Wildcats" }]);
-check("schedule maps date + opponent", sched.get("g1")?.played_on === "2023-06-04" && sched.get("g1")?.opponent_name === "Wildcats", sched.get("g1"));
+const sched = parseSchedule([
+  { event: { id: "g1", start: { datetime: "2023-06-04T22:00:00.000Z" } }, pregame_data: { opponent_name: "SFAL 9U All Stars" } },
+]);
+check("schedule maps date from event.start.datetime + opponent from pregame_data",
+  sched.get("g1")?.played_on === "2023-06-04" && sched.get("g1")?.opponent_name === "SFAL 9U All Stars", sched.get("g1"));
 
 // ---- innings helper ----
 console.log("parseInnings");
