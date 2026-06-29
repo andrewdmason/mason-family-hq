@@ -10,6 +10,7 @@ import {
   CalendarRange,
   Check,
   ChevronDown,
+  CircleDot,
   Coins,
   Dumbbell,
   GraduationCap,
@@ -116,6 +117,13 @@ const APPS: App[] = [
     match: "/workouts",
     description: "Training log & progress",
     icon: Dumbbell,
+  },
+  {
+    href: "/baseball",
+    label: "Baseball",
+    match: "/baseball",
+    description: "Season-by-season stats",
+    icon: CircleDot,
   },
 ];
 
