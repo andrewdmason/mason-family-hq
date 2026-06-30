@@ -1,15 +1,16 @@
-// Generate a big starter bank of trivia questions across the topics/levels/types
-// the family discussed, run each through the adversarial verifier, and emit the
-// verified ones as a committed data-migration seed (mirrors the baseball
-// "generated, idempotent data migration" pattern). Questions that fail
-// verification are dropped. Run:
+// Generate a wave of trivia questions across the family's topics/levels/types,
+// run each through the adversarial verifier, and emit the verified ones as a
+// committed data-migration seed (mirrors the baseball "generated data migration"
+// pattern). On merge to main, .github/workflows/migrate.yml applies the migration
+// to production. Questions that fail verification are dropped. Run:
 //   npx tsx --tsconfig scripts/tsconfig.json scripts/games/seed-starter-questions.mts
 //
-// Requires ANTHROPIC_API_KEY. Re-running regenerates the migration file from
-// scratch (new questions); commit the result.
+// Requires ANTHROPIC_API_KEY. Each run AUTO-NUMBERS a NEW migration (the next
+// available 00NNN), so it tops up the bank rather than overwriting an existing
+// seed — safe to run repeatedly. Commit the new migration file it writes.
 
 import { config } from "dotenv";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 config({ path: ".env.local" });
@@ -27,32 +28,46 @@ const AUDIENCE: Record<TriviaLevel, string> = {
 
 type Plan = { topic: string; level: TriviaLevel; type: TriviaType; count: number };
 
-// The starter plan, covering everything we talked through: Oscar's 5th-grade
-// curriculum + interests, Sebastian's 7th-grade curriculum + interests, the
-// parents' wheelhouses, and general/all-ages categories.
+// A wave of topics across Oscar's 5th-grade curriculum + interests, Sebastian's
+// 7th-grade curriculum + interests, the parents' wheelhouses, and general/all-ages
+// categories. Re-running with different topics here tops up the bank further.
 const PLAN: Plan[] = [
   // Younger kid (Oscar)
-  { topic: "The 13 Colonies and the American Revolution", level: "younger_kid", type: "mc", count: 8 },
-  { topic: "The 13 Colonies and the American Revolution", level: "younger_kid", type: "list", count: 3 },
-  { topic: "Elementary math: number sense, place value, and math facts", level: "younger_kid", type: "mc", count: 6 },
-  { topic: "Modern Major League Baseball (players, teams, recent seasons)", level: "younger_kid", type: "mc", count: 6 },
-  { topic: "The books Holes, The Phantom Tollbooth, and Wonder", level: "younger_kid", type: "mc", count: 6 },
+  { topic: "U.S. states and their capitals", level: "younger_kid", type: "mc", count: 7 },
+  { topic: "The solar system, planets, and space", level: "younger_kid", type: "mc", count: 7 },
+  { topic: "Multiplication and division facts", level: "younger_kid", type: "mc", count: 7 },
+  { topic: "Dinosaurs and prehistoric life", level: "younger_kid", type: "mc", count: 6 },
+  { topic: "Minecraft and popular video games", level: "younger_kid", type: "mc", count: 6 },
+  { topic: "Pokémon", level: "younger_kid", type: "mc", count: 6 },
+  { topic: "American symbols and famous landmarks", level: "younger_kid", type: "mc", count: 6 },
+  { topic: "Kids' books: Percy Jackson, Harry Potter, and Charlotte's Web", level: "younger_kid", type: "mc", count: 6 },
   // Older kid (Sebastian)
-  { topic: "World history: the rise and fall of empires", level: "older_kid", type: "mc", count: 8 },
-  { topic: "World geography and capital cities", level: "older_kid", type: "mc", count: 6 },
-  { topic: "World geography: distances, heights, and sizes", level: "older_kid", type: "closest", count: 5 },
-  { topic: "Fractions, decimals, percents, ratios, and calculating tips", level: "older_kid", type: "mc", count: 6 },
+  { topic: "Ancient Egypt, Greece, and Rome", level: "older_kid", type: "mc", count: 7 },
+  { topic: "World rivers, mountains, and deserts", level: "older_kid", type: "mc", count: 6 },
+  { topic: "Pre-algebra: integers and one-step equations", level: "older_kid", type: "mc", count: 7 },
+  { topic: "The U.S. Constitution and branches of government", level: "older_kid", type: "mc", count: 6 },
+  { topic: "Famous scientists and their inventions", level: "older_kid", type: "mc", count: 6 },
+  { topic: "Geometry: area, perimeter, and volume", level: "older_kid", type: "mc", count: 6 },
+  { topic: "World capitals (challenging)", level: "older_kid", type: "mc", count: 6 },
   { topic: "The San Francisco Giants (last two decades)", level: "older_kid", type: "mc", count: 6 },
   // Parents
-  { topic: "Classical music and composers", level: "adult", type: "mc", count: 6 },
-  { topic: "Pop and rock music history", level: "adult", type: "mc", count: 6 },
-  { topic: "Technology and computing history", level: "adult", type: "mc", count: 6 },
-  { topic: "Movies and literature", level: "adult", type: "mc", count: 6 },
-  { topic: "Classic and modern literature", level: "adult", type: "list", count: 3 },
+  { topic: "1980s and 1990s pop music", level: "adult", type: "mc", count: 7 },
+  { topic: "Classic rock bands and albums", level: "adult", type: "mc", count: 6 },
+  { topic: "Famous novels and their authors", level: "adult", type: "mc", count: 6 },
+  { topic: "Movies: directors and Best Picture winners", level: "adult", type: "mc", count: 6 },
+  { topic: "Programming languages and tech companies", level: "adult", type: "mc", count: 6 },
+  { topic: "Classical composers and their works", level: "adult", type: "mc", count: 6 },
+  { topic: "20th-century world history", level: "adult", type: "mc", count: 6 },
+  { topic: "World geography (challenging)", level: "adult", type: "mc", count: 6 },
   // Everyone
+  { topic: "Food and cooking around the world", level: "all", type: "mc", count: 6 },
+  { topic: "The Olympics and famous athletes", level: "all", type: "mc", count: 6 },
+  { topic: "Music, instruments, and bands", level: "all", type: "mc", count: 6 },
   { topic: "General knowledge", level: "all", type: "mc", count: 6 },
-  { topic: "Animals and the natural world", level: "all", type: "mc", count: 6 },
-  { topic: "How big, how far, how many (estimation)", level: "all", type: "closest", count: 5 },
+  { topic: "Famous landmarks: how tall and how old", level: "all", type: "closest", count: 5 },
+  { topic: "Animal records and extremes", level: "all", type: "closest", count: 5 },
+  { topic: "Inventions and discoveries: what year", level: "all", type: "closest", count: 5 },
+  { topic: "Geography lists (continents, oceans, Great Lakes)", level: "all", type: "list", count: 4 },
 ];
 
 type Built = Plan & { q: GeneratedQuestion; notes: string | null };
@@ -102,7 +117,7 @@ function jsonb(obj: unknown): string {
 }
 
 console.log(`Generating ${PLAN.length} batches…\n`);
-const built = (await pool(PLAN.map((p) => () => runBatch(p)), 4)).flat();
+const built = (await pool(PLAN.map((p) => () => runBatch(p)), 5)).flat();
 
 if (built.length === 0) {
   console.error("\nNo questions generated; aborting (not writing a migration).");
@@ -119,13 +134,14 @@ const rows = built
   })
   .join(",\n");
 
-const migration = `-- Games · Trivia — starter question bank.
+const migration = `-- Games · Trivia — question bank seed.
 --
--- A seed of ${built.length} questions across the family's topics/levels/types,
+-- A wave of ${built.length} questions across the family's topics/levels/types,
 -- generated by scripts/games/seed-starter-questions.mts and gated by the
 -- adversarial verifier (only status='ready' questions are written). batch_id is
--- left NULL (these did not come from an in-app generation batch). Regenerate by
--- re-running the script; in-game "toss" handles any that slip through.
+-- left NULL (these did not come from an in-app generation batch). Applied to
+-- production by .github/workflows/migrate.yml on merge; in-game "toss" handles
+-- any that slip through.
 
 INSERT INTO trivia_questions (topic, level, type, prompt, payload, perishable, status, verification)
 VALUES
@@ -133,7 +149,12 @@ ${rows};
 `;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const outPath = join(root, "supabase/migrations/00156_trivia_starter_questions.sql");
+const migDir = join(root, "supabase/migrations");
+const nums = readdirSync(migDir)
+  .map((f) => parseInt(f.slice(0, 5), 10))
+  .filter((n) => !Number.isNaN(n));
+const next = String(Math.max(0, ...nums) + 1).padStart(5, "0");
+const outPath = join(migDir, `${next}_trivia_questions_seed.sql`);
 writeFileSync(outPath, migration);
 
 const byLevel = built.reduce<Record<string, number>>((m, b) => {
