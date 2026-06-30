@@ -225,6 +225,9 @@ function EssayRunner({
   const router = useRouter();
   // A revision opens with the prior draft so the reader edits rather than retypes.
   const isRevision = priorEssay != null;
+  // When there's a prior grade to show, the writing page becomes two columns so the
+  // feedback can ride alongside the draft instead of scrolling away above it.
+  const hasSidebar = priorFeedback != null;
 
   // Autosave the in-progress essay to localStorage so a refresh or accidental
   // navigation doesn't lose 20+ minutes of writing. Keyed per quiz, restored
@@ -285,64 +288,82 @@ function EssayRunner({
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pb-28 pt-12">
-      <header className="mb-8">
-        <p className="font-serif text-sm text-muted-foreground">
-          {isRevision ? "Your revision" : "Writing assignment"}
-        </p>
-        <h1 className="mt-1 font-serif text-3xl tracking-tight text-foreground">
-          {quiz.title || `On ${quizRangeLabel(quiz.from_page, quiz.through_page)}`}
-        </h1>
-        <p className="mt-3 text-sm text-muted-foreground">
-          <GradingCriteriaDialog triggerClassName="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80" />
-          . Score an {ESSAY_BONUS_MIN} or {ESSAY_MAX_SCORE} to earn{" "}
-          {ESSAY_BONUS_BUCKS} Mason Bucks.
-        </p>
-      </header>
-
-      <form onSubmit={handleSubmit} className="flex flex-1 flex-col">
-        {/* Revising: keep the last round of feedback in view while they rework it. */}
-        {priorFeedback && (
+    <main
+      className={cn(
+        "mx-auto flex w-full flex-1 px-6 pb-28 pt-12",
+        hasSidebar
+          ? "max-w-6xl flex-col gap-10 lg:flex-row lg:items-start lg:gap-12"
+          : "max-w-2xl flex-col"
+      )}
+    >
+      {/* Revising: the last round of feedback stays in view while they rework the
+          essay. On wide screens it's an anchored, independently scrollable rail
+          (sticky below the header); on narrow screens it stacks above the writing. */}
+      {hasSidebar && (
+        <aside className="order-first w-full shrink-0 lg:order-last lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:w-80 lg:overflow-y-auto lg:overscroll-contain xl:w-96">
           <EssayGradeCard
             feedback={priorFeedback}
             heading="Last round of feedback"
-            className="mb-10"
           />
+        </aside>
+      )}
+
+      <div
+        className={cn(
+          "flex w-full flex-1 flex-col",
+          hasSidebar && "lg:max-w-2xl"
         )}
+      >
+        <header className="mb-8">
+          <p className="font-serif text-sm text-muted-foreground">
+            {isRevision ? "Your revision" : "Writing assignment"}
+          </p>
+          <h1 className="mt-1 font-serif text-3xl tracking-tight text-foreground">
+            {quiz.title ||
+              `On ${quizRangeLabel(quiz.from_page, quiz.through_page)}`}
+          </h1>
+          <p className="mt-3 text-sm text-muted-foreground">
+            <GradingCriteriaDialog triggerClassName="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80" />
+            . Score an {ESSAY_BONUS_MIN} or {ESSAY_MAX_SCORE} to earn{" "}
+            {ESSAY_BONUS_BUCKS} Mason Bucks.
+          </p>
+        </header>
 
-        {/* The prompt reads like the journal's question: italic, set off by a
-            quiet left rule, with the writing flowing beneath it. */}
-        <div className="border-l-2 border-muted pl-6 font-serif text-lg italic leading-relaxed text-muted-foreground">
-          {essay.prompt}
-        </div>
+        <form onSubmit={handleSubmit} className="flex flex-1 flex-col">
+          {/* The prompt reads like the journal's question: italic, set off by a
+              quiet left rule, with the writing flowing beneath it. */}
+          <div className="border-l-2 border-muted pl-6 font-serif text-lg italic leading-relaxed text-muted-foreground">
+            {essay.prompt}
+          </div>
 
-        <EssayEditor
-          initialText={text}
-          onChange={updateText}
-          allowPaste={allowPaste}
-          disabled={pending}
-          className="mt-8"
-        />
+          <EssayEditor
+            initialText={text}
+            onChange={updateText}
+            allowPaste={allowPaste}
+            disabled={pending}
+            className="mt-8"
+          />
 
-        {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
+          {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
 
-        <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
-          <Button type="submit" disabled={pending || !enough}>
-            {pending ? "Turning it in…" : "Turn in essay"}
-          </Button>
-          {ownerSlot}
-          <span
-            className={cn(
-              "ml-auto font-serif text-sm tabular-nums",
-              enough
-                ? "text-emerald-700 dark:text-emerald-400"
-                : "text-muted-foreground"
-            )}
-          >
-            {words} {words === 1 ? "word" : "words"} (min {minWords})
-          </span>
-        </div>
-      </form>
+          <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
+            <Button type="submit" disabled={pending || !enough}>
+              {pending ? "Turning it in…" : "Turn in essay"}
+            </Button>
+            {ownerSlot}
+            <span
+              className={cn(
+                "ml-auto font-serif text-sm tabular-nums",
+                enough
+                  ? "text-emerald-700 dark:text-emerald-400"
+                  : "text-muted-foreground"
+              )}
+            >
+              {words} {words === 1 ? "word" : "words"} (min {minWords})
+            </span>
+          </div>
+        </form>
+      </div>
     </main>
   );
 }
