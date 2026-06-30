@@ -8,6 +8,7 @@ import {
 } from "@/components/reading/quiz-essay-feedback";
 import { QuizSuccessModal } from "@/components/reading/quiz-success-modal";
 import { CloseQuizButton } from "@/components/reading/close-quiz-button";
+import { AttemptAdminControls } from "@/components/reading/quiz-attempt-admin";
 import { getIsOwner } from "@/lib/members/auth";
 import { addDays, getUserTimezone, localDate } from "@/lib/date-utils";
 import {
@@ -189,6 +190,18 @@ export default async function QuizResultsPage({
             />
           )}
 
+          {isOwner && attempts.length > 0 && (
+            <AttemptAdminControls
+              quizId={id}
+              memberEmail={memberEmail}
+              isEssay={isEssay}
+              attempts={attempts.map((a) => ({
+                id: a.id,
+                attemptNumber: a.attemptNumber,
+              }))}
+            />
+          )}
+
           <div className="mt-6 flex flex-1 flex-col">
             {showingChoices ? (
               <div className="flex flex-col gap-4">
@@ -280,6 +293,18 @@ export default async function QuizResultsPage({
           memberEmail={memberEmail}
           attempts={attempts}
           viewedId={submission.id}
+        />
+      )}
+
+      {isOwner && attempts.length > 0 && (
+        <AttemptAdminControls
+          quizId={id}
+          memberEmail={memberEmail}
+          isEssay={isEssay}
+          attempts={attempts.map((a) => ({
+            id: a.id,
+            attemptNumber: a.attemptNumber,
+          }))}
         />
       )}
 

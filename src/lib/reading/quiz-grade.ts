@@ -159,7 +159,14 @@ const GRADE_ESSAY_TOOL = {
       },
       comprehension_note: {
         type: "string",
-        description: "One short, specific sentence on the comprehension score.",
+        description:
+          "One short sentence spoken DIRECTLY to the writer as \"you\", and make it " +
+          "directive — tell them what to do in the next version, not just what's " +
+          "wrong. If they met the standard, name what landed (\"You set the opening " +
+          "up clearly — I could tell exactly what happened.\"). If not, give a " +
+          "\"Try …\" that points them at what to reread or add WITHOUT handing over " +
+          "the answer (\"Try opening by retelling what actually happens when Thresh " +
+          "lets her go — walk me through that moment.\").",
       },
       mechanics_score: {
         type: "integer",
@@ -176,12 +183,6 @@ const GRADE_ESSAY_TOOL = {
           "the score for a comma that isn't strictly required. Reserve a 2 or below " +
           "for writing that's genuinely hard to follow (errors in most sentences) or " +
           "a single undivided block with no paragraph breaks (which can't exceed 2).",
-      },
-      mechanics_note: {
-        type: "string",
-        description:
-          "One short sentence summarizing the mechanics — what's working and the " +
-          "kinds of things to tighten — as a lead-in to the fix-it checklist below.",
       },
       mechanics_fixes: {
         type: "array",
@@ -213,29 +214,21 @@ const GRADE_ESSAY_TOOL = {
       },
       thinking_note: {
         type: "string",
-        description: "One short, specific sentence on the thinking score.",
-      },
-      notes: {
-        type: "string",
         description:
-          "2-3 warm sentences addressed to the child (\"you\"): name one real " +
-          "strength, then point them at what to work on at a high level (the mechanics " +
-          "checklist already has the line-by-line fixes, so just gesture at it here — " +
-          "\"work through the writing fixes below\"). For the ideas — comprehension and " +
-          "thinking — coach without solving: e.g. \"reread the moment Thresh lets her " +
-          "go\" or \"push your idea further with an example from the book,\" but do NOT " +
-          "hand them the missing facts or the analysis; that thinking is theirs to do.",
+          "One short sentence spoken DIRECTLY to the writer as \"you\", and make it " +
+          "directive. If they met the standard, name what worked. If not, push them " +
+          "with a \"Try …\" that tells them what to do next — e.g. \"Try pushing this " +
+          "further: pick one moment from the book and show why it backs up your idea.\" " +
+          "Coach toward the thinking; never write the analysis for them.",
       },
     },
     required: [
       "comprehension_score",
       "comprehension_note",
       "mechanics_score",
-      "mechanics_note",
       "mechanics_fixes",
       "thinking_score",
       "thinking_note",
-      "notes",
     ],
   },
 };
@@ -308,23 +301,33 @@ export async function gradeEssay(input: {
   // fresh batch of ever-smaller nitpicks each round.
   const attempt = input.attemptNumber ?? 1;
   const ps = input.priorScores;
-  const priorScoreLine = ps
-    ? `Last round it scored — comprehension ${ps.comprehension.score ?? "—"}/4, ` +
-      `mechanics ${ps.mechanics.score ?? "—"}/4, thinking ${ps.thinking.score ?? "—"}/4.\n`
+  // The exact feedback the writer was handed last round — so the grader judges this
+  // draft as a rework of that one (did they address what you flagged?) rather than
+  // re-critiquing it from scratch and surfacing a fresh batch of smaller nitpicks.
+  const priorFixes = ps?.mechanics.fixes?.length
+    ? ps.mechanics.fixes.map((f) => `    • ${f}`).join("\n") + "\n"
+    : "    (none)\n";
+  const priorFeedbackBlock = ps
+    ? `Last round's grade and the EXACT feedback you gave the writer:\n` +
+      `- Comprehension ${ps.comprehension.score ?? "—"}/4: ${ps.comprehension.note || "(no note)"}\n` +
+      `- Mechanics ${ps.mechanics.score ?? "—"}/4. Fixes you asked them to make:\n` +
+      priorFixes +
+      `- Thinking ${ps.thinking.score ?? "—"}/4: ${ps.thinking.note || "(no note)"}\n`
     : "";
   const priorEssayBlock = input.priorEssay?.trim()
     ? `Their PREVIOUS draft (for comparing progress):\n"""\n${input.priorEssay.trim()}\n"""\n\n`
     : "";
   const revisionBlock =
     attempt > 1
-      ? `This is revision ${attempt - 1} (attempt ${attempt}). ${priorScoreLine}` +
-        `Reward progress: judge each dimension partly on improvement over the last ` +
-        `draft. If a dimension is clearly better than before and only minor or ` +
-        `subjective issues remain, give it credit and score it 3 (meets standard) — ` +
-        `a child who keeps revising and improving should be able to pass, not be held ` +
-        `at a 2 across many revisions by ever-smaller new nitpicks. Only keep a ` +
-        `dimension below 3 if it genuinely hasn't reached grade level yet, never just ` +
-        `because you can still find something to mention.\n\n` +
+      ? `This is revision ${attempt - 1} (attempt ${attempt}), a rework of the draft ` +
+        `below.\n${priorFeedbackBlock}\n` +
+        `Grade this as a revision, not a fresh essay: go through the feedback above ` +
+        `and credit what they addressed. If they fixed what you flagged and a ` +
+        `dimension is clearly better with only minor or subjective issues left, give ` +
+        `it credit and score it 3 (meets standard) — a child who fixes what you ` +
+        `flagged should move up, not be held at a 2 by brand-new nitpicks you didn't ` +
+        `raise before. Only keep a dimension below 3 if real grade-level problems ` +
+        `genuinely remain or your earlier feedback was ignored.\n\n` +
         priorEssayBlock
       : "";
 
@@ -360,15 +363,18 @@ export async function gradeEssay(input: {
         "its scores — reward real improvement: a dimension that's clearly better than " +
         "last time with only minor issues left meets the standard, and a child who " +
         "keeps improving across revisions should be able to pass rather than be held " +
-        "down by new, smaller nitpicks. Then write a short, warm holistic note: name " +
-        "one real strength " +
-        "and, in broad strokes, what to work on. For MECHANICS specifically, also " +
-        "produce a concrete fix-it checklist: quote each error, give the correction " +
+        "down by new, smaller nitpicks. Write each dimension's note as ONE sentence " +
+        "spoken DIRECTLY to the writer (\"you\") and make it directive: when they've " +
+        "met the standard, say what worked; when they haven't, give a concrete \"Try …\" " +
+        "that tells them what to do in the next version. For comprehension and quality " +
+        "of thinking, coach toward it — point them to what to reread or push further — " +
+        "but never hand them the missing facts, the analysis, or the answer; that " +
+        "thinking is theirs to do. MECHANICS carries NO summary sentence: its feedback " +
+        "is the fix-it checklist alone — quote each clear error, give the correction " +
         "outright, and add a few words on the rule, so the child can follow the list " +
-        "and learn from it — here you DO correct the writing directly. But for " +
-        "comprehension and quality of thinking, coach rather than solve: point them to " +
-        "what to reread or push further, and never hand them the missing facts, the " +
-        "analysis, or the answer; that thinking is theirs to do.",
+        "and learn from it (here you DO correct the writing directly). Do not write a " +
+        "separate overall summary — the per-dimension notes are the whole of the " +
+        "feedback.",
       tools: [GRADE_ESSAY_TOOL],
       tool_choice: { type: "tool", name: GRADE_ESSAY_TOOL.name },
       messages: [
