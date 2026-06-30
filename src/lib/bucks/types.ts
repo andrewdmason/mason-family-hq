@@ -88,6 +88,7 @@ export type BucksAdminPrize = {
   title: string;
   price: number;
   imageUrl: string | null;
+  purchaseUrl: string | null;
   audienceUserId: string | null;
   archivedAt: string | null;
 };

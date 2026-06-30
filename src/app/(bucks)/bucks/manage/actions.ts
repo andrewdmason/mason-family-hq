@@ -67,6 +67,22 @@ async function resolveAudience(audienceEmail?: string | null): Promise<string | 
   return data.user_id as string;
 }
 
+/** A trimmed http(s) purchase link, or null when blank. Rejects other schemes. */
+function normalizePurchaseUrl(raw?: string | null): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Enter a full link, e.g. https://example.com/item");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Purchase link must start with http:// or https://");
+  }
+  return url.toString();
+}
+
 function revalidateBucks() {
   revalidatePath("/bucks");
   revalidatePath("/bucks/manage");
@@ -83,6 +99,45 @@ export async function loadManageData(): Promise<BucksManageData> {
     loadKids(),
   ]);
   return { tasks, prizes, claims, redemptions, kids };
+}
+
+// ---- Manual awards -------------------------------------------------------
+
+/**
+ * Hand a kid an arbitrary one-off grant of Bucks with a note explaining it.
+ * Posts an `adjustment` ledger row (reference_id NULL, so these may repeat —
+ * see migration 00151). Adult-only. Amount is a positive integer.
+ */
+export async function awardBucks(input: {
+  userId: string;
+  amount: number;
+  note: string;
+}): Promise<void> {
+  await requireAdult();
+  const amount = Math.floor(input.amount);
+  if (!(amount > 0)) throw new Error("Amount must be a positive number.");
+  const note = input.note.trim();
+  if (!note) throw new Error("Add a note so the kid knows what it's for.");
+
+  const admin = createAdminClient();
+  // Only real kids in the family can receive an award.
+  const { data: kid } = await admin
+    .from("family_members")
+    .select("user_id")
+    .eq("user_id", input.userId)
+    .eq("role", "kid")
+    .maybeSingle();
+  if (!kid) throw new Error("Pick a kid to award Bucks to.");
+
+  const { error } = await admin.from("bucks_ledger").insert({
+    user_id: input.userId,
+    amount,
+    source: "adjustment",
+    note,
+    created_by_email: await callerEmail(),
+  });
+  if (error) throw new Error(error.message);
+  revalidateBucks();
 }
 
 // ---- Earning tasks -------------------------------------------------------
@@ -115,6 +170,39 @@ export async function createEarningTask(input: {
   revalidateBucks();
 }
 
+export async function updateEarningTask(input: {
+  taskId: string;
+  title: string;
+  unitValue: number;
+  unitLabel: string;
+  isOneTime: boolean;
+  audienceEmail?: string | null;
+}): Promise<void> {
+  await requireAdult();
+  const title = input.title.trim();
+  if (!title) throw new Error("Give the task a title.");
+  const unitValue = Math.floor(input.unitValue);
+  if (!(unitValue > 0)) throw new Error("Value must be a positive number.");
+  const unitLabel = input.unitLabel.trim() || "time";
+  const audience = await resolveAudience(input.audienceEmail);
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("bucks_earning_tasks")
+    .update({
+      title,
+      unit_value: unitValue,
+      unit_label: unitLabel,
+      is_one_time: input.isOneTime,
+      audience_user_id: audience,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.taskId)
+    .is("archived_at", null);
+  if (error) throw new Error(error.message);
+  revalidateBucks();
+}
+
 export async function archiveEarningTask(taskId: string): Promise<void> {
   await requireAdult();
   const admin = createAdminClient();
@@ -133,6 +221,7 @@ export async function createPrize(input: {
   title: string;
   price: number;
   audienceEmail?: string | null;
+  purchaseUrl?: string | null;
 }): Promise<{ prizeId: string }> {
   await requireAdult();
   const title = input.title.trim();
@@ -140,6 +229,7 @@ export async function createPrize(input: {
   const price = Math.floor(input.price);
   if (!(price > 0)) throw new Error("Price must be a positive number.");
   const audience = await resolveAudience(input.audienceEmail);
+  const purchaseUrl = normalizePurchaseUrl(input.purchaseUrl);
 
   const admin = createAdminClient();
   const { data, error } = await admin
@@ -148,6 +238,7 @@ export async function createPrize(input: {
       title,
       price,
       audience_user_id: audience,
+      purchase_url: purchaseUrl,
       created_by_email: await callerEmail(),
     })
     .select("id")
@@ -155,6 +246,37 @@ export async function createPrize(input: {
   if (error || !data) throw new Error(error?.message ?? "Couldn't create the prize.");
   revalidateBucks();
   return { prizeId: data.id as string };
+}
+
+export async function updatePrize(input: {
+  prizeId: string;
+  title: string;
+  price: number;
+  audienceEmail?: string | null;
+  purchaseUrl?: string | null;
+}): Promise<void> {
+  await requireAdult();
+  const title = input.title.trim();
+  if (!title) throw new Error("Give the prize a title.");
+  const price = Math.floor(input.price);
+  if (!(price > 0)) throw new Error("Price must be a positive number.");
+  const audience = await resolveAudience(input.audienceEmail);
+  const purchaseUrl = normalizePurchaseUrl(input.purchaseUrl);
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("bucks_prizes")
+    .update({
+      title,
+      price,
+      audience_user_id: audience,
+      purchase_url: purchaseUrl,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.prizeId)
+    .is("archived_at", null);
+  if (error) throw new Error(error.message);
+  revalidateBucks();
 }
 
 /** Sign an upload URL for a prize image (reused reading-milestones bucket). */

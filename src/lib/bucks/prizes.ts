@@ -10,6 +10,7 @@ type PrizeRow = {
   title: string;
   price: number;
   image_path: string | null;
+  purchase_url: string | null;
   audience_user_id: string | null;
   archived_at: string | null;
 };
@@ -70,7 +71,7 @@ export async function loadPrizesForAdmin(): Promise<BucksAdminPrize[]> {
   const admin = createAdminClient();
   const { data: rows } = await admin
     .from("bucks_prizes")
-    .select("id, title, price, image_path, audience_user_id, archived_at")
+    .select("id, title, price, image_path, purchase_url, audience_user_id, archived_at")
     .is("archived_at", null)
     .order("created_at", { ascending: true });
 
@@ -80,6 +81,7 @@ export async function loadPrizesForAdmin(): Promise<BucksAdminPrize[]> {
       title: p.title,
       price: p.price,
       imageUrl: await signedPrizeImageUrl(p.image_path),
+      purchaseUrl: p.purchase_url,
       audienceUserId: p.audience_user_id,
       archivedAt: p.archived_at,
     }))
