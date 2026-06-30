@@ -141,19 +141,27 @@ try {
     }
   }
 
-  // Insufficient: a band with no seeded questions.
+  // Insufficient: request more questions than the whole adult pool can supply,
+  // so the result is `insufficient` regardless of how many seed/real questions
+  // exist (a band's level is never relaxed).
+  const { count: adultPool } = await admin
+    .from("trivia_questions")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "ready")
+    .in("level", ["adult", "all"]);
   const adultDeck = await assembleDeck({
     spotlight: [{ userId: older.userId, band: "adult" }],
-    rounds: 3,
+    rounds: (adultPool ?? 0) + 1,
     topicScope: [TOPIC],
   });
-  check("empty level pool returns insufficient (not a crash)", !adultDeck.ok);
+  check("oversized request returns insufficient (not a crash)", !adultDeck.ok);
 
   // ---- Payout RPC ----
-  // The cap is "first completed game today pays", scoped to the real local day,
-  // so each scenario plays a game ended now and cleans itself up before the next
-  // — keeping each scenario's cap counter at a clean slate. (Assumes no real
-  // trivia game has paid out today, true for a fresh bank.)
+  // The cap counts paid games for the real local (Pacific/Honolulu) day across
+  // the whole household. The positive-pay assertions therefore only hold when
+  // nothing has paid out today (a fresh DB / db:reset). If the local DB already
+  // has a paid game today (manual play-testing), the cap is consumed, so we
+  // verify the cap + idempotency behavior instead and skip the pay amounts.
   const olderId = older.userId;
   const youngerId = younger.userId;
   const now = () => new Date().toISOString();
@@ -163,59 +171,77 @@ try {
     await admin.from("trivia_games").delete().eq("id", id);
   }
 
-  // Winner path + consolation + idempotency.
-  const gWin = await seedGame({
-    winner: "team1",
-    kidA: older.userId,
-    kidB: younger.userId,
-    endedAt: now(),
-  });
+  const hstToday = new Date().toLocaleDateString("en-CA", { timeZone: "Pacific/Honolulu" });
+  const { data: paidRows } = await admin
+    .from("trivia_games")
+    .select("ended_at")
+    .eq("bucks_paid", true);
+  const paidToday = ((paidRows ?? []) as { ended_at: string | null }[]).filter(
+    (r) =>
+      r.ended_at &&
+      new Date(r.ended_at).toLocaleDateString("en-CA", { timeZone: "Pacific/Honolulu" }) ===
+        hstToday
+  ).length;
+  const cleanSlate = paidToday === 0;
+  if (!cleanSlate) {
+    console.log(
+      `  (note: ${paidToday} game already paid today — verifying cap + idempotency only)`
+    );
+  }
+
+  // Winner path + consolation (clean slate) or cap behavior (dirty), + idempotency.
+  const gWin = await seedGame({ winner: "team1", kidA: olderId, kidB: youngerId, endedAt: now() });
   await admin.rpc("award_trivia_win", { p_game_id: gWin });
-  check("winner kid earns 10", (await ledgerAmount(refFor(gWin, older.userId))) === 10);
-  check("other kid earns 3", (await ledgerAmount(refFor(gWin, younger.userId))) === 3);
+  if (cleanSlate) {
+    check("winner kid earns 10", (await ledgerAmount(refFor(gWin, olderId))) === 10);
+    check("other kid earns 3", (await ledgerAmount(refFor(gWin, youngerId))) === 3);
+  } else {
+    check(
+      "payout is capped when a game already paid today",
+      (await ledgerAmount(refFor(gWin, olderId))) === 0 &&
+        (await ledgerAmount(refFor(gWin, youngerId))) === 0
+    );
+  }
+  const beforeRe = await ledgerAmount(refFor(gWin, olderId));
   await admin.rpc("award_trivia_win", { p_game_id: gWin });
   check(
-    "re-awarding is idempotent (still 10)",
-    (await ledgerAmount(refFor(gWin, older.userId))) === 10
+    "re-awarding is idempotent (no change)",
+    (await ledgerAmount(refFor(gWin, olderId))) === beforeRe
   );
   await clearGame(gWin);
 
-  // Daily cap: a second paying game on the same day pays nothing.
-  const gCap1 = await seedGame({
-    winner: "team1",
-    kidA: older.userId,
-    kidB: younger.userId,
-    endedAt: now(),
-  });
+  // Daily cap: two games the same day → at most one pays; the second pays nothing.
+  const gCap1 = await seedGame({ winner: "team1", kidA: olderId, kidB: youngerId, endedAt: now() });
   await admin.rpc("award_trivia_win", { p_game_id: gCap1 });
-  const gCap2 = await seedGame({
-    winner: "team2",
-    kidA: older.userId,
-    kidB: younger.userId,
-    endedAt: now(),
-  });
+  const gCap2 = await seedGame({ winner: "team2", kidA: olderId, kidB: youngerId, endedAt: now() });
   await admin.rpc("award_trivia_win", { p_game_id: gCap2 });
   check(
     "second game same day pays nothing (cap)",
-    (await ledgerAmount(refFor(gCap2, older.userId))) === 0 &&
-      (await ledgerAmount(refFor(gCap2, younger.userId))) === 0
+    (await ledgerAmount(refFor(gCap2, olderId))) === 0 &&
+      (await ledgerAmount(refFor(gCap2, youngerId))) === 0
   );
+  if (cleanSlate) {
+    check("first game of the day pays the winner 10", (await ledgerAmount(refFor(gCap1, olderId))) === 10);
+  }
   await clearGame(gCap1);
   await clearGame(gCap2);
 
-  // Tie: both kids get the consolation, no winner bonus.
-  const gTie = await seedGame({
-    winner: "tie",
-    kidA: older.userId,
-    kidB: younger.userId,
-    endedAt: now(),
-  });
+  // Tie → both kids get the consolation (clean slate), else capped to nothing.
+  const gTie = await seedGame({ winner: "tie", kidA: olderId, kidB: youngerId, endedAt: now() });
   await admin.rpc("award_trivia_win", { p_game_id: gTie });
-  check(
-    "tie pays both kids the consolation (3 each)",
-    (await ledgerAmount(refFor(gTie, older.userId))) === 3 &&
-      (await ledgerAmount(refFor(gTie, younger.userId))) === 3
-  );
+  if (cleanSlate) {
+    check(
+      "tie pays both kids the consolation (3 each)",
+      (await ledgerAmount(refFor(gTie, olderId))) === 3 &&
+        (await ledgerAmount(refFor(gTie, youngerId))) === 3
+    );
+  } else {
+    check(
+      "tie is capped when a game already paid today",
+      (await ledgerAmount(refFor(gTie, olderId))) === 0 &&
+        (await ledgerAmount(refFor(gTie, youngerId))) === 0
+    );
+  }
   await clearGame(gTie);
 } finally {
   for (const ref of createdRefs) {
