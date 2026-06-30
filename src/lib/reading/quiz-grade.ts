@@ -150,9 +150,12 @@ const GRADE_ESSAY_TOOL = {
           "1–4. Does the essay open by showing they truly read and understood the " +
           "assigned pages (judged against the anchor) and stay accurate to the book? " +
           "The 1–4 scale: 1 = needs a lot of work, 2 = developing / not yet there, " +
-          "3 = meets the standard for their grade, 4 = exceptional. A 3 requires a " +
-          "clear, accurate anchor; if the opening is vague, partly wrong, or only " +
-          "loosely tied to the assigned pages, score 2 or below.",
+          "3 = meets the standard for their grade, 4 = exceptional. A 3 requires the " +
+          "essay to convey the key events and reasoning accurately IN THE CHILD'S OWN " +
+          "WORDS — an accurate paraphrase is fully sufficient, so do NOT require exact " +
+          "quotes or verbatim wording even when the anchor quotes the book. Score 2 or " +
+          "below only when the opening is vague, gets the key events wrong, or is only " +
+          "loosely tied to the assigned pages.",
       },
       comprehension_note: {
         type: "string",
@@ -162,13 +165,16 @@ const GRADE_ESSAY_TOOL = {
         type: "integer",
         description:
           "1–4 for grammar, spelling, punctuation, paragraphing, and structure at " +
-          "this child's age. Same scale (3 = meets the grade-level standard). Be " +
-          "exacting and hold the bar high: REPEATED spelling errors, a misspelled or " +
-          "uncapitalized proper noun (a character or place name), run-on sentences, or " +
-          "missing commas each keep this at 2 or below — a 3 means the writing is " +
-          "largely clean, the kind of thing handed in after a careful proofread. The " +
-          "essay MUST be broken into more than one paragraph: a single undivided block " +
-          "of text cannot score above 2 no matter how few other errors it has.",
+          "this child's age. Same scale (3 = meets the grade-level standard). Judge " +
+          "the essay as a whole: a 3 means the writing is largely clean and clearly " +
+          "organized — the kind of thing handed in after a careful proofread — and a " +
+          "couple of minor slips (one or two spelling errors, a single missed capital, " +
+          "an occasional run-on, a missing comma, a 'to'/'too' mix-up) are fine at a 3 " +
+          "as long as they don't pile up. Reserve a 2 or below for PERVASIVE problems: " +
+          "errors in most sentences, frequent run-ons, or writing that's genuinely " +
+          "hard to follow. The one hard rule: an essay with no paragraph breaks at " +
+          "all — a single undivided block — cannot score above 2, because organization " +
+          "is part of mechanics.",
       },
       mechanics_note: {
         type: "string",
@@ -284,13 +290,18 @@ export async function gradeEssay(input: {
         "there, 3 = meets the standard for the child's grade, 4 = exceptional): " +
         "comprehension of the reading (the opening must show they actually read and " +
         "understood the assigned pages, judged against the anchor, and the essay must " +
-        "stay accurate to the book), writing mechanics, and quality of thinking " +
+        "stay accurate to the book — an accurate retelling in the child's OWN words " +
+        "fully counts, and you must NOT require exact quotes or verbatim wording even " +
+        "when the anchor quotes the book), writing mechanics, and quality of thinking " +
         "(reward genuine insight over length — never reward padding). Score each " +
         "dimension honestly on its own merits: 3 is solid grade-level work, 2 is " +
-        "developing, 4 is exceptional. Be exacting on mechanics — repeated spelling errors, " +
-        "an uncapitalized or misspelled name, run-on sentences, or a single " +
-        "undivided block with no paragraph breaks all keep mechanics below a 3 — and " +
-        "expect the broader-theme idea to be genuinely developed, not a thin " +
+        "developing, 4 is exceptional. Judge mechanics on the essay as a whole, not on " +
+        "any single slip: a couple of minor errors (a stray spelling mistake, one " +
+        "missed capital, an occasional run-on or missing comma) are fine at a 3 when " +
+        "the writing is otherwise clean and clearly organized; reserve a 2 or below " +
+        "for problems that are PERVASIVE (errors in most sentences, frequent run-ons) " +
+        "or for a single undivided block with no paragraph breaks. Expect the " +
+        "broader-theme idea to be genuinely developed, not a thin " +
         "afterthought. Then write a short, warm note: name one real strength and the " +
         "KINDS of things to fix, so the child knows what to look for. Coach toward a " +
         "revision — point them at the problems — but never fix spellings, correct " +
