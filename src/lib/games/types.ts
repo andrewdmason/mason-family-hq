@@ -33,3 +33,37 @@ export type GenerateResult = { ok: boolean; questions: GeneratedQuestion[] };
 export type VerifyVerdict = "ready" | "quarantine";
 /** The verifier's call on one question, plus a short rationale for the audit trail. */
 export type VerifyResult = { verdict: VerifyVerdict; notes: string | null };
+
+/** Game length: quick (~8q), standard (~20q), or play to a target score. */
+export type GameMode = "quick" | "standard" | "target";
+
+/** A team as the setup UI submits it. */
+export type TeamInput = { key: string; name: string; memberUserIds: string[] };
+
+/** A team with its kid resolved (the payout pays the kid). */
+export type ResolvedTeam = {
+  key: string;
+  name: string;
+  memberUserIds: string[];
+  /** The kid on this team, or null for an all-adult team (no Bucks). */
+  kidUserId: string | null;
+};
+
+/** One served question, as the client runner plays it (includes the answer payload). */
+export type DeckQuestion = {
+  id: string;
+  type: TriviaType;
+  prompt: string;
+  payload: TriviaPayload;
+  spotlightUserId: string;
+  ordinal: number;
+};
+
+/** Result of assembling a deck: a playable deck, or a typed insufficiency. */
+export type DeckResult =
+  | { ok: true; deck: DeckQuestion[] }
+  | {
+      ok: false;
+      reason: "insufficient";
+      shortfall: { band: TriviaLevel; needed: number; available: number }[];
+    };
