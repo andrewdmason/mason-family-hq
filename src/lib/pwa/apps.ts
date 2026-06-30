@@ -41,6 +41,7 @@ export const PWA_APPS: PwaApp[] = [
   { key: "workouts", name: "Workouts", shortName: "Workouts", startUrl: "/workouts", pageTitle: "Workouts" },
   { key: "practice", name: "Practice Log", shortName: "Practice", startUrl: "/practice", pageTitle: "Practice Log" },
   { key: "baseball", name: "Baseball", shortName: "Baseball", startUrl: "/baseball", pageTitle: "Baseball" },
+  { key: "games", name: "Games", shortName: "Games", startUrl: "/games", pageTitle: "Games" },
 ];
 
 const byKey = new Map(PWA_APPS.map((app) => [app.key, app]));
