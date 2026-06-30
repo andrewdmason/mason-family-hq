@@ -2,9 +2,7 @@
 
 import {
   type ReactNode,
-  useEffect,
   useMemo,
-  useRef,
   useState,
   useTransition,
 } from "react";
@@ -16,6 +14,7 @@ import {
   chooseEssayQuestion,
   submitQuiz,
 } from "@/app/(reading)/reader/quizzes/actions";
+import { EssayEditor } from "@/components/reading/essay-editor";
 import { EssayGradeCard } from "@/components/reading/quiz-essay-feedback";
 import { GradingCriteriaDialog } from "@/components/reading/quiz-grading-criteria";
 import {
@@ -244,16 +243,6 @@ function EssayRunner({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  // Auto-grow the writing surface so it reads like a page that gets longer as you
-  // write, not a fixed scrolling box (mirrors the journal's composer).
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [text]);
-
   function updateText(value: string) {
     setText(value);
     try {
@@ -295,12 +284,6 @@ function EssayRunner({
     });
   }
 
-  // Block pasting and dropping text in so the essay is the reader's own writing.
-  // The owner/parent is allowed to paste so they can test with sample essays.
-  const blockPaste = allowPaste
-    ? undefined
-    : (e: React.ClipboardEvent | React.DragEvent) => e.preventDefault();
-
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pb-28 pt-12">
       <header className="mb-8">
@@ -333,17 +316,12 @@ function EssayRunner({
           {essay.prompt}
         </div>
 
-        <textarea
-          ref={textareaRef}
-          aria-label="Your essay"
-          placeholder="Start writing…"
-          value={text}
-          onChange={(e) => updateText(e.target.value)}
-          onPaste={blockPaste}
-          onDrop={blockPaste}
-          rows={1}
-          className="mt-8 min-h-[40vh] w-full resize-none overflow-hidden border-0 bg-transparent font-serif text-lg leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-60"
-          suppressHydrationWarning
+        <EssayEditor
+          initialText={text}
+          onChange={updateText}
+          allowPaste={allowPaste}
+          disabled={pending}
+          className="mt-8"
         />
 
         {error && <p className="mt-4 text-sm text-destructive">{error}</p>}

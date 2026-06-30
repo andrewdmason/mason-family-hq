@@ -179,10 +179,23 @@ const GRADE_ESSAY_TOOL = {
       mechanics_note: {
         type: "string",
         description:
-          "One short sentence naming the KINDS of mechanics problems you found " +
-          "(e.g. spelling slips, a name not capitalized, run-on sentences, no " +
-          "paragraph breaks) so the child knows what to hunt for — but do NOT correct " +
-          "them or rewrite any words yourself.",
+          "One short sentence summarizing the mechanics — what's working and the " +
+          "kinds of things to tighten — as a lead-in to the fix-it checklist below.",
+      },
+      mechanics_fixes: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "A specific, do-this checklist for cleaning up the writing — one entry " +
+          "per concrete problem, roughly in the order they appear. For EACH entry, " +
+          "quote the exact word, phrase, or sentence that's wrong, give the " +
+          "correction outright, and add a few words on the rule so the child learns " +
+          "it — e.g. \"'thank her to' → 'thank her too' — 'too' means 'also.'\", " +
+          "\"Capitalize the name: 'thresh' → 'Thresh.'\", or \"Split the run-on after " +
+          "'...let her go' into two sentences.\" Be concrete and complete: a child " +
+          "should be able to follow this list and fix every mechanics error, then " +
+          "score a 4. Unlike the other dimensions, here you DO correct the writing " +
+          "directly. Return an empty array only when the mechanics are genuinely clean.",
       },
       thinking_score: {
         type: "integer",
@@ -202,11 +215,12 @@ const GRADE_ESSAY_TOOL = {
         type: "string",
         description:
           "2-3 warm sentences addressed to the child (\"you\"): name one real " +
-          "strength, then name the KINDS of things to fix so they learn what to look " +
-          "for — e.g. \"reread for spelling and run-on sentences,\" \"break this into " +
-          "paragraphs,\" \"capitalize names,\" or \"push your idea further with an " +
-          "example from the book.\" Point them to it; do NOT fix the errors, correct " +
-          "spellings, or rewrite sentences for them — the revision is theirs to do.",
+          "strength, then point them at what to work on at a high level (the mechanics " +
+          "checklist already has the line-by-line fixes, so just gesture at it here — " +
+          "\"work through the writing fixes below\"). For the ideas — comprehension and " +
+          "thinking — coach without solving: e.g. \"reread the moment Thresh lets her " +
+          "go\" or \"push your idea further with an example from the book,\" but do NOT " +
+          "hand them the missing facts or the analysis; that thinking is theirs to do.",
       },
     },
     required: [
@@ -214,6 +228,7 @@ const GRADE_ESSAY_TOOL = {
       "comprehension_note",
       "mechanics_score",
       "mechanics_note",
+      "mechanics_fixes",
       "thinking_score",
       "thinking_note",
       "notes",
@@ -302,10 +317,14 @@ export async function gradeEssay(input: {
         "for problems that are PERVASIVE (errors in most sentences, frequent run-ons) " +
         "or for a single undivided block with no paragraph breaks. Expect the " +
         "broader-theme idea to be genuinely developed, not a thin " +
-        "afterthought. Then write a short, warm note: name one real strength and the " +
-        "KINDS of things to fix, so the child knows what to look for. Coach toward a " +
-        "revision — point them at the problems — but never fix spellings, correct " +
-        "errors, or rewrite sentences for them; the revision is theirs to do.",
+        "afterthought. Then write a short, warm holistic note: name one real strength " +
+        "and, in broad strokes, what to work on. For MECHANICS specifically, also " +
+        "produce a concrete fix-it checklist: quote each error, give the correction " +
+        "outright, and add a few words on the rule, so the child can follow the list " +
+        "and learn from it — here you DO correct the writing directly. But for " +
+        "comprehension and quality of thinking, coach rather than solve: point them to " +
+        "what to reread or push further, and never hand them the missing facts, the " +
+        "analysis, or the answer; that thinking is theirs to do.",
       tools: [GRADE_ESSAY_TOOL],
       tool_choice: { type: "tool", name: GRADE_ESSAY_TOOL.name },
       messages: [
@@ -333,10 +352,18 @@ export async function gradeEssay(input: {
     const mechanics = toScore(p.mechanics_score);
     const thinking = toScore(p.thinking_score);
     const noteOf = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+    const fixesOf = (v: unknown): string[] =>
+      Array.isArray(v)
+        ? v.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean)
+        : [];
 
     const scores: EssayRubricScores = {
       comprehension: { score: comprehension, note: noteOf(p.comprehension_note) },
-      mechanics: { score: mechanics, note: noteOf(p.mechanics_note) },
+      mechanics: {
+        score: mechanics,
+        note: noteOf(p.mechanics_note),
+        fixes: fixesOf(p.mechanics_fixes),
+      },
       thinking: { score: thinking, note: noteOf(p.thinking_note) },
     };
     const total =
