@@ -10,6 +10,7 @@ const SOURCE_LABELS: Record<BucksSource, string> = {
   redemption: "Prize redeemed",
   migration: "Starting balance",
   adjustment: "Adjustment",
+  games: "Trivia game",
 };
 
 type LedgerRow = {
