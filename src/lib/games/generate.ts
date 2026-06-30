@@ -175,13 +175,6 @@ function sanitize(type: TriviaType, raw: unknown): GeneratedQuestion | null {
   };
 }
 
-const LEVEL_GUIDANCE: Record<TriviaLevel, string> = {
-  younger_kid: "an upper-elementary kid",
-  older_kid: "a middle-school kid",
-  adult: "well-read adults",
-  all: "a mixed family audience of kids and adults",
-};
-
 /**
  * Ask the model for a batch of questions. Any failure (API error, malformed
  * output, zero usable questions) resolves to `{ ok: false, questions: [] }` so
@@ -210,7 +203,7 @@ export async function generateQuestionBatch(
           role: "user",
           content:
             `Write ${input.count} ${input.type} trivia questions about "${input.topic}".\n\n` +
-            `Audience: ${input.audience} — pitch the difficulty and vocabulary for ${LEVEL_GUIDANCE[input.level]}.\n\n` +
+            `Audience: ${input.audience} — pitch the difficulty and vocabulary to match.\n\n` +
             `Make them genuinely different from one another. Base every answer on ` +
             `well-established fact. Call report_questions exactly once.`,
         },

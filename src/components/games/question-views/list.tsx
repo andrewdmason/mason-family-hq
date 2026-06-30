@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -26,15 +26,28 @@ export function ListView({
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [timeLeft, setTimeLeft] = useState(LIST_SECONDS);
 
+  // Read the latest checked count / callback without making them timer deps —
+  // otherwise tapping an item (or any parent re-render) restarts the countdown.
+  const checkedRef = useRef(checked);
+  const onFinishRef = useRef(onFinish);
   useEffect(() => {
-    if (!started || revealed) return;
-    if (timeLeft <= 0) {
-      onFinish(checked.size);
-      return;
-    }
+    checkedRef.current = checked;
+    onFinishRef.current = onFinish;
+  });
+
+  // One tick per second, independent of taps.
+  useEffect(() => {
+    if (!started || revealed || timeLeft <= 0) return;
     const t = setTimeout(() => setTimeLeft((s) => s - 1), 1000);
     return () => clearTimeout(t);
-  }, [started, revealed, timeLeft, checked, onFinish]);
+  }, [started, revealed, timeLeft]);
+
+  // Fire once when the clock runs out.
+  useEffect(() => {
+    if (started && !revealed && timeLeft <= 0) {
+      onFinishRef.current(checkedRef.current.size);
+    }
+  }, [started, revealed, timeLeft]);
 
   function toggle(i: number) {
     if (revealed) return;

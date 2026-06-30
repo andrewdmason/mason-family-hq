@@ -74,7 +74,9 @@ export function TriviaSetup({
     onStart({
       teams,
       mode,
-      targetScore: mode === "target" ? target : null,
+      // Clamp: a cleared/zeroed field must not produce a target the game starts
+      // already past (the HTML min is advisory only).
+      targetScore: mode === "target" ? Math.max(2, Math.floor(target) || 2) : null,
       topicScope: topics.size > 0 ? [...topics] : null,
     });
   }

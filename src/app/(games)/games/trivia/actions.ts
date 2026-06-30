@@ -168,7 +168,16 @@ async function assertParticipant(
 }
 
 export type TriviaAward = { userId: string; amount: number };
-export type EndGameResult = { paid: boolean; awards: TriviaAward[] };
+export type EndGameResult = {
+  paid: boolean;
+  awards: TriviaAward[];
+  /**
+   * Whether the payout RPC ran (settled the game). `false` means the credit
+   * failed — distinct from a capped-out game (settled, paid nothing), so the UI
+   * doesn't mask a lost payout as "already earned today".
+   */
+  settled: boolean;
+};
 
 /** Mirror the payout RPC's md5(game:kid)::uuid ledger reference key. */
 function payoutRef(gameId: string, kidId: string): string {
@@ -176,24 +185,33 @@ function payoutRef(gameId: string, kidId: string): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
+/** The unique top scorer's team key, or "tie" when there's no single leader. */
+function deriveWinner(scores: Record<string, number>, keys: string[]): string {
+  const max = Math.max(...keys.map((k) => scores[k] ?? 0));
+  const leaders = keys.filter((k) => (scores[k] ?? 0) === max);
+  return leaders.length === 1 ? leaders[0] : "tie";
+}
+
 /**
- * Finish a game: record scores + winner, then settle Bucks. Guarded so only an
- * active game transitions, and only a participant can end it. `winner` is a team
- * key or "tie". Returns the Bucks actually credited (read back from the ledger,
- * so the results screen reflects what was paid rather than re-deriving it).
+ * Finish a game: record scores, derive the winner server-side from those scores
+ * (never trusting a client-supplied winner — that would let a participant pay the
+ * wrong team), then settle Bucks. Guarded so only an active game transitions and
+ * only a participant can end it. Returns the Bucks actually credited (read back
+ * from the ledger) plus whether settlement ran.
  */
 export async function endGame(input: {
   gameId: string;
   scores: Record<string, number>;
-  winner: string;
 }): Promise<EndGameResult> {
   const userId = await requireUserId();
   const admin = createAdminClient();
   const game = await assertParticipant(admin, input.gameId, userId);
-  if (game.status !== "active") return { paid: false, awards: [] };
+  if (game.status !== "active") return { paid: false, awards: [], settled: true };
 
-  const validKeys = new Set(game.teams.map((t) => t.key));
-  const winner = input.winner === "tie" || validKeys.has(input.winner) ? input.winner : "tie";
+  const winner = deriveWinner(
+    input.scores,
+    game.teams.map((t) => t.key)
+  );
 
   const { error } = await admin
     .from("trivia_games")
@@ -209,26 +227,29 @@ export async function endGame(input: {
 
   await creditTriviaWin(input.gameId);
 
-  // Read back what the RPC actually credited, keyed per (game, kid).
+  // Read back what the RPC actually credited, keyed per (game, kid), plus the
+  // settle flag so the caller can tell a capped game from a failed payout.
   const kidIds = game.teams
     .map((t) => t.kidUserId)
     .filter((id): id is string => id != null);
   const refs = kidIds.map((id) => payoutRef(input.gameId, id));
-  const { data: rows } =
+  const [ledgerRes, settledRes] = await Promise.all([
     refs.length > 0
-      ? await admin
-          .from("bucks_ledger")
-          .select("user_id, amount")
-          .eq("source", "games")
-          .in("reference_id", refs)
-      : { data: [] };
-  const awards = ((rows ?? []) as { user_id: string; amount: number }[]).map((r) => ({
+      ? admin.from("bucks_ledger").select("user_id, amount").eq("source", "games").in("reference_id", refs)
+      : Promise.resolve({ data: [] as { user_id: string; amount: number }[] }),
+    admin.from("trivia_games").select("bucks_settled").eq("id", input.gameId).maybeSingle(),
+  ]);
+  const awards = ((ledgerRes.data ?? []) as { user_id: string; amount: number }[]).map((r) => ({
     userId: r.user_id,
     amount: r.amount,
   }));
 
   revalidatePath("/bucks");
-  return { paid: awards.length > 0, awards };
+  return {
+    paid: awards.length > 0,
+    awards,
+    settled: (settledRes.data?.bucks_settled as boolean) ?? false,
+  };
 }
 
 /** Pull a bad question from the playable pool mid-game. No answer revealed. */
@@ -236,6 +257,17 @@ export async function tossQuestion(gameId: string, questionId: string): Promise<
   const userId = await requireUserId();
   const admin = createAdminClient();
   await assertParticipant(admin, gameId, userId);
+
+  // Only a question actually served in this game may be tossed — otherwise any
+  // participant could quarantine arbitrary questions in the shared bank.
+  const { data: served } = await admin
+    .from("trivia_game_questions")
+    .select("id")
+    .eq("game_id", gameId)
+    .eq("question_id", questionId)
+    .maybeSingle();
+  if (!served) throw new Error("That question isn't part of this game.");
+
   const { error } = await admin
     .from("trivia_questions")
     .update({

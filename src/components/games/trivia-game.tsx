@@ -41,6 +41,7 @@ export function TriviaGame({ data }: { data: TriviaSetupData }) {
   const [targetScore, setTargetScore] = useState<number | null>(null);
   const [result, setResult] = useState<FinalResult | null>(null);
   const [awards, setAwards] = useState<TriviaAward[]>([]);
+  const [settled, setSettled] = useState(true);
 
   function nameOf(userId: string | null) {
     if (!userId) return null;
@@ -81,14 +82,12 @@ export function TriviaGame({ data }: { data: TriviaSetupData }) {
     if (!gameId) return;
     startTransition(async () => {
       try {
-        const res = await endGame({
-          gameId,
-          scores: final.scores,
-          winner: final.winner,
-        });
+        const res = await endGame({ gameId, scores: final.scores });
         setAwards(res.awards);
+        setSettled(res.settled);
       } catch {
         setAwards([]);
+        setSettled(false);
       }
     });
   }
@@ -100,6 +99,7 @@ export function TriviaGame({ data }: { data: TriviaSetupData }) {
     setTeams([]);
     setResult(null);
     setAwards([]);
+    setSettled(true);
   }
 
   function onAbandon() {
@@ -180,9 +180,13 @@ export function TriviaGame({ data }: { data: TriviaSetupData }) {
               </p>
             ))}
           </div>
-        ) : (
+        ) : settled ? (
           <p className="text-sm text-muted-foreground">
             Played for fun — no Bucks this time (already earned today).
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Couldn&rsquo;t tally Mason Bucks just now — an adult can check the Mason Bucks app.
           </p>
         )}
       </div>

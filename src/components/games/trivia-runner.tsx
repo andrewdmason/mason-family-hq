@@ -116,6 +116,7 @@ export function TriviaRunner({
     const reachedTarget =
       mode === "target" &&
       targetScore != null &&
+      targetScore > 0 &&
       teamKeys.some((k) => (latest[k] ?? 0) >= targetScore);
     if (reachedTarget || turn + 1 >= deck.length) {
       finish(latest);
