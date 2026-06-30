@@ -86,7 +86,7 @@ export function TriviaSetup({
           Pair a grown-up with a kid — each kid gets questions at their level. Tap a
           name to move them to the other team.
         </p>
-        <div className="mt-3 space-y-3">
+        <div className="mt-3 grid grid-cols-2 gap-3">
           {(["team1", "team2"] as Slot[]).map((teamKey, idx) => {
             const members = data.players.filter((p) => slots[p.userId] === teamKey);
             return (
