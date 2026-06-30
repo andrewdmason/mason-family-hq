@@ -1212,6 +1212,82 @@ export async function closeQuizWithoutPassing(
 }
 
 /**
+ * Delete one attempt at a quiz. Owner-only — a parent troubleshooting tool, so a
+ * bad/duplicate try can be cleared and the quiz rerun. The submission's answer
+ * rows cascade away with it. Does NOT regress the book if a passing attempt is
+ * removed (advancing is a separate, deliberate step); it just clears the try.
+ */
+export async function deleteQuizAttempt(
+  quizId: string,
+  submissionId: string,
+  memberEmail?: string | null
+): Promise<void> {
+  await requireOwner();
+  const { client, userId } = await resolveReadingScope(memberEmail);
+  const { error } = await client
+    .from("reading_quiz_submissions")
+    .delete()
+    .eq("id", submissionId)
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+  revalidateQuizzes();
+  revalidatePath(`/reader/quizzes/${quizId}/results`);
+}
+
+/**
+ * Re-grade the most recent attempt in place. Owner-only — a parent troubleshooting
+ * tool for rerunning grading (e.g. after a rubric tweak) without piling up new
+ * tries. Deletes the latest attempt, then re-grades its essay so the rerun lands
+ * on the same attempt number, with the genuine previous draft as its revision
+ * context — exactly as if the reader had turned in the same text again.
+ */
+export async function resubmitLatestAttempt(
+  quizId: string,
+  memberEmail?: string | null
+): Promise<{ submissionId: string; attemptNumber: number }> {
+  await requireOwner();
+  const { client, userId } = await resolveReadingScope(memberEmail);
+
+  const { data: latestSub } = await client
+    .from("reading_quiz_submissions")
+    .select("id, attempt_number")
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId)
+    .order("attempt_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!latestSub) throw new Error("There's no attempt to resubmit yet.");
+
+  const { data: rows } = await client
+    .from("reading_quiz_answers")
+    .select("question_id, selected_index, response_text")
+    .eq("submission_id", latestSub.id)
+    .eq("user_id", userId);
+  const answers = (rows ?? []).map((r) => ({
+    questionId: r.question_id as string,
+    selectedIndex: (r.selected_index as number | null) ?? null,
+    responseText: (r.response_text as string | null) ?? null,
+  }));
+  if (answers.length === 0) {
+    throw new Error("That attempt has nothing to re-grade.");
+  }
+
+  // Drop the latest attempt first so the rerun reuses its attempt number and sees
+  // the real prior draft (not itself) as the revision it's being judged against.
+  const { error: delError } = await client
+    .from("reading_quiz_submissions")
+    .delete()
+    .eq("id", latestSub.id)
+    .eq("user_id", userId);
+  if (delError) throw new Error(delError.message);
+
+  const res = await submitQuiz(quizId, answers, memberEmail);
+  revalidatePath(`/reader/quizzes/${quizId}/results`);
+  return { submissionId: res.submissionId, attemptNumber: res.attemptNumber };
+}
+
+/**
  * A quiz's detail view: its questions, every attempt, and (when attempted) the
  * graded answers with full feedback for the viewed attempt — the latest by
  * default, or a specific one when `submissionId` is given. Works before any
