@@ -1107,8 +1107,14 @@ export type EssayRubric = {
   thinking: string;
 };
 
-/** One graded dimension: a 1–4 score (null = couldn't grade) plus a short note. */
-export type EssayRubricScore = { score: number | null; note: string };
+/** One graded dimension: a 1–4 score (null = couldn't grade) plus a short note.
+ *  `fixes` is mechanics-only: a concrete, do-this checklist (quote the error, give
+ *  the correction, name the rule) the child can follow to clean up the writing. */
+export type EssayRubricScore = {
+  score: number | null;
+  note: string;
+  fixes?: string[];
+};
 
 /** The graded breakdown stored on an essay answer row. */
 export type EssayRubricScores = {

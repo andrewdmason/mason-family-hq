@@ -133,6 +133,17 @@ export function EssayGradeCard({
                         {dim.note}
                       </dd>
                     )}
+                    {/* Mechanics gets a concrete fix-it checklist the child can
+                        follow line by line; the other dimensions stay coaching. */}
+                    {dim?.fixes && dim.fixes.length > 0 && (
+                      <dd className="mt-1.5">
+                        <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed text-muted-foreground">
+                          {dim.fixes.map((fix, i) => (
+                            <li key={i}>{fix}</li>
+                          ))}
+                        </ul>
+                      </dd>
+                    )}
                   </div>
                 </div>
               );
