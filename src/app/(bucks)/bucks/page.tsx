@@ -3,7 +3,7 @@ import { Settings } from "lucide-react";
 import { BucksMemberSwitcher } from "@/components/bucks/member-switcher";
 import { WalletView } from "@/components/bucks/wallet-view";
 import { listFamilyMembers } from "@/app/(journal)/settings/family/actions";
-import { getIsAdult } from "@/lib/members/auth";
+import { getIsAdult, getIsOwner } from "@/lib/members/auth";
 import { loadWallet } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -19,13 +19,15 @@ export default async function BucksPage({
 }) {
   const { member } = await searchParams;
 
-  // Only an adult can view another member's wallet; resolve who we're looking at.
-  const isAdult = await getIsAdult();
-  const members = isAdult ? await listFamilyMembers() : [];
+  // Adults (owner + parents) get the Manage link. But viewing *another* member's
+  // wallet is owner-only — both listFamilyMembers() and resolveMoneyScope()'s
+  // member mode require the owner — so the member switcher is gated on isOwner.
+  const [isAdult, isOwner] = await Promise.all([getIsAdult(), getIsOwner()]);
+  const members = isOwner ? await listFamilyMembers() : [];
   const ownerEmail = members.find((m) => m.role === "owner")?.email ?? "";
   const viewable = members.filter((m) => m.role === "owner" || m.user_id);
 
-  const requested = isAdult ? member?.trim().toLowerCase() || null : null;
+  const requested = isOwner ? member?.trim().toLowerCase() || null : null;
   const viewedMember =
     requested && requested !== ownerEmail
       ? viewable.find((m) => m.email === requested && m.role !== "owner") ?? null
@@ -54,7 +56,7 @@ export default async function BucksPage({
               Manage
             </Link>
           )}
-          {isAdult && viewable.length > 1 && (
+          {isOwner && viewable.length > 1 && (
             <BucksMemberSwitcher
               members={viewable}
               ownerEmail={ownerEmail}
