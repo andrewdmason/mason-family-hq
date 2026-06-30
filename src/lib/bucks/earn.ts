@@ -72,6 +72,29 @@ export async function creditEssayBonus(
 }
 
 /**
+ * Settle a completed trivia game's Bucks via the award_trivia_win RPC, which
+ * handles the daily cap, tie/winner resolution, and idempotency atomically (see
+ * migration 00155). Best-effort: a failure here never rolls back the game. The
+ * RPC swallows the idempotency no-op internally, so any error surfaced here is a
+ * real failure worth logging (a permission error would mean the wrong client —
+ * this must run through the service-role admin client).
+ */
+export async function creditTriviaWin(gameId: string): Promise<void> {
+  try {
+    const admin = createAdminClient();
+    const { error } = await admin.rpc("award_trivia_win", { p_game_id: gameId });
+    if (error) {
+      console.error("[bucks] trivia payout failed:", error.message);
+    }
+  } catch (err) {
+    console.error(
+      "[bucks] creditTriviaWin failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
+/**
  * Award the flat journal grant for an entry, once, if it clears the gate: at least
  * JOURNAL_MIN_WORDS of the kid's own writing AND at least JOURNAL_MIN_SECONDS of
  * wall-clock from when writing started to when it closed. Idempotent per entry via

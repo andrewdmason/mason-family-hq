@@ -35,6 +35,7 @@ import {
   Dumbbell,
   Music,
   Coins,
+  Brain,
 } from "lucide-react";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -70,6 +71,7 @@ const APPS = [
   { key: "assignments", group: "(assignments)", glyph: GraduationCap, top: "#6f8a96", bottom: "#415c68" },
   { key: "workouts", group: "(workouts)", glyph: Dumbbell, top: "#b85c40", bottom: "#883a26" },
   { key: "practice", group: "practice", glyph: Music, top: "#8475a6", bottom: "#524673" },
+  { key: "games", group: "(games)", glyph: Brain, top: "#b5617e", bottom: "#83405a" },
 ];
 
 // --- Background --------------------------------------------------------------

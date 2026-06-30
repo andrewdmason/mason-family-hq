@@ -6,7 +6,8 @@ export type BucksSource =
   | "task"
   | "redemption"
   | "migration"
-  | "adjustment";
+  | "adjustment"
+  | "games";
 
 /** A single ledger row, shaped for the wallet history list. */
 export type BucksLedgerEntry = {
