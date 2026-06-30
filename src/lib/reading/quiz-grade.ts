@@ -160,10 +160,13 @@ const GRADE_ESSAY_TOOL = {
       comprehension_note: {
         type: "string",
         description:
-          "One short sentence spoken DIRECTLY to the writer as \"you\", and make it " +
-          "directive — tell them what to do in the next version, not just what's " +
-          "wrong. If they met the standard, name what landed (\"You set the opening " +
-          "up clearly — I could tell exactly what happened.\"). If not, give a " +
+          "One or two short sentences spoken DIRECTLY to the writer as \"you\", and " +
+          "make it directive — tell them what to do in the next version, not just " +
+          "what's wrong. On a revision, open by referring back to your last note — " +
+          "acknowledge it if they acted on it, or say you don't see the change you " +
+          "asked for yet — then give the ask. If they met the standard, name what " +
+          "landed (\"You set the opening up clearly — I could tell exactly what " +
+          "happened.\"). If not, give a " +
           "\"Try …\" that points them at what to reread or add WITHOUT handing over " +
           "the answer (\"Try opening by retelling what actually happens when Thresh " +
           "lets her go — walk me through that moment.\"). Point them using words they'll " +
@@ -229,11 +232,14 @@ const GRADE_ESSAY_TOOL = {
       thinking_note: {
         type: "string",
         description:
-          "One short sentence spoken DIRECTLY to the writer as \"you\", and make it " +
-          "directive. If they met the standard, name what worked. If not, push them " +
-          "with a \"Try …\" that tells them what to do next — e.g. \"Try pushing this " +
-          "further: pick one moment from the book and show why it backs up your idea.\" " +
-          "Coach toward the thinking; never write the analysis for them.",
+          "One or two short sentences spoken DIRECTLY to the writer as \"you\", and " +
+          "make it directive. On a revision, refer back to your last note first — " +
+          "acknowledge it if they acted on it, or say you don't see the change you " +
+          "asked for yet — then give the ask. If they met the standard, name what " +
+          "worked. If not, push them with a \"Try …\" that tells them what to do next " +
+          "— e.g. \"Try pushing this further: pick one moment from the book and show " +
+          "why it backs up your idea.\" Coach toward the thinking; never write the " +
+          "analysis for them.",
       },
     },
     required: [
@@ -341,7 +347,16 @@ export async function gradeEssay(input: {
         `it credit and score it 3 (meets standard) — a child who fixes what you ` +
         `flagged should move up, not be held at a 2 by brand-new nitpicks you didn't ` +
         `raise before. Only keep a dimension below 3 if real grade-level problems ` +
-        `genuinely remain or your earlier feedback was ignored.\n\n` +
+        `genuinely remain or your earlier feedback was ignored. Your notes must read ` +
+        `like an ongoing conversation across revisions, not a fresh first reaction ` +
+        `each time. When a dimension is essentially unchanged because they did NOT act ` +
+        `on what you asked last time, say so plainly in that note: name the guidance ` +
+        `you already gave and that you don't see it reflected yet, THEN repeat the ask ` +
+        `— e.g. "Last time I asked you to retell the nutmeg moment in your own words, ` +
+        `and I don't see that change yet, so let's start there: …". When they clearly ` +
+        `did act on it, acknowledge that too ("You took my note about … — nice work"). ` +
+        `Refer back to your prior guidance the way a tutor who remembers the last ` +
+        `session would.\n\n` +
         priorEssayBlock
       : "";
 
@@ -374,10 +389,14 @@ export async function gradeEssay(input: {
         "(errors in most sentences) or a single undivided block with no paragraph " +
         "breaks. Expect the broader-theme idea to be genuinely developed, not a thin " +
         "afterthought. When this is a revision, you'll be given the previous draft and " +
-        "its scores — reward real improvement: a dimension that's clearly better than " +
-        "last time with only minor issues left meets the standard, and a child who " +
-        "keeps improving across revisions should be able to pass rather than be held " +
-        "down by new, smaller nitpicks. Write each dimension's note as ONE sentence " +
+        "the exact feedback you gave on it — reward real improvement: a dimension " +
+        "that's clearly better than last time with only minor issues left meets the " +
+        "standard, and a child who keeps improving across revisions should be able to " +
+        "pass rather than be held down by new, smaller nitpicks. Sound like the same " +
+        "tutor continuing the conversation: when they acted on your guidance, say so; " +
+        "when a dimension is unchanged because they ignored it, name the note you " +
+        "already gave and say you don't see it reflected yet before repeating the ask. " +
+        "Write each dimension's note as ONE sentence " +
         "spoken DIRECTLY to the writer (\"you\") and make it directive: when they've " +
         "met the standard, say what worked; when they haven't, give a concrete \"Try …\" " +
         "that tells them what to do in the next version. For comprehension and quality " +
