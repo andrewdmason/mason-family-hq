@@ -93,10 +93,24 @@ export type GenerateBatchResult = {
  * the rest as `quarantined` (and are never served). On a generation failure the
  * batch is marked `failed` so the adult can retry.
  */
+/** Split a mixed batch across the three types, weighting toward MC (the backbone). */
+function mixedPlan(count: number): { type: TriviaType; count: number }[] {
+  const mc = Math.ceil(count / 2);
+  const rest = count - mc;
+  const closest = Math.floor(rest / 2);
+  const list = rest - closest;
+  return [
+    { type: "mc" as TriviaType, count: mc },
+    { type: "list" as TriviaType, count: list },
+    { type: "closest" as TriviaType, count: closest },
+  ].filter((s) => s.count > 0);
+}
+
 export async function generateBatch(input: {
   topic: string;
   level: TriviaLevel;
-  type: TriviaType;
+  /** "mixed" generates a variety across all three types. */
+  type: TriviaType | "mixed";
   count: number;
 }): Promise<GenerateBatchResult> {
   await requireAdult();
@@ -104,7 +118,10 @@ export async function generateBatch(input: {
   const topic = input.topic.trim();
   if (!topic) throw new Error("Give the batch a topic.");
   const level = LEVELS.includes(input.level) ? input.level : "all";
-  const type = TYPES.includes(input.type) ? input.type : "mc";
+  const mixed = input.type === "mixed";
+  const type: TriviaType = !mixed && TYPES.includes(input.type as TriviaType)
+    ? (input.type as TriviaType)
+    : "mc";
   const count = Math.min(Math.max(Math.floor(input.count) || 10, 1), 20);
 
   const admin = createAdminClient();
@@ -113,7 +130,8 @@ export async function generateBatch(input: {
     .insert({
       topic,
       level,
-      type,
+      // A mixed batch has no single type — null reads as "mixed".
+      type: mixed ? null : type,
       requested_count: count,
       status: "generating",
       created_by_email: await callerEmail(),
@@ -128,8 +146,15 @@ export async function generateBatch(input: {
   const players = await loadTriviaPlayers();
   const audience = audienceForLevel(level, players);
 
-  const generated = await generateQuestionBatch({ topic, level, type, count, audience });
-  if (!generated.ok || generated.questions.length === 0) {
+  // One generation call per type (a single call for a fixed type; a few for mixed).
+  const subs = mixed ? mixedPlan(count) : [{ type, count }];
+  const generatedSets = await Promise.all(
+    subs.map((s) =>
+      generateQuestionBatch({ topic, level, type: s.type, count: s.count, audience })
+    )
+  );
+  const questions = generatedSets.flatMap((g) => g.questions);
+  if (questions.length === 0) {
     await admin
       .from("trivia_batches")
       .update({ status: "failed", error: "The generator returned no usable questions." })
@@ -139,15 +164,14 @@ export async function generateBatch(input: {
   }
 
   // Verify each question independently (one failure never fails the batch).
-  const verdicts = await Promise.all(
-    generated.questions.map((q) => verifyQuestion(q))
-  );
+  const verdicts = await Promise.all(questions.map((q) => verifyQuestion(q)));
 
-  const rows = generated.questions.map((q, i) => ({
+  const rows = questions.map((q, i) => ({
     batch_id: batchId,
     topic,
     level,
-    type,
+    // Per-question type (a mixed batch holds all three).
+    type: q.type,
     prompt: q.prompt,
     payload: q.payload,
     perishable: q.perishable,

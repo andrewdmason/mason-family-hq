@@ -18,7 +18,8 @@ const LEVEL_OPTIONS: { value: TriviaLevel; label: string }[] = [
   { value: "all", label: "Everyone" },
 ];
 
-const TYPE_OPTIONS: { value: TriviaType; label: string }[] = [
+const TYPE_OPTIONS: { value: TriviaType | "mixed"; label: string }[] = [
+  { value: "mixed", label: "A variety" },
   { value: "mc", label: "Multiple choice" },
   { value: "list", label: "List it" },
   { value: "closest", label: "Closest wins" },
@@ -39,7 +40,7 @@ export function TriviaGenerator({ batches }: { batches: BatchSummary[] }) {
   const [pending, startTransition] = useTransition();
   const [topic, setTopic] = useState("");
   const [level, setLevel] = useState<TriviaLevel>("all");
-  const [type, setType] = useState<TriviaType>("mc");
+  const [type, setType] = useState<TriviaType | "mixed">("mixed");
   const [count, setCount] = useState(8);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -127,7 +128,7 @@ export function TriviaGenerator({ batches }: { batches: BatchSummary[] }) {
                 id="type"
                 className={selectClass}
                 value={type}
-                onChange={(e) => setType(e.target.value as TriviaType)}
+                onChange={(e) => setType(e.target.value as TriviaType | "mixed")}
                 disabled={pending}
               >
                 {TYPE_OPTIONS.map((o) => (
@@ -178,7 +179,7 @@ export function TriviaGenerator({ batches }: { batches: BatchSummary[] }) {
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-foreground">{b.topic}</p>
                   <p className="text-xs text-muted-foreground">
-                    {[b.level ? LEVEL_LABEL[b.level] : null, b.type ? TYPE_LABEL[b.type] : null]
+                    {[b.level ? LEVEL_LABEL[b.level] : null, b.type ? TYPE_LABEL[b.type] : "Mixed"]
                       .filter(Boolean)
                       .join(" · ")}
                     {b.status === "ready" ? (
