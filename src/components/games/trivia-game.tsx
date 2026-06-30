@@ -12,11 +12,13 @@ import {
   tossQuestion,
   abandonGame,
 } from "@/app/(games)/games/trivia/actions";
-import type { TriviaSetupData } from "@/app/(games)/games/trivia/actions";
-import type { DeckQuestion, ResolvedTeam, TriviaLevel } from "@/lib/games/types";
-
-const WINNER_BUCKS = 10;
-const CONSOLATION_BUCKS = 3;
+import type { TriviaAward, TriviaSetupData } from "@/app/(games)/games/trivia/actions";
+import type {
+  DeckQuestion,
+  GameMode,
+  ResolvedTeam,
+  TriviaLevel,
+} from "@/lib/games/types";
 
 const BAND_LABEL: Record<TriviaLevel, string> = {
   younger_kid: "the younger kid",
@@ -35,8 +37,10 @@ export function TriviaGame({ data }: { data: TriviaSetupData }) {
   const [gameId, setGameId] = useState<string | null>(null);
   const [deck, setDeck] = useState<DeckQuestion[]>([]);
   const [teams, setTeams] = useState<ResolvedTeam[]>([]);
+  const [mode, setMode] = useState<GameMode>("standard");
+  const [targetScore, setTargetScore] = useState<number | null>(null);
   const [result, setResult] = useState<FinalResult | null>(null);
-  const [paid, setPaid] = useState(false);
+  const [awards, setAwards] = useState<TriviaAward[]>([]);
 
   function nameOf(userId: string | null) {
     if (!userId) return null;
@@ -62,6 +66,8 @@ export function TriviaGame({ data }: { data: TriviaSetupData }) {
         setGameId(res.gameId);
         setDeck(res.deck);
         setTeams(res.teams);
+        setMode(input.mode);
+        setTargetScore(input.targetScore);
         setPhase("playing");
       } catch (e) {
         setShortfall(e instanceof Error ? e.message : "Couldn't start the game.");
@@ -80,9 +86,9 @@ export function TriviaGame({ data }: { data: TriviaSetupData }) {
           scores: final.scores,
           winner: final.winner,
         });
-        setPaid(res.paid);
+        setAwards(res.awards);
       } catch {
-        setPaid(false);
+        setAwards([]);
       }
     });
   }
@@ -93,7 +99,7 @@ export function TriviaGame({ data }: { data: TriviaSetupData }) {
     setDeck([]);
     setTeams([]);
     setResult(null);
-    setPaid(false);
+    setAwards([]);
   }
 
   function onAbandon() {
@@ -122,8 +128,8 @@ export function TriviaGame({ data }: { data: TriviaSetupData }) {
           name: p.name,
           role: p.role,
         }))}
-        mode={"standard"}
-        targetScore={null}
+        mode={mode}
+        targetScore={targetScore}
         onComplete={onComplete}
         onToss={(qid) => {
           if (gameId) tossQuestion(gameId, qid).catch(() => {});
@@ -136,22 +142,14 @@ export function TriviaGame({ data }: { data: TriviaSetupData }) {
   // results
   const isTie = !result || result.winner === "tie";
   const winningTeam = teams.find((t) => t.key === result?.winner) ?? null;
-  const losingTeam = teams.find((t) => t.key !== result?.winner) ?? null;
 
-  const bucksLines: string[] = [];
-  if (paid) {
-    if (isTie) {
-      for (const t of teams) {
-        const kid = nameOf(t.kidUserId);
-        if (kid) bucksLines.push(`${kid} earned ${CONSOLATION_BUCKS}`);
-      }
-    } else {
-      const winKid = nameOf(winningTeam?.kidUserId ?? null);
-      const loseKid = nameOf(losingTeam?.kidUserId ?? null);
-      if (winKid) bucksLines.push(`${winKid} earned ${WINNER_BUCKS}`);
-      if (loseKid) bucksLines.push(`${loseKid} earned ${CONSOLATION_BUCKS}`);
-    }
-  }
+  // Bucks lines reflect what the ledger actually credited (from endGame), so the
+  // celebration can never drift from the payout RPC.
+  const bucksLines = awards
+    .map((a) => ({ name: nameOf(a.userId), amount: a.amount }))
+    .filter((a) => a.name)
+    .sort((a, b) => b.amount - a.amount)
+    .map((a) => `${a.name} earned ${a.amount}`);
 
   return (
     <div className="mx-auto max-w-md space-y-6 text-center">

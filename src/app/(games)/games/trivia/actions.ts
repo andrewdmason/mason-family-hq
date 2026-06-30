@@ -1,5 +1,6 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireUserId } from "@/lib/members/auth";
@@ -166,12 +167,20 @@ async function assertParticipant(
   return game;
 }
 
-export type EndGameResult = { paid: boolean };
+export type TriviaAward = { userId: string; amount: number };
+export type EndGameResult = { paid: boolean; awards: TriviaAward[] };
+
+/** Mirror the payout RPC's md5(game:kid)::uuid ledger reference key. */
+function payoutRef(gameId: string, kidId: string): string {
+  const h = createHash("md5").update(`${gameId}:${kidId}`).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
 
 /**
  * Finish a game: record scores + winner, then settle Bucks. Guarded so only an
  * active game transitions, and only a participant can end it. `winner` is a team
- * key or "tie".
+ * key or "tie". Returns the Bucks actually credited (read back from the ledger,
+ * so the results screen reflects what was paid rather than re-deriving it).
  */
 export async function endGame(input: {
   gameId: string;
@@ -181,7 +190,7 @@ export async function endGame(input: {
   const userId = await requireUserId();
   const admin = createAdminClient();
   const game = await assertParticipant(admin, input.gameId, userId);
-  if (game.status !== "active") return { paid: false };
+  if (game.status !== "active") return { paid: false, awards: [] };
 
   const validKeys = new Set(game.teams.map((t) => t.key));
   const winner = input.winner === "tie" || validKeys.has(input.winner) ? input.winner : "tie";
@@ -200,14 +209,26 @@ export async function endGame(input: {
 
   await creditTriviaWin(input.gameId);
 
-  const { data: settled } = await admin
-    .from("trivia_games")
-    .select("bucks_paid")
-    .eq("id", input.gameId)
-    .maybeSingle();
+  // Read back what the RPC actually credited, keyed per (game, kid).
+  const kidIds = game.teams
+    .map((t) => t.kidUserId)
+    .filter((id): id is string => id != null);
+  const refs = kidIds.map((id) => payoutRef(input.gameId, id));
+  const { data: rows } =
+    refs.length > 0
+      ? await admin
+          .from("bucks_ledger")
+          .select("user_id, amount")
+          .eq("source", "games")
+          .in("reference_id", refs)
+      : { data: [] };
+  const awards = ((rows ?? []) as { user_id: string; amount: number }[]).map((r) => ({
+    userId: r.user_id,
+    amount: r.amount,
+  }));
 
   revalidatePath("/bucks");
-  return { paid: (settled?.bucks_paid as boolean) ?? false };
+  return { paid: awards.length > 0, awards };
 }
 
 /** Pull a bad question from the playable pool mid-game. No answer revealed. */

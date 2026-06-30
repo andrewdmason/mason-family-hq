@@ -79,19 +79,16 @@ export async function assembleDeck(input: {
 }): Promise<DeckResult> {
   const admin = createAdminClient();
 
-  const { data: ready } = await admin
-    .from("trivia_questions")
-    .select("id, level, type, topic, prompt, payload")
-    .eq("status", "ready");
-  const all = (ready ?? []) as ReadyQuestion[];
+  // The ready-question pool and the recent-games lookup are independent — fetch
+  // them together.
+  const [readyRes, recentGamesRes] = await Promise.all([
+    admin.from("trivia_questions").select("id, level, type, topic, prompt, payload").eq("status", "ready"),
+    admin.from("trivia_games").select("id").order("created_at", { ascending: false }).limit(RECENT_GAMES),
+  ]);
+  const all = (readyRes.data ?? []) as ReadyQuestion[];
 
   // Recently-seen question ids from the household's last few games.
-  const { data: recentGames } = await admin
-    .from("trivia_games")
-    .select("id")
-    .order("created_at", { ascending: false })
-    .limit(RECENT_GAMES);
-  const recentIds = (recentGames ?? []).map((g) => g.id as string);
+  const recentIds = (recentGamesRes.data ?? []).map((g) => g.id as string);
   const recent = new Set<string>();
   if (recentIds.length > 0) {
     const { data: served } = await admin

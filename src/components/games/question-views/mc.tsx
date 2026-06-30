@@ -14,14 +14,12 @@ export function McView({
   removed,
   chosenIndex,
   revealed,
-  disabled,
   onPick,
 }: {
   payload: McPayload;
   removed: number[];
   chosenIndex: number | null;
   revealed: boolean;
-  disabled?: boolean;
   onPick: (index: number) => void;
 }) {
   return (
@@ -34,11 +32,11 @@ export function McView({
           <button
             key={i}
             type="button"
-            disabled={disabled || isRemoved || revealed}
+            disabled={isRemoved || revealed}
             onClick={() => onPick(i)}
             className={cn(
               "flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-left text-base transition-colors",
-              !disabled && !revealed && !isRemoved && "hover:border-foreground/30 hover:bg-accent",
+              !revealed && !isRemoved && "hover:border-foreground/30 hover:bg-accent",
               isRemoved && "opacity-30 line-through",
               revealed && isCorrect && "border-emerald-500 bg-emerald-50 text-emerald-900",
               revealed && isChosen && !isCorrect && "border-destructive bg-destructive/10",
