@@ -164,17 +164,18 @@ const GRADE_ESSAY_TOOL = {
       mechanics_score: {
         type: "integer",
         description:
-          "1–4 for grammar, spelling, punctuation, paragraphing, and structure at " +
-          "this child's age. Same scale (3 = meets the grade-level standard). Judge " +
-          "the essay as a whole: a 3 means the writing is largely clean and clearly " +
-          "organized — the kind of thing handed in after a careful proofread — and a " +
-          "couple of minor slips (one or two spelling errors, a single missed capital, " +
-          "an occasional run-on, a missing comma, a 'to'/'too' mix-up) are fine at a 3 " +
-          "as long as they don't pile up. Reserve a 2 or below for PERVASIVE problems: " +
-          "errors in most sentences, frequent run-ons, or writing that's genuinely " +
-          "hard to follow. The one hard rule: an essay with no paragraph breaks at " +
-          "all — a single undivided block — cannot score above 2, because organization " +
-          "is part of mechanics.",
+          "1–4 for spelling, capitalization, punctuation, sentence completeness, and " +
+          "paragraphing at this child's age — NOT word choice, phrasing, or style " +
+          "(those are never penalized here). Same scale (3 = meets the grade-level " +
+          "standard). Be forgiving and judge the writing as a whole: a 3 just means " +
+          "the essay is easy to read — mostly-complete sentences, real paragraphs, " +
+          "spelling and end punctuation mostly right. A handful of ordinary slips " +
+          "(some misspellings, a missed capital, a couple of run-ons, a 'to'/'too' " +
+          "mix-up) are completely fine at a 3 for a child; a clean essay is a 4. " +
+          "Optional or stylistic commas are JUDGMENT CALLS, not errors — never lower " +
+          "the score for a comma that isn't strictly required. Reserve a 2 or below " +
+          "for writing that's genuinely hard to follow (errors in most sentences) or " +
+          "a single undivided block with no paragraph breaks (which can't exceed 2).",
       },
       mechanics_note: {
         type: "string",
@@ -186,16 +187,19 @@ const GRADE_ESSAY_TOOL = {
         type: "array",
         items: { type: "string" },
         description:
-          "A specific, do-this checklist for cleaning up the writing — one entry " +
-          "per concrete problem, roughly in the order they appear. For EACH entry, " +
-          "quote the exact word, phrase, or sentence that's wrong, give the " +
-          "correction outright, and add a few words on the rule so the child learns " +
-          "it — e.g. \"'thank her to' → 'thank her too' — 'too' means 'also.'\", " +
-          "\"Capitalize the name: 'thresh' → 'Thresh.'\", or \"Split the run-on after " +
-          "'...let her go' into two sentences.\" Be concrete and complete: a child " +
-          "should be able to follow this list and fix every mechanics error, then " +
-          "score a 4. Unlike the other dimensions, here you DO correct the writing " +
-          "directly. Return an empty array only when the mechanics are genuinely clean.",
+          "A short, do-this checklist of the CLEAR mechanical errors only — " +
+          "misspellings, missing or wrong capitals, missing end punctuation, comma " +
+          "splices or genuine run-ons. For each, quote the exact text, give the " +
+          "correction, and add a few words on the rule — e.g. \"'thank her to' → " +
+          "'thank her too' — 'too' means 'also.'\" or \"Capitalize the name: 'thresh' " +
+          "→ 'Thresh.'\" HARD LIMITS: do NOT list word-choice or phrasing suggestions " +
+          "(e.g. 'pointing a rock' → 'holding a rock' is style, not a mechanics error " +
+          "— leave it out); do NOT list optional or stylistic commas, or any " +
+          "'consider…' nitpick you aren't sure is a real error — when in doubt, leave " +
+          "it off. Keep the list to the few that genuinely matter so the child can fix " +
+          "them and be done, not face a fresh batch of smaller nits every revision. " +
+          "Here you DO correct the writing directly (unlike the other dimensions). " +
+          "Return an empty array when the mechanics are clean enough to pass.",
       },
       thinking_score: {
         type: "integer",
@@ -269,6 +273,12 @@ export async function gradeEssay(input: {
   essay: string;
   readerAge?: number | null;
   minWords?: number | null;
+  /** This attempt's number (1 = first try, 2+ = a revision), so the grader can
+   *  reward progress rather than re-judging each draft from scratch. */
+  attemptNumber?: number | null;
+  /** The previous draft and its per-dimension scores, for the same reason. */
+  priorEssay?: string | null;
+  priorScores?: EssayRubricScores | null;
 }): Promise<EssayGrade> {
   if (!input.essay.trim()) {
     return {
@@ -293,6 +303,31 @@ export async function gradeEssay(input: {
       ? `They were asked to aim for about ${input.minWords} words; judge thinking on substance, not length.\n`
       : "";
 
+  // On a revision, give the grader the previous draft and its scores so it can
+  // reward genuine progress instead of re-critiquing from scratch and surfacing a
+  // fresh batch of ever-smaller nitpicks each round.
+  const attempt = input.attemptNumber ?? 1;
+  const ps = input.priorScores;
+  const priorScoreLine = ps
+    ? `Last round it scored — comprehension ${ps.comprehension.score ?? "—"}/4, ` +
+      `mechanics ${ps.mechanics.score ?? "—"}/4, thinking ${ps.thinking.score ?? "—"}/4.\n`
+    : "";
+  const priorEssayBlock = input.priorEssay?.trim()
+    ? `Their PREVIOUS draft (for comparing progress):\n"""\n${input.priorEssay.trim()}\n"""\n\n`
+    : "";
+  const revisionBlock =
+    attempt > 1
+      ? `This is revision ${attempt - 1} (attempt ${attempt}). ${priorScoreLine}` +
+        `Reward progress: judge each dimension partly on improvement over the last ` +
+        `draft. If a dimension is clearly better than before and only minor or ` +
+        `subjective issues remain, give it credit and score it 3 (meets standard) — ` +
+        `a child who keeps revising and improving should be able to pass, not be held ` +
+        `at a 2 across many revisions by ever-smaller new nitpicks. Only keep a ` +
+        `dimension below 3 if it genuinely hasn't reached grade level yet, never just ` +
+        `because you can still find something to mention.\n\n` +
+        priorEssayBlock
+      : "";
+
   try {
     const client = anthropic();
     const message = await client.messages.create({
@@ -310,14 +345,23 @@ export async function gradeEssay(input: {
         "when the anchor quotes the book), writing mechanics, and quality of thinking " +
         "(reward genuine insight over length — never reward padding). Score each " +
         "dimension honestly on its own merits: 3 is solid grade-level work, 2 is " +
-        "developing, 4 is exceptional. Judge mechanics on the essay as a whole, not on " +
-        "any single slip: a couple of minor errors (a stray spelling mistake, one " +
-        "missed capital, an occasional run-on or missing comma) are fine at a 3 when " +
-        "the writing is otherwise clean and clearly organized; reserve a 2 or below " +
-        "for problems that are PERVASIVE (errors in most sentences, frequent run-ons) " +
-        "or for a single undivided block with no paragraph breaks. Expect the " +
-        "broader-theme idea to be genuinely developed, not a thin " +
-        "afterthought. Then write a short, warm holistic note: name one real strength " +
+        "developing, 4 is exceptional. Be forgiving on mechanics and grade the writing " +
+        "as a whole: a 3 just means the essay is easy to read — mostly-complete " +
+        "sentences, broken into paragraphs, spelling and end punctuation mostly right — " +
+        "and a handful of ordinary slips (some misspellings, a missed capital, a " +
+        "couple of run-ons, a 'to'/'too' mix-up) are completely fine at a 3 for a " +
+        "child. Mechanics covers spelling, capitalization, punctuation, sentence " +
+        "completeness, and paragraphing ONLY — never word choice, phrasing, or style, " +
+        "and never an optional or stylistic comma, which is a judgment call, not an " +
+        "error. Reserve a 2 or below for writing that's genuinely hard to follow " +
+        "(errors in most sentences) or a single undivided block with no paragraph " +
+        "breaks. Expect the broader-theme idea to be genuinely developed, not a thin " +
+        "afterthought. When this is a revision, you'll be given the previous draft and " +
+        "its scores — reward real improvement: a dimension that's clearly better than " +
+        "last time with only minor issues left meets the standard, and a child who " +
+        "keeps improving across revisions should be able to pass rather than be held " +
+        "down by new, smaller nitpicks. Then write a short, warm holistic note: name " +
+        "one real strength " +
         "and, in broad strokes, what to work on. For MECHANICS specifically, also " +
         "produce a concrete fix-it checklist: quote each error, give the correction " +
         "outright, and add a few words on the rule, so the child can follow the list " +
@@ -331,7 +375,7 @@ export async function gradeEssay(input: {
         {
           role: "user",
           content:
-            `${ageLine}${lengthLine}` +
+            `${ageLine}${lengthLine}${revisionBlock}` +
             `The essay prompt the child answered:\n${input.prompt}\n\n` +
             `What the opening must show they read (anchor — teacher-facing, do NOT ` +
             `repeat it to the child): ${input.anchorSummary || "(none provided)"}\n\n` +

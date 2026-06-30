@@ -814,6 +814,9 @@ export async function submitQuiz(
     const chosen = qs.find((q) => q.id === chosenId) ?? qs[0];
     const responseText =
       byId.get(chosen.id)?.responseText ?? answers[0]?.responseText ?? "";
+    // A revision carries its prior draft + scores so the grader can credit
+    // improvement instead of re-critiquing each attempt from scratch.
+    const priorAnswer = prior?.answers.get(chosen.id) ?? null;
     const grade = await gradeEssay({
       prompt: chosen.prompt,
       anchorSummary: chosen.anchor_summary ?? "",
@@ -821,6 +824,9 @@ export async function submitQuiz(
       essay: responseText,
       readerAge: age,
       minWords: chosen.min_words ?? null,
+      attemptNumber,
+      priorEssay: priorAnswer?.response_text ?? null,
+      priorScores: priorAnswer?.rubric_scores ?? null,
     });
     essayTotal = grade.total;
     graded = [
