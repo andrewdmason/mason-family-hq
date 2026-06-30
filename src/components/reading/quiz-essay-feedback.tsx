@@ -169,6 +169,7 @@ export function EssayFeedback({
   closedByParent,
   viewedPassed,
   gradingComplete,
+  showCard = true,
 }: {
   prompt: string;
   /** The reader's written essay (null when not attempted / closed by a parent). */
@@ -183,10 +184,13 @@ export function EssayFeedback({
   viewedPassed: boolean;
   /** False when the AI grade didn't land. */
   gradingComplete: boolean;
+  /** Render the grade card inline above the essay. Off when the page lifts the card
+   *  into an anchored sidebar so it rides alongside the essay instead. */
+  showCard?: boolean;
 }) {
   return (
     <div className="flex-1">
-      {attempted && !closedByParent && (
+      {showCard && attempted && !closedByParent && (
         <EssayGradeCard
           feedback={{
             rubricScores,

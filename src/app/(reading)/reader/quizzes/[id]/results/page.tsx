@@ -2,7 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button-variants";
 import { QuizResultsAnswers } from "@/components/reading/quiz-results-answers";
-import { EssayFeedback } from "@/components/reading/quiz-essay-feedback";
+import {
+  EssayFeedback,
+  EssayGradeCard,
+} from "@/components/reading/quiz-essay-feedback";
 import { QuizSuccessModal } from "@/components/reading/quiz-success-modal";
 import { CloseQuizButton } from "@/components/reading/close-quiz-button";
 import { getIsOwner } from "@/lib/members/auth";
@@ -118,8 +121,21 @@ export default async function QuizResultsPage({
         ? ` · attempt ${submission.attempt_number} of ${attempts.length}`
         : "";
 
+    // With a graded attempt to show, the page becomes two columns so the tutor's
+    // notes can ride alongside the essay as an anchored, scrollable rail (matching
+    // the writing page). Before a first attempt, while choosing a prompt, or after
+    // a parent override there's no card, so it stays a single centered column.
+    const hasSidebar = !!submission && !closedByParent && !showingChoices;
+
     return (
-      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pb-28 pt-12">
+      <main
+        className={cn(
+          "mx-auto flex w-full flex-1 px-6 pb-28 pt-12",
+          hasSidebar
+            ? "max-w-6xl flex-col gap-10 lg:flex-row lg:items-start lg:gap-12"
+            : "max-w-2xl flex-col"
+        )}
+      >
         {viewedPerfect && (
           <QuizSuccessModal
             assignment={nextAssignment}
@@ -132,85 +148,107 @@ export default async function QuizResultsPage({
           />
         )}
 
-        <header className="mb-8">
-          <p className="font-serif text-sm text-muted-foreground">
-            {eyebrow}
-            {attemptLine}
-          </p>
-          <h1 className="mt-1 font-serif text-3xl tracking-tight text-foreground">
-            {quiz.title || `On ${rangeLabel}`}
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {bookTitle} · {rangeLabel}
-          </p>
-        </header>
-
-        {submission && attempts.length > 1 && (
-          <AttemptHistory
-            quizId={id}
-            memberEmail={memberEmail}
-            attempts={attempts}
-            viewedId={submission.id}
-          />
+        {hasSidebar && (
+          <aside className="order-first w-full shrink-0 lg:order-last lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:w-80 lg:overflow-y-auto lg:overscroll-contain xl:w-96">
+            <EssayGradeCard
+              feedback={{
+                rubricScores: answer?.rubric_scores ?? null,
+                aiNotes: answer?.ai_notes ?? null,
+                passed: viewedPerfect,
+                gradingComplete: submission?.grading_complete ?? true,
+              }}
+            />
+          </aside>
         )}
 
-        <div className="mt-6 flex flex-1 flex-col">
-          {showingChoices ? (
-            <div className="flex flex-col gap-4">
-              <p className="text-sm text-muted-foreground">
-                Three prompts to choose from — they read all three and pick one to
-                write about when they start.
-              </p>
-              {essayPrompts.map((q, i) => (
-                <div
-                  key={q.id}
-                  className="rounded-lg border border-border px-5 py-4"
-                >
-                  <p className="font-serif text-xs uppercase tracking-wide text-muted-foreground">
-                    Prompt {i + 1}
-                  </p>
-                  <p className="mt-2 font-serif text-lg italic leading-relaxed text-foreground">
-                    {q.prompt}
-                  </p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EssayFeedback
-              prompt={essayQ?.prompt ?? ""}
-              essay={answer?.response_text ?? null}
-              rubricScores={answer?.rubric_scores ?? null}
-              aiNotes={answer?.ai_notes ?? null}
-              attempted={!!submission}
-              closedByParent={closedByParent}
-              viewedPassed={viewedPerfect}
-              gradingComplete={submission?.grading_complete ?? true}
+        <div
+          className={cn(
+            "flex w-full flex-1 flex-col",
+            hasSidebar && "lg:max-w-2xl"
+          )}
+        >
+          <header className="mb-8">
+            <p className="font-serif text-sm text-muted-foreground">
+              {eyebrow}
+              {attemptLine}
+            </p>
+            <h1 className="mt-1 font-serif text-3xl tracking-tight text-foreground">
+              {quiz.title || `On ${rangeLabel}`}
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {bookTitle} · {rangeLabel}
+            </p>
+          </header>
+
+          {submission && attempts.length > 1 && (
+            <AttemptHistory
+              quizId={id}
+              memberEmail={memberEmail}
+              attempts={attempts}
+              viewedId={submission.id}
             />
           )}
-        </div>
 
-        <div className="mt-10 flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
-          {!passed && (
+          <div className="mt-6 flex flex-1 flex-col">
+            {showingChoices ? (
+              <div className="flex flex-col gap-4">
+                <p className="text-sm text-muted-foreground">
+                  Three prompts to choose from — they read all three and pick one
+                  to write about when they start.
+                </p>
+                {essayPrompts.map((q, i) => (
+                  <div
+                    key={q.id}
+                    className="rounded-lg border border-border px-5 py-4"
+                  >
+                    <p className="font-serif text-xs uppercase tracking-wide text-muted-foreground">
+                      Prompt {i + 1}
+                    </p>
+                    <p className="mt-2 font-serif text-lg italic leading-relaxed text-foreground">
+                      {q.prompt}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EssayFeedback
+                prompt={essayQ?.prompt ?? ""}
+                essay={answer?.response_text ?? null}
+                rubricScores={answer?.rubric_scores ?? null}
+                aiNotes={answer?.ai_notes ?? null}
+                attempted={!!submission}
+                closedByParent={closedByParent}
+                viewedPassed={viewedPerfect}
+                gradingComplete={submission?.grading_complete ?? true}
+                // The grade card now lives in the sidebar above.
+                showCard={!hasSidebar}
+              />
+            )}
+          </div>
+
+          <div className="mt-10 flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
+            {!passed && (
+              <Link
+                href={quizTakeHref(id, memberEmail)}
+                className={cn(buttonVariants({ variant: "default", size: "sm" }))}
+              >
+                {submission
+                  ? "Revise essay"
+                  : showingChoices
+                    ? "Pick a prompt & start"
+                    : "Start essay"}
+              </Link>
+            )}
             <Link
-              href={quizTakeHref(id, memberEmail)}
-              className={cn(buttonVariants({ variant: "default", size: "sm" }))}
+              href={readingHref}
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
             >
-              {submission
-                ? "Revise essay"
-                : showingChoices
-                  ? "Pick a prompt & start"
-                  : "Start essay"}
+              Back to reading
             </Link>
-          )}
-          <Link
-            href={readingHref}
-            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-          >
-            Back to reading
-          </Link>
-          {isOwner && !passed && (
-            <CloseQuizButton quizId={id} memberEmail={memberEmail} />
-          )}
+            {isOwner && !passed && (
+              <CloseQuizButton quizId={id} memberEmail={memberEmail} />
+            )}
+          </div>
         </div>
       </main>
     );
