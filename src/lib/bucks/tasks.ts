@@ -101,6 +101,7 @@ export async function loadPendingClaims(): Promise<BucksAdminClaim[]> {
     return {
       id: r.id as string,
       taskTitle: task?.title ?? "Earning task",
+      kidUserId: r.user_id as string,
       kidName: names.get(r.user_id as string) ?? "A kid",
       quantity: r.quantity as number,
       unitValue: r.unit_value as number,

@@ -23,7 +23,7 @@ export async function getBucksClaimNotifications(
     id: `bucks-claim:${c.id}`,
     title: `${c.kidName} claimed “${c.taskTitle}”`,
     reason: `${c.amount} Mason Bucks — approve to grant`,
-    href: "/bucks/manage",
+    href: "/bucks",
   }));
 }
 
@@ -40,6 +40,6 @@ export async function getBucksRedemptionNotifications(
     id: `bucks-redeem:${r.id}`,
     title: `${r.kidName} redeemed “${r.prizeTitle}”`,
     reason: `Hand over the prize (${r.price} Bucks)`,
-    href: "/bucks/manage",
+    href: "/bucks",
   }));
 }

@@ -55,6 +55,7 @@ export type BucksWallet = {
 export type BucksAdminClaim = {
   id: string;
   taskTitle: string;
+  kidUserId: string;
   kidName: string;
   quantity: number;
   unitValue: number;
@@ -66,6 +67,7 @@ export type BucksAdminClaim = {
 export type BucksAdminRedemption = {
   id: string;
   prizeTitle: string;
+  kidUserId: string;
   kidName: string;
   price: number;
   redeemedAt: string;
@@ -91,4 +93,28 @@ export type BucksAdminPrize = {
   purchaseUrl: string | null;
   audienceUserId: string | null;
   archivedAt: string | null;
+};
+
+/** A kid as the adult management view knows them, with their current balance. */
+export type BucksKidSummary = {
+  userId: string;
+  email: string;
+  name: string;
+  balance: number;
+};
+
+/** A ledger row in the combined adult history, tagged with whose wallet it's from. */
+export type BucksAdminLedgerEntry = BucksLedgerEntry & {
+  kidUserId: string;
+  kidName: string;
+};
+
+/** Everything the unified adult management view renders. */
+export type BucksAdminData = {
+  kids: BucksKidSummary[];
+  tasks: BucksAdminTask[];
+  prizes: BucksAdminPrize[];
+  claims: BucksAdminClaim[];
+  redemptions: BucksAdminRedemption[];
+  history: BucksAdminLedgerEntry[];
 };
