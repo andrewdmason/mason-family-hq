@@ -17,7 +17,15 @@ export default async function TriviaPage() {
         <ChevronLeft className="h-4 w-4" />
         Games
       </Link>
-      <h1 className="mt-2 font-serif text-2xl tracking-tight text-foreground">Trivia</h1>
+      <div className="mt-2 flex items-center justify-between">
+        <h1 className="font-serif text-2xl tracking-tight text-foreground">Trivia</h1>
+        <Link
+          href="/games/trivia/history"
+          className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          History
+        </Link>
+      </div>
       <div className="mt-6">
         <TriviaGame data={data} />
       </div>
