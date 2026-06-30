@@ -106,6 +106,7 @@ export async function loadUnfulfilledRedemptions(): Promise<BucksAdminRedemption
   return rows.map((r) => ({
     id: r.id as string,
     prizeTitle: r.prize_title as string,
+    kidUserId: r.user_id as string,
     kidName: names.get(r.user_id as string) ?? "A kid",
     price: r.price as number,
     redeemedAt: r.redeemed_at as string,

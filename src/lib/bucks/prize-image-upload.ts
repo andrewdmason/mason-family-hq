@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
-import { createPrizeImageUploadUrl } from "@/app/(bucks)/bucks/manage/actions";
+import { createPrizeImageUploadUrl } from "@/app/(bucks)/bucks/actions";
 import { READING_MILESTONES_BUCKET } from "@/lib/reading/constants";
 
 // Mirrors the storage bucket's file_size_limit (see migration 00149).
