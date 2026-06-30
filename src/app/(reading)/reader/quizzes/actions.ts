@@ -733,6 +733,9 @@ export async function submitQuiz(
 ): Promise<{
   submissionId: string;
   attemptNumber: number;
+  /** True when this attempt met the bar — the gate for routing to the results/
+   *  celebration view instead of keeping the reader in the editor to revise. */
+  passed: boolean;
   advanced: boolean;
   finished: boolean;
   /** Title of a reward milestone this pass just reached, for a celebration. */
@@ -971,7 +974,7 @@ export async function submitQuiz(
   }
 
   revalidateQuizzes();
-  return { submissionId, attemptNumber, advanced, finished, reachedMilestone };
+  return { submissionId, attemptNumber, passed, advanced, finished, reachedMilestone };
 }
 
 /**

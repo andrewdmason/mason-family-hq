@@ -276,9 +276,21 @@ function EssayRunner({
         } catch {
           // Ignore storage failures.
         }
-        router.push(
-          quizResultsHref(quiz.id, memberEmail, res.reachedMilestone)
-        );
+        if (res.passed) {
+          // Met the bar — on to the results/celebration view.
+          router.push(
+            quizResultsHref(quiz.id, memberEmail, res.reachedMilestone)
+          );
+        } else {
+          // Not there yet — keep them right here in the editor with their draft
+          // intact, rather than bouncing to a results page they'd have to leave via
+          // a "Revise essay" button. Refreshing pulls the just-graded feedback into
+          // the sidebar; scroll up so it's the first thing they see.
+          router.refresh();
+          if (typeof window !== "undefined") {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }
+        }
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Couldn't submit your essay."
