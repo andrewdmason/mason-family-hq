@@ -166,7 +166,11 @@ const GRADE_ESSAY_TOOL = {
           "up clearly — I could tell exactly what happened.\"). If not, give a " +
           "\"Try …\" that points them at what to reread or add WITHOUT handing over " +
           "the answer (\"Try opening by retelling what actually happens when Thresh " +
-          "lets her go — walk me through that moment.\").",
+          "lets her go — walk me through that moment.\"). Point them using words they'll " +
+          "recognize — \"the opening of your essay,\" \"the start of the reading,\" or the " +
+          "character or moment by name — and NEVER invent a reference like \"Entry #1,\" a " +
+          "section or figure label, or a page number; the writer has no such markers and " +
+          "won't know what you mean.",
       },
       mechanics_score: {
         type: "integer",
@@ -182,7 +186,13 @@ const GRADE_ESSAY_TOOL = {
           "Optional or stylistic commas are JUDGMENT CALLS, not errors — never lower " +
           "the score for a comma that isn't strictly required. Reserve a 2 or below " +
           "for writing that's genuinely hard to follow (errors in most sentences) or " +
-          "a single undivided block with no paragraph breaks (which can't exceed 2).",
+          "a single undivided block with no paragraph breaks (which can't exceed 2). " +
+          "CRITICAL: the score must agree with the fix-it checklist below, which is the " +
+          "ONLY mechanics feedback the writer sees. If the checklist is empty there is " +
+          "nothing left to correct, so the score is 4 — NEVER give a 3 (or lower) with an " +
+          "empty checklist. A 3 means it reads fine but still has a few specific errors, " +
+          "and you must list every one of them; if a problem is structural (no paragraph " +
+          "breaks), put that in the checklist too and cap the score at 2.",
       },
       mechanics_fixes: {
         type: "array",
@@ -199,8 +209,12 @@ const GRADE_ESSAY_TOOL = {
           "'consider…' nitpick you aren't sure is a real error — when in doubt, leave " +
           "it off. Keep the list to the few that genuinely matter so the child can fix " +
           "them and be done, not face a fresh batch of smaller nits every revision. " +
-          "Here you DO correct the writing directly (unlike the other dimensions). " +
-          "Return an empty array when the mechanics are clean enough to pass.",
+          "Here you DO correct the writing directly (unlike the other dimensions). This " +
+          "checklist is the ENTIRE justification for any mechanics score below 4, so it " +
+          "must capture every reason it isn't a 4 — including a structural fix (\"Break " +
+          "this into paragraphs: start a new one each time you move to a new idea.\") when " +
+          "paragraphing is the problem. Return an empty array ONLY when the writing is " +
+          "genuinely clean — and an empty array means the mechanics score is 4.",
       },
       thinking_score: {
         type: "integer",
@@ -369,12 +383,18 @@ export async function gradeEssay(input: {
         "that tells them what to do in the next version. For comprehension and quality " +
         "of thinking, coach toward it — point them to what to reread or push further — " +
         "but never hand them the missing facts, the analysis, or the answer; that " +
-        "thinking is theirs to do. MECHANICS carries NO summary sentence: its feedback " +
-        "is the fix-it checklist alone — quote each clear error, give the correction " +
-        "outright, and add a few words on the rule, so the child can follow the list " +
-        "and learn from it (here you DO correct the writing directly). Do not write a " +
-        "separate overall summary — the per-dimension notes are the whole of the " +
-        "feedback.",
+        "thinking is theirs to do. When you point them somewhere, name it the way the " +
+        "writer will recognize it (\"the opening of your essay,\" \"the part where Leo does " +
+        "the nutmeg\") and never invent a reference like \"Entry #1,\" a section or figure " +
+        "label, or a page number — they have no such markers. MECHANICS carries NO " +
+        "summary sentence: its feedback is the fix-it checklist alone — quote each clear " +
+        "error, give the correction outright, and add a few words on the rule, so the " +
+        "child can follow the list and learn from it (here you DO correct the writing " +
+        "directly). Keep the mechanics score and that checklist in lockstep: an empty " +
+        "checklist means a clean essay and scores 4, while a 3 means it reads fine but " +
+        "still has a few specific errors that you list — never a 3 with an empty " +
+        "checklist. Do not write a separate overall summary — the per-dimension notes " +
+        "are the whole of the feedback.",
       tools: [GRADE_ESSAY_TOOL],
       tool_choice: { type: "tool", name: GRADE_ESSAY_TOOL.name },
       messages: [
@@ -407,23 +427,28 @@ export async function gradeEssay(input: {
         ? v.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean)
         : [];
 
+    const mechanicsFixes = fixesOf(p.mechanics_fixes);
+    // Mechanics shows only its fix-it checklist, so the score must agree with it: an
+    // empty checklist means nothing left to correct and earns full marks — otherwise
+    // the reader sees a sub-4 score with no listed reason (which reads as "I fixed
+    // everything and still didn't get a 4"). The prompt has the grader list every
+    // issue, structural ones included, so an empty list is genuinely a clean essay.
+    const mechanicsScore =
+      mechanics != null && mechanicsFixes.length === 0 ? 4 : mechanics;
+
     const scores: EssayRubricScores = {
       comprehension: { score: comprehension, note: noteOf(p.comprehension_note) },
-      mechanics: {
-        score: mechanics,
-        note: noteOf(p.mechanics_note),
-        fixes: fixesOf(p.mechanics_fixes),
-      },
+      mechanics: { score: mechanicsScore, note: "", fixes: mechanicsFixes },
       thinking: { score: thinking, note: noteOf(p.thinking_note) },
     };
     const total =
-      comprehension != null && mechanics != null && thinking != null
-        ? comprehension + mechanics + thinking
+      comprehension != null && mechanicsScore != null && thinking != null
+        ? comprehension + mechanicsScore + thinking
         : null;
     const graded = total != null;
     // Pass on the total, not each part: a strong dimension can carry a weak one.
     const meetsStandard = total != null && total >= ESSAY_PASS_MIN;
-    return { graded, meetsStandard, total, scores, notes: noteOf(p.notes) };
+    return { graded, meetsStandard, total, scores, notes: "" };
   } catch (err) {
     console.error(
       "[reading/quiz-grade] Essay grade failed:",
