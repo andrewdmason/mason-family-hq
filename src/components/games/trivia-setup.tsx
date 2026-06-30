@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import type { GameMode, TeamInput } from "@/lib/games/types";
 import type { TriviaSetupData } from "@/app/(games)/games/trivia/actions";
 
-type Slot = "team1" | "team2" | "out";
+type Slot = "team1" | "team2";
 
 const MODES: { value: GameMode; label: string; blurb: string }[] = [
   { value: "quick", label: "Quick", blurb: "~8 questions" },
@@ -40,11 +40,8 @@ export function TriviaSetup({
     const adults = data.players.filter((p) => p.role !== "kid");
     const kids = data.players.filter((p) => p.role === "kid");
     const slot: Record<string, Slot> = {};
-    for (const p of data.players) slot[p.userId] = "out";
-    if (adults[0]) slot[adults[0].userId] = "team1";
-    if (kids[0]) slot[kids[0].userId] = "team1";
-    if (adults[1]) slot[adults[1].userId] = "team2";
-    if (kids[1]) slot[kids[1].userId] = "team2";
+    adults.forEach((p, i) => (slot[p.userId] = i % 2 === 0 ? "team1" : "team2"));
+    kids.forEach((p, i) => (slot[p.userId] = i % 2 === 0 ? "team1" : "team2"));
     return slot;
   }, [data.players]);
 
@@ -86,35 +83,42 @@ export function TriviaSetup({
       <section>
         <h2 className="font-serif text-lg text-foreground">Teams</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Pair a grown-up with a kid — each kid gets questions at their level.
+          Pair a grown-up with a kid — each kid gets questions at their level. Tap a
+          name to move them to the other team.
         </p>
-        <ul className="mt-3 space-y-2">
-          {data.players.map((p) => (
-            <li
-              key={p.userId}
-              className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-2.5"
-            >
-              <span className="font-medium text-foreground">{p.name}</span>
-              <div className="flex gap-1">
-                {(["team1", "team2", "out"] as Slot[]).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setSlots((prev) => ({ ...prev, [p.userId]: s }))}
-                    className={cn(
-                      "rounded-md px-2.5 py-1 text-xs transition-colors",
-                      slots[p.userId] === s
-                        ? "bg-foreground text-background"
-                        : "bg-muted text-muted-foreground hover:bg-accent"
-                    )}
-                  >
-                    {s === "team1" ? "Team 1" : s === "team2" ? "Team 2" : "Sit out"}
-                  </button>
-                ))}
+        <div className="mt-3 space-y-3">
+          {(["team1", "team2"] as Slot[]).map((teamKey, idx) => {
+            const members = data.players.filter((p) => slots[p.userId] === teamKey);
+            return (
+              <div key={teamKey} className="rounded-xl border border-border bg-card px-4 py-3">
+                <h3 className="text-sm font-medium text-foreground">Team {idx + 1}</h3>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {members.length === 0 ? (
+                    <span className="text-xs text-muted-foreground">
+                      Empty — tap a name above to move them here.
+                    </span>
+                  ) : (
+                    members.map((p) => (
+                      <button
+                        key={p.userId}
+                        type="button"
+                        onClick={() =>
+                          setSlots((prev) => ({
+                            ...prev,
+                            [p.userId]: prev[p.userId] === "team1" ? "team2" : "team1",
+                          }))
+                        }
+                        className="rounded-full border border-border bg-background px-3 py-1 text-sm text-foreground transition-colors hover:bg-accent"
+                      >
+                        {p.name}
+                      </button>
+                    ))
+                  )}
+                </div>
               </div>
-            </li>
-          ))}
-        </ul>
+            );
+          })}
+        </div>
       </section>
 
       <section>

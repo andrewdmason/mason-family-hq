@@ -18,9 +18,6 @@ export default async function TriviaPage() {
         Games
       </Link>
       <h1 className="mt-2 font-serif text-2xl tracking-tight text-foreground">Trivia</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Team trivia, made for us. Pass-and-play on one phone.
-      </p>
       <div className="mt-6">
         <TriviaGame data={data} />
       </div>
