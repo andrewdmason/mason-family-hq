@@ -159,6 +159,70 @@ export type PracticeAlignmentResult = {
   windows: PracticeWindow[];
 };
 
+/**
+ * Unified recording model (00160). `auto` = timer-captured segment, `manual` =
+ * user-initiated take from a task row, `performance` = deliberate performance
+ * (the only kind the Recordings tab shows).
+ */
+export type PracticeRecordingKind = "auto" | "manual" | "performance";
+
+/**
+ * Per-segment lifecycle: recorded -> uploaded -> processing -> ready | failed,
+ * with `skipped` for segments too short to be worth a worker job. Audio is
+ * never deleted by the pipeline; failed/skipped rows are reprocessable.
+ */
+export type PracticeRecordingStatus =
+  | "recorded"
+  | "uploaded"
+  | "processing"
+  | "ready"
+  | "failed"
+  | "skipped";
+
+/**
+ * One coalesced alignment window: where in the segment's audio the performer
+ * was, expressed as reference-MIDI measures. Repeated passages show as
+ * repeated spans over the same measures.
+ */
+export type AlignmentSpan = {
+  startSec: number;
+  endSec: number;
+  measureStart: number;
+  measureEnd: number;
+  confidence: number;
+};
+
+/**
+ * Shape of practice_recordings.alignment (jsonb). `totalMeasures` is the
+ * reference MIDI's measure count, stored so section mapping needs no
+ * reference-MIDI parse at read time.
+ */
+export type PracticeRecordingAlignment = {
+  spans: AlignmentSpan[];
+  totalMeasures: number;
+};
+
+export type PracticeRecording = {
+  id: string;
+  kind: PracticeRecordingKind;
+  task_id: string | null;
+  session_id: string | null;
+  piece_id: string | null;
+  date: string;
+  audio_path: string | null;
+  duration_seconds: number | null;
+  trim_start: number | null;
+  trim_end: number | null;
+  title: string | null;
+  status: PracticeRecordingStatus;
+  error_message: string | null;
+  transcription_path: string | null;
+  alignment: PracticeRecordingAlignment | null;
+  claimed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ReferenceMidiStatus = "uploaded" | "ready" | "failed";
 
 export type ReferenceMidi = {
