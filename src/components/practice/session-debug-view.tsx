@@ -6,7 +6,8 @@ import { SplendidGrandPiano } from "smplr";
 import { Button } from "@/components/ui/button";
 import type { PracticeSegment, PracticeWindow } from "@/lib/types";
 
-type Note = { midi: number; startSec: number; endSec: number };
+type Note = { midi: number; startSec: number; endSec: number; velocity: number };
+type Pedal = { startSec: number; endSec: number };
 
 const VW = 1000; // SVG x-units; time is mapped into [0, VW]
 
@@ -16,12 +17,14 @@ function fmt(s: number) {
 
 export function SessionDebugView({
   notes,
+  pedals,
   durationSec,
   segments,
   windows,
   pieceNames,
 }: {
   notes: Note[];
+  pedals: Pedal[];
   durationSec: number;
   segments: PracticeSegment[];
   windows: PracticeWindow[];
@@ -48,6 +51,18 @@ export function SessionDebugView({
     () => [...notes].sort((a, b) => a.startSec - b.startSec),
     [notes]
   );
+
+  const sortedPedals = useMemo(
+    () => [...pedals].sort((a, b) => a.startSec - b.startSec),
+    [pedals]
+  );
+
+  // Sustain: a note released while the pedal is down keeps ringing until the
+  // pedal comes up, so playback holds it to the end of the covering span.
+  const sustainedEnd = (n: Note) => {
+    const span = sortedPedals.find((p) => p.startSec <= n.endSec && n.endSec < p.endSec);
+    return span ? span.endSec : n.endSec;
+  };
 
   const markers = useMemo(
     () =>
@@ -105,8 +120,8 @@ export function SessionDebugView({
       const t = offsetRef.current + (ctx.currentTime - startedAtRef.current);
       while (cursor < sortedNotes.length && sortedNotes[cursor].startSec <= t) {
         const n = sortedNotes[cursor++];
-        const duration = Math.max(0.1, Math.min(n.endSec - n.startSec, 8));
-        piano.start({ note: n.midi, time: ctx.currentTime, duration, velocity: 80 });
+        const duration = Math.max(0.1, Math.min(sustainedEnd(n) - n.startSec, 8));
+        piano.start({ note: n.midi, time: ctx.currentTime, duration, velocity: n.velocity || 80 });
       }
       if (t >= dur) {
         setPlayhead(0);
@@ -244,7 +259,7 @@ export function SessionDebugView({
           />
         </svg>
 
-        {/* Piano roll */}
+        {/* Piano roll — note opacity tracks played velocity (louder = more solid) */}
         <svg viewBox={`0 0 ${VW} ${ROLL_H}`} preserveAspectRatio="none" className="block w-full" style={{ height: ROLL_H }}>
           {notes.map((n, i) => (
             <rect
@@ -254,10 +269,30 @@ export function SessionDebugView({
               width={Math.max(0.8, x(n.endSec) - x(n.startSec))}
               height={4}
               rx={1}
+              fillOpacity={0.3 + 0.7 * Math.min(1, (n.velocity || 80) / 110)}
               className="fill-indigo-500"
-            />
+            >
+              <title>{`velocity ${n.velocity}`}</title>
+            </rect>
           ))}
         </svg>
+
+        {/* Sustain-pedal lane */}
+        {pedals.length > 0 && (
+          <svg viewBox={`0 0 ${VW} 16`} preserveAspectRatio="none" className="block h-4 w-full border-t">
+            {pedals.map((p, i) => (
+              <rect
+                key={i}
+                x={x(p.startSec)}
+                y={3}
+                width={Math.max(0.8, x(p.endSec) - x(p.startSec))}
+                height={10}
+                rx={2}
+                className="fill-amber-500/60"
+              />
+            ))}
+          </svg>
+        )}
 
         {/* Playhead */}
         <div className="pointer-events-none absolute inset-y-0 w-px bg-red-500" style={{ left: `${playheadPct}%` }} />
@@ -265,7 +300,8 @@ export function SessionDebugView({
 
       <p className="text-xs text-muted-foreground">
         Top band: what it recognized. Middle: per-window confidence (green = passed the
-        gate, gray = unsure). Bottom: the notes it transcribed from your playing.
+        gate, gray = unsure). Bottom: the notes it transcribed from your playing — solider
+        notes were played louder{pedals.length > 0 ? "; the amber strip is the sustain pedal" : ""}.
       </p>
     </div>
   );
