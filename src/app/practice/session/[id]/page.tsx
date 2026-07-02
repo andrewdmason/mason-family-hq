@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeftIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { parsePerformanceMidi, type PerformanceNote } from "@/lib/practice/midi";
+import { parsePerformanceMidi, type PedalSpan, type PerformanceNote } from "@/lib/practice/midi";
 import { SessionDebugView } from "@/components/practice/session-debug-view";
 import type { PracticeAlignmentResult } from "@/lib/types";
 
@@ -24,6 +24,7 @@ export default async function SessionDetailPage({
   if (!session) notFound();
 
   let notes: PerformanceNote[] = [];
+  let pedals: PedalSpan[] = [];
   let durationSec = 0;
   if (session.transcription_path) {
     const { data: file } = await supabase.storage
@@ -33,6 +34,7 @@ export default async function SessionDetailPage({
       try {
         const parsed = parsePerformanceMidi(await file.arrayBuffer());
         notes = parsed.notes;
+        pedals = parsed.pedals;
         durationSec = parsed.durationSec;
       } catch {
         /* leave empty */
@@ -78,6 +80,7 @@ export default async function SessionDetailPage({
       </div>
       <SessionDebugView
         notes={notes}
+        pedals={pedals}
         durationSec={durationSec}
         segments={segments}
         windows={windows}

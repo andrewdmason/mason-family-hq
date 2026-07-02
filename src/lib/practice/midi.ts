@@ -4,10 +4,19 @@ export type ParsedReferenceMidi = {
   measureCount: number;
 };
 
-export type PerformanceNote = { midi: number; startSec: number; endSec: number };
+export type PerformanceNote = {
+  midi: number;
+  startSec: number;
+  endSec: number;
+  /** Note-on velocity, 1–127. The transcription model regresses real dynamics. */
+  velocity: number;
+};
+/** A sustain-pedal press: CC64 ≥ 64 opens the span, < 64 closes it. */
+export type PedalSpan = { startSec: number; endSec: number };
 export type ParsedPerformance = {
   durationSec: number;
   notes: PerformanceNote[];
+  pedals: PedalSpan[];
 };
 
 /** A note positioned in MIDI ticks, for the reference-MIDI piano roll. */
@@ -26,7 +35,8 @@ export type ParsedReferenceRoll = {
 /**
  * Parse a transcribed performance MIDI into timed note events for the debug
  * view's piano roll. Same lenient SMF walk as parseReferenceMidi, but it keeps
- * note on/off and converts ticks → seconds via the tempo map.
+ * note on/off (with velocity) plus CC64 sustain-pedal spans, and converts
+ * ticks → seconds via the tempo map.
  */
 export function parsePerformanceMidi(
   bytes: ArrayBuffer | Uint8Array
@@ -51,7 +61,8 @@ export function parsePerformanceMidi(
   };
 
   const tempoMap: Array<{ tick: number; us: number }> = [];
-  const raw: Array<{ tick: number; on: boolean; pitch: number }> = [];
+  const raw: Array<{ tick: number; on: boolean; pitch: number; velocity: number }> = [];
+  const cc64: Array<{ tick: number; down: boolean }> = [];
 
   for (let t = 0; t < ntracks && p + 8 <= buf.length; t++) {
     if (!(buf[p] === 0x4d && buf[p + 1] === 0x54 && buf[p + 2] === 0x72 && buf[p + 3] === 0x6b)) break;
@@ -75,12 +86,15 @@ export function parsePerformanceMidi(
       } else if (status === 0xf0 || status === 0xf7) {
         p += readVarlen();
       } else if (hi === 0x90) {
-        raw.push({ tick, on: buf[p + 1] > 0, pitch: buf[p] });
+        raw.push({ tick, on: buf[p + 1] > 0, pitch: buf[p], velocity: buf[p + 1] });
         p += 2;
       } else if (hi === 0x80) {
-        raw.push({ tick, on: false, pitch: buf[p] });
+        raw.push({ tick, on: false, pitch: buf[p], velocity: 0 });
         p += 2;
-      } else if (hi === 0xa0 || hi === 0xb0 || hi === 0xe0) {
+      } else if (hi === 0xb0) {
+        if (buf[p] === 64) cc64.push({ tick, down: buf[p + 1] >= 64 });
+        p += 2;
+      } else if (hi === 0xa0 || hi === 0xe0) {
         p += 2;
       } else if (hi === 0xc0 || hi === 0xd0) {
         p += 1;
@@ -93,7 +107,7 @@ export function parsePerformanceMidi(
 
   if (!tempoMap.length) tempoMap.push({ tick: 0, us: 500000 });
   tempoMap.sort((a, b) => a.tick - b.tick);
-  const maxTick = raw.reduce((m, e) => Math.max(m, e.tick), 0);
+  const maxTick = [...raw, ...cc64].reduce((m, e) => Math.max(m, e.tick), 0);
   const tickToSec = (tick: number): number => {
     let sec = 0;
     let last = 0;
@@ -108,17 +122,39 @@ export function parsePerformanceMidi(
     return sec;
   };
 
-  const pending: Record<number, number[]> = {};
+  const pending: Record<number, Array<{ tick: number; velocity: number }>> = {};
   const notes: PerformanceNote[] = [];
   for (const e of raw) {
     if (e.on) {
-      (pending[e.pitch] ??= []).push(e.tick);
+      (pending[e.pitch] ??= []).push({ tick: e.tick, velocity: e.velocity });
     } else if (pending[e.pitch]?.length) {
-      const startTick = pending[e.pitch].shift()!;
-      notes.push({ midi: e.pitch, startSec: tickToSec(startTick), endSec: tickToSec(e.tick) });
+      const start = pending[e.pitch].shift()!;
+      notes.push({
+        midi: e.pitch,
+        startSec: tickToSec(start.tick),
+        endSec: tickToSec(e.tick),
+        velocity: start.velocity,
+      });
     }
   }
-  return { durationSec: tickToSec(maxTick), notes };
+
+  // Pair pedal presses; a press left dangling at EOF closes at the last event.
+  cc64.sort((a, b) => a.tick - b.tick);
+  const pedals: PedalSpan[] = [];
+  let downTick: number | null = null;
+  for (const e of cc64) {
+    if (e.down && downTick === null) {
+      downTick = e.tick;
+    } else if (!e.down && downTick !== null) {
+      pedals.push({ startSec: tickToSec(downTick), endSec: tickToSec(e.tick) });
+      downTick = null;
+    }
+  }
+  if (downTick !== null) {
+    pedals.push({ startSec: tickToSec(downTick), endSec: tickToSec(maxTick) });
+  }
+
+  return { durationSec: tickToSec(maxTick), notes, pedals };
 }
 
 /**
