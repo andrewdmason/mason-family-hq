@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { kickoffSegmentProcessing } from "@/lib/practice/segment-kickoff";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -8,12 +9,15 @@ const RECORDING_BUCKET = "task-audio";
 const MIDI_BUCKET = "piece-midi";
 
 /**
- * Kick off processing for a recorded session (async). Claims the session, signs
- * the recording + reference-MIDI URLs, and hands the job to the worker, which
- * processes in the background (minutes for long recordings) and POSTs the result
- * to the callback route. This returns immediately so nothing blocks on a long
- * Vercel function — the client polls the status route. (For local dev without an
- * async worker, point PRACTICE_WORKER_URL at a sync `/align` endpoint instead.)
+ * Kick off processing for a recorded session (async), or — with a
+ * `recordingId` body — for a single practice segment (plan U5). Claims the
+ * session/recording, signs the recording + reference-MIDI URLs, and hands the
+ * job to the worker, which processes in the background (minutes for long
+ * recordings) and POSTs the result to the callback route. This returns
+ * immediately so nothing blocks on a long Vercel function — the client polls
+ * the status route (sessions) or just refreshes (segments). (For local dev
+ * without an async worker, point PRACTICE_WORKER_URL at a sync `/align`
+ * endpoint instead.)
  */
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -24,9 +28,30 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
-  const { sessionId } = (await request.json()) as { sessionId?: string };
+  const { sessionId, recordingId } = (await request.json()) as {
+    sessionId?: string;
+    recordingId?: string;
+  };
+
+  // Segment branch (plan U5): known-piece alignment job for one
+  // practice_recordings row. Session behavior below is untouched.
+  if (!sessionId && recordingId) {
+    const callbackUrl = `${new URL(request.url).origin}/practice/session/api/callback`;
+    const outcome = await kickoffSegmentProcessing(
+      supabase,
+      recordingId,
+      callbackUrl
+    );
+    return NextResponse.json(outcome, {
+      status: outcome.status === "failed" ? 500 : 200,
+    });
+  }
+
   if (!sessionId) {
-    return NextResponse.json({ error: "sessionId required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "sessionId or recordingId required" },
+      { status: 400 }
+    );
   }
 
   const { data: won, error: claimErr } = await supabase.rpc(

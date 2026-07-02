@@ -2,6 +2,7 @@ import { GlobalHeader } from "@/components/layout/global-header";
 import { PracticeNav } from "@/components/layout/practice-nav";
 import { TransportBar } from "@/components/layout/transport-bar";
 import { CaptureController } from "@/components/practice/capture-controller";
+import { SegmentSweep } from "@/components/practice/segment-sweep";
 import { MetronomeProvider } from "@/components/metronome/metronome-context";
 import { TaskTimerProvider } from "@/components/timer/task-timer-context";
 import { VideoProvider } from "@/components/video/video-context";
@@ -60,6 +61,7 @@ export default async function AppLayout({
                 <div className="flex flex-1 flex-col">{children}</div>
                 <TransportBar />
                 <CaptureController />
+                <SegmentSweep />
               </TaskTimerProvider>
             </VideoProvider>
           </div>

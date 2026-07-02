@@ -36,6 +36,10 @@ import {
   nextSectionLetter,
   nextSubsectionLabel,
 } from "@/lib/practice/section-labels";
+import {
+  computeSectionBands,
+  type SectionBand,
+} from "@/lib/practice/section-bands";
 import type {
   ParsedReferenceRoll,
   ReferenceRollNote,
@@ -75,11 +79,9 @@ const PEDAL_LANES: { kind: PedalKind; label: string; title: string; fill: string
   { kind: "soft", label: "U.C.", title: "Soft (una corda) pedal", fill: "fill-purple-500/60" },
 ];
 
-type Band = {
-  section: PieceSection;
-  startMeasure: number;
-  endMeasure: number; // exclusive (next marker, or end of span)
-};
+// Band tiling lives in the shared helper (plan KTD5) so enrichment display
+// can't drift from the Measure view.
+type Band = SectionBand;
 
 function pitchClassIsBlack(midi: number): boolean {
   return [1, 3, 6, 8, 10].includes(((midi % 12) + 12) % 12);
@@ -233,38 +235,10 @@ export function MeasureViewPanel({
     [dragOverride]
   );
 
-  const { parentBands, subBands } = useMemo(() => {
-    const parents = sections.filter((p) => p.parent_id === null);
-    const placedParents = parents
-      .map((p) => ({ p, m: effectiveStart(p) }))
-      .filter((x): x is { p: PieceSectionWithChildren; m: number } => x.m != null)
-      .sort((a, b) => a.m - b.m);
-
-    const parentBands: Band[] = placedParents.map((x, i) => ({
-      section: x.p,
-      startMeasure: x.m,
-      endMeasure:
-        i + 1 < placedParents.length ? placedParents[i + 1].m : totalMeasures + 1,
-    }));
-
-    const subBands: Band[] = [];
-    for (const pb of parentBands) {
-      const parent = pb.section as PieceSectionWithChildren;
-      const placedSubs = parent.children
-        .map((c) => ({ c, m: effectiveStart(c) }))
-        .filter((x): x is { c: PieceSection; m: number } => x.m != null)
-        .sort((a, b) => a.m - b.m);
-      placedSubs.forEach((x, i) => {
-        subBands.push({
-          section: x.c,
-          startMeasure: x.m,
-          endMeasure:
-            i + 1 < placedSubs.length ? placedSubs[i + 1].m : pb.endMeasure,
-        });
-      });
-    }
-    return { parentBands, subBands };
-  }, [sections, effectiveStart, totalMeasures]);
+  const { parentBands, subBands } = useMemo(
+    () => computeSectionBands(sections, totalMeasures, effectiveStart),
+    [sections, effectiveStart, totalMeasures]
+  );
 
   const unplaced = useMemo(() => {
     const out: { section: PieceSection; isChild: boolean }[] = [];

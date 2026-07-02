@@ -14,7 +14,6 @@ import {
   useTaskTimer,
   type TimerRunEvent,
 } from "@/components/timer/task-timer-context";
-import { createClient } from "@/lib/supabase/client";
 import {
   concreteAudioInputs,
   effectiveInputDeviceId,
@@ -23,18 +22,11 @@ import {
   pickMimeType,
   resolveRecordingDeviceId,
   setAutoRecordEnabled,
-  supportedContentType,
 } from "@/lib/practice/capture";
 import { useLevelMeter } from "@/components/practice/use-capture";
-import {
-  createSegmentRecording,
-  markSegmentUploaded,
-} from "@/app/practice/recordings/segment-actions";
-import {
-  deleteSegment,
-  putSegment,
-  type BufferedSegment,
-} from "@/lib/practice/segment-buffer";
+import { createSegmentRecording } from "@/app/practice/recordings/segment-actions";
+import { finishSegmentUpload } from "@/lib/practice/segment-upload";
+import { putSegment, type BufferedSegment } from "@/lib/practice/segment-buffer";
 
 // ---------------------------------------------------------------------------
 // Shared capture status — a tiny external store so the transport bar (a
@@ -122,8 +114,6 @@ let authorizedRunTaskId: string | null = null;
 const MIN_SEGMENT_MS = 2000;
 /** Auto captures are transcription-grade: mono at 128 kbps (KTD7). */
 const AUDIO_BITS_PER_SECOND = 128_000;
-const UPLOAD_ATTEMPTS = 3;
-const UPLOAD_RETRY_BASE_MS = 1500;
 
 type ActiveRecording = {
   recorder: MediaRecorder;
@@ -134,10 +124,6 @@ type ActiveRecording = {
   ext: "webm" | "m4a";
   startedAt: number;
 };
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /** The device to record from: the shared mic preference if it still exists,
  * else a concrete non-iPhone input (anti-Continuity, same as the recorders). */
@@ -163,9 +149,8 @@ async function resolveCaptureDeviceId(): Promise<string | null> {
  * - upload fails after retries → row stays 'recorded', blob stays buffered;
  *   the sweep re-uploads from the buffer.
  * - markSegmentUploaded fails → same recovery (upsert makes re-upload safe).
- * - kickoff fails/404s (route branch is U5's work) → row stays 'uploaded';
- *   the sweep re-kicks without needing the blob, so the buffer is already
- *   deleted by then.
+ * - kickoff fails → row stays 'uploaded'; the sweep re-kicks without needing
+ *   the blob, so the buffer is already deleted by then.
  */
 async function persistSegment(rec: ActiveRecording, blob: Blob): Promise<void> {
   const clientId = crypto.randomUUID();
@@ -211,75 +196,15 @@ async function persistSegment(rec: ActiveRecording, blob: Blob): Promise<void> {
     }
   }
 
-  // The SDK ignores the contentType option for Blob bodies and uses the
-  // blob's own .type, so re-wrap with a bucket-supported type.
-  const contentType = supportedContentType(blob.type, rec.ext);
-  const upload =
-    blob.type === contentType ? blob : new Blob([blob], { type: contentType });
-  const supabase = createClient();
-
-  let uploadedOk = false;
-  for (let attempt = 0; attempt < UPLOAD_ATTEMPTS; attempt++) {
-    try {
-      const { error } = await supabase.storage
-        .from("task-audio")
-        .uploadToSignedUrl(path, token, upload, { upsert: true });
-      if (!error) {
-        uploadedOk = true;
-        break;
-      }
-      throw new Error(error.message);
-    } catch (err) {
-      if (attempt === UPLOAD_ATTEMPTS - 1) {
-        console.warn(
-          "[capture] segment upload failed; row stays 'recorded', buffer kept for the sweep",
-          err
-        );
-        return;
-      }
-      await sleep(UPLOAD_RETRY_BASE_MS * 2 ** attempt);
-    }
-  }
-  if (!uploadedOk) return;
-
-  try {
-    await markSegmentUploaded(recordingId, durationSeconds);
-  } catch (err) {
-    console.warn(
-      "[capture] markSegmentUploaded failed; buffer kept, sweep re-uploads",
-      err
-    );
-    return;
-  }
-
-  // The upload is confirmed — the buffer has done its job. U5's sweep
-  // re-kicks 'uploaded' rows without needing the blob.
-  if (hasBuffer) {
-    try {
-      await deleteSegment(clientId);
-    } catch {
-      /* ignore */
-    }
-  }
-
-  // Processing kickoff. The recordingId branch of this route is U5's work —
-  // until it lands, a 404/unhandled body just leaves the row 'uploaded' for
-  // the sweep. keepalive lets the POST survive a tab close right after stop.
-  try {
-    const res = await fetch("/practice/session/api/process", {
-      method: "POST",
-      keepalive: true,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ recordingId }),
-    });
-    if (!res.ok) {
-      console.warn(
-        `[capture] kickoff responded ${res.status}; sweep will re-kick`
-      );
-    }
-  } catch (err) {
-    console.warn("[capture] kickoff failed; sweep will re-kick", err);
-  }
+  await finishSegmentUpload({
+    recordingId,
+    path,
+    token,
+    blob,
+    ext: rec.ext,
+    durationSeconds,
+    bufferId: hasBuffer ? clientId : null,
+  });
 }
 
 // ---------------------------------------------------------------------------
