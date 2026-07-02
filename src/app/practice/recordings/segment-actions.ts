@@ -93,8 +93,10 @@ export async function markSegmentUploaded(
  * MIDI in practice-session-midi when present), then the row (plan U6).
  *
  * This is the ONLY delete path for practice_recordings and it is only ever
- * invoked from a user's explicit menu action in the task row — the processing
- * pipeline never deletes rows or audio (KTD8).
+ * invoked by explicit user actions — the task-row menu, the Recordings tab
+ * (via deleteRecording), and the audio dialog's re-record replacement (via
+ * attachRecording). The processing pipeline never deletes rows or audio
+ * (KTD8).
  */
 export async function deleteSegment(
   recordingId: string

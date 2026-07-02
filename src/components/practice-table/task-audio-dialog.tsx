@@ -34,14 +34,15 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { createSignedPlaybackUrl } from "@/app/practice/timer/audio-actions";
 import {
-  attachTaskAudio,
-  createAudioUploadUrl,
-  createSignedPlaybackUrl,
-  deleteTaskAudio,
-  updateTaskAudioTitle,
-  updateTaskAudioTrim,
-} from "@/app/practice/timer/audio-actions";
+  attachRecording,
+  createRecordingUpload,
+  deleteRecording,
+  updateRecordingTitle,
+  updateRecordingTrim,
+  type SavedRecording,
+} from "@/app/practice/recordings/recording-actions";
 import {
   effectiveInputDeviceId,
   formatDeviceLabel,
@@ -73,7 +74,23 @@ type State =
   | { kind: "deleting" };
 
 type Props = {
-  taskId: string;
+  /**
+   * What a fresh take saves as: task-row entry points pass "manual",
+   * the Recordings tab passes "performance" (R10/R11). When a save replaces
+   * an existing row (re-record while editing), the replaced row's kind wins
+   * server-side, so editing a backfilled performance keeps it a performance.
+   */
+  kind: "manual" | "performance";
+  /** Task association for new takes; null when recording from the Recordings tab. */
+  taskId: string | null;
+  /** Piece association for new takes (falls back to the task's piece server-side). */
+  pieceId: string | null;
+  /**
+   * Existing practice_recordings row being played/edited; null when the
+   * dialog opens purely to record. Trim/title/delete apply to this row, and
+   * a re-record + save replaces it (row + audio object).
+   */
+  recordingId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialMode: Mode;
@@ -85,12 +102,9 @@ type Props = {
   pieceName: string | null;
   sectionLabel: string | null;
   taskText: string | null;
-  onAttached?: (
-    path: string,
-    durationSeconds: number,
-    trimStartSeconds: number | null,
-    trimEndSeconds: number | null,
-    audioTitle: string | null
+  onSaved?: (
+    recording: SavedRecording,
+    replacedRecordingId: string | null
   ) => void;
   onTrimUpdated?: (
     trimStartSeconds: number | null,
@@ -117,7 +131,10 @@ function formatTime(seconds: number): string {
 }
 
 export function TaskAudioDialog({
+  kind,
   taskId,
+  pieceId,
+  recordingId,
   open,
   onOpenChange,
   initialMode,
@@ -129,7 +146,7 @@ export function TaskAudioDialog({
   pieceName,
   sectionLabel,
   taskText,
-  onAttached,
+  onSaved,
   onTrimUpdated,
   onTitleUpdated,
   onDeleted,
@@ -512,17 +529,17 @@ export function TaskAudioDialog({
   const titleDirty = state.kind === "playback" && title.trim() !== titleBaseline;
 
   const saveTitle = useCallback(async () => {
-    if (state.kind !== "playback") return;
+    if (state.kind !== "playback" || !recordingId) return;
     const trimmed = title.trim();
     const next = trimmed ? trimmed : null;
     try {
-      await updateTaskAudioTitle(taskId, next);
+      await updateRecordingTitle(recordingId, next);
       setTitleBaseline(trimmed);
       onTitleUpdated?.(next);
     } catch {
       // Leave local state; user can retry by editing again.
     }
-  }, [onTitleUpdated, state.kind, taskId, title]);
+  }, [onTitleUpdated, state.kind, recordingId, title]);
 
   const stopRecording = useCallback(() => {
     const plugin = recordPluginRef.current;
@@ -615,7 +632,10 @@ export function TaskAudioDialog({
     setState({ kind: "saving" });
     try {
       const ext: "webm" | "m4a" = mime.startsWith("audio/mp4") ? "m4a" : "webm";
-      const { path, token } = await createAudioUploadUrl(taskId, ext);
+      // Row is inserted only after the upload succeeds (see
+      // createRecordingUpload) — a failed/abandoned save leaves no row.
+      const { recordingId: newId, path, token } =
+        await createRecordingUpload(ext);
       const supabase = createClient();
       const { error } = await supabase.storage
         .from(BUCKET)
@@ -624,27 +644,37 @@ export function TaskAudioDialog({
           contentType: mime || undefined,
         });
       if (error) throw error;
-      await attachTaskAudio(
+      const saved = await attachRecording({
+        recordingId: newId,
+        kind,
         taskId,
-        path,
-        duration,
-        trimStartToSave,
-        trimEndToSave,
-        titleToSave
-      );
-      onAttached?.(
-        path,
-        Math.max(0, Math.round(duration)),
-        trimStartToSave,
-        trimEndToSave,
-        titleToSave
-      );
+        pieceId,
+        audioPath: path,
+        durationSeconds: duration,
+        trimStartSeconds: trimStartToSave,
+        trimEndSeconds: trimEndToSave,
+        title: titleToSave,
+        // Re-record while editing an existing row replaces it (row + object).
+        replaceRecordingId: recordingId,
+      });
+      onSaved?.(saved, recordingId);
       onOpenChange(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
       setState({ ...state, kind: "save-error", message });
     }
-  }, [onAttached, onOpenChange, state, taskId, trimStart, trimEnd, title]);
+  }, [
+    kind,
+    onSaved,
+    onOpenChange,
+    recordingId,
+    state,
+    taskId,
+    pieceId,
+    trimStart,
+    trimEnd,
+    title,
+  ]);
 
   const reRecordFromPlayback = useCallback(() => {
     teardownWavesurfer();
@@ -691,10 +721,10 @@ export function TaskAudioDialog({
     (trimEnd ?? null) !== (trimBaseline.end ?? null);
 
   const saveTrim = useCallback(async () => {
-    if (state.kind !== "playback") return;
+    if (state.kind !== "playback" || !recordingId) return;
     setSavingTrim(true);
     try {
-      await updateTaskAudioTrim(taskId, trimStart, trimEnd);
+      await updateRecordingTrim(recordingId, trimStart, trimEnd);
       setTrimBaseline({ start: trimStart, end: trimEnd });
       onTrimUpdated?.(trimStart, trimEnd);
     } catch {
@@ -702,20 +732,21 @@ export function TaskAudioDialog({
     } finally {
       setSavingTrim(false);
     }
-  }, [onTrimUpdated, state.kind, taskId, trimStart, trimEnd]);
+  }, [onTrimUpdated, state.kind, recordingId, trimStart, trimEnd]);
 
-  const deleteRecording = useCallback(async () => {
-    if (!existingAudioPath) return;
+  const deleteExisting = useCallback(async () => {
+    if (!recordingId) return;
     setState({ kind: "deleting" });
     try {
-      await deleteTaskAudio(taskId);
+      const result = await deleteRecording(recordingId);
+      if (!result.ok) throw new Error(result.error ?? "Delete failed");
       onDeleted?.();
       onOpenChange(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Delete failed";
       setState({ kind: "playback-error", message });
     }
-  }, [existingAudioPath, onDeleted, onOpenChange, taskId]);
+  }, [recordingId, onDeleted, onOpenChange]);
 
   const totalDuration = (() => {
     if (state.kind === "preview" || state.kind === "save-error") return state.duration;
@@ -794,7 +825,7 @@ export function TaskAudioDialog({
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   variant="destructive"
-                  onClick={deleteRecording}
+                  onClick={deleteExisting}
                 >
                   <Trash2Icon />
                   Delete

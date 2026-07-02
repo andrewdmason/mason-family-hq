@@ -26,6 +26,7 @@ import {
   PauseIcon,
   PlayIcon,
   RotateCcwIcon,
+  ScissorsIcon,
   StarIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -134,10 +135,16 @@ export function TaskRecordings({
   taskId,
   pieceId,
   recordings,
+  onEdit,
 }: {
   taskId: string;
   pieceId: string | null;
   recordings: TaskRecordingDisplay[];
+  /**
+   * Opens the audio dialog on this row for trim/title edits. Offered only on
+   * manual/performance rows (R12) — auto segments have no trim/title story.
+   */
+  onEdit?: (rec: TaskRecordingDisplay) => void;
 }) {
   const sectionsByPiece = useContext(PieceSectionsContext);
   const sections = pieceId ? sectionsByPiece[pieceId] : undefined;
@@ -367,6 +374,12 @@ export function TaskRecordings({
                   <MoreHorizontalIcon className="size-3.5" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-40">
+                  {onEdit && rec.kind !== "auto" && playable && (
+                    <DropdownMenuItem onClick={() => onEdit(rec)}>
+                      <ScissorsIcon />
+                      Trim &amp; title
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem
                     disabled={!playable}
                     onClick={() => void handleDownload(rec)}

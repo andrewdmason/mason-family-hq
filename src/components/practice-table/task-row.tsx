@@ -57,7 +57,12 @@ import {
 } from "@/lib/section-picker-cache";
 import { localDate } from "@/lib/date-utils";
 import { practiceTempo } from "@/lib/section-utils";
-import type { PieceSection, TaskWithDetails, SectionStatus } from "@/lib/types";
+import type {
+  PieceSection,
+  TaskRecordingDisplay,
+  TaskWithDetails,
+  SectionStatus,
+} from "@/lib/types";
 import { SECTION_STATUS_DOT_COLORS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -141,19 +146,13 @@ export function TaskRow({
       task.piece_id ? getCachedSectionPickerData(task.piece_id) : null
     );
   const [noteOpen, setNoteOpen] = useState(false);
-  const [audioDialogOpen, setAudioDialogOpen] = useState(false);
-  const [audioDialogMode, setAudioDialogMode] = useState<"record" | "playback">(
-    "record"
-  );
+  // Record a fresh manual take (recording: null) or trim/title an existing
+  // manual/performance row from the U6 list (recording: that row).
+  const [audioDialog, setAudioDialog] = useState<{
+    mode: "record" | "playback";
+    recording: TaskRecordingDisplay | null;
+  } | null>(null);
   const [followUpOpen, setFollowUpOpen] = useState(false);
-  const hasAudio = !!task.audio_path;
-  const openAudioDialog = useCallback(
-    (mode: "record" | "playback") => {
-      setAudioDialogMode(mode);
-      setAudioDialogOpen(true);
-    },
-    []
-  );
   const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
   const noteInputRef = useRef<HTMLInputElement>(null);
   const metronomeRef = useRef<HTMLInputElement>(null);
@@ -539,10 +538,10 @@ export function TaskRow({
                 : "Move to today"}
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => openAudioDialog(hasAudio ? "playback" : "record")}
+              onClick={() => setAudioDialog({ mode: "record", recording: null })}
             >
               <MicIcon />
-              {hasAudio ? "Play recording" : "Record"}
+              Record
             </DropdownMenuItem>
             {daySessionNumbers
               .filter((n) => n !== task.session_number)
@@ -821,6 +820,7 @@ export function TaskRow({
           taskId={task.id}
           pieceId={task.piece_id}
           recordings={task.recordings}
+          onEdit={(rec) => setAudioDialog({ mode: "playback", recording: rec })}
         />
       )}
       <FollowUpDialog
@@ -854,43 +854,56 @@ export function TaskRow({
         }}
       />
       <TaskAudioDialog
+        kind="manual"
         taskId={task.id}
-        open={audioDialogOpen}
-        onOpenChange={setAudioDialogOpen}
-        initialMode={audioDialogMode}
-        existingAudioPath={task.audio_path}
-        existingDurationSeconds={task.audio_duration_seconds}
-        existingTrimStartSeconds={task.audio_trim_start_seconds}
-        existingTrimEndSeconds={task.audio_trim_end_seconds}
-        existingAudioTitle={task.audio_title}
+        pieceId={task.piece_id}
+        recordingId={audioDialog?.recording?.id ?? null}
+        open={audioDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) setAudioDialog(null);
+        }}
+        initialMode={audioDialog?.mode ?? "record"}
+        existingAudioPath={audioDialog?.recording?.audio_path ?? null}
+        existingDurationSeconds={audioDialog?.recording?.duration_seconds ?? null}
+        existingTrimStartSeconds={audioDialog?.recording?.trim_start ?? null}
+        existingTrimEndSeconds={audioDialog?.recording?.trim_end ?? null}
+        existingAudioTitle={audioDialog?.recording?.title ?? null}
         pieceName={task.piece_name}
         sectionLabel={optimisticSection.label}
         taskText={text}
-        onAttached={(path, duration, trimStart, trimEnd, audioTitle) => {
+        onSaved={(saved, replacedRecordingId) => {
           emitOptimisticTaskUpdate(task.id, {
-            audio_path: path,
-            audio_duration_seconds: duration,
-            audio_trim_start_seconds: trimStart,
-            audio_trim_end_seconds: trimEnd,
-            audio_title: audioTitle,
+            recordings: [
+              ...task.recordings.filter((r) => r.id !== replacedRecordingId),
+              saved,
+            ],
           });
         }}
         onTrimUpdated={(trimStart, trimEnd) => {
+          const editedId = audioDialog?.recording?.id;
+          if (!editedId) return;
           emitOptimisticTaskUpdate(task.id, {
-            audio_trim_start_seconds: trimStart,
-            audio_trim_end_seconds: trimEnd,
+            recordings: task.recordings.map((r) =>
+              r.id === editedId
+                ? { ...r, trim_start: trimStart, trim_end: trimEnd }
+                : r
+            ),
           });
         }}
         onTitleUpdated={(audioTitle) => {
-          emitOptimisticTaskUpdate(task.id, { audio_title: audioTitle });
+          const editedId = audioDialog?.recording?.id;
+          if (!editedId) return;
+          emitOptimisticTaskUpdate(task.id, {
+            recordings: task.recordings.map((r) =>
+              r.id === editedId ? { ...r, title: audioTitle } : r
+            ),
+          });
         }}
         onDeleted={() => {
+          const editedId = audioDialog?.recording?.id;
+          if (!editedId) return;
           emitOptimisticTaskUpdate(task.id, {
-            audio_path: null,
-            audio_duration_seconds: null,
-            audio_trim_start_seconds: null,
-            audio_trim_end_seconds: null,
-            audio_title: null,
+            recordings: task.recordings.filter((r) => r.id !== editedId),
           });
         }}
       />
