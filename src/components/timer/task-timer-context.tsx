@@ -41,6 +41,53 @@ type PersistedState = {
   status?: "running" | "loaded";
 };
 
+/**
+ * Task-run boundary events for the capture controller (plan U4, KTD2/KTD3).
+ * Additive subscription surface: events fire only from the explicit lifecycle
+ * functions (startTaskTimer / pauseTaskTimer / resetTaskTimer), all of which
+ * are reached from user gestures (or their synchronous consequences, like
+ * auto-advance). Restore-on-mount never emits — that is what gives
+ * subscribers gesture-only semantics for reloads and second tabs.
+ *
+ * Ordering guarantees subscribers rely on:
+ * - switch: run-end(switch) for the previous task, then run-start for the new
+ *   one, both synchronously inside the same startTaskTimer call.
+ * - reset: run-end(reset) then run-start(reset), synchronously.
+ * - complete + auto-advance: run-end(pause) then run-start, synchronously
+ *   (the auto-advance CustomEvent dispatch is synchronous).
+ * Soft-goal expiry and setTaskGoal emit nothing (not segment boundaries).
+ */
+export type TimerRunEvent =
+  | {
+      type: "run-start";
+      taskId: string;
+      meta: ActiveTaskMeta | null;
+      reason: "start" | "switch" | "reset";
+    }
+  | { type: "run-end"; taskId: string; reason: "pause" | "switch" | "reset" };
+
+type TimerRunListener = (event: TimerRunEvent) => void;
+const runEventListeners = new Set<TimerRunListener>();
+
+export function subscribeTaskTimerRunEvents(
+  listener: TimerRunListener
+): () => void {
+  runEventListeners.add(listener);
+  return () => {
+    runEventListeners.delete(listener);
+  };
+}
+
+function emitRunEvent(event: TimerRunEvent) {
+  for (const listener of runEventListeners) {
+    try {
+      listener(event);
+    } catch {
+      // Listeners must never break the timer.
+    }
+  }
+}
+
 /** Identifies a specific piece-group instance in the practice table (one piece
  * on one day in one session). Distinct from the filter state because the same
  * piece can appear in multiple days/sessions and we only want the specific one
@@ -319,6 +366,7 @@ export function TaskTimerProvider({
 
   const startTaskTimer = useCallback(
     (taskId: string, seconds: number, meta?: ActiveTaskMeta) => {
+      const isSwitch = !!activeTaskId && activeTaskId !== taskId;
       if (activeTaskId && activeTaskId !== taskId) {
         persistTaskRemaining(activeTaskId, remainingSeconds);
         // Add the elapsed time from the previous task to the base total
@@ -328,6 +376,8 @@ export function TaskTimerProvider({
           );
           setBaseDailySeconds((prev) => prev + prevElapsed);
         }
+        // Switch is NOT pause-then-start — the previous run ends here.
+        emitRunEvent({ type: "run-end", taskId: activeTaskId, reason: "switch" });
       }
       const nextMeta = meta ?? null;
       setActiveTaskId(taskId);
@@ -345,6 +395,13 @@ export function TaskTimerProvider({
 
       // Record started_at on server
       void startTaskTimerAction(taskId).catch(() => {});
+
+      emitRunEvent({
+        type: "run-start",
+        taskId,
+        meta: nextMeta,
+        reason: isSwitch ? "switch" : "start",
+      });
     },
     [activeTaskId, remainingSeconds, persist, persistTaskRemaining]
   );
@@ -389,6 +446,8 @@ export function TaskTimerProvider({
     setActiveTaskMeta(null);
     setActiveTaskElapsed(0);
     activeTaskStartRef.current = null;
+
+    emitRunEvent({ type: "run-end", taskId: pausedTaskId, reason: "pause" });
   }, [activeTaskId, activeTaskMeta, remainingSeconds, announceRemaining]);
 
   const unloadLoadedTask = useCallback(() => {
@@ -470,14 +529,24 @@ export function TaskTimerProvider({
 
   const resetTaskTimer = useCallback(
     (taskId: string, seconds: number) => {
+      // Reset ends the current run's segment; the reset run starts a new one.
+      if (activeTaskId) {
+        emitRunEvent({ type: "run-end", taskId: activeTaskId, reason: "reset" });
+      }
       setActiveTaskId(taskId);
       setRemainingSeconds(seconds);
       setIsExpired(false);
       setActiveTaskElapsed(0);
       activeTaskStartRef.current = Date.now();
       persist(taskId, seconds, activeTaskMeta);
+      emitRunEvent({
+        type: "run-start",
+        taskId,
+        meta: activeTaskMeta,
+        reason: "reset",
+      });
     },
-    [persist, activeTaskMeta]
+    [persist, activeTaskMeta, activeTaskId]
   );
 
   return (
