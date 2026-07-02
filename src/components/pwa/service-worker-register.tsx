@@ -15,6 +15,33 @@ import { useEffect } from "react";
 export function ServiceWorkerRegister() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
+
+    // Dev: never register. The app-shell cache exists for the installed PWA's
+    // cold launch; on localhost it only serves stale HTML (endless hard-refresh
+    // loops), and because registrations are per localhost:PORT origin they
+    // outlive the dev server and hijack OTHER projects later run on the same
+    // port. Actively unregister + drop this worker's caches so any machine
+    // that already picked up the worker in dev heals itself on next load.
+    if (process.env.NODE_ENV !== "production") {
+      navigator.serviceWorker
+        .getRegistrations()
+        .then((regs) => {
+          for (const reg of regs) void reg.unregister();
+        })
+        .catch(() => {});
+      if ("caches" in window) {
+        caches
+          .keys()
+          .then((keys) => {
+            for (const key of keys) {
+              if (/^(static|pages)-/.test(key)) void caches.delete(key);
+            }
+          })
+          .catch(() => {});
+      }
+      return;
+    }
+
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   }, []);
 
