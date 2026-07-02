@@ -42,6 +42,27 @@ class Reference:
             last, num, den = ev_tick, n, d
         return measures
 
+    def measure_starts_sec(self):
+        """Start time (seconds) of each measure, in order — measure k (1-based)
+        starts at result[k-1]. Walks the time-signature map; a time-signature
+        change mid-measure truncates that measure and starts a new one at the
+        change (matching total_measures' fractional accounting). This is the
+        frames->measure table segment alignment uses (plan U2/KTD4)."""
+        starts = []
+        last = 0
+        num, den = self.timesig_map[0][1], self.timesig_map[0][2]
+        for ev_tick, n, d in self.timesig_map[1:] + [(self.max_tick + 1, num, den)]:
+            seg_end = min(self.max_tick, ev_tick)
+            mlen = self.ppq * 4 * num / den
+            t = float(last)
+            while t < seg_end:
+                starts.append(self.tick_to_sec(int(t)))
+                t += mlen
+            if ev_tick >= self.max_tick:
+                break
+            last, num, den = ev_tick, n, d
+        return starts or [0.0]
+
 
 def _read_varlen(buf, p):
     val = 0

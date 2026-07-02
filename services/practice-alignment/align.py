@@ -30,6 +30,11 @@ HAND_SPLIT = 60                 # C4
 CONF_FLOOR = 0.66              # median confidence (1 - cost) a run needs to count
 MIN_RUN = 2                    # a piece must be the top guess for >= this many windows
 MIN_SEGMENT_SEC = 8.0          # ignore segments shorter than this
+# Segment mode (plan U2/KTD4): consecutive accepted windows coalesce into one span
+# when their reference measure ranges overlap or sit within this many measures of
+# each other. A jump back (looping a passage) breaks the chain and starts a new
+# span — repetition shows as repeated spans, the signal the follow-up wants.
+SEGMENT_MEASURE_GAP = 2
 
 
 def _l2(m):
@@ -142,6 +147,101 @@ def align(audio_path, references):
         "variant": w["variant"],
     } for w in windows]
     return {"segments": segments, "confidence": round(overall, 3), "windows": windows_out}
+
+
+def _sec_to_measure(sec, measure_starts):
+    """1-based measure number containing the given reference-time second."""
+    lo, hi = 0, len(measure_starts)
+    while lo < hi:                       # bisect_right
+        mid = (lo + hi) // 2
+        if measure_starts[mid] <= sec:
+            lo = mid + 1
+        else:
+            hi = mid
+    return max(1, min(lo, len(measure_starts)))
+
+
+def _coalesce_windows(accepted):
+    """Merge time-contiguous accepted windows whose measure ranges continue from
+    the previous window's into spans; a measure jump (loop-back / skip) starts a
+    new span. Returns the AlignmentSpan contract (src/lib/types.ts)."""
+    spans, prev = [], None
+    for w in accepted:
+        contiguous = (
+            prev is not None
+            and w["start_sec"] <= prev["end_sec"] + 1e-6
+            and w["m_lo"] <= prev["m_hi"] + SEGMENT_MEASURE_GAP
+            and w["m_hi"] >= prev["m_lo"] - SEGMENT_MEASURE_GAP
+        )
+        if contiguous:
+            cur = spans[-1]
+            cur["endSec"] = w["end_sec"]
+            cur["measureStart"] = min(cur["measureStart"], w["m_lo"])
+            cur["measureEnd"] = max(cur["measureEnd"], w["m_hi"])
+            cur["_confs"].append(w["conf"])
+        else:
+            spans.append({
+                "startSec": w["start_sec"], "endSec": w["end_sec"],
+                "measureStart": w["m_lo"], "measureEnd": w["m_hi"],
+                "_confs": [w["conf"]],
+            })
+        prev = w
+    return [{
+        "startSec": round(s["startSec"], 1),
+        "endSec": round(s["endSec"], 1),
+        "measureStart": s["measureStart"],
+        "measureEnd": s["measureEnd"],
+        "confidence": round(float(np.mean(s["_confs"])), 3),
+    } for s in spans]
+
+
+def align_to_reference(audio_path, ref_midi_bytes):
+    """Known-piece segment alignment (plan U2/KTD4): match the recording's
+    windows against ONE reference and return measure-level spans.
+
+    Returns {"spans": [AlignmentSpan...], "totalMeasures": int}. No piece
+    recognition, no regions, no scale classification — the piece is known in
+    advance; windows under CONF_FLOOR emit nothing (R8: low confidence degrades
+    to absent section data, never a negative signal). totalMeasures is the count
+    of measure starts in the reference so app-side section mapping needs no
+    reference-MIDI parse."""
+    try:
+        ref = parse_smf(ref_midi_bytes)
+        tpl = build_templates(ref)
+        measure_starts = ref.measure_starts_sec()
+    except Exception:
+        # Unreadable reference degrades to "no section data", like session mode.
+        return {"spans": [], "totalMeasures": 0}
+    total_measures = len(measure_starts)
+    try:
+        audio_c, duration = audio_chroma(audio_path)
+    except Exception:
+        return {"spans": [], "totalMeasures": total_measures}
+    if duration < 2.5 or audio_c.shape[1] < 8:
+        return {"spans": [], "totalMeasures": total_measures}
+
+    win = int(WINDOW_SEC / FRAME_SEC)
+    step = int(WINDOW_STEP_SEC / FRAME_SEC)
+    accepted = []
+    for start in range(0, max(audio_c.shape[1] - 1, 1), step):
+        wc = audio_c[:, start:start + win]
+        if wc.shape[1] < win // 2:
+            break
+        cost, rlo, rhi = min(
+            (_subseq(wc, tpl[v]) for v in ("both", "lh", "rh")),
+            key=lambda t: t[0],
+        )
+        conf = 1 - cost
+        if conf < CONF_FLOOR:
+            continue
+        accepted.append({
+            "start_sec": start * FRAME_SEC,
+            "end_sec": min((start + win) * FRAME_SEC, duration),
+            "m_lo": _sec_to_measure(rlo * FRAME_SEC, measure_starts),
+            "m_hi": _sec_to_measure(rhi * FRAME_SEC, measure_starts),
+            "conf": conf,
+        })
+    return {"spans": _coalesce_windows(accepted), "totalMeasures": total_measures}
 
 
 def _smooth_guesses(windows):

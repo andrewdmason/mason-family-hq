@@ -21,7 +21,7 @@ import urllib.request
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from align import align
+from align import align, align_to_reference
 from job import run_and_callback
 from scales import classify_scales
 from transcribe import transcribe_to_midi_bytes
@@ -37,6 +37,11 @@ class ReferenceInput(BaseModel):
 class AlignRequest(BaseModel):
     recordingUrl: str
     references: list[ReferenceInput]
+    # Plan U2/KTD4: absent/"session" = multi-reference recognition (today's
+    # behavior); "segment" = known-piece alignment against references[0],
+    # returning spans + totalMeasures instead of segments.
+    mode: str | None = None
+    recordingId: str | None = None
 
 
 def _fetch(url: str) -> bytes:
@@ -68,11 +73,26 @@ def process(payload: dict, background_tasks: BackgroundTasks):
 @app.post("/align")
 def do_align(req: AlignRequest, x_worker_secret: str | None = Header(default=None)):
     _check_secret(x_worker_secret)
-    refs = [{"pieceId": r.pieceId, "midi": _fetch(r.midiUrl)} for r in req.references]
     audio = _fetch(req.recordingUrl)
     with tempfile.NamedTemporaryFile(suffix=".m4a") as f:
         f.write(audio)
         f.flush()
+        if req.mode == "segment":
+            # Known-piece recording job (plan U2): transcription + measure spans
+            # against the single supplied reference; no recognition, no scales.
+            result = {"spans": [], "totalMeasures": 0}
+            if req.recordingId is not None:
+                result["recordingId"] = req.recordingId
+            try:
+                midi = transcribe_to_midi_bytes(f.name)
+                result["transcriptionMidiB64"] = base64.b64encode(midi).decode()
+            except Exception as e:  # noqa: BLE001
+                result["transcriptionMidiB64"] = None
+                result["transcriptionError"] = str(e)[:300]
+            if req.references:
+                result.update(align_to_reference(f.name, _fetch(req.references[0].midiUrl)))
+            return result
+        refs = [{"pieceId": r.pieceId, "midi": _fetch(r.midiUrl)} for r in req.references]
         result = align(f.name, refs)
         # Transcribe the playing to MIDI so the app can store it (and drop the
         # audio), and use the notes to flag scale runs. Failure here shouldn't
