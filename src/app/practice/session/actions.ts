@@ -5,10 +5,11 @@ import { createClient } from "@/lib/supabase/server";
 const BUCKET = "task-audio";
 
 /**
- * Start a listening session (plan U5): create the session row and hand back a
- * signed upload URL for the recording. The browser uploads the audio directly to
- * storage, then POSTs the session id to the process route. The recording path is
- * session-scoped (one recording fans out into several tasks).
+ * Start an open session (plan U8): create the session row and hand back a
+ * signed upload URL for the recording. The browser uploads the audio directly
+ * to storage, then POSTs the session id to the process route (transcription-
+ * only — linking to pieces is a separate, explicit action). The audio is kept
+ * permanently at this path (KTD8).
  */
 export async function createSession(
   ext: string

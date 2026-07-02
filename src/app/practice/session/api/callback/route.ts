@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { applySessionResult, type WorkerResult } from "@/lib/practice/apply-result";
+import {
+  applySessionResult,
+  markSessionFailed,
+  type WorkerResult,
+} from "@/lib/practice/apply-result";
 import {
   applySegmentResult,
   type SegmentWorkerResult,
@@ -69,26 +73,35 @@ export async function POST(request: Request) {
     );
   }
 
+  // Session branch (plan U8): transcription-only results settle `status`;
+  // recognition-shaped results settle `link_status` and store the linking
+  // proposals. Neither writes practice_tasks (AE6) — acceptance does that.
+  // Failures route through markSessionFailed so a failed LINK job lands on
+  // link_status and never trashes a ready session.
   const supabase = createAdminClient();
   try {
     if (!body.ok) {
-      await supabase
-        .from("practice_sessions")
-        .update({
-          status: "failed",
-          error_message: String(body.error ?? "Worker failed").slice(0, 500),
-        })
-        .eq("id", body.sessionId);
+      await markSessionFailed(
+        supabase,
+        body.sessionId,
+        String(body.error ?? "Worker failed")
+      );
+      revalidateSessionPaths(body.sessionId);
       return NextResponse.json({ status: "failed" });
     }
-    const taskCount = await applySessionResult(supabase, body.sessionId, body);
-    return NextResponse.json({ status: "ready", taskCount });
+    const status = await applySessionResult(supabase, body.sessionId, body);
+    revalidateSessionPaths(body.sessionId);
+    return NextResponse.json({ status });
   } catch (e) {
     const message = e instanceof Error ? e.message : "callback failed";
-    await supabase
-      .from("practice_sessions")
-      .update({ status: "failed", error_message: message })
-      .eq("id", body.sessionId);
+    await markSessionFailed(supabase, body.sessionId, message);
+    revalidateSessionPaths(body.sessionId);
     return NextResponse.json({ status: "failed", error: message }, { status: 500 });
   }
+}
+
+function revalidateSessionPaths(sessionId: string) {
+  revalidatePath("/practice/recordings");
+  revalidatePath("/practice/session");
+  revalidatePath(`/practice/session/${sessionId}`);
 }

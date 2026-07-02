@@ -109,6 +109,29 @@ export type PracticeSessionStatus =
   | "ready"
   | "failed";
 
+/**
+ * On-demand "link to pieces" state machine (00161, plan U8) — separate from
+ * the transcription `status` machine: none -> linking -> linked | failed, and
+ * back to linking on a re-link/retry.
+ */
+export type PracticeSessionLinkStatus = "none" | "linking" | "linked" | "failed";
+
+/**
+ * One accepted linking proposal (practice_sessions.accepted_segments jsonb):
+ * a snapshot of the recognition segment plus the ordinary completed
+ * practice_task it created. Re-links replace result.segments but never touch
+ * these or their tasks (KTD9). `key` is the proposal's content key
+ * (see proposalKey in src/lib/practice/autolog.ts).
+ */
+export type AcceptedLinkSegment = {
+  key: string;
+  pieceId: string;
+  startSec: number;
+  endSec: number;
+  taskId: string;
+  acceptedAt: string;
+};
+
 export type PracticeSession = {
   id: string;
   date: string;
@@ -120,6 +143,9 @@ export type PracticeSession = {
   audio_retained: boolean;
   result: PracticeAlignmentResult | null;
   transcription_path: string | null;
+  link_status: PracticeSessionLinkStatus;
+  link_error: string | null;
+  accepted_segments: AcceptedLinkSegment[];
   claimed_at: string | null;
   created_at: string;
   updated_at: string;

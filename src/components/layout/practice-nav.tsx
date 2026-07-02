@@ -14,8 +14,9 @@ const NAV_ITEMS = [
   { label: "Lessons", href: "/practice/lessons" },
   { label: "Repertoire", href: "/practice/repertoire" },
   { label: "Reports", href: "/practice/reports" },
+  // Listen retired (plan U8/R18): open sessions live under Recordings'
+  // Sessions section; /practice/session[/id] stay reachable from there.
   { label: "Recordings", href: "/practice/recordings" },
-  { label: "Listen", href: "/practice/session" },
 ];
 
 function isActive(pathname: string, href: string) {

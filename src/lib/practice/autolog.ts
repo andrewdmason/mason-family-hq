@@ -1,60 +1,49 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { TECHNIQUE_PIECE_ID } from "@/lib/types";
-import type { PracticeAlignmentResult } from "@/lib/types";
+import type { PracticeSegment } from "@/lib/types";
 import { generatePieceNarrative } from "./narrative";
 
-// Free-play stretches shorter than this are absorbed, not logged (R7).
-const MIN_FREE_SECONDS = 120;
-// Scale practice is worth logging even when brief.
-const MIN_SCALE_SECONDS = 10;
+// Task writer for the open-session linking flow (plan U8/KTD9). This module
+// used to be Listen's auto-logger (writeSessionTasks: delete-and-rewrite the
+// whole session's tasks from the recognition result). Linking inverted that:
+// recognition segments are now PROPOSALS, and only explicit user acceptance
+// writes a task — one ordinary completed practice_task per accepted proposal,
+// tagged with the session. Nothing here ever deletes; re-links replace the
+// proposal pool (practice_sessions.result), never accepted tasks.
 
 /**
- * Turn the worker's segments into practice_tasks: one task per recognized piece
- * (durations + a teacher-legible narrative), plus a single "free play" task on
- * the Technique system piece when the unmatched time is meaningful.
- *
- * Idempotent: clears any tasks previously written for this session before
- * inserting, so a re-run (or a retried call) never double-logs. The session
- * claim lease already gates concurrent runs; this guards re-processing.
+ * Stable content key for a recognition proposal: identifies "this stretch of
+ * this piece" across renders and re-links (segment array indices don't
+ * survive a re-link; this does, as long as recognition lands the same span).
+ * Stored on accepted_segments so accepted proposals are filtered out of the
+ * pool and acceptance is idempotent.
  */
-export async function writeSessionTasks(
+export function proposalKey(seg: {
+  pieceId: string | null;
+  startSec: number;
+  endSec: number;
+}): string {
+  return `${seg.pieceId}:${seg.startSec.toFixed(1)}:${seg.endSec.toFixed(1)}`;
+}
+
+/**
+ * Write the completed practice_task for one accepted proposal (F4/R16):
+ * same row shape the auto-logger produced (duration in the timer columns, a
+ * teacher-legible narrative, session_id tag), but one insert per acceptance —
+ * no reconciliation against anything. Returns the new task's id.
+ */
+export async function writeAcceptedSegmentTask(
   supabase: SupabaseClient,
   sessionId: string,
-  result: PracticeAlignmentResult,
+  seg: PracticeSegment,
   opts: { date: string; sessionNumber: number }
-): Promise<number> {
-  const byPiece = new Map<
-    string,
-    { seconds: number; regionSeconds: Map<string, number>; handsSeparate: boolean }
-  >();
-  let freeSeconds = 0;
-  let scaleSeconds = 0;
-  const scaleKeys = new Set<string>();
-
-  for (const seg of result.segments) {
-    const dur = Math.max(0, seg.endSec - seg.startSec);
-    if (seg.kind === "piece" && seg.pieceId) {
-      const g = byPiece.get(seg.pieceId) ?? {
-        seconds: 0,
-        regionSeconds: new Map<string, number>(),
-        handsSeparate: false,
-      };
-      g.seconds += dur;
-      if (seg.region) {
-        g.regionSeconds.set(seg.region, (g.regionSeconds.get(seg.region) ?? 0) + dur);
-      }
-      g.handsSeparate = g.handsSeparate || seg.handsSeparate;
-      byPiece.set(seg.pieceId, g);
-    } else if (seg.kind === "scale") {
-      scaleSeconds += dur;
-      if (seg.key) scaleKeys.add(seg.key);
-    } else {
-      freeSeconds += dur;
-    }
-  }
-
-  // Idempotency: replace any prior tasks for this session.
-  await supabase.from("practice_tasks").delete().eq("session_id", sessionId);
+): Promise<string> {
+  if (!seg.pieceId) throw new Error("Proposal has no piece");
+  const seconds = Math.max(0, seg.endSec - seg.startSec);
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  const text = await generatePieceNarrative({
+    sections: seg.region ? [{ name: seg.region, minutes }] : [],
+    handsSeparate: seg.handsSeparate,
+  });
 
   const { data: maxRow } = await supabase
     .from("practice_tasks")
@@ -63,54 +52,17 @@ export async function writeSessionTasks(
     .order("sort_order", { ascending: false })
     .limit(1)
     .maybeSingle();
-  let sortOrder = ((maxRow?.sort_order as number | undefined) ?? -1) + 1;
+  const sortOrder = ((maxRow?.sort_order as number | undefined) ?? -1) + 1;
 
-  const rows: Record<string, unknown>[] = [];
-  for (const [pieceId, g] of byPiece) {
-    const sections = [...g.regionSeconds.entries()]
-      .sort((a, b) => b[1] - a[1]) // most-practiced section first
-      .map(([name, secs]) => ({ name, minutes: Math.max(1, Math.round(secs / 60)) }));
-    const text = await generatePieceNarrative({
-      sections,
-      handsSeparate: g.handsSeparate,
-    });
-    rows.push(taskRow(pieceId, g.seconds, text, sessionId, opts, sortOrder++));
+  const { data, error } = await supabase
+    .from("practice_tasks")
+    .insert(taskRow(seg.pieceId, seconds, text, sessionId, opts, sortOrder))
+    .select("id")
+    .single();
+  if (error || !data) {
+    throw new Error(error?.message ?? "Failed to write task");
   }
-
-  if (scaleSeconds >= MIN_SCALE_SECONDS) {
-    const keys = [...scaleKeys];
-    const keyText = keys.length ? ` — ${keys.join(", ")}` : "";
-    rows.push(
-      taskRow(
-        TECHNIQUE_PIECE_ID,
-        scaleSeconds,
-        `Scale practice${keyText}.`,
-        sessionId,
-        opts,
-        sortOrder++
-      )
-    );
-  }
-
-  if (freeSeconds >= MIN_FREE_SECONDS) {
-    const minutes = Math.round(freeSeconds / 60);
-    rows.push(
-      taskRow(
-        TECHNIQUE_PIECE_ID,
-        freeSeconds,
-        `Free playing / warm-up (~${minutes} min) — no specific piece recognized.`,
-        sessionId,
-        opts,
-        sortOrder++
-      )
-    );
-  }
-
-  if (rows.length) {
-    const { error } = await supabase.from("practice_tasks").insert(rows);
-    if (error) throw new Error(error.message);
-  }
-  return rows.length;
+  return data.id as string;
 }
 
 function taskRow(
