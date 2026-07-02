@@ -19,8 +19,24 @@ export type ParsedPerformance = {
   pedals: PedalSpan[];
 };
 
-/** A note positioned in MIDI ticks, for the reference-MIDI piano roll. */
-export type ReferenceRollNote = { midi: number; startTick: number; endTick: number };
+/** A note positioned in MIDI ticks, for the reference-MIDI piano roll.
+ *  `velocity` is the note-on velocity (1–127) so the roll can shade dynamics;
+ *  `track` is the source MTrk index so hands/voices can be coloured apart. */
+export type ReferenceRollNote = {
+  midi: number;
+  startTick: number;
+  endTick: number;
+  velocity: number;
+  track: number;
+};
+/** The three piano pedals we recognise: sustain (CC64), sostenuto (CC66) and
+ *  soft / una corda (CC67). */
+export type PedalKind = "sustain" | "sostenuto" | "soft";
+/** A pedal-press span in ticks, for the reference-MIDI piano roll. */
+export type ReferenceRollPedal = { startTick: number; endTick: number; kind: PedalKind };
+/** A tempo change: `usPerQuarter` microseconds per quarter note, taking effect
+ *  at `tick` (from a `0xFF 0x51` meta event). bpm = 60_000_000 / usPerQuarter. */
+export type ReferenceRollTempo = { tick: number; usPerQuarter: number };
 /** A single measure's tick span. `measure` is 1-indexed; `endTick` is the next
  *  barline (startTick + a full measure of ticks) so interpolation stays uniform
  *  even when the final bar runs slightly past the last note. */
@@ -28,6 +44,8 @@ export type MeasureBoundary = { measure: number; startTick: number; endTick: num
 export type ParsedReferenceRoll = {
   ppq: number;
   notes: ReferenceRollNote[];
+  pedals: ReferenceRollPedal[];
+  tempos: ReferenceRollTempo[];
   measures: MeasureBoundary[];
   maxTick: number;
 };
@@ -265,8 +283,10 @@ export function parseReferenceMidi(
  * Parse a reference MIDI into tick-positioned notes plus explicit per-measure
  * tick boundaries, for the "Measure view" piano roll. Same lenient SMF walk as
  * the other two parsers; it keeps note on/off in ticks (geometry is tick-based,
- * no tempo map needed) and emits one boundary per measure derived from the
- * time-signature map. Server-side only. Throws only if the bytes aren't a
+ * no tempo map needed), the note-on velocity (so the roll can shade dynamics),
+ * the source track index (so hands/voices can be coloured apart), CC64/66/67
+ * pedal spans and the tempo map, and emits one boundary per measure derived from
+ * the time-signature map. Server-side only. Throws only if the bytes aren't a
  * note-bearing MIDI.
  */
 export function parseReferenceRoll(
@@ -289,7 +309,9 @@ export function parseReferenceRoll(
   let p = 14;
   let maxTick = 0;
   const timesigs: Array<{ tick: number; num: number; den: number }> = [];
-  const raw: Array<{ tick: number; on: boolean; pitch: number }> = [];
+  const tempoMap: ReferenceRollTempo[] = [];
+  const raw: Array<{ tick: number; on: boolean; pitch: number; velocity: number; track: number }> = [];
+  const pedalEvents: Array<{ tick: number; kind: PedalKind; down: boolean }> = [];
 
   const readVarlen = (): number => {
     let val = 0;
@@ -324,17 +346,26 @@ export function parseReferenceRoll(
         const mlen = readVarlen();
         if (type === 0x58 && mlen >= 2) {
           timesigs.push({ tick, num: buf[p], den: 1 << buf[p + 1] });
+        } else if (type === 0x51 && mlen === 3) {
+          tempoMap.push({ tick, usPerQuarter: (buf[p] << 16) | (buf[p + 1] << 8) | buf[p + 2] });
         }
         p += mlen;
       } else if (status === 0xf0 || status === 0xf7) {
         p += readVarlen();
       } else if (hi === 0x90) {
-        raw.push({ tick, on: buf[p + 1] > 0, pitch: buf[p] });
+        raw.push({ tick, on: buf[p + 1] > 0, pitch: buf[p], velocity: buf[p + 1], track: t });
         p += 2;
       } else if (hi === 0x80) {
-        raw.push({ tick, on: false, pitch: buf[p] });
+        raw.push({ tick, on: false, pitch: buf[p], velocity: 0, track: t });
         p += 2;
-      } else if (hi === 0xa0 || hi === 0xb0 || hi === 0xe0) {
+      } else if (hi === 0xb0) {
+        const cc = buf[p];
+        if (cc === 64 || cc === 66 || cc === 67) {
+          const kind: PedalKind = cc === 64 ? "sustain" : cc === 66 ? "sostenuto" : "soft";
+          pedalEvents.push({ tick, kind, down: buf[p + 1] >= 64 });
+        }
+        p += 2;
+      } else if (hi === 0xa0 || hi === 0xe0) {
         p += 2;
       } else if (hi === 0xc0 || hi === 0xd0) {
         p += 1;
@@ -346,21 +377,52 @@ export function parseReferenceRoll(
     p = end;
   }
 
-  // Pair note-on → note-off (polyphony-safe), keeping ticks.
-  const pending: Record<number, number[]> = {};
+  // Pair note-on → note-off (polyphony-safe), keeping ticks, on-velocity and the
+  // track the note-on came from.
+  const pending: Record<number, Array<{ tick: number; velocity: number; track: number }>> = {};
   const notes: ReferenceRollNote[] = [];
   for (const e of raw) {
     if (e.on) {
-      (pending[e.pitch] ??= []).push(e.tick);
+      (pending[e.pitch] ??= []).push({ tick: e.tick, velocity: e.velocity, track: e.track });
     } else if (pending[e.pitch]?.length) {
-      const startTick = pending[e.pitch].shift()!;
-      notes.push({ midi: e.pitch, startTick, endTick: e.tick });
+      const start = pending[e.pitch].shift()!;
+      notes.push({
+        midi: e.pitch,
+        startTick: start.tick,
+        endTick: e.tick,
+        velocity: start.velocity,
+        track: start.track,
+      });
     }
   }
 
   if (notes.length === 0) {
     throw new Error("MIDI contains no notes");
   }
+
+  // Pair each pedal's presses into spans independently; a press left open at EOF
+  // closes at the last tick so a dangling pedal still renders.
+  pedalEvents.sort((a, b) => a.tick - b.tick);
+  const pedals: ReferenceRollPedal[] = [];
+  const downByKind: Partial<Record<PedalKind, number>> = {};
+  for (const e of pedalEvents) {
+    const openTick = downByKind[e.kind];
+    if (e.down && openTick === undefined) {
+      downByKind[e.kind] = e.tick;
+    } else if (!e.down && openTick !== undefined) {
+      if (e.tick > openTick) pedals.push({ startTick: openTick, endTick: e.tick, kind: e.kind });
+      delete downByKind[e.kind];
+    }
+  }
+  for (const kind of Object.keys(downByKind) as PedalKind[]) {
+    const openTick = downByKind[kind]!;
+    if (maxTick > openTick) pedals.push({ startTick: openTick, endTick: maxTick, kind });
+  }
+
+  // Tempo map, sorted. Left empty when the file carries no tempo events, so the
+  // player can tell "authored tempo" from "no tempo given" and fall back sensibly.
+  tempoMap.sort((a, b) => a.tick - b.tick);
+  const tempos: ReferenceRollTempo[] = tempoMap;
 
   // Per-measure tick boundaries from the time-signature map (defaults to 4/4).
   // Each measure is a full meter's worth of ticks; the final bar may extend a
@@ -385,5 +447,5 @@ export function parseReferenceRoll(
     measures.push({ measure: 1, startTick: 0, endTick: (ppq * 4) || 1 });
   }
 
-  return { ppq, notes, measures, maxTick };
+  return { ppq, notes, pedals, tempos, measures, maxTick };
 }

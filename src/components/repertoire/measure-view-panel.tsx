@@ -40,6 +40,7 @@ import type {
   ParsedReferenceRoll,
   ReferenceRollNote,
   MeasureBoundary,
+  PedalKind,
 } from "@/lib/practice/midi";
 import type { PieceSection, PieceSectionWithChildren } from "@/lib/types";
 
@@ -52,10 +53,27 @@ const KEY_W = 36; // keyboard strip width (fixed left column)
 const PARENT_BAND_H = 24;
 const SUB_BAND_H = 20;
 const RULER_H = 22;
+const PEDAL_LANE_H = 10; // sustain-pedal strip under the roll
 const MIN_LABEL_PX = 52; // keep measure-number labels at least this far apart
 const LABEL_STEPS = [1, 2, 4, 8, 16, 32, 64, 128]; // "nice" measure intervals
-const DEFAULT_TEMPO = 100; // quarter-notes per minute when the piece has none
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2]; // playback-rate multipliers
+
+// Note colours per source track, so hands/voices read apart. Assigned by
+// descending mean pitch, so a two-staff file gets right hand = slot 0.
+const TRACK_PALETTE = [
+  { note: "fill-indigo-500", swatch: "bg-indigo-500" },
+  { note: "fill-teal-500", swatch: "bg-teal-500" },
+  { note: "fill-rose-500", swatch: "bg-rose-500" },
+  { note: "fill-amber-600", swatch: "bg-amber-600" },
+  { note: "fill-cyan-500", swatch: "bg-cyan-500" },
+] as const;
+
+// Pedal lanes under the roll, one row per pedal the file actually uses.
+const PEDAL_LANES: { kind: PedalKind; label: string; title: string; fill: string }[] = [
+  { kind: "sustain", label: "Ped.", title: "Sustain pedal", fill: "fill-amber-500/60" },
+  { kind: "sostenuto", label: "Sost.", title: "Sostenuto pedal", fill: "fill-sky-500/60" },
+  { kind: "soft", label: "U.C.", title: "Soft (una corda) pedal", fill: "fill-purple-500/60" },
+];
 
 type Band = {
   section: PieceSection;
@@ -97,9 +115,26 @@ export function MeasureViewPanel({
   roll: ParsedReferenceRoll;
   initialSections: PieceSectionWithChildren[];
 }) {
-  const { ppq, notes, measures } = roll;
+  const { ppq, notes, pedals, tempos, measures } = roll;
   const totalMeasures = measures.length;
-  const bpm = pieceTempo ?? DEFAULT_TEMPO;
+
+  // Playback rate at a given tick. The MIDI's own tempo map is the source of
+  // truth for how the reference should sound — it honours tempo changes, and it
+  // matches the note timing the file was authored with. The piece's target tempo
+  // is a *practice goal* on a possibly-different scale, so it's only a fallback
+  // for files that carry no tempo at all (else default to 120bpm).
+  const bpmAtTick = useCallback(
+    (tick: number): number => {
+      if (!tempos.length) return pieceTempo ?? 120;
+      let us = tempos[0].usPerQuarter;
+      for (const t of tempos) {
+        if (t.tick <= tick) us = t.usPerQuarter;
+        else break;
+      }
+      return 60_000_000 / us;
+    },
+    [pieceTempo, tempos]
+  );
 
   const [pxPerMeasure, setPxPerMeasure] = useState(DEFAULT_PX_PER_MEASURE);
   const contentWidth = totalMeasures * pxPerMeasure;
@@ -140,6 +175,54 @@ export function MeasureViewPanel({
   const sortedNotes = useMemo(
     () => [...notes].sort((a, b) => a.startTick - b.startTick),
     [notes]
+  );
+
+  // Sustain: a note released while the sustain pedal (CC64) is down keeps ringing
+  // until the pedal lifts, so playback holds it to the end of the covering span.
+  // (Sostenuto/soft don't extend note length, so they're excluded here.)
+  const sustainSpans = useMemo(
+    () =>
+      pedals
+        .filter((pd) => pd.kind === "sustain")
+        .sort((a, b) => a.startTick - b.startTick),
+    [pedals]
+  );
+  const sustainedEndTick = useCallback(
+    (n: ReferenceRollNote) => {
+      const span = sustainSpans.find(
+        (pd) => pd.startTick <= n.endTick && n.endTick < pd.endTick
+      );
+      return span ? span.endTick : n.endTick;
+    },
+    [sustainSpans]
+  );
+
+  // Colour notes by source track so hands/voices read apart. Distinct tracks are
+  // ordered by descending mean pitch; a two-staff file becomes right/left hand.
+  const tracks = useMemo(() => {
+    const stats = new Map<number, { count: number; sum: number }>();
+    for (const n of notes) {
+      const s = stats.get(n.track) ?? { count: 0, sum: 0 };
+      s.count += 1;
+      s.sum += n.midi;
+      stats.set(n.track, s);
+    }
+    const meanOf = (id: number) => stats.get(id)!.sum / stats.get(id)!.count;
+    const ids = [...stats.keys()].sort((a, b) => meanOf(b) - meanOf(a));
+    const color = new Map<number, (typeof TRACK_PALETTE)[number]>();
+    ids.forEach((id, i) => color.set(id, TRACK_PALETTE[i % TRACK_PALETTE.length]));
+    const legend = ids.map((id, i) => ({
+      id,
+      label: ids.length === 2 ? (i === 0 ? "Right hand" : "Left hand") : `Voice ${i + 1}`,
+      swatch: color.get(id)!.swatch,
+    }));
+    return { color, legend, multi: ids.length > 1 };
+  }, [notes]);
+
+  // Only render lanes for pedals the file actually uses.
+  const pedalLanes = useMemo(
+    () => PEDAL_LANES.filter((l) => pedals.some((p) => p.kind === l.kind)),
+    [pedals]
   );
 
   /* ------------------------------ bands ------------------------------- */
@@ -399,8 +482,9 @@ export function MeasureViewPanel({
       let pos = posRef.current;
       const mi = Math.max(0, Math.min(measures.length - 1, Math.floor(pos) - 1));
       const mTicks = measures[mi].endTick - measures[mi].startTick || ppq * 4;
+      const bpmNow = bpmAtTick(posToTick(pos));
       // measures/sec = (beats/sec) / (beats per measure); beats are quarter notes
-      const dPos = (dt * (bpm / 60) * ppq * tempoScaleRef.current) / mTicks;
+      const dPos = (dt * (bpmNow / 60) * ppq * tempoScaleRef.current) / mTicks;
       pos += dPos;
       posRef.current = pos;
 
@@ -409,9 +493,17 @@ export function MeasureViewPanel({
         const n: ReferenceRollNote = sortedNotes[cursor++];
         const durSec = Math.max(
           0.08,
-          Math.min(((n.endTick - n.startTick) / ppq) * (60 / bpm), 8)
+          Math.min(
+            ((sustainedEndTick(n) - n.startTick) / ppq) * (60 / bpmAtTick(n.startTick)),
+            8
+          )
         );
-        piano.start({ note: n.midi, time: ctx.currentTime, duration: durSec, velocity: 80 });
+        piano.start({
+          note: n.midi,
+          time: ctx.currentTime,
+          duration: durSec,
+          velocity: n.velocity || 80,
+        });
       }
 
       if (pos >= totalMeasures + 1) {
@@ -634,6 +726,17 @@ export function MeasureViewPanel({
         </div>
       )}
 
+      {tracks.multi && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {tracks.legend.map((l) => (
+            <span key={l.id} className="flex items-center gap-1">
+              <span className={cn("inline-block size-2.5 rounded-sm", l.swatch)} />
+              {l.label}
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="flex rounded-lg border bg-card">
         {/* Fixed keyboard column (does not scroll horizontally) */}
         <div className="shrink-0" style={{ width: KEY_W }}>
@@ -672,6 +775,16 @@ export function MeasureViewPanel({
               );
             })}
           </svg>
+          {pedalLanes.map((lane) => (
+            <div
+              key={lane.kind}
+              className="flex items-center justify-end border-t px-1 text-[8px] uppercase tracking-wide text-muted-foreground"
+              style={{ height: PEDAL_LANE_H }}
+              title={lane.title}
+            >
+              {lane.label}
+            </div>
+          ))}
         </div>
 
         {/* Scrollable measure-aligned area */}
@@ -743,8 +856,11 @@ export function MeasureViewPanel({
                       width={w}
                       height={Math.max(2, ROW_H - 1)}
                       rx={1}
-                      className="fill-indigo-500"
-                    />
+                      fillOpacity={0.3 + 0.7 * Math.min(1, (n.velocity || 80) / 110)}
+                      className={tracks.color.get(n.track)?.note ?? "fill-indigo-500"}
+                    >
+                      <title>{`velocity ${n.velocity}`}</title>
+                    </rect>
                   );
                 })}
               </svg>
@@ -753,6 +869,39 @@ export function MeasureViewPanel({
                 style={{ left: cursorX }}
               />
             </div>
+
+            {/* Pedal lanes (CC64/66/67 spans), aligned to the same measure grid */}
+            {pedalLanes.map((lane) => (
+              <div
+                key={lane.kind}
+                className="relative border-t"
+                style={{ height: PEDAL_LANE_H, ...gridBackground }}
+              >
+                <svg width={contentWidth} height={PEDAL_LANE_H} className="block">
+                  {pedals
+                    .filter((pd) => pd.kind === lane.kind)
+                    .map((pd, i) => {
+                      const x = xForTick(pd.startTick);
+                      const w = Math.max(1, xForTick(pd.endTick) - x);
+                      return (
+                        <rect
+                          key={i}
+                          x={x}
+                          y={2}
+                          width={w}
+                          height={PEDAL_LANE_H - 4}
+                          rx={2}
+                          className={lane.fill}
+                        />
+                      );
+                    })}
+                </svg>
+                <div
+                  className="pointer-events-none absolute inset-y-0 w-px bg-red-500"
+                  style={{ left: cursorX }}
+                />
+              </div>
+            ))}
           </div>
         </div>
       </div>
