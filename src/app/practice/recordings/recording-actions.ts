@@ -3,9 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { deleteSegment } from "@/app/practice/recordings/segment-actions";
+import {
+  createAudioUploadToken,
+  safeAudioExt,
+} from "@/lib/practice/storage";
 import type { PracticeRecordingKind, TaskRecordingDisplay } from "@/lib/types";
-
-const BUCKET = "task-audio";
 
 /**
  * Columns handed back to dialog callers after a save — the day-view display
@@ -44,16 +46,9 @@ export async function createRecordingUpload(
   if (!user) throw new Error("Not authenticated");
 
   const recordingId = crypto.randomUUID();
-  const safeExt = (ext.replace(/[^a-z0-9]/gi, "").slice(0, 5) || "m4a").toLowerCase();
-  const path = `${user.id}/recordings/${recordingId}.${safeExt}`;
-
-  const { data, error } = await supabase.storage
-    .from(BUCKET)
-    .createSignedUploadUrl(path, { upsert: true });
-  if (error || !data) {
-    throw new Error(error?.message ?? "Failed to create upload URL");
-  }
-  return { recordingId, path, token: data.token };
+  const path = `${user.id}/recordings/${recordingId}.${safeAudioExt(ext)}`;
+  const token = await createAudioUploadToken(supabase, path);
+  return { recordingId, path, token };
 }
 
 /**

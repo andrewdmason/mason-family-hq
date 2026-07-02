@@ -4,22 +4,12 @@
 // reprocessing a failed transcription (the regression fix for the old
 // delete-on-failure behavior — audio is kept, so a retry is always possible).
 
-import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { kickoffSessionProcessing } from "@/lib/practice/session-kickoff";
+import { workerCallbackUrl } from "@/lib/practice/worker";
 import { proposalKey, writeAcceptedSegmentTask } from "@/lib/practice/autolog";
 import type { AcceptedLinkSegment, PracticeAlignmentResult } from "@/lib/types";
-
-async function sessionCallbackUrl(): Promise<string> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  if (!host) throw new Error("Cannot determine request host");
-  const proto =
-    h.get("x-forwarded-proto") ??
-    (/^(localhost|127\.)/.test(host) ? "http" : "https");
-  return `${proto}://${host}/practice/session/api/callback`;
-}
 
 /**
  * Reprocess a session whose transcription failed: reset failed -> uploaded
@@ -49,7 +39,7 @@ export async function reprocessSession(
   const outcome = await kickoffSessionProcessing(
     supabase,
     sessionId,
-    await sessionCallbackUrl()
+    await workerCallbackUrl()
   );
   revalidatePath("/practice/recordings");
   revalidatePath("/practice/session");

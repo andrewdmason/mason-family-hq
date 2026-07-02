@@ -7,11 +7,11 @@ import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { createSession } from "@/app/practice/session/actions";
 import {
+  blobWithSupportedType,
   effectiveInputDeviceId,
   formatDeviceLabel,
   pickMimeType,
   resolveRecordingDeviceId,
-  supportedContentType,
 } from "@/lib/practice/capture";
 import {
   useAudioInputs,
@@ -156,11 +156,7 @@ export function SessionRecorder() {
     try {
       const { sessionId, path, token } = await createSession(ext);
       const supabase = createClient();
-      // The SDK ignores the contentType option for Blob bodies and uses the
-      // blob's own .type, so re-wrap the blob with a bucket-supported type.
-      const contentType = supportedContentType(blob.type, ext);
-      const upload =
-        blob.type === contentType ? blob : new Blob([blob], { type: contentType });
+      const upload = blobWithSupportedType(blob, ext);
       const { error: upErr } = await supabase.storage
         .from("task-audio")
         .uploadToSignedUrl(path, token, upload, { upsert: true });

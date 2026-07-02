@@ -1,4 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  MIDI_BUCKET,
+  SIGNED_URL_TTL_SECONDS,
+  signRecordingUrl,
+} from "./storage";
+import { postWorkerJob } from "./worker";
 
 // Segment processing kickoff (plan U5/KTD4/KTD6): claim the row's lease, sign
 // its audio plus AT MOST the one reference MIDI of its own piece (known-piece
@@ -8,14 +14,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // identically. The claim_practice_recording lease (00160) makes concurrent
 // kickoffs collapse to one worker job.
 
-const RECORDING_BUCKET = "task-audio";
-const MIDI_BUCKET = "piece-midi";
-const SIGNED_URL_TTL_SECONDS = 1800;
-
 /** Heard audio shorter than this skips the worker entirely (KTD6 — the worker
  * has a ~2-minute cost floor). The audio is kept; status becomes 'skipped'
  * and the row stays reprocessable (reprocess bypasses this check). */
-export const MIN_PROCESSABLE_SECONDS = 20;
+const MIN_PROCESSABLE_SECONDS = 20;
 
 export type SegmentKickoffOutcome =
   /** Claimed and handed to the worker; the callback will land the result. */
@@ -61,12 +63,7 @@ export async function kickoffSegmentProcessing(
       return { status: "skipped" };
     }
 
-    const { data: recSigned, error: recErr } = await supabase.storage
-      .from(RECORDING_BUCKET)
-      .createSignedUrl(rec.audio_path, SIGNED_URL_TTL_SECONDS);
-    if (recErr || !recSigned) {
-      throw new Error(recErr?.message ?? "Could not sign recording URL");
-    }
+    const recordingUrl = await signRecordingUrl(supabase, rec.audio_path);
 
     // Exactly the segment's own piece's reference, and only when ready. No
     // reference = transcription-only job (spans come back empty — R8).
@@ -88,24 +85,13 @@ export async function kickoffSegmentProcessing(
       }
     }
 
-    const workerUrl = process.env.PRACTICE_WORKER_URL;
-    if (!workerUrl) throw new Error("PRACTICE_WORKER_URL not configured");
-
-    const res = await fetch(workerUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        recordingId,
-        mode: "segment",
-        recordingUrl: recSigned.signedUrl,
-        references,
-        callbackUrl,
-        secret: process.env.WORKER_SECRET,
-      }),
+    await postWorkerJob({
+      recordingId,
+      mode: "segment",
+      recordingUrl,
+      references,
+      callbackUrl,
     });
-    if (!res.ok) {
-      throw new Error(`Worker kickoff ${res.status}: ${await res.text()}`);
-    }
 
     return { status: "processing" };
   } catch (e) {

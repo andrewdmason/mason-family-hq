@@ -1,4 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  MIDI_BUCKET,
+  SIGNED_URL_TTL_SECONDS,
+  signRecordingUrl,
+} from "./storage";
+import { postWorkerJob } from "./worker";
 
 // Open-session processing kickoff (plan U8) — the session sibling of
 // segment-kickoff.ts. Two jobs share this path, selected by opts.link:
@@ -17,10 +23,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 //
 // Shared by the process route and the reprocess server action so both behave
 // identically. Audio is never deleted on any path (KTD8).
-
-const RECORDING_BUCKET = "task-audio";
-const MIDI_BUCKET = "piece-midi";
-const SIGNED_URL_TTL_SECONDS = 1800;
 
 export type SessionKickoffOutcome =
   /** Claimed and handed to the worker; the callback will land the result. */
@@ -71,12 +73,7 @@ export async function kickoffSessionProcessing(
       throw new Error("Session has no recording (audio was not retained)");
     }
 
-    const { data: recSigned, error: recErr } = await supabase.storage
-      .from(RECORDING_BUCKET)
-      .createSignedUrl(session.recording_path, SIGNED_URL_TTL_SECONDS);
-    if (recErr || !recSigned) {
-      throw new Error(recErr?.message ?? "Could not sign recording URL");
-    }
+    const recordingUrl = await signRecordingUrl(supabase, session.recording_path);
 
     // Link jobs recognize against every ready reference; initial processing
     // supplies none (transcription-only).
@@ -96,25 +93,14 @@ export async function kickoffSessionProcessing(
       }
     }
 
-    const workerUrl = process.env.PRACTICE_WORKER_URL;
-    if (!workerUrl) throw new Error("PRACTICE_WORKER_URL not configured");
-
-    const res = await fetch(workerUrl, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        sessionId,
-        // mode absent = the worker's full session recognition pipeline.
-        ...(link ? {} : { mode: "segment" }),
-        recordingUrl: recSigned.signedUrl,
-        references,
-        callbackUrl,
-        secret: process.env.WORKER_SECRET,
-      }),
+    await postWorkerJob({
+      sessionId,
+      // mode absent = the worker's full session recognition pipeline.
+      ...(link ? {} : { mode: "segment" }),
+      recordingUrl,
+      references,
+      callbackUrl,
     });
-    if (!res.ok) {
-      throw new Error(`Worker kickoff ${res.status}: ${await res.text()}`);
-    }
 
     return { status: "processing" };
   } catch (e) {

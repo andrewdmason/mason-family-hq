@@ -5,11 +5,11 @@
 
 // Shared between recorders so the chosen mic carries over. Picking an explicit
 // input avoids macOS Continuity hijacking the mic to a nearby iPhone.
-export const INPUT_DEVICE_STORAGE_KEY = "task-audio-input-device-id";
+const INPUT_DEVICE_STORAGE_KEY = "task-audio-input-device-id";
 
 // Per-device auto-record toggle for timed task-runs (default off). Lives
 // beside the mic preference so capture settings stay together.
-export const AUTO_RECORD_STORAGE_KEY = "practice-auto-record";
+const AUTO_RECORD_STORAGE_KEY = "practice-auto-record";
 
 // Prefer MP4/AAC so the download opens natively in QuickTime/iTunes/Finder.
 // Safari supports mp4 out of the box; Chrome 110+ and Edge support it in
@@ -33,7 +33,7 @@ export function pickMimeType(): { mime: string; ext: "webm" | "m4a" } {
 // The task-audio bucket only allows audio/mp4|webm|mpeg|ogg. Files can report
 // other types (e.g. audio/x-m4a), so map to a supported label — the worker
 // decodes by content (ffmpeg), so the label only needs to pass the bucket.
-export function supportedContentType(type: string | undefined, ext: string): string {
+function supportedContentType(type: string | undefined, ext: string): string {
   const allowed = ["audio/webm", "audio/mp4", "audio/mpeg", "audio/ogg"];
   if (type && allowed.some((a) => type.startsWith(a))) return type;
   const e = ext.toLowerCase();
@@ -41,6 +41,13 @@ export function supportedContentType(type: string | undefined, ext: string): str
   if (e === "mp3") return "audio/mpeg";
   if (e === "ogg" || e === "oga") return "audio/ogg";
   return "audio/mp4"; // m4a / aac / wav / etc. — decoded by content regardless
+}
+
+// The storage SDK ignores the contentType option for Blob bodies and uses the
+// blob's own .type, so re-wrap with a bucket-supported type before uploading.
+export function blobWithSupportedType(blob: Blob, ext: string): Blob {
+  const contentType = supportedContentType(blob.type, ext);
+  return blob.type === contentType ? blob : new Blob([blob], { type: contentType });
 }
 
 // "Default - Built-in Mic" / "Default: Built-in Mic" → "Built-in Mic";

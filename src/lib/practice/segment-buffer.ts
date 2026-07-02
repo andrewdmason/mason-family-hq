@@ -73,12 +73,6 @@ export function putSegment(segment: BufferedSegment): Promise<void> {
   return withStore("readwrite", (store) => store.put(segment)).then(() => {});
 }
 
-export function getSegment(id: string): Promise<BufferedSegment | null> {
-  return withStore<BufferedSegment | undefined>("readonly", (store) =>
-    store.get(id)
-  ).then((seg) => seg ?? null);
-}
-
 export function deleteSegment(id: string): Promise<void> {
   return withStore("readwrite", (store) => store.delete(id)).then(() => {});
 }

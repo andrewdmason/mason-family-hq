@@ -5,7 +5,7 @@
 // break the timer (R17).
 
 import { createClient } from "@/lib/supabase/client";
-import { supportedContentType } from "@/lib/practice/capture";
+import { blobWithSupportedType } from "@/lib/practice/capture";
 import { markSegmentUploaded } from "@/app/practice/recordings/segment-actions";
 import { deleteSegment } from "@/lib/practice/segment-buffer";
 
@@ -24,11 +24,7 @@ async function uploadSegmentBlob(
   blob: Blob,
   ext: string
 ): Promise<boolean> {
-  // The SDK ignores the contentType option for Blob bodies and uses the
-  // blob's own .type, so re-wrap with a bucket-supported type.
-  const contentType = supportedContentType(blob.type, ext);
-  const upload =
-    blob.type === contentType ? blob : new Blob([blob], { type: contentType });
+  const upload = blobWithSupportedType(blob, ext);
   const supabase = createClient();
 
   for (let attempt = 0; attempt < UPLOAD_ATTEMPTS; attempt++) {

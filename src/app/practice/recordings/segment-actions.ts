@@ -2,6 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import {
+  createAudioUploadToken,
+  safeAudioExt,
+} from "@/lib/practice/storage";
 
 const BUCKET = "task-audio";
 const MIDI_BUCKET = "practice-session-midi";
@@ -38,15 +42,8 @@ export async function createSegmentRecording(
     .maybeSingle();
 
   const recordingId = crypto.randomUUID();
-  const safeExt = (ext.replace(/[^a-z0-9]/gi, "").slice(0, 5) || "m4a").toLowerCase();
-  const path = `${user.id}/recordings/${recordingId}.${safeExt}`;
-
-  const { data, error } = await supabase.storage
-    .from(BUCKET)
-    .createSignedUploadUrl(path, { upsert: true });
-  if (error || !data) {
-    throw new Error(error?.message ?? "Failed to create upload URL");
-  }
+  const path = `${user.id}/recordings/${recordingId}.${safeAudioExt(ext)}`;
+  const token = await createAudioUploadToken(supabase, path);
 
   const { error: insErr } = await supabase.from("practice_recordings").insert({
     id: recordingId,
@@ -59,7 +56,7 @@ export async function createSegmentRecording(
   });
   if (insErr) throw new Error(insErr.message);
 
-  return { recordingId, path, token: data.token };
+  return { recordingId, path, token };
 }
 
 /**

@@ -12,13 +12,13 @@
 // Failed/skipped rows are reprocessable (reprocessSegment). Audio is never
 // deleted on any of these paths (KTD8).
 
-import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import {
   kickoffSegmentProcessing,
   type SegmentKickoffOutcome,
 } from "@/lib/practice/segment-kickoff";
+import { workerCallbackUrl } from "@/lib/practice/worker";
 import type { PracticeRecordingStatus } from "@/lib/types";
 
 /** 'uploaded' rows younger than this are presumed to have an in-flight
@@ -29,16 +29,6 @@ const STUCK_UPLOADED_MS = 2 * 60 * 1000;
 const ABANDONED_RECORDED_MS = 10 * 60 * 1000;
 /** 'processing' rows whose claim is older than this never got a callback. */
 const PROCESSING_WATCHDOG_MS = 45 * 60 * 1000;
-
-async function segmentCallbackUrl(): Promise<string> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  if (!host) throw new Error("Cannot determine request host");
-  const proto =
-    h.get("x-forwarded-proto") ??
-    (/^(localhost|127\.)/.test(host) ? "http" : "https");
-  return `${proto}://${host}/practice/session/api/callback`;
-}
 
 /**
  * Row statuses for the client sweep's buffer reconciliation. Missing rows map
@@ -134,7 +124,7 @@ export async function sweepStuckSegments(
     .eq("status", "uploaded")
     .lt("updated_at", new Date(now - STUCK_UPLOADED_MS).toISOString());
   if (stuckUploaded?.length) {
-    const callbackUrl = await segmentCallbackUrl();
+    const callbackUrl = await workerCallbackUrl();
     for (const row of stuckUploaded as { id: string }[]) {
       const outcome = await kickoffSegmentProcessing(supabase, row.id, callbackUrl);
       result.rekicked.push({ recordingId: row.id, outcome });
@@ -204,7 +194,7 @@ export async function reprocessSegment(
   const outcome = await kickoffSegmentProcessing(
     supabase,
     recordingId,
-    await segmentCallbackUrl(),
+    await workerCallbackUrl(),
     { skipShortCheck: true }
   );
   revalidatePath("/practice");
