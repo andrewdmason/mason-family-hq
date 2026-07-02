@@ -81,19 +81,27 @@ export default async function SessionDetailPage({
   }
 
   // Linking proposals (F4): piece-kind recognition segments minus already
-  // accepted ones (accepted entries never re-propose — KTD9).
+  // accepted ones (accepted entries never re-propose — KTD9). Only sessions
+  // that went through the link job propose anything — legacy autolog sessions
+  // (link_status 'none') also carry result.segments, but those were already
+  // written to the log at the time, so offering them as acceptable proposals
+  // would double-log. They still show in the debug view below.
+  const linkStatus = (session.link_status ?? "none") as PracticeSessionLinkStatus;
   const acceptedKeys = new Set(accepted.map((a) => a.key));
-  const proposals: LinkProposal[] = segments
-    .filter((s) => s.kind === "piece" && s.pieceId)
-    .map((s) => ({
-      key: proposalKey(s),
-      pieceName: pieceNames[s.pieceId as string] ?? "Unknown piece",
-      startSec: s.startSec,
-      endSec: s.endSec,
-      region: s.region,
-      confidence: s.confidence,
-    }))
-    .filter((p) => !acceptedKeys.has(p.key));
+  const proposals: LinkProposal[] =
+    linkStatus !== "linked"
+      ? []
+      : segments
+          .filter((s) => s.kind === "piece" && s.pieceId)
+          .map((s) => ({
+            key: proposalKey(s),
+            pieceName: pieceNames[s.pieceId as string] ?? "Unknown piece",
+            startSec: s.startSec,
+            endSec: s.endSec,
+            region: s.region,
+            confidence: s.confidence,
+          }))
+          .filter((p) => !acceptedKeys.has(p.key));
   const acceptedDisplay: AcceptedDisplay[] = accepted.map((a) => ({
     key: a.key,
     pieceName: pieceNames[a.pieceId] ?? "Unknown piece",
@@ -134,7 +142,7 @@ export default async function SessionDetailPage({
         sessionId={session.id}
         status={session.status as PracticeSessionStatus}
         errorMessage={session.error_message}
-        linkStatus={(session.link_status ?? "none") as PracticeSessionLinkStatus}
+        linkStatus={linkStatus}
         linkError={session.link_error}
         canLink={session.status === "ready" && !!session.recording_path}
         proposals={proposals}

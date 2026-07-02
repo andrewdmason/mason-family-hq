@@ -31,7 +31,7 @@ export async function applySessionResult(
   supabase: SupabaseClient,
   sessionId: string,
   result: WorkerResult
-): Promise<"ready" | "failed" | "linked"> {
+): Promise<"ready" | "failed" | "linked" | "stale"> {
   const { data: session } = await supabase
     .from("practice_sessions")
     .select("id, recording_path")
@@ -56,11 +56,21 @@ export async function applySessionResult(
 
   // Recognition-shaped result = the link job: segments become proposals.
   if (Array.isArray(result.segments)) {
-    const { transcriptionMidiB64: _midi, transcriptionError: _err, ...storedResult } =
-      result;
-    void _midi;
-    void _err;
-    await supabase
+    // The callback spreads its whole POST body in here, so pick ONLY the
+    // recognition payload — spreading `result` would persist the envelope
+    // (secret, ok, sessionId, transcription blobs) into the jsonb column.
+    // NOTE: rows written before this fix may carry the leaked WORKER_SECRET
+    // in `result`; cleaning those rows and rotating the secret is a deploy
+    // note (deliberately not a migration here).
+    const storedResult: PracticeAlignmentResult = {
+      segments: result.segments,
+      confidence: result.confidence ?? 0,
+      windows: result.windows ?? [],
+    };
+    // Guarded to link_status='linking' (the lease kickoffSessionProcessing
+    // takes, committed before the worker POST) so a stale link callback can't
+    // overwrite a session that already settled or re-leased.
+    const { data: linked } = await supabase
       .from("practice_sessions")
       .update({
         status: "ready",
@@ -71,15 +81,24 @@ export async function applySessionResult(
         link_error: null,
         ...(transcriptionPath ? { transcription_path: transcriptionPath } : {}),
       })
-      .eq("id", sessionId);
+      .eq("id", sessionId)
+      .eq("link_status", "linking")
+      .select("id");
+    if (!linked?.length) {
+      console.warn(`[callback] stale link result for session ${sessionId}; ignored`);
+      return "stale";
+    }
     return "linked";
   }
 
   // Transcription-only result: settle the session's own status machine. A
   // missing MIDI lands 'failed' (audio kept, reprocessable — the regression
-  // fix for the old delete-on-failed-transcription behavior).
+  // fix for the old delete-on-failed-transcription behavior). Guarded to
+  // 'processing' — kickoffSessionProcessing awaits the claim_practice_session
+  // RPC (its own committed request) before posting the job, so a legitimate
+  // callback always finds 'processing'; anything else is stale.
   const transcribed = Boolean(result.transcriptionMidiB64);
-  await supabase
+  const { data: settled } = await supabase
     .from("practice_sessions")
     .update(
       transcribed
@@ -97,7 +116,15 @@ export async function applySessionResult(
             audio_retained: true,
           }
     )
-    .eq("id", sessionId);
+    .eq("id", sessionId)
+    .eq("status", "processing")
+    .select("id");
+  if (!settled?.length) {
+    console.warn(
+      `[callback] stale transcription result for session ${sessionId}; ignored`
+    );
+    return "stale";
+  }
   return transcribed ? "ready" : "failed";
 }
 

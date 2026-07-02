@@ -21,8 +21,8 @@ import urllib.request
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
-from align import align, align_to_reference
-from job import run_and_callback
+from align import align
+from job import _run_segment, run_and_callback
 from scales import classify_scales
 from transcribe import transcribe_to_midi_bytes
 
@@ -80,17 +80,16 @@ def do_align(req: AlignRequest, x_worker_secret: str | None = Header(default=Non
         if req.mode == "segment":
             # Known-piece recording job (plan U2): transcription + measure spans
             # against the single supplied reference; no recognition, no scales.
-            result = {"spans": [], "totalMeasures": 0}
+            # Delegates to job.py's _run_segment so the sync (here) and async
+            # (server.py /process, Modal) paths share one implementation.
+            job_payload = {
+                "references": [
+                    {"pieceId": r.pieceId, "midiUrl": r.midiUrl} for r in req.references
+                ]
+            }
+            result = _run_segment(job_payload, f.name)
             if req.recordingId is not None:
                 result["recordingId"] = req.recordingId
-            try:
-                midi = transcribe_to_midi_bytes(f.name)
-                result["transcriptionMidiB64"] = base64.b64encode(midi).decode()
-            except Exception as e:  # noqa: BLE001
-                result["transcriptionMidiB64"] = None
-                result["transcriptionError"] = str(e)[:300]
-            if req.references:
-                result.update(align_to_reference(f.name, _fetch(req.references[0].midiUrl)))
             return result
         refs = [{"pieceId": r.pieceId, "midi": _fetch(r.midiUrl)} for r in req.references]
         result = align(f.name, refs)

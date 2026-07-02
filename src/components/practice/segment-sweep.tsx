@@ -5,7 +5,8 @@
 // nothing. On mount (throttled per tab) it:
 //   (a) reconciles the IndexedDB buffer: re-uploads blobs whose rows are
 //       still 'recorded' (including recreating rows that never got created),
-//       prunes entries whose rows moved on or vanished;
+//       resets + re-uploads rows another sweep failed with "upload never
+//       completed", prunes entries whose rows moved on or vanished;
 //   (b) calls sweepStuckSegments() so the server re-kicks stuck 'uploaded'
 //       rows, watchdog-fails dead 'processing' rows, and ages out abandoned
 //       'recorded' rows this client holds no blob for.
@@ -16,6 +17,7 @@ import { createSegmentRecording } from "@/app/practice/recordings/segment-action
 import {
   createSegmentUploadUrl,
   getSegmentStatuses,
+  resetFailedUpload,
   sweepStuckSegments,
 } from "@/app/practice/recordings/sweep-actions";
 import { finishSegmentUpload } from "@/lib/practice/segment-upload";
@@ -79,10 +81,14 @@ async function recoverBufferedSegment(seg: BufferedSegment): Promise<void> {
 
 async function runSweep(): Promise<void> {
   let buffered: BufferedSegment[] = [];
+  let bufferKnown = true;
   try {
     buffered = await listSegments();
   } catch {
-    buffered = []; // IndexedDB unavailable — server-side sweep still runs
+    // IndexedDB unavailable — the buffer state is UNKNOWN, not empty. The
+    // server sweep still runs but must be told (null) so it doesn't age out
+    // 'recorded' rows whose blobs may well be sitting in this buffer.
+    bufferKnown = false;
   }
 
   const withRow = buffered.filter(
@@ -103,7 +109,9 @@ async function runSweep(): Promise<void> {
   // Server sweep first, telling it every row we still hold a blob for so the
   // abandoned-'recorded' ager leaves them alone (we re-upload just below).
   try {
-    await sweepStuckSegments(withRow.map((s) => s.recordingId));
+    await sweepStuckSegments(
+      bufferKnown ? withRow.map((s) => s.recordingId) : null
+    );
   } catch (err) {
     console.warn("[sweep] server sweep failed", err);
   }
@@ -113,9 +121,17 @@ async function runSweep(): Promise<void> {
       if (seg.recordingId) {
         if (!statusesKnown) continue; // can't tell — keep for the next sweep
         const status = statuses[seg.recordingId] ?? null;
-        if (status !== "recorded") {
-          // Row moved on (uploaded/processing/ready/failed/skipped) or is
-          // gone — the buffer's job is done either way.
+        if (status === "failed") {
+          // Another client's sweep may have aged the row out ("upload never
+          // completed") while this one — holding the blob — was offline.
+          // Reset it to 'recorded' and re-upload; the buffer entry is only
+          // cleared once the upload confirms (finishSegmentUpload). Any other
+          // failure keeps the buffer entry untouched: the audio may still be
+          // wanted, and deleting it here would destroy the only copy.
+          if (!(await resetFailedUpload(seg.recordingId))) continue;
+        } else if (status !== "recorded") {
+          // Row moved on (uploaded/processing/ready/skipped) or is gone —
+          // the buffer's job is done either way.
           await deleteSegment(seg.id);
           continue;
         }

@@ -26,12 +26,16 @@ export type SegmentWorkerResult = {
  * settle the row's status. A missing transcription lands the row 'failed'
  * (with the worker's transcriptionError) so the reprocess affordance shows,
  * while still keeping whatever alignment came back.
+ *
+ * Only an in-flight row accepts the result: a stale/duplicate callback for a
+ * row that already settled (or was reset for reprocessing) returns "stale"
+ * and writes nothing.
  */
 export async function applySegmentResult(
   supabase: SupabaseClient,
   recordingId: string,
   result: SegmentWorkerResult
-): Promise<"ready" | "failed"> {
+): Promise<"ready" | "failed" | "stale"> {
   const { data: rec } = await supabase
     .from("practice_recordings")
     .select("id, audio_path")
@@ -61,8 +65,13 @@ export async function applySegmentResult(
     totalMeasures: result.totalMeasures ?? 0,
   };
 
+  // Settle the row — guarded to 'processing' so only an in-flight row accepts
+  // the result. kickoffSegmentProcessing awaits the claim_practice_recording
+  // RPC (its own committed request) BEFORE posting the worker job, so every
+  // legitimate callback — even from a synchronous local dev worker — finds
+  // 'processing'; anything else is stale and must not overwrite a settled row.
   const transcribed = Boolean(result.transcriptionMidiB64);
-  await supabase
+  const { data: settled } = await supabase
     .from("practice_recordings")
     .update(
       transcribed
@@ -80,7 +89,13 @@ export async function applySegmentResult(
             alignment,
           }
     )
-    .eq("id", recordingId);
+    .eq("id", recordingId)
+    .eq("status", "processing")
+    .select("id");
+  if (!settled?.length) {
+    console.warn(`[callback] stale segment result for ${recordingId}; ignored`);
+    return "stale";
+  }
 
   return transcribed ? "ready" : "failed";
 }

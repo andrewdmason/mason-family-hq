@@ -7,6 +7,7 @@ import {
   createAudioUploadToken,
   safeAudioExt,
 } from "@/lib/practice/storage";
+import { localDate, getUserTimezone } from "@/lib/date-utils";
 import type { PracticeRecordingKind, TaskRecordingDisplay } from "@/lib/types";
 
 /**
@@ -81,6 +82,13 @@ export async function attachRecording(input: {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
+  // Only accept paths createRecordingUpload mints ({uid}/recordings/…) — the
+  // path comes back through the client, and an arbitrary value would let a
+  // row point at someone else's storage object.
+  if (!input.audioPath.startsWith(`${user.id}/recordings/`)) {
+    throw new Error("Invalid audio path for this user");
+  }
+
   // Task-linked takes belong on the task's date (which may not be today) and
   // fall back to the task's piece when the caller didn't know it.
   let taskDate: string | null = null;
@@ -120,7 +128,10 @@ export async function attachRecording(input: {
       trim_end: input.trimEndSeconds,
       title: input.title,
       status: "ready",
-      ...(taskDate ? { date: taskDate } : {}),
+      // Task-less takes (tab performances) get the user's local "today" — the
+      // column default is CURRENT_DATE, which is UTC on Vercel and rolls over
+      // mid-evening. Same convention as task creation (task-actions.ts).
+      date: taskDate ?? localDate(new Date(), await getUserTimezone()),
     })
     .select(SAVED_COLUMNS)
     .single();

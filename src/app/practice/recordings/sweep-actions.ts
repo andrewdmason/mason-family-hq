@@ -10,7 +10,10 @@
 //                The claim lease makes duplicate kickoffs collapse to one job.
 //   processing — worker never called back; watchdog-fail after 45min.
 // Failed/skipped rows are reprocessable (reprocessSegment). Audio is never
-// deleted on any of these paths (KTD8).
+// deleted on any of these paths (KTD8). The same sweep also watchdog-fails
+// practice_sessions stuck at status='processing' or link_status='linking'
+// whose worker callback never arrived — the session UIs' Retry affordances
+// take it from there.
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
@@ -95,16 +98,24 @@ export type SweepResult = {
   timedOut: string[];
   /** 'recorded' rows aged out ("upload never completed"). */
   abandoned: string[];
+  /** practice_sessions watchdog-failed ("worker never called back"). */
+  sessionsTimedOut: number;
+  /** practice_sessions link jobs watchdog-failed ("worker never called back"). */
+  linksTimedOut: number;
 };
 
 /**
  * Server-side sweep, called by the SegmentSweep component on practice-page
  * load. `bufferedRecordingIds` are rows the client still holds blobs for —
  * they're protected from the abandoned-'recorded' ager because a re-upload is
- * about to happen. Scoped to kind='auto' (the timer-segment pipeline).
+ * about to happen. Pass null when the client couldn't read its buffer at all
+ * (IndexedDB unavailable): unknown is not the same as known-empty, so the
+ * abandoned-'recorded' ager is skipped entirely (re-kick + watchdogs still
+ * run). Scoped to kind='auto' (the timer-segment pipeline), plus the session
+ * watchdogs below.
  */
 export async function sweepStuckSegments(
-  bufferedRecordingIds: string[] = []
+  bufferedRecordingIds: string[] | null = []
 ): Promise<SweepResult> {
   const supabase = await createClient();
   const {
@@ -112,7 +123,13 @@ export async function sweepStuckSegments(
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
-  const result: SweepResult = { rekicked: [], timedOut: [], abandoned: [] };
+  const result: SweepResult = {
+    rekicked: [],
+    timedOut: [],
+    abandoned: [],
+    sessionsTimedOut: 0,
+    linksTimedOut: 0,
+  };
   const now = Date.now();
 
   // 1) Stuck 'uploaded' rows: kickoff was lost. Re-kick via the shared path;
@@ -142,27 +159,82 @@ export async function sweepStuckSegments(
   result.timedOut = ((timedOut ?? []) as { id: string }[]).map((r) => r.id);
 
   // 3) Abandoned 'recorded' rows: old enough that the upload clearly never
-  // completed, and this client holds no blob to retry with.
-  let abandonedQuery = supabase
-    .from("practice_recordings")
-    .update({ status: "failed", error_message: "upload never completed" })
-    .eq("kind", "auto")
-    .eq("status", "recorded")
-    .lt("created_at", new Date(now - ABANDONED_RECORDED_MS).toISOString());
-  if (bufferedRecordingIds.length) {
-    abandonedQuery = abandonedQuery.not(
-      "id",
-      "in",
-      `(${bufferedRecordingIds.map((id) => `"${id}"`).join(",")})`
+  // completed, and this client holds no blob to retry with. Skipped when the
+  // buffer state is unknown (null) — aging out a row whose blob may survive
+  // client-side would orphan recoverable audio.
+  if (bufferedRecordingIds !== null) {
+    // Only well-formed UUIDs go into the interpolated NOT-IN list.
+    const protectedIds = bufferedRecordingIds.filter((id) =>
+      /^[0-9a-f-]{36}$/i.test(id)
     );
+    let abandonedQuery = supabase
+      .from("practice_recordings")
+      .update({ status: "failed", error_message: "upload never completed" })
+      .eq("kind", "auto")
+      .eq("status", "recorded")
+      .lt("created_at", new Date(now - ABANDONED_RECORDED_MS).toISOString());
+    if (protectedIds.length) {
+      abandonedQuery = abandonedQuery.not(
+        "id",
+        "in",
+        `(${protectedIds.map((id) => `"${id}"`).join(",")})`
+      );
+    }
+    const { data: abandoned } = await abandonedQuery.select("id");
+    result.abandoned = ((abandoned ?? []) as { id: string }[]).map((r) => r.id);
   }
-  const { data: abandoned } = await abandonedQuery.select("id");
-  result.abandoned = ((abandoned ?? []) as { id: string }[]).map((r) => r.id);
+
+  // 4) Session watchdogs (same window): a claimed transcription or an
+  // in-flight link job whose worker never called back. The session UIs
+  // already offer Retry on failed sessions and failed links.
+  const { data: deadSessions } = await supabase
+    .from("practice_sessions")
+    .update({ status: "failed", error_message: "worker never called back" })
+    .eq("status", "processing")
+    .lt("claimed_at", new Date(now - PROCESSING_WATCHDOG_MS).toISOString())
+    .select("id");
+  result.sessionsTimedOut = (deadSessions ?? []).length;
+
+  const { data: deadLinks } = await supabase
+    .from("practice_sessions")
+    .update({ link_status: "failed", link_error: "worker never called back" })
+    .eq("link_status", "linking")
+    .lt("updated_at", new Date(now - PROCESSING_WATCHDOG_MS).toISOString())
+    .select("id");
+  result.linksTimedOut = (deadLinks ?? []).length;
 
   if (result.rekicked.length || result.timedOut.length || result.abandoned.length) {
     revalidatePath("/practice");
   }
+  if (result.sessionsTimedOut || result.linksTimedOut) {
+    revalidatePath("/practice/recordings");
+    revalidatePath("/practice/session");
+  }
   return result;
+}
+
+/**
+ * Flip a row swept to 'failed' ("upload never completed") back to 'recorded'
+ * so a client that still holds its blob can re-upload it — another client's
+ * sweep can age a row out while the one with the audio is offline. Guarded so
+ * ONLY that exact sweep failure is recoverable; any other failure keeps its
+ * state. Returns whether the reset happened.
+ */
+export async function resetFailedUpload(recordingId: string): Promise<boolean> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const { data } = await supabase
+    .from("practice_recordings")
+    .update({ status: "recorded", error_message: null })
+    .eq("id", recordingId)
+    .eq("status", "failed")
+    .eq("error_message", "upload never completed")
+    .select("id");
+  return Boolean(data?.length);
 }
 
 /**

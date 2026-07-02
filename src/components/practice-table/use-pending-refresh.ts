@@ -25,14 +25,37 @@ const PENDING_STATUSES: ReadonlySet<PracticeRecordingStatus> = new Set([
 export function usePendingRefresh(days: FeedDay[]) {
   const router = useRouter();
 
+  // Ids the poll has already seen transition to a terminal server status.
+  // Because practice-table only merges fresh data for page-1 days
+  // (`fresh.get(d.date) ?? d`), a recording that settles on an older
+  // paginated day never gets its client-side status updated — without this
+  // set, the poll would see server !== client for that id forever and
+  // router.refresh() every tick. Once we've fired the one-time refresh for a
+  // transition, the id is excluded from further pending/changed checks.
+  const settledRef = useRef<Set<string>>(new Set());
+
   const pending = useMemo(() => {
     const map = new Map<string, PracticeRecordingStatus>();
+    const stillRendered = new Set<string>();
     for (const day of days) {
       for (const task of day.tasks) {
         for (const rec of task.recordings) {
-          if (PENDING_STATUSES.has(rec.status)) map.set(rec.id, rec.status);
+          stillRendered.add(rec.id);
+          // Memory hygiene: if the client's own data later shows this id as
+          // non-pending (e.g. a fresh page-1 merge caught up), it's settled
+          // from the client's own perspective too — drop it from the set.
+          if (!PENDING_STATUSES.has(rec.status)) {
+            settledRef.current.delete(rec.id);
+            continue;
+          }
+          if (settledRef.current.has(rec.id)) continue;
+          map.set(rec.id, rec.status);
         }
       }
+    }
+    // Memory hygiene: forget settled ids that no longer render at all.
+    for (const id of settledRef.current) {
+      if (!stillRendered.has(id)) settledRef.current.delete(id);
     }
     return map;
   }, [days]);
@@ -64,9 +87,19 @@ export function usePendingRefresh(days: FeedDay[]) {
         if (cancelled) return;
         // Any drift from what the client has — including a vanished row
         // (null) — means the server moved on; pull the revalidated feed.
-        const changed = ids.some(
-          (id) => statuses[id] !== pendingRef.current.get(id)
-        );
+        // Ids that just settled are marked so subsequent ticks (before the
+        // client's own data catches up, e.g. on an older paginated day)
+        // don't see the same drift and refresh again forever.
+        let changed = false;
+        for (const id of ids) {
+          const serverStatus = statuses[id];
+          const clientStatus = pendingRef.current.get(id);
+          if (serverStatus === clientStatus) continue;
+          changed = true;
+          if (serverStatus === null || !PENDING_STATUSES.has(serverStatus)) {
+            settledRef.current.add(id);
+          }
+        }
         if (changed) router.refresh();
       } catch {
         // Transient failure (offline, auth blip) — the next tick retries.
