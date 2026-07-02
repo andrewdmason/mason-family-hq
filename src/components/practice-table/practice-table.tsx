@@ -50,6 +50,7 @@ import {
   type OptimisticTaskRollback,
   type OptimisticTaskUpdate,
   type OptimisticTaskDelete,
+  type OptimisticTaskRecordingUpsert,
 } from "@/lib/optimistic-task";
 import { localDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
@@ -1265,6 +1266,32 @@ export function PracticeTable({
       );
     };
 
+    const recordingUpsertHandler = (e: Event) => {
+      const { taskId, recording } = (
+        e as CustomEvent<OptimisticTaskRecordingUpsert>
+      ).detail;
+      setDays((prev) =>
+        prev.map((d) => {
+          if (!d.tasks.some((t) => t.id === taskId)) return d;
+          return {
+            ...d,
+            tasks: d.tasks.map((t) => {
+              if (t.id !== taskId) return t;
+              const has = t.recordings.some((r) => r.id === recording.id);
+              return {
+                ...t,
+                recordings: has
+                  ? t.recordings.map((r) =>
+                      r.id === recording.id ? { ...r, ...recording } : r
+                    )
+                  : [...t.recordings, recording],
+              };
+            }),
+          };
+        })
+      );
+    };
+
     const deleteHandler = (e: Event) => {
       const { taskId } = (e as CustomEvent<OptimisticTaskDelete>).detail;
       setDays((prev) =>
@@ -1295,12 +1322,20 @@ export function PracticeTable({
     window.addEventListener("task-updated-optimistic", updateHandler);
     window.addEventListener("task-deleted-optimistic", deleteHandler);
     window.addEventListener("task-rename-optimistic", renameHandler);
+    window.addEventListener(
+      "task-recording-upsert-optimistic",
+      recordingUpsertHandler
+    );
     return () => {
       window.removeEventListener("task-created-optimistic", addHandler);
       window.removeEventListener("task-created-rollback", rollbackHandler);
       window.removeEventListener("task-updated-optimistic", updateHandler);
       window.removeEventListener("task-deleted-optimistic", deleteHandler);
       window.removeEventListener("task-rename-optimistic", renameHandler);
+      window.removeEventListener(
+        "task-recording-upsert-optimistic",
+        recordingUpsertHandler
+      );
     };
   }, []);
 

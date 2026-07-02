@@ -25,7 +25,9 @@ import {
 } from "@/lib/practice/capture";
 import { useLevelMeter } from "@/components/practice/use-capture";
 import { createSegmentRecording } from "@/app/practice/recordings/segment-actions";
+import { emitOptimisticTaskRecordingUpsert } from "@/lib/optimistic-task";
 import { finishSegmentUpload } from "@/lib/practice/segment-upload";
+import type { TaskRecordingDisplay } from "@/lib/types";
 import { putSegment, type BufferedSegment } from "@/lib/practice/segment-buffer";
 
 // ---------------------------------------------------------------------------
@@ -196,6 +198,24 @@ async function persistSegment(rec: ActiveRecording, blob: Blob): Promise<void> {
     }
   }
 
+  // Surface the pending row on its task instantly (client-side, no server
+  // revalidation — see createSegmentRecording). "recorded" → "uploading…".
+  const optimistic: TaskRecordingDisplay = {
+    id: recordingId,
+    kind: "auto",
+    status: "recorded",
+    audio_path: path,
+    transcription_path: null,
+    duration_seconds: Math.max(0, Math.round(durationSeconds)),
+    trim_start: null,
+    trim_end: null,
+    title: null,
+    error_message: null,
+    created_at: new Date().toISOString(),
+    alignment: null,
+  };
+  emitOptimisticTaskRecordingUpsert(rec.taskId, optimistic);
+
   await finishSegmentUpload({
     recordingId,
     path,
@@ -204,6 +224,13 @@ async function persistSegment(rec: ActiveRecording, blob: Blob): Promise<void> {
     ext: rec.ext,
     durationSeconds,
     bufferId: hasBuffer ? clientId : null,
+  });
+
+  // Upload confirmed → "processing…". (If the local kickoff can't reach a
+  // worker the row stays 'uploaded', which the UI also shows as processing.)
+  emitOptimisticTaskRecordingUpsert(rec.taskId, {
+    ...optimistic,
+    status: "uploaded",
   });
 }
 
