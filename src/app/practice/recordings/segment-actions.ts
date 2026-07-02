@@ -56,6 +56,12 @@ export async function createSegmentRecording(
   });
   if (insErr) throw new Error(insErr.message);
 
+  // Surface the new segment (pulsing "uploading…" row) in the day view right
+  // away — without this, the pending indicator only appears after some other
+  // interaction refreshes the feed, and the pending poll can't watch a row it
+  // has never rendered.
+  revalidatePath("/practice");
+
   return { recordingId, path, token };
 }
 
@@ -83,6 +89,10 @@ export async function markSegmentUploaded(
     .eq("id", recordingId)
     .eq("status", "recorded");
   if (error) throw new Error(error.message);
+
+  // "uploading…" -> "processing…" in the day view without waiting for the
+  // next unrelated refresh.
+  revalidatePath("/practice");
 }
 
 /**
