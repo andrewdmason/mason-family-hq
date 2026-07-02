@@ -29,6 +29,7 @@ import { useMetronome } from "@/components/metronome/metronome-context";
 import { TaskRow } from "@/components/practice-table/task-row";
 import { PieceSectionsContext } from "@/components/practice-table/task-recordings";
 import { PieceSessionsDialog } from "@/components/practice-table/piece-sessions-dialog";
+import { usePendingRefresh } from "@/components/practice-table/use-pending-refresh";
 import {
   moveTasksToDate,
   reorderTasks,
@@ -1119,6 +1120,10 @@ export function PracticeTable({
   const [cursor, setCursor] = useState<string | null>(initialData.nextCursor);
   const [loading, setLoading] = useState(false);
   const paginatedRef = useRef(false);
+
+  // Near-live enrichment (U9): while rendered segments are still processing,
+  // poll and router.refresh() on transitions so results land without a reload.
+  usePendingRefresh(days);
 
   // Sync server revalidation into the loaded days. If the user has paginated
   // past the first page, merge the fresh first page in by date so later pages
