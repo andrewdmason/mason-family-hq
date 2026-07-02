@@ -383,12 +383,36 @@ export type RepertoireOverviewItem = {
 };
 
 // Feed types
+
+/**
+ * The slice of a practice_recordings row the day feed ships per task (U6).
+ * Alignment is included — it's small and the task row renders spans/sections
+ * from it. Heavier columns (claimed_at etc.) stay server-side.
+ */
+export type TaskRecordingDisplay = Pick<
+  PracticeRecording,
+  | "id"
+  | "kind"
+  | "status"
+  | "audio_path"
+  | "transcription_path"
+  | "duration_seconds"
+  | "trim_start"
+  | "trim_end"
+  | "title"
+  | "error_message"
+  | "created_at"
+  | "alignment"
+>;
+
 export type TaskWithDetails = PracticeTask & {
   piece_name: string | null;
   piece_composer: string | null;
   piece_kind: PieceKind | null;
   section_label: string | null;
   section_status: SectionStatus | null;
+  /** practice_recordings rows for this task, oldest first. */
+  recordings: TaskRecordingDisplay[];
 };
 
 export type FeedDay = {
@@ -397,6 +421,12 @@ export type FeedDay = {
   timeSummary: TimeSummaryEntry[];
   /** Status changes grouped by piece_id for this date */
   statusChangesByPiece?: Record<string, StatusChange[]>;
+  /**
+   * Section trees for pieces whose tasks (this day) carry recordings with
+   * alignment spans — lets the task row map spans → placed sections without a
+   * client fetch (KTD5).
+   */
+  sectionsByPiece?: Record<string, PieceSectionWithChildren[]>;
 };
 
 // Piece section types

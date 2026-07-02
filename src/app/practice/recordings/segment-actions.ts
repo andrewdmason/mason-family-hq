@@ -1,8 +1,10 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 
 const BUCKET = "task-audio";
+const MIDI_BUCKET = "practice-session-midi";
 
 /**
  * Create the practice_recordings row for an auto-captured timer segment and
@@ -84,4 +86,83 @@ export async function markSegmentUploaded(
     .eq("id", recordingId)
     .eq("status", "recorded");
   if (error) throw new Error(error.message);
+}
+
+/**
+ * Delete a recording: storage objects first (audio in task-audio, transcribed
+ * MIDI in practice-session-midi when present), then the row (plan U6).
+ *
+ * This is the ONLY delete path for practice_recordings and it is only ever
+ * invoked from a user's explicit menu action in the task row — the processing
+ * pipeline never deletes rows or audio (KTD8).
+ */
+export async function deleteSegment(
+  recordingId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Not authenticated" };
+
+  const { data: rec, error: loadError } = await supabase
+    .from("practice_recordings")
+    .select("id, audio_path, transcription_path")
+    .eq("id", recordingId)
+    .maybeSingle();
+  if (loadError) return { ok: false, error: loadError.message };
+  if (!rec) return { ok: false, error: "Recording not found" };
+
+  const row = rec as {
+    id: string;
+    audio_path: string | null;
+    transcription_path: string | null;
+  };
+
+  // Storage objects go first so a failure never leaves orphaned objects
+  // behind a deleted row. remove() tolerates already-missing objects, but a
+  // hard storage error aborts before the row delete.
+  if (row.audio_path) {
+    const { error } = await supabase.storage
+      .from(BUCKET)
+      .remove([row.audio_path]);
+    if (error) return { ok: false, error: error.message };
+  }
+  if (row.transcription_path) {
+    const { error } = await supabase.storage
+      .from(MIDI_BUCKET)
+      .remove([row.transcription_path]);
+    if (error) return { ok: false, error: error.message };
+  }
+
+  const { error: deleteError } = await supabase
+    .from("practice_recordings")
+    .delete()
+    .eq("id", recordingId);
+  if (deleteError) return { ok: false, error: deleteError.message };
+
+  revalidatePath("/practice");
+  return { ok: true };
+}
+
+/**
+ * Signed URL that triggers a browser download (Content-Disposition:
+ * attachment) for a recording's audio object.
+ */
+export async function createSignedSegmentDownloadUrl(
+  audioPath: string
+): Promise<string> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(audioPath, 60 * 60, { download: true });
+  if (error || !data) {
+    throw new Error(error?.message ?? "Failed to create signed download URL");
+  }
+  return data.signedUrl;
 }

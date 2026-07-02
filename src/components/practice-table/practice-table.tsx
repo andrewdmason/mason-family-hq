@@ -27,6 +27,7 @@ import {
 import { useTaskTimer } from "@/components/timer/task-timer-context";
 import { useMetronome } from "@/components/metronome/metronome-context";
 import { TaskRow } from "@/components/practice-table/task-row";
+import { PieceSectionsContext } from "@/components/practice-table/task-recordings";
 import { PieceSessionsDialog } from "@/components/practice-table/piece-sessions-dialog";
 import {
   moveTasksToDate,
@@ -62,7 +63,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { groupPiecesForMenu, type PieceMenuEntry } from "@/lib/piece-menu";
-import type { FeedDay, TaskWithDetails, PieceKind, Piece } from "@/lib/types";
+import type {
+  FeedDay,
+  TaskWithDetails,
+  PieceKind,
+  Piece,
+  PieceSectionWithChildren,
+} from "@/lib/types";
 
 type PieceGroup = {
   pieceId: string | null;
@@ -1196,6 +1203,7 @@ export function PracticeTable({
         session_id: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        recordings: [],
         piece_name: detail.pieceName,
         piece_composer: detail.pieceComposer,
         piece_kind: detail.pieceKind,
@@ -1504,7 +1512,19 @@ export function PracticeTable({
     return map;
   }, [days]);
 
+  // Section trees for span → section display in task recordings lists (U6).
+  // Merged across loaded days; pieces repeat across days so later days just
+  // overwrite with the same tree.
+  const sectionsByPiece = useMemo(() => {
+    const merged: Record<string, PieceSectionWithChildren[]> = {};
+    for (const d of days) {
+      if (d.sectionsByPiece) Object.assign(merged, d.sectionsByPiece);
+    }
+    return merged;
+  }, [days]);
+
   return (
+    <PieceSectionsContext.Provider value={sectionsByPiece}>
     <div className="pl-8" onClick={handleRootClick}>
       {visibleDays.map((day) => (
         <DayGroup
@@ -1531,5 +1551,6 @@ export function PracticeTable({
       )}
 
     </div>
+    </PieceSectionsContext.Provider>
   );
 }

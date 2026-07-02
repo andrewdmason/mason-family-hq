@@ -12,7 +12,6 @@ import {
   Trash2Icon,
   MetronomeIcon,
   ArrowRightIcon,
-  AudioLinesIcon,
   CalendarArrowUpIcon,
 } from "lucide-react";
 import {
@@ -49,6 +48,7 @@ import {
   type FocusTaskNotesDetail,
 } from "@/lib/optimistic-task";
 import { TaskAudioDialog } from "@/components/practice-table/task-audio-dialog";
+import { TaskRecordings } from "@/components/practice-table/task-recordings";
 import { FollowUpDialog } from "@/components/practice-table/follow-up-dialog";
 import {
   getCachedSectionPickerData,
@@ -427,10 +427,11 @@ export function TaskRow({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "group/task flex items-stretch",
+        "group/task",
         isDragging && "opacity-50",
       )}
     >
+      <div className="flex items-stretch">
       {/* Gutter — sits in the page's pl-8 padding area, like Notion */}
       <div className={cn(
         "-ml-8 w-8 shrink-0 flex items-center justify-center gap-0 transition-opacity",
@@ -810,25 +811,18 @@ export function TaskRow({
               />
             </PopoverContent>
           </Popover>
-          {hasAudio && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                openAudioDialog("playback");
-              }}
-              aria-label="Play task recording"
-              title="Play recording"
-              className={cn(
-                "ml-2 shrink-0 rounded p-0.5 opacity-70 hover:opacity-100 transition-opacity",
-                isActive ? "text-white" : "text-muted-foreground"
-              )}
-            >
-              <AudioLinesIcon className="size-3.5" />
-            </button>
-          )}
         </div>
       </div>
+      </div>
+      {/* Recordings list — replaces the single-slot audio affordance (U6).
+          Backfilled legacy audio appears here as its practice_recordings row. */}
+      {task.recordings.length > 0 && (
+        <TaskRecordings
+          taskId={task.id}
+          pieceId={task.piece_id}
+          recordings={task.recordings}
+        />
+      )}
       <FollowUpDialog
         open={followUpOpen}
         onOpenChange={(open) => {
