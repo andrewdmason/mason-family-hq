@@ -7,39 +7,22 @@ import { MicIcon, SquareIcon, Loader2Icon, CheckCircle2Icon, AlertCircleIcon } f
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { createSession } from "@/app/practice/session/actions";
-
-function pickMimeType(): { mime: string; ext: "webm" | "m4a" } {
-  if (typeof MediaRecorder === "undefined") {
-    return { mime: "audio/mp4;codecs=mp4a.40.2", ext: "m4a" };
-  }
-  const candidates: Array<{ mime: string; ext: "webm" | "m4a" }> = [
-    { mime: "audio/mp4;codecs=mp4a.40.2", ext: "m4a" },
-    { mime: "audio/mp4", ext: "m4a" },
-    { mime: "audio/webm;codecs=opus", ext: "webm" },
-    { mime: "audio/webm", ext: "webm" },
-  ];
-  for (const c of candidates) {
-    if (MediaRecorder.isTypeSupported(c.mime)) return c;
-  }
-  return { mime: "", ext: "webm" };
-}
+import {
+  effectiveInputDeviceId,
+  formatDeviceLabel,
+  pickMimeType,
+  resolveRecordingDeviceId,
+  supportedContentType,
+} from "@/lib/practice/capture";
+import {
+  useAudioInputs,
+  useInputDevicePreference,
+  useLevelMeter,
+} from "@/components/practice/use-capture";
 
 function fmt(s: number) {
   const m = Math.floor(s / 60);
   return `${m}:${String(s % 60).padStart(2, "0")}`;
-}
-
-// The task-audio bucket only allows audio/mp4|webm|mpeg|ogg. Files can report
-// other types (e.g. audio/x-m4a), so map to a supported label — the worker
-// decodes by content (ffmpeg), so the label only needs to pass the bucket.
-function supportedContentType(type: string | undefined, ext: string): string {
-  const allowed = ["audio/webm", "audio/mp4", "audio/mpeg", "audio/ogg"];
-  if (type && allowed.some((a) => type.startsWith(a))) return type;
-  const e = ext.toLowerCase();
-  if (e === "webm") return "audio/webm";
-  if (e === "mp3") return "audio/mpeg";
-  if (e === "ogg" || e === "oga") return "audio/ogg";
-  return "audio/mp4"; // m4a / aac / wav / etc. — decoded by content regardless
 }
 
 type StatusResult = {
@@ -66,17 +49,6 @@ async function pollStatus(sessionId: string): Promise<StatusResult> {
   return { status: "failed", error: "Timed out waiting for processing" };
 }
 
-// Shared with the task-audio recorder so the chosen mic carries over. Picking an
-// explicit input avoids macOS Continuity hijacking the mic to a nearby iPhone.
-const INPUT_DEVICE_STORAGE_KEY = "task-audio-input-device-id";
-
-function formatDeviceLabel(raw: string): string {
-  if (!raw) return "Microphone";
-  let out = raw.replace(/^Default\s*[-:—]\s*/i, "");
-  out = out.replace(/\s*\(([^()]*)\)\s*$/, "").trim();
-  return out || raw;
-}
-
 type Phase = "idle" | "recording" | "working" | "done" | "error";
 
 export function SessionRecorder() {
@@ -86,129 +58,28 @@ export function SessionRecorder() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ taskCount: number; retain: boolean } | null>(null);
 
-  const [level, setLevel] = useState(0); // live input level 0..1
-  const [silent, setSilent] = useState(false); // no input heard after a few seconds
-
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const extRef = useRef<"webm" | "m4a">("webm");
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const levelRafRef = useRef<number | null>(null);
-  const heardRef = useRef(false);
-  const meterUpdatedRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
-  const [deviceId, setDeviceId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      return localStorage.getItem(INPUT_DEVICE_STORAGE_KEY);
-    } catch {
-      return null;
-    }
-  });
+  const { concreteInputs, refreshInputs } = useAudioInputs({ loadOnMount: true });
+  const { deviceId, chooseDevice } = useInputDevicePreference();
+  const { level, silent, heardRef, startMeter, stopMeter, resetMeter } =
+    useLevelMeter();
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      if (!navigator.mediaDevices?.enumerateDevices) return;
-      try {
-        let devices = await navigator.mediaDevices.enumerateDevices();
-        let audio = devices.filter((d) => d.kind === "audioinput");
-        // Labels are withheld until mic permission is granted once; a throwaway
-        // probe reveals the real device names (incl. the iPhone) so the picker works.
-        if (audio.length && audio.every((d) => !d.label)) {
-          try {
-            const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-            s.getTracks().forEach((t) => t.stop());
-            devices = await navigator.mediaDevices.enumerateDevices();
-            audio = devices.filter((d) => d.kind === "audioinput");
-          } catch {
-            /* permission denied — leave list as-is */
-          }
-        }
-        if (!cancelled) setInputs(audio);
-      } catch {
-        /* ignore */
-      }
-    }
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const concreteInputs = useMemo(
-    () => inputs.filter((d) => d.deviceId !== "default" && d.deviceId !== "communications"),
-    [inputs]
+  const effectiveDeviceId = useMemo(
+    () => effectiveInputDeviceId(deviceId, concreteInputs),
+    [deviceId, concreteInputs]
   );
-  const effectiveDeviceId = useMemo(() => {
-    if (!deviceId) return null;
-    return concreteInputs.some((d) => d.deviceId === deviceId) ? deviceId : null;
-  }, [deviceId, concreteInputs]);
 
-  // The device we'll actually record from. An explicit pick wins; otherwise pick
-  // a concrete NON-iPhone input (built-in preferred) so we never fall through to
-  // "default", which is what macOS Continuity hijacks to a nearby iPhone.
-  const resolvedDeviceId = useMemo(() => {
-    if (effectiveDeviceId) return effectiveDeviceId;
-    const notPhone = concreteInputs.filter(
-      (d) => !/iphone|ipad|continuity/i.test(d.label)
-    );
-    const builtin = notPhone.find((d) => /built.?in|macbook/i.test(d.label));
-    return (builtin ?? notPhone[0])?.deviceId ?? null;
-  }, [effectiveDeviceId, concreteInputs]);
-
-  function chooseDevice(id: string | null) {
-    setDeviceId(id);
-    try {
-      if (id) localStorage.setItem(INPUT_DEVICE_STORAGE_KEY, id);
-      else localStorage.removeItem(INPUT_DEVICE_STORAGE_KEY);
-    } catch {
-      /* ignore */
-    }
-  }
-
-  // Live input-level meter: taps the mic stream so a dead/muted/wrong device is
-  // visible while recording, instead of silently producing a useless session.
-  function startMeter(stream: MediaStream) {
-    try {
-      const ctx = new AudioContext();
-      audioCtxRef.current = ctx;
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 1024;
-      ctx.createMediaStreamSource(stream).connect(analyser);
-      const buf = new Float32Array(analyser.fftSize);
-      heardRef.current = false;
-      const startedAt = performance.now();
-      const tick = () => {
-        analyser.getFloatTimeDomainData(buf);
-        let sum = 0;
-        for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-        const rms = Math.sqrt(sum / buf.length);
-        if (rms > 0.008) heardRef.current = true;
-        const now = performance.now();
-        if (now - meterUpdatedRef.current > 60) {
-          meterUpdatedRef.current = now;
-          setLevel(Math.min(1, rms * 5));
-          setSilent(!heardRef.current && now - startedAt > 4000);
-        }
-        levelRafRef.current = requestAnimationFrame(tick);
-      };
-      levelRafRef.current = requestAnimationFrame(tick);
-    } catch {
-      /* meter is best-effort */
-    }
-  }
-
-  function stopMeter() {
-    if (levelRafRef.current) cancelAnimationFrame(levelRafRef.current);
-    levelRafRef.current = null;
-    void audioCtxRef.current?.close();
-    audioCtxRef.current = null;
-  }
+  // The device we'll actually record from (anti-Continuity resolution).
+  const resolvedDeviceId = useMemo(
+    () => resolveRecordingDeviceId(effectiveDeviceId, concreteInputs),
+    [effectiveDeviceId, concreteInputs]
+  );
 
   function cleanupStream() {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -221,8 +92,7 @@ export function SessionRecorder() {
   async function start() {
     setError(null);
     setResult(null);
-    setLevel(0);
-    setSilent(false);
+    resetMeter();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -234,12 +104,7 @@ export function SessionRecorder() {
         },
       });
       // Refresh the labeled list now that permission is granted.
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        setInputs(devices.filter((d) => d.kind === "audioinput"));
-      } catch {
-        /* ignore */
-      }
+      await refreshInputs();
       streamRef.current = stream;
       startMeter(stream);
       const { mime, ext } = pickMimeType();

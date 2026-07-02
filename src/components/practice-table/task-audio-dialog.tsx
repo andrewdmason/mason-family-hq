@@ -42,20 +42,19 @@ import {
   updateTaskAudioTitle,
   updateTaskAudioTrim,
 } from "@/app/practice/timer/audio-actions";
+import {
+  effectiveInputDeviceId,
+  formatDeviceLabel,
+  pickMimeType,
+} from "@/lib/practice/capture";
+import {
+  useAudioInputs,
+  useInputDevicePreference,
+} from "@/components/practice/use-capture";
 
 const BUCKET = "task-audio";
 const MAX_RECORDING_SECONDS = 3600;
 const OPUS_BITRATE = 256_000;
-const INPUT_DEVICE_STORAGE_KEY = "task-audio-input-device-id";
-
-function formatDeviceLabel(raw: string): string {
-  if (!raw) return "Microphone";
-  // "Default - Built-in Mic" / "Default: Built-in Mic" → "Built-in Mic"
-  let out = raw.replace(/^Default\s*[-:—]\s*/i, "");
-  // Trailing parenthetical (e.g. "(14ed:1019)")
-  out = out.replace(/\s*\(([^()]*)\)\s*$/, "").trim();
-  return out || raw;
-}
 
 type Mode = "record" | "playback";
 
@@ -100,25 +99,6 @@ type Props = {
   onTitleUpdated?: (audioTitle: string | null) => void;
   onDeleted?: () => void;
 };
-
-// Prefer MP4/AAC so the download opens natively in QuickTime/iTunes/Finder.
-// Safari supports mp4 out of the box; Chrome 110+ and Edge support it in
-// MediaRecorder. Firefox falls back to webm/opus.
-function pickMimeType(): { mime: string; ext: "webm" | "m4a" } {
-  if (typeof MediaRecorder === "undefined") {
-    return { mime: "audio/mp4;codecs=mp4a.40.2", ext: "m4a" };
-  }
-  const candidates: Array<{ mime: string; ext: "webm" | "m4a" }> = [
-    { mime: "audio/mp4;codecs=mp4a.40.2", ext: "m4a" },
-    { mime: "audio/mp4", ext: "m4a" },
-    { mime: "audio/webm;codecs=opus", ext: "webm" },
-    { mime: "audio/webm", ext: "webm" },
-  ];
-  for (const c of candidates) {
-    if (MediaRecorder.isTypeSupported(c.mime)) return c;
-  }
-  return { mime: "", ext: "webm" };
-}
 
 export function formatNotesDefault(
   sectionLabel: string | null,
@@ -178,15 +158,14 @@ export function TaskAudioDialog({
   const [titleBaseline, setTitleBaseline] = useState<string>("");
   const titleInputRef = useRef<HTMLInputElement>(null);
   const titleAutoSelectRef = useRef(false);
-  const [availableInputs, setAvailableInputs] = useState<MediaDeviceInfo[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      return localStorage.getItem(INPUT_DEVICE_STORAGE_KEY);
-    } catch {
-      return null;
-    }
-  });
+  const {
+    inputs: availableInputs,
+    concreteInputs,
+    refreshInputs: refreshAvailableInputs,
+    probeAndRefreshInputs,
+  } = useAudioInputs();
+  const { deviceId: selectedDeviceId, chooseDevice: handleSelectDevice } =
+    useInputDevicePreference();
   const [monitorStream, setMonitorStream] = useState<MediaStream | null>(null);
   const monitorStreamRef = useRef<MediaStream | null>(null);
 
@@ -206,53 +185,11 @@ export function TaskAudioDialog({
     setMonitorStream(null);
   }, []);
 
-  const refreshAvailableInputs = useCallback(async () => {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) {
-      return;
-    }
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      setAvailableInputs(devices.filter((d) => d.kind === "audioinput"));
-    } catch {}
-  }, []);
-
-  // Browsers withhold device labels — and collapse the input list to a single
-  // generic placeholder — until getUserMedia has been granted at least once on
-  // the page. Without this probe, enumerateDevices on dialog open can't see or
-  // name external interfaces (e.g. a USB audio device), so the picker only
-  // offers "System default" + an unlabeled "Microphone". Acquire a throwaway
-  // stream to unlock permission, stop it immediately, then re-enumerate so the
-  // full, labeled device list (including external inputs) populates the picker.
-  const probeAndRefreshInputs = useCallback(async () => {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      await refreshAvailableInputs();
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((t) => t.stop());
-    } catch {
-      // Permission denied or unavailable — the Record button surfaces the
-      // error. Still enumerate so any already-permitted devices show up.
-    }
-    await refreshAvailableInputs();
-  }, [refreshAvailableInputs]);
-
-  // Concrete inputs for the picker — exclude pseudo "default"/"communications".
-  const concreteInputs = useMemo(
-    () =>
-      availableInputs.filter(
-        (d) => d.deviceId !== "default" && d.deviceId !== "communications"
-      ),
-    [availableInputs]
-  );
-
   // If the saved selection no longer exists, treat it as system default.
-  const effectiveDeviceId = useMemo(() => {
-    if (!selectedDeviceId) return null;
-    const found = availableInputs.some((d) => d.deviceId === selectedDeviceId);
-    return found ? selectedDeviceId : null;
-  }, [selectedDeviceId, availableInputs]);
+  const effectiveDeviceId = useMemo(
+    () => effectiveInputDeviceId(selectedDeviceId, availableInputs),
+    [selectedDeviceId, availableInputs]
+  );
 
   const displayLabel = useMemo(() => {
     if (!effectiveDeviceId) {
@@ -266,14 +203,6 @@ export function TaskAudioDialog({
     if (dev?.label) return formatDeviceLabel(dev.label);
     return "Microphone";
   }, [effectiveDeviceId, availableInputs, concreteInputs]);
-
-  const handleSelectDevice = useCallback((id: string | null) => {
-    setSelectedDeviceId(id);
-    try {
-      if (id) localStorage.setItem(INPUT_DEVICE_STORAGE_KEY, id);
-      else localStorage.removeItem(INPUT_DEVICE_STORAGE_KEY);
-    } catch {}
-  }, []);
 
   const teardownWavesurfer = useCallback(() => {
     try {
