@@ -72,9 +72,21 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (userId && request.nextUrl.pathname.startsWith("/login")) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/home";
-    return NextResponse.redirect(url);
+    // getClaims() above only proves the JWT is locally valid — the server-side
+    // session can be dead (local Supabase reset, revoked session), and a user
+    // in that state MUST be able to reach /login to re-authenticate, or they
+    // are trapped: every page's own getUser() fails while this bounce keeps
+    // turning them away. Verify with the auth server before bouncing; the
+    // network call runs only on /login requests, so the every-request fast
+    // path stays offline.
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/home";
+      return NextResponse.redirect(url);
+    }
   }
 
   // The practice book is owner-only. Resolve the role from the membership table

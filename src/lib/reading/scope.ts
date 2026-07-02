@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -31,7 +32,10 @@ export async function resolveReadingScope(
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
+  // A session can be locally-valid at the middleware's offline JWT check but
+  // dead at the auth server (e.g. after a local-stack reset). Land on /login
+  // to re-authenticate instead of surfacing an error page.
+  if (!user) redirect("/login");
   const callerId = user.id;
   const callerEmail = user.email?.toLowerCase() ?? null;
 
