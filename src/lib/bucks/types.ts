@@ -49,12 +49,21 @@ export type BucksWallet = {
   history: BucksLedgerEntry[];
   earnTasks: BucksEarnTask[];
   prizes: BucksPrize[];
+  /** This kid's own arbitrary Bucks requests still awaiting an adult. */
+  pendingRequests: number;
 };
 
-/** A pending claim in the adult approval queue. */
+/**
+ * A pending claim in the adult approval queue — either a kid claiming a task or a
+ * task-less "just give me N Bucks" request. `taskTitle` is null for a request; use
+ * the `note` in that case.
+ */
 export type BucksAdminClaim = {
   id: string;
-  taskTitle: string;
+  /** The originating task's title, or null for an arbitrary request. */
+  taskTitle: string | null;
+  /** The kid's explanation, on arbitrary requests. */
+  note: string | null;
   kidUserId: string;
   kidName: string;
   quantity: number;
