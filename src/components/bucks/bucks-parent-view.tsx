@@ -150,10 +150,14 @@ function NeedsYou({
           >
             <div className="min-w-0">
               <p className="truncate text-sm text-foreground">
-                {c.kidName} claimed “{c.taskTitle}”
+                {c.taskTitle
+                  ? `${c.kidName} claimed “${c.taskTitle}”`
+                  : `${c.kidName} asked for ${c.amount} Bucks`}
               </p>
               <p className="text-xs text-muted-foreground">
-                {c.quantity} × {c.unitValue} = {c.amount} Bucks
+                {c.taskTitle
+                  ? `${c.quantity} × ${c.unitValue} = ${c.amount} Bucks`
+                  : c.note}
               </p>
             </div>
             <div className="flex shrink-0 gap-1.5">

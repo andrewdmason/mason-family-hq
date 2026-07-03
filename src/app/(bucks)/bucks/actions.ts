@@ -38,11 +38,55 @@ export async function loadWallet(): Promise<BucksWallet> {
   const { client, userId } = await resolveMoneyScope();
   const history = await loadLedger(client, userId);
   const balance = balanceFromLedger(history);
-  const [earnTasks, prizes] = await Promise.all([
+  const [earnTasks, prizes, pendingRequests] = await Promise.all([
     loadEarnTasksForKid(client, userId),
     loadPrizesForKid(client, userId, balance),
+    // The kid's own task-less requests still awaiting an adult (RLS lets a kid
+    // read their own claims). count: "exact"/head keeps it off the row payload.
+    client
+      .from("bucks_task_claims")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .is("task_id", null)
+      .eq("status", "pending")
+      .then(({ count }) => count ?? 0),
   ]);
-  return { balance, history, earnTasks, prizes };
+  return { balance, history, earnTasks, prizes, pendingRequests };
+}
+
+/**
+ * A kid asks for an arbitrary one-off amount of Bucks with a note explaining why.
+ * Recorded as a task-less claim (task_id null, quantity 1, unit_value = amount) so
+ * it flows through the same approve/reject queue as task claims — nothing lands
+ * until an adult approves. Self-scoped; the amount is a positive integer.
+ */
+export async function requestBucks(input: {
+  amount: number;
+  note: string;
+}): Promise<void> {
+  const { userId } = await resolveMoneyScope();
+
+  const amount = Math.floor(input.amount);
+  if (!(amount > 0)) throw new Error("Amount must be a positive number.");
+  // Sanity ceiling: an adult still approves, but this keeps a fat-fingered (or
+  // gamed) ask sane and well clear of overflow in the approval credit.
+  if (amount > 100000) throw new Error("That's a lot at once — ask for a smaller amount.");
+  const note = input.note.trim();
+  if (!note) throw new Error("Add a note so your parent knows what it's for.");
+
+  // Claims have no user INSERT policy — write via the service role, scoped to the
+  // trusted userId. unit_value carries the amount (quantity 1); the note explains it.
+  const admin = createAdminClient();
+  const { error } = await admin.from("bucks_task_claims").insert({
+    task_id: null,
+    user_id: userId,
+    quantity: 1,
+    unit_value: amount,
+    note,
+  });
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/bucks");
 }
 
 /** A kid claims they did an earning task (quantity of its unit). Pending approval. */

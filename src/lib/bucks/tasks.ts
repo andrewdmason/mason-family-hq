@@ -79,7 +79,7 @@ export async function loadPendingClaims(): Promise<BucksAdminClaim[]> {
   const admin = createAdminClient();
   const { data: rows } = await admin
     .from("bucks_task_claims")
-    .select("id, user_id, quantity, unit_value, claimed_at, bucks_earning_tasks(title)")
+    .select("id, user_id, quantity, unit_value, claimed_at, note, task_id, bucks_earning_tasks(title)")
     .eq("status", "pending")
     .order("claimed_at", { ascending: true });
   if (!rows || rows.length === 0) return [];
@@ -98,9 +98,13 @@ export async function loadPendingClaims(): Promise<BucksAdminClaim[]> {
       | { title?: string }[]
       | null;
     const task = Array.isArray(rel) ? rel[0] : rel;
+    // task_id null ⟺ an arbitrary "give me N Bucks" request; taskTitle stays null
+    // so the queue renders the kid's note instead of a task label.
+    const isRequest = r.task_id == null;
     return {
       id: r.id as string,
-      taskTitle: task?.title ?? "Earning task",
+      taskTitle: isRequest ? null : task?.title ?? "Earning task",
+      note: (r.note as string | null) ?? null,
       kidUserId: r.user_id as string,
       kidName: names.get(r.user_id as string) ?? "A kid",
       quantity: r.quantity as number,

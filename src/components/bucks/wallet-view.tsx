@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { BookOpen, Coins, NotebookPen, Sparkles, Trophy } from "lucide-react";
+import { BookOpen, Coins, HandCoins, NotebookPen, Sparkles, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useBucksAction } from "@/lib/bucks/use-bucks-action";
-import { claimTask, redeemPrize } from "@/app/(bucks)/bucks/actions";
+import { claimTask, redeemPrize, requestBucks } from "@/app/(bucks)/bucks/actions";
+import { Textarea } from "@/components/ui/textarea";
 import type { BucksEarnTask, BucksPrize, BucksWallet } from "@/lib/bucks/types";
 
 const TILE = "flex flex-col rounded-xl border border-border bg-card/50 p-3";
@@ -95,7 +96,93 @@ function EarnTaskTile({ task }: { task: BucksEarnTask }) {
   );
 }
 
-function EarnSection({ earnTasks }: { earnTasks: BucksEarnTask[] }) {
+// ---- Ask for Bucks (arbitrary amount → parent approval) -------------------
+
+function RequestBucksTile({ pendingRequests }: { pendingRequests: number }) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState(10);
+  const [note, setNote] = useState("");
+  const { pending, error, run } = useBucksAction();
+
+  function submit() {
+    run(async () => {
+      await requestBucks({ amount, note });
+      setOpen(false);
+      setAmount(10);
+      setNote("");
+    });
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={cn(TILE, "text-left transition-colors hover:border-amber-500/60")}
+      >
+        <HandCoins className="h-5 w-5 text-amber-500" />
+        <p className="mt-2 line-clamp-2 text-sm font-medium text-foreground">
+          Ask for Bucks
+        </p>
+        <p className="mt-auto pt-1 text-xs text-muted-foreground">
+          Any amount — a parent approves it.
+        </p>
+        {pendingRequests > 0 && (
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            {pendingRequests} awaiting approval
+          </p>
+        )}
+      </button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Ask for Bucks</DialogTitle>
+            <DialogDescription>
+              Say how many and why. A parent approves before the Bucks land.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-muted-foreground">How many?</label>
+            <Input
+              type="number"
+              min={1}
+              value={amount}
+              onChange={(e) => setAmount(Math.max(1, Number(e.target.value) || 1))}
+              className="h-8 w-24"
+              aria-label="How many Bucks"
+            />
+            <span className="text-sm tabular-nums text-muted-foreground">Bucks</span>
+          </div>
+          <Textarea
+            placeholder="What's it for? (e.g. I cleaned the whole garage)"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            aria-label="Why you're asking"
+            rows={3}
+          />
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>
+              Cancel
+            </Button>
+            <Button onClick={submit} disabled={pending || !note.trim()}>
+              {pending ? "Sending…" : "Send request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function EarnSection({
+  earnTasks,
+  pendingRequests,
+}: {
+  earnTasks: BucksEarnTask[];
+  pendingRequests: number;
+}) {
   return (
     <section>
       <h2 className="font-serif text-lg text-foreground">Earn</h2>
@@ -113,6 +200,7 @@ function EarnSection({ earnTasks }: { earnTasks: BucksEarnTask[] }) {
         {earnTasks.map((task) => (
           <EarnTaskTile key={task.id} task={task} />
         ))}
+        <RequestBucksTile pendingRequests={pendingRequests} />
       </div>
     </section>
   );
@@ -205,7 +293,7 @@ function PrizesSection({ prizes }: { prizes: BucksPrize[] }) {
 // ---- Shell ----------------------------------------------------------------
 
 export function WalletView({ wallet }: { wallet: BucksWallet }) {
-  const { balance, earnTasks, prizes } = wallet;
+  const { balance, earnTasks, prizes, pendingRequests } = wallet;
 
   return (
     <div className="space-y-6">
@@ -225,7 +313,7 @@ export function WalletView({ wallet }: { wallet: BucksWallet }) {
         </Link>
       </div>
 
-      <EarnSection earnTasks={earnTasks} />
+      <EarnSection earnTasks={earnTasks} pendingRequests={pendingRequests} />
       <PrizesSection prizes={prizes} />
     </div>
   );
