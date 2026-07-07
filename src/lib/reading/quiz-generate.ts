@@ -2,32 +2,38 @@ import { anthropic, JOURNAL_MODEL } from "@/lib/journal/anthropic";
 import type { EssayRubric } from "@/lib/types";
 
 /**
- * Generating longform-essay assignments from a slice of book text. Pure and
+ * Generating two-part essay assignments from a slice of book text. Pure and
  * self-contained (no Supabase, no auth) so the same call powers the manual
- * "Generate quiz" action today and the automatic per-check-in job (ensureStretchQuiz).
- * Mirrors the recommend.ts pattern: one forced tool call, defensive parsing,
- * resilient to failure (returns an empty set rather than throwing).
+ * "Generate quiz" action, the automatic per-check-in job (ensureStretchQuiz), and
+ * the parent steering regeneration (quiz-steer.ts). One forced tool call, defensive
+ * parsing, resilient to failure (returns an empty set rather than throwing).
  *
- * We generate THREE distinct prompts in a single call (the reader picks one and
- * commits before writing — see chosen_question_id). One call beats three so the
- * model can make them genuinely different angles, not three rewordings. Each
- * prompt is ONE flowing question with two parts of a whole: it opens by requiring
- * a concrete detail from the assigned pages (so it doubles as proof the child did
- * the reading — the "anchor"), then widens into a broader theme that rewards
- * original thinking. Each carries its own teacher-facing `anchorSummary` and
- * three-dimension `rubric` so grading the chosen one can ground itself later.
+ * Each assignment is a TWO-PART exercise:
+ *   Part 1 (comprehension) — a short prompt, answerable in a sentence or two, that
+ *   proves the child read the assigned pages. It's a light gate, not the point.
+ *   Part 2 (the real work) — a longer, personal question that takes a theme from
+ *   the reading as a launching pad and connects it to something the child actually
+ *   cares about (from their Present profile), so writing becomes a way to think
+ *   through something useful to them, not a book report.
+ *
+ * We generate THREE distinct candidates in one call; a parent curates them down to
+ * the one the child writes (see chosen_question_id). Each carries a grader-facing
+ * `anchorSummary` (what Part 1 must show) and a `rubric` so grading can ground
+ * itself later.
  */
 
-/** How many candidate prompts a generated essay quiz offers the reader. */
+/** How many candidate prompts a generated essay quiz offers the parent to curate. */
 export const ESSAY_OPTION_COUNT = 3;
 
-/** One candidate essay prompt with the grader-facing detail it grades against. */
+/** One candidate two-part essay prompt with the grader-facing detail it grades against. */
 export type GeneratedEssayOption = {
-  /** The single flowing essay prompt (anchor → broader theme). */
+  /** Part 1: the short comprehension prompt that proves the child read the pages. */
+  comprehensionPrompt: string;
+  /** Part 2: the longer personal question (bridges a book theme to the child's life). */
   prompt: string;
-  /** Grader-facing: the specific reading detail the opening must demonstrate. */
+  /** Grader-facing: the reading detail Part 1's answer must demonstrate. */
   anchorSummary: string | null;
-  /** The three-dimension rubric to grade this prompt against. */
+  /** The rubric to grade this prompt against (comprehension gate + Part 2 dimensions). */
   rubric: EssayRubric | null;
 };
 
@@ -46,10 +52,10 @@ export type GeneratedEssaySet = {
 const REPORT_ESSAY_TOOL = {
   name: "report_essay_assignments",
   description:
-    `Report ${ESSAY_OPTION_COUNT} DISTINCT longform-essay prompts for the child to ` +
-    "choose from. Each is a single flowing prompt that opens by requiring a concrete " +
-    "detail from the assigned pages, then widens into a broader theme — plus, per " +
-    "prompt, the grader-facing anchor and a three-part rubric.",
+    `Report ${ESSAY_OPTION_COUNT} DISTINCT two-part essay assignments. Each has a ` +
+    "short Part 1 that proves the child read the pages and a longer Part 2 that " +
+    "connects a theme from the reading to something the child cares about — plus, " +
+    "per assignment, the grader-facing anchor and a rubric.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -62,60 +68,67 @@ const REPORT_ESSAY_TOOL = {
       assignments: {
         type: "array",
         description:
-          `Exactly ${ESSAY_OPTION_COUNT} distinct essay prompts the child will choose ` +
-          "between. They must take genuinely different angles — different anchoring " +
-          "moments and different broader themes, not reworded versions of one idea.",
+          `Exactly ${ESSAY_OPTION_COUNT} distinct two-part assignments. They must take ` +
+          "genuinely different angles — different anchoring moments AND different Part 2 " +
+          "themes/connections, not reworded versions of one idea.",
         minItems: ESSAY_OPTION_COUNT,
         maxItems: ESSAY_OPTION_COUNT,
         items: {
           type: "object",
           properties: {
+            comprehension_prompt: {
+              type: "string",
+              description:
+                "Part 1, shown to the child: a SHORT question they can answer in a " +
+                "sentence or two, asking what happened in these pages or about a specific " +
+                "moment they could only know if they read them. Its whole job is to prove " +
+                "they did the reading — keep it quick and concrete, not an essay.",
+            },
             prompt: {
               type: "string",
               description:
-                "The single essay prompt the child reads — ONE short, flowing question of " +
-                "about 2–3 plain sentences (two parts of a whole, never numbered sub-" +
-                "questions). First ask them to write about a specific moment or detail from " +
-                "the assigned pages that they could only know if they read them, then open " +
-                "into a broader theme that needs real, creative thinking — not plot recap. " +
-                "Warm, brief, and age-appropriate. Do NOT mention word count, length, or how " +
-                "it will be graded — that lives elsewhere.",
+                "Part 2, shown to the child: the real writing. Take a theme, idea, or " +
+                "question raised by the reading and use it as a launching point to ask the " +
+                "child something genuinely interesting to THEM and useful to think through — " +
+                "tied to their own life, interests, or goals (see the reader profile). This " +
+                "is where the thinking happens; it may connect only loosely to the book. Warm, " +
+                "open, 1–3 plain sentences. Do NOT mention word count, length, or grading.",
             },
             anchor_summary: {
               type: "string",
               description:
                 "Teacher-facing, NEVER shown to the child: the specific reading detail or " +
-                "moment THIS prompt's opening must demonstrate, so a grader can verify the " +
-                "child actually read the assigned pages. One or two sentences.",
+                "moment Part 1's answer must demonstrate, so a grader can verify the child " +
+                "actually read the assigned pages. One or two sentences.",
             },
             rubric: {
               type: "object",
               description:
-                "What a grader should look for on THIS prompt, each pitched to the child's age.",
+                "What a grader should look for on THIS assignment, pitched to the child's age.",
               properties: {
                 comprehension: {
                   type: "string",
                   description:
-                    "What the essay must show about understanding the reading — that the " +
-                    "opening reflects the anchor and the essay stays accurate to the book.",
+                    "The bar for the Part 1 gate — what the child's short answer must show " +
+                    "to prove they read (matches the anchor). A low, easy-to-clear bar.",
                 },
                 mechanics: {
                   type: "string",
                   description:
                     "The grammar, spelling, punctuation, paragraphing, and structure " +
-                    "expected of a writer this age.",
+                    "expected of a writer this age, judged on the Part 2 writing.",
                 },
                 thinking: {
                   type: "string",
                   description:
-                    "What strong thinking looks like here — originality, depth, and how " +
-                    "well ideas are supported. Reward insight over length.",
+                    "What strong thinking looks like in Part 2 — originality, depth, honesty, " +
+                    "and how well ideas are supported. Reward real reflection over length.",
                 },
               },
               required: ["comprehension", "mechanics", "thinking"],
             },
           },
-          required: ["prompt", "anchor_summary", "rubric"],
+          required: ["comprehension_prompt", "prompt", "anchor_summary", "rubric"],
         },
       },
     },
@@ -137,6 +150,7 @@ function buildPrompt(input: {
   readerAge: number | null;
   readerContext: string | null;
   text: string;
+  steeringNote?: string | null;
 }): string {
   const ranged = input.fromPage != null && input.fromPage > 1;
   const label = rangeLabel(input.fromPage, input.throughPage);
@@ -165,27 +179,36 @@ function buildPrompt(input: {
   }
   if (input.readerContext) {
     parts.push(
-      `A little about this reader, ONLY so a broader theme can feel relevant when ` +
-        `it fits naturally:\n${input.readerContext}\n` +
-        `Use this sparingly. Do NOT center the prompts on the reader's main hobby or ` +
-        `favorite topic, and vary your themes — a theme that genuinely fits the reading ` +
-        `is always better than a forced personal connection.`
+      `About this reader — use this to make Part 2 genuinely connect to their real ` +
+        `life, interests, and goals:\n${input.readerContext}\n` +
+        `Part 2 SHOULD reach for something that matters to this specific child (a passion, ` +
+        `a goal they're chasing, a question they'd actually care about) and use a theme from ` +
+        `the reading as the launching point. Vary the connection across the three so it's a ` +
+        `real choice, and keep it honest — a connection that feels natural beats a forced one.`
+    );
+  } else {
+    parts.push(
+      `You don't have a profile for this reader, so let Part 2 pose a broadly relatable, ` +
+        `age-appropriate question that a child could genuinely enjoy thinking through — still ` +
+        `launched from a theme in the reading.`
     );
   }
   parts.push(
-    `Write ${ESSAY_OPTION_COUNT} DISTINCT essay prompts the child will choose between. ` +
-      `The prompts must take genuinely different angles — different anchoring moments from ` +
-      `the reading and different broader themes — so the choice is a real one, not three ` +
-      `versions of the same question. Shape EACH prompt as a single, flowing question — ` +
-      `two parts of a whole, not separate numbered questions, and as few words as you can ` +
-      `manage. Part one (the anchor): in one sentence, ask the child to write about a ` +
-      `specific moment or detail from ${label} that they could only know if they did the ` +
-      `reading. Part two: in one or two more sentences, open into a broader theme that asks ` +
-      `them to reflect, connect, or imagine — something that needs real thinking, not ` +
-      `summary. Base each anchor strictly on the text below. Keep each prompt to about 2–3 ` +
-      `short, plain sentences the reader can hold in their head, and do NOT mention word ` +
-      `count, length, or how it will be graded — put grading criteria only in the rubric.`
+    `Write ${ESSAY_OPTION_COUNT} DISTINCT two-part assignments the parent will choose ` +
+      `between. They must take genuinely different angles — different anchoring moments AND ` +
+      `different Part 2 questions/connections. For EACH:\n` +
+      `• Part 1 (comprehension_prompt): one short question, answerable in a sentence or two, ` +
+      `asking what happened in ${label} or about a specific detail the child could only know ` +
+      `if they read it. Its only job is to prove they did the reading — keep it quick.\n` +
+      `• Part 2 (prompt): the real writing. Take a theme or idea from the reading and use it ` +
+      `as a springboard to ask the child something interesting and useful to THEM to think ` +
+      `through — connected to their own life, interests, or goals. It's fine if the tie to the ` +
+      `book is loose; the point is honest thinking, not book analysis. 1–3 plain sentences.\n` +
+      `Base each Part 1 anchor strictly on the text below. Do NOT number the parts inside a ` +
+      `field, and do NOT mention word count, length, or grading — put grading criteria only ` +
+      `in the rubric.`
   );
+  if (input.steeringNote) parts.push(input.steeringNote);
   parts.push(`Call report_essay_assignments exactly once.`);
   parts.push(`--- BOOK TEXT (${label}) ---\n${input.text}`);
   return parts.join("\n\n");
@@ -210,13 +233,16 @@ function sanitizeRubric(raw: unknown): EssayRubric | null {
   };
 }
 
-/** Coerce one tool-reported assignment into an option, or null if unusable. */
+/** Coerce one tool-reported assignment into an option, or null if unusable. Both
+ *  parts must be present — an assignment missing either is not a valid two-parter. */
 function sanitizeOption(raw: unknown): GeneratedEssayOption | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
+  const comprehensionPrompt = asString(r.comprehension_prompt);
   const prompt = asString(r.prompt);
-  if (!prompt) return null;
+  if (!comprehensionPrompt || !prompt) return null;
   return {
+    comprehensionPrompt,
     prompt,
     anchorSummary: asString(r.anchor_summary),
     rubric: sanitizeRubric(r.rubric),
@@ -230,7 +256,7 @@ const emptySet = (minWords: number): GeneratedEssaySet => ({
 });
 
 /**
- * Ask the model to write the candidate essay prompts over the given text.
+ * Ask the model to write the candidate two-part essay prompts over the given text.
  * Resilient: any failure (API error, malformed output, fewer than
  * ESSAY_OPTION_COUNT usable prompts) resolves to an empty set so the caller can
  * surface "couldn't generate — try again" and leave a retryable draft.
@@ -244,6 +270,11 @@ export async function generateEssayAssignments(input: {
   readerAge?: number | null;
   readerContext?: string | null;
   minWords: number;
+  /** Prior parent↔AI steering turns, prepended as conversation on a regeneration. */
+  priorTurns?: { role: "user" | "assistant"; content: string }[];
+  /** A steering instruction (current candidates + the parent's latest guidance),
+   *  appended to the prompt when a parent is refining the candidates. */
+  steeringNote?: string | null;
 }): Promise<GeneratedEssaySet> {
   if (!input.text.trim()) return emptySet(input.minWords);
 
@@ -254,18 +285,20 @@ export async function generateEssayAssignments(input: {
       max_tokens: 3000,
       system:
         `You are a thoughtful English teacher who designs ${ESSAY_OPTION_COUNT} short ` +
-        "essay prompts for a child partway through a book, so the child can pick the one " +
-        "that sparks them. Every prompt opens by requiring a concrete detail from the exact " +
-        "pages the child just read — so it doubles as proof they did the reading — then " +
-        "widens into a broader theme that rewards original thinking, not plot summary. The " +
-        "prompts must be genuinely different from one another: different anchoring moments " +
-        "and different themes. You write each as a single warm, flowing prompt of just a " +
-        "couple of plain sentences a child can hold in their head — never separate numbered " +
-        "questions, never padding. You never mention word counts or how the work will be " +
-        "graded, and never reference or spoil anything beyond the assigned pages.",
+        "two-part writing assignments for a child partway through a book, so a parent can " +
+        "pick the one that best fits their kid. Part 1 is a quick comprehension check — a " +
+        "sentence or two proving the child read the exact pages. Part 2 is the real work: " +
+        "you take a theme from the reading and use it as a launching point to ask the child " +
+        "something genuinely interesting and useful to THEM — tied to their own life, " +
+        "interests, or goals — so that writing becomes a way to think clearly about something " +
+        "that matters to them, not a book report. The Part 2 tie to the book can be loose; " +
+        "honest thinking matters more than sticking to the plot. The three assignments must " +
+        "be genuinely different from one another. You never mention word counts or how the " +
+        "work will be graded, and never reference or spoil anything beyond the assigned pages.",
       tools: [REPORT_ESSAY_TOOL],
       tool_choice: { type: "tool", name: REPORT_ESSAY_TOOL.name },
       messages: [
+        ...(input.priorTurns ?? []),
         {
           role: "user",
           content: buildPrompt({
@@ -276,6 +309,7 @@ export async function generateEssayAssignments(input: {
             readerAge: input.readerAge ?? null,
             readerContext: input.readerContext ?? null,
             text: input.text,
+            steeringNote: input.steeringNote ?? null,
           }),
         },
       ],

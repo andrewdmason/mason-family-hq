@@ -10,17 +10,14 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  chooseEssayQuestion,
-  submitQuiz,
-} from "@/app/(reading)/reader/quizzes/actions";
+import { submitQuiz } from "@/app/(reading)/reader/quizzes/actions";
 import { EssayEditor } from "@/components/reading/essay-editor";
 import { EssayGradeCard } from "@/components/reading/quiz-essay-feedback";
 import { GradingCriteriaDialog } from "@/components/reading/quiz-grading-criteria";
 import {
   ESSAY_BONUS_BUCKS,
   ESSAY_BONUS_MIN,
-  ESSAY_MAX_SCORE,
+  ESSAY_EARNED_MAX,
 } from "@/lib/reading/essay-scoring";
 import { quizResultsHref } from "@/lib/reading/links";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
@@ -50,6 +47,7 @@ export function QuizRunner({
   memberEmail = null,
   retake = false,
   priorEssay = null,
+  priorComprehension = null,
   priorFeedback = null,
   allowPaste = false,
   ownerSlot = null,
@@ -58,8 +56,10 @@ export function QuizRunner({
   memberEmail?: string | null;
   /** True when this is a retake (a fresh try at the essay / the missed questions). */
   retake?: boolean;
-  /** The reader's prior essay, so a revision opens with it instead of a blank box. */
+  /** The reader's prior Part 2 essay, so a revision opens with it instead of blank. */
   priorEssay?: string | null;
+  /** The reader's prior Part 1 answer, so a revision pre-fills it too. */
+  priorComprehension?: string | null;
   /** The prior attempt's grade + notes, kept on screen while they revise. */
   priorFeedback?: ReadingEssayFeedback | null;
   /** Allow pasting into the essay (owner/parent testing); kids must type. */
@@ -67,23 +67,14 @@ export function QuizRunner({
   /** Owner-only controls (e.g. close without passing), shown in the header. */
   ownerSlot?: ReactNode;
 }) {
-  // An essay quiz is all-essay questions; anything else is the legacy form. A
-  // fresh essay quiz hands back several candidate prompts to choose between; once
-  // the reader has committed (or there's only one), it's a single writing surface.
+  // An essay quiz is all-essay questions; anything else is the legacy form. The kid
+  // always writes exactly one question — the parent-curated / auto-default chosen
+  // one (no kid-facing chooser); fall back to the first candidate for safety.
   const isEssay =
     quiz.questions.length > 0 &&
     quiz.questions.every((q) => q.type === "essay");
 
   if (isEssay) {
-    if (quiz.questions.length > 1 && !quiz.chosen_question_id) {
-      return (
-        <EssayChooser
-          quiz={quiz}
-          options={quiz.questions}
-          memberEmail={memberEmail}
-        />
-      );
-    }
     const chosen =
       quiz.questions.find((q) => q.id === quiz.chosen_question_id) ??
       quiz.questions[0];
@@ -93,6 +84,7 @@ export function QuizRunner({
         essay={chosen}
         memberEmail={memberEmail}
         priorEssay={priorEssay}
+        priorComprehension={priorComprehension}
         priorFeedback={priorFeedback}
         allowPaste={allowPaste}
         ownerSlot={ownerSlot}
@@ -110,106 +102,12 @@ export function QuizRunner({
   );
 }
 
-/**
- * The reader picks one of several candidate essay prompts. The choice is
- * deliberate and final — a confirm step makes that clear, and once committed the
- * server records it (chosen_question_id) so a refresh or retake can't reopen it.
- * On commit we refresh; getQuizForTaking then returns just the chosen prompt and
- * the writing surface takes over.
- */
-function EssayChooser({
-  quiz,
-  options,
-  memberEmail,
-}: {
-  quiz: ReadingQuizWithQuestions;
-  options: ReadingQuizQuestion[];
-  memberEmail: string | null;
-}) {
-  const router = useRouter();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
-
-  function commit() {
-    if (!selectedId) return;
-    setError(null);
-    startTransition(async () => {
-      try {
-        await chooseEssayQuestion(quiz.id, selectedId, memberEmail);
-        // The take page re-fetches as the chosen single-prompt writing surface.
-        router.refresh();
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Couldn't lock in your choice."
-        );
-      }
-    });
-  }
-
-  return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pb-28 pt-12">
-      <header className="mb-8">
-        <p className="font-serif text-sm text-muted-foreground">
-          Writing assignment
-        </p>
-        <h1 className="mt-1 font-serif text-3xl tracking-tight text-foreground">
-          {quiz.title || `On ${quizRangeLabel(quiz.from_page, quiz.through_page)}`}
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Choose the prompt you want to write about. Read all three first — once
-          you pick one, you can&apos;t switch.
-        </p>
-      </header>
-
-      <div className="flex flex-1 flex-col gap-4">
-        {options.map((option, i) => {
-          const selected = selectedId === option.id;
-          return (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => setSelectedId(option.id)}
-              aria-pressed={selected}
-              className={cn(
-                "rounded-lg border px-5 py-4 text-left transition-colors",
-                selected
-                  ? "border-primary bg-primary/5"
-                  : "border-border hover:bg-accent"
-              )}
-            >
-              <p className="font-serif text-xs uppercase tracking-wide text-muted-foreground">
-                Prompt {i + 1}
-              </p>
-              <p className="mt-2 font-serif text-lg italic leading-relaxed text-foreground">
-                {option.prompt}
-              </p>
-            </button>
-          );
-        })}
-      </div>
-
-      {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
-
-      <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
-        <Button type="button" onClick={commit} disabled={pending || !selectedId}>
-          {pending ? "Locking it in…" : "Write about this one"}
-        </Button>
-        <span className="text-sm text-muted-foreground">
-          {selectedId
-            ? "You won't be able to switch after this."
-            : "Pick a prompt to get started."}
-        </span>
-      </div>
-    </main>
-  );
-}
-
 function EssayRunner({
   quiz,
   essay,
   memberEmail,
   priorEssay,
+  priorComprehension,
   priorFeedback,
   allowPaste,
   ownerSlot,
@@ -218,6 +116,7 @@ function EssayRunner({
   essay: ReadingQuizQuestion;
   memberEmail: string | null;
   priorEssay: string | null;
+  priorComprehension: string | null;
   priorFeedback: ReadingEssayFeedback | null;
   allowPaste: boolean;
   ownerSlot: ReactNode;
@@ -255,6 +154,32 @@ function EssayRunner({
     }
   }
 
+  // Part 1 (comprehension) is a short, separate answer with its own autosave key.
+  const comprehensionKey = `reading-essay-part1:${quiz.id}:${essay.id}`;
+  const [comprehension, setComprehension] = useState(() => {
+    if (typeof window === "undefined") return priorComprehension ?? "";
+    try {
+      return (
+        window.localStorage.getItem(comprehensionKey) ??
+        priorComprehension ??
+        ""
+      );
+    } catch {
+      return priorComprehension ?? "";
+    }
+  });
+
+  function updateComprehension(value: string) {
+    setComprehension(value);
+    try {
+      window.localStorage.setItem(comprehensionKey, value);
+    } catch {
+      // Ignore storage write failures.
+    }
+  }
+
+  const hasPartOne = !!essay.comprehension_prompt;
+  // The word floor applies to Part 2 only — Part 1 stays deliberately short.
   const minWords = essay.min_words ?? DEFAULT_MIN_WORDS;
   const words = useMemo(() => countWords(text), [text]);
   const enough = words >= minWords;
@@ -262,17 +187,35 @@ function EssayRunner({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!enough) return;
+    // Soft nudge (not a hard block): if Part 1 is blank they'll fail the reading
+    // gate, so give them a chance to notice before spending an attempt.
+    if (
+      hasPartOne &&
+      !comprehension.trim() &&
+      !window.confirm(
+        "You haven't answered Part 1 — that's the quick bit that shows you read the pages. Turn in anyway?"
+      )
+    ) {
+      return;
+    }
     setError(null);
     startTransition(async () => {
       try {
         const res = await submitQuiz(
           quiz.id,
-          [{ questionId: essay.id, responseText: text }],
+          [
+            {
+              questionId: essay.id,
+              responseText: text,
+              comprehensionText: comprehension,
+            },
+          ],
           memberEmail
         );
-        // Turned in successfully — the saved draft is no longer needed.
+        // Turned in successfully — the saved drafts are no longer needed.
         try {
           window.localStorage.removeItem(storageKey);
+          window.localStorage.removeItem(comprehensionKey);
         } catch {
           // Ignore storage failures.
         }
@@ -336,15 +279,48 @@ function EssayRunner({
           </h1>
           <p className="mt-3 text-sm text-muted-foreground">
             <GradingCriteriaDialog triggerClassName="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80" />
-            . Score an {ESSAY_BONUS_MIN} or {ESSAY_MAX_SCORE} to earn{" "}
+            . Score {ESSAY_BONUS_MIN} of {ESSAY_EARNED_MAX} on your writing to earn{" "}
             {ESSAY_BONUS_BUCKS} Mason Bucks.
           </p>
         </header>
 
         <form onSubmit={handleSubmit} className="flex flex-1 flex-col">
+          {hasPartOne && (
+            <div className="mb-10">
+              <p className="font-serif text-xs uppercase tracking-wide text-muted-foreground">
+                Part 1 · Quick check
+              </p>
+              <div className="mt-2 border-l-2 border-muted pl-6 font-serif text-lg italic leading-relaxed text-muted-foreground">
+                {essay.comprehension_prompt}
+              </div>
+              <Label htmlFor="comprehension-answer" className="sr-only">
+                Part 1 answer
+              </Label>
+              <Textarea
+                id="comprehension-answer"
+                placeholder="A sentence or two to show you read it…"
+                value={comprehension}
+                onChange={(e) => updateComprehension(e.target.value)}
+                disabled={pending}
+                rows={2}
+                className="mt-3"
+              />
+            </div>
+          )}
+
+          {hasPartOne && (
+            <p className="font-serif text-xs uppercase tracking-wide text-muted-foreground">
+              Part 2 · Your writing
+            </p>
+          )}
           {/* The prompt reads like the journal's question: italic, set off by a
               quiet left rule, with the writing flowing beneath it. */}
-          <div className="border-l-2 border-muted pl-6 font-serif text-lg italic leading-relaxed text-muted-foreground">
+          <div
+            className={cn(
+              "border-l-2 border-muted pl-6 font-serif text-lg italic leading-relaxed text-muted-foreground",
+              hasPartOne && "mt-2"
+            )}
+          >
             {essay.prompt}
           </div>
 

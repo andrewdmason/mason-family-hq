@@ -11,20 +11,20 @@ import {
 import {
   ESSAY_BONUS_BUCKS,
   ESSAY_BONUS_MIN,
-  ESSAY_MAX_SCORE,
+  ESSAY_EARNED_MAX,
   ESSAY_PASS_MIN,
 } from "@/lib/reading/essay-scoring";
 
-// The three things every essay is graded on, in kid-facing language. Mirrors the
-// rubric the grader scores against (lib/reading/quiz-grade.ts) and the labels on
-// the feedback card (quiz-essay-feedback.tsx), so what they're told to focus on
-// matches what they're actually scored on.
-const CRITERIA = [
-  {
-    label: "Understanding the book",
-    detail:
-      "Start by showing you really read these pages — get the people, places, and what happens right.",
-  },
+// Part 1 is a quick pass/fail check that you read the pages (a gate, not a score).
+const PART_ONE = {
+  label: "Quick check — did you read it?",
+  detail:
+    "Answer Part 1 in a sentence or two to show you read these pages. It's a simple yes/no check, not a score — easy to pass if you did the reading.",
+};
+
+// Part 2 (your real writing) is scored on these two things, each out of 4. Mirrors
+// the grader (lib/reading/quiz-grade.ts) and the feedback card labels.
+const SCORED_CRITERIA = [
   {
     label: "Grammar & writing",
     detail:
@@ -33,7 +33,7 @@ const CRITERIA = [
   {
     label: "Quality of thinking",
     detail:
-      "Go past the book: develop one real idea and back it up with something specific from the story.",
+      "Part 2 is about you: think honestly and clearly about the question, develop a real idea, and back it up.",
   },
 ] as const;
 
@@ -57,13 +57,26 @@ export function GradingCriteriaDialog({
         <DialogHeader>
           <DialogTitle>How your essay is graded</DialogTitle>
           <DialogDescription>
-            A teacher reads your essay and scores three things, each out of 4 — so{" "}
-            {ESSAY_MAX_SCORE} points in all.
+            First a quick check that you read the pages, then a teacher scores your
+            writing on two things, each out of 4 — {ESSAY_EARNED_MAX} points in all.
           </DialogDescription>
         </DialogHeader>
 
         <ul className="space-y-3">
-          {CRITERIA.map(({ label, detail }) => (
+          <li className="flex gap-3">
+            <span
+              className="mt-1.5 size-1.5 shrink-0 rounded-full bg-foreground/40"
+              aria-hidden
+            />
+            <div>
+              <p className="font-medium text-foreground">
+                {PART_ONE.label}{" "}
+                <span className="text-xs text-muted-foreground">✓ / ✗</span>
+              </p>
+              <p className="text-sm text-muted-foreground">{PART_ONE.detail}</p>
+            </div>
+          </li>
+          {SCORED_CRITERIA.map(({ label, detail }) => (
             <li key={label} className="flex gap-3">
               <span
                 className="mt-1.5 size-1.5 shrink-0 rounded-full bg-foreground/40"
@@ -82,12 +95,15 @@ export function GradingCriteriaDialog({
 
         <div className="space-y-2 rounded-lg border bg-muted/40 px-3 py-2.5 text-sm">
           <p className="text-foreground">
-            <span className="font-medium">To pass,</span> the three scores need to
-            add up to {ESSAY_PASS_MIN} or more — a strong part can make up for a
-            weaker one.
+            <span className="font-medium">To pass,</span> clear the quick reading
+            check and score {ESSAY_PASS_MIN} of {ESSAY_EARNED_MAX} or more on your
+            writing.
           </p>
           <p className="text-amber-800 dark:text-amber-300">
-            🪙 <span className="font-medium">Score an {ESSAY_BONUS_MIN} or {ESSAY_MAX_SCORE}</span>{" "}
+            🪙{" "}
+            <span className="font-medium">
+              Score {ESSAY_BONUS_MIN} of {ESSAY_EARNED_MAX}
+            </span>{" "}
             and you earn {ESSAY_BONUS_BUCKS} Mason Bucks.
           </p>
         </div>

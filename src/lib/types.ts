@@ -1116,9 +1116,18 @@ export type EssayRubricScore = {
   fixes?: string[];
 };
 
-/** The graded breakdown stored on an essay answer row. */
+/** Part 1 is a pass/fail comprehension GATE, not a scored dimension: did the kid
+ *  prove, in a sentence or two, that they read the pages? `met` is null until
+ *  graded. It can't carry or drag the grade — it only gates the pass. */
+export type EssayGateResult = {
+  met: boolean | null;
+  note: string;
+};
+
+/** The graded breakdown stored on an essay answer row: a comprehension gate (Part 1)
+ *  plus the two scored Part 2 dimensions (mechanics, thinking) that carry the grade. */
 export type EssayRubricScores = {
-  comprehension: EssayRubricScore;
+  comprehension: EssayGateResult;
   mechanics: EssayRubricScore;
   thinking: EssayRubricScore;
 };
@@ -1153,8 +1162,9 @@ export type ReadingQuiz = {
   /** Last generation failure, surfaced in the draft editor. */
   generation_error: string | null;
   /**
-   * For a multi-prompt essay quiz: the question row the reader committed to. Null
-   * until they pick (they still see the chooser); once set it's final — every
+   * The question row the kid writes about. A parent curates the three candidates
+   * down to one; a default (position 0) is set at publish so the kid is never
+   * blocked. The kid no longer picks. Once a submission exists it's locked — every
    * take/retake, grading, results, and journal share key off it.
    */
   chosen_question_id: string | null;
@@ -1181,6 +1191,9 @@ export type ReadingQuizQuestion = {
   grading_rubric: string | null;
   /** free_text: a model answer, to ground the grader. */
   sample_answer: string | null;
+  /** essay: the short Part 1 comprehension prompt that proves the kid read the
+   *  pages. The `prompt` field holds the Part 2 (personal) question. */
+  comprehension_prompt: string | null;
   /** essay: the reading detail the opening must demonstrate (grader-facing). */
   anchor_summary: string | null;
   /** essay: the three-dimension rubric the grader scores against. */
@@ -1234,8 +1247,10 @@ export type ReadingQuizAnswer = {
   user_id: string;
   /** MC: the chosen option index. Null for free_text. */
   selected_index: number | null;
-  /** free_text: the kid's written response. Null for MC. */
+  /** free_text/essay: the kid's written response (essay: the Part 2 answer). Null for MC. */
   response_text: string | null;
+  /** essay: the kid's short Part 1 (comprehension) answer. */
+  comprehension_text: string | null;
   /** Null = ungraded (an AI grade failed). */
   is_correct: boolean | null;
   /** free_text/essay: the AI's note on why the answer was good/bad. */

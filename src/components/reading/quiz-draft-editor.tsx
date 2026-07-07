@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Check, RefreshCw } from "lucide-react";
+import { AlertCircle, Check, Lock, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,10 @@ import {
   deleteQuiz,
   publishQuiz,
   regenerateQuizDraft,
+  setChosenQuestion,
+  steerQuizQuestions,
   updateQuizQuestion,
+  type QuizSteeringMessage,
 } from "@/app/(reading)/reader/quizzes/actions";
 import { quizzesHref } from "@/lib/reading/links";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
@@ -22,17 +25,26 @@ import type { ReadingQuizQuestion, ReadingQuizWithQuestions } from "@/lib/types"
 export function QuizDraftEditor({
   quiz,
   memberEmail = null,
+  steeringMessages = [],
+  locked = false,
 }: {
   quiz: ReadingQuizWithQuestions;
   memberEmail?: string | null;
+  /** The parent↔AI steering conversation for this quiz (essay quizzes). */
+  steeringMessages?: QuizSteeringMessage[];
+  /** True once the kid has started — the whole surface goes read-only. */
+  locked?: boolean;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const isEssay = quiz.questions.some((q) => q.type === "essay");
+  const isEssay =
+    quiz.questions.length > 0 && quiz.questions.every((q) => q.type === "essay");
+  const isDraft = quiz.status === "draft";
   const mcCount = quiz.questions.filter((q) => q.type === "multiple_choice").length;
   const ftCount = quiz.questions.filter((q) => q.type === "free_text").length;
+  const editable = !locked;
 
   function handleRegenerate() {
     if (
@@ -86,37 +98,51 @@ export function QuizDraftEditor({
             <h1 className="font-serif text-2xl tracking-tight text-foreground">
               {quiz.title || "Quiz"}
             </h1>
-            <Badge variant="secondary">Draft</Badge>
+            <Badge variant="secondary">{isDraft ? "Draft" : "Published"}</Badge>
           </div>
           <p className="mt-1 text-sm capitalize text-muted-foreground">
             {quizRangeLabel(quiz.from_page, quiz.through_page)} ·{" "}
             {isEssay
-              ? "longform essay"
+              ? "two-part essay"
               : `${mcCount} multiple-choice · ${ftCount} writing`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleRegenerate}
-            disabled={pending}
-          >
-            <RefreshCw className="h-4 w-4" />
-            Regenerate
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={handlePublish}
-            disabled={pending || quiz.questions.length === 0}
-          >
-            <Check className="h-4 w-4" />
-            Publish
-          </Button>
-        </div>
+        {editable && (
+          <div className="flex items-center gap-2">
+            {isDraft && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleRegenerate}
+                disabled={pending}
+              >
+                <RefreshCw className="h-4 w-4" />
+                Regenerate
+              </Button>
+            )}
+            {isDraft && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={handlePublish}
+                disabled={pending || quiz.questions.length === 0}
+              >
+                <Check className="h-4 w-4" />
+                Publish
+              </Button>
+            )}
+          </div>
+        )}
       </div>
+
+      {locked && (
+        <p className="mt-4 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-4 py-2 text-sm text-muted-foreground">
+          <Lock className="h-4 w-4 shrink-0" />
+          The reader has started — this question is locked and can no longer be
+          changed. Steer the next quiz instead.
+        </p>
+      )}
 
       {quiz.generation_error && (
         <p className="mt-4 flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-2 text-sm text-destructive">
@@ -128,19 +154,21 @@ export function QuizDraftEditor({
       {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
 
       <div className="mt-6 space-y-4">
-        {quiz.questions.length > 1 &&
-          quiz.questions.every((q) => q.type === "essay") && (
-            <p className="text-sm text-muted-foreground">
-              Prompt choices — the reader reads all of these and picks one to write
-              about.
-            </p>
-          )}
+        {isEssay && quiz.questions.length > 1 && (
+          <p className="text-sm text-muted-foreground">
+            Three candidates — pick the one your kid writes, edit it, or steer the
+            AI below for a new set. The reader only sees the one you pick.
+          </p>
+        )}
         {quiz.questions.map((question, i) => (
           <QuestionCard
             key={question.id}
             index={i}
             question={question}
             memberEmail={memberEmail}
+            isChosen={question.id === quiz.chosen_question_id}
+            canPick={isEssay && quiz.questions.length > 1}
+            editable={editable}
             onSaved={() => router.refresh()}
           />
         ))}
@@ -151,19 +179,140 @@ export function QuizDraftEditor({
         )}
       </div>
 
-      <div className="mt-8 border-t border-border pt-4">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={handleDelete}
-          disabled={pending}
-          className="text-destructive hover:text-destructive"
-        >
-          Delete quiz
-        </Button>
-      </div>
+      {isEssay && (
+        <SteeringChat
+          quizId={quiz.id}
+          memberEmail={memberEmail}
+          messages={steeringMessages}
+          locked={locked}
+          onRegenerated={() => router.refresh()}
+        />
+      )}
+
+      {editable && (
+        <div className="mt-8 border-t border-border pt-4">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleDelete}
+            disabled={pending}
+            className="text-destructive hover:text-destructive"
+          >
+            Delete quiz
+          </Button>
+        </div>
+      )}
     </main>
+  );
+}
+
+/**
+ * The parent↔AI steering conversation: the running thread, then a box to send
+ * guidance and regenerate all three candidates. Building on the whole thread, not
+ * just the latest note. Read-only once the reader has started.
+ */
+function SteeringChat({
+  quizId,
+  memberEmail,
+  messages,
+  locked,
+  onRegenerated,
+}: {
+  quizId: string;
+  memberEmail: string | null;
+  messages: QuizSteeringMessage[];
+  locked: boolean;
+  onRegenerated: () => void;
+}) {
+  const [guidance, setGuidance] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function send() {
+    const note = guidance.trim();
+    if (!note) return;
+    setError(null);
+    startTransition(async () => {
+      try {
+        const res = await steerQuizQuestions(quizId, note, memberEmail);
+        if (res.status === "failed") {
+          setError(
+            "The AI couldn't write a new set from that — your note was saved, try rephrasing and send again."
+          );
+          return;
+        }
+        setGuidance("");
+        onRegenerated();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't regenerate.");
+      }
+    });
+  }
+
+  if (locked && messages.length === 0) return null;
+
+  return (
+    <section className="mt-8 rounded-lg border border-border">
+      <header className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+        <Sparkles className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-sm font-medium text-foreground">Steer the AI</h2>
+      </header>
+
+      {messages.length > 0 && (
+        <ol className="space-y-3 px-4 py-3">
+          {messages.map((m) => (
+            <li
+              key={m.id}
+              className={cn(
+                "text-sm",
+                m.role === "user" ? "text-foreground" : "text-muted-foreground"
+              )}
+            >
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {m.role === "user" ? "You asked" : "New candidates"}
+              </p>
+              <p className="mt-0.5 whitespace-pre-wrap leading-relaxed">
+                {m.content}
+              </p>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {locked ? (
+        <p className="border-t border-border px-4 py-3 text-sm text-muted-foreground">
+          Locked — the reader has started.
+        </p>
+      ) : (
+        <div className="grid gap-2 border-t border-border px-4 py-3">
+          <Label htmlFor="steer-guidance" className="sr-only">
+            What should the AI change?
+          </Label>
+          <Textarea
+            id="steer-guidance"
+            placeholder="e.g. Make Part 2 about his baseball goals, not stats — tie it to teamwork."
+            value={guidance}
+            onChange={(e) => setGuidance(e.target.value)}
+            disabled={pending}
+          />
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={send}
+              disabled={pending || !guidance.trim()}
+            >
+              {pending ? "Regenerating…" : "Regenerate 3 new"}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Builds on the whole conversation above.
+            </span>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -171,41 +320,78 @@ function QuestionCard({
   index,
   question,
   memberEmail,
+  isChosen,
+  canPick,
+  editable,
   onSaved,
 }: {
   index: number;
   question: ReadingQuizQuestion;
   memberEmail: string | null;
+  isChosen: boolean;
+  canPick: boolean;
+  editable: boolean;
   onSaved: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function pick() {
+    setError(null);
+    startTransition(async () => {
+      try {
+        await setChosenQuestion(question.quiz_id, question.id, memberEmail);
+        onSaved();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't pick this one.");
+      }
+    });
+  }
 
   return (
-    <div className="rounded-lg border border-border px-4 py-3">
+    <div
+      className={cn(
+        "rounded-lg border px-4 py-3",
+        isChosen ? "border-primary bg-primary/5" : "border-border"
+      )}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium tabular-nums text-muted-foreground">
-            Q{index + 1}
+            {question.type === "essay" ? `Option ${index + 1}` : `Q${index + 1}`}
           </span>
           <Badge variant="outline">
             {question.type === "multiple_choice"
               ? "Multiple choice"
               : question.type === "essay"
-                ? "Essay"
+                ? "Two-part essay"
                 : "Writing"}
           </Badge>
+          {isChosen && canPick && <Badge>Chosen</Badge>}
         </div>
         {!editing && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            onClick={() => setEditing(true)}
-          >
-            Edit
-          </Button>
+          <div className="flex items-center gap-1">
+            {editable && canPick && !isChosen && (
+              <Button type="button" variant="outline" size="xs" onClick={pick} disabled={pending}>
+                {pending ? "Picking…" : "Use this one"}
+              </Button>
+            )}
+            {editable && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => setEditing(true)}
+              >
+                Edit
+              </Button>
+            )}
+          </div>
         )}
       </div>
+
+      {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
 
       {editing ? (
         <QuestionEditForm
@@ -226,9 +412,18 @@ function QuestionCard({
 function QuestionPreview({ question }: { question: ReadingQuizQuestion }) {
   if (question.type === "essay") {
     return (
-      <div className="mt-2">
-        <p className="text-sm leading-relaxed text-foreground">{question.prompt}</p>
-        <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+      <div className="mt-2 space-y-2">
+        {question.comprehension_prompt && (
+          <p className="text-sm leading-relaxed text-foreground">
+            <span className="font-medium text-muted-foreground">Part 1:</span>{" "}
+            {question.comprehension_prompt}
+          </p>
+        )}
+        <p className="text-sm leading-relaxed text-foreground">
+          <span className="font-medium text-muted-foreground">Part 2:</span>{" "}
+          {question.prompt}
+        </p>
+        <div className="space-y-1 text-xs text-muted-foreground">
           {question.anchor_summary && (
             <p>
               <span className="font-medium text-foreground">
@@ -240,7 +435,7 @@ function QuestionPreview({ question }: { question: ReadingQuizQuestion }) {
           {question.essay_rubric && (
             <>
               <p>
-                <span className="font-medium text-foreground">Comprehension:</span>{" "}
+                <span className="font-medium text-foreground">Comprehension gate:</span>{" "}
                 {question.essay_rubric.comprehension}
               </p>
               <p>
@@ -254,7 +449,7 @@ function QuestionPreview({ question }: { question: ReadingQuizQuestion }) {
             </>
           )}
           <p>
-            <span className="font-medium text-foreground">Minimum words:</span>{" "}
+            <span className="font-medium text-foreground">Minimum words (Part 2):</span>{" "}
             {question.min_words ?? "—"}
           </p>
         </div>
@@ -322,6 +517,9 @@ function QuestionEditForm({
   memberEmail: string | null;
   onDone: (saved: boolean) => void;
 }) {
+  const [comprehensionPrompt, setComprehensionPrompt] = useState(
+    question.comprehension_prompt ?? ""
+  );
   const [prompt, setPrompt] = useState(question.prompt);
   const [options, setOptions] = useState<string[]>(question.options ?? []);
   const [correctIndex, setCorrectIndex] = useState(question.correct_index ?? 0);
@@ -354,6 +552,7 @@ function QuestionEditForm({
           await updateQuizQuestion(
             question.id,
             {
+              comprehensionPrompt,
               prompt,
               essayRubric: { comprehension, mechanics, thinking },
               ...(Number.isFinite(words) && words > 0 ? { minWords: words } : {}),
@@ -376,9 +575,20 @@ function QuestionEditForm({
 
   return (
     <div className="mt-3 grid gap-3">
+      {question.type === "essay" && (
+        <div className="grid gap-1.5">
+          <Label htmlFor={`part1-${question.id}`}>Part 1 · Comprehension prompt</Label>
+          <Textarea
+            id={`part1-${question.id}`}
+            value={comprehensionPrompt}
+            onChange={(e) => setComprehensionPrompt(e.target.value)}
+          />
+        </div>
+      )}
+
       <div className="grid gap-1.5">
         <Label htmlFor={`prompt-${question.id}`}>
-          {question.type === "essay" ? "Essay prompt" : "Question"}
+          {question.type === "essay" ? "Part 2 · Writing prompt" : "Question"}
         </Label>
         <Textarea
           id={`prompt-${question.id}`}
@@ -391,7 +601,7 @@ function QuestionEditForm({
         <>
           <div className="grid gap-1.5">
             <Label htmlFor={`comprehension-${question.id}`}>
-              Rubric · Comprehension
+              Rubric · Comprehension gate
             </Label>
             <Textarea
               id={`comprehension-${question.id}`}
@@ -416,7 +626,7 @@ function QuestionEditForm({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor={`minwords-${question.id}`}>Minimum words</Label>
+            <Label htmlFor={`minwords-${question.id}`}>Minimum words (Part 2)</Label>
             <Input
               id={`minwords-${question.id}`}
               type="number"
