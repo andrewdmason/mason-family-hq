@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { GlobalHeader } from "@/components/layout/global-header";
 import { TimezoneProvider } from "@/components/timezone-provider";
-import { RefreshOnReturn } from "@/components/todos/refresh-on-return";
+import { RefreshOnReturn } from "@/components/refresh-on-return";
 import { TodosShortcuts } from "@/components/todos/todos-shortcuts";
 import { appMetadata } from "@/lib/pwa/apps";
 
