@@ -5,15 +5,13 @@ import { useRouter } from "next/navigation";
 
 /**
  * Re-fetches the server snapshot when the user comes back to an already-open
- * todos window (focus or tab-visible), so tasks added elsewhere — the phone,
- * another family member, the Reminders/Raycast ingest — appear without a
- * manual reload. This rides the same router.refresh() path the reconciler's
- * drain uses, so the per-component idle() gating that protects in-flight
- * optimistic state applies unchanged.
+ * window (focus or tab-visible), so data changed elsewhere — another device,
+ * another family member — appears without a manual reload. Also re-derives
+ * anything the Server Component computes from "now" (e.g. a Today/Tomorrow
+ * grouping), since the whole route re-renders.
  *
  * Throttled: focus and visibilitychange fire together on a tab switch, and a
- * quick alt-tab dance shouldn't stack refreshes (each one re-runs the page's
- * snooze sweep and queries).
+ * quick alt-tab dance shouldn't stack refreshes.
  */
 const MIN_GAP_MS = 5_000;
 

@@ -6,6 +6,7 @@ import { TaskTimerProvider } from "@/components/timer/task-timer-context";
 import { VideoProvider } from "@/components/video/video-context";
 import { SearchProvider } from "@/components/search/search-provider";
 import { TimezoneProvider } from "@/components/timezone-provider";
+import { RefreshOnReturn } from "@/components/refresh-on-return";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { createClient } from "@/lib/supabase/server";
 import { getTodaySummary } from "@/app/practice/timer/actions";
@@ -47,6 +48,10 @@ export default async function AppLayout({
       <MetronomeProvider>
         <TooltipProvider>
           <TimezoneProvider />
+          {/* Layout-level so every practice screen (log, lessons, repertoire,
+              focus mode) picks up updates from other devices/sessions and
+              re-derives Today/Tomorrow when the window regains focus. */}
+          <RefreshOnReturn />
           <div className="flex min-h-full flex-1 flex-col">
             <VideoProvider>
               <TaskTimerProvider
