@@ -125,12 +125,15 @@ export async function gradeFreeText(input: {
 export type EssayGrade = {
   /** False when the AI grade failed/parsed badly — the answer stays ungraded. */
   graded: boolean;
-  /** True when the three dimensions sum to at least ESSAY_PASS_MIN (the pass that
-   *  advances the book) — a weak part can be carried by a strong one. */
+  /** True when the comprehension gate is met AND the earned Part 2 score clears the
+   *  pass bar (see essay-scoring). A strong Part 2 is never dragged by a terse Part 1,
+   *  and a kid who plainly didn't read can't pass on Part 2 alone. */
   meetsStandard: boolean;
-  /** Sum of the three dimensions (out of 12), or null when not fully graded. */
+  /** The earned Part 2 score (thinking + mechanics, out of 8), or null when not fully
+   *  graded. This is what feeds the pass/bonus bars — comprehension is a gate, not a
+   *  score, so it isn't part of the total. */
   total: number | null;
-  /** The per-dimension grades to store on the answer row. */
+  /** The gate result + per-dimension grades to store on the answer row. */
   scores: EssayRubricScores;
   /** A warm, holistic note to the child. */
   notes: string;
@@ -139,41 +142,33 @@ export type EssayGrade = {
 const GRADE_ESSAY_TOOL = {
   name: "grade_essay",
   description:
-    "Grade a child's longform essay about a book against three dimensions and " +
-    "write a short, encouraging holistic note.",
+    "Grade a child's two-part book essay: a pass/fail comprehension GATE on Part 1, " +
+    "then two scored dimensions (mechanics, thinking) on the Part 2 writing.",
   input_schema: {
     type: "object" as const,
     properties: {
-      comprehension_score: {
-        type: "integer",
+      comprehension_met: {
+        type: "boolean",
         description:
-          "1–4. Does the essay open by showing they truly read and understood the " +
-          "assigned pages (judged against the anchor) and stay accurate to the book? " +
-          "The 1–4 scale: 1 = needs a lot of work, 2 = developing / not yet there, " +
-          "3 = meets the standard for their grade, 4 = exceptional. A 3 requires the " +
-          "essay to convey the key events and reasoning accurately IN THE CHILD'S OWN " +
-          "WORDS — an accurate paraphrase is fully sufficient, so do NOT require exact " +
-          "quotes or verbatim wording even when the anchor quotes the book. Score 2 or " +
-          "below only when the opening is vague, gets the key events wrong, or is only " +
-          "loosely tied to the assigned pages.",
+          "The GATE: did the child prove, in their short Part 1 answer, that they " +
+          "actually read the assigned pages (judged against the anchor)? This is a LOW, " +
+          "easy-to-clear bar — true whenever the answer shows real knowledge of what " +
+          "happened, IN THE CHILD'S OWN WORDS (an accurate paraphrase is fully " +
+          "sufficient; never require exact quotes). Return false ONLY when Part 1 is " +
+          "blank, plainly wrong, or so vague it could have been written without reading. " +
+          "If there is no separate Part 1 answer, judge this from how the essay itself " +
+          "opens. A short but correct Part 1 passes the gate — do not penalize brevity.",
       },
       comprehension_note: {
         type: "string",
         description:
-          "One or two short sentences spoken DIRECTLY to the writer as \"you\", and " +
-          "make it directive — tell them what to do in the next version, not just " +
-          "what's wrong. On a revision, open by referring back to your last note — " +
-          "acknowledge it if they acted on it, or say you don't see the change you " +
-          "asked for yet — then give the ask. If they met the standard, name what " +
-          "landed (\"You set the opening up clearly — I could tell exactly what " +
-          "happened.\"). If not, give a " +
-          "\"Try …\" that points them at what to reread or add WITHOUT handing over " +
-          "the answer (\"Try opening by retelling what actually happens when Thresh " +
-          "lets her go — walk me through that moment.\"). Point them using words they'll " +
-          "recognize — \"the opening of your essay,\" \"the start of the reading,\" or the " +
-          "character or moment by name — and NEVER invent a reference like \"Entry #1,\" a " +
-          "section or figure label, or a page number; the writer has no such markers and " +
-          "won't know what you mean.",
+          "One short sentence spoken DIRECTLY to the writer as \"you\". If the gate is " +
+          "met, a quick affirmation (\"You showed me you read it — I could tell exactly " +
+          "what happened.\"). If not met, a directive \"Try …\" that points them at what " +
+          "to reread WITHOUT handing over the answer (\"Try telling me in a sentence what " +
+          "actually happens when Thresh lets her go.\"). NEVER invent a reference like " +
+          "\"Entry #1,\" a section or figure label, or a page number; the writer has no " +
+          "such markers.",
       },
       mechanics_score: {
         type: "integer",
@@ -243,7 +238,7 @@ const GRADE_ESSAY_TOOL = {
       },
     },
     required: [
-      "comprehension_score",
+      "comprehension_met",
       "comprehension_note",
       "mechanics_score",
       "mechanics_fixes",
@@ -264,7 +259,7 @@ const ungraded = (): EssayGrade => ({
   meetsStandard: false,
   total: null,
   scores: {
-    comprehension: { score: null, note: "" },
+    comprehension: { met: null, note: "" },
     mechanics: { score: null, note: "" },
     thinking: { score: null, note: "" },
   },
@@ -280,9 +275,15 @@ const ungraded = (): EssayGrade => ({
  * one (a total below that is "close, but revise and resubmit").
  */
 export async function gradeEssay(input: {
+  /** Part 1 (comprehension) prompt. Empty for a legacy single-part essay. */
+  comprehensionPrompt?: string | null;
+  /** Part 1 (comprehension) answer — the short proof-of-reading. */
+  comprehensionAnswer?: string | null;
+  /** Part 2 prompt (the personal question). */
   prompt: string;
   anchorSummary: string;
   rubric: EssayRubric | null;
+  /** Part 2 answer — the essay that carries the grade. */
   essay: string;
   readerAge?: number | null;
   minWords?: number | null;
@@ -297,13 +298,13 @@ export async function gradeEssay(input: {
     return {
       graded: true,
       meetsStandard: false,
-      total: 3,
+      total: 2,
       scores: {
-        comprehension: { score: 1, note: "There's nothing written yet." },
-        mechanics: { score: 1, note: "There's nothing written yet." },
+        comprehension: { met: false, note: "There's nothing written yet." },
+        mechanics: { score: 1, note: "", fixes: [] },
         thinking: { score: 1, note: "There's nothing written yet." },
       },
-      notes: "You left this blank — give the essay a real try and resubmit!",
+      notes: "You left Part 2 blank — give it a real try and resubmit!",
     };
   }
 
@@ -327,9 +328,15 @@ export async function gradeEssay(input: {
   const priorFixes = ps?.mechanics.fixes?.length
     ? ps.mechanics.fixes.map((f) => `    • ${f}`).join("\n") + "\n"
     : "    (none)\n";
+  const priorMet =
+    ps?.comprehension.met === true
+      ? "met"
+      : ps?.comprehension.met === false
+        ? "not met"
+        : "—";
   const priorFeedbackBlock = ps
     ? `Last round's grade and the EXACT feedback you gave the writer:\n` +
-      `- Comprehension ${ps.comprehension.score ?? "—"}/4: ${ps.comprehension.note || "(no note)"}\n` +
+      `- Comprehension gate: ${priorMet}. ${ps.comprehension.note || "(no note)"}\n` +
       `- Mechanics ${ps.mechanics.score ?? "—"}/4. Fixes you asked them to make:\n` +
       priorFixes +
       `- Thinking ${ps.thinking.score ?? "—"}/4: ${ps.thinking.note || "(no note)"}\n`
@@ -367,17 +374,23 @@ export async function gradeEssay(input: {
       max_tokens: 1024,
       system:
         "You are an encouraging but honest middle-school English teacher grading a " +
-        "child's longform essay about a book they're partway through. Grade three " +
-        "dimensions, each 1–4 (1 = needs a lot of work, 2 = developing / not yet " +
-        "there, 3 = meets the standard for the child's grade, 4 = exceptional): " +
-        "comprehension of the reading (the opening must show they actually read and " +
-        "understood the assigned pages, judged against the anchor, and the essay must " +
-        "stay accurate to the book — an accurate retelling in the child's OWN words " +
-        "fully counts, and you must NOT require exact quotes or verbatim wording even " +
-        "when the anchor quotes the book), writing mechanics, and quality of thinking " +
-        "(reward genuine insight over length — never reward padding). Score each " +
-        "dimension honestly on its own merits: 3 is solid grade-level work, 2 is " +
-        "developing, 4 is exceptional. Be forgiving on mechanics and grade the writing " +
+        "child's TWO-PART book essay. Part 1 is a short comprehension check and Part 2 " +
+        "is the real writing — a personal response that uses a theme from the book as a " +
+        "launching point to think about something that matters to the child. " +
+        "COMPREHENSION IS A PASS/FAIL GATE, not a score: set comprehension_met true " +
+        "whenever the child's short Part 1 answer shows they actually read the assigned " +
+        "pages (judged against the anchor), in their OWN words — an accurate paraphrase " +
+        "fully counts, never require quotes, and a short answer still passes. Set it " +
+        "false only when Part 1 is blank, plainly wrong, or so vague it needed no " +
+        "reading. If there's no separate Part 1, judge the gate from how the essay " +
+        "opens. Then grade Part 2 on two dimensions, each 1–4 (1 = needs a lot of work, " +
+        "2 = developing, 3 = meets the standard for the child's grade, 4 = exceptional): " +
+        "writing mechanics, and quality of thinking (reward genuine, honest reflection " +
+        "over length — never reward padding, and do NOT lower the score because the " +
+        "response strays from the book; Part 2 is meant to be about the child's own " +
+        "life and ideas). Score each dimension honestly on its own merits: 3 is solid " +
+        "grade-level work, 2 is developing, 4 is exceptional. Be forgiving on mechanics " +
+        "and grade the writing " +
         "as a whole: a 3 just means the essay is easy to read — mostly-complete " +
         "sentences, broken into paragraphs, spelling and end punctuation mostly right — " +
         "and a handful of ordinary slips (some misspellings, a missed capital, a " +
@@ -421,14 +434,17 @@ export async function gradeEssay(input: {
           role: "user",
           content:
             `${ageLine}${lengthLine}${revisionBlock}` +
-            `The essay prompt the child answered:\n${input.prompt}\n\n` +
-            `What the opening must show they read (anchor — teacher-facing, do NOT ` +
-            `repeat it to the child): ${input.anchorSummary || "(none provided)"}\n\n` +
+            `PART 1 — comprehension check (prompt shown to the child): ` +
+            `${input.comprehensionPrompt?.trim() || "(none — judge the gate from the essay's opening)"}\n` +
+            `PART 1 — the child's answer: ${input.comprehensionAnswer?.trim() || "(left blank)"}\n\n` +
+            `What Part 1 must show they read (anchor — teacher-facing, do NOT repeat ` +
+            `it to the child): ${input.anchorSummary || "(none provided)"}\n\n` +
+            `PART 2 — the writing prompt the child answered:\n${input.prompt}\n\n` +
             `Rubric:\n` +
-            `- Comprehension: ${input.rubric?.comprehension || "(use your judgment)"}\n` +
+            `- Comprehension gate: ${input.rubric?.comprehension || "(use your judgment)"}\n` +
             `- Mechanics: ${input.rubric?.mechanics || "(use your judgment)"}\n` +
             `- Thinking: ${input.rubric?.thinking || "(use your judgment)"}\n\n` +
-            `The child's essay:\n"""\n${input.essay.trim()}\n"""\n\n` +
+            `PART 2 — the child's writing:\n"""\n${input.essay.trim()}\n"""\n\n` +
             `Grade it and call grade_essay exactly once.`,
         },
       ],
@@ -437,7 +453,8 @@ export async function gradeEssay(input: {
     if (!toolUse || toolUse.type !== "tool_use") return ungraded();
 
     const p = toolUse.input as Record<string, unknown>;
-    const comprehension = toScore(p.comprehension_score);
+    const comprehensionMet =
+      typeof p.comprehension_met === "boolean" ? p.comprehension_met : null;
     const mechanics = toScore(p.mechanics_score);
     const thinking = toScore(p.thinking_score);
     const noteOf = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -456,17 +473,19 @@ export async function gradeEssay(input: {
       mechanics != null && mechanicsFixes.length === 0 ? 4 : mechanics;
 
     const scores: EssayRubricScores = {
-      comprehension: { score: comprehension, note: noteOf(p.comprehension_note) },
+      comprehension: { met: comprehensionMet, note: noteOf(p.comprehension_note) },
       mechanics: { score: mechanicsScore, note: "", fixes: mechanicsFixes },
       thinking: { score: thinking, note: noteOf(p.thinking_note) },
     };
+    // Earned (Part 2) score out of 8 — comprehension is a gate, not part of the total.
     const total =
-      comprehension != null && mechanicsScore != null && thinking != null
-        ? comprehension + mechanicsScore + thinking
-        : null;
-    const graded = total != null;
-    // Pass on the total, not each part: a strong dimension can carry a weak one.
-    const meetsStandard = total != null && total >= ESSAY_PASS_MIN;
+      mechanicsScore != null && thinking != null ? mechanicsScore + thinking : null;
+    const graded = comprehensionMet != null && total != null;
+    // Pass = comprehension gate met AND the earned Part 2 score clears the bar. A
+    // strong Part 2 is never dragged by a terse Part 1; failing the gate blocks the
+    // pass no matter how good Part 2 is.
+    const meetsStandard =
+      comprehensionMet === true && total != null && total >= ESSAY_PASS_MIN;
     return { graded, meetsStandard, total, scores, notes: "" };
   } catch (err) {
     console.error(

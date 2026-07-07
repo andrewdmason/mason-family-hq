@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { QuizDraftEditor } from "@/components/reading/quiz-draft-editor";
-import { getIsOwner } from "@/lib/members/auth";
-import { getQuizForEditing } from "../../actions";
+import { getIsAdult } from "@/lib/members/auth";
+import { getQuizForEditing, getQuizSteering } from "../../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -19,12 +19,22 @@ export default async function EditQuizPage({
   const { id } = await params;
   const { member } = await searchParams;
 
-  // Authoring is owner-only; getQuizForEditing also enforces this server-side.
-  if (!(await getIsOwner())) redirect("/reader");
+  // Curation is adult-only (owner or parent); the actions enforce this server-side.
+  if (!(await getIsAdult())) redirect("/reader");
 
   const memberEmail = member?.trim().toLowerCase() || null;
-  const quiz = await getQuizForEditing(id, memberEmail);
+  const [quiz, steering] = await Promise.all([
+    getQuizForEditing(id, memberEmail),
+    getQuizSteering(id, memberEmail),
+  ]);
   if (!quiz) notFound();
 
-  return <QuizDraftEditor quiz={quiz} memberEmail={memberEmail} />;
+  return (
+    <QuizDraftEditor
+      quiz={quiz}
+      memberEmail={memberEmail}
+      steeringMessages={steering?.messages ?? []}
+      locked={steering?.locked ?? false}
+    />
+  );
 }

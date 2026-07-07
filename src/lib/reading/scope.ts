@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getIsOwner } from "@/lib/members/auth";
+import { getIsAdult, getIsOwner } from "@/lib/members/auth";
 
 export type ReadingScope = {
   /** RLS-scoped session client in self mode; service-role admin in member mode. */
@@ -26,7 +26,8 @@ export type ReadingScope = {
  * `userId` always comes from a trusted email→user_id lookup, never client input.
  */
 export async function resolveReadingScope(
-  memberEmail?: string | null
+  memberEmail?: string | null,
+  opts?: { adultOk?: boolean }
 ): Promise<ReadingScope> {
   const supabase = await createClient();
   const {
@@ -44,7 +45,13 @@ export async function resolveReadingScope(
     return { client: supabase, userId: callerId, email: callerEmail, isMemberMode: false };
   }
 
-  if (!(await getIsOwner(supabase))) throw new Error("Not authorized");
+  // Member mode is owner-only by default. Essay steering opts in (adultOk) so a
+  // non-owner parent can curate a kid's quiz question — without loosening this
+  // shared gate for every other member-mode reading action.
+  const authorized = opts?.adultOk
+    ? await getIsAdult(supabase)
+    : await getIsOwner(supabase);
+  if (!authorized) throw new Error("Not authorized");
 
   const admin = createAdminClient();
   const { data: member, error } = await admin

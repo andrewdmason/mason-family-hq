@@ -3,13 +3,14 @@ import { cn } from "@/lib/utils";
 import {
   ESSAY_BONUS_BUCKS,
   ESSAY_BONUS_MIN,
-  ESSAY_MAX_SCORE,
-  essayTotalScore,
+  ESSAY_EARNED_MAX,
+  essayEarnedScore,
 } from "@/lib/reading/essay-scoring";
 import type { EssayRubricScores, ReadingEssayFeedback } from "@/lib/types";
 
-const ESSAY_DIMENSIONS = [
-  { key: "comprehension", label: "Understanding the book" },
+// Part 2's two scored dimensions — comprehension is a separate pass/fail gate,
+// rendered on its own above these.
+const SCORED_DIMENSIONS = [
   { key: "mechanics", label: "Grammar & writing" },
   { key: "thinking", label: "Quality of thinking" },
 ] as const;
@@ -31,7 +32,7 @@ export function EssayGradeCard({
   className?: string;
 }) {
   const { rubricScores, aiNotes, passed, gradingComplete } = feedback;
-  const total = essayTotalScore(rubricScores);
+  const total = essayEarnedScore(rubricScores);
   const earnedBonus = passed && total != null && total >= ESSAY_BONUS_MIN;
   return (
     <div
@@ -82,7 +83,7 @@ export function EssayGradeCard({
           >
             {total}
             <span className="text-xs text-muted-foreground/60">
-              /{ESSAY_MAX_SCORE}
+              /{ESSAY_EARNED_MAX}
             </span>
           </span>
         )}
@@ -107,9 +108,41 @@ export function EssayGradeCard({
         )}
         {rubricScores && (
           <dl className="space-y-3 border-t border-border/60 pt-4">
-            {ESSAY_DIMENSIONS.map(({ key, label }) => {
+            {/* Comprehension is a pass/fail gate — a check that you read it, not a
+                1–4 score. It can't carry or drag the grade, only gate the pass. */}
+            {(() => {
+              const met = rubricScores.comprehension.met;
+              const note = rubricScores.comprehension.note;
+              return (
+                <div className="flex items-baseline gap-3">
+                  <span
+                    className={cn(
+                      "w-10 shrink-0 font-serif text-lg",
+                      met === true
+                        ? "text-emerald-700 dark:text-emerald-400"
+                        : met === false
+                          ? "text-amber-600"
+                          : "text-muted-foreground"
+                    )}
+                  >
+                    {met === true ? "✓" : met === false ? "✗" : "—"}
+                  </span>
+                  <div>
+                    <dt className="font-serif text-sm text-foreground">
+                      Showed you read it
+                    </dt>
+                    {note && (
+                      <dd className="mt-0.5 text-sm leading-relaxed text-muted-foreground">
+                        {note}
+                      </dd>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+            {SCORED_DIMENSIONS.map(({ key, label }) => {
               const dim = rubricScores[key];
-              const score = dim?.score ?? null;
+              const score = dim.score ?? null;
               const meets = score != null && score >= 3;
               return (
                 <div key={key} className="flex items-baseline gap-3">
@@ -128,14 +161,14 @@ export function EssayGradeCard({
                   </span>
                   <div>
                     <dt className="font-serif text-sm text-foreground">{label}</dt>
-                    {dim?.note && (
+                    {dim.note && (
                       <dd className="mt-0.5 text-sm leading-relaxed text-muted-foreground">
                         {dim.note}
                       </dd>
                     )}
                     {/* Mechanics gets a concrete fix-it checklist the child can
                         follow line by line; the other dimensions stay coaching. */}
-                    {dim?.fixes && dim.fixes.length > 0 && (
+                    {dim.fixes && dim.fixes.length > 0 && (
                       <dd className="mt-1.5">
                         <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed text-muted-foreground">
                           {dim.fixes.map((fix, i) => (

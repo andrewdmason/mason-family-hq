@@ -96,10 +96,21 @@ export async function ensureStretchQuiz(
   if (error || !quiz) return { quizId: null, status: "error" };
   const quizId = quiz.id as string;
 
-  const { error: qError } = await client
+  const { data: insertedQuestions, error: qError } = await client
     .from("reading_quiz_questions")
-    .insert(essayQuestionRows(quizId, userId, generated));
-  if (qError) return { quizId: null, status: "error" };
+    .insert(essayQuestionRows(quizId, userId, generated))
+    .select("id, position");
+  if (qError || !insertedQuestions?.length) return { quizId: null, status: "error" };
+
+  // Auto-default the kid's question to the first candidate so they're never blocked
+  // waiting on a parent. A parent can steer/swap it until the kid starts (quiz-steer.ts).
+  const firstQuestion =
+    insertedQuestions.find((q) => q.position === 0) ?? insertedQuestions[0];
+  await client
+    .from("reading_quizzes")
+    .update({ chosen_question_id: firstQuestion.id as string })
+    .eq("id", quizId)
+    .eq("user_id", userId);
 
   // One live quiz per book: retire any other open quiz left for this book.
   await archiveOtherOpenQuizzes(client, userId, bookId, quizId);

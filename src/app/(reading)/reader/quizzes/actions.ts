@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireOwner } from "@/lib/members/auth";
+import { requireAdult, requireOwner } from "@/lib/members/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { isQuizDue } from "@/lib/reading/quiz-due";
@@ -17,6 +17,10 @@ import {
 import { readerAge } from "@/lib/reading/reader-age";
 import { essayMinWords, loadReaderContext } from "@/lib/reading/reader-context";
 import { defaultQuizTitle, essayQuestionRows } from "@/lib/reading/quiz-build";
+import {
+  regenerateSteeredCandidates,
+  renderGeneratedForThread,
+} from "@/lib/reading/quiz-steer";
 import { advanceStretch } from "@/lib/reading/advance";
 import { creditEssayBonus } from "@/lib/bucks/earn";
 import { ESSAY_BONUS_MIN } from "@/lib/reading/essay-scoring";
@@ -43,13 +47,14 @@ import type {
 // Full columns, including the essay's grader-facing anchor — used where the owner
 // edits a draft or the server grades a submission.
 const QUESTION_COLUMNS =
-  "id, quiz_id, user_id, position, type, prompt, options, correct_index, explanation, grading_rubric, sample_answer, anchor_summary, essay_rubric, min_words, created_at";
-// Results view: same minus anchor_summary, which is grader-only and must not reach
-// the reader's browser (it would hint at what the opening should say).
+  "id, quiz_id, user_id, position, type, prompt, comprehension_prompt, options, correct_index, explanation, grading_rubric, sample_answer, anchor_summary, essay_rubric, min_words, created_at";
+// Results/taking view: same minus anchor_summary, which is grader-only and must not
+// reach the reader's browser (it would hint at what Part 1 should say). Part 1's
+// prompt (comprehension_prompt) IS shown to the reader.
 const RESULT_QUESTION_COLUMNS =
-  "id, quiz_id, user_id, position, type, prompt, options, correct_index, explanation, grading_rubric, sample_answer, essay_rubric, min_words, created_at";
+  "id, quiz_id, user_id, position, type, prompt, comprehension_prompt, options, correct_index, explanation, grading_rubric, sample_answer, essay_rubric, min_words, created_at";
 const ANSWER_COLUMNS =
-  "id, submission_id, question_id, user_id, selected_index, response_text, is_correct, ai_notes, rubric_scores, created_at";
+  "id, submission_id, question_id, user_id, selected_index, response_text, comprehension_text, is_correct, ai_notes, rubric_scores, created_at";
 const QUIZ_COLUMNS =
   "id, user_id, book_id, from_page, through_page, status, title, created_by_email, source, generation_error, chosen_question_id, published_at, created_at, updated_at";
 
@@ -80,6 +85,25 @@ async function callerEmail(): Promise<string> {
 function revalidateQuizzes() {
   revalidatePath("/reader");
   revalidatePath("/reader/quizzes");
+}
+
+/**
+ * Whether the kid has started this quiz — the steering lock. Once any submission
+ * exists, a parent can no longer swap/edit/regenerate the question out from under
+ * them. Scoped by both quiz_id and the resolved kid userId (required on the
+ * RLS-bypassing member-mode admin client).
+ */
+async function quizIsLocked(
+  client: ScopedClient,
+  quizId: string,
+  userId: string
+): Promise<boolean> {
+  const { count } = await client
+    .from("reading_quiz_submissions")
+    .select("id", { count: "exact", head: true })
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId);
+  return (count ?? 0) > 0;
 }
 
 // ============================================================
@@ -252,11 +276,16 @@ export async function regenerateQuizDraft(
   revalidateQuizzes();
 }
 
-/** Edit one draft question. Owner-only; rejects edits to a published quiz. */
+/**
+ * Edit one question. Adult-gated (owner or parent — a parent may curate a kid's
+ * question). A draft is always editable; a published quiz is editable only until
+ * the kid starts (no submission yet — the steering lock).
+ */
 export async function updateQuizQuestion(
   questionId: string,
   patch: {
     prompt?: string;
+    comprehensionPrompt?: string;
     options?: string[];
     correctIndex?: number;
     explanation?: string;
@@ -267,8 +296,10 @@ export async function updateQuizQuestion(
   },
   memberEmail?: string | null
 ): Promise<void> {
-  await requireOwner();
-  const { client, userId } = await resolveReadingScope(memberEmail);
+  await requireAdult();
+  const { client, userId } = await resolveReadingScope(memberEmail, {
+    adultOk: true,
+  });
 
   const { data: question } = await client
     .from("reading_quiz_questions")
@@ -278,10 +309,16 @@ export async function updateQuizQuestion(
     .maybeSingle();
   if (!question) throw new Error("Question not found.");
   const status = (question.reading_quizzes as { status?: string } | null)?.status;
-  if (status !== "draft") throw new Error("Only draft questions can be edited.");
+  const quizId = question.quiz_id as string;
+  if (status === "archived") throw new Error("This quiz is no longer editable.");
+  if (status === "published" && (await quizIsLocked(client, quizId, userId))) {
+    throw new Error("The reader has already started — this can no longer change.");
+  }
 
   const update: Record<string, unknown> = {};
   if (patch.prompt !== undefined) update.prompt = patch.prompt;
+  if (patch.comprehensionPrompt !== undefined)
+    update.comprehension_prompt = patch.comprehensionPrompt;
   if (patch.options !== undefined) update.options = patch.options;
   if (patch.correctIndex !== undefined) update.correct_index = patch.correctIndex;
   if (patch.explanation !== undefined) update.explanation = patch.explanation;
@@ -329,6 +366,26 @@ export async function publishQuiz(
   if (error) throw new Error(error.message);
   if (!quiz) throw new Error("This quiz is already published.");
 
+  // Auto-default the kid's question to the first candidate so they're never blocked
+  // and the chooser never appears. A parent's earlier pick (chosen already set) wins,
+  // so only fill it when still null. Steering can swap it until the kid starts.
+  const { data: firstQuestion } = await client
+    .from("reading_quiz_questions")
+    .select("id")
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId)
+    .order("position", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (firstQuestion) {
+    await client
+      .from("reading_quizzes")
+      .update({ chosen_question_id: firstQuestion.id as string })
+      .eq("id", quizId)
+      .eq("user_id", userId)
+      .is("chosen_question_id", null);
+  }
+
   // One live quiz per book: retire any other open quiz for this book.
   await archiveOtherOpenQuizzes(
     client,
@@ -360,13 +417,16 @@ export async function deleteQuiz(
 // Owner draft review
 // ============================================================
 
-/** Load a quiz with its full questions (answers included) for the draft editor. */
+/** Load a quiz with its full questions for the draft/steering editor. Adult-gated
+ *  so a parent can curate a kid's essay question, not just the owner. */
 export async function getQuizForEditing(
   quizId: string,
   memberEmail?: string | null
 ): Promise<ReadingQuizWithQuestions | null> {
-  await requireOwner();
-  const { client, userId } = await resolveReadingScope(memberEmail);
+  await requireAdult();
+  const { client, userId } = await resolveReadingScope(memberEmail, {
+    adultOk: true,
+  });
 
   const { data: quiz } = await client
     .from("reading_quizzes")
@@ -466,6 +526,7 @@ type ScopedClient = Awaited<ReturnType<typeof resolveReadingScope>>["client"];
 type PriorAnswer = {
   selected_index: number | null;
   response_text: string | null;
+  comprehension_text: string | null;
   is_correct: boolean | null;
   ai_notes: string | null;
   rubric_scores: EssayRubricScores | null;
@@ -499,7 +560,7 @@ async function latestAttempt(
   const { data: rows } = await client
     .from("reading_quiz_answers")
     .select(
-      "question_id, selected_index, response_text, is_correct, ai_notes, rubric_scores"
+      "question_id, selected_index, response_text, comprehension_text, is_correct, ai_notes, rubric_scores"
     )
     .eq("submission_id", sub.id)
     .eq("user_id", userId);
@@ -509,6 +570,7 @@ async function latestAttempt(
     answers.set(r.question_id as string, {
       selected_index: (r.selected_index as number | null) ?? null,
       response_text: (r.response_text as string | null) ?? null,
+      comprehension_text: (r.comprehension_text as string | null) ?? null,
       is_correct: (r.is_correct as boolean | null) ?? null,
       ai_notes: (r.ai_notes as string | null) ?? null,
       rubric_scores: (r.rubric_scores as EssayRubricScores | null) ?? null,
@@ -558,8 +620,10 @@ export async function getQuizForTaking(
 ): Promise<{
   quiz: ReadingQuizWithQuestions;
   retake: boolean;
-  /** The reader's prior essay text, so a revision pre-fills instead of retyping. */
+  /** The reader's prior Part 2 essay text, so a revision pre-fills instead of retyping. */
   priorEssay: string | null;
+  /** The reader's prior Part 1 (comprehension) answer, so a revision pre-fills it too. */
+  priorComprehension: string | null;
   /** The prior attempt's grade + notes, kept on screen while they revise. */
   priorFeedback: ReadingEssayFeedback | null;
 } | null> {
@@ -576,7 +640,9 @@ export async function getQuizForTaking(
 
   const { data: questions } = await client
     .from("reading_quiz_questions")
-    .select("id, quiz_id, user_id, position, type, prompt, options, min_words, created_at")
+    .select(
+      "id, quiz_id, user_id, position, type, prompt, comprehension_prompt, options, min_words, created_at"
+    )
     .eq("quiz_id", quizId)
     .eq("user_id", userId)
     .order("position", { ascending: true });
@@ -591,6 +657,8 @@ export async function getQuizForTaking(
     position: q.position as number,
     type: q.type as ReadingQuizQuestion["type"],
     prompt: q.prompt as string,
+    // Part 1 prompt IS shown to the reader; the grader-facing anchor is not.
+    comprehension_prompt: (q.comprehension_prompt as string | null) ?? null,
     options: (q.options as string[] | null) ?? null,
     correct_index: null,
     explanation: null,
@@ -609,6 +677,7 @@ export async function getQuizForTaking(
   const reviseContext = (essayQ: ReadingQuizQuestion | undefined) => {
     const priorAnswer = essayQ && latest ? latest.answers.get(essayQ.id) : null;
     const priorEssay = priorAnswer?.response_text ?? null;
+    const priorComprehension = priorAnswer?.comprehension_text ?? null;
     const priorFeedback: ReadingEssayFeedback | null =
       priorAnswer && (priorAnswer.rubric_scores || priorAnswer.ai_notes)
         ? {
@@ -618,29 +687,26 @@ export async function getQuizForTaking(
             gradingComplete: priorAnswer.is_correct !== null,
           }
         : null;
-    return { priorEssay, priorFeedback };
+    return { priorEssay, priorComprehension, priorFeedback };
   };
 
-  // Essay quiz: the reader picks one of several prompts and commits before writing.
-  // Until they commit (chosen_question_id null) hand back every candidate so the
-  // chooser can render; once committed, hand back only the chosen prompt's writing
-  // surface — forever, including retakes (the pick can't be changed). Nothing
-  // carries forward, so `retake` stays false; a re-attempt is signalled by the
-  // prior draft instead.
+  // Essay quiz: the kid writes exactly ONE question — the parent-curated / auto-default
+  // chosen one (a parent steers the candidates down to it; publish defaults it to the
+  // first). No kid-facing chooser. Fall back to the first candidate for any legacy
+  // quiz that has no chosen id. Nothing carries forward, so `retake` stays false; a
+  // re-attempt is signalled by the prior draft instead.
   if (stripped.length > 0 && stripped.every((q) => q.type === "essay")) {
     const chosenId = (quiz as ReadingQuiz).chosen_question_id;
-    const chosen = chosenId
-      ? stripped.find((q) => q.id === chosenId)
-      : undefined;
-    // Committed → just the chosen prompt; otherwise the full set for the chooser.
-    const questions = chosen != null ? [chosen] : stripped;
-    const { priorEssay, priorFeedback } = reviseContext(
-      chosen ?? stripped.find((q) => q.type === "essay")
-    );
+    const chosen =
+      (chosenId ? stripped.find((q) => q.id === chosenId) : undefined) ??
+      stripped[0];
+    const { priorEssay, priorComprehension, priorFeedback } =
+      reviseContext(chosen);
     return {
-      quiz: { ...(quiz as ReadingQuiz), questions },
+      quiz: { ...(quiz as ReadingQuiz), questions: [chosen] },
       retake: false,
       priorEssay,
+      priorComprehension,
       priorFeedback,
     };
   }
@@ -648,7 +714,7 @@ export async function getQuizForTaking(
   // Legacy MC/free-text: on a failed retake, only re-ask what they missed last time.
   const { ask } = partitionForAttempt(stripped, latest);
   const retake = ask.length < stripped.length;
-  const { priorEssay, priorFeedback } = reviseContext(
+  const { priorEssay, priorComprehension, priorFeedback } = reviseContext(
     stripped.find((q) => q.type === "essay")
   );
 
@@ -656,35 +722,61 @@ export async function getQuizForTaking(
     quiz: { ...(quiz as ReadingQuiz), questions: ask },
     retake,
     priorEssay,
+    priorComprehension,
     priorFeedback,
   };
 }
 
+// ============================================================
+// Parent steering (adult — owner or parent; member mode for a kid)
+// ============================================================
+
+/** One turn of a quiz's parent↔AI steering conversation. */
+export type QuizSteeringMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+  /** The parent who authored a 'user' turn; null on the AI's turns. */
+  created_by_email: string | null;
+};
+
+/** The full steering surface for one quiz (candidates + thread + lock state). */
+export type QuizSteeringState = {
+  quizId: string;
+  status: ReadingQuizStatus;
+  /** True once the kid has started — steering is read-only from here. */
+  locked: boolean;
+  chosenQuestionId: string | null;
+  candidates: ReadingQuizQuestion[];
+  messages: QuizSteeringMessage[];
+};
+
 /**
- * The reader commits to one of an essay quiz's candidate prompts. The pick is
- * final: this only sets chosen_question_id when it's still null, so a second call
- * (a refresh, a double-tap, a retake) is a no-op and they can't switch prompts.
- * Validates the question belongs to this quiz and is an essay before recording it.
+ * A parent picks which candidate the kid writes — curation, replacing the retired
+ * kid chooser. Adult-gated and allowed until the kid starts (the lock). Unlike the
+ * old kid pick, re-picking IS allowed: a parent can change their mind before lock.
  */
-export async function chooseEssayQuestion(
+export async function setChosenQuestion(
   quizId: string,
   questionId: string,
   memberEmail?: string | null
 ): Promise<{ chosenQuestionId: string }> {
-  const { client, userId } = await resolveReadingScope(memberEmail);
+  await requireAdult();
+  const { client, userId } = await resolveReadingScope(memberEmail, {
+    adultOk: true,
+  });
 
   const { data: quiz } = await client
     .from("reading_quizzes")
-    .select("id, status, chosen_question_id")
+    .select("id")
     .eq("id", quizId)
     .eq("user_id", userId)
-    .eq("status", "published")
     .maybeSingle();
   if (!quiz) throw new Error("This quiz isn't available.");
-
-  // Already committed — keep the original pick (the choice can't be changed).
-  const existing = (quiz.chosen_question_id as string | null) ?? null;
-  if (existing) return { chosenQuestionId: existing };
+  if (await quizIsLocked(client, quizId, userId)) {
+    throw new Error("The reader has already started — the question is locked.");
+  }
 
   const { data: question } = await client
     .from("reading_quiz_questions")
@@ -696,26 +788,213 @@ export async function chooseEssayQuestion(
     .maybeSingle();
   if (!question) throw new Error("That prompt isn't part of this quiz.");
 
-  // Guard against a race (two tabs committing at once): only set it if still null,
-  // and re-read so a loser returns the winning pick rather than its own.
-  await client
+  const { error } = await client
     .from("reading_quizzes")
     .update({ chosen_question_id: questionId })
     .eq("id", quizId)
-    .eq("user_id", userId)
-    .is("chosen_question_id", null);
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
 
-  const { data: after } = await client
+  revalidateQuizzes();
+  return { chosenQuestionId: questionId };
+}
+
+/** The outcome of a steering round. */
+export type SteerResult = {
+  status: "regenerated" | "failed";
+  chosenQuestionId: string | null;
+};
+
+/**
+ * The parent sends guidance and the AI regenerates the three two-part candidates,
+ * building on the whole steering conversation (not just the latest note). Adult-
+ * gated and lock-checked. On a failed/empty regeneration the existing candidates
+ * are KEPT (never blanked) and a retryable "failed" status is returned; the
+ * parent's guidance turn is still recorded so the next round has it.
+ */
+export async function steerQuizQuestions(
+  quizId: string,
+  guidance: string,
+  memberEmail?: string | null
+): Promise<SteerResult> {
+  await requireAdult();
+  const author = await callerEmail();
+  const { client, userId, email } = await resolveReadingScope(memberEmail, {
+    adultOk: true,
+  });
+
+  const trimmed = guidance.trim();
+  if (!trimmed) throw new Error("Add a note telling the AI what to change.");
+
+  const { data: quiz } = await client
     .from("reading_quizzes")
-    .select("chosen_question_id")
+    .select("id, status, book_id, from_page, through_page")
     .eq("id", quizId)
     .eq("user_id", userId)
     .maybeSingle();
+  if (!quiz) throw new Error("This quiz isn't available.");
+  if ((quiz.status as string) === "archived") {
+    throw new Error("This quiz is no longer editable.");
+  }
+  if (await quizIsLocked(client, quizId, userId)) {
+    throw new Error("The reader has already started — steering is locked.");
+  }
+
+  const { data: current } = await client
+    .from("reading_quiz_questions")
+    .select("id, position, comprehension_prompt, prompt")
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId)
+    .order("position", { ascending: true });
+  const currentCandidates = (current ?? []).map((q) => ({
+    comprehensionPrompt: (q.comprehension_prompt as string | null) ?? null,
+    prompt: q.prompt as string,
+  }));
+
+  const fromPage = (quiz.from_page as number | null) ?? null;
+  const throughPage = quiz.through_page as number;
+  const [book, slice, age] = await Promise.all([
+    client
+      .from("reading_books")
+      .select("title, author")
+      .eq("id", quiz.book_id as string)
+      .eq("user_id", userId)
+      .maybeSingle(),
+    getTextForRange(client, userId, quiz.book_id as string, fromPage, throughPage),
+    readerAge(email),
+  ]);
+  if (!book.data) throw new Error("Book not found.");
+  if (!slice) throw new Error("This book isn't ready for a quiz yet.");
+  const [minWords, readerContext] = await Promise.all([
+    essayMinWords(email, age),
+    loadReaderContext(client, userId),
+  ]);
+
+  const { data: priorMsgs } = await client
+    .from("reading_quiz_steering_messages")
+    .select("role, content")
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true });
+  const priorTurns = (priorMsgs ?? []).map((m) => ({
+    role: m.role as "user" | "assistant",
+    content: m.content as string,
+  }));
+
+  // Record the parent's guidance turn first — kept even if regeneration fails.
+  await client.from("reading_quiz_steering_messages").insert({
+    quiz_id: quizId,
+    user_id: userId,
+    created_by_email: author,
+    role: "user",
+    content: trimmed,
+  });
+
+  const generated = await regenerateSteeredCandidates({
+    bookTitle: book.data.title as string,
+    author: (book.data.author as string) ?? null,
+    fromPage,
+    throughPage,
+    text: slice.text,
+    readerAge: age,
+    readerContext,
+    minWords,
+    priorTurns,
+    currentCandidates,
+    guidance: trimmed,
+  });
+
+  // Keep the existing candidates on failure — never blank them.
+  if (!generated.options.length) {
+    revalidateQuizzes();
+    return { status: "failed", chosenQuestionId: null };
+  }
+
+  // Replace the candidate rows and reset the default chosen to the new first one.
+  await client
+    .from("reading_quizzes")
+    .update({ chosen_question_id: null })
+    .eq("id", quizId)
+    .eq("user_id", userId);
+  await client
+    .from("reading_quiz_questions")
+    .delete()
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId);
+  const { data: inserted, error: insErr } = await client
+    .from("reading_quiz_questions")
+    .insert(essayQuestionRows(quizId, userId, generated))
+    .select("id, position");
+  if (insErr || !inserted?.length) {
+    throw new Error(insErr?.message ?? "Couldn't save the new prompts.");
+  }
+  const first = inserted.find((q) => q.position === 0) ?? inserted[0];
+  await client
+    .from("reading_quizzes")
+    .update({ chosen_question_id: first.id as string })
+    .eq("id", quizId)
+    .eq("user_id", userId);
+
+  // Record the AI's regenerated candidates as the assistant turn.
+  await client.from("reading_quiz_steering_messages").insert({
+    quiz_id: quizId,
+    user_id: userId,
+    created_by_email: null,
+    role: "assistant",
+    content: renderGeneratedForThread(generated),
+  });
 
   revalidateQuizzes();
+  return { status: "regenerated", chosenQuestionId: first.id as string };
+}
+
+/** Load a quiz's steering surface for the parent panel. Adult-gated. */
+export async function getQuizSteering(
+  quizId: string,
+  memberEmail?: string | null
+): Promise<QuizSteeringState | null> {
+  await requireAdult();
+  const { client, userId } = await resolveReadingScope(memberEmail, {
+    adultOk: true,
+  });
+
+  const { data: quiz } = await client
+    .from("reading_quizzes")
+    .select(QUIZ_COLUMNS)
+    .eq("id", quizId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!quiz) return null;
+
+  const [questionsRes, messagesRes, locked] = await Promise.all([
+    client
+      .from("reading_quiz_questions")
+      .select(QUESTION_COLUMNS)
+      .eq("quiz_id", quizId)
+      .eq("user_id", userId)
+      .order("position", { ascending: true }),
+    client
+      .from("reading_quiz_steering_messages")
+      .select("id, role, content, created_at, created_by_email")
+      .eq("quiz_id", quizId)
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true }),
+    quizIsLocked(client, quizId, userId),
+  ]);
+
   return {
-    chosenQuestionId:
-      (after?.chosen_question_id as string | null) ?? questionId,
+    quizId,
+    status: (quiz as ReadingQuiz).status,
+    locked,
+    chosenQuestionId: (quiz as ReadingQuiz).chosen_question_id,
+    candidates: (questionsRes.data ?? []) as ReadingQuizQuestion[],
+    messages: (messagesRes.data ?? []).map((m) => ({
+      id: m.id as string,
+      role: m.role as "user" | "assistant",
+      content: m.content as string,
+      created_at: m.created_at as string,
+      created_by_email: (m.created_by_email as string | null) ?? null,
+    })),
   };
 }
 
@@ -728,7 +1007,13 @@ export async function chooseEssayQuestion(
  */
 export async function submitQuiz(
   quizId: string,
-  answers: { questionId: string; selectedIndex?: number | null; responseText?: string | null }[],
+  answers: {
+    questionId: string;
+    selectedIndex?: number | null;
+    responseText?: string | null;
+    /** essay: the short Part 1 (comprehension) answer. */
+    comprehensionText?: string | null;
+  }[],
   memberEmail?: string | null
 ): Promise<{
   submissionId: string;
@@ -794,6 +1079,7 @@ export async function submitQuiz(
     submission_id: string;
     selected_index: number | null;
     response_text: string | null;
+    comprehension_text: string | null;
     is_correct: boolean | null;
     ai_notes: string | null;
     rubric_scores: EssayRubricScores | null;
@@ -807,7 +1093,7 @@ export async function submitQuiz(
 
   let graded: GradedAnswerRow[];
   let scoreTotal: number;
-  // The essay's rubric total (out of 12), captured for the standout bonus below.
+  // The essay's earned Part 2 score (out of 8), captured for the standout bonus below.
   let essayTotal: number | null = null;
 
   if (isEssayQuiz) {
@@ -817,10 +1103,16 @@ export async function submitQuiz(
     const chosen = qs.find((q) => q.id === chosenId) ?? qs[0];
     const responseText =
       byId.get(chosen.id)?.responseText ?? answers[0]?.responseText ?? "";
+    const comprehensionText =
+      byId.get(chosen.id)?.comprehensionText ??
+      answers[0]?.comprehensionText ??
+      "";
     // A revision carries its prior draft + scores so the grader can credit
     // improvement instead of re-critiquing each attempt from scratch.
     const priorAnswer = prior?.answers.get(chosen.id) ?? null;
     const grade = await gradeEssay({
+      comprehensionPrompt: chosen.comprehension_prompt ?? null,
+      comprehensionAnswer: comprehensionText,
       prompt: chosen.prompt,
       anchorSummary: chosen.anchor_summary ?? "",
       rubric: chosen.essay_rubric ?? null,
@@ -839,6 +1131,7 @@ export async function submitQuiz(
         submission_id: submissionId,
         selected_index: null,
         response_text: responseText,
+        comprehension_text: comprehensionText,
         // An ungraded essay (AI failed) stays null so the attempt saves without
         // counting as a pass; "meets standard" is the gate when it did grade.
         is_correct: grade.graded ? grade.meetsStandard : null,
@@ -867,6 +1160,7 @@ export async function submitQuiz(
             submission_id: submissionId,
             selected_index: selectedIndex,
             response_text: null,
+            comprehension_text: null,
             is_correct: isCorrect,
             ai_notes: null,
             rubric_scores: null,
@@ -886,6 +1180,7 @@ export async function submitQuiz(
           submission_id: submissionId,
           selected_index: null,
           response_text: responseText,
+          comprehension_text: null,
           is_correct: grade.correct,
           ai_notes: grade.notes || null,
           rubric_scores: null,
@@ -903,6 +1198,7 @@ export async function submitQuiz(
         submission_id: submissionId,
         selected_index: previous.selected_index,
         response_text: previous.response_text,
+        comprehension_text: previous.comprehension_text,
         is_correct: true,
         ai_notes: previous.ai_notes,
         rubric_scores: null,
@@ -966,9 +1262,9 @@ export async function submitQuiz(
     }
   }
 
-  // A standout essay (11–12 of 12) earns a one-time 30-Buck bonus. Gated on a real
-  // advance and keyed to this submission, so re-scoring an already-passed stretch
-  // can't farm it.
+  // A standout essay (earned Part 2 score of 7–8 of 8) earns a one-time 30-Buck
+  // bonus. Gated on a real advance and keyed to this submission, so re-scoring an
+  // already-passed stretch can't farm it. `advanced` implies the gate was met.
   if (advanced && essayTotal != null && essayTotal >= ESSAY_BONUS_MIN) {
     await creditEssayBonus(userId, submissionId);
   }

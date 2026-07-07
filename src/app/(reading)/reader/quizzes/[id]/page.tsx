@@ -36,6 +36,7 @@ export default async function TakeQuizPage({
       memberEmail={memberEmail}
       retake={result.retake}
       priorEssay={result.priorEssay}
+      priorComprehension={result.priorComprehension}
       priorFeedback={result.priorFeedback}
       // The kid must type their essay. The owner/parent may paste so they can test —
       // and in local dev pasting is always allowed regardless of who's signed in.

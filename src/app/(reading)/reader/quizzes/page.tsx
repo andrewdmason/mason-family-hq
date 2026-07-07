@@ -226,6 +226,15 @@ function ActiveQuizCard({
         >
           View quiz
         </Link>
+        {/* Curate/steer the question while the kid hasn't started (unlocked). */}
+        {!attempted && (
+          <Link
+            href={quizEditHref(quiz.id, memberEmail)}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+          >
+            Steer question
+          </Link>
+        )}
         <GenerateDraftButton
           bookId={book.bookId}
           memberEmail={memberEmail}
