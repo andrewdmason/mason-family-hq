@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { PlayIcon, SquareIcon } from "lucide-react";
+import { ClockIcon } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -79,11 +79,7 @@ export function TimerCell({
           (isCompleted || goalSeconds <= 0) && "cursor-not-allowed opacity-60"
         )}
       >
-        {isActive ? (
-          <SquareIcon className="size-3 fill-current" />
-        ) : (
-          <PlayIcon className="size-3 fill-current" />
-        )}
+        <ClockIcon className="size-3" />
         {elapsedMinutes}m
       </button>
 
