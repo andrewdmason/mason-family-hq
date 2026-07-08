@@ -7,6 +7,7 @@ import {
   EssayGradeCard,
 } from "@/components/reading/quiz-essay-feedback";
 import { QuizSuccessModal } from "@/components/reading/quiz-success-modal";
+import { PostEssayToJournalButton } from "@/components/reading/post-essay-journal-button";
 import { CloseQuizButton } from "@/components/reading/close-quiz-button";
 import { AttemptAdminControls } from "@/components/reading/quiz-attempt-admin";
 import { getIsOwner } from "@/lib/members/auth";
@@ -17,7 +18,6 @@ import {
   readingHomeHref,
 } from "@/lib/reading/links";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
-import { ESSAY_BONUS_MIN, essayEarnedScore } from "@/lib/reading/essay-scoring";
 import { cn } from "@/lib/utils";
 import type { ReadingQuizAttemptSummary } from "@/lib/types";
 import { getQuizResult } from "../../actions";
@@ -74,6 +74,8 @@ export default async function QuizResultsPage({
     answersByQuestionId,
     attempts,
     passed,
+    exceeded,
+    bonusShotAvailable,
   } = result;
 
   // A parent override is recorded as a perfect submission flagged with their email.
@@ -100,10 +102,6 @@ export default async function QuizResultsPage({
       questions.find((q) => q.type === "essay") ??
       questions[0];
     const answer = essayQ ? answersByQuestionId[essayQ.id] : undefined;
-    // A standout pass (earned Part 2 score of 7–8 of 8) earned the Mason Bucks bonus.
-    const essayTotal = essayEarnedScore(answer?.rubric_scores ?? null);
-    const earnedBonus =
-      viewedPerfect && essayTotal != null && essayTotal >= ESSAY_BONUS_MIN;
     // Before the reader commits, every candidate prompt is still on the table —
     // show them all (rather than presenting the first as if it were decided).
     const essayPrompts = questions.filter((q) => q.type === "essay");
@@ -113,7 +111,9 @@ export default async function QuizResultsPage({
       : closedByParent
         ? "Closed by a parent"
         : viewedPerfect
-          ? "Passed"
+          ? exceeded
+            ? "Exceeds expectations"
+            : "Meets expectations"
           : passed
             ? "Passed on another try"
             : "Keep going";
@@ -137,18 +137,6 @@ export default async function QuizResultsPage({
             : "max-w-2xl flex-col"
         )}
       >
-        {viewedPerfect && (
-          <QuizSuccessModal
-            assignment={nextAssignment}
-            dueDateLabel={dueDateLabel}
-            readingHref={readingHref}
-            isEssay
-            essayPost={{ quizId: id, memberEmail }}
-            celebrateMilestone={celebrateMilestone}
-            earnedBonus={earnedBonus}
-          />
-        )}
-
         {hasSidebar && (
           <aside className="order-first w-full shrink-0 lg:order-last lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:w-80 lg:overflow-y-auto lg:overscroll-contain xl:w-96">
             <EssayGradeCard
@@ -251,6 +239,19 @@ export default async function QuizResultsPage({
                     ? "Pick a prompt & start"
                     : "Start essay"}
               </Link>
+            )}
+            {/* Passed with "meets" and the single bonus shot still open — offer it. */}
+            {passed && bonusShotAvailable && (
+              <Link
+                href={quizTakeHref(id, memberEmail)}
+                className={cn(buttonVariants({ variant: "default", size: "sm" }))}
+              >
+                Try once more for the bonus
+              </Link>
+            )}
+            {/* Passed with a written essay — share it to the family journal. */}
+            {passed && !closedByParent && (
+              <PostEssayToJournalButton quizId={id} memberEmail={memberEmail} />
             )}
             <Link
               href={readingHref}

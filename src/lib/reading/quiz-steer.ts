@@ -63,8 +63,9 @@ export async function regenerateSteeredCandidates(input: {
     `The parent's latest guidance: "${input.guidance.trim()}"\n\n` +
     `Rewrite ALL ${ESSAY_OPTION_COUNT} candidates to follow this guidance and the ` +
     `whole conversation above. Keep each a two-part assignment (a short Part 1 ` +
-    `comprehension check + a personal Part 2), keep them genuinely distinct, and ` +
-    `keep every Part 1 anchored in the book text below.`;
+    `comprehension check + a Part 2 that asks the child to take and defend a point of ` +
+    `view on something real in their own life, not a feelings check-in), keep them ` +
+    `genuinely distinct, and keep every Part 1 anchored in the book text below.`;
 
   return generateEssayAssignments({
     bookTitle: input.bookTitle,

@@ -10,6 +10,7 @@ import { isQuizDue } from "@/lib/reading/quiz-due";
 import { getTextForRange } from "@/lib/reading/extract-text";
 import { generateEssayAssignments } from "@/lib/reading/quiz-generate";
 import {
+  gradeComprehension,
   gradeEssay,
   gradeFreeText,
   gradeMultipleChoice,
@@ -23,7 +24,7 @@ import {
 } from "@/lib/reading/quiz-steer";
 import { advanceStretch } from "@/lib/reading/advance";
 import { creditEssayBonus } from "@/lib/bucks/earn";
-import { ESSAY_BONUS_MIN } from "@/lib/reading/essay-scoring";
+import { essayExceeded } from "@/lib/reading/essay-scoring";
 import { archiveOtherOpenQuizzes } from "@/lib/reading/supersede";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
 import type {
@@ -56,7 +57,7 @@ const RESULT_QUESTION_COLUMNS =
 const ANSWER_COLUMNS =
   "id, submission_id, question_id, user_id, selected_index, response_text, comprehension_text, is_correct, ai_notes, rubric_scores, created_at";
 const QUIZ_COLUMNS =
-  "id, user_id, book_id, from_page, through_page, status, title, created_by_email, source, generation_error, chosen_question_id, published_at, created_at, updated_at";
+  "id, user_id, book_id, from_page, through_page, status, title, created_by_email, source, generation_error, chosen_question_id, comprehension_cleared_at, comprehension_text, published_at, created_at, updated_at";
 
 /** True once any of a quiz's attempts answered every question correctly. */
 function isPassed(
@@ -88,9 +89,10 @@ function revalidateQuizzes() {
 }
 
 /**
- * Whether the kid has started this quiz — the steering lock. Once any submission
- * exists, a parent can no longer swap/edit/regenerate the question out from under
- * them. Scoped by both quiz_id and the resolved kid userId (required on the
+ * Whether the kid has started this quiz — the steering lock. Started means either the
+ * comprehension gate has been cleared (the essay flow's first step) OR any submission
+ * exists; from that point a parent can no longer swap/edit/regenerate the question out
+ * from under them. Scoped by both quiz_id and the resolved kid userId (required on the
  * RLS-bypassing member-mode admin client).
  */
 async function quizIsLocked(
@@ -98,12 +100,125 @@ async function quizIsLocked(
   quizId: string,
   userId: string
 ): Promise<boolean> {
-  const { count } = await client
+  const [{ count }, { data: quiz }] = await Promise.all([
+    client
+      .from("reading_quiz_submissions")
+      .select("id", { count: "exact", head: true })
+      .eq("quiz_id", quizId)
+      .eq("user_id", userId),
+    client
+      .from("reading_quizzes")
+      .select("comprehension_cleared_at")
+      .eq("id", quizId)
+      .eq("user_id", userId)
+      .maybeSingle(),
+  ]);
+  return (count ?? 0) > 0 || quiz?.comprehension_cleared_at != null;
+}
+
+/**
+ * The essay-flow state for a quiz, derived from its attempts: whether it's been
+ * passed / exceeded, and whether the reader may still write. The rule: keep revising
+ * until you pass; on a "meets" pass you get exactly ONE more optional shot at
+ * "exceeds" (the bonus); once that shot is spent — or you've exceeded — the essay is
+ * finalized and read-only. A parent override (a closed submission with no answer)
+ * counts as a pass but never as an "exceeds".
+ */
+type EssayQuizState = {
+  hasPassed: boolean;
+  hasExceeded: boolean;
+  /** Attempts recorded after the first passing attempt (the bonus shot, once used). */
+  attemptsAfterFirstPass: number;
+  /** The reader may still turn in an essay (revising, or the single unused bonus shot). */
+  canWrite: boolean;
+  /** The next turn-in would be the single "try once more for the bonus" shot. */
+  isBonusShot: boolean;
+};
+
+async function loadEssayQuizState(
+  client: ScopedClient,
+  userId: string,
+  quizId: string
+): Promise<EssayQuizState> {
+  const { data: subs } = await client
     .from("reading_quiz_submissions")
-    .select("id", { count: "exact", head: true })
+    .select("id, attempt_number, score_correct, score_total, closed_by_email")
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId)
+    .order("attempt_number", { ascending: true });
+  const rows = subs ?? [];
+  if (rows.length === 0) {
+    return {
+      hasPassed: false,
+      hasExceeded: false,
+      attemptsAfterFirstPass: 0,
+      canWrite: true,
+      isBonusShot: false,
+    };
+  }
+  // A parent override (close without passing) ends the essay flow — no bonus shot.
+  const closedByParent = rows.some((s) => s.closed_by_email != null);
+
+  const { data: ans } = await client
+    .from("reading_quiz_answers")
+    .select("submission_id, rubric_scores")
+    .in(
+      "submission_id",
+      rows.map((s) => s.id as string)
+    )
+    .eq("user_id", userId);
+  const scoresBySub = new Map<string, EssayRubricScores | null>();
+  for (const a of ans ?? []) {
+    scoresBySub.set(
+      a.submission_id as string,
+      (a.rubric_scores as EssayRubricScores | null) ?? null
+    );
+  }
+
+  const passedRows = rows.filter(
+    (s) =>
+      (s.score_total ?? 0) > 0 && (s.score_correct ?? 0) === (s.score_total ?? 0)
+  );
+  const hasPassed = passedRows.length > 0;
+  const firstPassAttempt = hasPassed
+    ? Math.min(...passedRows.map((s) => s.attempt_number as number))
+    : null;
+  const attemptsAfterFirstPass =
+    firstPassAttempt != null
+      ? rows.filter((s) => (s.attempt_number as number) > firstPassAttempt).length
+      : 0;
+  const hasExceeded = rows.some((s) =>
+    essayExceeded(scoresBySub.get(s.id as string) ?? null)
+  );
+
+  const canWrite =
+    !closedByParent &&
+    !hasExceeded &&
+    (!hasPassed || attemptsAfterFirstPass === 0);
+  const isBonusShot = canWrite && hasPassed && attemptsAfterFirstPass === 0;
+  return { hasPassed, hasExceeded, attemptsAfterFirstPass, canWrite, isBonusShot };
+}
+
+/** Whether a passing attempt on this quiz exists other than the given submission —
+ *  i.e. this quiz already advanced the book on an earlier try. Used to decide whether
+ *  a later "exceeds" (the bonus shot) is owed the bonus. */
+async function hasPriorPassOnQuiz(
+  client: ScopedClient,
+  userId: string,
+  quizId: string,
+  exceptSubmissionId: string
+): Promise<boolean> {
+  const { data } = await client
+    .from("reading_quiz_submissions")
+    .select("id, score_correct, score_total")
     .eq("quiz_id", quizId)
     .eq("user_id", userId);
-  return (count ?? 0) > 0;
+  return (data ?? []).some(
+    (s) =>
+      s.id !== exceptSubmissionId &&
+      (s.score_total ?? 0) > 0 &&
+      (s.score_correct ?? 0) === (s.score_total ?? 0)
+  );
 }
 
 // ============================================================
@@ -620,12 +735,21 @@ export async function getQuizForTaking(
 ): Promise<{
   quiz: ReadingQuizWithQuestions;
   retake: boolean;
+  /** Essay: which step to show. "comprehension" = the Part 1 gate (until it's cleared);
+   *  "essay" = the writing. Legacy MC/free-text is always "essay". */
+  stage: "comprehension" | "essay";
+  /** Essay Part 1 prompt, for the comprehension step. Null when there is no Part 1. */
+  comprehensionPrompt: string | null;
   /** The reader's prior Part 2 essay text, so a revision pre-fills instead of retyping. */
   priorEssay: string | null;
-  /** The reader's prior Part 1 (comprehension) answer, so a revision pre-fills it too. */
-  priorComprehension: string | null;
   /** The prior attempt's grade + notes, kept on screen while they revise. */
   priorFeedback: ReadingEssayFeedback | null;
+  /** Essay: this turn-in would be the single "try once more for the bonus" shot after
+   *  a "meets" pass (so the writing screen can frame it as bonus-hunting). */
+  isBonusShot: boolean;
+  /** Essay: the essay is finalized (exceeded, or the bonus shot is spent) — the page
+   *  should send the reader to the results view rather than let them write again. */
+  locked: boolean;
 } | null> {
   const { client, userId } = await resolveReadingScope(memberEmail);
 
@@ -677,7 +801,6 @@ export async function getQuizForTaking(
   const reviseContext = (essayQ: ReadingQuizQuestion | undefined) => {
     const priorAnswer = essayQ && latest ? latest.answers.get(essayQ.id) : null;
     const priorEssay = priorAnswer?.response_text ?? null;
-    const priorComprehension = priorAnswer?.comprehension_text ?? null;
     const priorFeedback: ReadingEssayFeedback | null =
       priorAnswer && (priorAnswer.rubric_scores || priorAnswer.ai_notes)
         ? {
@@ -687,44 +810,135 @@ export async function getQuizForTaking(
             gradingComplete: priorAnswer.is_correct !== null,
           }
         : null;
-    return { priorEssay, priorComprehension, priorFeedback };
+    return { priorEssay, priorFeedback };
   };
 
   // Essay quiz: the kid writes exactly ONE question — the parent-curated / auto-default
   // chosen one (a parent steers the candidates down to it; publish defaults it to the
   // first). No kid-facing chooser. Fall back to the first candidate for any legacy
-  // quiz that has no chosen id. Nothing carries forward, so `retake` stays false; a
-  // re-attempt is signalled by the prior draft instead.
+  // quiz that has no chosen id.
   if (stripped.length > 0 && stripped.every((q) => q.type === "essay")) {
-    const chosenId = (quiz as ReadingQuiz).chosen_question_id;
+    const q = quiz as ReadingQuiz;
     const chosen =
-      (chosenId ? stripped.find((q) => q.id === chosenId) : undefined) ??
-      stripped[0];
-    const { priorEssay, priorComprehension, priorFeedback } =
-      reviseContext(chosen);
+      (q.chosen_question_id
+        ? stripped.find((c) => c.id === q.chosen_question_id)
+        : undefined) ?? stripped[0];
+    const { priorEssay, priorFeedback } = reviseContext(chosen);
+    const essayState = await loadEssayQuizState(client, userId, quizId);
+    // Part 1 comes first and is cleared once; after that (or when there's no Part 1
+    // at all, e.g. a legacy single-part essay) the writing screen is shown.
+    const hasPartOne = !!chosen.comprehension_prompt;
+    const stage =
+      hasPartOne && q.comprehension_cleared_at == null ? "comprehension" : "essay";
     return {
-      quiz: { ...(quiz as ReadingQuiz), questions: [chosen] },
+      quiz: { ...q, questions: [chosen] },
       retake: false,
+      stage,
+      comprehensionPrompt: chosen.comprehension_prompt,
       priorEssay,
-      priorComprehension,
       priorFeedback,
+      isBonusShot: essayState.isBonusShot,
+      locked: !essayState.canWrite,
     };
   }
 
   // Legacy MC/free-text: on a failed retake, only re-ask what they missed last time.
   const { ask } = partitionForAttempt(stripped, latest);
   const retake = ask.length < stripped.length;
-  const { priorEssay, priorComprehension, priorFeedback } = reviseContext(
+  const { priorEssay, priorFeedback } = reviseContext(
     stripped.find((q) => q.type === "essay")
   );
 
   return {
     quiz: { ...(quiz as ReadingQuiz), questions: ask },
     retake,
+    stage: "essay",
+    comprehensionPrompt: null,
     priorEssay,
-    priorComprehension,
     priorFeedback,
+    isBonusShot: false,
+    locked: false,
   };
+}
+
+/**
+ * The essay flow's first step: the reader clears the Part 1 comprehension gate before
+ * the writing screen opens. Graded pass/fail on its own — a miss returns a hint and
+ * costs nothing (no attempt is recorded, they just try again). A pass records the
+ * cleared gate on the quiz (once), which also locks parent steering. Idempotent: once
+ * cleared it stays cleared. Returns { met } as data (no throwing on a wrong answer).
+ */
+export async function submitComprehension(
+  quizId: string,
+  answer: string,
+  memberEmail?: string | null
+): Promise<{ met: boolean; note: string }> {
+  const scope = await resolveReadingScope(memberEmail);
+  const { client, userId, email } = scope;
+
+  const { data: quiz } = await client
+    .from("reading_quizzes")
+    .select("id, chosen_question_id, comprehension_cleared_at")
+    .eq("id", quizId)
+    .eq("user_id", userId)
+    .eq("status", "published")
+    .maybeSingle();
+  if (!quiz) throw new Error("This quiz isn't available.");
+  // Already cleared — the gate is a one-time step.
+  if (quiz.comprehension_cleared_at != null) {
+    return { met: true, note: "" };
+  }
+
+  const { data: questions } = await client
+    .from("reading_quiz_questions")
+    .select(QUESTION_COLUMNS)
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId)
+    .order("position", { ascending: true });
+  const qs = (questions ?? []) as ReadingQuizQuestion[];
+  const chosen =
+    qs.find((q) => q.id === (quiz.chosen_question_id as string | null)) ?? qs[0];
+  if (!chosen || chosen.type !== "essay" || !chosen.comprehension_prompt) {
+    // No Part 1 to clear (legacy single-part essay) — mark cleared and move on.
+    await client
+      .from("reading_quizzes")
+      .update({ comprehension_cleared_at: new Date().toISOString() })
+      .eq("id", quizId)
+      .eq("user_id", userId);
+    revalidateQuizzes();
+    return { met: true, note: "" };
+  }
+
+  const age = await readerAge(email);
+  const grade = await gradeComprehension({
+    prompt: chosen.comprehension_prompt,
+    anchorSummary: chosen.anchor_summary ?? "",
+    rubric: chosen.essay_rubric?.comprehension ?? null,
+    answer,
+    readerAge: age,
+  });
+
+  // A miss (or an ungradable API failure) leaves the gate uncleared so they can try
+  // again — no attempt is spent. Only a clear pass advances them.
+  if (grade.met !== true) {
+    return {
+      met: false,
+      note:
+        grade.note ||
+        "Not quite yet — reread these pages and tell me what happens in a sentence or two.",
+    };
+  }
+
+  await client
+    .from("reading_quizzes")
+    .update({
+      comprehension_cleared_at: new Date().toISOString(),
+      comprehension_text: answer.trim() || null,
+    })
+    .eq("id", quizId)
+    .eq("user_id", userId);
+  revalidateQuizzes();
+  return { met: true, note: grade.note };
 }
 
 // ============================================================
@@ -1011,16 +1225,20 @@ export async function submitQuiz(
     questionId: string;
     selectedIndex?: number | null;
     responseText?: string | null;
-    /** essay: the short Part 1 (comprehension) answer. */
-    comprehensionText?: string | null;
   }[],
-  memberEmail?: string | null
+  memberEmail?: string | null,
+  options?: {
+    /** Owner tools (resubmit/re-grade) skip the reader's write-lock enforcement. */
+    bypassEssayLock?: boolean;
+  }
 ): Promise<{
   submissionId: string;
   attemptNumber: number;
   /** True when this attempt met the bar — the gate for routing to the results/
    *  celebration view instead of keeping the reader in the editor to revise. */
   passed: boolean;
+  /** Essay: true when the thinking reached "exceeds" — the standout bonus. */
+  exceeded: boolean;
   advanced: boolean;
   finished: boolean;
   /** Title of a reward milestone this pass just reached, for a celebration. */
@@ -1031,12 +1249,43 @@ export async function submitQuiz(
 
   const { data: quiz } = await client
     .from("reading_quizzes")
-    .select("id, status, book_id, through_page, chosen_question_id")
+    .select(
+      "id, status, book_id, through_page, chosen_question_id, comprehension_cleared_at"
+    )
     .eq("id", quizId)
     .eq("user_id", userId)
     .eq("status", "published")
     .maybeSingle();
   if (!quiz) throw new Error("This quiz isn't available.");
+
+  const { data: questions } = await client
+    .from("reading_quiz_questions")
+    .select(QUESTION_COLUMNS)
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId)
+    .order("position", { ascending: true });
+  const qs = (questions ?? []) as ReadingQuizQuestion[];
+
+  // An essay quiz offers several candidate prompts, but only the one the reader
+  // committed to is answered and graded — so it scores out of 1, exactly like the
+  // old single-essay quiz did.
+  const isEssayQuiz = qs.length > 0 && qs.every((q) => q.type === "essay");
+  const chosen = isEssayQuiz
+    ? qs.find((q) => q.id === (quiz.chosen_question_id as string | null)) ?? qs[0]
+    : null;
+
+  // Enforce the essay flow's write rules before recording an attempt: Part 1 must be
+  // cleared first, and once the essay is finalized (exceeded, or the single post-pass
+  // bonus shot spent) it's read-only. Owner tools bypass this.
+  if (isEssayQuiz && !options?.bypassEssayLock) {
+    if (chosen?.comprehension_prompt && quiz.comprehension_cleared_at == null) {
+      throw new Error("Answer Part 1 first to unlock the essay.");
+    }
+    const state = await loadEssayQuizState(client, userId, quizId);
+    if (!state.canWrite) {
+      throw new Error("This essay is already finished — there's nothing left to turn in.");
+    }
+  }
 
   // The prior attempt drives both this attempt's number and which questions a
   // failed retake re-asks (the rest carry their right answers forward).
@@ -1062,14 +1311,6 @@ export async function submitQuiz(
   }
   const submissionId = submission.id as string;
 
-  const { data: questions } = await client
-    .from("reading_quiz_questions")
-    .select(QUESTION_COLUMNS)
-    .eq("quiz_id", quizId)
-    .eq("user_id", userId)
-    .order("position", { ascending: true });
-  const qs = (questions ?? []) as ReadingQuizQuestion[];
-
   const byId = new Map(answers.map((a) => [a.questionId, a]));
   const age = await readerAge(email);
 
@@ -1085,36 +1326,19 @@ export async function submitQuiz(
     rubric_scores: EssayRubricScores | null;
   };
 
-  // An essay quiz offers several candidate prompts, but only the one the reader
-  // committed to is answered and graded — so it scores out of 1, exactly like the
-  // old single-essay quiz did. (Falling back to the lone or submitted question
-  // keeps any pre-existing one-prompt essay quiz working.)
-  const isEssayQuiz = qs.length > 0 && qs.every((q) => q.type === "essay");
-
   let graded: GradedAnswerRow[];
   let scoreTotal: number;
-  // The essay's earned Part 2 score (out of 8), captured for the standout bonus below.
-  let essayTotal: number | null = null;
+  // The essay's graded scores, captured for the standout ("exceeds") bonus below.
+  let essayScores: EssayRubricScores | null = null;
 
-  if (isEssayQuiz) {
-    const chosenId =
-      (quiz.chosen_question_id as string | null) ??
-      (qs.length === 1 ? qs[0].id : answers[0]?.questionId ?? null);
-    const chosen = qs.find((q) => q.id === chosenId) ?? qs[0];
+  if (isEssayQuiz && chosen) {
     const responseText =
       byId.get(chosen.id)?.responseText ?? answers[0]?.responseText ?? "";
-    const comprehensionText =
-      byId.get(chosen.id)?.comprehensionText ??
-      answers[0]?.comprehensionText ??
-      "";
     // A revision carries its prior draft + scores so the grader can credit
     // improvement instead of re-critiquing each attempt from scratch.
     const priorAnswer = prior?.answers.get(chosen.id) ?? null;
     const grade = await gradeEssay({
-      comprehensionPrompt: chosen.comprehension_prompt ?? null,
-      comprehensionAnswer: comprehensionText,
       prompt: chosen.prompt,
-      anchorSummary: chosen.anchor_summary ?? "",
       rubric: chosen.essay_rubric ?? null,
       essay: responseText,
       readerAge: age,
@@ -1123,7 +1347,7 @@ export async function submitQuiz(
       priorEssay: priorAnswer?.response_text ?? null,
       priorScores: priorAnswer?.rubric_scores ?? null,
     });
-    essayTotal = grade.total;
+    essayScores = grade.graded ? grade.scores : null;
     graded = [
       {
         question_id: chosen.id,
@@ -1131,7 +1355,8 @@ export async function submitQuiz(
         submission_id: submissionId,
         selected_index: null,
         response_text: responseText,
-        comprehension_text: comprehensionText,
+        // Comprehension is a quiz-level prerequisite now, not part of the essay answer.
+        comprehension_text: null,
         // An ungraded essay (AI failed) stays null so the attempt saves without
         // counting as a pass; "meets standard" is the gate when it did grade.
         is_correct: grade.graded ? grade.meetsStandard : null,
@@ -1229,48 +1454,73 @@ export async function submitQuiz(
     .eq("id", submissionId)
     .eq("user_id", userId);
 
-  // Passing (every question right) is the gate that advances the book's milestone
-  // and pre-generates the next stretch's quiz. Only advance when this quiz covers
-  // ground beyond the current page, so retaking an already-passed stretch is a no-op.
+  // Passing is the gate that advances the book's milestone and pre-generates the next
+  // stretch's quiz. Only advance when this quiz covers ground beyond the current page,
+  // so retaking an already-passed stretch (e.g. the "try once more for the bonus" shot)
+  // is a no-op that never moves the book.
   let advanced = false;
   let finished = false;
   let reachedMilestone: string | null = null;
   const passed = scoreTotal > 0 && scoreCorrect === scoreTotal;
-  if (passed) {
-    const throughPage = quiz.through_page as number | null;
+  const exceeded = essayExceeded(essayScores);
+  const throughPage = quiz.through_page as number | null;
+
+  // Fetch the book once when we might need it — to advance on a pass, and (for essays)
+  // to judge whether an "exceeds" bonus is legitimately owed on this stretch.
+  let pageBeforeAdvance: number | null = null;
+  if (passed || (isEssayQuiz && exceeded)) {
     const { data: book } = await client
       .from("reading_books")
       .select("id, current_page, target_page, total_pages")
       .eq("id", quiz.book_id as string)
       .eq("user_id", userId)
       .maybeSingle();
-    if (book && throughPage != null && throughPage > (book.current_page as number)) {
-      const res = await advanceStretch(
-        scope,
-        {
-          id: book.id as string,
-          current_page: book.current_page as number,
-          target_page: (book.target_page as number | null) ?? null,
-          total_pages: (book.total_pages as number | null) ?? null,
-        },
-        throughPage,
-        quizId
-      );
-      advanced = true;
-      finished = res.finished;
-      reachedMilestone = res.reachedMilestones[0] ?? null;
+    if (book) {
+      pageBeforeAdvance = book.current_page as number;
+      if (passed && throughPage != null && throughPage > (book.current_page as number)) {
+        const res = await advanceStretch(
+          scope,
+          {
+            id: book.id as string,
+            current_page: book.current_page as number,
+            target_page: (book.target_page as number | null) ?? null,
+            total_pages: (book.total_pages as number | null) ?? null,
+          },
+          throughPage,
+          quizId
+        );
+        advanced = true;
+        finished = res.finished;
+        reachedMilestone = res.reachedMilestones[0] ?? null;
+      }
     }
   }
 
-  // A standout essay (earned Part 2 score of 7–8 of 8) earns a one-time 30-Buck
-  // bonus. Gated on a real advance and keyed to this submission, so re-scoring an
-  // already-passed stretch can't farm it. `advanced` implies the gate was met.
-  if (advanced && essayTotal != null && essayTotal >= ESSAY_BONUS_MIN) {
-    await creditEssayBonus(userId, submissionId);
+  // A standout essay ("exceeds") earns a one-time 30-Buck bonus, keyed to the quiz so
+  // it pays at most once per assignment. Legitimate only when this quiz actually moved
+  // the book past its stretch — either now (advanced), or on an earlier passing attempt
+  // (so the "meets now, come back and exceed" bonus shot still pays). Re-scoring an
+  // already-read range this quiz never advanced can't farm it.
+  if (isEssayQuiz && exceeded) {
+    const stretchOwned =
+      advanced ||
+      (throughPage != null &&
+        pageBeforeAdvance != null &&
+        pageBeforeAdvance >= throughPage &&
+        (await hasPriorPassOnQuiz(client, userId, quizId, submissionId)));
+    if (stretchOwned) await creditEssayBonus(userId, quizId);
   }
 
   revalidateQuizzes();
-  return { submissionId, attemptNumber, passed, advanced, finished, reachedMilestone };
+  return {
+    submissionId,
+    attemptNumber,
+    passed,
+    exceeded,
+    advanced,
+    finished,
+    reachedMilestone,
+  };
 }
 
 /**
@@ -1587,7 +1837,9 @@ export async function resubmitLatestAttempt(
     .eq("user_id", userId);
   if (delError) throw new Error(delError.message);
 
-  const res = await submitQuiz(quizId, answers, memberEmail);
+  const res = await submitQuiz(quizId, answers, memberEmail, {
+    bypassEssayLock: true,
+  });
   revalidatePath(`/reader/quizzes/${quizId}/results`);
   return { submissionId: res.submissionId, attemptNumber: res.attemptNumber };
 }
@@ -1657,6 +1909,15 @@ export async function getQuizResult(
     answersByQuestionId[a.question_id] = a;
   }
 
+  // Essay: whether they've hit "exceeds" and whether the single "meets → try once more
+  // for the bonus" shot is still open, so the results view can offer it.
+  const isEssay = ((questions ?? []) as ReadingQuizQuestion[]).some(
+    (q) => q.type === "essay"
+  );
+  const essayState = isEssay
+    ? await loadEssayQuizState(client, userId, quizId)
+    : null;
+
   return {
     quiz: quiz as ReadingQuiz,
     bookTitle: (book?.title as string) ?? "this book",
@@ -1679,6 +1940,8 @@ export async function getQuizResult(
       gradingComplete: s.grading_complete,
     })),
     passed: isPassed(all),
+    exceeded: essayState?.hasExceeded ?? false,
+    bonusShotAvailable: essayState?.isBonusShot ?? false,
   };
 }
 

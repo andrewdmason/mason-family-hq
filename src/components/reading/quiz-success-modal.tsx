@@ -49,6 +49,7 @@ export function QuizSuccessModal({
   essayPost = null,
   celebrateMilestone = null,
   earnedBonus = false,
+  bonusShotHref = null,
 }: {
   assignment: ReadingQuizNextAssignment;
   dueDateLabel: string;
@@ -59,8 +60,11 @@ export function QuizSuccessModal({
   essayPost?: { quizId: string; memberEmail: string | null } | null;
   /** Title of a reward milestone this pass just reached, celebrated up top. */
   celebrateMilestone?: string | null;
-  /** True when this essay scored high enough to earn the Mason Bucks bonus. */
+  /** True when this essay reached "exceeds" and earned the Mason Bucks bonus. */
   earnedBonus?: boolean;
+  /** Essay: passed with "meets" and the single bonus shot is still open — the link to
+   *  take that one optional shot at "exceeds". Null when there's no shot to offer. */
+  bonusShotHref?: string | null;
 }) {
   const router = useRouter();
   const [posting, startPosting] = useTransition();
@@ -92,17 +96,35 @@ export function QuizSuccessModal({
           <div className="mb-1 flex size-10 items-center justify-center rounded-full bg-emerald-600/10 text-emerald-700 dark:text-emerald-400">
             <CheckCircle2 className="size-5" />
           </div>
-          <DialogTitle>{isEssay ? "Essay passed" : "Quiz passed"}</DialogTitle>
+          <DialogTitle>
+            {!isEssay
+              ? "Quiz passed"
+              : earnedBonus
+                ? "Standout essay!"
+                : "Essay passed"}
+          </DialogTitle>
           <DialogDescription>
-            {isEssay
-              ? "You cleared the bar with a strong essay. Really nice work."
-              : "Every answer is correct. Nice work."}
+            {!isEssay
+              ? "Every answer is correct. Nice work."
+              : earnedBonus
+                ? "Your thinking went the extra mile. Really nice work."
+                : bonusShotHref
+                  ? "You met the bar — your book moves forward. Want one more shot at the bonus?"
+                  : "You cleared the bar with a strong essay. Really nice work."}
           </DialogDescription>
         </DialogHeader>
 
         {earnedBonus && (
           <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-800 dark:text-amber-300">
             🪙 Standout essay — you earned {ESSAY_BONUS_BUCKS} Mason Bucks!
+          </p>
+        )}
+
+        {!earnedBonus && bonusShotHref && (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+            🪙 Push your thinking further — reach{" "}
+            <span className="font-medium">exceeds</span> and earn{" "}
+            {ESSAY_BONUS_BUCKS} Mason Bucks. You get one more try.
           </p>
         )}
 
@@ -141,12 +163,21 @@ export function QuizSuccessModal({
           <DialogClose render={<Button variant="outline" />}>
             {isEssay ? "View feedback" : "View answers"}
           </DialogClose>
-          <Link
-            href={readingHref}
-            className={cn(buttonVariants({ variant: "default" }))}
-          >
-            Back to Reader
-          </Link>
+          {!earnedBonus && bonusShotHref ? (
+            <Link
+              href={bonusShotHref}
+              className={cn(buttonVariants({ variant: "default" }))}
+            >
+              Try once more for the bonus
+            </Link>
+          ) : (
+            <Link
+              href={readingHref}
+              className={cn(buttonVariants({ variant: "default" }))}
+            >
+              Back to Reader
+            </Link>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
