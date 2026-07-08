@@ -1423,7 +1423,10 @@ const SUBMISSION_COLUMNS =
 export async function closeQuizWithoutPassing(
   quizId: string,
   memberEmail?: string | null
-): Promise<{ advanced: boolean; finished: boolean }> {
+): Promise<
+  | { ok: true; advanced: boolean; finished: boolean }
+  | { ok: false; message: string }
+> {
   await requireOwner();
   const closedBy = await callerEmail();
   const scope = await resolveReadingScope(memberEmail);
@@ -1436,17 +1439,18 @@ export async function closeQuizWithoutPassing(
     .eq("user_id", userId)
     .eq("status", "published")
     .maybeSingle();
-  if (!quiz) throw new Error("This quiz isn't available to close.");
+  if (!quiz) return { ok: false, message: "This quiz isn't available to close." };
 
   // Don't double-close: if any attempt already passed (a real pass or a prior
-  // override), there's nothing to settle.
+  // override), there's nothing to settle. This can legitimately race a parent
+  // viewing a stale page — the reader may have passed for real since it loaded.
   const { data: existing } = await client
     .from("reading_quiz_submissions")
     .select("score_correct, score_total")
     .eq("quiz_id", quizId)
     .eq("user_id", userId);
   if (isPassed(existing ?? [])) {
-    throw new Error("This quiz is already complete.");
+    return { ok: false, message: "This quiz is already complete." };
   }
 
   const { count } = await client
@@ -1455,7 +1459,9 @@ export async function closeQuizWithoutPassing(
     .eq("quiz_id", quizId)
     .eq("user_id", userId);
   const scoreTotal = count ?? 0;
-  if (scoreTotal < 1) throw new Error("This quiz has no questions to close.");
+  if (scoreTotal < 1) {
+    return { ok: false, message: "This quiz has no questions to close." };
+  }
 
   const prior = await latestAttempt(client, userId, quizId);
   const attemptNumber = (prior?.attemptNumber ?? 0) + 1;
@@ -1473,7 +1479,7 @@ export async function closeQuizWithoutPassing(
     });
   if (subError) {
     if (subError.code === "23505") {
-      throw new Error("That didn't go through — please try again.");
+      return { ok: false, message: "That didn't go through — please try again." };
     }
     throw new Error(subError.message);
   }
@@ -1507,7 +1513,7 @@ export async function closeQuizWithoutPassing(
 
   revalidateQuizzes();
   revalidatePath(`/reader/quizzes/${quizId}/results`);
-  return { advanced, finished };
+  return { ok: true, advanced, finished };
 }
 
 /**
