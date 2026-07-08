@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { QuizRunner } from "@/components/reading/quiz-runner";
 import { CloseQuizButton } from "@/components/reading/close-quiz-button";
 import { getIsOwner } from "@/lib/members/auth";
@@ -30,14 +30,22 @@ export default async function TakeQuizPage({
   ]);
   if (!result) notFound();
 
+  // The essay is finalized (exceeded, or the single post-pass bonus shot is spent) —
+  // there's nothing left to write, so send them to the graded results instead.
+  if (result.locked) {
+    redirect(quizResultsHref(id, memberEmail));
+  }
+
   return (
     <QuizRunner
       quiz={result.quiz}
       memberEmail={memberEmail}
       retake={result.retake}
+      stage={result.stage}
+      comprehensionPrompt={result.comprehensionPrompt}
       priorEssay={result.priorEssay}
-      priorComprehension={result.priorComprehension}
       priorFeedback={result.priorFeedback}
+      isBonusShot={result.isBonusShot}
       // The kid must type their essay. The owner/parent may paste so they can test —
       // and in local dev pasting is always allowed regardless of who's signed in.
       allowPaste={isOwner || process.env.NODE_ENV !== "production"}

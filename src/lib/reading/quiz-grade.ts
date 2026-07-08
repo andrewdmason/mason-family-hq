@@ -1,14 +1,20 @@
 import { anthropic, JOURNAL_MODEL } from "@/lib/journal/anthropic";
-import { ESSAY_PASS_MIN } from "@/lib/reading/essay-scoring";
-import type { EssayRubric, EssayRubricScores } from "@/lib/types";
+import { essayPassed } from "@/lib/reading/essay-scoring";
+import type {
+  EssayRubric,
+  EssayRubricScores,
+  ThinkingBand,
+} from "@/lib/types";
 
 /**
- * Grading a submitted quiz. The essay is graded by a single model call against a
- * three-dimension rubric (the path new quizzes take). Legacy multiple-choice is
- * graded deterministically here, and each legacy free-text answer by an
- * independent model call — all isolated so one failure leaves that answer
- * ungraded rather than failing the submission. Pure and self-contained, like
- * quiz-generate.ts.
+ * Grading a submitted quiz. An essay is graded in two moves: the Part 1 comprehension
+ * gate is judged on its own (gradeComprehension, when the kid clears it before the
+ * essay screen), and the essay itself (gradeEssay) is a single model call scoring one
+ * dimension — Quality of Thinking, on a below/meets/exceeds band — behind a pass/fail
+ * Grammar readability gate. Legacy multiple-choice is graded deterministically here,
+ * and each legacy free-text answer by an independent model call — all isolated so one
+ * failure leaves that answer ungraded rather than failing the submission. Pure and
+ * self-contained, like quiz-generate.ts.
  */
 
 /** Deterministic: did the reader pick the keyed option? */
@@ -125,172 +131,147 @@ export async function gradeFreeText(input: {
 export type EssayGrade = {
   /** False when the AI grade failed/parsed badly — the answer stays ungraded. */
   graded: boolean;
-  /** True when the comprehension gate is met AND the earned Part 2 score clears the
-   *  pass bar (see essay-scoring). A strong Part 2 is never dragged by a terse Part 1,
-   *  and a kid who plainly didn't read can't pass on Part 2 alone. */
+  /** True when the grammar gate is met AND the thinking reaches at least "meets" —
+   *  the pass that advances the book (see essay-scoring). */
   meetsStandard: boolean;
-  /** The earned Part 2 score (thinking + mechanics, out of 8), or null when not fully
-   *  graded. This is what feeds the pass/bonus bars — comprehension is a gate, not a
-   *  score, so it isn't part of the total. */
-  total: number | null;
-  /** The gate result + per-dimension grades to store on the answer row. */
+  /** The grammar gate + thinking band to store on the answer row. */
   scores: EssayRubricScores;
-  /** A warm, holistic note to the child. */
+  /** A warm, holistic note to the child (used for the blank-essay nudge; empty
+   *  otherwise, since the per-dimension notes carry the feedback). */
   notes: string;
 };
 
 const GRADE_ESSAY_TOOL = {
   name: "grade_essay",
   description:
-    "Grade a child's two-part book essay: a pass/fail comprehension GATE on Part 1, " +
-    "then two scored dimensions (mechanics, thinking) on the Part 2 writing.",
+    "Grade a child's book essay: a pass/fail GRAMMAR readability gate, then the one " +
+    "graded dimension — QUALITY OF THINKING on a below/meets/exceeds band.",
   input_schema: {
     type: "object" as const,
     properties: {
-      comprehension_met: {
+      grammar_ok: {
         type: "boolean",
         description:
-          "The GATE: did the child prove, in their short Part 1 answer, that they " +
-          "actually read the assigned pages (judged against the anchor)? This is a LOW, " +
-          "easy-to-clear bar — true whenever the answer shows real knowledge of what " +
-          "happened, IN THE CHILD'S OWN WORDS (an accurate paraphrase is fully " +
-          "sufficient; never require exact quotes). Return false ONLY when Part 1 is " +
-          "blank, plainly wrong, or so vague it could have been written without reading. " +
-          "If there is no separate Part 1 answer, judge this from how the essay itself " +
-          "opens. A short but correct Part 1 passes the gate — do not penalize brevity.",
+          "The GRAMMAR GATE — pass/fail, about READABILITY ONLY: are the sentences " +
+          "mostly complete, is the spelling and end punctuation mostly right, and is it " +
+          "broken into paragraphs? This is exactly the standard 'do errors interfere " +
+          "with communication?' — NOT style, word choice, or phrasing (never judged " +
+          "here). Be forgiving: a handful of ordinary slips (some misspellings, a missed " +
+          "capital, a couple of run-ons, a 'to'/'too' mix-up) still PASSES — those go in " +
+          "the fix-it list but don't fail the gate. Return false ONLY when the writing " +
+          "is genuinely hard to follow (errors in most sentences) or is a single " +
+          "undivided block with no paragraph breaks. Optional or stylistic commas are " +
+          "judgment calls, never errors.",
       },
-      comprehension_note: {
-        type: "string",
-        description:
-          "One short sentence spoken DIRECTLY to the writer as \"you\". If the gate is " +
-          "met, a quick affirmation (\"You showed me you read it — I could tell exactly " +
-          "what happened.\"). If not met, a directive \"Try …\" that points them at what " +
-          "to reread WITHOUT handing over the answer (\"Try telling me in a sentence what " +
-          "actually happens when Thresh lets her go.\"). NEVER invent a reference like " +
-          "\"Entry #1,\" a section or figure label, or a page number; the writer has no " +
-          "such markers.",
-      },
-      mechanics_score: {
-        type: "integer",
-        description:
-          "1–4 for spelling, capitalization, punctuation, sentence completeness, and " +
-          "paragraphing at this child's age — NOT word choice, phrasing, or style " +
-          "(those are never penalized here). Same scale (3 = meets the grade-level " +
-          "standard). Be forgiving and judge the writing as a whole: a 3 just means " +
-          "the essay is easy to read — mostly-complete sentences, real paragraphs, " +
-          "spelling and end punctuation mostly right. A handful of ordinary slips " +
-          "(some misspellings, a missed capital, a couple of run-ons, a 'to'/'too' " +
-          "mix-up) are completely fine at a 3 for a child; a clean essay is a 4. " +
-          "Optional or stylistic commas are JUDGMENT CALLS, not errors — never lower " +
-          "the score for a comma that isn't strictly required. Reserve a 2 or below " +
-          "for writing that's genuinely hard to follow (errors in most sentences) or " +
-          "a single undivided block with no paragraph breaks (which can't exceed 2). " +
-          "CRITICAL: the score must agree with the fix-it checklist below, which is the " +
-          "ONLY mechanics feedback the writer sees. If the checklist is empty there is " +
-          "nothing left to correct, so the score is 4 — NEVER give a 3 (or lower) with an " +
-          "empty checklist. A 3 means it reads fine but still has a few specific errors, " +
-          "and you must list every one of them; if a problem is structural (no paragraph " +
-          "breaks), put that in the checklist too and cap the score at 2.",
-      },
-      mechanics_fixes: {
+      grammar_fixes: {
         type: "array",
         items: { type: "string" },
         description:
           "A short, do-this checklist of the CLEAR mechanical errors only — " +
           "misspellings, missing or wrong capitals, missing end punctuation, comma " +
-          "splices or genuine run-ons. For each, quote the exact text, give the " +
-          "correction, and add a few words on the rule — e.g. \"'thank her to' → " +
-          "'thank her too' — 'too' means 'also.'\" or \"Capitalize the name: 'thresh' " +
-          "→ 'Thresh.'\" HARD LIMITS: do NOT list word-choice or phrasing suggestions " +
-          "(e.g. 'pointing a rock' → 'holding a rock' is style, not a mechanics error " +
-          "— leave it out); do NOT list optional or stylistic commas, or any " +
-          "'consider…' nitpick you aren't sure is a real error — when in doubt, leave " +
-          "it off. Keep the list to the few that genuinely matter so the child can fix " +
-          "them and be done, not face a fresh batch of smaller nits every revision. " +
-          "Here you DO correct the writing directly (unlike the other dimensions). This " +
-          "checklist is the ENTIRE justification for any mechanics score below 4, so it " +
-          "must capture every reason it isn't a 4 — including a structural fix (\"Break " +
-          "this into paragraphs: start a new one each time you move to a new idea.\") when " +
-          "paragraphing is the problem. Return an empty array ONLY when the writing is " +
-          "genuinely clean — and an empty array means the mechanics score is 4.",
+          "splices or genuine run-ons, or a structural fix (\"Break this into paragraphs: " +
+          "start a new one each time you move to a new idea.\"). For each, quote the exact " +
+          "text, give the correction, and add a few words on the rule — e.g. \"'thank her " +
+          "to' → 'thank her too' — 'too' means 'also.'\" or \"Capitalize the name: 'thresh' " +
+          "→ 'Thresh.'\" This is the child's cleanup list and may be non-empty even when " +
+          "grammar_ok is true (a readable essay with a few slips). HARD LIMITS: do NOT " +
+          "list word-choice or phrasing suggestions (style, not grammar); do NOT list " +
+          "optional/stylistic commas or any 'consider…' nitpick you aren't sure is a real " +
+          "error — when in doubt, leave it off. Keep it to the few that genuinely matter " +
+          "so the child can fix them and be done. Whenever grammar_ok is false, this list " +
+          "MUST name every reason it failed. Return an empty array when the writing is " +
+          "genuinely clean.",
       },
-      thinking_score: {
-        type: "integer",
+      thinking_band: {
+        type: "string",
+        enum: ["below", "meets", "exceeds"],
         description:
-          "1–4 for originality, depth, and support of ideas in the broader-theme " +
-          "part. Same scale (3 = meets the grade-level standard). A 3 develops a " +
-          "real idea across more than a sentence or two and backs it with something " +
-          "specific from the book; a thin, one-note, or mostly-plot-summary answer " +
-          "that never really digs into the broader question scores 2 or below. Reward " +
-          "genuine insight, never padding or length on its own.",
+          "THE GRADE — the quality of thinking in the essay, judged at the child's age. " +
+          "Part 2 asks the child to take and back up a POINT OF VIEW on something in " +
+          "their own life; grade the thinking, never the style, the length, or whether " +
+          "they stuck to the book (straying into their own life is encouraged, never " +
+          "penalized). \"below\": no real idea of their own — it restates the prompt, " +
+          "retells the plot, states a generic platitude ('family is important'), or lists " +
+          "things with no thought attached, and has no specific detail from their life or " +
+          "the book. \"meets\": an honest effort with a real position or idea of their own, " +
+          "made concrete by at least one specific detail (a real moment, person, or " +
+          "example) with some connection back to the idea — one point made decently is " +
+          "enough; honest and specific beats deep-sounding and vague. \"exceeds\": the " +
+          "thinking goes somewhere — genuine insight or nuance for their age, such as " +
+          "weighing two sides or a tension, considering a counter-view, showing how their " +
+          "own thinking changed ('I used to think… but now…'), an honest admission, or a " +
+          "non-obvious connection; one genuinely developed moment of real insight is " +
+          "enough. Big vocabulary, extra length, and deep-sounding generalities NEVER " +
+          "raise the band — the insight must be in the substance of what they say, not a " +
+          "single clever phrase. Calibrate \"exceeds\" as an earnable bar for a strong, " +
+          "genuinely-trying kid at this age, not perfection.",
       },
       thinking_note: {
         type: "string",
         description:
-          "One or two short sentences spoken DIRECTLY to the writer as \"you\", and " +
-          "make it directive. On a revision, refer back to your last note first — " +
-          "acknowledge it if they acted on it, or say you don't see the change you " +
-          "asked for yet — then give the ask. If they met the standard, name what " +
-          "worked. If not, push them with a \"Try …\" that tells them what to do next " +
-          "— e.g. \"Try pushing this further: pick one moment from the book and show " +
-          "why it backs up your idea.\" Coach toward the thinking; never write the " +
-          "analysis for them.",
+          "One or two short sentences spoken DIRECTLY to the writer as \"you\", warm and " +
+          "specific. On \"exceeds\" or \"meets\", name what actually worked in their " +
+          "thinking. On \"below\", be honest that it's not there yet and encouraging about " +
+          "the fix. On a revision, refer back to your last note first — acknowledge what " +
+          "they acted on, or say you don't see the change you asked for yet — then give " +
+          "the ask. Coach toward the thinking; never write the argument for them.",
+      },
+      thinking_next: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "A short (2–4 item) do-this checklist of directions, the way a tutor points the " +
+          "way WITHOUT writing it for them. Tailor it to the band: on \"below\", concrete " +
+          "moves to reach a passing essay — e.g. \"Pick one real thing you actually " +
+          "believe about this and say it in a sentence,\" \"Add one true example from your " +
+          "own life that shows why,\" \"Explain what that example proves.\" On \"meets\", " +
+          "specific ways to push it to \"exceeds\" for the bonus — e.g. \"Add the other " +
+          "side: when might the opposite be true?\", \"Show a moment that complicates your " +
+          "point,\" \"Say whether your view changed as you thought it through.\" On " +
+          "\"exceeds\", 1–2 short bullets naming what made the thinking land, so they know " +
+          "what to repeat. Suggest directions and questions to explore — never hand over " +
+          "the actual idea, example, or answer.",
       },
     },
-    required: [
-      "comprehension_met",
-      "comprehension_note",
-      "mechanics_score",
-      "mechanics_fixes",
-      "thinking_score",
-      "thinking_note",
-    ],
+    required: ["grammar_ok", "grammar_fixes", "thinking_band", "thinking_next"],
   },
 };
 
-/** Coerce a raw score to an integer in [1,4], or null if unusable. */
-function toScore(v: unknown): number | null {
-  const n = typeof v === "number" ? Math.round(v) : NaN;
-  return Number.isFinite(n) && n >= 1 && n <= 4 ? n : null;
+/** Coerce a raw band to a ThinkingBand, or null if unusable. */
+function toBand(v: unknown): ThinkingBand | null {
+  return v === "below" || v === "meets" || v === "exceeds" ? v : null;
 }
 
 const ungraded = (): EssayGrade => ({
   graded: false,
   meetsStandard: false,
-  total: null,
   scores: {
-    comprehension: { met: null, note: "" },
-    mechanics: { score: null, note: "" },
-    thinking: { score: null, note: "" },
+    grammar: { met: null, note: "" },
+    thinking: { band: null, note: "" },
   },
   notes: "",
 });
 
 /**
- * Grade one longform essay against its three-dimension rubric. A blank essay
- * short-circuits to a graded fail (no API call). Any API/parse failure resolves
- * to an ungraded result so the caller records it without failing the submission.
- * "Meets standard" — the pass that advances the book — means the three dimensions
- * sum to at least ESSAY_PASS_MIN of 12, so a weak part can be carried by a strong
- * one (a total below that is "close, but revise and resubmit").
+ * Grade one essay: a pass/fail grammar readability gate plus the one graded dimension,
+ * quality of thinking, on a below/meets/exceeds band. A blank essay short-circuits to
+ * a graded fail (no API call). Any API/parse failure resolves to an ungraded result so
+ * the caller records it without failing the submission. "Meets standard" — the pass
+ * that advances the book — means grammar passed AND the thinking reaches at least
+ * "meets" (below that is "close, but revise and resubmit").
  */
 export async function gradeEssay(input: {
-  /** Part 1 (comprehension) prompt. Empty for a legacy single-part essay. */
-  comprehensionPrompt?: string | null;
-  /** Part 1 (comprehension) answer — the short proof-of-reading. */
-  comprehensionAnswer?: string | null;
-  /** Part 2 prompt (the personal question). */
+  /** Part 2 prompt (the point-of-view question). */
   prompt: string;
-  anchorSummary: string;
   rubric: EssayRubric | null;
-  /** Part 2 answer — the essay that carries the grade. */
+  /** The essay that carries the grade. */
   essay: string;
   readerAge?: number | null;
   minWords?: number | null;
   /** This attempt's number (1 = first try, 2+ = a revision), so the grader can
    *  reward progress rather than re-judging each draft from scratch. */
   attemptNumber?: number | null;
-  /** The previous draft and its per-dimension scores, for the same reason. */
+  /** The previous draft and its scores, for the same reason. */
   priorEssay?: string | null;
   priorScores?: EssayRubricScores | null;
 }): Promise<EssayGrade> {
@@ -298,13 +279,11 @@ export async function gradeEssay(input: {
     return {
       graded: true,
       meetsStandard: false,
-      total: 2,
       scores: {
-        comprehension: { met: false, note: "There's nothing written yet." },
-        mechanics: { score: 1, note: "", fixes: [] },
-        thinking: { score: 1, note: "There's nothing written yet." },
+        grammar: { met: null, note: "", fixes: [] },
+        thinking: { band: "below", note: "There's nothing written yet.", next: [] },
       },
-      notes: "You left Part 2 blank — give it a real try and resubmit!",
+      notes: "You left the essay blank — give it a real try and resubmit!",
     };
   }
 
@@ -317,29 +296,32 @@ export async function gradeEssay(input: {
       ? `They were asked to aim for about ${input.minWords} words; judge thinking on substance, not length.\n`
       : "";
 
-  // On a revision, give the grader the previous draft and its scores so it can
-  // reward genuine progress instead of re-critiquing from scratch and surfacing a
-  // fresh batch of ever-smaller nitpicks each round.
+  // On a revision, give the grader the previous draft and its grade so it can reward
+  // genuine progress instead of re-critiquing from scratch and surfacing a fresh batch
+  // of ever-smaller nitpicks each round.
   const attempt = input.attemptNumber ?? 1;
   const ps = input.priorScores;
   // The exact feedback the writer was handed last round — so the grader judges this
-  // draft as a rework of that one (did they address what you flagged?) rather than
-  // re-critiquing it from scratch and surfacing a fresh batch of smaller nitpicks.
-  const priorFixes = ps?.mechanics.fixes?.length
-    ? ps.mechanics.fixes.map((f) => `    • ${f}`).join("\n") + "\n"
+  // draft as a rework of that one (did they address what you flagged?).
+  const priorFixes = ps?.grammar.fixes?.length
+    ? ps.grammar.fixes.map((f) => `    • ${f}`).join("\n") + "\n"
     : "    (none)\n";
-  const priorMet =
-    ps?.comprehension.met === true
-      ? "met"
-      : ps?.comprehension.met === false
-        ? "not met"
+  const priorNext = ps?.thinking.next?.length
+    ? ps.thinking.next.map((f) => `    • ${f}`).join("\n") + "\n"
+    : "    (none)\n";
+  const priorGrammar =
+    ps?.grammar.met === true
+      ? "passed"
+      : ps?.grammar.met === false
+        ? "failed"
         : "—";
   const priorFeedbackBlock = ps
     ? `Last round's grade and the EXACT feedback you gave the writer:\n` +
-      `- Comprehension gate: ${priorMet}. ${ps.comprehension.note || "(no note)"}\n` +
-      `- Mechanics ${ps.mechanics.score ?? "—"}/4. Fixes you asked them to make:\n` +
+      `- Grammar gate: ${priorGrammar}. Cleanup list you gave them:\n` +
       priorFixes +
-      `- Thinking ${ps.thinking.score ?? "—"}/4: ${ps.thinking.note || "(no note)"}\n`
+      `- Thinking: ${ps.thinking.band ?? "—"}. ${ps.thinking.note || "(no note)"}\n` +
+      `  Directions you gave them to improve:\n` +
+      priorNext
     : "";
   const priorEssayBlock = input.priorEssay?.trim()
     ? `Their PREVIOUS draft (for comparing progress):\n"""\n${input.priorEssay.trim()}\n"""\n\n`
@@ -348,22 +330,18 @@ export async function gradeEssay(input: {
     attempt > 1
       ? `This is revision ${attempt - 1} (attempt ${attempt}), a rework of the draft ` +
         `below.\n${priorFeedbackBlock}\n` +
-        `Grade this as a revision, not a fresh essay: go through the feedback above ` +
-        `and credit what they addressed. If they fixed what you flagged and a ` +
-        `dimension is clearly better with only minor or subjective issues left, give ` +
-        `it credit and score it 3 (meets standard) — a child who fixes what you ` +
-        `flagged should move up, not be held at a 2 by brand-new nitpicks you didn't ` +
-        `raise before. Only keep a dimension below 3 if real grade-level problems ` +
-        `genuinely remain or your earlier feedback was ignored. Your notes must read ` +
-        `like an ongoing conversation across revisions, not a fresh first reaction ` +
-        `each time. When a dimension is essentially unchanged because they did NOT act ` +
-        `on what you asked last time, say so plainly in that note: name the guidance ` +
-        `you already gave and that you don't see it reflected yet, THEN repeat the ask ` +
-        `— e.g. "Last time I asked you to retell the nutmeg moment in your own words, ` +
-        `and I don't see that change yet, so let's start there: …". When they clearly ` +
-        `did act on it, acknowledge that too ("You took my note about … — nice work"). ` +
-        `Refer back to your prior guidance the way a tutor who remembers the last ` +
-        `session would.\n\n` +
+        `Grade this as a revision, not a fresh essay: go through the feedback above and ` +
+        `credit what they addressed. If they took your directions and the thinking is ` +
+        `clearly better, move the band up — a child who does what you asked should rise, ` +
+        `not be held down by brand-new nitpicks you didn't raise before. Only keep the ` +
+        `band where it was if the real problem genuinely remains or your earlier ` +
+        `guidance was ignored. Your notes must read like an ongoing conversation across ` +
+        `revisions, not a fresh first reaction each time. When the thinking is basically ` +
+        `unchanged because they did NOT act on what you asked, say so plainly: name the ` +
+        `guidance you already gave and that you don't see it reflected yet, THEN repeat ` +
+        `the ask. When they clearly did act on it, acknowledge that too ("You took my ` +
+        `note about … — nice work"). Refer back to your prior guidance the way a tutor ` +
+        `who remembers the last session would.\n\n` +
         priorEssayBlock
       : "";
 
@@ -374,59 +352,39 @@ export async function gradeEssay(input: {
       max_tokens: 1024,
       system:
         "You are an encouraging but honest middle-school English teacher grading a " +
-        "child's TWO-PART book essay. Part 1 is a short comprehension check and Part 2 " +
-        "is the real writing — a personal response that uses a theme from the book as a " +
-        "launching point to think about something that matters to the child. " +
-        "COMPREHENSION IS A PASS/FAIL GATE, not a score: set comprehension_met true " +
-        "whenever the child's short Part 1 answer shows they actually read the assigned " +
-        "pages (judged against the anchor), in their OWN words — an accurate paraphrase " +
-        "fully counts, never require quotes, and a short answer still passes. Set it " +
-        "false only when Part 1 is blank, plainly wrong, or so vague it needed no " +
-        "reading. If there's no separate Part 1, judge the gate from how the essay " +
-        "opens. Then grade Part 2 on two dimensions, each 1–4 (1 = needs a lot of work, " +
-        "2 = developing, 3 = meets the standard for the child's grade, 4 = exceptional): " +
-        "writing mechanics, and quality of thinking (reward genuine, honest reflection " +
-        "over length — never reward padding, and do NOT lower the score because the " +
-        "response strays from the book; Part 2 is meant to be about the child's own " +
-        "life and ideas). Score each dimension honestly on its own merits: 3 is solid " +
-        "grade-level work, 2 is developing, 4 is exceptional. Be forgiving on mechanics " +
-        "and grade the writing " +
-        "as a whole: a 3 just means the essay is easy to read — mostly-complete " +
-        "sentences, broken into paragraphs, spelling and end punctuation mostly right — " +
-        "and a handful of ordinary slips (some misspellings, a missed capital, a " +
-        "couple of run-ons, a 'to'/'too' mix-up) are completely fine at a 3 for a " +
-        "child. Mechanics covers spelling, capitalization, punctuation, sentence " +
-        "completeness, and paragraphing ONLY — never word choice, phrasing, or style, " +
-        "and never an optional or stylistic comma, which is a judgment call, not an " +
-        "error. Reserve a 2 or below for writing that's genuinely hard to follow " +
-        "(errors in most sentences) or a single undivided block with no paragraph " +
-        "breaks. Expect the broader-theme idea to be genuinely developed, not a thin " +
-        "afterthought. When this is a revision, you'll be given the previous draft and " +
-        "the exact feedback you gave on it — reward real improvement: a dimension " +
-        "that's clearly better than last time with only minor issues left meets the " +
-        "standard, and a child who keeps improving across revisions should be able to " +
-        "pass rather than be held down by new, smaller nitpicks. Sound like the same " +
-        "tutor continuing the conversation: when they acted on your guidance, say so; " +
-        "when a dimension is unchanged because they ignored it, name the note you " +
-        "already gave and say you don't see it reflected yet before repeating the ask. " +
-        "Write each dimension's note as ONE sentence " +
-        "spoken DIRECTLY to the writer (\"you\") and make it directive: when they've " +
-        "met the standard, say what worked; when they haven't, give a concrete \"Try …\" " +
-        "that tells them what to do in the next version. For comprehension and quality " +
-        "of thinking, coach toward it — point them to what to reread or push further — " +
-        "but never hand them the missing facts, the analysis, or the answer; that " +
-        "thinking is theirs to do. When you point them somewhere, name it the way the " +
-        "writer will recognize it (\"the opening of your essay,\" \"the part where Leo does " +
-        "the nutmeg\") and never invent a reference like \"Entry #1,\" a section or figure " +
-        "label, or a page number — they have no such markers. MECHANICS carries NO " +
-        "summary sentence: its feedback is the fix-it checklist alone — quote each clear " +
-        "error, give the correction outright, and add a few words on the rule, so the " +
-        "child can follow the list and learn from it (here you DO correct the writing " +
-        "directly). Keep the mechanics score and that checklist in lockstep: an empty " +
-        "checklist means a clean essay and scores 4, while a 3 means it reads fine but " +
-        "still has a few specific errors that you list — never a 3 with an empty " +
-        "checklist. Do not write a separate overall summary — the per-dimension notes " +
-        "are the whole of the feedback.",
+        "child's book essay. The essay asks the child to take a theme from their reading " +
+        "as a launching point and think through and articulate a POINT OF VIEW on " +
+        "something that matters in their own life — school, sports, friends, a goal. It " +
+        "is NOT a literary analysis; the child is meant to make and back up a claim of " +
+        "their own, and straying into their own life is encouraged, never penalized. You " +
+        "produce TWO things. FIRST, a pass/fail GRAMMAR gate — readability ONLY: are the " +
+        "sentences mostly complete, spelling and end punctuation mostly right, and is it " +
+        "broken into paragraphs? Be forgiving — ordinary slips still pass (they go in the " +
+        "cleanup list, they don't fail the gate); fail it only when errors genuinely get " +
+        "in the way of understanding or there are no paragraph breaks at all. Grammar is " +
+        "NEVER about style, word choice, or phrasing. SECOND, the real grade — QUALITY OF " +
+        "THINKING on a below/meets/exceeds band, judged at the child's age. \"below\": no " +
+        "real idea of their own (restates the prompt, retells the plot, a generic " +
+        "platitude, or a list with no thought) and no specific detail. \"meets\": an honest " +
+        "effort with a real position or idea of their own, made concrete by at least one " +
+        "specific detail (a real moment, person, or example) connected back to the idea — " +
+        "one point made decently is enough. \"exceeds\": the thinking goes somewhere — " +
+        "genuine insight or nuance for their age, like weighing two sides or a tension, " +
+        "answering a counter-view, showing how their thinking changed, an honest " +
+        "admission, or a non-obvious connection; one genuinely developed moment of " +
+        "insight is enough. NEVER let big vocabulary, extra length, or deep-sounding " +
+        "generalities raise the band — the insight must live in the substance of what " +
+        "they say, not one clever phrase. Calibrate \"exceeds\" as a real, earnable bar " +
+        "for a strong, genuinely-trying kid, not perfection. Speak all notes and " +
+        "directions DIRECTLY to the writer as \"you\", warm and specific, and coach toward " +
+        "the thinking — point them at what to try or push on, but NEVER write the idea, " +
+        "the example, or the argument for them (that thinking is theirs). When you point " +
+        "somewhere, name it the way they'll recognize it (\"the opening of your essay\") " +
+        "and never invent a reference like \"Entry #1,\" a section label, or a page number " +
+        "— they have no such markers. On a revision you'll get the previous draft and the " +
+        "exact feedback you gave; reward real improvement and sound like the same tutor " +
+        "continuing the conversation. The grammar cleanup list corrects the writing " +
+        "directly; the thinking note and directions only guide.",
       tools: [GRADE_ESSAY_TOOL],
       tool_choice: { type: "tool", name: GRADE_ESSAY_TOOL.name },
       messages: [
@@ -434,17 +392,12 @@ export async function gradeEssay(input: {
           role: "user",
           content:
             `${ageLine}${lengthLine}${revisionBlock}` +
-            `PART 1 — comprehension check (prompt shown to the child): ` +
-            `${input.comprehensionPrompt?.trim() || "(none — judge the gate from the essay's opening)"}\n` +
-            `PART 1 — the child's answer: ${input.comprehensionAnswer?.trim() || "(left blank)"}\n\n` +
-            `What Part 1 must show they read (anchor — teacher-facing, do NOT repeat ` +
-            `it to the child): ${input.anchorSummary || "(none provided)"}\n\n` +
-            `PART 2 — the writing prompt the child answered:\n${input.prompt}\n\n` +
+            `The writing prompt the child answered (they take and back up a point of ` +
+            `view on their own life):\n${input.prompt}\n\n` +
             `Rubric:\n` +
-            `- Comprehension gate: ${input.rubric?.comprehension || "(use your judgment)"}\n` +
-            `- Mechanics: ${input.rubric?.mechanics || "(use your judgment)"}\n` +
+            `- Grammar (readability gate): ${input.rubric?.grammar || "(use your judgment)"}\n` +
             `- Thinking: ${input.rubric?.thinking || "(use your judgment)"}\n\n` +
-            `PART 2 — the child's writing:\n"""\n${input.essay.trim()}\n"""\n\n` +
+            `The child's essay:\n"""\n${input.essay.trim()}\n"""\n\n` +
             `Grade it and call grade_essay exactly once.`,
         },
       ],
@@ -453,45 +406,141 @@ export async function gradeEssay(input: {
     if (!toolUse || toolUse.type !== "tool_use") return ungraded();
 
     const p = toolUse.input as Record<string, unknown>;
-    const comprehensionMet =
-      typeof p.comprehension_met === "boolean" ? p.comprehension_met : null;
-    const mechanics = toScore(p.mechanics_score);
-    const thinking = toScore(p.thinking_score);
+    const grammarOk = typeof p.grammar_ok === "boolean" ? p.grammar_ok : null;
+    const band = toBand(p.thinking_band);
     const noteOf = (v: unknown) => (typeof v === "string" ? v.trim() : "");
-    const fixesOf = (v: unknown): string[] =>
+    const listOf = (v: unknown): string[] =>
       Array.isArray(v)
         ? v.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean)
         : [];
 
-    const mechanicsFixes = fixesOf(p.mechanics_fixes);
-    // Mechanics shows only its fix-it checklist, so the score must agree with it: an
-    // empty checklist means nothing left to correct and earns full marks — otherwise
-    // the reader sees a sub-4 score with no listed reason (which reads as "I fixed
-    // everything and still didn't get a 4"). The prompt has the grader list every
-    // issue, structural ones included, so an empty list is genuinely a clean essay.
-    const mechanicsScore =
-      mechanics != null && mechanicsFixes.length === 0 ? 4 : mechanics;
-
     const scores: EssayRubricScores = {
-      comprehension: { met: comprehensionMet, note: noteOf(p.comprehension_note) },
-      mechanics: { score: mechanicsScore, note: "", fixes: mechanicsFixes },
-      thinking: { score: thinking, note: noteOf(p.thinking_note) },
+      grammar: { met: grammarOk, note: "", fixes: listOf(p.grammar_fixes) },
+      thinking: {
+        band,
+        note: noteOf(p.thinking_note),
+        next: listOf(p.thinking_next),
+      },
     };
-    // Earned (Part 2) score out of 8 — comprehension is a gate, not part of the total.
-    const total =
-      mechanicsScore != null && thinking != null ? mechanicsScore + thinking : null;
-    const graded = comprehensionMet != null && total != null;
-    // Pass = comprehension gate met AND the earned Part 2 score clears the bar. A
-    // strong Part 2 is never dragged by a terse Part 1; failing the gate blocks the
-    // pass no matter how good Part 2 is.
-    const meetsStandard =
-      comprehensionMet === true && total != null && total >= ESSAY_PASS_MIN;
-    return { graded, meetsStandard, total, scores, notes: "" };
+    // Graded only when both parts came back usable; "meets standard" (the pass) is
+    // grammar gate met AND thinking at meets-or-above.
+    const graded = grammarOk != null && band != null;
+    const meetsStandard = essayPassed(scores);
+    return { graded, meetsStandard, scores, notes: "" };
   } catch (err) {
     console.error(
       "[reading/quiz-grade] Essay grade failed:",
       err instanceof Error ? err.message : String(err)
     );
     return ungraded();
+  }
+}
+
+export type ComprehensionGrade = {
+  /** null = couldn't grade (API failure); the caller keeps the gate uncleared. */
+  met: boolean | null;
+  /** A short note: an affirmation on a pass, or a directive "Try …" hint on a miss. */
+  note: string;
+};
+
+const GRADE_COMPREHENSION_TOOL = {
+  name: "grade_comprehension",
+  description:
+    "Judge whether a child's short Part 1 answer proves they read the assigned pages.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      met: {
+        type: "boolean",
+        description:
+          "Did the child prove, in their short answer, that they actually read the " +
+          "assigned pages (judged against the anchor)? This is a LOW, easy-to-clear " +
+          "bar — true whenever the answer shows real knowledge of what happened, IN THE " +
+          "CHILD'S OWN WORDS (an accurate paraphrase fully counts; never require quotes). " +
+          "Return false ONLY when the answer is blank, plainly wrong, or so vague it " +
+          "could have been written without reading. A short but correct answer passes — " +
+          "never penalize brevity.",
+      },
+      note: {
+        type: "string",
+        description:
+          "One short sentence spoken DIRECTLY to the child as \"you\". If met, a quick " +
+          "affirmation (\"You showed me you read it — I could tell exactly what " +
+          "happened.\"). If not met, a directive \"Try …\" that points them at what to " +
+          "reread WITHOUT handing over the answer (\"Try telling me in a sentence what " +
+          "actually happens when Thresh lets her go.\"). NEVER invent a reference like " +
+          "\"Entry #1,\" a section label, or a page number; the child has no such markers.",
+      },
+    },
+    required: ["met", "note"],
+  },
+};
+
+/**
+ * Grade the Part 1 comprehension gate on its own — the quick pass/fail check the child
+ * clears before the essay screen opens. A blank answer short-circuits to a miss (no
+ * API call). Any API/parse failure resolves to { met: null } so the caller leaves the
+ * gate uncleared and lets them try again rather than failing hard.
+ */
+export async function gradeComprehension(input: {
+  prompt: string;
+  anchorSummary: string;
+  rubric?: string | null;
+  answer: string;
+  readerAge?: number | null;
+}): Promise<ComprehensionGrade> {
+  if (!input.answer.trim()) {
+    return {
+      met: false,
+      note: "Give it a try — a sentence or two on what happened in these pages.",
+    };
+  }
+
+  const ageLine =
+    input.readerAge != null
+      ? `The child is ${input.readerAge} years old; judge at that level.\n`
+      : "";
+
+  try {
+    const client = anthropic();
+    const message = await client.messages.create({
+      model: JOURNAL_MODEL,
+      max_tokens: 256,
+      system:
+        "You are a kind reading teacher running a quick comprehension check. The child " +
+        "answers a short question to prove they read the assigned pages. It's a LOW, " +
+        "easy-to-clear pass/fail gate: pass whenever the answer shows real knowledge of " +
+        "what happened in the child's own words (a paraphrase fully counts; never require " +
+        "quotes; a short answer still passes). Fail only when it's blank, plainly wrong, " +
+        "or so vague it needed no reading. Then write one short sentence to the child: an " +
+        "affirmation on a pass, or a directive \"Try …\" hint on a miss that points them " +
+        "to reread without giving away the answer.",
+      tools: [GRADE_COMPREHENSION_TOOL],
+      tool_choice: { type: "tool", name: GRADE_COMPREHENSION_TOOL.name },
+      messages: [
+        {
+          role: "user",
+          content:
+            `${ageLine}The question (shown to the child): ${input.prompt}\n\n` +
+            `What the answer must show they read (anchor — teacher-facing, do NOT repeat ` +
+            `it to the child): ${input.anchorSummary || "(none provided)"}\n\n` +
+            `The bar for a pass: ${input.rubric || "(use your judgment)"}\n\n` +
+            `The child's answer: "${input.answer.trim()}"\n\n` +
+            `Judge it and call grade_comprehension exactly once.`,
+        },
+      ],
+    });
+    const toolUse = message.content.find((b) => b.type === "tool_use");
+    if (!toolUse || toolUse.type !== "tool_use") return { met: null, note: "" };
+    const p = toolUse.input as { met?: unknown; note?: unknown };
+    const met = typeof p.met === "boolean" ? p.met : null;
+    const note = typeof p.note === "string" ? p.note.trim() : "";
+    return { met, note };
+  } catch (err) {
+    console.error(
+      "[reading/quiz-grade] Comprehension grade failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return { met: null, note: "" };
   }
 }

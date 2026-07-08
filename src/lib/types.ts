@@ -1096,40 +1096,49 @@ export type ReadingQuizStatus = "draft" | "published" | "archived";
 export type ReadingQuizQuestionType = "multiple_choice" | "free_text" | "essay";
 
 /**
- * The three dimensions an essay is written and graded against, pitched to the
- * reader's age: comprehension of the reading, writing mechanics, and quality of
- * thinking. On a question these hold the rubric prose; on an answer (see
- * `EssayRubricScores`) they hold the grades.
+ * The three things an essay is written and graded against, pitched to the reader's
+ * age: comprehension of the reading (Part 1 gate), grammar/writing (a readability
+ * gate), and quality of thinking (the graded dimension). On a question these hold the
+ * rubric prose; on an answer (see `EssayRubricScores`) grammar + thinking hold the
+ * grades and comprehension is cleared separately on the quiz.
  */
 export type EssayRubric = {
   comprehension: string;
-  mechanics: string;
+  grammar: string;
   thinking: string;
 };
 
-/** One graded dimension: a 1–4 score (null = couldn't grade) plus a short note.
- *  `fixes` is mechanics-only: a concrete, do-this checklist (quote the error, give
- *  the correction, name the rule) the child can follow to clean up the writing. */
-export type EssayRubricScore = {
-  score: number | null;
+/** The essay's single graded dimension: a three-band judgment of the thinking. */
+export type ThinkingBand = "below" | "meets" | "exceeds";
+
+/** Grammar/writing is a pass/fail readability GATE — readable sentences, spelling,
+ *  punctuation, and paragraphs (never style or word choice). `met` is null until
+ *  graded. `fixes` is a concrete, do-this checklist (quote the error, give the
+ *  correction, name the rule) the child can follow to clean up the writing; it can be
+ *  present even on a pass. A failed grammar gate blocks the pass until it's cleaned up. */
+export type EssayGrammarGate = {
+  met: boolean | null;
   note: string;
   fixes?: string[];
 };
 
-/** Part 1 is a pass/fail comprehension GATE, not a scored dimension: did the kid
- *  prove, in a sentence or two, that they read the pages? `met` is null until
- *  graded. It can't carry or drag the grade — it only gates the pass. */
-export type EssayGateResult = {
-  met: boolean | null;
+/** Quality of thinking — THE grade — on a below/meets/exceeds band. `band` is null
+ *  until graded. `note` is a one/two-sentence directive spoken to the writer; `next`
+ *  is the tutor's do-this bullets: on "below" what a "meets" needs, on "meets" how to
+ *  reach "exceeds", on "exceeds" a brief note on what made it land. */
+export type EssayThinkingScore = {
+  band: ThinkingBand | null;
   note: string;
+  next?: string[];
 };
 
-/** The graded breakdown stored on an essay answer row: a comprehension gate (Part 1)
- *  plus the two scored Part 2 dimensions (mechanics, thinking) that carry the grade. */
+/** The graded breakdown stored on an essay answer row: a pass/fail grammar gate plus
+ *  the below/meets/exceeds thinking grade. (Comprehension is a quiz-level prerequisite
+ *  cleared before the essay — see `ReadingQuiz.comprehension_cleared_at` — so it is not
+ *  part of the per-answer grade.) */
 export type EssayRubricScores = {
-  comprehension: EssayGateResult;
-  mechanics: EssayRubricScore;
-  thinking: EssayRubricScore;
+  grammar: EssayGrammarGate;
+  thinking: EssayThinkingScore;
 };
 
 /** A graded essay attempt's feedback, shown as a grade card on the results and
@@ -1168,6 +1177,12 @@ export type ReadingQuiz = {
    * take/retake, grading, results, and journal share key off it.
    */
   chosen_question_id: string | null;
+  /** essay: when the kid cleared the Part 1 comprehension gate (a separate first step,
+   *  cleared once). Null until cleared; the taking flow shows the comprehension step
+   *  until it's set, and setting it also locks parent steering. */
+  comprehension_cleared_at: string | null;
+  /** essay: the kid's short Part 1 answer that cleared the gate. */
+  comprehension_text: string | null;
   published_at: string | null;
   created_at: string;
   updated_at: string;
@@ -1255,7 +1270,7 @@ export type ReadingQuizAnswer = {
   is_correct: boolean | null;
   /** free_text/essay: the AI's note on why the answer was good/bad. */
   ai_notes: string | null;
-  /** essay: the per-dimension rubric grades (comprehension/mechanics/thinking). */
+  /** essay: the graded rubric — the grammar gate + the thinking band. */
   rubric_scores: EssayRubricScores | null;
   created_at: string;
 };
@@ -1282,6 +1297,11 @@ export type ReadingQuizResult = {
   attempts: ReadingQuizAttemptSummary[];
   /** True once any attempt got every question right. */
   passed: boolean;
+  /** True once any essay attempt reached "exceeds" (the standout bonus). */
+  exceeded: boolean;
+  /** Essay: the reader passed with "meets" and still has the single optional shot at
+   *  "exceeds" (the bonus) — the results view offers "try once more for the bonus". */
+  bonusShotAvailable: boolean;
 };
 
 /** The active quiz tied to a book's check-in: published and not yet passed. */

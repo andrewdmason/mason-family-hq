@@ -11,10 +11,12 @@ import type { EssayRubric } from "@/lib/types";
  * Each assignment is a TWO-PART exercise:
  *   Part 1 (comprehension) — a short prompt, answerable in a sentence or two, that
  *   proves the child read the assigned pages. It's a light gate, not the point.
- *   Part 2 (the real work) — a longer, personal question that takes a theme from
- *   the reading as a launching pad and connects it to something the child actually
- *   cares about (from their Present profile), so writing becomes a way to think
- *   through something useful to them, not a book report.
+ *   Part 2 (the real work) — a longer question that takes a theme from the reading as
+ *   a launching pad and asks the child to think through and articulate a POINT OF VIEW
+ *   on something that matters in their own life (school, sports, friends, a goal — see
+ *   their Present profile): take a position and back it up. It's an argument/opinion
+ *   prompt, deliberately NOT a "how do you feel" one, so writing becomes a way to
+ *   sharpen what they actually think, not a book report.
  *
  * We generate THREE distinct candidates in one call; a parent curates them down to
  * the one the child writes (see chosen_question_id). Each carries a grader-facing
@@ -89,10 +91,14 @@ const REPORT_ESSAY_TOOL = {
               description:
                 "Part 2, shown to the child: the real writing. Take a theme, idea, or " +
                 "question raised by the reading and use it as a launching point to ask the " +
-                "child something genuinely interesting to THEM and useful to think through — " +
-                "tied to their own life, interests, or goals (see the reader profile). This " +
-                "is where the thinking happens; it may connect only loosely to the book. Warm, " +
-                "open, 1–3 plain sentences. Do NOT mention word count, length, or grading.",
+                "child to think through and ARTICULATE A POINT OF VIEW on an issue that's " +
+                "real in THEIR life — school, sports, friends, competing, a goal (see the " +
+                "reader profile). It should invite them to take a position and back it up, or " +
+                "weigh a genuine 'which is better / what really matters / is X worth it' " +
+                "question — an argument or opinion prompt, NOT a 'how does that make you " +
+                "feel' one. It may connect only loosely to the book. Warm, concrete, 1–3 " +
+                "plain sentences, and it's good to end on the actual question they'll argue. " +
+                "Do NOT mention word count, length, or grading.",
             },
             anchor_summary: {
               type: "string",
@@ -112,20 +118,22 @@ const REPORT_ESSAY_TOOL = {
                     "The bar for the Part 1 gate — what the child's short answer must show " +
                     "to prove they read (matches the anchor). A low, easy-to-clear bar.",
                 },
-                mechanics: {
+                grammar: {
                   type: "string",
                   description:
-                    "The grammar, spelling, punctuation, paragraphing, and structure " +
-                    "expected of a writer this age, judged on the Part 2 writing.",
+                    "The readability bar for a writer this age — complete-enough sentences, " +
+                    "mostly-right spelling and punctuation, and real paragraph breaks. A " +
+                    "pass/fail gate about being easy to read, NOT style or word choice.",
                 },
                 thinking: {
                   type: "string",
                   description:
-                    "What strong thinking looks like in Part 2 — originality, depth, honesty, " +
-                    "and how well ideas are supported. Reward real reflection over length.",
+                    "What strong thinking looks like in Part 2 — a real point of view of " +
+                    "their own, backed with a specific reason or example, and (at its best) " +
+                    "nuance like weighing another side. Reward honest reasoning over length.",
                 },
               },
-              required: ["comprehension", "mechanics", "thinking"],
+              required: ["comprehension", "grammar", "thinking"],
             },
           },
           required: ["comprehension_prompt", "prompt", "anchor_summary", "rubric"],
@@ -182,15 +190,18 @@ function buildPrompt(input: {
       `About this reader — use this to make Part 2 genuinely connect to their real ` +
         `life, interests, and goals:\n${input.readerContext}\n` +
         `Part 2 SHOULD reach for something that matters to this specific child (a passion, ` +
-        `a goal they're chasing, a question they'd actually care about) and use a theme from ` +
-        `the reading as the launching point. Vary the connection across the three so it's a ` +
-        `real choice, and keep it honest — a connection that feels natural beats a forced one.`
+        `a goal they're chasing, a debate they'd actually have) and use a theme from the ` +
+        `reading as the launching point to get them to STAKE OUT AND DEFEND A POINT OF VIEW ` +
+        `on it — take a side, or weigh a real "which matters more / is it worth it" question. ` +
+        `Not a feelings check-in. Vary the connection across the three so it's a real ` +
+        `choice, and keep it honest — a connection that feels natural beats a forced one.`
     );
   } else {
     parts.push(
       `You don't have a profile for this reader, so let Part 2 pose a broadly relatable, ` +
-        `age-appropriate question that a child could genuinely enjoy thinking through — still ` +
-        `launched from a theme in the reading.`
+        `age-appropriate question that asks the child to take and defend a point of view on ` +
+        `something in their own life (school, friends, sports, fairness, effort) — an ` +
+        `argument prompt, not a feelings one — still launched from a theme in the reading.`
     );
   }
   parts.push(
@@ -201,9 +212,12 @@ function buildPrompt(input: {
       `asking what happened in ${label} or about a specific detail the child could only know ` +
       `if they read it. Its only job is to prove they did the reading — keep it quick.\n` +
       `• Part 2 (prompt): the real writing. Take a theme or idea from the reading and use it ` +
-      `as a springboard to ask the child something interesting and useful to THEM to think ` +
-      `through — connected to their own life, interests, or goals. It's fine if the tie to the ` +
-      `book is loose; the point is honest thinking, not book analysis. 1–3 plain sentences.\n` +
+      `as a springboard to ask the child to think through and ARTICULATE A POINT OF VIEW on ` +
+      `an issue that's real in their own life (school, sports, friends, a goal) — take a ` +
+      `position and back it up, or weigh a genuine "which is better / what really matters / ` +
+      `is it worth it" question. An argument/opinion prompt, NOT a "how do you feel" one. ` +
+      `It's fine if the tie to the book is loose; the point is honest reasoning, not book ` +
+      `analysis. 1–3 plain sentences, good to end on the question they'll argue.\n` +
       `Base each Part 1 anchor strictly on the text below. Do NOT number the parts inside a ` +
       `field, and do NOT mention word count, length, or grading — put grading criteria only ` +
       `in the rubric.`
@@ -223,12 +237,13 @@ function sanitizeRubric(raw: unknown): EssayRubric | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const comprehension = asString(r.comprehension);
-  const mechanics = asString(r.mechanics);
+  // Prefer the new `grammar` key; fall back to the old `mechanics` for resilience.
+  const grammar = asString(r.grammar) ?? asString(r.mechanics);
   const thinking = asString(r.thinking);
-  if (!comprehension && !mechanics && !thinking) return null;
+  if (!comprehension && !grammar && !thinking) return null;
   return {
     comprehension: comprehension ?? "",
-    mechanics: mechanics ?? "",
+    grammar: grammar ?? "",
     thinking: thinking ?? "",
   };
 }
@@ -289,10 +304,13 @@ export async function generateEssayAssignments(input: {
         "pick the one that best fits their kid. Part 1 is a quick comprehension check — a " +
         "sentence or two proving the child read the exact pages. Part 2 is the real work: " +
         "you take a theme from the reading and use it as a launching point to ask the child " +
-        "something genuinely interesting and useful to THEM — tied to their own life, " +
-        "interests, or goals — so that writing becomes a way to think clearly about something " +
-        "that matters to them, not a book report. The Part 2 tie to the book can be loose; " +
-        "honest thinking matters more than sticking to the plot. The three assignments must " +
+        "to think through and articulate a POINT OF VIEW on something that matters in their " +
+        "own life — school, sports, friends, competing, a goal. It should invite them to " +
+        "take a position and back it up, or weigh a real 'which is better / what matters " +
+        "more / is it worth it' question — an argument or opinion prompt, deliberately NOT a " +
+        "'how does that make you feel' one — so that writing becomes a way to sharpen what " +
+        "they actually think, not a book report. The Part 2 tie to the book can be loose; " +
+        "honest reasoning matters more than sticking to the plot. The three assignments must " +
         "be genuinely different from one another. You never mention word counts or how the " +
         "work will be graded, and never reference or spoil anything beyond the assigned pages.",
       tools: [REPORT_ESSAY_TOOL],

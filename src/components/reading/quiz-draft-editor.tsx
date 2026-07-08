@@ -439,8 +439,8 @@ function QuestionPreview({ question }: { question: ReadingQuizQuestion }) {
                 {question.essay_rubric.comprehension}
               </p>
               <p>
-                <span className="font-medium text-foreground">Mechanics:</span>{" "}
-                {question.essay_rubric.mechanics}
+                <span className="font-medium text-foreground">Grammar (readability gate):</span>{" "}
+                {question.essay_rubric.grammar}
               </p>
               <p>
                 <span className="font-medium text-foreground">Thinking:</span>{" "}
@@ -529,8 +529,8 @@ function QuestionEditForm({
   const [comprehension, setComprehension] = useState(
     question.essay_rubric?.comprehension ?? ""
   );
-  const [mechanics, setMechanics] = useState(
-    question.essay_rubric?.mechanics ?? ""
+  const [grammar, setGrammar] = useState(
+    question.essay_rubric?.grammar ?? ""
   );
   const [thinking, setThinking] = useState(question.essay_rubric?.thinking ?? "");
   const [minWords, setMinWords] = useState(String(question.min_words ?? 150));
@@ -554,7 +554,7 @@ function QuestionEditForm({
             {
               comprehensionPrompt,
               prompt,
-              essayRubric: { comprehension, mechanics, thinking },
+              essayRubric: { comprehension, grammar, thinking },
               ...(Number.isFinite(words) && words > 0 ? { minWords: words } : {}),
             },
             memberEmail
@@ -610,11 +610,13 @@ function QuestionEditForm({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor={`mechanics-${question.id}`}>Rubric · Mechanics</Label>
+            <Label htmlFor={`grammar-${question.id}`}>
+              Rubric · Grammar (readability gate)
+            </Label>
             <Textarea
-              id={`mechanics-${question.id}`}
-              value={mechanics}
-              onChange={(e) => setMechanics(e.target.value)}
+              id={`grammar-${question.id}`}
+              value={grammar}
+              onChange={(e) => setGrammar(e.target.value)}
             />
           </div>
           <div className="grid gap-1.5">

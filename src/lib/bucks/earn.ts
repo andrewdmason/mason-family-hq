@@ -41,14 +41,15 @@ export async function creditReadingBonus(
 }
 
 /**
- * Credit the one-time bonus for a standout essay (a top-band rubric total) to the
- * wallet. Keyed to the submission id, so the ledger's unique (source, reference_id)
- * makes a double-fire a no-op. Best-effort: a failure here never rolls back the
- * pass the reader earned.
+ * Credit the one-time bonus for a standout ("exceeds") essay to the wallet. Keyed to
+ * the QUIZ id, so the ledger's unique (source, reference_id) pays at most once per
+ * assignment — a kid who passes with "meets" and then comes back to hit "exceeds" on
+ * the bonus shot is credited exactly once. Best-effort: a failure here never rolls back
+ * the pass the reader earned.
  */
 export async function creditEssayBonus(
   userId: string,
-  submissionId: string
+  quizId: string
 ): Promise<void> {
   try {
     const admin = createAdminClient();
@@ -56,10 +57,10 @@ export async function creditEssayBonus(
       user_id: userId,
       amount: ESSAY_BONUS_BUCKS,
       source: "reading",
-      reference_id: submissionId,
+      reference_id: quizId,
       note: "Standout essay bonus",
     });
-    // 23505 = unique violation: this submission was already credited. Expected.
+    // 23505 = unique violation: this quiz's bonus was already credited. Expected.
     if (error && error.code !== "23505") {
       console.error("[bucks] essay bonus credit failed:", error.message);
     }
