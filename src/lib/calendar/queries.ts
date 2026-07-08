@@ -2,6 +2,7 @@
 // any provisioned family member can read sources and events.
 
 import { createClient } from "@/lib/supabase/server";
+import { memberPhotoUrl } from "@/lib/media/member-photo-url";
 import { memberColor } from "./calendar-utils";
 import { FAMILY_TZ } from "./drive-time";
 import type {
@@ -27,24 +28,19 @@ export async function getCalendarMembers(): Promise<CalendarMember[]> {
     .order("role", { ascending: true })
     .order("name", { ascending: true });
 
-  // Each member's primary profile photo, as a short-lived signed URL — the
-  // day-view pin markers render these (falling back to initials when absent).
-  const avatars = new Map<string, string>();
+  // Which members have a primary profile photo — the day-view pin markers render
+  // a stable same-origin avatar URL for those (falling back to initials when
+  // absent). We deliberately do NOT bake a signed URL into the HTML here: this
+  // page is served stale from the PWA cache on cold launch, and a signed URL that
+  // old has expired, so it would render as a broken image until manual reload.
+  // memberPhotoUrl points at a route that re-signs on every request instead.
+  const withPhoto = new Set<string>();
   const { data: photos } = await supabase
     .from("journal_member_photos")
-    .select("member_email, storage_path")
+    .select("member_email")
     .eq("is_primary", true);
-  if (photos?.length) {
-    const { data: signed } = await supabase.storage
-      .from("member-photos")
-      .createSignedUrls(
-        photos.map((p) => p.storage_path as string),
-        60 * 60,
-      );
-    photos.forEach((p, i) => {
-      const url = signed?.[i]?.signedUrl;
-      if (url) avatars.set((p.member_email as string).toLowerCase(), url);
-    });
+  for (const p of photos ?? []) {
+    withPhoto.add((p.member_email as string).toLowerCase());
   }
 
   return (data ?? []).map((m) => ({
@@ -53,7 +49,9 @@ export async function getCalendarMembers(): Promise<CalendarMember[]> {
     role: m.role,
     // Official color when set, else a deterministic per-email hash color.
     color: m.color ?? memberColor(m.email),
-    avatar_url: avatars.get(m.email.toLowerCase()) ?? null,
+    avatar_url: withPhoto.has(m.email.toLowerCase())
+      ? memberPhotoUrl(m.email)
+      : null,
     primary_calendar_id: m.primary_calendar_id ?? null,
     primary_calendar_connection: m.primary_calendar_connection ?? null,
     primary_calendar_mode: m.primary_calendar_mode ?? null,
