@@ -41,11 +41,17 @@ export function CloseQuizButton({
     setError(null);
     startTransition(async () => {
       try {
-        await closeQuizWithoutPassing(quizId, memberEmail);
+        const result = await closeQuizWithoutPassing(quizId, memberEmail);
+        if (!result.ok) {
+          setError(result.message);
+          return;
+        }
         if (redirectTo) router.push(redirectTo);
         else router.refresh();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't close this quiz.");
+      } catch {
+        // Server Actions mask thrown error messages in production, so an
+        // unexpected failure here has nothing more specific to show.
+        setError("Couldn't close this quiz — try again.");
       }
     });
   }
