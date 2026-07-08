@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { memberPhotoUrl } from "@/lib/media/member-photo-url";
 import { getEntriesPhotos } from "@/app/(journal)/journal/actions";
 import { getTimelineEntriesPhotos } from "@/lib/timeline/actions";
 import type {
@@ -91,27 +92,24 @@ async function linkedJournalIds(
 }
 
 /**
- * Signed primary-avatar URL per family member email. The member-photos bucket is
- * family-readable, so this signs for any member (no owner-admin needed).
+ * Stable same-origin primary-avatar URL per family member email. We map only the
+ * emails that actually have a primary photo (callers fall back to initials for
+ * the rest). Using a stable URL rather than a baked-in signed URL keeps avatars
+ * from breaking when this page is served stale from the PWA cache — see
+ * src/lib/media/member-photo-url.ts.
  */
 async function memberAvatarUrls(): Promise<Map<string, string>> {
   const map = new Map<string, string>();
   const supabase = await createClient();
   const { data } = await supabase
     .from("journal_member_photos")
-    .select("member_email, storage_path")
+    .select("member_email")
     .eq("is_primary", true);
   if (!data?.length) return map;
-  const { data: signed } = await supabase.storage
-    .from("member-photos")
-    .createSignedUrls(
-      data.map((d) => d.storage_path as string),
-      60 * 60
-    );
-  data.forEach((d, i) => {
-    const url = signed?.[i]?.signedUrl;
-    if (url) map.set((d.member_email as string).toLowerCase(), url);
-  });
+  for (const d of data) {
+    const email = (d.member_email as string).toLowerCase();
+    map.set(email, memberPhotoUrl(email));
+  }
   return map;
 }
 

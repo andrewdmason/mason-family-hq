@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { memberPhotoUrl } from "@/lib/media/member-photo-url";
 import { getUnreadFamilyEntryIds } from "@/lib/journal/notifications";
 import {
   getEntriesImageGenerationStates,
@@ -65,27 +66,22 @@ export async function loadFeedEntries(
       emailByUser.set(m.user_id as string, m.email as string);
     }
 
-    // Each author's primary profile photo, signed for display.
+    // Each author's primary profile photo, addressed by a stable same-origin URL
+    // (not a baked-in signed URL, which expires and breaks when the feed is
+    // served stale from the PWA cache — see src/lib/media/member-photo-url.ts).
     const { data: primaryPhotos } = await supabase
       .from("journal_member_photos")
-      .select("member_email, storage_path")
+      .select("member_email")
       .eq("is_primary", true);
     if (primaryPhotos && primaryPhotos.length > 0) {
-      const pathByEmail = new Map<string, string>();
-      for (const p of primaryPhotos) {
-        pathByEmail.set(p.member_email as string, p.storage_path as string);
-      }
-      const userEmailPairs = [...emailByUser.entries()].filter(([, email]) =>
-        pathByEmail.has(email)
+      const emailsWithPhoto = new Set(
+        primaryPhotos.map((p) => (p.member_email as string).toLowerCase())
       );
-      const paths = userEmailPairs.map(([, email]) => pathByEmail.get(email)!);
-      const { data: signed } = await supabase.storage
-        .from("member-photos")
-        .createSignedUrls(paths, 60 * 60);
-      userEmailPairs.forEach(([uid], i) => {
-        const url = signed?.[i]?.signedUrl;
-        if (url) authorPhotoByUser.set(uid, url);
-      });
+      for (const [uid, email] of emailByUser) {
+        if (emailsWithPhoto.has(email.toLowerCase())) {
+          authorPhotoByUser.set(uid, memberPhotoUrl(email));
+        }
+      }
     }
   }
 
