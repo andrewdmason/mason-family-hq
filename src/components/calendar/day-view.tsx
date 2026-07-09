@@ -574,21 +574,6 @@ export function DayView({
   // the color says whose thing it is, with no cross-column frame physically
   // linking them. Ownerless events fall to the Family column.
   const familyTimed = timed.filter(isFamily);
-  // Which source events each member has a drive leg for — a real travel
-  // commitment, as opposed to merely being "going". Used just below so an event
-  // several members attend doesn't draw a duplicate block in every column.
-  const drivesByMember = new Map<string, Set<string>>();
-  for (const e of timed) {
-    if (
-      e.drive_source_event_id &&
-      e.member_email &&
-      memberEmails.has(e.member_email)
-    ) {
-      const s = drivesByMember.get(e.member_email) ?? new Set<string>();
-      s.add(e.drive_source_event_id);
-      drivesByMember.set(e.member_email, s);
-    }
-  }
   const soloByEmail = new Map<string, CalendarEvent[]>();
   const attendByEmail = new Map<string, CalendarEvent[]>();
   for (const e of timed) {
@@ -605,13 +590,12 @@ export function DayView({
     soloByEmail.set(owner, arr);
     for (const g of attending) {
       if (g === owner) continue;
-      // A shared event renders as ONE card in the owner's column (carrying
-      // every attendee's avatar), not a copy in each attendee's column — two
-      // parents at the same game shouldn't read as two events. The exception is
-      // a member who actually DRIVES to it: their drop-off/pick-up legs fuse
-      // into a block in their own column, since that travel is a real, separate
-      // commitment worth seeing on their day.
-      if (!drivesByMember.get(g)?.has(e.id)) continue;
+      // A shared event still gets its own block in an attendee's column, not
+      // just the owner's — otherwise "going" is invisible on that member's
+      // day. A member who actually DRIVES to it gets drop-off/pick-up legs
+      // fused into that block (placedFor falls back to the event's own
+      // start/end when a leg is missing, e.g. "N/A" — no driving needed, but
+      // still going).
       const a = attendByEmail.get(g) ?? [];
       a.push(e);
       attendByEmail.set(g, a);
