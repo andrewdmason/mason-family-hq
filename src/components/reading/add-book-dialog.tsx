@@ -32,6 +32,7 @@ import {
 // API) rather than through a server action — no extra hop, no action queueing.
 import { searchBooks, type BookSearchResult } from "@/lib/reading/book-search";
 import { RatingPicker } from "@/components/reading/rating-picker";
+import { AssessmentPanel, useAssessBook } from "@/components/reading/assess-book";
 import { READING_STATUSES, readingStatusLabel } from "@/lib/reading/status";
 import { cn } from "@/lib/utils";
 import type { ReadingBookStatus, ReadingRating } from "@/lib/types";
@@ -65,12 +66,20 @@ export function AddBookDialog({
   // Set when the user picks a typeahead suggestion: lets submit skip the AI
   // lookup and add the chosen book straight away. Cleared on any manual edit.
   const [picked, setPicked] = useState<BookSearchResult | null>(null);
-  const [status, setStatus] = useState<ReadingBookStatus>("in_progress");
+  // Default new books to the Queue — most adds are "want to read", not "reading now".
+  const [status, setStatus] = useState<ReadingBookStatus>("queued");
   const [rating, setRating] = useState<ReadingRating | null>(null);
   const [forWhom, setForWhom] = useState<string>(FOR_ME);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const {
+    assessment,
+    error: assessError,
+    pending: assessing,
+    assess,
+    reset: resetAssessment,
+  } = useAssessBook(memberEmail);
 
   const canRecommend = recipients.length > 0;
   const isRecommendation = canRecommend && forWhom !== FOR_ME;
@@ -83,11 +92,12 @@ export function AddBookDialog({
     setCoverImageUrl(null);
     setAiIsbn(null);
     setPicked(null);
-    setStatus("in_progress");
+    setStatus("queued");
     setRating(null);
     setForWhom(FOR_ME);
     setNote("");
     setError(null);
+    resetAssessment();
   }
 
   function handleClose(next: boolean) {
@@ -214,7 +224,33 @@ export function AddBookDialog({
     });
   }
 
+  // A verdict is tied to the exact title it ran on — drop it once the title
+  // changes so the panel never contradicts what's now in the field.
+  useEffect(() => {
+    resetAssessment();
+  }, [title, resetAssessment]);
+
   const submitLabel = isRecommendation ? "Recommend book" : "Add book";
+
+  // "Will I like this?" — only for self-adds (a recommendation to someone else
+  // would assess your taste, not theirs). Available in both steps.
+  const assessSection = !isRecommendation && (
+    <div className="grid gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="justify-self-start"
+        onClick={() => assess(title, author)}
+        disabled={assessing || !title.trim()}
+      >
+        <Sparkles className={assessing ? "animate-pulse" : undefined} />
+        {assessing ? "Thinking…" : "Will I like this?"}
+      </Button>
+      {assessError && <p className="text-xs text-destructive">{assessError}</p>}
+      {assessment && <AssessmentPanel assessment={assessment} />}
+    </div>
+  );
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -265,6 +301,7 @@ export function AddBookDialog({
                   )}
                 </>
               )}
+              {assessSection}
               {error && <p className="text-sm text-destructive">{error}</p>}
               <DialogFooter showCloseButton>
                 <Button type="submit" disabled={pending}>
@@ -336,6 +373,7 @@ export function AddBookDialog({
                   )}
                 </>
               )}
+              {assessSection}
               {error && <p className="text-sm text-destructive">{error}</p>}
               <DialogFooter showCloseButton>
                 <Button type="submit" disabled={pending}>

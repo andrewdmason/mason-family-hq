@@ -12,9 +12,11 @@ import {
   NotebookPen,
   Pencil,
   ShoppingBag,
+  Sparkles,
   Trash2,
   Upload,
 } from "lucide-react";
+import { AssessmentPanel, useAssessBook } from "@/components/reading/assess-book";
 import { BookCover } from "@/components/reading/book-cover";
 import { MarkReachedButton } from "@/components/reading/mark-reached-button";
 import { ChangeTargetButton } from "@/components/reading/change-target-button";
@@ -71,6 +73,12 @@ export function BookCard({
   const [deleting, startDelete] = useTransition();
   const [reflectError, setReflectError] = useState<string | null>(null);
   const [reflecting, startReflect] = useTransition();
+  const {
+    assessment,
+    error: assessError,
+    pending: assessing,
+    assess,
+  } = useAssessBook(memberEmail);
   const {
     inputRef,
     openFilePicker,
@@ -191,6 +199,23 @@ export function BookCard({
               />
             </div>
           )}
+
+          {/* The "will I like this?" taste check — triggered from the menu, its
+              verdict lands here under the book. */}
+          {(assessing || assessError || assessment) && (
+            <div className="mt-2">
+              {assessing && (
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Sizing up whether you&apos;ll like this…
+                </p>
+              )}
+              {assessError && (
+                <p className="text-xs text-destructive">{assessError}</p>
+              )}
+              {assessment && <AssessmentPanel assessment={assessment} />}
+            </div>
+          )}
         </div>
 
         {/* Actions live on the same row as the overflow menu, to its left. */}
@@ -212,15 +237,29 @@ export function BookCard({
             <DropdownMenuTrigger
               className="-mr-1 shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
               aria-label={`Actions for ${book.title}`}
-              disabled={busy || deleting || reflecting}
+              disabled={busy || deleting || reflecting || assessing}
             >
-              {busy || deleting || reflecting ? (
+              {busy || deleting || reflecting || assessing ? (
                 <Loader2 className="h-5 w-5 animate-spin" />
               ) : (
                 <MoreHorizontal className="h-5 w-5" />
               )}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="bottom" className="w-48">
+              {/* Queued books haven't been read yet, so the "will I like this?"
+                  taste check is the useful thing to offer up top. */}
+              {book.status === "queued" && (
+                <>
+                  <DropdownMenuItem
+                    onClick={() => assess(book.title, book.author)}
+                    disabled={assessing}
+                  >
+                    <Sparkles />
+                    Will I like this?
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               {/* Journaling is the signed-in user's own act, so this entry point
                   is self-view only (hidden when an owner views a member's books). */}
               {!memberEmail && (
