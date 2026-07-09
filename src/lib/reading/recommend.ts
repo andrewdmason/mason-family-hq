@@ -107,36 +107,18 @@ function normalizeTitle(title: string): string {
   return title.trim().toLowerCase();
 }
 
-function buildPrompt(
-  profile: TasteProfile,
-  count: number,
-  focus: { genre?: string | null; request?: string | null }
-): string {
+/**
+ * The reader-taste portion of a prompt: their age (and how hard to weight taste
+ * drift by it), then the books they've loved / liked / disliked / abandoned, or a
+ * cold-start note when there's no signal yet. Shared by the batch recommender and
+ * the single-book "will I like this?" assessment so both read taste the same way.
+ */
+function describeReader(profile: TasteProfile): string[] {
   const parts: string[] = [];
-  if (focus.genre) {
-    let line = `Focus this batch on the ${focus.genre} genre.`;
-    // For kids, "Classics" means the age-appropriate canon, not adult literature.
-    if (/classic/i.test(focus.genre) && profile.age != null && profile.age < 18) {
-      line +=
-        ` For a ${profile.age}-year-old, that means the most celebrated, enduring, ` +
-        `age-appropriate "hall of fame" books — timeless favorites and award winners ` +
-        `at their reading level (think the children's/middle-grade canon), NOT adult ` +
-        `literary classics.`;
-    }
-    parts.push(line);
-  }
-  if (focus.request) {
-    // The reader's own free-text ask — treat as a hard filter on this batch.
-    parts.push(
-      `The reader described what they want right now — treat this as a strong ` +
-        `requirement for every pick in this batch (while still honoring their age ` +
-        `and taste): "${focus.request}"`
-    );
-  }
   if (profile.age != null) {
     parts.push(
-      `The reader is ${profile.age} years old. Recommend books that are a great ` +
-        `fit for that age — appropriate in content and reading level.`
+      `The reader is ${profile.age} years old — a great book for them is one that's ` +
+        `age-appropriate in content and reading level.`
     );
     // Each rating below is annotated with the reader's age then and how long ago
     // it was — weight that by how fast their taste is likely still changing.
@@ -181,10 +163,40 @@ function buildPrompt(
   }
   if (!profile.loved.length && !profile.liked.length) {
     parts.push(
-      `They're new and we don't know their taste yet — suggest widely-loved, ` +
-        `accessible books that are a safe, exciting starting point.`
+      `They're new and we don't know their taste yet — treat widely-loved, ` +
+        `accessible books as the safest bet.`
     );
   }
+  return parts;
+}
+
+function buildPrompt(
+  profile: TasteProfile,
+  count: number,
+  focus: { genre?: string | null; request?: string | null }
+): string {
+  const parts: string[] = [];
+  if (focus.genre) {
+    let line = `Focus this batch on the ${focus.genre} genre.`;
+    // For kids, "Classics" means the age-appropriate canon, not adult literature.
+    if (/classic/i.test(focus.genre) && profile.age != null && profile.age < 18) {
+      line +=
+        ` For a ${profile.age}-year-old, that means the most celebrated, enduring, ` +
+        `age-appropriate "hall of fame" books — timeless favorites and award winners ` +
+        `at their reading level (think the children's/middle-grade canon), NOT adult ` +
+        `literary classics.`;
+    }
+    parts.push(line);
+  }
+  if (focus.request) {
+    // The reader's own free-text ask — treat as a hard filter on this batch.
+    parts.push(
+      `The reader described what they want right now — treat this as a strong ` +
+        `requirement for every pick in this batch (while still honoring their age ` +
+        `and taste): "${focus.request}"`
+    );
+  }
+  parts.push(...describeReader(profile));
   if (profile.exclude.length) {
     parts.push(
       `Do NOT recommend any of these (already read, rated, or shown): ` +
@@ -273,4 +285,107 @@ export async function generateRecommendationCandidates(
   );
 
   return resolved;
+}
+
+/** The AI's honest read on how well one specific book fits a reader's taste. */
+export type BookAssessment = {
+  /**
+   * "love" = right up their alley, "like" = a good fit, "mixed" = could go
+   * either way, "pass" = probably not for them.
+   */
+  verdict: "love" | "like" | "mixed" | "pass";
+  /** A couple of warm, spoiler-free sentences explaining the verdict. */
+  reason: string;
+};
+
+const ASSESS_VERDICTS = new Set<BookAssessment["verdict"]>([
+  "love",
+  "like",
+  "mixed",
+  "pass",
+]);
+
+const ASSESS_TOOL = {
+  name: "report_assessment",
+  description:
+    "Report an honest prediction of whether this reader will enjoy one specific book.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      verdict: {
+        type: "string",
+        enum: ["love", "like", "mixed", "pass"],
+        description:
+          'Your honest read on the fit: "love" = right up their alley, ' +
+          '"like" = a good fit, "mixed" = could go either way, ' +
+          '"pass" = probably not for them.',
+      },
+      reason: {
+        type: "string",
+        description:
+          "Two or three warm, specific, spoiler-free sentences explaining the " +
+          "verdict, grounded in the books they've loved and disliked and their " +
+          'age. Speak to the reader directly ("you").',
+      },
+    },
+    required: ["verdict", "reason"],
+  },
+};
+
+function buildAssessPrompt(
+  profile: TasteProfile,
+  book: { title: string; author: string | null }
+): string {
+  const parts = describeReader(profile);
+  const label = book.author ? `"${book.title}" by ${book.author}` : `"${book.title}"`;
+  parts.push(
+    `Now assess one specific book: ${label}. Predict honestly whether THIS reader ` +
+      `would enjoy it, weighed against the taste and age above. If it's a weak ` +
+      `match, say so plainly and explain why. If you're unsure the book is real or ` +
+      `which edition is meant, use your best judgment from the title. Call ` +
+      `report_assessment exactly once.`
+  );
+  return parts.join("\n\n");
+}
+
+/**
+ * Predict whether a reader will enjoy one specific book, using the same taste
+ * profile that drives the recommender. Honest by design — a poor fit returns a
+ * "pass" with the reason. Resilient: any failure resolves to null rather than
+ * throwing, so the UI can just show "couldn't get a read on that one."
+ */
+export async function assessBookFit(
+  profile: TasteProfile,
+  book: { title: string; author: string | null }
+): Promise<BookAssessment | null> {
+  try {
+    const client = anthropic();
+    const message = await client.messages.create({
+      model: JOURNAL_MODEL,
+      max_tokens: 512,
+      system:
+        "You are a thoughtful librarian who honestly predicts whether a specific " +
+        "reader will enjoy a given book, based on their reading history and age. " +
+        "Be candid: if it's a weak fit, say so and explain why. Match their age " +
+        "and taste, and never spoil the plot.",
+      tools: [ASSESS_TOOL],
+      tool_choice: { type: "tool", name: ASSESS_TOOL.name },
+      messages: [{ role: "user", content: buildAssessPrompt(profile, book) }],
+    });
+    const toolUse = message.content.find((b) => b.type === "tool_use");
+    if (!toolUse || toolUse.type !== "tool_use") return null;
+    const input = toolUse.input as { verdict?: unknown; reason?: unknown };
+    const verdict = typeof input.verdict === "string" ? input.verdict : "";
+    const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+    if (!ASSESS_VERDICTS.has(verdict as BookAssessment["verdict"]) || !reason) {
+      return null;
+    }
+    return { verdict: verdict as BookAssessment["verdict"], reason };
+  } catch (err) {
+    console.error(
+      "[reading/recommend] assessment call failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return null;
+  }
 }

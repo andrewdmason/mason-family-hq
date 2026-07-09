@@ -7,7 +7,9 @@ import { resolveReadingScope } from "@/lib/reading/scope";
 import { genresForAge } from "@/lib/reading/genres";
 import { ratingImpliesFinished } from "@/lib/reading/status";
 import {
+  assessBookFit,
   generateRecommendationCandidates,
+  type BookAssessment,
   type RatedTitle,
   type TasteProfile,
 } from "@/lib/reading/recommend";
@@ -200,6 +202,29 @@ export async function generateRecommendations(
 
   revalidatePath("/reader");
   return (data ?? []) as ReadingRecommendation[];
+}
+
+/**
+ * Predict whether the (scoped) member will enjoy one specific book — the same
+ * taste engine the recommender uses, aimed at a single title they're considering
+ * (a manual add, or a book already sitting in their queue). Returns null when the
+ * AI couldn't form a verdict, so the caller can show a gentle retry.
+ */
+export async function assessBook(input: {
+  title: string;
+  author?: string | null;
+  memberEmail?: string | null;
+}): Promise<BookAssessment | null> {
+  const title = input.title.trim();
+  if (!title) throw new Error("Enter a book title.");
+  const { client, userId, email } = await resolveReadingScope(input.memberEmail ?? null);
+  const tz = await getUserTimezone();
+  const today = localDate(new Date(), tz);
+  const profile = await buildTasteProfile(client, userId, email, today);
+  return assessBookFit(profile, {
+    title,
+    author: input.author?.trim() || null,
+  });
 }
 
 /** Fetch a member's recommendation row, scoped to them. */
