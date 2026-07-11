@@ -10,6 +10,13 @@ import type { GameMode, TeamInput } from "@/lib/games/types";
 import type { TriviaSetupData } from "@/app/(games)/games/trivia/actions";
 
 type Slot = "team1" | "team2";
+type Assign = "out" | Slot;
+
+const ASSIGN_OPTS: { value: Assign; label: string }[] = [
+  { value: "team1", label: "Team 1" },
+  { value: "team2", label: "Team 2" },
+  { value: "out", label: "Out" },
+];
 
 const MODES: { value: GameMode; label: string; blurb: string }[] = [
   { value: "quick", label: "Quick", blurb: "~8 questions" },
@@ -36,16 +43,17 @@ export function TriviaSetup({
   onStart: (input: StartInput) => void;
 }) {
   // Default pairing: adult + kid per team (Andrew+Oscar vs Jenny+Sebastian).
+  // Everyone starts in; set anyone who isn't playing to "Out".
   const initial = useMemo(() => {
     const adults = data.players.filter((p) => p.role !== "kid");
     const kids = data.players.filter((p) => p.role === "kid");
-    const slot: Record<string, Slot> = {};
+    const slot: Record<string, Assign> = {};
     adults.forEach((p, i) => (slot[p.userId] = i % 2 === 0 ? "team1" : "team2"));
     kids.forEach((p, i) => (slot[p.userId] = i % 2 === 0 ? "team1" : "team2"));
     return slot;
   }, [data.players]);
 
-  const [slots, setSlots] = useState<Record<string, Slot>>(initial);
+  const [slots, setSlots] = useState<Record<string, Assign>>(initial);
   const [mode, setMode] = useState<GameMode>("standard");
   const [target, setTarget] = useState(20);
   const [topics, setTopics] = useState<Set<string>>(new Set());
@@ -83,38 +91,59 @@ export function TriviaSetup({
       <section>
         <h2 className="font-serif text-lg text-foreground">Teams</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Pair a grown-up with a kid — each kid gets questions at their level. Tap a
-          name to move them to the other team.
+          Put each person on a team, or set them to Out to sit this one out — pick
+          any combination you like. Each kid gets questions at their level.
         </p>
+        <div className="mt-3 space-y-2">
+          {data.players.map((p) => {
+            const cur = slots[p.userId] ?? "out";
+            return (
+              <div
+                key={p.userId}
+                className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-2.5"
+              >
+                <span
+                  className={cn(
+                    "text-sm font-medium",
+                    cur === "out" ? "text-muted-foreground" : "text-foreground"
+                  )}
+                >
+                  {p.name}
+                </span>
+                <div className="flex gap-0.5 rounded-lg border border-border bg-background p-0.5">
+                  {ASSIGN_OPTS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setSlots((prev) => ({ ...prev, [p.userId]: opt.value }))}
+                      className={cn(
+                        "rounded-md px-2.5 py-1 text-xs transition-colors",
+                        cur === opt.value
+                          ? opt.value === "out"
+                            ? "bg-muted text-muted-foreground"
+                            : "bg-foreground text-background"
+                          : "text-muted-foreground hover:bg-accent"
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
         <div className="mt-3 grid grid-cols-2 gap-3">
           {(["team1", "team2"] as Slot[]).map((teamKey, idx) => {
             const members = data.players.filter((p) => slots[p.userId] === teamKey);
             return (
               <div key={teamKey} className="rounded-xl border border-border bg-card px-4 py-3">
                 <h3 className="text-sm font-medium text-foreground">Team {idx + 1}</h3>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {members.length === 0 ? (
-                    <span className="text-xs text-muted-foreground">
-                      Empty — tap a name above to move them here.
-                    </span>
-                  ) : (
-                    members.map((p) => (
-                      <button
-                        key={p.userId}
-                        type="button"
-                        onClick={() =>
-                          setSlots((prev) => ({
-                            ...prev,
-                            [p.userId]: prev[p.userId] === "team1" ? "team2" : "team1",
-                          }))
-                        }
-                        className="rounded-full border border-border bg-background px-3 py-1 text-sm text-foreground transition-colors hover:bg-accent"
-                      >
-                        {p.name}
-                      </button>
-                    ))
-                  )}
-                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {members.length === 0
+                    ? "Empty — assign someone above."
+                    : members.map((p) => p.name).join(" & ")}
+                </p>
               </div>
             );
           })}
