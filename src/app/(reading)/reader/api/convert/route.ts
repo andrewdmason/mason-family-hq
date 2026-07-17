@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { convertBookFile, ConversionError } from "@/lib/reading/convert";
 import { ensureStretchQuiz } from "@/lib/reading/ensure-stretch-quiz";
+import { readingIncrement } from "@/lib/reading/advance";
+import { resolveNextTarget } from "@/lib/reading/next-target";
+import {
+  WORDS_PER_PAGE,
+  chapterSpans,
+  contentWordCount,
+} from "@/lib/reading/chapter-target";
+import { readingTargetDueDateKey } from "@/lib/reading/target-due";
+import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
 
 export const runtime = "nodejs";
@@ -30,7 +39,7 @@ export async function POST(req: NextRequest) {
     const message = err instanceof Error ? err.message : "Not authorized.";
     return NextResponse.json({ error: message }, { status: 401 });
   }
-  const { client, userId } = scope;
+  const { client, userId, email } = scope;
 
   const { data: content, error: loadError } = await client
     .from("reading_book_content")
@@ -124,6 +133,7 @@ export async function POST(req: NextRequest) {
         page_count: result.pageCount,
         has_real_pages: result.hasRealPages,
         char_count: result.charCount,
+        word_count: result.wordCount,
         toc: result.toc,
         error_message: null,
       })
@@ -137,7 +147,7 @@ export async function POST(req: NextRequest) {
     try {
       const { data: book } = await client
         .from("reading_books")
-        .select("status, current_page, target_page, cover_image_url")
+        .select("status, current_page, target_page, target_locked, total_pages, cover_image_url")
         .eq("id", bookId)
         .eq("user_id", userId)
         .maybeSingle();
@@ -156,13 +166,55 @@ export async function POST(req: NextRequest) {
           log("cover set from epub");
         }
       }
-      if (book?.status === "in_progress" && book.target_page != null) {
+
+      // Where the reader's active goal ends — the range a prepared quiz covers.
+      let throughPage = (book?.target_page as number | null) ?? null;
+
+      // A synthetic-page EPUB with real chapters: define this book's page space
+      // as 280-word pages (so a "page" matches a printed one, not the EPUB's
+      // font-dependent reflow), and snap the active goal to a chapter.
+      const spans = chapterSpans(result.toc, result.wordCount);
+      const chaptered =
+        book && !result.hasRealPages && result.wordCount > 0 && spans.length > 0;
+      if (chaptered) {
+        // Length is the story, not the file — trailing previews/back matter don't
+        // count toward the page total or the "finished" line.
+        const wordPages = Math.ceil(
+          contentWordCount(spans, result.wordCount) / WORDS_PER_PAGE
+        );
+        const bookUpdate: Record<string, unknown> = { total_pages: wordPages };
+        if (book.status === "in_progress" && !book.target_locked) {
+          const increment = await readingIncrement(client, email);
+          const next = await resolveNextTarget(
+            client,
+            userId,
+            { id: bookId, total_pages: wordPages },
+            book.current_page as number,
+            increment
+          );
+          const tz = await getUserTimezone();
+          const today = localDate(new Date(), tz);
+          bookUpdate.target_page = next.targetPage;
+          bookUpdate.target_chapter = next.targetChapter;
+          bookUpdate.target_due =
+            next.targetPage != null ? readingTargetDueDateKey(today) : null;
+          throughPage = next.targetPage;
+        }
+        const { error: pageError } = await client
+          .from("reading_books")
+          .update(bookUpdate)
+          .eq("id", bookId)
+          .eq("user_id", userId);
+        if (pageError) log("page space update failed", { error: pageError.message });
+      }
+
+      if (book?.status === "in_progress" && throughPage != null) {
         const current = book.current_page as number;
         await ensureStretchQuiz(
           scope,
           bookId,
           current > 1 ? current : null,
-          book.target_page as number
+          throughPage
         );
       }
     } catch (err) {

@@ -2,7 +2,7 @@
 // widgets can import them alongside the server code that produces them.
 
 import type { CalendarEvent } from "@/lib/calendar/types";
-import type { MemberRole } from "@/lib/types";
+import type { MemberRole, ReadingTargetChapter } from "@/lib/types";
 
 /** Which journal a Home journal widget tracks. */
 export type HomeJournalAudience = "private" | "family";
@@ -34,6 +34,8 @@ export type HomeReadingBookStatus = {
   author: string | null;
   currentPage: number;
   targetPage: number | null;
+  /** The goal phrased as a chapter (chapter books have no real page numbers). */
+  targetChapter: ReadingTargetChapter | null;
   totalPages: number | null;
   pagesReadThisWeek: number;
   dueLabel: string;

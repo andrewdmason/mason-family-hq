@@ -16,7 +16,7 @@ import type {
   HomeReadingBookStatus,
   KidAgenda,
 } from "@/lib/home/types";
-import type { MemberRole } from "@/lib/types";
+import type { MemberRole, ReadingTargetChapter } from "@/lib/types";
 
 const DAY_MS = 86_400_000;
 
@@ -35,6 +35,7 @@ type BookRow = {
   author: string | null;
   current_page: number;
   target_page: number | null;
+  target_chapter: ReadingTargetChapter | null;
   target_due: string | null;
   total_pages: number | null;
 };
@@ -154,7 +155,7 @@ async function readingByMember(
       .in("member_email", emails),
     admin
       .from("reading_books")
-      .select("id, user_id, title, author, current_page, target_page, target_due, total_pages")
+      .select("id, user_id, title, author, current_page, target_page, target_chapter, target_due, total_pages")
       .in("user_id", userIds)
       .eq("status", "in_progress")
       .order("created_at", { ascending: true }),
@@ -244,6 +245,7 @@ async function readingByMember(
       author: book.author,
       currentPage: book.current_page,
       targetPage: book.target_page,
+      targetChapter: book.target_chapter,
       totalPages: book.total_pages,
       pagesReadThisWeek,
       // Each book's own deadline; fall back to the shared day-of-week label for

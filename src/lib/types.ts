@@ -873,6 +873,17 @@ export type ReadingBookStatus =
 export type ReadingContentType = "book" | "article";
 
 /**
+ * A weekly goal expressed as a chapter, shown alongside the resolved target_page.
+ * "chapter_end" = read to the end of that chapter; "chapter_fraction" = land part
+ * way in (fraction 0–1). Null on a book means the goal is a plain page target.
+ */
+export type ReadingTargetChapter = {
+  title: string;
+  kind: "chapter_end" | "chapter_fraction";
+  fraction: number | null;
+};
+
+/**
  * A member's verdict on a book. The emoji scale for books they read, plus
  * "didnt_finish" for ones they started but abandoned (a soft negative signal).
  */
@@ -907,6 +918,8 @@ export type ReadingBook = {
   target_locked: boolean;
   /** When the current target is due (YYYY-MM-DD): the Friday after it was set. Null = no target. */
   target_due: string | null;
+  /** The current target phrased as a chapter (display only), or null for a plain page goal. */
+  target_chapter: ReadingTargetChapter | null;
   status: ReadingBookStatus;
   cover_image_url: string | null;
   /** Open Library work key (e.g. "/works/OL12345W"), when added via typeahead. */
@@ -971,6 +984,8 @@ export type ReadingBookContentSummary = {
   status: ReadingBookContentStatus;
   page_count: number | null;
   has_real_pages: boolean;
+  /** Total body words, once converted — enables chapter goals. Null otherwise. */
+  word_count: number | null;
   error_message: string | null;
 };
 
@@ -1054,6 +1069,8 @@ export type ReadingBookContent = {
   /** True when page numbers are real (PDF, or EPUB with a page-list). */
   has_real_pages: boolean;
   char_count: number | null;
+  /** Total body words — source of truth for chapter targets / page estimates. */
+  word_count: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -1067,6 +1084,9 @@ export type ReadingTocEntry = {
   level: number;
   /** Source page the heading falls on, when known. */
   page: number | null;
+  /** Cumulative body words before this heading (the chapter's start offset).
+   *  Absent on TOCs written before chapter targets existed → falls back to pages. */
+  startWord?: number;
 };
 
 /** One source page mapped to its anchor and character range in the reflowed text. */
@@ -1355,11 +1375,20 @@ export type ReadingAdminBook = {
   draftQuiz: ReadingAdminQuiz | null;
   /** Passed and archived quizzes, newest first. */
   history: ReadingAdminQuiz[];
+  /** The full book row, powering the admin overflow controls (edit, store links). */
+  book: ReadingBook;
+  /** Uploaded-file state, for the upload/replace control. Null when no file. */
+  content: ReadingBookContentSummary | null;
+  /** For chapter books: each chapter's title + end page, so quiz ranges can be
+   *  labeled by chapter instead of a synthetic page. Null for page books. */
+  chapters: { title: string; endPage: number }[] | null;
 };
 
 /** One kid's section in the Parent Admin view. */
 export type ReadingAdminMember = {
   email: string;
   name: string | null;
+  /** Weekly reading goal in 280-word pages (reading_settings). 0 = none set. */
+  weeklyPageGoal: number;
   books: ReadingAdminBook[];
 };

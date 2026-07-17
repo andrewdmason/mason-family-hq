@@ -4,7 +4,13 @@ import { WidgetCard } from "./widget-card";
 import { cn } from "@/lib/utils";
 import { quizTakeHref } from "@/lib/reading/links";
 import { activeQuizState } from "@/lib/reading/quiz-due";
+import { chapterTargetLabel } from "@/lib/reading/chapter-target";
 import type { ActiveBookQuiz, ReadingBookWithProgress } from "@/lib/types";
+
+/** Uppercase the first letter (for goal phrasing like "Finish Chapter 8"). */
+function capitalize(s: string): string {
+  return s.length ? s[0].toUpperCase() + s.slice(1) : s;
+}
 
 /** The pill label + classes for an active quiz's state. */
 const QUIZ_BADGE = {
@@ -98,13 +104,20 @@ export function ReaderWidget({
             </p>
           )}
           <p className="mt-1 text-xs text-muted-foreground">
-            {book.total_pages
-              ? `Page ${book.current_page} of ${book.total_pages}`
-              : `Page ${book.current_page}`}
+            {book.target_chapter && book.total_pages
+              ? // Chapter books have no real page numbers — show honest progress
+                // as a percentage rather than a made-up page count.
+                `${Math.round((book.current_page / book.total_pages) * 100)}% through`
+              : book.total_pages
+                ? `Page ${book.current_page} of ${book.total_pages}`
+                : `Page ${book.current_page}`}
           </p>
           {variant === "goal" && book.target_page != null && (
             <p className="mt-1.5 text-sm font-semibold text-foreground">
-              Goal: Page {book.target_page}
+              Goal:{" "}
+              {book.target_chapter
+                ? capitalize(chapterTargetLabel(book.target_chapter))
+                : `Page ${book.target_page}`}
             </p>
           )}
           {variant === "goal" &&

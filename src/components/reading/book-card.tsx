@@ -40,8 +40,14 @@ import {
   readingDueLabelFromKeys,
   readingTargetDueLabel,
 } from "@/lib/reading/target-due";
+import { chapterTargetLabel } from "@/lib/reading/chapter-target";
 import { useBookFileActions } from "@/lib/reading/use-book-file-actions";
 import type { ActiveBookQuiz, ReadingBookWithProgress } from "@/lib/types";
+
+/** Uppercase the first letter (for goal phrasing like "Finish Chapter 8"). */
+function capitalize(s: string): string {
+  return s.length ? s[0].toUpperCase() + s.slice(1) : s;
+}
 
 /** Compact "Mon 5" label for a YYYY-MM-DD entry date (parsed in local time). */
 function formatEntryDate(date: string): string {
@@ -165,7 +171,12 @@ export function BookCard({
               books haven't been opened, so page/progress would only read 0. */}
           {inProgress && book.target_page != null ? (
             <p className="mt-2 text-xs text-muted-foreground">
-              <span className="text-foreground">Goal: Page {book.target_page}</span>{" "}
+              <span className="text-foreground">
+                Goal:{" "}
+                {book.target_chapter
+                  ? capitalize(chapterTargetLabel(book.target_chapter))
+                  : `Page ${book.target_page}`}
+              </span>{" "}
               · {dueLabel}
               {book.total_pages != null && (
                 <>
@@ -224,6 +235,7 @@ export function BookCard({
             <MarkReachedButton
               bookId={book.id}
               targetPage={book.target_page}
+              targetChapter={book.target_chapter}
               activeQuiz={activeQuiz}
               emphasize={emphasizeCheckIn}
               memberEmail={memberEmail}

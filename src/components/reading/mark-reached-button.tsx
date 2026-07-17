@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { markTargetReached } from "@/app/(reading)/reader/actions";
 import { quizTakeHref } from "@/lib/reading/links";
 import { activeQuizState } from "@/lib/reading/quiz-due";
-import type { ActiveBookQuiz } from "@/lib/types";
+import type { ActiveBookQuiz, ReadingTargetChapter } from "@/lib/types";
 
 /**
  * Binary "I reached my target" check-in. No page entry. For a book with a quiz it
@@ -18,12 +18,15 @@ import type { ActiveBookQuiz } from "@/lib/types";
 export function MarkReachedButton({
   bookId,
   targetPage,
+  targetChapter = null,
   activeQuiz,
   emphasize = false,
   memberEmail = null,
 }: {
   bookId: string;
   targetPage: number | null;
+  /** The goal as a chapter, when the book uses chapter targets. */
+  targetChapter?: ReadingTargetChapter | null;
   /** A published, unpassed quiz for this stretch, if any. */
   activeQuiz: ActiveBookQuiz | null;
   emphasize?: boolean;
@@ -42,9 +45,11 @@ export function MarkReachedButton({
       ? "Retake quiz"
       : activeQuiz
         ? "Reached it — take quiz"
-        : targetPage != null
-          ? `Reached page ${targetPage}`
-          : "Mark reached";
+        : targetChapter
+          ? "Reached my goal"
+          : targetPage != null
+            ? `Reached page ${targetPage}`
+            : "Mark reached";
 
   // A pressing quiz (due now or awaiting a retake) gets the filled button.
   const emphasizeButton = emphasize || state === "due" || state === "retake";
