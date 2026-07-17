@@ -30,6 +30,7 @@ import { quizRangeLabel } from "@/lib/reading/quiz-format";
 import {
   chapterSpans,
   contentWordCount,
+  coverageChapterLabel,
   wordsToPage,
 } from "@/lib/reading/chapter-target";
 import type {
@@ -737,11 +738,44 @@ function partitionForAttempt<Q extends { id: string }>(
  * questions are returned (`retake: true`); a first attempt or a full replay
  * returns them all. Returns null only if it's not published or not found.
  */
+/**
+ * A book's chapters (title + 280-word end page) for labeling a quiz's covered
+ * range by chapter. Empty for real-page books, articles, and books not yet
+ * (re)converted — the caller then falls back to the page range.
+ */
+async function bookChapterList(
+  client: ScopedClient,
+  userId: string,
+  bookId: string,
+  totalPages: number | null
+): Promise<{ title: string; endPage: number }[]> {
+  const { data: content } = await client
+    .from("reading_book_content")
+    .select("status, has_real_pages, word_count, toc")
+    .eq("book_id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const wordCount = (content?.word_count as number | null) ?? null;
+  if (!content || content.status !== "ready" || content.has_real_pages || !wordCount) {
+    return [];
+  }
+  const spans = chapterSpans((content.toc as ReadingTocEntry[]) ?? [], wordCount);
+  if (spans.length === 0) return [];
+  const contentWords = contentWordCount(spans, wordCount);
+  const total = totalPages ?? wordsToPage(contentWords);
+  return spans.map((s) => ({
+    title: s.title,
+    endPage: s.endWord >= contentWords ? total : wordsToPage(s.endWord),
+  }));
+}
+
 export async function getQuizForTaking(
   quizId: string,
   memberEmail?: string | null
 ): Promise<{
   quiz: ReadingQuizWithQuestions;
+  /** The covered range as a chapter label for chapter books; null for page books. */
+  coverageLabel: string | null;
   retake: boolean;
   /** Essay: which step to show. "comprehension" = the Part 1 gate (until it's cleared);
    *  "essay" = the writing. Legacy MC/free-text is always "essay". */
@@ -769,6 +803,13 @@ export async function getQuizForTaking(
     .eq("status", "published")
     .maybeSingle();
   if (!quiz) return null;
+
+  // Label a chapter book's covered range by chapter rather than a synthetic page.
+  const coverageLabel = coverageChapterLabel(
+    await bookChapterList(client, userId, (quiz as ReadingQuiz).book_id, null),
+    (quiz as ReadingQuiz).from_page,
+    (quiz as ReadingQuiz).through_page
+  );
 
   const { data: questions } = await client
     .from("reading_quiz_questions")
@@ -840,6 +881,7 @@ export async function getQuizForTaking(
       hasPartOne && q.comprehension_cleared_at == null ? "comprehension" : "essay";
     return {
       quiz: { ...q, questions: [chosen] },
+      coverageLabel,
       retake: false,
       stage,
       comprehensionPrompt: chosen.comprehension_prompt,
@@ -859,6 +901,7 @@ export async function getQuizForTaking(
 
   return {
     quiz: { ...(quiz as ReadingQuiz), questions: ask },
+    coverageLabel,
     retake,
     stage: "essay",
     comprehensionPrompt: null,
@@ -1926,9 +1969,23 @@ export async function getQuizResult(
     ? await loadEssayQuizState(client, userId, quizId)
     : null;
 
+  // Label a chapter book's covered range by chapter rather than a synthetic page.
+  const chapters = await bookChapterList(
+    client,
+    userId,
+    (quiz as ReadingQuiz).book_id,
+    (book?.total_pages as number | null) ?? null
+  );
+  const coverageLabel = coverageChapterLabel(
+    chapters,
+    (quiz as ReadingQuiz).from_page,
+    (quiz as ReadingQuiz).through_page
+  );
+
   return {
     quiz: quiz as ReadingQuiz,
     bookTitle: (book?.title as string) ?? "this book",
+    coverageLabel,
     nextAssignment: {
       bookTitle: (book?.title as string) ?? "this book",
       currentPage: (book?.current_page as number | null) ?? 0,

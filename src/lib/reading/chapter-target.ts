@@ -70,6 +70,26 @@ export function wordsToPage(words: number): number {
 }
 
 /**
+ * A quiz/stretch page range as a chapter label — "Through Chapter 8" or
+ * "Chapter 5 – Chapter 8" — for chapter books whose pages are synthetic. Returns
+ * null when there's no chapter list (real-page books, articles), so the caller
+ * falls back to the page range.
+ */
+export function coverageChapterLabel(
+  chapters: { title: string; endPage: number }[],
+  fromPage: number | null,
+  throughPage: number
+): string | null {
+  if (chapters.length === 0) return null;
+  const chapterFor = (page: number) =>
+    (chapters.find((c) => c.endPage >= page) ?? chapters[chapters.length - 1]).title;
+  const through = chapterFor(throughPage);
+  if (fromPage == null || fromPage <= 1) return `Through ${through}`;
+  const from = chapterFor(fromPage);
+  return from !== through ? `${from} – ${through}` : through;
+}
+
+/**
  * Build chapter spans from stored TOC entries carrying `startWord`. Uses the
  * finest level present (chapters over parts), so a "Part I" divider sharing a
  * spot with its first chapter doesn't create a zero-length span. Returns [] when

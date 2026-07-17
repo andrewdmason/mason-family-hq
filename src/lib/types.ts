@@ -1308,6 +1308,9 @@ export type ReadingQuizWithQuestions = ReadingQuiz & {
 export type ReadingQuizResult = {
   quiz: ReadingQuiz;
   bookTitle: string;
+  /** The covered range as a chapter label ("Through Chapter 8") for chapter
+   *  books, so titles don't show a synthetic page. Null for real-page books. */
+  coverageLabel: string | null;
   nextAssignment: ReadingQuizNextAssignment;
   questions: ReadingQuizQuestion[];
   /** The attempt whose answers are shown in detail. Null when not yet attempted. */
