@@ -2221,8 +2221,9 @@ export async function getReadingAdmin(): Promise<ReadingAdminMember[]> {
 
   const result: ReadingAdminMember[] = [];
   for (const m of memberRows) {
-    const list = booksByUser.get(m.user_id as string);
-    if (!list || list.length === 0) continue;
+    // Every kid gets a tab, even with no active book — so a parent can still set
+    // their weekly goal (and it's obvious who has nothing assigned).
+    const list = booksByUser.get(m.user_id as string) ?? [];
     // In-progress books first, then most-recently-updated.
     list.sort((a, b) => {
       const ai = a.status === "in_progress" ? 0 : 1;
