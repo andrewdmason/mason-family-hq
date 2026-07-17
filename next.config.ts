@@ -16,6 +16,21 @@ const nextConfig: NextConfig = {
     "/reader/api/convert": ["./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"],
     "/(reading)/reader/api/convert": ["./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"],
   },
+  // Self-hosted Chrome extension artifacts (force-install). Chrome validates the
+  // CRX by its magic bytes, not Content-Type, so these headers are correctness
+  // hygiene rather than a hard requirement.
+  async headers() {
+    return [
+      {
+        source: "/extension/mason-reader.crx",
+        headers: [{ key: "Content-Type", value: "application/x-chrome-extension" }],
+      },
+      {
+        source: "/extension/updates.xml",
+        headers: [{ key: "Content-Type", value: "application/xml" }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;
