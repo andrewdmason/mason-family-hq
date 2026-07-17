@@ -207,8 +207,30 @@ function ThinkingRow({
  * The grade card sits up top, set apart like a returned paper; below it the prompt
  * reads as the journal-style italic question and the essay flows as serif prose.
  */
+/** One labeled prompt block, styled like the writing page's question. */
+function PromptBlock({ label, text }: { label?: string; text: string }) {
+  return (
+    <div>
+      {label && (
+        <p className="font-serif text-xs uppercase tracking-wide text-muted-foreground/80">
+          {label}
+        </p>
+      )}
+      <div
+        className={cn(
+          "border-l-2 border-muted pl-6 font-serif text-lg italic leading-relaxed text-muted-foreground",
+          label && "mt-2"
+        )}
+      >
+        {text}
+      </div>
+    </div>
+  );
+}
+
 export function EssayFeedback({
   prompt,
+  comprehensionPrompt = null,
   essay,
   rubricScores,
   aiNotes,
@@ -219,6 +241,9 @@ export function EssayFeedback({
   showCard = true,
 }: {
   prompt: string;
+  /** essay: the Part 1 comprehension prompt, shown above Part 2 for two-part
+   *  essays. Null for legacy single-part essays. */
+  comprehensionPrompt?: string | null;
   /** The reader's written essay (null when not attempted / closed by a parent). */
   essay: string | null;
   rubricScores: EssayRubricScores | null;
@@ -249,10 +274,16 @@ export function EssayFeedback({
         />
       )}
 
-      {/* The prompt, shown the same way the writing page shows it. */}
-      <div className="border-l-2 border-muted pl-6 font-serif text-lg italic leading-relaxed text-muted-foreground">
-        {prompt}
-      </div>
+      {/* The prompt(s), shown the way the writing page shows them. A two-part
+          essay shows its Part 1 comprehension check above the Part 2 essay. */}
+      {comprehensionPrompt ? (
+        <div className="space-y-5">
+          <PromptBlock label="Part 1 · Quick check" text={comprehensionPrompt} />
+          <PromptBlock label="Part 2 · Essay" text={prompt} />
+        </div>
+      ) : (
+        <PromptBlock text={prompt} />
+      )}
 
       {!attempted ? (
         <p className="mt-8 font-serif text-lg italic leading-relaxed text-muted-foreground/70">

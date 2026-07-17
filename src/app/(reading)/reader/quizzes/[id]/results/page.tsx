@@ -214,6 +214,7 @@ export default async function QuizResultsPage({
             ) : (
               <EssayFeedback
                 prompt={essayQ?.prompt ?? ""}
+                comprehensionPrompt={essayQ?.comprehension_prompt ?? null}
                 essay={answer?.response_text ?? null}
                 rubricScores={answer?.rubric_scores ?? null}
                 aiNotes={answer?.ai_notes ?? null}
