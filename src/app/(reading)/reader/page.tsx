@@ -1,16 +1,18 @@
 import Link from "next/link";
-import { GraduationCap, Settings } from "lucide-react";
+import { Settings } from "lucide-react";
 import { AddBookDialog } from "@/components/reading/add-book-dialog";
-import { MemberViewSwitcher } from "@/components/reading/member-view-switcher";
+import { AppHeaderContent } from "@/components/layout/app-header";
+import { ReadingAdminPanel } from "@/components/reading/reading-admin";
 import { ReadingList } from "@/components/reading/reading-list";
 import { ReadingProgressHeader } from "@/components/reading/reading-progress-header";
 import { listFamilyMembers } from "@/app/(journal)/settings/family/actions";
 import { getIsOwner } from "@/lib/members/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
-import { quizzesHref } from "@/lib/reading/links";
+import { readingHomeHref } from "@/lib/reading/links";
+import { cn } from "@/lib/utils";
 import { getReadingHome, listRecommendRecipients } from "./actions";
 import { getDiscover } from "./discover/actions";
-import { getActiveQuizzesByBook } from "./quizzes/actions";
+import { getActiveQuizzesByBook, getReadingAdmin } from "./quizzes/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -29,49 +31,47 @@ export default async function ReadingPage({
   const isOwner = await getIsOwner();
   const members = isOwner ? await listFamilyMembers() : [];
   const ownerEmail = members.find((m) => m.role === "owner")?.email ?? "";
-  // Viewable = the owner plus members who've signed in (so their data exists).
-  const viewable = members.filter((m) => m.role === "owner" || m.user_id);
+  // Kids get their own admin tab (signed-in kids only, so their data exists).
+  const kids = members.filter((m) => m.role === "kid" && m.user_id);
 
   const requested = isOwner ? member?.trim().toLowerCase() || null : null;
-  const viewedMember =
+  // A kid tab shows the parent-admin view for that child; anything else is the
+  // owner's own "My books".
+  const viewedKid =
     requested && requested !== ownerEmail
-      ? viewable.find((m) => m.email === requested && m.role !== "owner") ?? null
+      ? kids.find((m) => m.email === requested) ?? null
       : null;
-  const viewingEmail = viewedMember?.email ?? null;
+  const viewingEmail = viewedKid?.email ?? null;
 
-  const [home, discover] = await Promise.all([
-    getReadingHome(viewingEmail),
-    getDiscover(viewingEmail),
-  ]);
+  // Recommend-to-someone is offered in self-view only (a kid tab administers
+  // that child, it doesn't recommend on their behalf).
+  const recipients = viewedKid ? [] : await listRecommendRecipients();
 
-  // Per-book check-in quizzes (published, not yet passed) — drive the
-  // "check in & take quiz" CTA on each book card.
-  const activeQuizzesByBook = await getActiveQuizzesByBook(
-    home.books.map((b) => b.id),
-    viewingEmail
-  );
-
-  // Recommend-to-someone is offered in self-view only (in view-as mode you're
-  // already acting as that member).
-  const recipients = viewingEmail ? [] : await listRecommendRecipients();
-
-  const tz = await getUserTimezone();
-  const today = localDate(new Date(), tz);
-  const dayOfWeek = new Date(`${today}T12:00:00`).getDay(); // 0 = Sun, 6 = Sat
-  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-  const urgent = isWeekend || !home.checkedInThisWeek;
-
-  const heading = viewedMember
-    ? `${firstName(viewedMember.name, "Their")}'s books`
-    : "My books";
+  // The tab strip (owner with signed-in kids only): self plus one per kid.
+  const tabs =
+    isOwner && kids.length > 0 ? (
+      <div className="flex flex-wrap gap-1.5 border-b border-border pb-3">
+        <ReadingTab href={readingHomeHref(null)} active={!viewedKid}>
+          You
+        </ReadingTab>
+        {kids.map((k) => (
+          <ReadingTab
+            key={k.email}
+            href={readingHomeHref(k.email)}
+            active={viewedKid?.email === k.email}
+          >
+            {firstName(k.name, k.email)}
+          </ReadingTab>
+        ))}
+      </div>
+    ) : null;
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-serif text-2xl tracking-tight text-foreground">
-          {heading}
-        </h1>
-        <div className="flex items-center gap-2">
+      {/* Reader settings + Add-a-book live in the global toolbar (right of the
+          app switcher, left of the bell) rather than a page heading row. */}
+      <AppHeaderContent>
+        <div className="ml-auto flex items-center gap-2">
           <Link
             href="/reader/settings"
             aria-label="Reader settings"
@@ -79,51 +79,126 @@ export default async function ReadingPage({
           >
             <Settings className="h-4 w-4" />
           </Link>
-          {isOwner && (
-            <Link
-              href={quizzesHref(viewingEmail)}
-              className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <GraduationCap className="h-4 w-4" />
-              Parent Admin
-            </Link>
-          )}
-          {isOwner && viewable.length > 1 && (
-            <MemberViewSwitcher
-              members={viewable}
-              ownerEmail={ownerEmail}
-              currentEmail={viewingEmail ?? ownerEmail}
-            />
-          )}
-          <AddBookDialog memberEmail={viewingEmail} recipients={recipients} />
+          <AddBookDialog
+            triggerVariant="default"
+            memberEmail={viewingEmail}
+            recipients={recipients}
+          />
         </div>
-      </div>
+      </AppHeaderContent>
 
-      {viewedMember && (
-        <p className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/5 px-4 py-2 text-xs text-muted-foreground">
-          You&apos;re viewing{" "}
-          <span className="font-medium text-foreground">
-            {viewedMember.name ?? viewedMember.email}
-          </span>
-          &apos;s reading. Anything you add or check in is saved to their account.
-        </p>
+      {tabs}
+
+      {viewedKid ? (
+        <KidAdminTab
+          email={viewedKid.email}
+          name={viewedKid.name}
+          isOwner={isOwner}
+        />
+      ) : (
+        <SelfReadingTab isOwner={isOwner} />
       )}
+    </main>
+  );
+}
 
+/** A single tab in the reading-home strip. Full navigation (server-rendered
+ * content differs per tab), styled to match the old admin pills. */
+function ReadingTab({
+  href,
+  active,
+  children,
+}: {
+  href: string;
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "rounded-full px-3 py-1 text-sm font-medium transition-colors",
+        active
+          ? "bg-foreground text-background"
+          : "bg-muted/70 text-muted-foreground hover:text-foreground"
+      )}
+    >
+      {children}
+    </Link>
+  );
+}
+
+/** The owner's (or any reader's) own book list — progress header plus books. */
+async function SelfReadingTab({ isOwner }: { isOwner: boolean }) {
+  const [home, discover] = await Promise.all([
+    getReadingHome(null),
+    getDiscover(null),
+  ]);
+
+  // Per-book check-in quizzes (published, not yet passed) — drive the
+  // "check in & take quiz" CTA on each book card.
+  const activeQuizzesByBook = await getActiveQuizzesByBook(
+    home.books.map((b) => b.id),
+    null
+  );
+  const recommendations = discover.recommendations;
+
+  const tz = await getUserTimezone();
+  const today = localDate(new Date(), tz);
+  const dayOfWeek = new Date(`${today}T12:00:00`).getDay(); // 0 = Sun, 6 = Sat
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  const urgent = isWeekend || !home.checkedInThisWeek;
+
+  return (
+    <>
       <ReadingProgressHeader
         bonusPagesTotal={home.bonusPagesTotal}
-        memberEmail={viewingEmail}
+        memberEmail={null}
       />
 
       <ReadingList
         books={home.books}
         emphasizeCheckIn={urgent}
-        memberEmail={viewingEmail}
+        memberEmail={null}
         isOwner={isOwner}
         activeQuizzesByBook={activeQuizzesByBook}
-        recommendations={discover.recommendations}
+        recommendations={recommendations}
         recsHasSignal={discover.hasSignal}
         recsGenres={discover.genres}
       />
-    </main>
+    </>
+  );
+}
+
+/** A kid's parent-admin panel: their weekly goal and in-progress books/quizzes,
+ * plus their queue and archived shelf (from the reading home, scoped to them). */
+async function KidAdminTab({
+  email,
+  name,
+  isOwner,
+}: {
+  email: string;
+  name: string | null;
+  isOwner: boolean;
+}) {
+  const [adminMembers, home] = await Promise.all([
+    getReadingAdmin(),
+    getReadingHome(email),
+  ]);
+  const adminMember = adminMembers.find((m) => m.email === email) ?? {
+    email,
+    name,
+    weeklyPageGoal: 0,
+    books: [],
+  };
+  const queuedBooks = home.books.filter((b) => b.status === "queued");
+  const archivedBooks = home.books.filter((b) => b.status === "archive");
+  return (
+    <ReadingAdminPanel
+      member={adminMember}
+      queuedBooks={queuedBooks}
+      archivedBooks={archivedBooks}
+      isOwner={isOwner}
+    />
   );
 }

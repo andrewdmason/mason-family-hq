@@ -18,9 +18,10 @@ export function bookReaderHref(
   return withMember(`/reader/${bookId}/read`, memberEmail);
 }
 
-/** The owner-facing list of all quizzes and results. */
+/** The owner-facing admin view for a reader — now a tab on the reading home
+ * (a kid's tab when scoped to that child, else the owner's own books). */
 export function quizzesHref(memberEmail?: string | null): string {
-  return withMember("/reader/quizzes", memberEmail);
+  return withMember("/reader", memberEmail);
 }
 
 /** The owner's draft review/edit screen for a quiz. */

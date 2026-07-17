@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   ChevronRight,
   ListTree,
@@ -34,6 +34,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ArchiveShelf } from "@/components/reading/archive-shelf";
+import { BookCard } from "@/components/reading/book-card";
 import { CloseQuizButton } from "@/components/reading/close-quiz-button";
 import { ChangeLocationDialog } from "@/components/reading/change-location-dialog";
 import { EditBookDialog } from "@/components/reading/edit-book-dialog";
@@ -66,10 +68,6 @@ import type {
 /** Uppercase the first letter (goal phrasing like "Finish Chapter 8"). */
 function capitalize(s: string): string {
   return s.length ? s[0].toUpperCase() + s.slice(1) : s;
-}
-
-function firstName(name: string | null, email: string): string {
-  return name?.trim().split(/\s+/)[0] || email;
 }
 
 function formatDue(due: string | null): string | null {
@@ -128,64 +126,102 @@ function quizCoverageLabel(
   return { text: quizRangeLabel(fromPage, throughPage), isChapter: false };
 }
 
+type AdminTab = "reading" | "queued" | "archive";
+
 /**
- * The Parent Admin console, one tab per kid. Each kid's reading (books, live
- * quiz, drafts, history) lives on its own tab so a parent isn't scrolling a long
- * stacked list. The active tab rides in the URL (?kid=email) so a refresh — e.g.
- * after saving a goal — stays on the same kid.
+ * One kid's parent-admin panel: their weekly goal, then sub-tabs mirroring the
+ * "You" view — Reading (in-progress books with their live quiz/draft/history
+ * controls), Queue, and Archived. Queue and Archived reuse the same cards/shelf
+ * the reader home uses, scoped to this child. This is the content behind a kid's
+ * tab on the reading home; the parent picks the kid via the tabs there, so this
+ * component only ever renders the selected child.
  */
-export function ReadingAdmin({
-  members,
-  initialEmail = null,
+export function ReadingAdminPanel({
+  member,
+  queuedBooks,
+  archivedBooks,
+  isOwner = false,
 }: {
-  members: ReadingAdminMember[];
-  initialEmail?: string | null;
+  member: ReadingAdminMember;
+  queuedBooks: ReadingBookWithProgress[];
+  archivedBooks: ReadingBookWithProgress[];
+  isOwner?: boolean;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const initial =
-    members.find((m) => m.email === initialEmail)?.email ?? members[0]?.email ?? "";
-  const [activeEmail, setActiveEmail] = useState(initial);
-  const active = members.find((m) => m.email === activeEmail) ?? members[0];
-
-  function selectTab(email: string) {
-    setActiveEmail(email);
-    router.replace(`${pathname}?kid=${encodeURIComponent(email)}`, { scroll: false });
-  }
-
-  if (!active) return null;
+  const [tab, setTab] = useState<AdminTab>("reading");
+  const tabs: { value: AdminTab; label: string; count: number }[] = [
+    { value: "reading", label: "Reading", count: member.books.length },
+    { value: "queued", label: "Queue", count: queuedBooks.length },
+    { value: "archive", label: "Archived", count: archivedBooks.length },
+  ];
 
   return (
     <div className="mt-6">
-      <div className="flex flex-wrap gap-1.5 border-b border-border pb-3">
-        {members.map((m) => (
+      <WeeklyGoalCard
+        key={member.email}
+        memberEmail={member.email}
+        weeklyPageGoal={member.weeklyPageGoal}
+      />
+
+      <div className="mt-5 flex flex-wrap gap-1.5 border-b border-border pb-3">
+        {tabs.map((t) => (
           <button
-            key={m.email}
+            key={t.value}
             type="button"
-            onClick={() => selectTab(m.email)}
+            onClick={() => setTab(t.value)}
             className={cn(
-              "rounded-full px-3 py-1 text-sm font-medium transition-colors",
-              active.email === m.email
+              "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+              tab === t.value
                 ? "bg-foreground text-background"
                 : "bg-muted/70 text-muted-foreground hover:text-foreground"
             )}
           >
-            {firstName(m.name, m.email)}
+            {t.label}
+            <span className="ml-1.5 tabular-nums opacity-70">{t.count}</span>
           </button>
         ))}
       </div>
 
-      <WeeklyGoalCard
-        key={active.email}
-        memberEmail={active.email}
-        weeklyPageGoal={active.weeklyPageGoal}
-      />
+      {tab === "reading" && (
+        <div className="mt-5 space-y-5">
+          {member.books.length > 0 ? (
+            member.books.map((book) => (
+              <BookBlock key={book.bookId} book={book} memberEmail={member.email} />
+            ))
+          ) : (
+            <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+              No books being read right now.
+            </div>
+          )}
+        </div>
+      )}
 
-      <div className="mt-5 space-y-5">
-        {active.books.map((book) => (
-          <BookBlock key={book.bookId} book={book} memberEmail={active.email} />
+      {tab === "queued" &&
+        (queuedBooks.length > 0 ? (
+          <div className="mt-5 space-y-3">
+            {queuedBooks.map((book) => (
+              <BookCard
+                key={book.id}
+                book={book}
+                memberEmail={member.email}
+                isOwner={isOwner}
+                activeQuiz={null}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="mt-5 rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+            Their queue is empty.
+          </div>
         ))}
-      </div>
+
+      {tab === "archive" &&
+        (archivedBooks.length > 0 ? (
+          <ArchiveShelf books={archivedBooks} memberEmail={member.email} />
+        ) : (
+          <div className="mt-5 rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+            Books they finish or set aside land here.
+          </div>
+        ))}
     </div>
   );
 }
