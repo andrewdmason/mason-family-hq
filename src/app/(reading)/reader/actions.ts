@@ -2,6 +2,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserTimezone, getWeekStart, localDate } from "@/lib/date-utils";
@@ -13,6 +14,12 @@ import { resolveReadingScope } from "@/lib/reading/scope";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
 import { capTarget, defaultTargetPage } from "@/lib/reading/targets";
 import { readingTargetDueDateKey } from "@/lib/reading/target-due";
+import { resolveNextTarget } from "@/lib/reading/next-target";
+import {
+  chapterSpans,
+  contentWordCount,
+  wordsToPage,
+} from "@/lib/reading/chapter-target";
 import {
   advanceStretch,
   ensureStretchQuizInline,
@@ -28,11 +35,12 @@ import type {
   ReadingBookWithProgress,
   ReadingHome,
   ReadingRating,
+  ReadingTargetChapter,
   ReadingTocEntry,
 } from "@/lib/types";
 
 const BOOK_COLUMNS =
-  "id, user_id, type, title, author, source_url, site_name, excerpt, word_count, total_pages, current_page, target_page, target_locked, target_due, status, cover_image_url, openlibrary_key, isbn, published_year, started_at, finished_at, rating, recommended_by_email, recommended_by_label, recommendation_note, created_at, updated_at";
+  "id, user_id, type, title, author, source_url, site_name, excerpt, word_count, total_pages, current_page, target_page, target_locked, target_due, target_chapter, status, cover_image_url, openlibrary_key, isbn, published_year, started_at, finished_at, rating, recommended_by_email, recommended_by_label, recommendation_note, created_at, updated_at";
 
 function firstName(name: string | null | undefined, fallback: string): string {
   return name?.trim().split(/\s+/)[0] || fallback;
@@ -191,7 +199,7 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
       await Promise.all([
         client
           .from("reading_book_content")
-          .select("book_id, status, page_count, has_real_pages, error_message")
+          .select("book_id, status, page_count, has_real_pages, word_count, error_message")
           .eq("user_id", userId)
           .in("book_id", bookIds),
         client
@@ -212,6 +220,7 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
         status: c.status as ReadingBookContentSummary["status"],
         page_count: (c.page_count as number) ?? null,
         has_real_pages: (c.has_real_pages as boolean) ?? false,
+        word_count: (c.word_count as number) ?? null,
         error_message: (c.error_message as string) ?? null,
       });
     }
@@ -461,31 +470,36 @@ export async function updateBook(
   const effectiveCurrent = newCurrentProvided
     ? (update.current_page as number)
     : existing.current_page;
+  const effectiveTotal =
+    input.totalPages !== undefined
+      ? (update.total_pages as number | null)
+      : existing.total_pages;
 
   if (input.targetPage !== undefined) {
+    // An explicit page is an owner override: a plain page goal, never a chapter.
     if (input.targetPage == null) {
       update.target_page = null;
       update.target_locked = false;
     } else {
       update.target_page = capTarget(
         Math.max(1, Math.floor(input.targetPage)),
-        existing.total_pages
+        effectiveTotal
       );
       update.target_locked = true;
     }
-  } else if (startedReading) {
-    update.target_page = defaultTargetPage(
+    update.target_chapter = null;
+  } else if (startedReading || (newCurrentProvided && !existing.target_locked)) {
+    // Auto-tracked: snap to a chapter for synthetic-page books, else a page goal.
+    const next = await resolveNextTarget(
+      client,
+      userId,
+      { id: bookId, total_pages: effectiveTotal },
       effectiveCurrent,
-      increment,
-      existing.total_pages
+      increment
     );
-    update.target_locked = false;
-  } else if (newCurrentProvided && !existing.target_locked) {
-    update.target_page = defaultTargetPage(
-      effectiveCurrent,
-      increment,
-      existing.total_pages
-    );
+    update.target_page = next.targetPage;
+    update.target_chapter = next.targetChapter;
+    if (startedReading) update.target_locked = false;
   }
 
   // Only an actively-read book carries a target.
@@ -494,6 +508,7 @@ export async function updateBook(
   if (finalStatus !== "in_progress") {
     update.target_page = null;
     update.target_locked = false;
+    update.target_chapter = null;
   }
 
   // Keep the due date in step with the target: cleared targets lose it, and a
@@ -657,7 +672,7 @@ export async function markTargetReached(
  */
 export async function changeStretchTarget(
   bookId: string,
-  targetPage: number,
+  choice: { targetPage?: number; chapterIndex?: number; dueDate?: string },
   memberEmail?: string | null
 ): Promise<{ target: number }> {
   const scope = await resolveReadingScope(memberEmail);
@@ -680,13 +695,36 @@ export async function changeStretchTarget(
     throw new Error("Add this book's page count before changing the goal.");
   }
 
+  // An explicit due date means a parent-admin override: allow any forward target
+  // (not just past this week's goal) and set exactly the date they chose. The
+  // kid's own change stays clamped to the weekly floor with the auto Friday date.
+  const adminSet = choice.dueDate != null;
+  if (adminSet && !/^\d{4}-\d{2}-\d{2}$/.test(choice.dueDate!)) {
+    throw new Error("Enter a valid due date.");
+  }
   const increment = await readingIncrement(client, email);
   const normalTarget = defaultTargetPage(currentPage, increment, totalPages);
-  const floor = normalTarget ?? currentPage + 1;
-  const clamped = Math.min(Math.max(Math.floor(targetPage), floor), totalPages);
+  const floor = adminSet ? currentPage + 1 : (normalTarget ?? currentPage + 1);
 
-  // No change (e.g. already at this goal, or clamped back to the same value).
-  if (clamped === book.target_page) return { target: clamped };
+  // Resolve the requested goal to a page, plus a chapter label when the reader
+  // picked a chapter (and it survives the [floor, last page] clamp).
+  let requestedPage: number;
+  let targetChapter: ReadingTargetChapter | null = null;
+  if (choice.chapterIndex != null) {
+    const chapter = await resolveChapterChoice(client, userId, bookId, choice.chapterIndex);
+    if (!chapter) throw new Error("Couldn't find that chapter.");
+    requestedPage = chapter.endPage;
+    // The chapter label only holds if the clamp doesn't move the target off it.
+    if (chapter.endPage >= floor && chapter.endPage <= totalPages) {
+      targetChapter = { title: chapter.title, kind: "chapter_end", fraction: null };
+    }
+  } else if (choice.targetPage != null) {
+    requestedPage = Math.floor(choice.targetPage);
+  } else {
+    throw new Error("Pick a goal.");
+  }
+
+  const clamped = Math.min(Math.max(requestedPage, floor), totalPages);
 
   const tz = await getUserTimezone();
   const today = localDate(new Date(), tz);
@@ -694,9 +732,10 @@ export async function changeStretchTarget(
     .from("reading_books")
     .update({
       target_page: clamped,
+      target_chapter: targetChapter,
       // The reader's own declaration, not an owner override — keep it unlocked.
       target_locked: false,
-      target_due: readingTargetDueDateKey(today),
+      target_due: choice.dueDate ?? readingTargetDueDateKey(today),
     })
     .eq("id", bookId)
     .eq("user_id", userId);
@@ -704,6 +743,208 @@ export async function changeStretchTarget(
 
   revalidatePath("/reader");
   return { target: clamped };
+}
+
+/** One selectable chapter goal: its end page (in 280-word pages) and title. */
+export type ChapterGoalOption = {
+  index: number;
+  title: string;
+  endPage: number;
+  alreadyRead: boolean;
+};
+
+/** Resolve a book's chapter spans (or null when it isn't a synthetic-page book
+ *  with a real chapter list). Shared by the picker and the change-goal action. */
+async function loadChapterOptions(
+  client: SupabaseClient,
+  userId: string,
+  bookId: string
+): Promise<{ options: ChapterGoalOption[]; currentPage: number } | null> {
+  const { data: book } = await client
+    .from("reading_books")
+    .select("current_page, total_pages")
+    .eq("id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!book) return null;
+
+  const { data: content } = await client
+    .from("reading_book_content")
+    .select("status, has_real_pages, word_count, toc")
+    .eq("book_id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const wordCount = (content?.word_count as number | null) ?? null;
+  if (!content || content.status !== "ready" || content.has_real_pages || !wordCount) {
+    return null;
+  }
+
+  const spans = chapterSpans((content.toc as ReadingTocEntry[]) ?? [], wordCount);
+  if (spans.length === 0) return null;
+
+  const contentWords = contentWordCount(spans, wordCount);
+  const totalPages = (book.total_pages as number | null) ?? wordsToPage(contentWords);
+  const currentPage = book.current_page as number;
+  const options = spans.map((c, index) => {
+    // The last chapter ends exactly at total_pages (kept in step with the
+    // "finished" line), earlier ones at their 280-word page.
+    const endPage = c.endWord >= contentWords ? totalPages : wordsToPage(c.endWord);
+    return { index, title: c.title, endPage, alreadyRead: endPage <= currentPage };
+  });
+  return { options, currentPage };
+}
+
+async function resolveChapterChoice(
+  client: SupabaseClient,
+  userId: string,
+  bookId: string,
+  index: number
+): Promise<ChapterGoalOption | null> {
+  const loaded = await loadChapterOptions(client, userId, bookId);
+  return loaded?.options[index] ?? null;
+}
+
+/**
+ * The chapter goals a reader can aim for on a book — the unread chapters, with
+ * their (280-word) end pages. Empty when the book isn't a synthetic-page EPUB
+ * with a real chapter list (the change-goal dialog then falls back to a page
+ * input). Fetched lazily when the dialog opens, so the home query stays light.
+ */
+export async function listChapterGoalOptions(
+  bookId: string,
+  memberEmail?: string | null
+): Promise<ChapterGoalOption[]> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+  const loaded = await loadChapterOptions(client, userId, bookId);
+  if (!loaded) return [];
+  return loaded.options.filter((o) => !o.alreadyRead);
+}
+
+/**
+ * ALL chapters (read and unread) plus the reader's current page, for the "change
+ * current location" picker — unlike the goal picker, correcting where a reader is
+ * can move backward, so the already-read filter isn't applied. Null when the book
+ * isn't a synthetic-page chapter book (the caller falls back to a page input).
+ */
+export async function listChapterLocationOptions(
+  bookId: string,
+  memberEmail?: string | null
+): Promise<{ options: ChapterGoalOption[]; currentPage: number } | null> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+  return loadChapterOptions(client, userId, bookId);
+}
+
+/** One chapter row in the parent-admin outline table. */
+export type BookOutlineChapter = {
+  index: number;
+  title: string;
+  /** Words in this chapter. */
+  words: number;
+  /** Cumulative words through the end of this chapter. */
+  cumulativeWords: number;
+  /** Estimated (280-word) pages in this chapter. */
+  pages: number;
+  /** The (280-word) page this chapter ends on — cumulative pages to this point. */
+  endPage: number;
+  /** The reader has already read past the end of this chapter. */
+  read: boolean;
+  /** The reader is currently within this chapter. */
+  current: boolean;
+  /** Part of the stretch from where they are up to (and including) the week's goal. */
+  goal: boolean;
+};
+
+/** A book's chapter outline plus where the reader is and what they're aiming for. */
+export type BookOutline = {
+  chapters: BookOutlineChapter[];
+  currentPage: number;
+  /** The story's length in words (excludes trailing back matter). */
+  totalWords: number;
+  totalPages: number;
+  /** This week's goal page, when one is set. */
+  targetPage: number | null;
+  /** The goal phrased as a chapter, when it snapped to one. */
+  targetChapter: ReadingTargetChapter | null;
+};
+
+/**
+ * The chapter-by-chapter outline of a book: per-chapter and cumulative word/page
+ * counts, with the current chapter and the stretch up to the week's goal flagged.
+ * Null when the book isn't a synthetic-page EPUB with a real chapter list (the
+ * same books that support chapter goals). Fetched lazily when the modal opens.
+ */
+export async function getBookOutline(
+  bookId: string,
+  memberEmail?: string | null
+): Promise<BookOutline | null> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+
+  const { data: book } = await client
+    .from("reading_books")
+    .select("current_page, total_pages, target_page, target_chapter")
+    .eq("id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!book) return null;
+
+  const { data: content } = await client
+    .from("reading_book_content")
+    .select("status, has_real_pages, word_count, toc")
+    .eq("book_id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const wordCount = (content?.word_count as number | null) ?? null;
+  if (!content || content.status !== "ready" || content.has_real_pages || !wordCount) {
+    return null;
+  }
+
+  const spans = chapterSpans((content.toc as ReadingTocEntry[]) ?? [], wordCount);
+  if (spans.length === 0) return null;
+
+  const contentWords = contentWordCount(spans, wordCount);
+  const totalPages = (book.total_pages as number | null) ?? wordsToPage(contentWords);
+  const currentPage = (book.current_page as number | null) ?? 0;
+  const targetPage = (book.target_page as number | null) ?? null;
+
+  // A chapter's end page: the last one lands exactly at total_pages (kept in step
+  // with the "finished" line), earlier ones at their 280-word page.
+  const endPageOf = (endWord: number): number =>
+    endWord >= contentWords ? totalPages : wordsToPage(endWord);
+
+  // The chapter the reader is in now (first whose end is past them), and the one
+  // that completes this week's goal (first ending at/after the target).
+  const currentIndex = spans.findIndex((c) => endPageOf(c.endWord) > currentPage);
+  const goalIndex =
+    targetPage != null
+      ? spans.findIndex((c) => endPageOf(c.endWord) >= targetPage)
+      : -1;
+
+  let prevEndPage = 0;
+  const chapters: BookOutlineChapter[] = spans.map((c, index) => {
+    const endPage = endPageOf(c.endWord);
+    const pages = Math.max(0, endPage - prevEndPage);
+    prevEndPage = endPage;
+    return {
+      index,
+      title: c.title,
+      words: c.endWord - c.startWord,
+      cumulativeWords: c.endWord,
+      pages,
+      endPage,
+      read: endPage <= currentPage,
+      current: index === currentIndex,
+      goal: goalIndex >= 0 && index > currentIndex && index <= goalIndex,
+    };
+  });
+
+  return {
+    chapters,
+    currentPage,
+    totalWords: contentWords,
+    totalPages,
+    targetPage,
+    targetChapter: (book.target_chapter as ReadingTargetChapter | null) ?? null,
+  };
 }
 
 const RATINGS: ReadingRating[] = ["loved", "liked", "neutral", "disliked"];

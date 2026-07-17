@@ -2,6 +2,7 @@ import "server-only";
 import JSZip from "jszip";
 import { DOMParser } from "@xmldom/xmldom";
 import sanitizeHtml from "sanitize-html";
+import { WORDS_PER_PAGE, chapterSpans } from "@/lib/reading/chapter-target";
 
 /**
  * Turning an uploaded PDF/EPUB into the reading experience: reflowable HTML with
@@ -30,6 +31,13 @@ export type TocEntry = {
   level: number;
   /** Source page the heading falls on, when known. */
   page: number | null;
+  /**
+   * Cumulative body words *before* this heading — i.e. the word offset where the
+   * chapter starts. Chapter N's word span is [entry.startWord, nextEntry.startWord).
+   * This is what lets a weekly goal snap to a chapter boundary when the EPUB's own
+   * page numbers are synthetic (a "page" is defined as a fixed number of words).
+   */
+  startWord: number;
 };
 
 export type ConversionResult = {
@@ -41,6 +49,12 @@ export type ConversionResult = {
   hasRealPages: boolean;
   /** Total characters of body text — the substrate for future quiz scoping. */
   charCount: number;
+  /**
+   * Total body words. The source of truth for page estimates and chapter targets:
+   * for an EPUB without a real page-list, a "page" is defined as 280 words, so the
+   * whole goal system can run in a stable, device-independent unit.
+   */
+  wordCount: number;
   /**
    * The EPUB's embedded cover, as a `data:` URL ready to drop straight into an
    * <img src>, or null if the file ships no cover (PDFs always null). Inlined
@@ -91,6 +105,24 @@ function escapeHtml(text: string): string {
     .replace(/>/g, "&gt;");
 }
 
+/** Words in a run of text: whitespace-delimited tokens. The substrate for page
+ *  estimates and chapter targets (see ConversionResult.wordCount). */
+function countWords(text: string): number {
+  const m = text.trim().match(/\S+/g);
+  return m ? m.length : 0;
+}
+
+/**
+ * A display title for a chapter heading. Publisher nav labels are often a bare
+ * number ("1", "12") — image-based chapter heads especially — which reads oddly
+ * on its own, so those become "Chapter N". Named sections ("Prologue", "Part I:
+ * The Spark") are left untouched.
+ */
+function chapterDisplayTitle(title: string): string {
+  const t = title.trim();
+  return /^\d{1,3}$/.test(t) ? `Chapter ${t}` : t;
+}
+
 /**
  * Decide whether a line is a chapter/section heading, and at what level. Uses
  * textual conventions (Part/Chapter/numbers/all-caps) plus an optional font-size
@@ -136,11 +168,13 @@ function buildPagedHtml(
   pages: ConvertedPage[];
   toc: TocEntry[];
   charCount: number;
+  wordCount: number;
 } {
   const htmlParts: string[] = [];
   const pages: ConvertedPage[] = [];
   const toc: TocEntry[] = [];
   let charCursor = 0;
+  let wordCursor = 0;
   let sectionSeq = 0;
 
   for (const { pageNumber, blocks } of pageBlocks) {
@@ -153,12 +187,13 @@ function buildPagedHtml(
         htmlParts.push(
           `<${tag} id="${anchorId}" class="reader-heading reader-h${block.level <= 1 ? 1 : 2}">${escapeHtml(block.text)}</${tag}>`
         );
-        toc.push({ title: block.text, anchorId, level: block.level <= 1 ? 1 : 2, page: pageNumber });
+        toc.push({ title: block.text, anchorId, level: block.level <= 1 ? 1 : 2, page: pageNumber, startWord: wordCursor });
       } else {
         htmlParts.push(`<p>${escapeHtml(block.text)}</p>`);
       }
       // +1 approximates the whitespace separating blocks in the text flow.
       charCursor += block.text.length + 1;
+      wordCursor += countWords(block.text);
     }
     if (pageNumber != null) {
       pages.push({
@@ -170,7 +205,7 @@ function buildPagedHtml(
     }
   }
 
-  return { html: htmlParts.join("\n"), pages, toc, charCount: charCursor };
+  return { html: htmlParts.join("\n"), pages, toc, charCount: charCursor, wordCount: wordCursor };
 }
 
 // ============================================================
@@ -403,7 +438,7 @@ async function convertPdf(buffer: ArrayBuffer): Promise<ConversionResult> {
     );
   }
 
-  const { html, pages, toc, charCount } = buildPagedHtml(pageBlocks);
+  const { html, pages, toc, charCount, wordCount } = buildPagedHtml(pageBlocks);
   return {
     html: sanitizeHtml(html, SANITIZE_OPTIONS),
     pages,
@@ -411,6 +446,7 @@ async function convertPdf(buffer: ArrayBuffer): Promise<ConversionResult> {
     pageCount: doc.numPages,
     hasRealPages: true,
     charCount,
+    wordCount,
     coverImageDataUrl: null,
   };
 }
@@ -480,16 +516,29 @@ function resolvePath(base: string, rel: string): string {
 
 type EpubMark = { pageNumber: number; beforeBlock: number };
 
-/** Walk a spine document collecting blocks (paragraphs + headings from h1-h6)
- *  and any page-break marks. */
+/**
+ * Walk a spine document collecting blocks (paragraphs + headings from h1-h6) and
+ * any page-break marks. Also records, for each id in `wantedIds` (the fragment
+ * targets a nav/NCX entry points at), the block index where it falls — including
+ * ids on non-block elements like the `<img id="…">` many publishers use as
+ * image-based chapter headers. That index is the chapter's start in the text.
+ */
 function walkEpubDoc(
   body: XmlElement,
   blocks: Block[],
-  marks: EpubMark[]
+  marks: EpubMark[],
+  wantedIds: Set<string>,
+  anchors: Map<string, number>
 ): void {
   const visit = (node: XmlNode) => {
     if (node.nodeType !== 1) return; // elements only
     const el = node as XmlElement;
+    // Record a wanted fragment at the block it precedes (blocks.length is the
+    // index the *next* pushed block will take — i.e. the chapter's first block).
+    if (wantedIds.size > 0) {
+      const id = attr(el, "id");
+      if (id && wantedIds.has(id) && !anchors.has(id)) anchors.set(id, blocks.length);
+    }
     if (isPageBreak(el)) {
       const num = parseInt(pageLabel(el), 10);
       if (!Number.isNaN(num)) marks.push({ pageNumber: num, beforeBlock: blocks.length });
@@ -552,19 +601,33 @@ function stripLeadingTitle(blocks: Block[], title: string): Block[] {
   return blocks.slice(i);
 }
 
+/** A single table-of-contents entry: which spine file it lands in, the fragment
+ *  id within that file (null = the file's start), and its title. */
+type NavEntry = { file: string; fragment: string | null; title: string };
+
+/** Split an href/src ("file.html#frag") into its file path and fragment id. */
+function splitHref(base: string, href: string): { file: string; fragment: string | null } {
+  const hashIndex = href.indexOf("#");
+  const rawFile = hashIndex >= 0 ? href.slice(0, hashIndex) : href;
+  const fragment = hashIndex >= 0 ? decodeURIComponent(href.slice(hashIndex + 1)) : null;
+  return { file: resolvePath(base, rawFile), fragment: fragment || null };
+}
+
 /**
- * Read an EPUB's table of contents (the EPUB3 nav doc, or the EPUB2 NCX) into a
- * per-spine-file title map. This is the authoritative source of chapter titles —
- * far more reliable than guessing headings from publisher-specific markup.
+ * Read an EPUB's table of contents (the EPUB3 nav doc, or the EPUB2 NCX) as an
+ * *ordered, fragment-level* list of entries. Unlike a per-file map, this keeps
+ * every chapter even when a whole Part shares one spine file (a very common
+ * layout — e.g. all of "Part I" in a single HTML file, its chapters marked only
+ * by `#toc_marker` fragments on image headers). The fragment is what lets each
+ * chapter be located in the reflowed text. This is the authoritative chapter
+ * list — far more reliable than guessing headings from publisher-specific markup.
  */
-async function readEpubToc(
-  zip: JSZip,
+async function readEpubNav(
   parser: DOMParser,
   opf: XmlDocument,
   opfDir: string,
   readText: (path: string) => Promise<string | null>
-): Promise<Map<string, string>> {
-  const byFile = new Map<string, string>();
+): Promise<NavEntry[]> {
   const dirOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
 
   const items = opf.getElementsByTagName("item");
@@ -578,6 +641,8 @@ async function readEpubToc(
     if (/\bnav\b/.test(props)) navHref = href;
     if (mediaType === "application/x-dtbncx+xml") ncxHref = href;
   }
+
+  const entries: NavEntry[] = [];
 
   // EPUB3 nav document: <nav epub:type="toc"> with <a href="file#frag">Title</a>.
   if (navHref) {
@@ -597,14 +662,16 @@ async function readEpubToc(
         const href = anchors[i].getAttribute("href");
         const title = anchors[i].textContent?.replace(/\s+/g, " ").trim();
         if (!href || !title) continue;
-        const file = resolvePath(navDir, href.split("#")[0]);
-        if (!byFile.has(file)) byFile.set(file, title);
+        const { file, fragment } = splitHref(navDir, href);
+        entries.push({ file, fragment, title });
       }
     }
   }
 
-  // EPUB2 fallback: the NCX navMap (<navPoint><navLabel><text>…</text><content src=…/>).
-  if (byFile.size === 0 && ncxHref) {
+  // EPUB2 fallback: the NCX navMap. getElementsByTagName flattens nested
+  // navPoints in document order, so a Part and its child chapters arrive in
+  // reading order.
+  if (entries.length === 0 && ncxHref) {
     const ncxPath = resolvePath(opfDir, ncxHref);
     const ncxXml = await readText(ncxPath);
     if (ncxXml) {
@@ -617,13 +684,13 @@ async function readEpubToc(
           .trim();
         const src = points[i].getElementsByTagName("content")[0]?.getAttribute("src");
         if (!label || !src) continue;
-        const file = resolvePath(ncxDir, src.split("#")[0]);
-        if (!byFile.has(file)) byFile.set(file, label);
+        const { file, fragment } = splitHref(ncxDir, src);
+        entries.push({ file, fragment, title: label });
       }
     }
   }
 
-  return byFile;
+  return entries;
 }
 
 /**
@@ -784,18 +851,36 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
   }
   if (spinePaths.length === 0) throw new ConversionError("This EPUB has no readable content.");
 
-  // The authoritative chapter titles, keyed by spine file. Used to give each
-  // file a styled heading and to suppress its repeated in-file title lines.
-  const tocByFile = await readEpubToc(
-    zip,
+  // The authoritative, fragment-level chapter list, in reading order. Chapters
+  // are located in the reflowed text by their fragment ids (below), so a Part
+  // that shares one spine file still yields every chapter.
+  const navEntries = await readEpubNav(
     parser,
     opf as unknown as XmlDocument,
     opfDir,
     readText
   );
+  // A file's first nav title, used to strip its repeated in-file title lines.
+  const firstTitleByFile = new Map<string, string>();
+  // Fragment ids we need to locate, per file — so the walk only tracks those.
+  const wantedByFile = new Map<string, Set<string>>();
+  for (const e of navEntries) {
+    if (!firstTitleByFile.has(e.file)) firstTitleByFile.set(e.file, e.title);
+    if (e.fragment) {
+      const set = wantedByFile.get(e.file) ?? new Set<string>();
+      set.add(e.fragment);
+      wantedByFile.set(e.file, set);
+    }
+  }
 
   const blocks: Block[] = [];
   const marks: EpubMark[] = [];
+  // Resolved location of each wanted fragment: "file#frag" -> global block index.
+  const anchorAt = new Map<string, number>();
+  // Where each spine file's content begins in the global block stream (for
+  // file-level nav entries, and as a fallback when a fragment can't be found).
+  const fileFirstIndex = new Map<string, number>();
+
   for (const path of spinePaths) {
     const xml = await readText(path);
     if (!xml) continue;
@@ -805,29 +890,29 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
 
     const fileBlocks: Block[] = [];
     const fileMarks: EpubMark[] = [];
-    walkEpubDoc(body, fileBlocks, fileMarks);
+    const fileAnchors = new Map<string, number>();
+    walkEpubDoc(body, fileBlocks, fileMarks, wantedByFile.get(path) ?? new Set(), fileAnchors);
 
-    const navTitle = tocByFile.get(path);
-    let kept = navTitle ? stripLeadingTitle(fileBlocks, navTitle) : fileBlocks;
-    // If walkEpubDoc already produced its own leading heading (semantic h-tags),
-    // don't add a duplicate from the nav.
-    const alreadyHeaded = kept[0]?.kind === "heading";
+    const navTitle = firstTitleByFile.get(path);
+    const kept = navTitle ? stripLeadingTitle(fileBlocks, navTitle) : fileBlocks;
 
     // Skip empty front matter (e.g. an image-only cover) so it doesn't litter
     // the TOC with contentless sections.
     if (!kept.some((b) => b.kind === "para")) continue;
 
     const dropped = fileBlocks.length - kept.length;
-    if (navTitle && !alreadyHeaded) {
-      kept = [{ kind: "heading", text: navTitle, level: tocLevel(navTitle) }, ...kept];
-    }
-    const headingAdded = navTitle && !alreadyHeaded ? 1 : 0;
-
     const base = blocks.length;
+    fileFirstIndex.set(path, base);
     for (const b of kept) blocks.push(b);
+    for (const [frag, localIdx] of fileAnchors) {
+      const adj = localIdx - dropped;
+      if (adj >= 0) anchorAt.set(`${path}#${frag}`, base + adj);
+    }
     for (const m of fileMarks) {
-      const adj = Math.max(0, m.beforeBlock - dropped) + headingAdded;
-      marks.push({ pageNumber: m.pageNumber, beforeBlock: base + adj });
+      marks.push({
+        pageNumber: m.pageNumber,
+        beforeBlock: base + Math.max(0, m.beforeBlock - dropped),
+      });
     }
   }
 
@@ -835,7 +920,26 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
     throw new ConversionError("We couldn't extract any text from this EPUB.");
   }
 
-  // Build HTML, inserting page anchors at their block boundaries.
+  // Resolve each nav entry to a block index, in order; group them so a heading
+  // can be injected at that spot during HTML assembly. A fragment that can't be
+  // found falls back to the file's start.
+  const navByBlock = new Map<number, { title: string; level: number }[]>();
+  const seenNav = new Set<string>();
+  for (const e of navEntries) {
+    let index = e.fragment != null ? anchorAt.get(`${e.file}#${e.fragment}`) : undefined;
+    if (index == null) index = fileFirstIndex.get(e.file);
+    if (index == null) continue; // file skipped (front matter) or unresolved
+    const title = chapterDisplayTitle(e.title);
+    const key = `${index}::${normalizeTitle(title)}`;
+    if (seenNav.has(key)) continue;
+    seenNav.add(key);
+    const list = navByBlock.get(index) ?? [];
+    list.push({ title, level: tocLevel(e.title) });
+    navByBlock.set(index, list);
+  }
+
+  // Build HTML, inserting page anchors at their block boundaries and chapter
+  // headings at their nav positions.
   const marksByBlock = new Map<number, number>();
   for (const m of marks) {
     if (!marksByBlock.has(m.beforeBlock)) marksByBlock.set(m.beforeBlock, m.pageNumber);
@@ -845,7 +949,10 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
   const htmlParts: string[] = [];
   const pages: ConvertedPage[] = [];
   const toc: TocEntry[] = [];
+  // (char, word) at each block boundary, for laying out synthetic pages below.
+  const blockMarks: { char: number; word: number }[] = [];
   let charCursor = 0;
+  let wordCursor = 0;
   let sectionSeq = 0;
   let currentPage: number | null = null;
   let openPage: { pageNumber: number; charStart: number } | null = null;
@@ -862,6 +969,33 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
     }
   };
 
+  // Advance the cursors for one emitted element's text. Every visible block —
+  // paragraph OR heading (including the chapter headings we inject) — must
+  // advance them, or the char offsets drift from getTextForRange's rebuild of
+  // this same stream (which counts every <p>/<h*>), breaking quiz scoping.
+  const advance = (text: string) => {
+    charCursor += text.length + 1;
+    wordCursor += countWords(text);
+  };
+
+  const pushHeading = (text: string, level: number) => {
+    const anchorId = `sec-${++sectionSeq}`;
+    const lvl = level <= 1 ? 1 : 2;
+    const tag = lvl === 1 ? "h1" : "h2";
+    htmlParts.push(
+      `<${tag} id="${anchorId}" class="reader-heading reader-h${lvl}">${escapeHtml(text)}</${tag}>`
+    );
+    // startWord is the words *before* this heading — the chapter's start offset.
+    toc.push({
+      title: text,
+      anchorId,
+      level: lvl,
+      page: hasRealPages ? currentPage : null,
+      startWord: wordCursor,
+    });
+    advance(text);
+  };
+
   for (let i = 0; i < blocks.length; i++) {
     const pageNum = marksByBlock.get(i);
     if (pageNum != null) {
@@ -871,32 +1005,60 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
       openPage = { pageNumber: pageNum, charStart: charCursor };
     }
     const block = blocks[i];
+    // Inject chapter headings from the nav here — but not when this block is
+    // itself a real heading (a semantic <h*>), which becomes the entry instead,
+    // to avoid a doubled title.
+    const injected = navByBlock.get(i);
+    if (injected && block.kind !== "heading") {
+      for (const nv of injected) pushHeading(nv.title, nv.level);
+    }
     if (block.kind === "heading") {
-      const anchorId = `sec-${++sectionSeq}`;
-      const tag = block.level <= 1 ? "h1" : "h2";
-      htmlParts.push(
-        `<${tag} id="${anchorId}" class="reader-heading reader-h${block.level <= 1 ? 1 : 2}">${escapeHtml(block.text)}</${tag}>`
-      );
-      toc.push({
-        title: block.text,
-        anchorId,
-        level: block.level <= 1 ? 1 : 2,
-        page: hasRealPages ? currentPage : null,
-      });
+      pushHeading(block.text, block.level);
     } else {
       htmlParts.push(`<p>${escapeHtml(block.text)}</p>`);
+      advance(block.text);
     }
-    charCursor += block.text.length + 1;
+    blockMarks.push({ char: charCursor, word: wordCursor });
   }
   closePage();
 
+  // A synthetic-page EPUB with real chapters gets a 280-word page map, so quiz
+  // scoping (getTextForRange, keyed on reading_book_pages) covers the reader's
+  // actual stretch instead of falling back to the whole book. The page space is
+  // block-aligned and matches wordsToPage(), so target/current pages line up.
+  const chaptered = chapterSpans(toc, wordCursor).length > 0;
+  const syntheticPages: ConvertedPage[] = [];
+  if (!hasRealPages && chaptered && wordCursor > 0) {
+    const pageTotal = Math.max(1, Math.ceil(wordCursor / WORDS_PER_PAGE));
+    let mark = 0;
+    let startChar = 0;
+    for (let pn = 1; pn <= pageTotal; pn++) {
+      // First block boundary at/after this page's word threshold (monotonic).
+      while (mark < blockMarks.length && blockMarks[mark].word < pn * WORDS_PER_PAGE) {
+        mark++;
+      }
+      const endChar = pn === pageTotal ? charCursor : (blockMarks[mark]?.char ?? charCursor);
+      if (endChar <= startChar) continue; // skip empty pages (incl. an overshoot tail)
+      syntheticPages.push({
+        pageNumber: pn,
+        anchorId: `wpage-${pn}`,
+        charStart: startChar,
+        charEnd: endChar,
+      });
+      startChar = endChar;
+    }
+  }
+
   return {
     html: sanitizeHtml(htmlParts.join("\n"), SANITIZE_OPTIONS),
-    pages: hasRealPages ? pages : [],
+    pages: hasRealPages ? pages : syntheticPages,
     toc,
+    // Keep pageCount null for synthetic books so the reader still shows a
+    // percentage; the page rows exist purely to scope quizzes to a range.
     pageCount: hasRealPages ? pages.length : null,
     hasRealPages,
     charCount: charCursor,
+    wordCount: wordCursor,
     coverImageDataUrl,
   };
 }

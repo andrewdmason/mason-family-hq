@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ReadingScope } from "@/lib/reading/scope";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
-import { defaultTargetPage } from "@/lib/reading/targets";
+import { resolveNextTarget } from "@/lib/reading/next-target";
 import { readingTargetDueDateKey } from "@/lib/reading/target-due";
 import { recordAdvanceAndCheckMilestones } from "@/lib/reading/bonus";
 import {
@@ -89,9 +89,12 @@ export async function advanceStretch(
   const newCurrent = Math.max(book.current_page, candidate);
   const finished = book.total_pages != null && newCurrent >= book.total_pages;
   const increment = await readingIncrement(client, email);
-  const nextTarget = finished
-    ? null
-    : defaultTargetPage(newCurrent, increment, book.total_pages);
+  // The next stretch's goal — snapped to a chapter for synthetic-page books,
+  // otherwise a plain page target (see resolveNextTarget).
+  const next = finished
+    ? { targetPage: null, targetChapter: null }
+    : await resolveNextTarget(client, userId, book, newCurrent, increment);
+  const nextTarget = next.targetPage;
 
   const tz = await getUserTimezone();
   const today = localDate(new Date(), tz);
@@ -101,6 +104,7 @@ export async function advanceStretch(
     .update({
       current_page: newCurrent,
       target_page: nextTarget,
+      target_chapter: next.targetChapter,
       target_locked: false,
       // A fresh stretch is due the Friday after today, granting a new week.
       target_due: nextTarget != null ? readingTargetDueDateKey(today) : null,

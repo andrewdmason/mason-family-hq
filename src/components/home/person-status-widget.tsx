@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { WidgetCard } from "./widget-card";
 import { formatTimeRange } from "@/lib/calendar/calendar-utils";
 import { quizTakeHref, readingHomeHref } from "@/lib/reading/links";
+import { chapterTargetLabel } from "@/lib/reading/chapter-target";
 import { cn } from "@/lib/utils";
 import type {
   HomePersonStatus,
@@ -49,6 +50,11 @@ function readingStatus(book: HomeReadingBookStatus): {
 }
 
 function pageLine(book: HomeReadingBookStatus): string {
+  // Chapter books have no real page numbers — show the chapter, never a page.
+  if (book.targetChapter) {
+    const label = chapterTargetLabel(book.targetChapter);
+    return `Goal: ${label.charAt(0).toUpperCase()}${label.slice(1)}`;
+  }
   if (book.targetPage != null) return `Goal: Page ${book.targetPage}`;
   const total = book.totalPages ? ` of ${book.totalPages}` : "";
   return `Page ${book.currentPage}${total}`;

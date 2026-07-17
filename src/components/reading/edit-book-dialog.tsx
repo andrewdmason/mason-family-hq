@@ -20,7 +20,18 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { removeBook, updateBook } from "@/app/(reading)/reader/actions";
+import {
+  listChapterLocationOptions,
+  removeBook,
+  updateBook,
+  type ChapterGoalOption,
+} from "@/app/(reading)/reader/actions";
+import {
+  CurrentLocationField,
+  LOCATION_NOT_STARTED,
+  locationToPage,
+  preselectLocation,
+} from "@/components/reading/change-location-dialog";
 import { RatingPicker } from "@/components/reading/rating-picker";
 import { READING_STATUSES, readingStatusLabel } from "@/lib/reading/status";
 import type { ReadingBook, ReadingBookStatus, ReadingRating } from "@/lib/types";
@@ -56,6 +67,13 @@ export function EditBookDialog({
     book.total_pages ? String(book.total_pages) : ""
   );
   const [currentPage, setCurrentPage] = useState(String(book.current_page));
+  // Chapter books track "current location" by chapter (page numbers are synthetic).
+  // Null = a page-numbered book (or article) that keeps the plain page input.
+  const [chapterOptions, setChapterOptions] = useState<
+    ChapterGoalOption[] | null
+  >(null);
+  const [locationValue, setLocationValue] = useState(LOCATION_NOT_STARTED);
+  const [initialLocation, setInitialLocation] = useState(LOCATION_NOT_STARTED);
   const [targetPage, setTargetPage] = useState(
     book.target_page != null ? String(book.target_page) : ""
   );
@@ -77,8 +95,24 @@ export function EditBookDialog({
 
   // Reset the form to the book's current values each time the dialog opens —
   // works whether opened by the built-in trigger or controlled from outside.
+  // Lazily load the chapter list too: chapter books swap the "current page" input
+  // for a chapter picker; page books (null result) keep the page input.
   useEffect(() => {
-    if (open) syncFromBook();
+    if (!open) return;
+    syncFromBook();
+    setChapterOptions(null);
+    listChapterLocationOptions(book.id, memberEmail)
+      .then((loaded) => {
+        if (loaded && loaded.options.length > 0) {
+          const pre = preselectLocation(loaded.options);
+          setChapterOptions(loaded.options);
+          setLocationValue(pre);
+          setInitialLocation(pre);
+        } else {
+          setChapterOptions(null);
+        }
+      })
+      .catch(() => setChapterOptions(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -89,13 +123,21 @@ export function EditBookDialog({
     // would lock the target (blocking auto-tracking) on every unrelated edit.
     const targetNum = targetPage.trim() ? Number(targetPage) : null;
     const targetChanged = targetNum !== (book.target_page ?? null);
+    // Chapter books: only send current_page when the picker actually moved — the
+    // preselected chapter's end page can sit behind a reader who's mid-chapter, so
+    // sending it on an unrelated edit would quietly rewind them.
+    const currentPagePatch = chapterOptions
+      ? locationValue !== initialLocation
+        ? { currentPage: locationToPage(chapterOptions, locationValue) }
+        : {}
+      : { currentPage: currentPage ? Number(currentPage) : 0 };
     startTransition(async () => {
       try {
         await updateBook(book.id, {
           title,
           author,
           totalPages: totalPages ? Number(totalPages) : null,
-          currentPage: currentPage ? Number(currentPage) : 0,
+          ...currentPagePatch,
           ...(status === "in_progress" && targetChanged
             ? { targetPage: targetNum }
             : {}),
@@ -177,16 +219,26 @@ export function EditBookDialog({
                 onChange={(e) => setTotalPages(e.target.value)}
               />
             </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="edit-book-current">Current page</Label>
-              <Input
+            {chapterOptions ? (
+              <CurrentLocationField
                 id="edit-book-current"
-                type="number"
-                min={0}
-                value={currentPage}
-                onChange={(e) => setCurrentPage(e.target.value)}
+                label="Current chapter"
+                options={chapterOptions}
+                value={locationValue}
+                onChange={setLocationValue}
               />
-            </div>
+            ) : (
+              <div className="grid gap-1.5">
+                <Label htmlFor="edit-book-current">Current page</Label>
+                <Input
+                  id="edit-book-current"
+                  type="number"
+                  min={0}
+                  value={currentPage}
+                  onChange={(e) => setCurrentPage(e.target.value)}
+                />
+              </div>
+            )}
           </div>
           {status === "in_progress" && (
             <div className="grid gap-1.5">

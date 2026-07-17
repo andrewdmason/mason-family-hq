@@ -27,6 +27,12 @@ import { creditEssayBonus } from "@/lib/bucks/earn";
 import { essayExceeded } from "@/lib/reading/essay-scoring";
 import { archiveOtherOpenQuizzes } from "@/lib/reading/supersede";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
+import {
+  chapterSpans,
+  contentWordCount,
+  coverageChapterLabel,
+  wordsToPage,
+} from "@/lib/reading/chapter-target";
 import type {
   ActiveBookQuiz,
   EssayRubric,
@@ -35,6 +41,8 @@ import type {
   ReadingAdminBook,
   ReadingAdminMember,
   ReadingAdminQuiz,
+  ReadingBook,
+  ReadingBookContentSummary,
   ReadingEssayFeedback,
   ReadingQuiz,
   ReadingQuizAnswer,
@@ -43,6 +51,7 @@ import type {
   ReadingQuizStatus,
   ReadingQuizSubmission,
   ReadingQuizWithQuestions,
+  ReadingTocEntry,
 } from "@/lib/types";
 
 // Full columns, including the essay's grader-facing anchor — used where the owner
@@ -729,11 +738,44 @@ function partitionForAttempt<Q extends { id: string }>(
  * questions are returned (`retake: true`); a first attempt or a full replay
  * returns them all. Returns null only if it's not published or not found.
  */
+/**
+ * A book's chapters (title + 280-word end page) for labeling a quiz's covered
+ * range by chapter. Empty for real-page books, articles, and books not yet
+ * (re)converted — the caller then falls back to the page range.
+ */
+async function bookChapterList(
+  client: ScopedClient,
+  userId: string,
+  bookId: string,
+  totalPages: number | null
+): Promise<{ title: string; endPage: number }[]> {
+  const { data: content } = await client
+    .from("reading_book_content")
+    .select("status, has_real_pages, word_count, toc")
+    .eq("book_id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const wordCount = (content?.word_count as number | null) ?? null;
+  if (!content || content.status !== "ready" || content.has_real_pages || !wordCount) {
+    return [];
+  }
+  const spans = chapterSpans((content.toc as ReadingTocEntry[]) ?? [], wordCount);
+  if (spans.length === 0) return [];
+  const contentWords = contentWordCount(spans, wordCount);
+  const total = totalPages ?? wordsToPage(contentWords);
+  return spans.map((s) => ({
+    title: s.title,
+    endPage: s.endWord >= contentWords ? total : wordsToPage(s.endWord),
+  }));
+}
+
 export async function getQuizForTaking(
   quizId: string,
   memberEmail?: string | null
 ): Promise<{
   quiz: ReadingQuizWithQuestions;
+  /** The covered range as a chapter label for chapter books; null for page books. */
+  coverageLabel: string | null;
   retake: boolean;
   /** Essay: which step to show. "comprehension" = the Part 1 gate (until it's cleared);
    *  "essay" = the writing. Legacy MC/free-text is always "essay". */
@@ -761,6 +803,13 @@ export async function getQuizForTaking(
     .eq("status", "published")
     .maybeSingle();
   if (!quiz) return null;
+
+  // Label a chapter book's covered range by chapter rather than a synthetic page.
+  const coverageLabel = coverageChapterLabel(
+    await bookChapterList(client, userId, (quiz as ReadingQuiz).book_id, null),
+    (quiz as ReadingQuiz).from_page,
+    (quiz as ReadingQuiz).through_page
+  );
 
   const { data: questions } = await client
     .from("reading_quiz_questions")
@@ -832,6 +881,7 @@ export async function getQuizForTaking(
       hasPartOne && q.comprehension_cleared_at == null ? "comprehension" : "essay";
     return {
       quiz: { ...q, questions: [chosen] },
+      coverageLabel,
       retake: false,
       stage,
       comprehensionPrompt: chosen.comprehension_prompt,
@@ -851,6 +901,7 @@ export async function getQuizForTaking(
 
   return {
     quiz: { ...(quiz as ReadingQuiz), questions: ask },
+    coverageLabel,
     retake,
     stage: "essay",
     comprehensionPrompt: null,
@@ -1918,9 +1969,23 @@ export async function getQuizResult(
     ? await loadEssayQuizState(client, userId, quizId)
     : null;
 
+  // Label a chapter book's covered range by chapter rather than a synthetic page.
+  const chapters = await bookChapterList(
+    client,
+    userId,
+    (quiz as ReadingQuiz).book_id,
+    (book?.total_pages as number | null) ?? null
+  );
+  const coverageLabel = coverageChapterLabel(
+    chapters,
+    (quiz as ReadingQuiz).from_page,
+    (quiz as ReadingQuiz).through_page
+  );
+
   return {
     quiz: quiz as ReadingQuiz,
     bookTitle: (book?.title as string) ?? "this book",
+    coverageLabel,
     nextAssignment: {
       bookTitle: (book?.title as string) ?? "this book",
       currentPage: (book?.current_page as number | null) ?? 0,
@@ -2006,19 +2071,32 @@ export async function getReadingAdmin(): Promise<ReadingAdminMember[]> {
   await requireOwner();
   const admin = createAdminClient();
 
+  // Kids only — the admin console is for managing children's reading, not the
+  // parents'/owner's own books.
   const { data: members } = await admin
     .from("family_members")
     .select("email, name, user_id")
+    .eq("role", "kid")
     .not("user_id", "is", null);
   const memberRows = (members ?? []).filter((m) => m.user_id);
   const userIds = memberRows.map((m) => m.user_id as string);
   if (userIds.length === 0) return [];
 
+  // Each kid's weekly page goal (reading_settings is keyed by email).
+  const { data: goalRows } = await admin
+    .from("reading_settings")
+    .select("member_email, weekly_page_goal")
+    .in("member_email", memberRows.map((m) => m.email as string));
+  const goalByEmail = new Map<string, number>();
+  for (const g of goalRows ?? []) {
+    goalByEmail.set(g.member_email as string, (g.weekly_page_goal as number) ?? 0);
+  }
+
   const [{ data: books }, { data: quizzes }] = await Promise.all([
     admin
       .from("reading_books")
       .select(
-        "id, user_id, title, author, current_page, target_page, target_due, total_pages, status, updated_at"
+        "id, user_id, type, title, author, source_url, site_name, excerpt, word_count, total_pages, current_page, target_page, target_locked, target_due, target_chapter, status, cover_image_url, openlibrary_key, isbn, published_year, started_at, finished_at, rating, recommended_by_email, recommended_by_label, recommendation_note, created_at, updated_at"
       )
       .in("user_id", userIds),
     admin
@@ -2027,6 +2105,45 @@ export async function getReadingAdmin(): Promise<ReadingAdminMember[]> {
       .in("user_id", userIds)
       .order("created_at", { ascending: false }),
   ]);
+
+  // Uploaded-file state per book, for the admin's upload/replace control. The
+  // toc + word count also let us label quiz ranges by chapter (below).
+  const bookIds = (books ?? []).map((b) => b.id as string);
+  const totalPagesById = new Map<string, number | null>(
+    (books ?? []).map((b) => [b.id as string, (b.total_pages as number | null) ?? null])
+  );
+  const contentByBook = new Map<string, ReadingBookContentSummary>();
+  const chaptersByBook = new Map<string, { title: string; endPage: number }[]>();
+  if (bookIds.length > 0) {
+    const { data: contentRows } = await admin
+      .from("reading_book_content")
+      .select("book_id, status, page_count, has_real_pages, word_count, toc, error_message")
+      .in("book_id", bookIds);
+    for (const c of contentRows ?? []) {
+      const bookId = c.book_id as string;
+      contentByBook.set(bookId, {
+        status: c.status as ReadingBookContentSummary["status"],
+        page_count: (c.page_count as number) ?? null,
+        has_real_pages: (c.has_real_pages as boolean) ?? false,
+        word_count: (c.word_count as number) ?? null,
+        error_message: (c.error_message as string) ?? null,
+      });
+      // Chapter list (synthetic-page books only), mirroring the goal picker.
+      const wordCount = (c.word_count as number | null) ?? null;
+      if (c.status !== "ready" || c.has_real_pages || !wordCount) continue;
+      const spans = chapterSpans((c.toc as ReadingTocEntry[]) ?? [], wordCount);
+      if (spans.length === 0) continue;
+      const contentWords = contentWordCount(spans, wordCount);
+      const total = totalPagesById.get(bookId) ?? wordsToPage(contentWords);
+      chaptersByBook.set(
+        bookId,
+        spans.map((s) => ({
+          title: s.title,
+          endPage: s.endWord >= contentWords ? total : wordsToPage(s.endWord),
+        }))
+      );
+    }
+  }
 
   const quizIds = (quizzes ?? []).map((q) => q.id as string);
   const { data: submissions } = quizIds.length
@@ -2070,9 +2187,9 @@ export async function getReadingAdmin(): Promise<ReadingAdminMember[]> {
   for (const b of books ?? []) {
     const bookQuizzes = quizzesByBook.get(b.id as string) ?? [];
     const status = b.status as string;
-    // Show in-progress books (the active assignment) and any book that carries
-    // quiz history; skip queued/archived books with nothing to administer.
-    if (status !== "in_progress" && bookQuizzes.length === 0) continue;
+    // Only the active assignment: books currently being read. Paused/queued/
+    // archived books (even ones with old quiz history) aren't administered here.
+    if (status !== "in_progress") continue;
 
     const activeQuiz =
       bookQuizzes.find((q) => q.status === "published" && !q.passed) ?? null;
@@ -2093,6 +2210,9 @@ export async function getReadingAdmin(): Promise<ReadingAdminMember[]> {
       activeQuiz,
       draftQuiz,
       history,
+      book: b as unknown as ReadingBook,
+      content: contentByBook.get(b.id as string) ?? null,
+      chapters: chaptersByBook.get(b.id as string) ?? null,
     };
     const list = booksByUser.get(b.user_id as string) ?? [];
     list.push(adminBook);
@@ -2112,6 +2232,7 @@ export async function getReadingAdmin(): Promise<ReadingAdminMember[]> {
     result.push({
       email: m.email as string,
       name: (m.name as string | null) ?? null,
+      weeklyPageGoal: goalByEmail.get(m.email as string) ?? 0,
       books: list,
     });
   }

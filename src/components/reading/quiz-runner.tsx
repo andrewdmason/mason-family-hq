@@ -47,6 +47,7 @@ function countWords(text: string): number {
  */
 export function QuizRunner({
   quiz,
+  coverageLabel = null,
   memberEmail = null,
   retake = false,
   stage = "essay",
@@ -58,6 +59,8 @@ export function QuizRunner({
   ownerSlot = null,
 }: {
   quiz: ReadingQuizWithQuestions;
+  /** The covered range as a chapter label for chapter books; null for page books. */
+  coverageLabel?: string | null;
   memberEmail?: string | null;
   /** True when this is a retake (a fresh try at the missed legacy questions). */
   retake?: boolean;
@@ -90,6 +93,7 @@ export function QuizRunner({
       return (
         <ComprehensionStep
           quiz={quiz}
+          coverageLabel={coverageLabel}
           prompt={comprehensionPrompt ?? chosen.comprehension_prompt ?? ""}
           memberEmail={memberEmail}
           ownerSlot={ownerSlot}
@@ -99,6 +103,7 @@ export function QuizRunner({
     return (
       <EssayRunner
         quiz={quiz}
+        coverageLabel={coverageLabel}
         essay={chosen}
         memberEmail={memberEmail}
         priorEssay={priorEssay}
@@ -112,6 +117,7 @@ export function QuizRunner({
 
   return (
     <LegacyRunner
+      coverageLabel={coverageLabel}
       quiz={quiz}
       memberEmail={memberEmail}
       retake={retake}
@@ -127,11 +133,13 @@ export function QuizRunner({
  */
 function ComprehensionStep({
   quiz,
+  coverageLabel,
   prompt,
   memberEmail,
   ownerSlot,
 }: {
   quiz: ReadingQuizWithQuestions;
+  coverageLabel: string | null;
   prompt: string;
   memberEmail: string | null;
   ownerSlot: ReactNode;
@@ -193,7 +201,8 @@ function ComprehensionStep({
           Part 1 · Quick check
         </p>
         <h1 className="mt-1 font-serif text-3xl tracking-tight text-foreground">
-          {quiz.title ||
+          {coverageLabel ??
+            quiz.title ??
             `On ${quizRangeLabel(quiz.from_page, quiz.through_page)}`}
         </h1>
         <p className="mt-3 text-sm text-muted-foreground">
@@ -240,6 +249,7 @@ function ComprehensionStep({
 
 function EssayRunner({
   quiz,
+  coverageLabel,
   essay,
   memberEmail,
   priorEssay,
@@ -249,6 +259,7 @@ function EssayRunner({
   ownerSlot,
 }: {
   quiz: ReadingQuizWithQuestions;
+  coverageLabel: string | null;
   essay: ReadingQuizQuestion;
   memberEmail: string | null;
   priorEssay: string | null;
@@ -360,7 +371,8 @@ function EssayRunner({
         <header className="mb-8">
           <p className="font-serif text-sm text-muted-foreground">{eyebrow}</p>
           <h1 className="mt-1 font-serif text-3xl tracking-tight text-foreground">
-            {quiz.title ||
+            {coverageLabel ??
+              quiz.title ??
               `On ${quizRangeLabel(quiz.from_page, quiz.through_page)}`}
           </h1>
           {isBonusShot && (
@@ -432,11 +444,13 @@ function EssayRunner({
 
 function LegacyRunner({
   quiz,
+  coverageLabel,
   memberEmail,
   retake,
   ownerSlot,
 }: {
   quiz: ReadingQuizWithQuestions;
+  coverageLabel: string | null;
   memberEmail: string | null;
   retake: boolean;
   ownerSlot: ReactNode;
@@ -485,12 +499,12 @@ function LegacyRunner({
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-8">
       <h1 className="font-serif text-2xl tracking-tight text-foreground">
-        {quiz.title || "Reading quiz"}
+        {coverageLabel ?? quiz.title ?? "Reading quiz"}
       </h1>
       <p className="mt-1 text-sm text-muted-foreground">
         {retake
           ? "Just the questions to try again — answer each one and resubmit. Your other answers are already counted."
-          : `Covers ${quizRangeLabel(quiz.from_page, quiz.through_page)}. Answer each question, then submit to see how you did.`}
+          : `Covers ${coverageLabel ?? quizRangeLabel(quiz.from_page, quiz.through_page)}. Answer each question, then submit to see how you did.`}
       </p>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-6">

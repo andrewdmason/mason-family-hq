@@ -39,6 +39,7 @@ export default async function TakeQuizPage({
   return (
     <QuizRunner
       quiz={result.quiz}
+      coverageLabel={result.coverageLabel}
       memberEmail={memberEmail}
       retake={result.retake}
       stage={result.stage}

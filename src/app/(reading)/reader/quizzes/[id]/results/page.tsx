@@ -68,6 +68,7 @@ export default async function QuizResultsPage({
   const {
     quiz,
     bookTitle,
+    coverageLabel,
     nextAssignment,
     questions,
     submission,
@@ -162,10 +163,11 @@ export default async function QuizResultsPage({
               {attemptLine}
             </p>
             <h1 className="mt-1 font-serif text-3xl tracking-tight text-foreground">
-              {quiz.title || `On ${rangeLabel}`}
+              {coverageLabel ?? quiz.title ?? `On ${rangeLabel}`}
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              {bookTitle} · {rangeLabel}
+              {bookTitle}
+              {coverageLabel ? "" : ` · ${rangeLabel}`}
             </p>
           </header>
 
@@ -214,6 +216,7 @@ export default async function QuizResultsPage({
             ) : (
               <EssayFeedback
                 prompt={essayQ?.prompt ?? ""}
+                comprehensionPrompt={essayQ?.comprehension_prompt ?? null}
                 essay={answer?.response_text ?? null}
                 rubricScores={answer?.rubric_scores ?? null}
                 aiNotes={answer?.ai_notes ?? null}
@@ -282,10 +285,11 @@ export default async function QuizResultsPage({
       )}
 
       <h1 className="font-serif text-2xl tracking-tight text-foreground">
-        {quiz.title || "Quiz results"}
+        {coverageLabel ?? quiz.title ?? "Quiz results"}
       </h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        {bookTitle} · {quizRangeLabel(quiz.from_page, quiz.through_page)}
+        {bookTitle}
+        {coverageLabel ? "" : ` · ${quizRangeLabel(quiz.from_page, quiz.through_page)}`}
       </p>
 
       {submission && attempts.length > 1 && (
