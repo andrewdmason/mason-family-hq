@@ -38,6 +38,12 @@ function readingTime(wordCount: number | null): string | null {
   return `${Math.max(1, Math.round(wordCount / 200))} min read`;
 }
 
+/** "12,345 words" from the stored word count. */
+function wordLabel(wordCount: number | null): string | null {
+  if (!wordCount || wordCount <= 0) return null;
+  return `${wordCount.toLocaleString()} words`;
+}
+
 function savedLabel(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
@@ -63,6 +69,7 @@ export function ArticleCard({
   const host = hostLabel(article.source_url);
   const site = article.site_name || host;
   const minutes = readingTime(article.word_count);
+  const words = wordLabel(article.word_count);
   const favicon = host
     ? `https://www.google.com/s2/favicons?domain=${host}&sz=64`
     : null;
@@ -122,6 +129,8 @@ export function ArticleCard({
             {minutes && <span>{minutes}</span>}
             {minutes && <span aria-hidden>·</span>}
             <span>Saved {savedLabel(article.created_at)}</span>
+            {words && <span aria-hidden>·</span>}
+            {words && <span>{words}</span>}
           </div>
         </Link>
 

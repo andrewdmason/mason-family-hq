@@ -100,7 +100,7 @@ export async function saveArticleForUser(
         excerpt,
         word_count: wordCount,
         cover_image_url: coverImageUrl,
-        status: "queued",
+        status: "in_progress",
         current_page: 0,
       })
       .select("id")
