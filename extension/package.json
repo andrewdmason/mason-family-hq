@@ -5,7 +5,9 @@
   "type": "module",
   "description": "Chrome extension that saves the current article to the Mason reader.",
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "pack": "node pack.mjs",
+    "release": "npm run build && npm run pack"
   },
   "dependencies": {
     "@mozilla/readability": "^0.5.0",
@@ -13,6 +15,7 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.0.287",
+    "crx3": "^2.0.0",
     "esbuild": "^0.24.2"
   }
 }

@@ -54,6 +54,11 @@ next-env.d.ts
 # chrome reader extension build artifacts
 /extension/node_modules/
 /extension/dist/
+# extension signing key — NEVER commit; defines the permanent extension ID.
+# Back it up to 1Password (covered by the global *.pem rule above; explicit here).
+/extension/key.pem
+# stray crx from an accidental crx3 CLI run — the real output goes to public/extension/
+/extension/*.crx
 
 # Baseball importer capture cache + browser profile (local, never committed)
 scripts/baseball/.cache/

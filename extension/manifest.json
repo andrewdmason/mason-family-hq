@@ -3,6 +3,7 @@
   "name": "Mason Reader — Save Article",
   "version": "0.1.0",
   "description": "Save the article you're reading to your Mason reader.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsrHl79B1OhMDi66lXXB9o8t5o3SdMI6Rp4XVD9cUTIwLm3DdqiMe1sKhXdvfjkqj/FJGj0L7fEnoUAnR0I6u1GS5VQp3N6lcY0mV0+IMuErUZMkGwOY7Kp83FI2UnlXy1tB2ckEMf46xCvgzew+rEDYXTf/0D4yFoKC6VdHWGa+abWXb6WXNsbeKKXQcPMZcTbSP/eObT2kYF9LAVblWJZwYVbSNMwO3w9P0etGY+9UexFZ3l5NN5u79CUM5TUF9+Sfh+qn5Ivw84YdSq6SsOg7T/cqxh/+rto/r1krE3WroHrkdczkLnN4R2e6adLgdJAH3UH5EmlaSv484DD2T2wIDAQAB",
   "permissions": ["activeTab", "scripting", "storage"],
   "action": {
     "default_title": "Save to Reader"
