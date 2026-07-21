@@ -3,8 +3,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import sanitizeHtml from "sanitize-html";
-import { requireUserId } from "@/lib/members/auth";
-import { todayLocal } from "@/lib/journal/today";
 import { createClient } from "@/lib/supabase/server";
 import { plainTextToNotesHtml } from "@/lib/todos/notes";
 import {
@@ -49,21 +47,6 @@ async function ctx() {
 export async function acknowledgeInbox(): Promise<void> {
   const { supabase, selfEmail } = await ctx();
   await markInboxSeen(supabase, selfEmail);
-}
-
-/**
- * Check off the Today view's synthetic "Write in your journal" row: hide it
- * for the rest of the user's local day. It reappears tomorrow (unless they
- * journal); journaling itself hides it without any dismissal — see
- * lib/todos/journal-nudge.ts.
- */
-export async function dismissJournalNudge(): Promise<void> {
-  const supabase = await createClient();
-  const userId = await requireUserId(supabase);
-  await supabase.from("journal_nudge_dismissals").upsert(
-    { user_id: userId, dismissed_on: await todayLocal() },
-    { onConflict: "user_id,dismissed_on", ignoreDuplicates: true }
-  );
 }
 
 export async function createTask(input: {

@@ -12,7 +12,6 @@ import {
   getTodoMembers,
   sweepElapsedSnoozes,
 } from "@/lib/todos/queries";
-import { getJournalNudgePending } from "@/lib/todos/journal-nudge";
 import { TodosViews } from "@/components/todos/todos-views";
 
 export const dynamic = "force-dynamic";
@@ -42,16 +41,13 @@ export default async function ProjectPage({
   const viewed = resolveViewedMember(as, selfEmail, members);
 
   await sweepElapsedSnoozes(supabase);
-  const [activeTasks, logbookTasks, projects, areas, logbookProjects, journalNudge] =
+  const [activeTasks, logbookTasks, projects, areas, logbookProjects] =
     await Promise.all([
       getAllActiveTasks(supabase),
       getLogbookTasks(supabase, viewed.email),
       getProjects(supabase),
       getAreas(supabase),
       getLogbookProjects(supabase),
-      viewed.email === selfEmail
-        ? getJournalNudgePending(supabase)
-        : Promise.resolve(false),
     ]);
 
   if (!projects.some((p) => p.id === id)) notFound();
@@ -75,7 +71,6 @@ export default async function ProjectPage({
       areas={areas}
       viewed={viewed}
       selfEmail={selfEmail}
-      journalNudge={journalNudge}
     />
   );
 }
