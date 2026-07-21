@@ -383,6 +383,9 @@ function NewAreaItem({ onCreate }: { onCreate: (name: string) => Promise<void> }
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => {
+          // The input lives inside a Base UI Menu, which otherwise swallows
+          // keystrokes for typeahead/arrow navigation. Keep them on the input.
+          e.stopPropagation();
           if (e.key === "Enter" && name.trim()) {
             void onCreate(name.trim());
             setAdding(false);
