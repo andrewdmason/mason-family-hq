@@ -126,7 +126,6 @@ export function TaskList({
   attachmentsByTask = {},
   viewedEmail,
   selfEmail,
-  extraRow,
 }: {
   context: TaskRowContext;
   initialTasks: TodoTask[];
@@ -135,10 +134,6 @@ export function TaskList({
   attachmentsByTask?: Record<string, TodoTaskAttachment[]>;
   viewedEmail: string;
   selfEmail: string;
-  /** A synthetic row pinned above the tasks (the Today view's journal nudge).
-   * Renders inside the list (so it suppresses the empty state) but isn't a
-   * task: no selection, no drag, no keyboard reach. */
-  extraRow?: React.ReactNode;
 }) {
   const { run, idle } = useReconciler();
   const [tasks, setTasks] = useState(initialTasks);
@@ -1203,14 +1198,14 @@ export function TaskList({
     // data-inline-new tells the global quick-add host that `c` is taken
     // here (quick-add.tsx checks for it before opening the modal).
     <div className="space-y-3" data-inline-new={canInlineNew ? "" : undefined}>
-      {tasks.length === 0 && !extraRow ? (
+      {tasks.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-10 text-center">
           <EmptyIcon className="mx-auto size-6 text-muted-foreground" />
           <p className="mt-2 text-sm text-muted-foreground">{empty.text}</p>
         </div>
       ) : (
         <div className="space-y-5">
-          {groups.map((group, groupIndex) => (
+          {groups.map((group) => (
             <section key={group.key}>
               {group.heading && (
                 <Link
@@ -1235,7 +1230,6 @@ export function TaskList({
                   strategy={verticalListSortingStrategy}
                 >
                   <div className="space-y-0.5">
-                    {groupIndex === 0 && extraRow}
                     {group.tasks.map((task) => (
                       <SortableTaskRow
                         key={stableKey(task.id)}

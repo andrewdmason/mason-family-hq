@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { acknowledgeInbox } from "@/app/(todos)/todos/actions";
 import { BackToLists } from "@/components/todos/back-to-lists";
 import { InlineNewButton } from "@/components/todos/inline-new-button";
-import { JournalNudgeRow } from "@/components/todos/journal-nudge-row";
 import { LogbookList } from "@/components/todos/logbook-list";
 import { ProjectHeader } from "@/components/todos/project-header";
 import { ProjectLogged } from "@/components/todos/project-logged";
@@ -58,7 +57,6 @@ export function TodosViews({
   areas,
   viewed,
   selfEmail,
-  journalNudge,
 }: {
   initialView: TodoView;
   activeTasks: TodoTask[];
@@ -70,8 +68,6 @@ export function TodosViews({
   areas: TodoArea[];
   viewed: TodoMember;
   selfEmail: string;
-  /** Server-decided: show the "write in your journal" row in Today. */
-  journalNudge: boolean;
 }) {
   const pathname = usePathname();
   const { run } = useReconciler();
@@ -153,28 +149,17 @@ export function TodosViews({
     return counts;
   }, [projectTasks]);
 
-  // The journal nudge is the server prop until a check-off hides it locally
-  // (its dismissal lands before the reconcile refresh re-decides). A true
-  // arriving later (a new local day in a long-lived tab) re-arms it.
-  const [nudgeDismissed, setNudgeDismissed] = useState(false);
-  useEffect(() => {
-    if (journalNudge) setNudgeDismissed(false);
-  }, [journalNudge]);
-  const showNudge = journalNudge && !nudgeDismissed;
-
   // The sidebar badges are the same filters as their views — derived, so the
-  // page doesn't need getSidebarCounts. The journal nudge row counts as a
-  // Today item like any other.
+  // page doesn't need getSidebarCounts.
   const counts = useMemo<SidebarCounts>(
     () =>
       Object.fromEntries(
         (["inbox", "today", "snoozed", "delegated"] as const).map((badged) => [
           badged,
-          deriveViewTasks(swept, badged, viewed.email).length +
-            (badged === "today" && showNudge ? 1 : 0),
+          deriveViewTasks(swept, badged, viewed.email).length,
         ])
       ),
-    [swept, viewed.email, showNudge]
+    [swept, viewed.email]
   );
 
   return (
@@ -259,13 +244,6 @@ export function TodosViews({
                   attachmentsByTask={attachmentsByTask}
                   viewedEmail={viewed.email}
                   selfEmail={selfEmail}
-                  extraRow={
-                    view === "today" && showNudge ? (
-                      <JournalNudgeRow
-                        onDismissed={() => setNudgeDismissed(true)}
-                      />
-                    ) : undefined
-                  }
                 />
               )}
             </>
