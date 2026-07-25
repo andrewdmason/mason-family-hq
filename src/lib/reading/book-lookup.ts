@@ -15,6 +15,14 @@ export type BookLookupResult = {
   /** ISBN-13 the AI resolved, used for re-fetch and links. Null if unknown. */
   isbn: string | null;
   coverImageUrl: string | null;
+  /** Genre labels, informational. Null when unknown. */
+  genres: string[] | null;
+  /**
+   * True for fiction. Seeds the book's spoiler_free default: a novel is worth
+   * protecting from spoilers, a reference book generally isn't. Null = unknown,
+   * which the caller treats as non-fiction (spoiler_free off).
+   */
+  fiction: boolean | null;
 };
 
 const LOOKUP_TOOL = {
@@ -54,6 +62,20 @@ const LOOKUP_TOOL = {
           "ISBN-13 (digits only, no hyphens) of a common print edition, used to " +
           "fetch the cover. Omit if you don't know it confidently.",
       },
+      fiction: {
+        type: "boolean",
+        description:
+          "True if this is a work of fiction (novel, short stories, narrative " +
+          "verse). False for non-fiction (history, memoir, science, reference, " +
+          "self-help). Omit only if genuinely unclear.",
+      },
+      genres: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "One to three short genre labels, e.g. [\"literary fiction\"], " +
+          "[\"fantasy\", \"young adult\"]. Omit if unsure.",
+      },
     },
     required: ["found", "confident", "title"],
   },
@@ -66,6 +88,8 @@ type LookupInput = {
   author?: unknown;
   total_pages?: unknown;
   isbn?: unknown;
+  fiction?: unknown;
+  genres?: unknown;
 };
 
 /** A working Open Library cover URL for an ISBN, or null. */
@@ -137,6 +161,8 @@ export async function lookupBookByTitle(title: string): Promise<BookLookupResult
     totalPages: null,
     isbn: null,
     coverImageUrl: null,
+    genres: null,
+    fiction: null,
   };
   if (!trimmed) return fallback;
 
@@ -184,6 +210,14 @@ export async function lookupBookByTitle(title: string): Promise<BookLookupResult
     const coverImageUrl =
       (await coverFromSearch(resolvedTitle, author)) ?? coverUrlFromIsbn(isbn);
 
+    const fiction = typeof input.fiction === "boolean" ? input.fiction : null;
+    const genres = Array.isArray(input.genres)
+      ? input.genres
+          .filter((g): g is string => typeof g === "string" && g.trim().length > 0)
+          .map((g) => g.trim())
+          .slice(0, 3)
+      : null;
+
     return {
       confident,
       title: resolvedTitle,
@@ -191,6 +225,8 @@ export async function lookupBookByTitle(title: string): Promise<BookLookupResult
       totalPages,
       isbn: storedIsbn,
       coverImageUrl,
+      genres: genres && genres.length > 0 ? genres : null,
+      fiction,
     };
   } catch (err) {
     console.error(
