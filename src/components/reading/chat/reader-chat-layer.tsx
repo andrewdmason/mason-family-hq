@@ -12,11 +12,7 @@ import {
   setChatModelPreference,
 } from "@/app/(reading)/reader/chat-actions";
 import { blockIndexForCharOffset, blockMap } from "@/lib/reading/block-stream";
-import {
-  anchorForGap,
-  anchorFromRange,
-  blockElements,
-} from "@/lib/reading/chat-anchors";
+import { anchorForGap, anchorFromRange } from "@/lib/reading/chat-anchors";
 import type {
   ReaderChatData,
   ReaderChatDetail,
@@ -25,28 +21,28 @@ import type {
 import { ChatPanel } from "./chat-panel";
 import { ChatThread } from "./chat-thread";
 import { GutterMarkers } from "./gutter-markers";
-import { useGutterPlacement } from "./gutter-placement";
+import { useGutterPlacement, type PagedGutterContext } from "./gutter-placement";
 import { ParagraphHoverTarget } from "./paragraph-hover-target";
 import { SelectionToolbar } from "./selection-toolbar";
 import { chatAtPoint, useChatHighlights } from "./use-chat-highlights";
 
-/** Must match book-reader.tsx's reading line. */
-const READING_LINE_OFFSET = 72;
-
 /**
- * Owns reader chat: loads the anchored chats for a book, renders the two ways to
+ * Owns reader chat: loads the anchored chats for a book, renders the ways to
  * start one and the markers that reopen them, and hosts the panel.
  *
  * Everything positional is computed from the book HTML the reader already
- * fetched (see block-stream.ts), so anchors resolve without measuring text.
+ * fetched (see block-stream.ts), so anchors resolve without measuring text —
+ * which is exactly why pagination didn't disturb any of it. Only the placement
+ * of the markers cares how the book is laid out.
  */
 export function ReaderChatLayer({
   bookId,
   memberEmail,
   html,
   contentRef,
-  currentPage,
-  scrollToAnchor,
+  currentCharOffset,
+  goToChar,
+  paged,
   panelOpen,
   onPanelOpenChange,
   layoutNonce,
@@ -55,8 +51,11 @@ export function ReaderChatLayer({
   memberEmail: string | null;
   html: string;
   contentRef: React.RefObject<HTMLDivElement | null>;
-  currentPage: number | null;
-  scrollToAnchor: (anchorId: string) => void;
+  /** Where the reader is now, in the conversion char space. */
+  currentCharOffset: number;
+  goToChar: (charOffset: number) => void;
+  /** Non-null in paged mode; drives marker placement. */
+  paged: PagedGutterContext | null;
   panelOpen: boolean;
   onPanelOpenChange: (open: boolean) => void;
   layoutNonce: number;
@@ -75,13 +74,26 @@ export function ReaderChatLayer({
   const chats = useMemo(() => data?.chats ?? [], [data]);
   // One placement pass shared by the markers and the hover target, so they
   // stack in the same column instead of landing on each other.
-  const gutterRows = useGutterPlacement(chats, contentRef, layoutNonce);
+  const gutterRows = useGutterPlacement(chats, contentRef, layoutNonce, paged);
   // Passages with a chat on them stay marked in the text.
   useChatHighlights(chats, contentRef, detail?.id ?? null, layoutNonce);
   const totalChars = useMemo(() => {
     const last = blocks.at(-1);
     return last ? last.charStart + last.text.length + 1 : 0;
   }, [blocks]);
+
+  // Which page the reader has reached, for the spoiler-free scoping and the
+  // "you've read past this chat" note. Derived from where they are rather than
+  // from page-anchor elements, which most books don't actually carry.
+  const currentPage = useMemo(() => {
+    const marks = [...(data?.pageMarks ?? [])].sort((a, b) => a.charStart - b.charStart);
+    let page: number | null = null;
+    for (const mark of marks) {
+      if (mark.charStart <= currentCharOffset) page = mark.pageNumber;
+      else break;
+    }
+    return page;
+  }, [currentCharOffset, data]);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -205,31 +217,32 @@ export function ReaderChatLayer({
       const hit = chatAtPoint(chats, container, e.clientX, e.clientY);
       if (hit) void openExisting(hit.id);
     };
+    // A highlight is a target, but it's only text — nothing for the paged
+    // reader's "anywhere on the page turns it" handler to recognise and skip.
+    // Claiming the pointerdown before it bubbles out of the book keeps opening a
+    // chat from also flipping the page out from under it.
+    const onPointerDown = (e: PointerEvent) => {
+      if (chatAtPoint(chats, container, e.clientX, e.clientY)) e.stopPropagation();
+    };
+    container.addEventListener("pointerdown", onPointerDown);
     container.addEventListener("click", onClick);
-    return () => container.removeEventListener("click", onClick);
+    return () => {
+      container.removeEventListener("pointerdown", onPointerDown);
+      container.removeEventListener("click", onClick);
+    };
   }, [chats, contentRef, openExisting]);
 
-  // A citation cites a page, but most books have no page-N element in the DOM
-  // (verified: even books flagged has_real_pages carry none). So try the anchor,
-  // then fall back to the page's character offset, which always resolves.
+  // A citation cites a page, and every page we know about has a recorded
+  // character offset — which navigates identically whether the book is paged or
+  // scrolled. (The page-N elements can't be relied on: even books flagged
+  // has_real_pages often carry none in the DOM.)
   const jumpToPage = useCallback(
     (page: number) => {
-      if (document.getElementById(`page-${page}`)) {
-        scrollToAnchor(`page-${page}`);
-        return;
-      }
       const mark = data?.pageMarks.find((m) => m.pageNumber === page);
-      const container = contentRef.current;
-      if (!mark || !container) return;
-      const el = blockElements(container)[
-        blockIndexForCharOffset(blocks, mark.charStart)
-      ];
-      if (!el) return;
-      window.scrollTo({
-        top: el.getBoundingClientRect().top + window.scrollY - READING_LINE_OFFSET,
-      });
+      if (!mark) return;
+      goToChar(mark.charStart);
     },
-    [blocks, contentRef, data, scrollToAnchor]
+    [data, goToChar]
   );
 
   /** Synthetic page numbers mean nothing on screen — show progress instead. */
@@ -244,17 +257,12 @@ export function ReaderChatLayer({
 
   const forkHere = useCallback(async () => {
     if (!detail) return;
-    const container = contentRef.current;
-    if (!container) return;
-    // Anchor the fork where the reader is now: the block at the reading line.
-    const els = blockElements(container);
-    const line = window.scrollY + READING_LINE_OFFSET;
-    let idx = 0;
-    for (let i = 0; i < els.length; i++) {
-      if (els[i].getBoundingClientRect().top + window.scrollY <= line) idx = i;
-      else break;
-    }
-    const resolved = anchorForGap(idx, blocks);
+    // Anchor the fork where the reader is now. Both modes report that as a
+    // character offset, so this no longer has to know how the book is laid out.
+    const resolved = anchorForGap(
+      blockIndexForCharOffset(blocks, currentCharOffset),
+      blocks
+    );
     if (!resolved) return;
     const chat = await forkReaderChat({
       chatId: detail.id,
@@ -264,7 +272,7 @@ export function ReaderChatLayer({
     });
     openPanelWith(chat);
     refreshList();
-  }, [blocks, contentRef, detail, memberEmail, openPanelWith, refreshList]);
+  }, [blocks, currentCharOffset, detail, memberEmail, openPanelWith, refreshList]);
 
   // Deletes outright rather than going through closePanel, which would then
   // also try to discard the row it just removed.
@@ -301,12 +309,18 @@ export function ReaderChatLayer({
         openChatId={detail?.id ?? null}
         onOpen={(id) => void openExisting(id)}
       />
-      <ParagraphHoverTarget
-        contentRef={contentRef}
-        onStart={(i) => void startAtGap(i)}
-        layoutNonce={layoutNonce}
-        disabled={busy}
-      />
+      {/* Scrolling only. The affordance needs its own strip in the left margin,
+          and a two-column page has no margin to give it — the left column's only
+          gutter is the column gap, which the markers already own. Selecting text
+          and asking about it covers the same ground. */}
+      {paged == null && (
+        <ParagraphHoverTarget
+          contentRef={contentRef}
+          onStart={(i) => void startAtGap(i)}
+          layoutNonce={layoutNonce}
+          disabled={busy}
+        />
+      )}
       <SelectionToolbar
         contentRef={contentRef}
         onStart={(r) => void startFromSelection(r)}

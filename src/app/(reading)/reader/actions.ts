@@ -1118,8 +1118,12 @@ export type ReadingBookReaderData = {
   wordCount: number | null;
   toc: ReadingTocEntry[];
   resume: {
-    anchorId: string | null;
-    scrollRatio: number | null;
+    /**
+     * Where to open, as an offset into the conversion char space. Resolved here
+     * rather than in the reader so the client has exactly one thing to restore,
+     * whichever era the stored position is from.
+     */
+    charOffset: number;
   };
 };
 
@@ -1190,7 +1194,7 @@ export async function getBookReaderData(
 
   const { data: content } = await client
     .from("reading_book_content")
-    .select("content_path, status, has_real_pages, page_count, word_count, toc")
+    .select("content_path, status, has_real_pages, page_count, word_count, char_count, toc")
     .eq("book_id", bookId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -1207,7 +1211,7 @@ export async function getBookReaderData(
 
   const { data: state } = await client
     .from("reading_book_state")
-    .select("last_anchor_id, last_scroll_ratio")
+    .select("last_char_offset, last_anchor_id, last_scroll_ratio")
     .eq("book_id", bookId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -1224,10 +1228,64 @@ export async function getBookReaderData(
     wordCount: (content.word_count as number) ?? null,
     toc: (content.toc as ReadingTocEntry[]) ?? [],
     resume: {
-      anchorId: (state?.last_anchor_id as string) ?? null,
-      scrollRatio: (state?.last_scroll_ratio as number) ?? null,
+      charOffset: await resolveResumeCharOffset(client, {
+        bookId,
+        userId,
+        charOffset: (state?.last_char_offset as number) ?? null,
+        anchorId: (state?.last_anchor_id as string) ?? null,
+        scrollRatio: (state?.last_scroll_ratio as number) ?? null,
+        charCount: (content.char_count as number) ?? null,
+      }),
     },
   };
+}
+
+/**
+ * Where to reopen a book, in characters.
+ *
+ * Positions saved before the reader was paginated are a page anchor plus a
+ * scroll ratio, neither of which means anything once the text can be laid out
+ * more than one way. Both are translatable, though: an anchor names a page whose
+ * character range we recorded at conversion, and a ratio is a rough share of the
+ * whole. So a book in progress reopens where it left off — exactly if it was
+ * anchored, within a page or so if all we have is the ratio.
+ */
+async function resolveResumeCharOffset(
+  client: Awaited<ReturnType<typeof resolveReadingScope>>["client"],
+  {
+    bookId,
+    userId,
+    charOffset,
+    anchorId,
+    scrollRatio,
+    charCount,
+  }: {
+    bookId: string;
+    userId: string;
+    charOffset: number | null;
+    anchorId: string | null;
+    scrollRatio: number | null;
+    charCount: number | null;
+  }
+): Promise<number> {
+  if (charOffset != null && charOffset > 0) return charOffset;
+
+  if (anchorId) {
+    const { data: page } = await client
+      .from("reading_book_pages")
+      .select("char_start")
+      .eq("book_id", bookId)
+      .eq("user_id", userId)
+      .eq("anchor_id", anchorId)
+      .maybeSingle();
+    const start = (page?.char_start as number) ?? null;
+    if (start != null) return start;
+  }
+
+  if (scrollRatio != null && scrollRatio > 0 && charCount != null && charCount > 0) {
+    return Math.round(scrollRatio * charCount);
+  }
+  return 0;
 }
 
 // ============================================================
@@ -1284,8 +1342,15 @@ export async function revokeReadingApiToken(tokenId: string): Promise<void> {
 export async function saveReadingPosition(
   bookId: string,
   position: {
-    anchorId: string | null;
+    /** Offset into the conversion char space — the durable half of this. */
+    charOffset: number;
+    /**
+     * charOffset as a share of the whole book. Still written because the shelf
+     * reads it for each book's percent-complete label, and because it's the only
+     * thing an older client would understand.
+     */
     scrollRatio: number | null;
+    anchorId: string | null;
     pageNumber: number | null;
   },
   memberEmail?: string | null
@@ -1296,6 +1361,7 @@ export async function saveReadingPosition(
     {
       book_id: bookId,
       user_id: userId,
+      last_char_offset: position.charOffset,
       last_anchor_id: position.anchorId,
       last_scroll_ratio: position.scrollRatio,
       last_page_number: position.pageNumber,

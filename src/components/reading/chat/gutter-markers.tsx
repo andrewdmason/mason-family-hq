@@ -33,7 +33,10 @@ export function GutterMarkers({
             key={chat.id}
             type="button"
             onClick={() => onOpen(chat.id)}
-            style={{ top: row.top + i * MARKER_PITCH }}
+            style={{
+              top: row.top + i * MARKER_PITCH,
+              ...(row.left != null ? { left: row.left } : null),
+            }}
             aria-label={
               row.chats.length > 1
                 ? `Open chat ${i + 1} of ${row.chats.length} here`
@@ -41,7 +44,10 @@ export function GutterMarkers({
             }
             className={cn(
               "pointer-events-auto absolute flex h-6 w-6 items-center justify-center rounded-full border transition-colors",
-              GUTTER_X_CLASS,
+              // Paged mode measures an exact x per marker (its column decides
+              // whether it lands in the gap or the outer margin); scrolling has
+              // one gutter for the lot.
+              row.left == null && GUTTER_X_CLASS,
               chat.id === openChatId
                 ? "border-foreground/30 bg-foreground text-background"
                 : "border-border bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground"

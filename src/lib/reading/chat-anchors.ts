@@ -167,8 +167,11 @@ export function rangeForAnchor(
  * Walk a block's text nodes to find the one containing `charOffset`. Converted
  * blocks normally hold a single text node, but this stays correct if that ever
  * changes.
+ *
+ * Exported for paged-position.ts, which needs a Range around one character to
+ * ask the browser which column that character was fragmented into.
  */
-function textPositionAt(
+export function textPositionAt(
   el: HTMLElement,
   charOffset: number
 ): { node: Text; offset: number } | null {
