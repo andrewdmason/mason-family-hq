@@ -27,6 +27,7 @@
  */
 
 import type { BookBlock } from "@/lib/reading/block-stream";
+import { time } from "@/lib/reading/perf";
 
 /**
  * Blocks we are willing to anchor inside.
@@ -263,8 +264,12 @@ export function rangeForAnchor(
   const byIndex = rangeFromIndices(anchor, container, els ?? blockElements(container));
   if (byIndex && matchesQuote(byIndex, anchor.quote)) return byIndex;
 
-  // The text under the stored indices is not what was annotated. Go find it.
-  return rangeFromQuote(anchor.quote, container) ?? byIndex;
+  // The text under the stored indices is not what was annotated. Go find it —
+  // which means walking every text node in the book and building a string of the
+  // whole thing. Timed because it is by far the most expensive way to resolve an
+  // anchor, it happens per annotation per pass, and nothing else would tell you
+  // it was happening: a single stale anchor quietly taxes every tap.
+  return time("anchor: quote fallback", () => rangeFromQuote(anchor.quote, container)) ?? byIndex;
 }
 
 function rangeFromIndices(

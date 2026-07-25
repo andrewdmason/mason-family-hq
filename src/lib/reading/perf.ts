@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * On-device timing for the reader.
  *
@@ -13,6 +11,11 @@
  * Off unless someone asks for it: `localStorage.setItem("reader:perf", "1")` and
  * reload. When it's off, `time()` calls straight through and nothing is
  * allocated, so the instrumentation can live permanently in the hot paths.
+ *
+ * Deliberately not a "use client" module, even though only the browser ever
+ * turns it on: some of what it wraps lives in libraries that server actions also
+ * import, and a client boundary there would hand the server a reference proxy
+ * instead of a function. On the server there's no window, so it's inert.
  */
 
 const FLAG = "reader:perf";
