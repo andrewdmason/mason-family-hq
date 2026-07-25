@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { blockElements, blockTopWithin } from "@/lib/reading/annotation-anchors";
 import {
   colContentRight,
@@ -72,12 +72,23 @@ export function useGutterPlacement(
 ): GutterRow[] {
   const [rows, setRows] = useState<GutterRow[]>([]);
 
+  // Read through a ref rather than closed over, so that turning a page — which
+  // changes pageIndex and nothing else — doesn't give `place` a new identity.
+  // It used to, and the effect below then tore down and rebuilt the resize
+  // listener and the ResizeObserver on every single page turn (and the
+  // observer's initial callback fired a second placement each time).
+  const pagedRef = useRef(paged);
+  useEffect(() => {
+    pagedRef.current = paged;
+  });
+
   const place = useCallback(() => {
     const container = contentRef.current;
     if (!container || annotations.length === 0) {
       setRows([]);
       return;
     }
+    const paged = pagedRef.current;
     const els = blockElements(container);
     // Grouped by block index rather than by pixel position: two annotations on
     // the same paragraph share an anchor even if a reflow moves them.
@@ -128,7 +139,7 @@ export function useGutterPlacement(
         }))
         .sort((a, b) => a.top - b.top)
     );
-  }, [annotations, contentRef, paged]);
+  }, [annotations, contentRef]);
 
   // Next frame rather than synchronously, so we measure a laid-out DOM.
   //
@@ -155,6 +166,16 @@ export function useGutterPlacement(
       observer.disconnect();
     };
   }, [place, contentRef, layoutNonce]);
+
+  // Turning a page moves every marker but changes nothing we subscribe to, so it
+  // re-places on its own rather than re-arming the observers above. (A geometry
+  // change repaginates, which bumps layoutNonce and goes through that effect.)
+  const pageIndex = paged?.pageIndex ?? null;
+  const viewport = paged?.viewport ?? null;
+  useEffect(() => {
+    const frame = requestAnimationFrame(place);
+    return () => cancelAnimationFrame(frame);
+  }, [pageIndex, viewport, place]);
 
   return rows;
 }

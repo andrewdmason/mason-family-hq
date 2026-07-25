@@ -13,7 +13,7 @@ import {
 import { ReaderAnnotationLayer } from "@/components/reading/annotations/reader-annotation-layer";
 import { blockIndexForCharOffset, blockMap } from "@/lib/reading/block-stream";
 import { blockElements } from "@/lib/reading/annotation-anchors";
-import { PAGE_PAD_BOTTOM } from "@/lib/reading/paged-geometry";
+import { PAGE_PAD_BOTTOM, bookAreaWidth } from "@/lib/reading/paged-geometry";
 import { MARGIN_MEASURE_PX } from "@/lib/reading/reader-settings";
 import {
   chapterBounds,
@@ -579,6 +579,12 @@ export function BookReader({
     [paged, pagedGeometry, pageIndex, viewport]
   );
 
+  // Stable, so PagedView's window keydown listener isn't torn down and re-added
+  // on every render. `goToPage` clamps, so "one past the end" is just the end.
+  const { goToPage, totalPages } = pagination;
+  const goToFirstPage = useCallback(() => goToPage(0), [goToPage]);
+  const goToLastPage = useCallback(() => goToPage(totalPages - 1), [goToPage, totalPages]);
+
   // A page has fixed bounds, so the chrome can simply stay: it never covers
   // text, which is the only reason it had to hide when scrolling.
   const headerVisible = paged || hoverTop || tocOpen || menuOpen || chromeTapped || scrollRevealed;
@@ -769,8 +775,8 @@ export function BookReader({
             isLastPage={pagination.atEnd}
             onNext={pagination.next}
             onPrev={pagination.prev}
-            onFirst={() => pagination.goToPage(0)}
-            onLast={() => pagination.goToPage(pagination.totalPages - 1)}
+            onFirst={goToFirstPage}
+            onLast={goToLastPage}
           >
             {annotationLayer}
           </PagedView>
@@ -848,7 +854,9 @@ export function BookReader({
         settings={settings}
         onChange={updateSetting}
         supportsPaging={!isArticle}
-        viewportWidth={viewportWidth}
+        // The live answer, chat panel included: what the Columns control offers
+        // has to match what the book is doing behind the dialog.
+        availableWidth={bookAreaWidth(viewportWidth, chatPanelOpen)}
       />
     </div>
   );

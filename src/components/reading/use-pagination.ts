@@ -211,20 +211,41 @@ export function usePagination({
     };
   }, [enabled, html, settings, chatPanelOpen]);
 
+  // What the browser actually needs to re-fragment for. Everything else about
+  // the geometry — really just offsetX — only moves the finished flow around.
+  const fragmentationKey = geometry
+    ? `${geometry.cols}:${geometry.colW}:${geometry.gap}:${geometry.pageH}`
+    : null;
+
+  // Positional-only geometry changes: keep the ref current and re-paint where we
+  // already are, without re-fragmenting. This is the chat panel sliding the book
+  // sideways on a wide screen — the columns are unchanged, so there is nothing to
+  // recompute. Declared before the repagination effect so that effect always
+  // reads a current geometry from the ref.
+  useLayoutEffect(() => {
+    if (!enabled || !geometry) return;
+    geometryRef.current = geometry;
+    paint(pageRef.current);
+  }, [enabled, geometry, paint]);
+
   // Repaginate. Runs before paint, so the reader never sees the un-jumped
   // layout — no flash, and no need to animate anything to cover it up.
+  //
+  // Keyed on the fragmentation, not on the geometry object: an offsetX-only
+  // change must not land here, or opening a chat pays for a full re-fragmentation
+  // of the book to move the text 224px to the left. Geometry itself is read from
+  // geometryRef, kept current by the effect above.
   useLayoutEffect(() => {
-    if (!enabled || html == null || !geometry) return;
+    const geom = geometryRef.current;
+    if (!enabled || html == null || !geom) return;
     const flow = flowRef.current;
     if (!flow) return;
-
-    geometryRef.current = geometry;
 
     // Force the fragmentation now rather than at paint, so the measurements
     // below are against the new layout.
     void flow.scrollWidth;
 
-    const total = countPages(flow, geometry);
+    const total = countPages(flow, geom);
     totalRef.current = total;
     setTotalPages(total);
 
@@ -232,7 +253,7 @@ export function usePagination({
       flow,
       blocks,
       blockEls: blockElements(flow),
-      geom: geometry,
+      geom,
     };
     const page = Math.min(pageForCharOffset(charRef.current, ctx), total - 1);
     pageRef.current = page;
@@ -246,7 +267,7 @@ export function usePagination({
     setLayoutNonce((n) => n + 1);
 
     assertPagesMoveForward(ctx, total);
-  }, [enabled, html, geometry, blocks, revision, flowRef, paint]);
+  }, [enabled, html, fragmentationKey, blocks, revision, flowRef, paint]);
 
   // Web fonts swapping in changes every line's metrics, which changes where the
   // column breaks fall.

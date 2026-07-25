@@ -11,17 +11,21 @@ import { BOOK_PROSE, BOOK_PROSE_PAGED, typographyStyle } from "./reader-prose";
  * The book as pages: a fixed window onto a multi-column flow that runs off to
  * the right, moved one screenful at a time.
  *
- * Turning is deliberately forgiving. Anywhere on the page is a target — left
- * third back, the rest forward — because a page turn is the overwhelmingly
- * common action and hunting for a hit zone is not reading. The chevrons that
- * appear on hover are feedback, not the target.
+ * Turning is forgiving on touch and precise with a mouse, because the two have
+ * different competing gestures. A tap anywhere on the page turns it — left third
+ * back, the rest forward — since a page turn is the overwhelmingly common action
+ * and hunting for a hit zone is not reading. A mouse click doesn't: clicking in
+ * the text is how you select a passage or dismiss a selection, and a page that
+ * moved under either was the most jarring thing about reading here. With a
+ * pointer the targets are the margin arrows — the whole margin is their hit area
+ * — plus the keyboard.
  */
 
 /** Anything that has its own job when clicked. */
 const INTERACTIVE =
   'a, button, input, textarea, select, [role="menuitem"], [role="dialog"], [data-no-page-turn]';
 
-/** Fraction of the width that goes back. Asymmetric: forward is the common case. */
+/** Fraction of the width a tap goes back in. Asymmetric: forward is the common case. */
 const BACK_ZONE = 0.3;
 
 /**
@@ -80,6 +84,7 @@ export function PagedView({
     let pointerType = "mouse";
     let startedAtEdge = false;
     let tracking = false;
+    let dismissedSelection = false;
 
     const onDown = (e: PointerEvent) => {
       tracking = true;
@@ -89,6 +94,11 @@ export function PagedView({
       pointerType = e.pointerType;
       startedAtEdge =
         e.clientX <= EDGE_SAFE_PX || e.clientX >= window.innerWidth - EDGE_SAFE_PX;
+      // A press that clears a selection is a dismissal, not a page turn. Down is
+      // the only place to notice: the browser has collapsed the selection long
+      // before the matching up arrives.
+      const selection = window.getSelection();
+      dismissedSelection = !!selection && !selection.isCollapsed;
     };
 
     const onCancel = () => {
@@ -110,6 +120,8 @@ export function PagedView({
       const moved = Math.hypot(dx, dy);
 
       if (pointerType === "touch") {
+        // A swipe says what it means even if it happened to clear a selection on
+        // the way — so it's settled before the dismissal check below.
         if (Math.abs(dx) > SWIPE_MIN_PX && Math.abs(dx) > Math.abs(dy)) {
           if (startedAtEdge) return;
           if (dx < 0) onNext();
@@ -117,9 +129,16 @@ export function PagedView({
           return;
         }
         if (moved > TAP_SLOP_PX || e.timeStamp - startTime > TAP_MAX_MS) return;
+      } else if (pointerType === "mouse") {
+        // Only the margin arrows and the keyboard turn pages with a mouse: a
+        // click in the text belongs to the text.
+        return;
       } else if (moved > CLICK_SLOP_PX) {
         return;
       }
+
+      // The tap that got rid of a selection did its job already.
+      if (dismissedSelection) return;
 
       const rect = viewport.getBoundingClientRect();
       const across = (e.clientX - rect.left) / Math.max(1, rect.width);
@@ -228,41 +247,92 @@ export function PagedView({
         </div>
       )}
 
-      {children}
+      {/* Before {children}, not after: the annotation markers and the
+          annotations button live in these same margins, and whichever is painted
+          last takes the click. Pointer devices only — a touch device has no hover
+          and would latch the arrows on after a tap. */}
+      {geometry && (
+        <>
+          <PageTurnZone
+            side="left"
+            x={0}
+            width={geometry.offsetX}
+            disabled={isFirstPage}
+            onClick={onPrev}
+          />
+          <PageTurnZone
+            side="right"
+            x={geometry.offsetX + geometry.contentW}
+            // Mirrored rather than "everything to the right": the chat panel owns
+            // the far side of the screen when it's open.
+            width={geometry.offsetX}
+            disabled={isLastPage}
+            onClick={onNext}
+          />
+        </>
+      )}
 
-      {/* Feedback, not hit area: the page itself is the target. Pointer devices
-          only — a touch device has no hover and would latch these on after a tap. */}
-      <PageChevron side="left" disabled={isFirstPage} onClick={onPrev} />
-      <PageChevron side="right" disabled={isLastPage} onClick={onNext} />
+      {children}
     </div>
   );
 }
 
-function PageChevron({
+/**
+ * One margin, as a page-turn button: the arrow is what you see, the whole margin
+ * is what you can click.
+ */
+function PageTurnZone({
   side,
+  x,
+  width,
   disabled,
   onClick,
 }: {
   side: "left" | "right";
+  /** Left edge and width of the margin, in viewport coordinates. */
+  x: number;
+  width: number;
   disabled: boolean;
   onClick: () => void;
 }) {
   const Icon = side === "left" ? ChevronLeft : ChevronRight;
+  // Same rule as the page itself: a click that clears a selection only clears it.
+  // Read on down, because by the time the click lands the selection is gone.
+  const dismissedSelection = useRef(false);
   return (
     <button
       type="button"
-      onClick={onClick}
+      onPointerDown={() => {
+        const selection = window.getSelection();
+        dismissedSelection.current = !!selection && !selection.isCollapsed;
+      }}
+      onClick={() => {
+        const dismissed = dismissedSelection.current;
+        dismissedSelection.current = false;
+        if (!dismissed) onClick();
+      }}
       disabled={disabled}
       aria-label={side === "left" ? "Previous page" : "Next page"}
+      style={{ left: x, width: Math.max(0, width) }}
       className={cn(
-        "absolute top-1/2 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity duration-150",
+        "group/turn absolute inset-y-0 hidden cursor-pointer items-center justify-center",
         "[@media(hover:hover)]:flex",
-        "group-hover:opacity-60 hover:!opacity-100 hover:bg-muted",
-        "disabled:pointer-events-none disabled:!opacity-0",
-        side === "left" ? "left-1" : "right-1"
+        "disabled:pointer-events-none"
       )}
     >
-      <Icon className="h-6 w-6" />
+      <span
+        className={cn(
+          "flex h-12 w-12 items-center justify-center rounded-full text-muted-foreground transition-opacity duration-150",
+          // Dim once the mouse is anywhere in the book, solid once it's in this
+          // margin — so the arrow says both "pages turn here" and "this click
+          // will turn one".
+          disabled
+            ? "opacity-0"
+            : "opacity-0 group-hover:opacity-60 group-hover/turn:bg-muted group-hover/turn:opacity-100"
+        )}
+      >
+        <Icon className="h-6 w-6" />
+      </span>
     </button>
   );
 }
