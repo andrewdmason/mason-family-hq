@@ -64,10 +64,17 @@ ALTER TABLE reading_annotations
 -- with the Deep model because this book is too long for Fast") and is never sent
 -- to the model. With reader-authored notes arriving, that name is ambiguous, so
 -- the system line becomes 'notice' and the good name goes to the product concept.
-UPDATE reading_annotation_messages SET role = 'notice' WHERE role = 'note';
-
+--
+-- Order matters: the inherited CHECK still spells the role 'note', so the rename
+-- has to be unconstrained for the length of the UPDATE. Dropping first and adding
+-- the new CHECK last is the only sequence where every statement is legal. (Local
+-- dev happened to have no 'note' rows, so the wrong order passed there and only
+-- failed against production, which had one.)
 ALTER TABLE reading_annotation_messages
   DROP CONSTRAINT reading_chat_messages_role_check;
+
+UPDATE reading_annotation_messages SET role = 'notice' WHERE role = 'note';
+
 ALTER TABLE reading_annotation_messages
   ADD CONSTRAINT reading_annotation_messages_role_check
   CHECK (role IN ('user', 'assistant', 'notice'));
