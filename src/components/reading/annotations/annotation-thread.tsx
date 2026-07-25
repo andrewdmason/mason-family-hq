@@ -30,6 +30,7 @@ export function AnnotationThread({
   onDelete,
   onClose,
   onTouched,
+  onExchangeComplete,
   onSpoilerFreeChange,
   onModelChange,
 }: {
@@ -48,6 +49,8 @@ export function AnnotationThread({
   onClose: () => void;
   /** Fired on the first send: the chat is now real and shouldn't be discarded. */
   onTouched: () => void;
+  /** Fires once the row definitely has a persisted message on it. */
+  onExchangeComplete: () => void;
   onSpoilerFreeChange: (next: boolean) => void;
   onModelChange: (next: ReaderChatModelPreference) => void;
 }) {
@@ -142,8 +145,12 @@ export function AnnotationThread({
       setMessages((prev) => prev.filter((m) => m.id !== assistantId));
     } finally {
       setSending(false);
+      // Whatever happened to the reply, the route persisted the user's turn
+      // before streaming — so this annotation is a chat now, and the list that
+      // decides its colour and its margin icon needs to hear about it.
+      onExchangeComplete();
     }
-  }, [draft, sending, chat.id, memberEmail, onTouched]);
+  }, [draft, sending, chat.id, memberEmail, onTouched, onExchangeComplete]);
 
   // The chat's boundary is frozen at its anchor, so once you've read past it the
   // assistant knows less than you do. Offer the fork exactly when that's true.

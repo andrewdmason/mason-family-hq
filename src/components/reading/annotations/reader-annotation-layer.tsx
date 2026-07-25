@@ -33,6 +33,7 @@ import { useGutterPlacement } from "./gutter-placement";
 import { ParagraphHoverTarget } from "./paragraph-hover-target";
 import { SelectionToolbar, type SelectionIntent } from "./selection-toolbar";
 import { annotationAtPoint, useAnnotationHighlights } from "./use-annotation-highlights";
+import { useContentVersion } from "./use-content-version";
 
 /** Must match book-reader.tsx's reading line. */
 const READING_LINE_OFFSET = 72;
@@ -97,12 +98,48 @@ export function ReaderAnnotationLayer({
   );
   // Memoized, not `data?.chats ?? []`: a fresh array literal every render would
   // re-run the placement effect, which sets state, which renders again — a loop.
-  const chats = useMemo(() => data?.chats ?? [], [data]);
+  const loaded = useMemo(() => data?.chats ?? [], [data]);
+
+  /**
+   * The loaded list with the OPEN annotation's live state laid over it.
+   *
+   * Necessary because what an annotation *is* now depends on its contents: send
+   * the first message in a chat and it stops being a highlight. The summary list
+   * only learns that on its next fetch, so without this overlay a brand-new
+   * conversation keeps painting yellow and stays out of the margin until you
+   * reload the page — which is exactly the bug this fixes. refreshList() below
+   * makes it durable; this makes it immediate.
+   */
+  const chats = useMemo(() => {
+    if (!detail) return loaded;
+    return loaded.map((c) =>
+      c.id === detail.id
+        ? {
+            ...c,
+            note: detail.note,
+            messageCount: Math.max(c.messageCount, detail.messages.length),
+          }
+        : c
+    );
+  }, [loaded, detail]);
+  // Both of the things below are derived from the rendered content, so both
+  // have to be re-derived when that content is swapped in or replaced. See
+  // use-content-version.ts: layoutNonce alone does not reliably cover it.
+  const contentVersion = useContentVersion(contentRef);
   // One placement pass shared by the markers and the hover target, so they
   // stack in the same column instead of landing on each other.
-  const gutterRows = useGutterPlacement(chats, contentRef, layoutNonce);
-  // Passages with a chat on them stay marked in the text.
-  useAnnotationHighlights(chats, contentRef, detail?.id ?? null, layoutNonce);
+  const gutterRows = useGutterPlacement(
+    chats,
+    contentRef,
+    layoutNonce + contentVersion
+  );
+  // Annotated passages stay marked in the text.
+  useAnnotationHighlights(
+    chats,
+    contentRef,
+    detail?.id ?? null,
+    layoutNonce + contentVersion
+  );
   const totalChars = useMemo(() => {
     const last = blocks.at(-1);
     return last ? last.charStart + last.text.length + 1 : 0;
@@ -428,6 +465,10 @@ export function ReaderAnnotationLayer({
             onDelete={() => void removeChat()}
             onClose={closePanel}
             onTouched={() => setTouched(true)}
+            // A sent message promotes a highlight to a chat, which changes both
+            // its colour and whether it gets a margin icon. Refetch so the
+            // change outlives the panel being open.
+            onExchangeComplete={refreshList}
             onSpoilerFreeChange={(v) => void changeSpoilerFree(v)}
             onModelChange={(v) => void changeModel(v)}
             onNoteChange={(n) => void changeNote(n)}

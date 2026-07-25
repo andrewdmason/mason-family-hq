@@ -29,7 +29,11 @@ const REGISTRY: Record<AnnotationKind, string> = {
   note: "reader-annot-note",
   chat: "reader-annot-chat",
 };
-const ACTIVE = "reader-annot-active";
+const ACTIVE_REGISTRY: Record<AnnotationKind, string> = {
+  highlight: "reader-annot-highlight-active",
+  note: "reader-annot-note-active",
+  chat: "reader-annot-chat-active",
+};
 const STYLE_ID = "reader-annotation-highlight-style";
 
 /**
@@ -37,32 +41,46 @@ const STYLE_ID = "reader-annotation-highlight-style";
  *   highlight - yellow wash, the plain "I marked this"
  *   note      - yellow underline, so a passage you wrote on reads differently
  *               from one you merely marked
- *   chat      - the existing purple wash, which already means "conversation"
+ *   chat      - purple underline, the same grammar in a different colour
  *
- * The note gets a faint yellow background IN ADDITION to its underline, and
- * that redundancy is deliberate. `::highlight()` accepts only a short list of
- * properties; text-decoration is on the spec's list and Chromium honours it,
- * but WebKit's original implementation took only colour and background-color
- * and I could not confirm from source that current Safari has caught up. If the
- * decoration is dropped there, a note still reads as a distinct, lighter yellow
- * rather than becoming indistinguishable from a highlight. Worth checking in
- * Safari; harmless either way.
+ * The purple is spelled out rather than reusing `var(--primary)`, which is what
+ * the chat highlight used before. That token is oklch(0.45 0.08 35) — a warm
+ * terracotta, not a purple — so chats have never actually been the colour they
+ * were described as. Marks are their own vocabulary and shouldn't drift with
+ * the app's accent anyway.
  *
- * Text colour is deliberately left alone in all three, so the serif body reads
- * exactly as it does unmarked.
+ * Both underlined states also carry a faint wash of their own colour, and that
+ * redundancy is deliberate: `::highlight()` accepts only a short list of
+ * properties, and while text-decoration is on the spec's list and Chromium
+ * honours it, WebKit shipped colour and background-color only and I could not
+ * confirm current Safari has caught up. If the decoration is dropped there, a
+ * note and a chat still read as distinct tints instead of collapsing together.
+ *
+ * Opening something intensifies its own colour rather than switching to a
+ * shared "active" look, so a mark never changes identity just by being open.
+ *
+ * Text colour is left alone throughout, so the serif body reads exactly as it
+ * does unmarked.
  */
 function ensureHighlightStyles() {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ID;
   const YELLOW = "oklch(0.86 0.13 92)";
+  const PURPLE = "oklch(0.55 0.19 300)";
+  const underline = (color: string, thickness: string) =>
+    `text-decoration:underline;text-decoration-color:${color};` +
+    `text-decoration-thickness:${thickness};text-underline-offset:3px;` +
+    `text-decoration-skip-ink:none;`;
   style.textContent = [
     `::highlight(${REGISTRY.highlight}){background-color:color-mix(in oklab, ${YELLOW} 42%, transparent);}`,
-    `::highlight(${REGISTRY.note}){background-color:color-mix(in oklab, ${YELLOW} 16%, transparent);` +
-      `text-decoration:underline;text-decoration-color:${YELLOW};` +
-      `text-decoration-thickness:2px;text-underline-offset:3px;}`,
-    `::highlight(${REGISTRY.chat}){background-color:color-mix(in oklab, var(--primary) 14%, transparent);}`,
-    `::highlight(${ACTIVE}){background-color:color-mix(in oklab, var(--primary) 30%, transparent);}`,
+    `::highlight(${ACTIVE_REGISTRY.highlight}){background-color:color-mix(in oklab, ${YELLOW} 68%, transparent);}`,
+
+    `::highlight(${REGISTRY.note}){background-color:color-mix(in oklab, ${YELLOW} 16%, transparent);${underline(YELLOW, "2px")}}`,
+    `::highlight(${ACTIVE_REGISTRY.note}){background-color:color-mix(in oklab, ${YELLOW} 34%, transparent);${underline(YELLOW, "3px")}}`,
+
+    `::highlight(${REGISTRY.chat}){background-color:color-mix(in oklab, ${PURPLE} 10%, transparent);${underline(PURPLE, "2px")}}`,
+    `::highlight(${ACTIVE_REGISTRY.chat}){background-color:color-mix(in oklab, ${PURPLE} 22%, transparent);${underline(PURPLE, "3px")}}`,
   ].join("\n");
   document.head.append(style);
 }
@@ -84,12 +102,16 @@ export function useAnnotationHighlights(
       note: [],
       chat: [],
     };
-    const active: Range[] = [];
+    const activeBuckets: Record<AnnotationKind, Range[]> = {
+      highlight: [],
+      note: [],
+      chat: [],
+    };
     for (const a of annotations) {
       const range = rangeForAnchor(a.anchor, container);
       if (!range) continue;
-      if (a.id === openAnnotationId) active.push(range);
-      else buckets[annotationKind(a)].push(range);
+      const target = a.id === openAnnotationId ? activeBuckets : buckets;
+      target[annotationKind(a)].push(range);
     }
 
     // The one-annotation model removes the common overlap — a note and a chat on
@@ -105,11 +127,13 @@ export function useAnnotationHighlights(
     paint(REGISTRY.highlight, buckets.highlight, 1);
     paint(REGISTRY.note, buckets.note, 2);
     paint(REGISTRY.chat, buckets.chat, 3);
-    paint(ACTIVE, active, 4);
+    paint(ACTIVE_REGISTRY.highlight, activeBuckets.highlight, 4);
+    paint(ACTIVE_REGISTRY.note, activeBuckets.note, 5);
+    paint(ACTIVE_REGISTRY.chat, activeBuckets.chat, 6);
 
     return () => {
       for (const name of Object.values(REGISTRY)) CSS.highlights.delete(name);
-      CSS.highlights.delete(ACTIVE);
+      for (const name of Object.values(ACTIVE_REGISTRY)) CSS.highlights.delete(name);
     };
   }, [annotations, contentRef, openAnnotationId, layoutNonce]);
 }

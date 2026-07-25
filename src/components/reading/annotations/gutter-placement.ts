@@ -75,14 +75,30 @@ export function useGutterPlacement(
   }, [annotations, contentRef]);
 
   // Next frame rather than synchronously, so we measure a laid-out DOM.
+  //
+  // Placement depends on the book HTML being in the container, and that arrives
+  // from a signed storage URL long after the annotations arrive from the
+  // database — so the first pass measures an empty container and finds nothing.
+  // Observed symptom: no margin icons at all on load, while a single synthetic
+  // resize event brought all seven back, which is what proved the measurement
+  // was fine and only the scheduling wasn't.
+  //
+  // The caller folds useContentVersion into `layoutNonce` so this re-runs when
+  // the content actually lands; the ResizeObserver additionally covers a
+  // container that changes size without changing children, such as images
+  // decoding late and pushing every block after them down.
   useEffect(() => {
     const frame = requestAnimationFrame(place);
     window.addEventListener("resize", place);
+    const container = contentRef.current;
+    const observer = new ResizeObserver(() => place());
+    if (container) observer.observe(container);
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", place);
+      observer.disconnect();
     };
-  }, [place, layoutNonce]);
+  }, [place, contentRef, layoutNonce]);
 
   return rows;
 }
