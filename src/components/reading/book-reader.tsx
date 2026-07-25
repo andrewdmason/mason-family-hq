@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ReaderChatLayer } from "@/components/reading/chat/reader-chat-layer";
+import { formatTimeLeft, minutesToRead } from "@/lib/reading/reading-time";
 import { cn } from "@/lib/utils";
 import type { ReadingTocEntry } from "@/lib/types";
 
@@ -54,6 +55,7 @@ export function BookReader({
   contentUrl,
   hasRealPages,
   pageCount,
+  wordCount = null,
   toc,
   resumeAnchorId,
   resumeScrollRatio,
@@ -69,6 +71,9 @@ export function BookReader({
   contentUrl: string;
   hasRealPages: boolean;
   pageCount: number | null;
+  /** Total body words, for the "time left" estimates. Null on books converted
+   * before word counts were recorded — the estimates are then simply omitted. */
+  wordCount?: number | null;
   toc: ReadingTocEntry[];
   resumeAnchorId: string | null;
   resumeScrollRatio: number | null;
@@ -78,9 +83,14 @@ export function BookReader({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number | null>(null);
   const [percent, setPercent] = useState(0);
-  // The chapter the reading line currently sits in, plus how far through it we
-  // are — shown in the header alongside the overall progress.
-  const [chapter, setChapter] = useState<{ title: string; detail: string | null } | null>(null);
+  // Minutes of reading left in the book, at a steady words-a-minute pace.
+  const [minutesLeft, setMinutesLeft] = useState<number | null>(null);
+  // The chapter the reading line currently sits in, and how much of it is left —
+  // shown on the contents menu, which is the "where am I?" control.
+  const [chapter, setChapter] = useState<{
+    title: string;
+    minutesLeft: number | null;
+  } | null>(null);
   // The book header stays out of the way: revealed only when the mouse is up in
   // the top region, or while the contents menu is open.
   const [hoverTop, setHoverTop] = useState(false);
@@ -88,7 +98,10 @@ export function BookReader({
   // Touch devices have no hover: a tap (not a scroll) anywhere toggles the chrome,
   // the way the Kindle app reveals/hides its bars.
   const [chromeTapped, setChromeTapped] = useState(false);
-  const headerVisible = hoverTop || tocOpen || chromeTapped;
+  // Reading is downward, so scrolling back up reads as "I want the chrome" —
+  // the header slides in on the way up and gets out of the way on the way down.
+  const [scrollRevealed, setScrollRevealed] = useState(false);
+  const headerVisible = hoverTop || tocOpen || chromeTapped || scrollRevealed;
   // Reader chat lives in the margin; opening its panel narrows the column.
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
   // Bumped whenever the layout moves, so chat markers re-place themselves.
@@ -100,6 +113,10 @@ export function BookReader({
   const positionRef = useRef({ anchorId: resumeAnchorId, scrollRatio: 0, pageNumber: null as number | null });
   const restoredRef = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Scroll-direction tracking for the header reveal. Mirrored in a ref so the
+  // scroll handler only calls setState when the answer actually changes.
+  const lastScrollY = useRef(0);
+  const scrollRevealedRef = useRef(false);
 
   // Load the reflowed HTML from its signed URL.
   useEffect(() => {
@@ -175,6 +192,20 @@ export function BookReader({
     const ratio = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
     setPercent(Math.round(ratio * 100));
 
+    // Reveal the chrome on the way up (and at the very top), hide it on the way
+    // down. The few pixels of slack keep a trackpad's jitter from flickering it.
+    const y = window.scrollY;
+    const dy = y - lastScrollY.current;
+    const atTop = y <= 8;
+    if (atTop || Math.abs(dy) > 4) {
+      const reveal = atTop || dy < 0;
+      if (reveal !== scrollRevealedRef.current) {
+        scrollRevealedRef.current = reveal;
+        setScrollRevealed(reveal);
+      }
+      lastScrollY.current = y;
+    }
+
     const line = window.scrollY + READING_LINE_OFFSET;
     const anchors = anchorsRef.current;
     let current: Anchor | null = null;
@@ -185,11 +216,15 @@ export function BookReader({
     const pageNumber = current?.pageNumber ?? (anchors[0]?.pageNumber ?? null);
     setCurrentPage(pageNumber);
 
-    // Which chapter is the reading line in, and how far through it are we? With
-    // real pages we show "page N of M to the next chapter"; otherwise a chapter-
-    // relative percent. Before the first heading (front matter) there's no chapter.
-    // Only worth showing chapter context when the book actually has multiple
-    // chapters — with one (or none) it would just echo the overall progress.
+    // Time left in the book tracks the same ratio the percentage does, so the
+    // two never disagree.
+    setMinutesLeft(minutesToRead(wordCount != null ? wordCount * (1 - ratio) : null));
+
+    // Which chapter is the reading line in, and how long is left in it? Words
+    // are spread evenly enough through the document that the pixels between here
+    // and the next heading, as a share of the whole, estimate the words left.
+    // Before the first heading (front matter) there's no chapter, and with one
+    // chapter (or none) it would only echo the book's own progress.
     const chapters = chaptersRef.current;
     let chIdx = -1;
     for (let i = 0; i < chapters.length; i++) {
@@ -199,20 +234,12 @@ export function BookReader({
     const cur = chIdx >= 0 && chapters.length >= 2 ? chapters[chIdx] : null;
     if (cur) {
       const next = chapters[chIdx + 1] ?? null;
-      let detail: string | null = null;
-      if (hasRealPages && cur.startPage != null && pageNumber != null) {
-        const inChapter = pageNumber - cur.startPage + 1;
-        const endPage = next?.startPage ?? pageCount;
-        const span = endPage != null ? endPage - cur.startPage : null;
-        detail = span && span > 0 ? `Page ${inChapter} of ${span}` : `Page ${inChapter}`;
-      } else {
-        const endTop =
-          next?.docTop ?? document.documentElement.scrollHeight - window.innerHeight;
-        const span = endTop - cur.docTop;
-        const chPct = span > 0 ? Math.round(((line - cur.docTop) / span) * 100) : 0;
-        detail = `${Math.min(100, Math.max(0, chPct))}% through`;
-      }
-      setChapter({ title: cur.title, detail });
+      const endTop = next?.docTop ?? doc.scrollHeight;
+      const wordsLeft =
+        wordCount != null && doc.scrollHeight > 0
+          ? (Math.max(0, endTop - line) / doc.scrollHeight) * wordCount
+          : null;
+      setChapter({ title: cur.title, minutesLeft: minutesToRead(wordsLeft) });
     } else {
       setChapter(null);
     }
@@ -229,7 +256,7 @@ export function BookReader({
     if (!restoredRef.current) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(flush, 1500);
-  }, [flush, hasRealPages, pageCount]);
+  }, [flush, hasRealPages, wordCount]);
 
   // Resolve once the document height has stopped changing (images decoding,
   // web-font swaps), so a ratio/anchor restore lands in the right place instead
@@ -475,6 +502,14 @@ export function BookReader({
     };
   }, []);
 
+  // How far in, and how much longer — parenthesised after the book's title.
+  const bookTimeLeft = formatTimeLeft(minutesLeft);
+  const progressLabel =
+    html != null && !loadError
+      ? `(${percent}%${bookTimeLeft ? ` · ${bookTimeLeft}` : ""})`
+      : null;
+  const chapterTimeLeft = formatTimeLeft(chapter?.minutesLeft ?? null);
+
   return (
     <div className="flex flex-1 flex-col">
       {/* The book header: a fixed bar at the very top that the reader only sees
@@ -491,28 +526,50 @@ export function BookReader({
             headerVisible ? "opacity-100" : "pointer-events-none opacity-0"
           )}
         >
-          <div className="mx-auto flex h-full max-w-2xl items-center gap-3 px-6">
-            <Link
-              href={backHref}
-              aria-label="Back to my books"
-              className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Link>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-foreground">{title}</p>
-              {author && <p className="truncate text-xs text-muted-foreground">{author}</p>}
+          {/* Full-bleed: the book sits hard left, the contents menu dead centre.
+              Equal 1fr flanks are what keep the middle column truly centred
+              however long the title runs. */}
+          <div className="grid h-full grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 sm:px-6">
+            <div className="flex min-w-0 items-center gap-2">
+              <Link
+                href={backHref}
+                aria-label="Back to my books"
+                className="inline-flex shrink-0 items-center text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Link>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground">
+                  {title}
+                  {progressLabel && (
+                    <span className="ml-1.5 text-xs font-normal tabular-nums text-muted-foreground">
+                      {progressLabel}
+                    </span>
+                  )}
+                </p>
+                {author && <p className="truncate text-xs text-muted-foreground">{author}</p>}
+              </div>
             </div>
-            {toc.length > 0 && (
+            {toc.length > 0 ? (
               <DropdownMenu open={tocOpen} onOpenChange={setTocOpen}>
                 <DropdownMenuTrigger
                   aria-label="Table of contents"
-                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  className="inline-flex max-w-[42vw] items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
-                  <List className="h-4 w-4" />
-                  <span className="hidden sm:inline">Contents</span>
+                  <List className="h-4 w-4 shrink-0" />
+                  {/* Where you are, not what the menu is — the icon already says
+                      "contents". Falls back to the label in front matter, or
+                      before the first heading has been passed. */}
+                  <span className="hidden truncate sm:inline">
+                    {chapter?.title ?? "Contents"}
+                  </span>
+                  {chapterTimeLeft && (
+                    <span className="hidden shrink-0 text-xs tabular-nums opacity-70 sm:inline">
+                      · {chapterTimeLeft}
+                    </span>
+                  )}
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="max-h-80 w-64 overflow-y-auto">
+                <DropdownMenuContent align="center" className="max-h-80 w-64 overflow-y-auto">
                   {toc.map((entry) => (
                     <DropdownMenuItem
                       key={entry.anchorId}
@@ -534,7 +591,15 @@ export function BookReader({
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
-            )}
+            ) : null}
+
+            {/* Right: where you are in the printed book, when the file carries
+                real page numbers. */}
+            <span className="justify-self-end truncate text-xs tabular-nums text-muted-foreground">
+              {hasRealPages && currentPage != null
+                ? `Page ${currentPage}${pageCount ? ` of ${pageCount}` : ""}`
+                : ""}
+            </span>
           </div>
           {/* Slim completion bar along the header's bottom edge. */}
           {html != null && !loadError && (
@@ -624,34 +689,6 @@ export function BookReader({
         </article>
       )}
 
-      {/* Progress indicator, bottom-center where it's always lived — but it only
-          fades in while the top bar is active (hovered or contents open), so it
-          stays out of the way during reading. */}
-      {html != null && !loadError && (
-        <div
-          className={cn(
-            "pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-6 transition-opacity duration-200",
-            headerVisible ? "opacity-100" : "opacity-0"
-          )}
-        >
-          <span className="flex max-w-full items-center gap-2 rounded-full bg-foreground/85 px-3.5 py-1.5 text-xs font-medium text-background shadow-sm backdrop-blur">
-            <span className="whitespace-nowrap tabular-nums">
-              {hasRealPages && currentPage != null
-                ? `Page ${currentPage}${pageCount ? ` of ${pageCount}` : ""}`
-                : `${percent}%`}
-            </span>
-            {chapter && (
-              <>
-                <span className="opacity-40">·</span>
-                <span className="truncate opacity-90">
-                  {chapter.title}
-                  {chapter.detail ? ` · ${chapter.detail}` : ""}
-                </span>
-              </>
-            )}
-          </span>
-        </div>
-      )}
     </div>
   );
 }

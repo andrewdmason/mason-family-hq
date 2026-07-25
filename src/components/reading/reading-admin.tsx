@@ -374,6 +374,7 @@ function BookBlock({
     pagesReadThisWeek: 0,
     content: book.content,
     hasResumePoint: false,
+    readerPercent: null,
     relatedEntries: [],
   };
   const { inputRef, openFilePicker, handleFile, busy, hasFile } =
