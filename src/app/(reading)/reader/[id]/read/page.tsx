@@ -34,6 +34,7 @@ export default async function ReadBookPage({
       contentUrl={data.contentUrl}
       hasRealPages={data.hasRealPages}
       pageCount={data.pageCount}
+      wordCount={data.wordCount}
       toc={data.toc}
       resumeAnchorId={data.resume.anchorId}
       resumeScrollRatio={data.resume.scrollRatio}

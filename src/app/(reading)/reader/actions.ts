@@ -191,6 +191,9 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
   // surface the Read button and upload/replace affordances without a detail page.
   const contentByBook = new Map<string, ReadingBookContentSummary>();
   const resumeBooks = new Set<string>();
+  // How far through each book the e-reader last was (0–1), for the shelf's
+  // percent-complete label.
+  const readerRatio = new Map<string, number>();
   // Closed journal entries linked to each book (from currently-reading questions),
   // newest first, so the card can show "From your journal".
   const relatedByBook = new Map<string, ReadingBookJournalEntry[]>();
@@ -204,7 +207,7 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
           .in("book_id", bookIds),
         client
           .from("reading_book_state")
-          .select("book_id, last_anchor_id")
+          .select("book_id, last_anchor_id, last_scroll_ratio")
           .eq("user_id", userId)
           .in("book_id", bookIds),
         client
@@ -226,6 +229,8 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
     }
     for (const s of stateRows ?? []) {
       if (s.last_anchor_id) resumeBooks.add(s.book_id as string);
+      const ratio = s.last_scroll_ratio as number | null;
+      if (ratio != null) readerRatio.set(s.book_id as string, ratio);
     }
     for (const e of entryRows ?? []) {
       const bookId = e.reading_book_id as string;
@@ -271,11 +276,16 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
       baselineBeforeWeek.get(book.id)?.page ??
       earliestCheckin.get(book.id)?.page ??
       book.current_page;
+    const ratio = readerRatio.get(book.id);
     return {
       ...book,
       pagesReadThisWeek: Math.max(0, book.current_page - baseline),
       content: contentByBook.get(book.id) ?? null,
       hasResumePoint: resumeBooks.has(book.id),
+      readerPercent:
+        ratio == null
+          ? null
+          : Math.min(100, Math.max(0, Math.round(ratio * 100))),
       relatedEntries: relatedByBook.get(book.id) ?? [],
     };
   });
@@ -1103,6 +1113,9 @@ export type ReadingBookReaderData = {
   contentUrl: string;
   hasRealPages: boolean;
   pageCount: number | null;
+  /** Total body words, for the reader's "time left" estimates. Null on books
+   * converted before word counts were recorded. */
+  wordCount: number | null;
   toc: ReadingTocEntry[];
   resume: {
     anchorId: string | null;
@@ -1177,7 +1190,7 @@ export async function getBookReaderData(
 
   const { data: content } = await client
     .from("reading_book_content")
-    .select("content_path, status, has_real_pages, page_count, toc")
+    .select("content_path, status, has_real_pages, page_count, word_count, toc")
     .eq("book_id", bookId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -1208,6 +1221,7 @@ export async function getBookReaderData(
     contentUrl: signed.data.signedUrl,
     hasRealPages: content.has_real_pages as boolean,
     pageCount: (content.page_count as number) ?? null,
+    wordCount: (content.word_count as number) ?? null,
     toc: (content.toc as ReadingTocEntry[]) ?? [],
     resume: {
       anchorId: (state?.last_anchor_id as string) ?? null,

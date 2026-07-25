@@ -1004,6 +1004,10 @@ export type ReadingBookWithProgress = ReadingBook & {
   content: ReadingBookContentSummary | null;
   /** Whether the reader has a saved resume point (Continue vs. Read). */
   hasResumePoint: boolean;
+  /** How far through the book the e-reader last was, 0–100. Null when the book
+   * has never been opened in the reader (Bookshelf's manual page counts are a
+   * separate, deliberately un-merged notion of progress). */
+  readerPercent: number | null;
   /** Closed journal entries linked to this book, newest first. */
   relatedEntries: ReadingBookJournalEntry[];
 };
