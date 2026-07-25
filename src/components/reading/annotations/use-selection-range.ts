@@ -35,10 +35,9 @@ export function useSelectionRange(
   const [spot, setSpot] = useState<SelectionSpot | null>(null);
 
   useEffect(() => {
-    if (disabled) {
-      setSpot(null);
-      return;
-    }
+    // No listeners while disabled. The value is masked below rather than
+    // cleared here, so nothing writes state during the effect.
+    if (disabled) return;
 
     const evaluate = () => {
       const sel = window.getSelection();
@@ -105,7 +104,9 @@ export function useSelectionRange(
   }, [contentRef, disabled]);
 
   return {
-    spot,
+    // Masked rather than stored: a stale position must never flash back when
+    // the layer stops being busy.
+    spot: disabled ? null : spot,
     clear: () => {
       setSpot(null);
       window.getSelection()?.removeAllRanges();

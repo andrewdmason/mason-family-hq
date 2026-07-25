@@ -10,6 +10,7 @@ import {
   getAnnotationData,
   setBookSpoilerFree,
   setAnnotationModelPreference,
+  setAnnotationNote,
 } from "@/app/(reading)/reader/annotation-actions";
 import { blockIndexForCharOffset, blockMap } from "@/lib/reading/block-stream";
 import {
@@ -24,6 +25,8 @@ import type {
   ReaderChatModelPreference,
 } from "@/lib/reading/annotation-types";
 import { AnnotationPanel } from "./annotation-panel";
+import { AnnotationList } from "./annotation-list";
+import { AnnotationsButton } from "./annotations-button";
 import { AnnotationThread } from "./annotation-thread";
 import { GutterMarkers } from "./gutter-markers";
 import { useGutterPlacement } from "./gutter-placement";
@@ -81,6 +84,8 @@ export function ReaderAnnotationLayer({
    * and closing it without typing would silently delete the highlight.
    */
   const [draftId, setDraftId] = useState<string | null>(null);
+  /** The panel shows one annotation, or the index of all of them. */
+  const [mode, setMode] = useState<"thread" | "list">("thread");
 
   // Articles never touch the conversion char space: their HTML was never run
   // through convert.ts, so blockMap would be measuring a stream that doesn't
@@ -129,8 +134,20 @@ export function ReaderAnnotationLayer({
       .catch(() => {});
   }, [bookId, memberEmail]);
 
+  const openList = useCallback(() => {
+    // Toggle: the same control and the same key close it again.
+    if (panelOpen && mode === "list") {
+      onPanelOpenChange(false);
+      return;
+    }
+    setMode("list");
+    setDraftId(null);
+    onPanelOpenChange(true);
+  }, [mode, onPanelOpenChange, panelOpen]);
+
   const openPanelWith = useCallback(
     (annotation: AnnotationDetail, asDraft = false) => {
+      setMode("thread");
       setDetail(annotation);
       // A chat opened with an empty transcript is a draft until something is
       // sent — see closePanel.
@@ -336,6 +353,18 @@ export function ReaderAnnotationLayer({
     [bookId, memberEmail]
   );
 
+  const changeNote = useCallback(
+    async (note: string | null) => {
+      if (!detail) return;
+      // Optimistic: the textarea already shows this, and a note that flickered
+      // back to its old text on save would read as a lost edit.
+      setDetail((d) => (d ? { ...d, note } : d));
+      await setAnnotationNote(detail.id, note, memberEmail);
+      refreshList();
+    },
+    [detail, memberEmail, refreshList]
+  );
+
   const changeModel = useCallback(
     async (next: ReaderChatModelPreference) => {
       if (!detail) return;
@@ -347,6 +376,10 @@ export function ReaderAnnotationLayer({
 
   return (
     <>
+      <AnnotationsButton
+        onClick={openList}
+        active={panelOpen && mode === "list"}
+      />
       <GutterMarkers
         rows={gutterRows}
         openAnnotationId={detail?.id ?? null}
@@ -369,7 +402,16 @@ export function ReaderAnnotationLayer({
         onClose={closePanel}
         dismissOnOutsidePress={!touched}
       >
-        {detail && (
+        {mode === "list" ? (
+          <AnnotationList
+            annotations={chats}
+            openAnnotationId={detail?.id ?? null}
+            hasRealPages={data?.hasRealPages ?? false}
+            onOpen={(id) => void openExisting(id)}
+            onClose={closePanel}
+          />
+        ) : (
+          detail && (
           <AnnotationThread
             key={detail.id}
             chat={detail}
@@ -386,7 +428,9 @@ export function ReaderAnnotationLayer({
             onTouched={() => setTouched(true)}
             onSpoilerFreeChange={(v) => void changeSpoilerFree(v)}
             onModelChange={(v) => void changeModel(v)}
+            onNoteChange={(n) => void changeNote(n)}
           />
+          )
         )}
       </AnnotationPanel>
     </>

@@ -21,6 +21,7 @@ export function AnnotationThread({
   memberEmail,
   bookSpoilerFree,
   isArticle,
+  onNoteChange,
   hasRealPages,
   currentPage,
   labelForPage,
@@ -37,6 +38,7 @@ export function AnnotationThread({
   bookSpoilerFree: boolean;
   /** Articles have no pages, so nothing spoiler-scoped applies to them. */
   isArticle: boolean;
+  onNoteChange: (note: string | null) => void;
   hasRealPages: boolean;
   currentPage: number | null;
   labelForPage: (page: number) => string | null;
@@ -195,6 +197,8 @@ export function AnnotationThread({
           </blockquote>
         )}
 
+        <NoteField value={chat.note} onCommit={onNoteChange} />
+
         <div className="flex flex-col gap-3">
           {messages.map((m) =>
             m.role === "notice" ? (
@@ -326,5 +330,41 @@ function ModelPicker({
         </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * The reader's own words on this passage.
+ *
+ * Saved on blur rather than per keystroke: a note is a paragraph you think
+ * about, not a chat message, and a write per character would be a write per
+ * character. Emptying it clears the note and leaves the highlight — erasing
+ * what you wrote is not a request to unmark the passage.
+ */
+function NoteField({
+  value,
+  onCommit,
+}: {
+  value: string | null;
+  onCommit: (note: string | null) => void;
+}) {
+  // No effect syncing draft back to `value`: AnnotationThread is keyed by
+  // annotation id, so switching annotations remounts this with fresh initial
+  // state. The only other way `value` changes is our own commit, which the
+  // draft already matches.
+  const [draft, setDraft] = useState(value ?? "");
+
+  return (
+    <textarea
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        const next = draft.trim() || null;
+        if (next !== (value ?? null)) onCommit(next);
+      }}
+      rows={draft ? 3 : 1}
+      placeholder="Add a note…"
+      className="mb-3 w-full resize-none rounded-md border border-border bg-transparent px-2.5 py-2 text-sm leading-6 text-foreground placeholder:text-muted-foreground/70 focus:border-foreground/30 focus:outline-none"
+    />
   );
 }
