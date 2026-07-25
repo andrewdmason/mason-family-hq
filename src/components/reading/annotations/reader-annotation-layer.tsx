@@ -28,7 +28,7 @@ import { AnnotationThread } from "./annotation-thread";
 import { GutterMarkers } from "./gutter-markers";
 import { useGutterPlacement } from "./gutter-placement";
 import { ParagraphHoverTarget } from "./paragraph-hover-target";
-import { SelectionToolbar } from "./selection-toolbar";
+import { SelectionToolbar, type SelectionIntent } from "./selection-toolbar";
 import { annotationAtPoint, useAnnotationHighlights } from "./use-annotation-highlights";
 
 /** Must match book-reader.tsx's reading line. */
@@ -203,7 +203,7 @@ export function ReaderAnnotationLayer({
    * and any of them can grow into any other later.
    */
   const annotateSelection = useCallback(
-    async (range: Range, intent: "highlight" | "note" | "ask") => {
+    async (range: Range, intent: SelectionIntent) => {
       const container = contentRef.current;
       if (!container || busy) return;
       const resolved = anchorFromRange(range, container, space);
@@ -360,7 +360,7 @@ export function ReaderAnnotationLayer({
       />
       <SelectionToolbar
         contentRef={contentRef}
-        onStart={(r) => void annotateSelection(r, "ask")}
+        onAct={(range, intent) => void annotateSelection(range, intent)}
         disabled={busy}
       />
       <AnnotationPanel
