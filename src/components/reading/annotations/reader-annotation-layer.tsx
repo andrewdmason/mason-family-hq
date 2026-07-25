@@ -261,7 +261,16 @@ export function ReaderAnnotationLayer({
       const container = contentRef.current;
       if (!container || busy) return;
       const resolved = anchorFromRange(range, container, space);
-      if (!resolved) return;
+      if (!resolved) {
+        // Every path out of here used to be silent, which from the reader's
+        // side is indistinguishable from the feature being broken: the
+        // selection clears and nothing appears. Say something.
+        console.warn(
+          "[reader] couldn't anchor that selection",
+          { intent, collapsed: range.collapsed, length: range.toString().length }
+        );
+        return;
+      }
       setBusy(true);
       try {
         const annotation = await createAnnotation({
@@ -280,6 +289,11 @@ export function ReaderAnnotationLayer({
         // blank entry in the sidebar. Only "Ask" creates a discardable draft.
         if (intent !== "highlight") openPanelWith(annotation, intent === "ask");
         refreshList();
+      } catch (err) {
+        // `void annotateSelection(...)` means a throw here becomes an unhandled
+        // rejection nobody sees, and the reader just watches their selection
+        // vanish. Surface it.
+        console.error("[reader] couldn't save that annotation", err);
       } finally {
         setBusy(false);
       }
