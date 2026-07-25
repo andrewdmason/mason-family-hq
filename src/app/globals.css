@@ -381,3 +381,8 @@
   font-size: 0.75rem;
   opacity: 0.8;
 }
+
+/* Reader chat highlight styling is NOT here — see use-chat-highlights.ts.
+   Lightning CSS (Tailwind v4's parser) rejects `::highlight()` as an unknown
+   pseudo-element and drops the rule, so it's injected at runtime instead, where
+   the browser parses it. */

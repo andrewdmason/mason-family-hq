@@ -63,6 +63,10 @@ export function AddBookDialog({
   // ISBN the AI resolved, carried into the manual-confirm step so it's still
   // stored even when the user fills in the rest by hand.
   const [aiIsbn, setAiIsbn] = useState<string | null>(null);
+  // Genre/fiction the AI resolved, carried the same way. `fiction` seeds the
+  // book's spoiler_free default for reader chat.
+  const [aiGenres, setAiGenres] = useState<string[] | null>(null);
+  const [aiFiction, setAiFiction] = useState<boolean | null>(null);
   // Set when the user picks a typeahead suggestion: lets submit skip the AI
   // lookup and add the chosen book straight away. Cleared on any manual edit.
   const [picked, setPicked] = useState<BookSearchResult | null>(null);
@@ -91,6 +95,8 @@ export function AddBookDialog({
     setTotalPages("");
     setCoverImageUrl(null);
     setAiIsbn(null);
+    setAiGenres(null);
+    setAiFiction(null);
     setPicked(null);
     setStatus("queued");
     setRating(null);
@@ -114,6 +120,8 @@ export function AddBookDialog({
     openlibraryKey?: string | null;
     isbn?: string | null;
     publishedYear?: number | null;
+    genres?: string[] | null;
+    fiction?: boolean | null;
   }) {
     if (isRecommendation) {
       await recommendBook({
@@ -137,6 +145,8 @@ export function AddBookDialog({
         openlibraryKey: meta.openlibraryKey ?? null,
         isbn: meta.isbn ?? null,
         publishedYear: meta.publishedYear ?? null,
+        genres: meta.genres ?? null,
+        fiction: meta.fiction ?? null,
         rating: status === "archive" ? rating : null,
         memberEmail,
       });
@@ -188,6 +198,8 @@ export function AddBookDialog({
             totalPages: found.totalPages,
             coverImageUrl: found.coverImageUrl,
             isbn: found.isbn,
+            genres: found.genres,
+            fiction: found.fiction,
           });
           handleClose(false);
           return;
@@ -197,6 +209,8 @@ export function AddBookDialog({
         setTotalPages(found.totalPages ? String(found.totalPages) : "");
         setCoverImageUrl(found.coverImageUrl);
         setAiIsbn(found.isbn);
+        setAiGenres(found.genres);
+        setAiFiction(found.fiction);
         setStep("details");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't add the book.");
@@ -216,6 +230,8 @@ export function AddBookDialog({
           totalPages: totalPages ? Number(totalPages) : null,
           coverImageUrl,
           isbn: aiIsbn,
+          genres: aiGenres,
+          fiction: aiFiction,
         });
         handleClose(false);
       } catch (err) {

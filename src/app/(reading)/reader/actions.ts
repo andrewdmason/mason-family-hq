@@ -311,6 +311,14 @@ export async function addBook(input: {
   isbn?: string | null;
   publishedYear?: number | null;
   rating?: ReadingRating | null;
+  /** Genre labels from the AI lookup; informational. */
+  genres?: string[] | null;
+  /**
+   * Whether this is fiction, from the AI lookup. Seeds spoiler_free for reader
+   * chat: a novel is worth protecting from spoilers, a reference book generally
+   * isn't. Unknown (null) means spoiler_free off — the reader can flip it.
+   */
+  fiction?: boolean | null;
   memberEmail?: string | null;
 }): Promise<void> {
   const { client, userId, email } = await resolveReadingScope(input.memberEmail);
@@ -370,6 +378,12 @@ export async function addBook(input: {
       openlibrary_key: openlibraryKey,
       isbn,
       published_year: publishedYear,
+      genres: input.genres ?? null,
+      // Protected unless we positively know it's non-fiction. The typeahead add
+      // path carries no fiction signal at all, so `=== true` would leave most
+      // books unprotected; the harm is asymmetric (a spoiled novel can't be
+      // un-spoiled, an over-narrow non-fiction chat is one toggle away).
+      spoiler_free: input.fiction !== false,
       started_at: status === "in_progress" ? today : null,
       finished_at: finished ? today : null,
       rating,

@@ -10,6 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ReaderChatLayer } from "@/components/reading/chat/reader-chat-layer";
 import { cn } from "@/lib/utils";
 import type { ReadingTocEntry } from "@/lib/types";
 
@@ -88,6 +89,10 @@ export function BookReader({
   // the way the Kindle app reveals/hides its bars.
   const [chromeTapped, setChromeTapped] = useState(false);
   const headerVisible = hoverTop || tocOpen || chromeTapped;
+  // Reader chat lives in the margin; opening its panel narrows the column.
+  const [chatPanelOpen, setChatPanelOpen] = useState(false);
+  // Bumped whenever the layout moves, so chat markers re-place themselves.
+  const [layoutNonce, setLayoutNonce] = useState(0);
 
   const contentRef = useRef<HTMLDivElement>(null);
   const anchorsRef = useRef<Anchor[]>([]);
@@ -323,6 +328,7 @@ export function BookReader({
         measure();
         restore();
         onScroll();
+        setLayoutNonce((n) => n + 1);
       });
     } else {
       void waitForLayoutToSettle().then(() => {
@@ -330,6 +336,7 @@ export function BookReader({
         measure();
         restore();
         onScroll();
+        setLayoutNonce((n) => n + 1);
       });
     }
 
@@ -354,6 +361,66 @@ export function BookReader({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [html]);
+
+  // Opening the chat panel narrows the reading column, which re-wraps every
+  // line and changes the height of the whole document — and every position in
+  // here is document-absolute. Without pinning it, the reader visibly loses
+  // their place. So: note which block is at the reading line BEFORE the shift,
+  // then put it back afterwards.
+  const preserveRef = useRef<{ el: HTMLElement; delta: number } | null>(null);
+
+  const captureReadingLine = useCallback(() => {
+    const container = contentRef.current;
+    if (!container) return;
+    const line = window.scrollY + READING_LINE_OFFSET;
+    let best: HTMLElement | null = null;
+    for (const el of container.querySelectorAll<HTMLElement>(
+      "p, h1, h2, h3, h4, h5, h6"
+    )) {
+      if (el.getBoundingClientRect().top + window.scrollY <= line) best = el;
+      else break;
+    }
+    if (!best) return;
+    preserveRef.current = {
+      el: best,
+      delta: best.getBoundingClientRect().top + window.scrollY - line,
+    };
+  }, []);
+
+  const restoreReadingLine = useCallback(() => {
+    const pinned = preserveRef.current;
+    preserveRef.current = null;
+    if (!pinned || !pinned.el.isConnected) return;
+    window.scrollTo({
+      top:
+        pinned.el.getBoundingClientRect().top +
+        window.scrollY -
+        pinned.delta -
+        READING_LINE_OFFSET,
+    });
+  }, []);
+
+  const handleChatPanelOpenChange = useCallback(
+    (open: boolean) => {
+      // Capture while the DOM is still at its pre-shift width.
+      captureReadingLine();
+      setChatPanelOpen(open);
+    },
+    [captureReadingLine]
+  );
+
+  // Re-measure and re-pin once the margin transition has finished.
+  useEffect(() => {
+    if (html == null) return;
+    const timer = setTimeout(() => {
+      measure();
+      restoreReadingLine();
+      onScroll();
+      setLayoutNonce((n) => n + 1);
+    }, 240);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatPanelOpen]);
 
   const scrollToAnchor = useCallback((anchorId: string) => {
     const el = document.getElementById(anchorId);
@@ -491,7 +558,17 @@ export function BookReader({
           <span className="text-sm">Opening your book…</span>
         </div>
       ) : (
-        <article className="mx-auto w-full max-w-2xl px-6 pt-20 pb-32 font-serif text-[1.15rem] leading-8 text-foreground">
+        <article
+          className={cn(
+            "mx-auto w-full max-w-2xl px-6 pt-20 pb-32 font-serif text-[1.15rem] leading-8 text-foreground",
+            // Shift rather than overlay: the text has to stay readable and
+            // selectable while the chat is open. 28rem, not the panel's 26rem —
+            // the extra 2rem is clearance for the chat gutter, which sits
+            // outside the text column and would otherwise slide under the panel.
+            "transition-[margin] duration-200",
+            chatPanelOpen && "md:mr-[28rem]"
+          )}
+        >
           {/* Readability returns the title/dek/hero separately from the body, so
               the reader reconstructs the article header for web articles. */}
           {isArticle && (
@@ -517,15 +594,33 @@ export function BookReader({
               )}
             </header>
           )}
-          <div
-            ref={contentRef}
-            className={cn(
-              "[&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:italic [&_p]:mb-5 [&_.page-anchor]:block [&_.page-anchor]:h-0 [&_.reader-heading]:scroll-mt-28 [&_.reader-heading]:text-center [&_.reader-heading]:font-serif [&_.reader-heading]:text-balance [&_.reader-h1]:mt-16 [&_.reader-h1]:mb-3 [&_.reader-h1]:text-3xl [&_.reader-h1]:font-semibold [&_.reader-h1]:tracking-tight first:[&_.reader-h1]:mt-2 [&_.reader-h2]:mt-8 [&_.reader-h2]:mb-7 [&_.reader-h2]:text-xl [&_.reader-h2]:font-medium [&_.reader-h2]:text-muted-foreground",
-              isArticle && "article-content",
-              isArticle && ARTICLE_PROSE
+          {/* Positioned so the chat marker gutter can sit against the column. */}
+          <div className="relative">
+            <div
+              ref={contentRef}
+              className={cn(
+                "[&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:italic [&_p]:mb-5 [&_.page-anchor]:block [&_.page-anchor]:h-0 [&_.reader-heading]:scroll-mt-28 [&_.reader-heading]:text-center [&_.reader-heading]:font-serif [&_.reader-heading]:text-balance [&_.reader-h1]:mt-16 [&_.reader-h1]:mb-3 [&_.reader-h1]:text-3xl [&_.reader-h1]:font-semibold [&_.reader-h1]:tracking-tight first:[&_.reader-h1]:mt-2 [&_.reader-h2]:mt-8 [&_.reader-h2]:mb-7 [&_.reader-h2]:text-xl [&_.reader-h2]:font-medium [&_.reader-h2]:text-muted-foreground",
+                isArticle && "article-content",
+                isArticle && ARTICLE_PROSE
+              )}
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+            {/* Books only: articles keep images/links/lists, which breaks the
+                flat block model anchors are addressed in. */}
+            {!isArticle && (
+              <ReaderChatLayer
+                bookId={bookId}
+                memberEmail={memberEmail}
+                html={html}
+                contentRef={contentRef}
+                currentPage={currentPage}
+                scrollToAnchor={scrollToAnchor}
+                panelOpen={chatPanelOpen}
+                onPanelOpenChange={handleChatPanelOpenChange}
+                layoutNonce={layoutNonce}
+              />
             )}
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
+          </div>
         </article>
       )}
 
