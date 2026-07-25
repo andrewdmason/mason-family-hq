@@ -1,56 +1,35 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
+import { stripHtmlToText } from "@/lib/reading/block-stream";
 
 /**
  * Pulling plain text back out of a converted book so a quiz can be scoped to
- * "through page N". The conversion (see convert.ts buildPagedHtml) records each
- * page's character range against a stream of BLOCK texts, where every block
- * (a <p> or <h1..h6>) contributes `block.text.length + 1` — one separator char —
- * and page anchors (empty <span>) contribute nothing. To make `char_end` line up,
- * we must rebuild that exact stream: take each block's text in document order,
- * decode the entities escapeHtml added, and follow each block with one separator.
- * A naive tag-strip would NOT line up (entities + separator spacing differ).
+ * "through page N", or a reader chat to "through the page I'm on".
+ *
+ * The conversion records each page's character range against a stream of BLOCK
+ * texts (see block-stream.ts, which owns that reconstruction and is shared with
+ * the reader client). This module is the storage-and-range layer on top of it:
+ * resolve a page range to char offsets, download the content, slice, and window.
  */
 
 /** Largest text we feed the quiz model (~15k tokens). Longer ranges get windowed. */
 const MAX_QUIZ_CONTEXT_CHARS = 60_000;
 
-/** Inverse of convert.ts escapeHtml — undone in reverse order to be exact. */
-function decodeEntities(text: string): string {
-  return text
-    .replace(/&gt;/g, ">")
-    .replace(/&lt;/g, "<")
-    .replace(/&amp;/g, "&");
-}
-
-/**
- * Rebuild the block-text stream from converted content HTML. Each <p>/<h1..h6>
- * block becomes its (entity-decoded) text followed by a single "\n", matching the
- * `+ 1` the converter added per block. Empty page-anchor spans are skipped.
- */
-export function stripHtmlToText(html: string): string {
-  const blockRe = /<(h[1-6]|p)\b[^>]*>([\s\S]*?)<\/\1>/gi;
-  let out = "";
-  let match: RegExpExecArray | null;
-  while ((match = blockRe.exec(html)) !== null) {
-    // Strip any inline tags (there shouldn't be any inside a block, but be safe),
-    // then decode entities to recover the raw text the converter counted.
-    const inner = match[2].replace(/<[^>]+>/g, "");
-    out += decodeEntities(inner) + "\n";
-  }
-  return out;
-}
+export { stripHtmlToText };
 
 /**
  * Trim text to the model budget while preserving cumulative coverage: keep the
  * opening (early grounding) and the most recent material (what the quiz leans on)
  * with an elision marker between. Short text passes through untouched.
  */
-function fitToBudget(text: string): { text: string; truncated: boolean } {
-  if (text.length <= MAX_QUIZ_CONTEXT_CHARS) return { text, truncated: false };
-  const headChars = Math.floor(MAX_QUIZ_CONTEXT_CHARS * 0.2);
-  const tailChars = MAX_QUIZ_CONTEXT_CHARS - headChars;
+function fitToBudget(
+  text: string,
+  budget: number
+): { text: string; truncated: boolean } {
+  if (text.length <= budget) return { text, truncated: false };
+  const headChars = Math.floor(budget * 0.2);
+  const tailChars = budget - headChars;
   const head = text.slice(0, headChars);
   const tail = text.slice(text.length - tailChars);
   return {
@@ -58,6 +37,29 @@ function fitToBudget(text: string): { text: string; truncated: boolean } {
     truncated: true,
   };
 }
+
+export type TextForRangeOptions = {
+  /**
+   * Interleave "[p.N]" markers at page boundaries so a model can cite pages
+   * (reader chat). Markers are added while BUILDING the output, never spliced
+   * into the counted stream, so the canonical char space is untouched.
+   * Silently a no-op for books with no page map.
+   */
+  pageMarkers?: boolean;
+  /**
+   * Char budget before head/tail elision. Defaults to MAX_QUIZ_CONTEXT_CHARS.
+   * Reader chat passes a much larger cap and relies on token counting instead.
+   */
+  maxChars?: number | null;
+  /**
+   * End-of-range fallback in char space, used ONLY when the book has no page
+   * map to resolve `throughPage` against (an unchaptered synthetic-page EPUB).
+   * Lets a spoiler-scoped chat still cut at its anchor instead of taking the
+   * whole book. Ignored when a page map exists — there, end-of-anchor-page is
+   * the cleaner boundary than a mid-page cut.
+   */
+  throughCharOffset?: number | null;
+};
 
 export type BookTextSlice = {
   /** The plain text covering the requested page range. */
@@ -69,6 +71,8 @@ export type BookTextSlice = {
   hasRealPages: boolean;
   /** Whether the text was windowed to fit the model budget. */
   truncated: boolean;
+  /** Whether "[p.N]" markers were actually emitted (see options.pageMarkers). */
+  hasPageMarkers: boolean;
 };
 
 /**
@@ -83,8 +87,10 @@ export async function getTextForRange(
   userId: string,
   bookId: string,
   fromPage: number | null,
-  throughPage: number
+  throughPage: number,
+  options?: TextForRangeOptions
 ): Promise<BookTextSlice | null> {
+  const budget = options?.maxChars ?? MAX_QUIZ_CONTEXT_CHARS;
   const { data: content } = await client
     .from("reading_book_content")
     .select("content_path, status, has_real_pages, page_count, char_count")
@@ -117,7 +123,16 @@ export async function getTextForRange(
     charEnd = endPage.char_end as number;
     throughEffectivePage = endPage.page_number as number;
   } else {
+    // No page map to resolve throughPage against. Take the whole book, unless
+    // the caller gave a char-space boundary (a spoiler-scoped reader chat on an
+    // unchaptered synthetic-page EPUB, where pages don't exist to cut on).
     charEnd = charCount;
+    if (options?.throughCharOffset != null) {
+      charEnd =
+        charEnd != null
+          ? Math.min(charEnd, options.throughCharOffset)
+          : options.throughCharOffset;
+    }
     throughEffectivePage = pageCount ?? throughPage;
   }
 
@@ -154,9 +169,52 @@ export async function getTextForRange(
 
   const html = await download.data.text();
   const fullText = stripHtmlToText(html);
-  const sliced =
-    charEnd != null ? fullText.slice(charStart, charEnd) : fullText.slice(charStart);
-  const { text, truncated } = fitToBudget(sliced);
+  const effectiveEnd = charEnd ?? fullText.length;
 
-  return { text, fromEffectivePage, throughEffectivePage, hasRealPages, truncated };
+  let sliced = fullText.slice(charStart, effectiveEnd);
+  let hasPageMarkers = false;
+
+  // Reader chat: label each page so the model can cite "[p.212]" and the client
+  // can turn that into a jump. Assembled here rather than by mutating fullText,
+  // so the char offsets everything else depends on stay exact.
+  if (options?.pageMarkers) {
+    const { data: pageRows } = await client
+      .from("reading_book_pages")
+      .select("page_number, char_start, char_end")
+      .eq("book_id", bookId)
+      .eq("user_id", userId)
+      .gt("char_end", charStart)
+      .lt("char_start", effectiveEnd)
+      .order("page_number", { ascending: true });
+
+    if (pageRows && pageRows.length > 0) {
+      const parts: string[] = [];
+      let cursor = charStart;
+      for (const row of pageRows) {
+        const start = Math.max(row.char_start as number, charStart);
+        const end = Math.min(row.char_end as number, effectiveEnd);
+        if (end <= start) continue;
+        // Anything ahead of the first page mark (front matter) stays unlabelled
+        // rather than being attributed to the page that follows it.
+        if (start > cursor) parts.push(fullText.slice(cursor, start));
+        parts.push(`\n[p.${row.page_number}]\n`);
+        parts.push(fullText.slice(start, end));
+        cursor = end;
+      }
+      if (cursor < effectiveEnd) parts.push(fullText.slice(cursor, effectiveEnd));
+      sliced = parts.join("");
+      hasPageMarkers = true;
+    }
+  }
+
+  const { text, truncated } = fitToBudget(sliced, budget);
+
+  return {
+    text,
+    fromEffectivePage,
+    throughEffectivePage,
+    hasRealPages,
+    truncated,
+    hasPageMarkers,
+  };
 }
