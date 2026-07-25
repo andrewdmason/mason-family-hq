@@ -50,20 +50,22 @@ export type PageGeometry = {
   offsetX: number;
 };
 
-export function computeGeometry(
-  clipW: number,
-  clipH: number,
-  settings: ReaderSettings,
-  chatPanelOpen: boolean
-): PageGeometry {
-  // The chat panel takes the right-hand side of the screen, so the book gets
-  // what's left — which is rarely enough for two columns.
-  const panel = chatPanelOpen ? CHAT_PANEL_WIDTH : 0;
-  const usable = Math.max(MIN_COLUMN_WIDTH, clipW - panel);
-  const cols = chatPanelOpen ? 1 : effectiveColumns(settings, clipW);
+/**
+ * The width the book itself has to work with: the window, less whatever the chat
+ * panel has taken.
+ *
+ * Every layout question is asked of this rather than of the window, so opening a
+ * chat narrows the page instead of redefining it.
+ */
+export function bookAreaWidth(clipW: number, chatPanelOpen: boolean): number {
+  return Math.max(MIN_COLUMN_WIDTH, clipW - (chatPanelOpen ? CHAT_PANEL_WIDTH : 0));
+}
 
+/** The column shape a given width produces — everything fragmentation depends on. */
+function columnsFor(width: number, settings: ReaderSettings) {
+  const cols = effectiveColumns(settings, width);
   const gap = cols === 2 ? COLUMN_GAP : 0;
-  const avail = Math.max(MIN_COLUMN_WIDTH, usable - MARGIN_INSET_PX[settings.margins] * 2);
+  const avail = Math.max(MIN_COLUMN_WIDTH, width - MARGIN_INSET_PX[settings.margins] * 2);
 
   // Whichever binds first: the measure the reader asked for, or what the window
   // can actually give. On a desktop the measure wins and the setting visibly
@@ -79,18 +81,38 @@ export function computeGeometry(
   // Re-derived from the floored column width, so contentW is always an exact
   // whole number of strides and the translate lands on a column boundary.
   const contentW = colW * cols + gap * (cols - 1);
-  const colStride = colW + gap;
+  return { cols, gap, colW, contentW, colStride: colW + gap };
+}
+
+export function computeGeometry(
+  clipW: number,
+  clipH: number,
+  settings: ReaderSettings,
+  chatPanelOpen: boolean
+): PageGeometry {
+  const usable = bookAreaWidth(clipW, chatPanelOpen);
+
+  // The columns are measured against the FULL window, not the narrowed one, and
+  // the panel is only allowed to change where the text sits — not how wide it
+  // is. That distinction is the whole point: re-fragmenting a 1.1M-character
+  // book costs hundreds of milliseconds, and it was being paid twice for every
+  // chat — once opening, once closing — which is the single most frequent thing
+  // that made the reader feel slow.
+  //
+  // Wherever the panel can take its width out of the margin, the text keeps its
+  // exact column shape and merely shifts left, so `sameFragmentation` holds and
+  // nothing repaginates. Only when the panel would genuinely collide with the
+  // text (a narrow window) do we fall back to narrowing it and paying the
+  // relayout, because there the alternative is text hidden underneath a panel.
+  const full = columnsFor(clipW, settings);
+  const shape = full.contentW <= usable ? full : columnsFor(usable, settings);
 
   return {
-    cols,
-    colW,
-    gap,
-    contentW,
-    colStride,
-    pageStride: cols * colStride,
+    ...shape,
+    pageStride: shape.cols * shape.colStride,
     pageH: Math.max(120, clipH - PAGE_PAD_TOP - PAGE_PAD_BOTTOM),
     // Centred in what's left of the screen once the panel has taken its share.
-    offsetX: Math.max(0, Math.round((usable - contentW) / 2)),
+    offsetX: Math.max(0, Math.round((usable - shape.contentW) / 2)),
   };
 }
 
@@ -118,14 +140,20 @@ export function colContentRight(col: number, flowLeft: number, g: PageGeometry):
   return flowLeft + col * g.colStride + g.colW;
 }
 
-/** True when two geometries would produce identical layout (so we can skip repaginating). */
+/** True when two geometries are identical (so we can skip the state update entirely). */
 export function sameGeometry(a: PageGeometry | null, b: PageGeometry | null): boolean {
   if (!a || !b) return a === b;
-  return (
-    a.cols === b.cols &&
-    a.colW === b.colW &&
-    a.gap === b.gap &&
-    a.pageH === b.pageH &&
-    a.offsetX === b.offsetX
-  );
+  return sameFragmentation(a, b) && a.offsetX === b.offsetX;
+}
+
+/**
+ * True when two geometries would fragment the text identically.
+ *
+ * Only the column shape and the page height decide where the browser breaks
+ * columns; `offsetX` just says where the resulting flow is painted. Separating
+ * the two is what lets the chat panel slide the book sideways without paying to
+ * re-fragment it — see computeGeometry.
+ */
+export function sameFragmentation(a: PageGeometry, b: PageGeometry): boolean {
+  return a.cols === b.cols && a.colW === b.colW && a.gap === b.gap && a.pageH === b.pageH;
 }

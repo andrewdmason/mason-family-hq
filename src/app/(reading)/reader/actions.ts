@@ -1194,7 +1194,9 @@ export async function getBookReaderData(
 
   const { data: content } = await client
     .from("reading_book_content")
-    .select("content_path, status, has_real_pages, page_count, word_count, char_count, toc")
+    .select(
+      "content_path, status, has_real_pages, page_count, word_count, char_count, toc, updated_at"
+    )
     .eq("book_id", bookId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -1202,12 +1204,10 @@ export async function getBookReaderData(
     return null;
   }
 
-  const signed = await client.storage
-    .from(READING_BOOKS_BUCKET)
-    .createSignedUrl(content.content_path, 60 * 60);
-  if (signed.error || !signed.data) {
-    throw new Error(signed.error?.message ?? "Couldn't open this book.");
-  }
+  // A stable same-origin URL rather than a per-view signed one, so the browser
+  // cache, the service worker and the offline store can all key on it. See
+  // reader/api/content/[bookId]/route.ts for why that matters.
+  const contentUrl = `/reader/api/content/${bookId}?v=${Date.parse(content.updated_at)}`;
 
   const { data: state } = await client
     .from("reading_book_state")
@@ -1222,7 +1222,7 @@ export async function getBookReaderData(
     isArticle,
     dek: isArticle ? ((book.excerpt as string) ?? null) : null,
     heroImageUrl: isArticle ? ((book.cover_image_url as string) ?? null) : null,
-    contentUrl: signed.data.signedUrl,
+    contentUrl,
     hasRealPages: content.has_real_pages as boolean,
     pageCount: (content.page_count as number) ?? null,
     wordCount: (content.word_count as number) ?? null,
@@ -1352,10 +1352,29 @@ export async function saveReadingPosition(
     scrollRatio: number | null;
     anchorId: string | null;
     pageNumber: number | null;
+    /**
+     * When this position was actually recorded, for positions that were held on
+     * the device while offline. Without it, an iPad reconnecting on Wednesday
+     * would overwrite Tuesday's reading with Monday's page.
+     */
+    savedAt?: string;
   },
   memberEmail?: string | null
 ): Promise<void> {
   const { client, userId } = await resolveReadingScope(memberEmail);
+
+  // Only replayed positions carry a timestamp, and only they can be stale — a
+  // live save is by definition the newest thing there is.
+  if (position.savedAt) {
+    const { data: existing } = await client
+      .from("reading_book_state")
+      .select("last_read_at")
+      .eq("book_id", bookId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    const serverTime = existing?.last_read_at as string | undefined;
+    if (serverTime && Date.parse(serverTime) > Date.parse(position.savedAt)) return;
+  }
 
   const { error } = await client.from("reading_book_state").upsert(
     {
@@ -1365,7 +1384,7 @@ export async function saveReadingPosition(
       last_anchor_id: position.anchorId,
       last_scroll_ratio: position.scrollRatio,
       last_page_number: position.pageNumber,
-      last_read_at: new Date().toISOString(),
+      last_read_at: position.savedAt ?? new Date().toISOString(),
     },
     { onConflict: "book_id" }
   );

@@ -12,7 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   FONT_STEPS,
   LEADING_STEPS,
-  TWO_COLUMN_MIN_WIDTH,
+  fitsTwoColumns,
   type ReaderSettings,
 } from "@/lib/reading/reader-settings";
 import { cn } from "@/lib/utils";
@@ -34,7 +34,7 @@ export function ReaderLayoutDialog({
   settings,
   onChange,
   supportsPaging,
-  viewportWidth,
+  availableWidth,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -42,10 +42,13 @@ export function ReaderLayoutDialog({
   onChange: <K extends keyof ReaderSettings>(key: K, value: ReaderSettings[K]) => void;
   /** False for saved articles, which are always scrolled. */
   supportsPaging: boolean;
-  viewportWidth: number;
+  /** Width the book has, chat panel already subtracted — see bookAreaWidth. */
+  availableWidth: number;
 }) {
   const paged = supportsPaging && settings.paged;
-  const tooNarrowForTwo = viewportWidth < TWO_COLUMN_MIN_WIDTH;
+  // Depends on the margins, so this answer changes under you as you set them —
+  // which is the point: narrowing the margins is how a laptop earns two columns.
+  const tooNarrowForTwo = !fitsTwoColumns(availableWidth, settings.margins);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -117,7 +120,13 @@ export function ReaderLayoutDialog({
           {paged && (
             <Field
               label="Columns"
-              hint={tooNarrowForTwo ? "This window is too narrow for two." : undefined}
+              hint={
+                tooNarrowForTwo
+                  ? settings.margins === "narrow"
+                    ? "Not enough width for two."
+                    : "Not enough width — try narrower margins."
+                  : undefined
+              }
             >
               <Segmented
                 options={[

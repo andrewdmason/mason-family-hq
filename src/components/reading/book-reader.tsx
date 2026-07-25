@@ -13,7 +13,14 @@ import {
 import { ReaderAnnotationLayer } from "@/components/reading/annotations/reader-annotation-layer";
 import { blockIndexForCharOffset, blockMap } from "@/lib/reading/block-stream";
 import { blockElements } from "@/lib/reading/annotation-anchors";
-import { PAGE_PAD_BOTTOM } from "@/lib/reading/paged-geometry";
+import { describeDownload, loadBookHtml } from "@/lib/reading/offline/content-cache";
+import {
+  markPositionSynced,
+  pendingPositions,
+  readPosition,
+  rememberPosition,
+} from "@/lib/reading/offline/positions";
+import { PAGE_PAD_BOTTOM, bookAreaWidth } from "@/lib/reading/paged-geometry";
 import { MARGIN_MEASURE_PX } from "@/lib/reading/reader-settings";
 import {
   chapterBounds,
@@ -125,26 +132,32 @@ export function BookReader({
     [blocks, title, toc]
   );
 
-  // Load the reflowed HTML from its signed URL.
+  // Load the book — from the device when we already have it, which is what makes
+  // opening it again later work with no network at all. Opening a book is what
+  // downloads it; there's no separate step.
   useEffect(() => {
     let cancelled = false;
-    fetch(contentUrl)
-      .then((res) => {
-        if (!res.ok) throw new Error("Couldn't load this book.");
-        return res.text();
-      })
-      .then((text) => {
-        if (!cancelled) setHtml(text);
+    loadBookHtml(bookId, contentUrl)
+      .then(({ html: text }) => {
+        if (cancelled) return;
+        setHtml(text);
+        // Only the reader page knows what the book is called, so the shelf's
+        // "available offline" list is filled in from here.
+        void describeDownload(bookId, { title, author, isArticle });
       })
       .catch((err) => {
         if (!cancelled) {
-          setLoadError(err instanceof Error ? err.message : "Couldn't load this book.");
+          setLoadError(
+            err instanceof Error && navigator.onLine
+              ? err.message
+              : "This book isn't downloaded yet — open it once while you're online."
+          );
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [contentUrl]);
+  }, [author, bookId, contentUrl, isArticle, title]);
 
   useEffect(() => {
     const sync = () => setViewportWidth(window.innerWidth);
@@ -168,22 +181,70 @@ export function BookReader({
   const totalCharsRef = useRef(0);
   totalCharsRef.current = totalChars;
 
+  // A position the server never received outranks the one the page was rendered
+  // with — either we read offline since, or this page itself came from the
+  // service worker's cache and its resume point is however old that copy is.
+  // Once a position has synced, the server's answer already includes it.
+  useEffect(() => {
+    let cancelled = false;
+    void readPosition(bookId).then((stored) => {
+      if (cancelled || !stored?.dirty) return;
+      positionRef.current = stored.charOffset;
+      setScrollPosition({ charOffset: stored.charOffset, atEnd: false });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [bookId]);
+
+  // Local first, server second. The device write is the one that must not fail:
+  // reading three chapters offline and having the book reopen at the start is
+  // the only offline failure that would actually be felt.
   const flush = useCallback(() => {
     const charOffset = positionRef.current;
     const total = totalCharsRef.current;
-    void saveReadingPosition(
-      bookId,
-      {
-        charOffset,
-        // The shelf reads this for each book's percent label, so it keeps being
-        // written — just derived from the character offset instead of pixels.
-        scrollRatio: total > 0 ? Math.min(1, charOffset / total) : null,
-        anchorId: null,
-        pageNumber: null,
-      },
-      memberEmail
-    ).catch(() => {});
+    // The shelf reads this for each book's percent label, so it keeps being
+    // written — just derived from the character offset instead of pixels.
+    const scrollRatio = total > 0 ? Math.min(1, charOffset / total) : null;
+
+    void rememberPosition(bookId, charOffset, scrollRatio).then((record) =>
+      saveReadingPosition(
+        bookId,
+        { charOffset, scrollRatio, anchorId: null, pageNumber: null },
+        memberEmail
+      )
+        .then(() => markPositionSynced(record))
+        .catch(() => {})
+    );
   }, [bookId, memberEmail]);
+
+  // Hand back anything the server never got — on open, and the moment the
+  // network returns. Positions carry the time they were taken, so replaying an
+  // old one can't overwrite newer reading from another device.
+  useEffect(() => {
+    const replay = () => {
+      void pendingPositions().then((pending) => {
+        for (const p of pending) {
+          void saveReadingPosition(
+            p.bookId,
+            {
+              charOffset: p.charOffset,
+              scrollRatio: p.scrollRatio,
+              anchorId: null,
+              pageNumber: null,
+              savedAt: p.savedAt,
+            },
+            memberEmail
+          )
+            .then(() => markPositionSynced(p))
+            .catch(() => {});
+        }
+      });
+    };
+    replay();
+    window.addEventListener("online", replay);
+    return () => window.removeEventListener("online", replay);
+  }, [memberEmail]);
 
   const report = useCallback(
     (next: number, atEnd: boolean) => {
@@ -579,6 +640,12 @@ export function BookReader({
     [paged, pagedGeometry, pageIndex, viewport]
   );
 
+  // Stable, so PagedView's window keydown listener isn't torn down and re-added
+  // on every render. `goToPage` clamps, so "one past the end" is just the end.
+  const { goToPage, totalPages } = pagination;
+  const goToFirstPage = useCallback(() => goToPage(0), [goToPage]);
+  const goToLastPage = useCallback(() => goToPage(totalPages - 1), [goToPage, totalPages]);
+
   // A page has fixed bounds, so the chrome can simply stay: it never covers
   // text, which is the only reason it had to hide when scrolling.
   const headerVisible = paged || hoverTop || tocOpen || menuOpen || chromeTapped || scrollRevealed;
@@ -769,8 +836,8 @@ export function BookReader({
             isLastPage={pagination.atEnd}
             onNext={pagination.next}
             onPrev={pagination.prev}
-            onFirst={() => pagination.goToPage(0)}
-            onLast={() => pagination.goToPage(pagination.totalPages - 1)}
+            onFirst={goToFirstPage}
+            onLast={goToLastPage}
           >
             {annotationLayer}
           </PagedView>
@@ -848,7 +915,9 @@ export function BookReader({
         settings={settings}
         onChange={updateSetting}
         supportsPaging={!isArticle}
-        viewportWidth={viewportWidth}
+        // The live answer, chat panel included: what the Columns control offers
+        // has to match what the book is doing behind the dialog.
+        availableWidth={bookAreaWidth(viewportWidth, chatPanelOpen)}
       />
     </div>
   );

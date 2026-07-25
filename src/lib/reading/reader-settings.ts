@@ -70,8 +70,26 @@ export const MARGIN_INSET_PX: Record<ReaderMargins, number> = {
  */
 export const COLUMN_GAP = 56;
 
-/** Below this viewport width, "auto" columns resolves to one. */
-export const TWO_COLUMN_MIN_WIDTH = 1180;
+/**
+ * The narrowest column we're willing to split into two: the measure the Wide
+ * setting asks for, which is the narrowest line the reader can deliberately
+ * choose. Below it the second column stops being a page and becomes a novelty.
+ */
+const MIN_TWO_COLUMN_WIDTH = MARGIN_MEASURE_PX.wide;
+
+/**
+ * Whether two columns fit in `availableWidth` — the window, less whatever the
+ * chat panel has taken (see bookAreaWidth).
+ *
+ * The margins are part of the question rather than separate from it: they decide
+ * how much of the width is text, so on a laptop the narrowest setting is exactly
+ * what tips the page over into two columns. This used to be one flat width
+ * threshold, which is why narrowing the margins appeared to do nothing.
+ */
+export function fitsTwoColumns(availableWidth: number, margins: ReaderMargins): boolean {
+  const forText = availableWidth - MARGIN_INSET_PX[margins] * 2 - COLUMN_GAP;
+  return forText / 2 >= MIN_TWO_COLUMN_WIDTH;
+}
 
 export const DEFAULT_SETTINGS: ReaderSettings = {
   paged: true,
@@ -176,9 +194,15 @@ export const readerSettingsStore = {
   },
 };
 
-/** Columns actually used, once "auto" has met the viewport. */
-export function effectiveColumns(settings: ReaderSettings, viewportWidth: number): 1 | 2 {
+/**
+ * Columns actually used, once the request has met the space available.
+ *
+ * "Auto" and an explicit 2 agree: two columns whenever two columns fit. Asking
+ * for two is a preference to be honoured when there's room, not a promise we can
+ * keep on a phone — and it's remembered while it can't be, so closing the chat
+ * panel gives the second column back.
+ */
+export function effectiveColumns(settings: ReaderSettings, availableWidth: number): 1 | 2 {
   if (settings.columns === 1) return 1;
-  if (settings.columns === 2) return viewportWidth >= TWO_COLUMN_MIN_WIDTH ? 2 : 1;
-  return viewportWidth >= TWO_COLUMN_MIN_WIDTH ? 2 : 1;
+  return fitsTwoColumns(availableWidth, settings.margins) ? 2 : 1;
 }

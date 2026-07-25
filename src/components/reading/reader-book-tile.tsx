@@ -18,6 +18,8 @@ import {
   Upload,
 } from "lucide-react";
 import { BookCover } from "@/components/reading/book-cover";
+import { removeDownload } from "@/lib/reading/offline/content-cache";
+import { useIsDownloaded } from "@/lib/reading/offline/use-is-downloaded";
 import { EditBookDialog } from "@/components/reading/edit-book-dialog";
 import {
   RATING_OPTIONS,
@@ -91,6 +93,7 @@ export function ReaderBookTile({ book }: { book: ReadingBookWithProgress }) {
 
   const pending = busy || deleting || moving || reflecting || retrying || savingRating;
   const percent = readerProgressPercent(book);
+  const downloaded = useIsDownloaded(book.id);
 
   /** Tap the rating you already gave to clear it, mirroring the rating picker. */
   function handleRate(next: ReadingRating) {
@@ -124,6 +127,9 @@ export function ReaderBookTile({ book }: { book: ReadingBookWithProgress }) {
     startDelete(async () => {
       try {
         await removeBook(book.id, null);
+        // Only after the server agrees it's gone — a failed delete must not
+        // leave the book on the shelf but no longer readable offline.
+        await removeDownload(book.id);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't delete the book.");
       }
@@ -354,6 +360,11 @@ export function ReaderBookTile({ book }: { book: ReadingBookWithProgress }) {
                 : hasFile
                   ? "Not started"
                   : "No file yet"}
+        {/* Quiet on purpose: it matters exactly once, when you're deciding what
+            to take on a plane, and never while you're just picking a book. */}
+        {downloaded && !isFailed && !isProcessing && (
+          <span className="text-muted-foreground/60"> · Offline</span>
+        )}
       </span>
 
       {(error || uploadError) && (
