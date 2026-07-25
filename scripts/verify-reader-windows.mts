@@ -10,7 +10,7 @@
  *   npx tsx scripts/verify-reader-windows.mts
  */
 
-import { blockMap, type BookBlock } from "../src/lib/reading/block-stream.ts";
+import { blockMap } from "../src/lib/reading/block-stream";
 
 let failures = 0;
 

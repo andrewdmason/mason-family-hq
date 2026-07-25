@@ -1352,10 +1352,29 @@ export async function saveReadingPosition(
     scrollRatio: number | null;
     anchorId: string | null;
     pageNumber: number | null;
+    /**
+     * When this position was actually recorded, for positions that were held on
+     * the device while offline. Without it, an iPad reconnecting on Wednesday
+     * would overwrite Tuesday's reading with Monday's page.
+     */
+    savedAt?: string;
   },
   memberEmail?: string | null
 ): Promise<void> {
   const { client, userId } = await resolveReadingScope(memberEmail);
+
+  // Only replayed positions carry a timestamp, and only they can be stale — a
+  // live save is by definition the newest thing there is.
+  if (position.savedAt) {
+    const { data: existing } = await client
+      .from("reading_book_state")
+      .select("last_read_at")
+      .eq("book_id", bookId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    const serverTime = existing?.last_read_at as string | undefined;
+    if (serverTime && Date.parse(serverTime) > Date.parse(position.savedAt)) return;
+  }
 
   const { error } = await client.from("reading_book_state").upsert(
     {
@@ -1365,7 +1384,7 @@ export async function saveReadingPosition(
       last_anchor_id: position.anchorId,
       last_scroll_ratio: position.scrollRatio,
       last_page_number: position.pageNumber,
-      last_read_at: new Date().toISOString(),
+      last_read_at: position.savedAt ?? new Date().toISOString(),
     },
     { onConflict: "book_id" }
   );

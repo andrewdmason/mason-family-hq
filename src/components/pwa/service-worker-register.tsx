@@ -34,6 +34,10 @@ export function ServiceWorkerRegister() {
           .keys()
           .then((keys) => {
             for (const key of keys) {
+              // Only this worker's own app-shell caches. Deliberately NOT
+              // reader-content-*: that's the user's downloaded books, written by
+              // the page rather than the worker, and dropping it here would mean
+              // developing on this machine silently emptied the library.
               if (/^(static|pages)-/.test(key)) void caches.delete(key);
             }
           })
