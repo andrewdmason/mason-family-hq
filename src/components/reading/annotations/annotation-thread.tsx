@@ -8,6 +8,7 @@ import type {
   ReaderChatMessage,
   ReaderChatModelPreference,
 } from "@/lib/reading/annotation-types";
+import { useIsOnline } from "@/lib/reading/offline/use-is-online";
 import { ChatMessageText } from "./chat-message-text";
 
 /** The route marks a failed turn this way rather than persisting a message. */
@@ -57,6 +58,7 @@ export function AnnotationThread({
   const [messages, setMessages] = useState<ReaderChatMessage[]>(chat.messages);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const online = useIsOnline();
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -276,13 +278,18 @@ export function AnnotationThread({
               }
             }}
             rows={2}
-            placeholder="Ask about this part…"
-            className="min-h-[2.5rem] flex-1 resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+            disabled={!online}
+            // Said up front rather than after a failed send: the answer has to
+            // come from a model, so this is the one part of the reader that
+            // genuinely cannot work offline. Queuing it would be worse — a
+            // question answered hours later is one you've stopped wondering about.
+            placeholder={online ? "Ask about this part…" : "AI chat needs a connection"}
+            className="min-h-[2.5rem] flex-1 resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
           />
           <button
             type="button"
             onClick={() => void send()}
-            disabled={sending || draft.trim().length === 0}
+            disabled={!online || sending || draft.trim().length === 0}
             aria-label="Send"
             className="rounded-md border border-border p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
           >
