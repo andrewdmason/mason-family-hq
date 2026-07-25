@@ -12,6 +12,7 @@ import {
 } from "@/lib/reading/book-lookup";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
+import { computeBookWordCounts } from "@/lib/reading/word-counts";
 import { capTarget, defaultTargetPage } from "@/lib/reading/targets";
 import { readingTargetDueDateKey } from "@/lib/reading/target-due";
 import { resolveNextTarget } from "@/lib/reading/next-target";
@@ -1209,6 +1210,16 @@ export async function getBookReaderData(
   // reader/api/content/[bookId]/route.ts for why that matters.
   const contentUrl = `/reader/api/content/${bookId}?v=${Date.parse(content.updated_at)}`;
 
+  const counts = await healWordCounts(client, {
+    bookId,
+    userId,
+    isArticle,
+    contentPath: content.content_path as string,
+    wordCount: (content.word_count as number) ?? null,
+    charCount: (content.char_count as number) ?? null,
+    toc: (content.toc as ReadingTocEntry[]) ?? [],
+  });
+
   const { data: state } = await client
     .from("reading_book_state")
     .select("last_char_offset, last_anchor_id, last_scroll_ratio")
@@ -1225,8 +1236,8 @@ export async function getBookReaderData(
     contentUrl,
     hasRealPages: content.has_real_pages as boolean,
     pageCount: (content.page_count as number) ?? null,
-    wordCount: (content.word_count as number) ?? null,
-    toc: (content.toc as ReadingTocEntry[]) ?? [],
+    wordCount: counts.wordCount,
+    toc: counts.toc,
     resume: {
       charOffset: await resolveResumeCharOffset(client, {
         bookId,
@@ -1238,6 +1249,84 @@ export async function getBookReaderData(
       }),
     },
   };
+}
+
+/**
+ * Fill in a book's word counts the first time it's opened without them.
+ *
+ * Books converted before migration 00163 have a null word_count and a TOC with
+ * no startWord, so the reader shows percent-complete but no time-left. Nothing
+ * else ever writes those columns — only conversion does — so without this they
+ * stay blank forever, and the only other way to populate them is to reconvert,
+ * which re-parses the source with today's converter and moves the character
+ * space out from under every stored annotation and chat anchor.
+ *
+ * Recomputing from the stored HTML instead leaves the character space alone, so
+ * this is a pure repair: same text, same arithmetic, nothing else touched. It
+ * costs one storage read on the first open of an affected book and never runs
+ * again for that book.
+ *
+ * Deliberately best-effort. A book that fails to heal simply renders the way it
+ * does today — no estimate — which is why every exit here returns the values it
+ * was given rather than throwing.
+ */
+async function healWordCounts(
+  client: SupabaseClient,
+  input: {
+    bookId: string;
+    userId: string;
+    isArticle: boolean;
+    contentPath: string;
+    wordCount: number | null;
+    charCount: number | null;
+    toc: ReadingTocEntry[];
+  }
+): Promise<{ wordCount: number | null; toc: ReadingTocEntry[] }> {
+  const asIs = { wordCount: input.wordCount, toc: input.toc };
+
+  // The overwhelmingly common path: already counted, nothing to do.
+  if (input.wordCount != null) return asIs;
+  // An article's HTML isn't converter output and its anchors live in a DOM
+  // text-stream space, not the conversion char space this reconstructs.
+  if (input.isArticle) return asIs;
+
+  try {
+    const download = await client.storage
+      .from(READING_BOOKS_BUCKET)
+      .download(input.contentPath);
+    if (download.error || !download.data) return asIs;
+
+    const counts = computeBookWordCounts(await download.data.text(), input.toc);
+    if (!counts || counts.wordCount <= 0) return asIs;
+
+    // The stored char_count is what every anchor and page row was recorded
+    // against. If this HTML implies a different one, it isn't the file those
+    // offsets describe and nothing derived from it can be trusted.
+    if (input.charCount != null && counts.charCount !== input.charCount) {
+      console.warn(
+        `[reading/heal] book=${input.bookId} char_count mismatch ` +
+          `(stored ${input.charCount}, recomputed ${counts.charCount}) — skipped`
+      );
+      return asIs;
+    }
+
+    // Only these two columns. The character space is unchanged, so the page map,
+    // the reading position and every anchor stay valid as they are.
+    const { error } = await client
+      .from("reading_book_content")
+      .update({ word_count: counts.wordCount, toc: counts.toc })
+      .eq("book_id", input.bookId)
+      .eq("user_id", input.userId);
+    if (error) return asIs;
+
+    console.log(
+      `[reading/heal] book=${input.bookId} words=${counts.wordCount} ` +
+        `chapters=${counts.located}/${counts.total}`
+    );
+    return { wordCount: counts.wordCount, toc: counts.toc };
+  } catch {
+    return asIs;
+  }
 }
 
 /**
