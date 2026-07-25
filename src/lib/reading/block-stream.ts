@@ -44,6 +44,19 @@ export type BookBlock = {
    * char space is readable straight off the block stream, with no DOM involved.
    */
   id: string | null;
+  /** Which tag this is, lowercased — `p`, `h1`, `h2`. Headings are chapter starts. */
+  tag: string;
+  /**
+   * Half-open span of this block's markup in the source HTML, so a range of
+   * blocks can be handed to the DOM as an exact `html.slice(…)`.
+   *
+   * A substring, never a re-serialisation: the paged reader renders a window of
+   * the book rather than all of it, and every stored annotation anchor assumes a
+   * block element's textContent is byte-identical to `text` above. Rebuilding the
+   * markup would be one escaping bug away from silently moving every highlight.
+   */
+  htmlStart: number;
+  htmlEnd: number;
 };
 
 const ID_ATTR = /\bid\s*=\s*"([^"]*)"/i;
@@ -68,6 +81,9 @@ export function blockMap(html: string): BookBlock[] {
       charStart,
       text,
       id: ID_ATTR.exec(match[2])?.[1] ?? null,
+      tag: match[1].toLowerCase(),
+      htmlStart: match.index,
+      htmlEnd: blockRe.lastIndex,
     });
     charStart += text.length + 1;
   }
