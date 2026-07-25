@@ -5,6 +5,10 @@ import { AppHeaderContent } from "@/components/layout/app-header";
 import { ReadingAdminPanel } from "@/components/reading/reading-admin";
 import { ReadingList } from "@/components/reading/reading-list";
 import { ReadingProgressHeader } from "@/components/reading/reading-progress-header";
+import {
+  ReaderOverflowMenu,
+  type CopyableBook,
+} from "@/components/reading/reader-overflow-menu";
 import { listFamilyMembers } from "@/app/(journal)/settings/family/actions";
 import { getIsOwner } from "@/lib/members/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
@@ -13,11 +17,26 @@ import { cn } from "@/lib/utils";
 import { getReadingHome, listRecommendRecipients } from "./actions";
 import { getDiscover } from "./discover/actions";
 import { getActiveQuizzesByBook, getReadingAdmin } from "./quizzes/actions";
+import type { ReadingHome } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 function firstName(name: string | null, fallback: string): string {
   return name?.trim().split(/\s+/)[0] || fallback;
+}
+
+/** The archived shelf, trimmed to what "Copy books as markdown" needs — the
+ * header is a client component, so this is what crosses the wire. Articles are
+ * left out: the copied list is about book taste. */
+function copyableArchive(home: ReadingHome): CopyableBook[] {
+  return home.books
+    .filter((b) => b.status === "archive" && (b.type ?? "book") === "book")
+    .map((b) => ({
+      title: b.title,
+      author: b.author,
+      rating: b.rating,
+      published_year: b.published_year,
+    }));
 }
 
 export default async function ReadingPage({
@@ -45,7 +64,12 @@ export default async function ReadingPage({
 
   // Recommend-to-someone is offered in self-view only (a kid tab administers
   // that child, it doesn't recommend on their behalf).
-  const recipients = viewedKid ? [] : await listRecommendRecipients();
+  // The reading home is fetched here rather than inside the tab so the toolbar's
+  // overflow menu can copy the archived shelf; the tab reuses the same result.
+  const [recipients, home] = await Promise.all([
+    viewedKid ? Promise.resolve([]) : listRecommendRecipients(),
+    getReadingHome(viewingEmail),
+  ]);
 
   // The tab strip (owner with signed-in kids only): self plus one per kid.
   const tabs =
@@ -79,6 +103,14 @@ export default async function ReadingPage({
           >
             <Settings className="h-4 w-4" />
           </Link>
+          <ReaderOverflowMenu
+            books={copyableArchive(home)}
+            title={
+              viewedKid
+                ? `Books ${firstName(viewedKid.name, viewedKid.email)} has read`
+                : "Books I've read"
+            }
+          />
           <AddBookDialog
             triggerVariant="default"
             memberEmail={viewingEmail}
@@ -93,10 +125,11 @@ export default async function ReadingPage({
         <KidAdminTab
           email={viewedKid.email}
           name={viewedKid.name}
+          home={home}
           isOwner={isOwner}
         />
       ) : (
-        <SelfReadingTab isOwner={isOwner} />
+        <SelfReadingTab home={home} isOwner={isOwner} />
       )}
     </main>
   );
@@ -129,11 +162,14 @@ function ReadingTab({
 }
 
 /** The owner's (or any reader's) own book list — progress header plus books. */
-async function SelfReadingTab({ isOwner }: { isOwner: boolean }) {
-  const [home, discover] = await Promise.all([
-    getReadingHome(null),
-    getDiscover(null),
-  ]);
+async function SelfReadingTab({
+  home,
+  isOwner,
+}: {
+  home: ReadingHome;
+  isOwner: boolean;
+}) {
+  const discover = await getDiscover(null);
 
   // Per-book check-in quizzes (published, not yet passed) — drive the
   // "check in & take quiz" CTA on each book card.
@@ -175,16 +211,15 @@ async function SelfReadingTab({ isOwner }: { isOwner: boolean }) {
 async function KidAdminTab({
   email,
   name,
+  home,
   isOwner,
 }: {
   email: string;
   name: string | null;
+  home: ReadingHome;
   isOwner: boolean;
 }) {
-  const [adminMembers, home] = await Promise.all([
-    getReadingAdmin(),
-    getReadingHome(email),
-  ]);
+  const adminMembers = await getReadingAdmin();
   const adminMember = adminMembers.find((m) => m.email === email) ?? {
     email,
     name,
