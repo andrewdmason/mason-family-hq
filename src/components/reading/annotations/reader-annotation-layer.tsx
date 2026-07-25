@@ -2,33 +2,33 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  createReaderChat,
-  deleteReaderChat,
-  discardReaderChatIfEmpty,
-  forkReaderChat,
-  getReaderChat,
-  getReaderChatData,
+  createAnnotation,
+  deleteAnnotation,
+  discardAnnotationIfEmpty,
+  forkAnnotation,
+  getAnnotation,
+  getAnnotationData,
   setBookSpoilerFree,
-  setChatModelPreference,
-} from "@/app/(reading)/reader/chat-actions";
+  setAnnotationModelPreference,
+} from "@/app/(reading)/reader/annotation-actions";
 import { blockIndexForCharOffset, blockMap } from "@/lib/reading/block-stream";
 import {
   anchorForGap,
   anchorFromRange,
   blockElements,
-} from "@/lib/reading/chat-anchors";
+} from "@/lib/reading/annotation-anchors";
 import type {
-  ReaderChatData,
-  ReaderChatDetail,
+  ReaderAnnotationData,
+  AnnotationDetail,
   ReaderChatModelPreference,
-} from "@/lib/reading/chat-types";
-import { ChatPanel } from "./chat-panel";
-import { ChatThread } from "./chat-thread";
+} from "@/lib/reading/annotation-types";
+import { AnnotationPanel } from "./annotation-panel";
+import { AnnotationThread } from "./annotation-thread";
 import { GutterMarkers } from "./gutter-markers";
 import { useGutterPlacement } from "./gutter-placement";
 import { ParagraphHoverTarget } from "./paragraph-hover-target";
 import { SelectionToolbar } from "./selection-toolbar";
-import { chatAtPoint, useChatHighlights } from "./use-chat-highlights";
+import { annotationAtPoint, useAnnotationHighlights } from "./use-annotation-highlights";
 
 /** Must match book-reader.tsx's reading line. */
 const READING_LINE_OFFSET = 72;
@@ -40,7 +40,7 @@ const READING_LINE_OFFSET = 72;
  * Everything positional is computed from the book HTML the reader already
  * fetched (see block-stream.ts), so anchors resolve without measuring text.
  */
-export function ReaderChatLayer({
+export function ReaderAnnotationLayer({
   bookId,
   memberEmail,
   html,
@@ -61,8 +61,8 @@ export function ReaderChatLayer({
   onPanelOpenChange: (open: boolean) => void;
   layoutNonce: number;
 }) {
-  const [data, setData] = useState<ReaderChatData | null>(null);
-  const [detail, setDetail] = useState<ReaderChatDetail | null>(null);
+  const [data, setData] = useState<ReaderAnnotationData | null>(null);
+  const [detail, setDetail] = useState<AnnotationDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   // Whether anything has been sent in the open chat. Drives both the discard on
@@ -77,7 +77,7 @@ export function ReaderChatLayer({
   // stack in the same column instead of landing on each other.
   const gutterRows = useGutterPlacement(chats, contentRef, layoutNonce);
   // Passages with a chat on them stay marked in the text.
-  useChatHighlights(chats, contentRef, detail?.id ?? null, layoutNonce);
+  useAnnotationHighlights(chats, contentRef, detail?.id ?? null, layoutNonce);
   const totalChars = useMemo(() => {
     const last = blocks.at(-1);
     return last ? last.charStart + last.text.length + 1 : 0;
@@ -93,7 +93,7 @@ export function ReaderChatLayer({
 
   useEffect(() => {
     let cancelled = false;
-    void getReaderChatData(bookId, memberEmail)
+    void getAnnotationData(bookId, memberEmail)
       .then((d) => {
         if (!cancelled) setData(d);
       })
@@ -104,13 +104,13 @@ export function ReaderChatLayer({
   }, [bookId, memberEmail]);
 
   const refreshList = useCallback(() => {
-    void getReaderChatData(bookId, memberEmail)
+    void getAnnotationData(bookId, memberEmail)
       .then(setData)
       .catch(() => {});
   }, [bookId, memberEmail]);
 
   const openPanelWith = useCallback(
-    (chat: ReaderChatDetail) => {
+    (chat: AnnotationDetail) => {
       setDetail(chat);
       // A chat opened with an empty transcript is a draft until something is
       // sent — see closePanel.
@@ -132,7 +132,7 @@ export function ReaderChatLayer({
     onPanelOpenChange(false);
     setDetail(null);
     if (!closing || wasTouched) return;
-    void discardReaderChatIfEmpty(closing.id, memberEmail)
+    void discardAnnotationIfEmpty(closing.id, memberEmail)
       .then((discarded) => {
         if (discarded) refreshList();
       })
@@ -146,7 +146,7 @@ export function ReaderChatLayer({
       if (!resolved) return;
       setBusy(true);
       try {
-        const chat = await createReaderChat({
+        const chat = await createAnnotation({
           bookId,
           anchor: resolved.anchor,
           anchorCharOffset: resolved.anchorCharOffset,
@@ -169,7 +169,7 @@ export function ReaderChatLayer({
       if (!resolved) return;
       setBusy(true);
       try {
-        const chat = await createReaderChat({
+        const chat = await createAnnotation({
           bookId,
           anchor: resolved.anchor,
           anchorCharOffset: resolved.anchorCharOffset,
@@ -187,7 +187,7 @@ export function ReaderChatLayer({
 
   const openExisting = useCallback(
     async (chatId: string) => {
-      const chat = await getReaderChat(chatId, memberEmail);
+      const chat = await getAnnotation(chatId, memberEmail);
       if (chat) openPanelWith(chat);
     },
     [memberEmail, openPanelWith]
@@ -202,7 +202,7 @@ export function ReaderChatLayer({
     const onClick = (e: MouseEvent) => {
       const selection = window.getSelection();
       if (selection && !selection.isCollapsed) return;
-      const hit = chatAtPoint(chats, container, e.clientX, e.clientY);
+      const hit = annotationAtPoint(chats, container, e.clientX, e.clientY);
       if (hit) void openExisting(hit.id);
     };
     container.addEventListener("click", onClick);
@@ -256,7 +256,7 @@ export function ReaderChatLayer({
     }
     const resolved = anchorForGap(idx, blocks);
     if (!resolved) return;
-    const chat = await forkReaderChat({
+    const chat = await forkAnnotation({
       chatId: detail.id,
       anchor: resolved.anchor,
       anchorCharOffset: resolved.anchorCharOffset,
@@ -273,7 +273,7 @@ export function ReaderChatLayer({
     const id = detail.id;
     onPanelOpenChange(false);
     setDetail(null);
-    await deleteReaderChat(id, memberEmail);
+    await deleteAnnotation(id, memberEmail);
     refreshList();
   }, [detail, memberEmail, onPanelOpenChange, refreshList]);
 
@@ -289,7 +289,7 @@ export function ReaderChatLayer({
     async (next: ReaderChatModelPreference) => {
       if (!detail) return;
       setDetail((d) => (d ? { ...d, modelPreference: next } : d));
-      await setChatModelPreference(detail.id, next, memberEmail);
+      await setAnnotationModelPreference(detail.id, next, memberEmail);
     },
     [detail, memberEmail]
   );
@@ -298,7 +298,7 @@ export function ReaderChatLayer({
     <>
       <GutterMarkers
         rows={gutterRows}
-        openChatId={detail?.id ?? null}
+        openAnnotationId={detail?.id ?? null}
         onOpen={(id) => void openExisting(id)}
       />
       <ParagraphHoverTarget
@@ -312,14 +312,14 @@ export function ReaderChatLayer({
         onStart={(r) => void startFromSelection(r)}
         disabled={busy}
       />
-      <ChatPanel
+      <AnnotationPanel
         open={panelOpen}
         isMobile={isMobile}
         onClose={closePanel}
         dismissOnOutsidePress={!touched}
       >
         {detail && (
-          <ChatThread
+          <AnnotationThread
             key={detail.id}
             chat={detail}
             memberEmail={memberEmail}
@@ -336,7 +336,7 @@ export function ReaderChatLayer({
             onModelChange={(v) => void changeModel(v)}
           />
         )}
-      </ChatPanel>
+      </AnnotationPanel>
     </>
   );
 }

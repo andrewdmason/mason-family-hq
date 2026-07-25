@@ -16,11 +16,11 @@ import { GUTTER_X_CLASS, MARKER_PITCH, type GutterRow } from "./gutter-placement
  */
 export function GutterMarkers({
   rows,
-  openChatId,
+  openAnnotationId,
   onOpen,
 }: {
   rows: GutterRow[];
-  openChatId: string | null;
+  openAnnotationId: string | null;
   onOpen: (chatId: string) => void;
 }) {
   if (rows.length === 0) return null;
@@ -42,7 +42,7 @@ export function GutterMarkers({
             className={cn(
               "pointer-events-auto absolute flex h-6 w-6 items-center justify-center rounded-full border transition-colors",
               GUTTER_X_CLASS,
-              chat.id === openChatId
+              chat.id === openAnnotationId
                 ? "border-foreground/30 bg-foreground text-background"
                 : "border-border bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground"
             )}

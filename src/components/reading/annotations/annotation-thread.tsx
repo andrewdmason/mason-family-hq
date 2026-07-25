@@ -4,10 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CornerDownLeft, Loader2, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
-  ReaderChatDetail,
+  AnnotationDetail,
   ReaderChatMessage,
   ReaderChatModelPreference,
-} from "@/lib/reading/chat-types";
+} from "@/lib/reading/annotation-types";
 import { ChatMessageText } from "./chat-message-text";
 
 /** The route marks a failed turn this way rather than persisting a message. */
@@ -16,7 +16,7 @@ const ERROR_MARKER = /\n\n\[error: ([\s\S]*)\]$/;
 let localSeq = 0;
 const localId = () => `local-${++localSeq}`;
 
-export function ChatThread({
+export function AnnotationThread({
   chat,
   memberEmail,
   bookSpoilerFree,
@@ -31,7 +31,7 @@ export function ChatThread({
   onSpoilerFreeChange,
   onModelChange,
 }: {
-  chat: ReaderChatDetail;
+  chat: AnnotationDetail;
   memberEmail: string | null;
   bookSpoilerFree: boolean;
   hasRealPages: boolean;
@@ -98,10 +98,10 @@ export function ChatThread({
 
       if (res.headers.get("X-Reader-Chat-Promoted") === "1") {
         setMessages((prev) => {
-          if (prev.some((m) => m.role === "note")) return prev;
+          if (prev.some((m) => m.role === "notice")) return prev;
           const note: ReaderChatMessage = {
             id: localId(),
-            role: "note",
+            role: "notice",
             content:
               "Answered with the Deep model — this book is too long for the Fast model's context window.",
             model: null,
@@ -192,7 +192,7 @@ export function ChatThread({
 
         <div className="flex flex-col gap-3">
           {messages.map((m) =>
-            m.role === "note" ? (
+            m.role === "notice" ? (
               <p
                 key={m.id}
                 className="mx-auto max-w-[85%] text-center text-[11px] leading-4 text-muted-foreground"

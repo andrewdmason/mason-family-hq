@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import { rangeForAnchor } from "@/lib/reading/chat-anchors";
-import type { ReaderChatSummary } from "@/lib/reading/chat-types";
+import { rangeForAnchor } from "@/lib/reading/annotation-anchors";
+import type { AnnotationSummary } from "@/lib/reading/annotation-types";
 
 /**
  * Keeps the passages you've started chats on highlighted in the book, the way
@@ -41,10 +41,10 @@ function ensureHighlightStyles() {
   document.head.append(style);
 }
 
-export function useChatHighlights(
-  chats: ReaderChatSummary[],
+export function useAnnotationHighlights(
+  chats: AnnotationSummary[],
   contentRef: React.RefObject<HTMLDivElement | null>,
-  openChatId: string | null,
+  openAnnotationId: string | null,
   layoutNonce: number
 ) {
   useEffect(() => {
@@ -58,7 +58,7 @@ export function useChatHighlights(
     for (const chat of chats) {
       const range = rangeForAnchor(chat.anchor, container);
       if (!range) continue;
-      (chat.id === openChatId ? active : resting).push(range);
+      (chat.id === openAnnotationId ? active : resting).push(range);
     }
 
     CSS.highlights.set(ALL, new Highlight(...resting));
@@ -68,19 +68,19 @@ export function useChatHighlights(
       CSS.highlights.delete(ALL);
       CSS.highlights.delete(ACTIVE);
     };
-  }, [chats, contentRef, openChatId, layoutNonce]);
+  }, [chats, contentRef, openAnnotationId, layoutNonce]);
 }
 
 /**
  * The chat whose highlighted passage contains a click, if any — so tapping the
  * highlight opens its conversation, not just the margin icon.
  */
-export function chatAtPoint(
-  chats: ReaderChatSummary[],
+export function annotationAtPoint(
+  chats: AnnotationSummary[],
   container: HTMLElement,
   x: number,
   y: number
-): ReaderChatSummary | null {
+): AnnotationSummary | null {
   for (const chat of chats) {
     const range = rangeForAnchor(chat.anchor, container);
     if (!range) continue;

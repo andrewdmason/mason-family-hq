@@ -23,7 +23,7 @@ export const BLOCK_SELECTOR = "p, h1, h2, h3, h4, h5, h6";
 /** Bumped only if the stored shape changes incompatibly. */
 export const ANCHOR_VERSION = 1;
 
-export type ChatAnchor = {
+export type AnnotationAnchor = {
   v: number;
   kind: "between" | "selection";
   /** Block the chat sits at: the block BELOW the gap, or where a selection starts. */
@@ -34,7 +34,7 @@ export type ChatAnchor = {
 };
 
 export type ResolvedAnchor = {
-  anchor: ChatAnchor;
+  anchor: AnnotationAnchor;
   /** Position in the conversion char space; the server derives the page from it. */
   anchorCharOffset: number;
   /** Verbatim selected text, for selection anchors. */
@@ -126,7 +126,7 @@ export function blockTopWithin(el: HTMLElement, container: HTMLElement): number 
 
 /** The element a stored anchor points at, if it's still in range. */
 export function elementForAnchor(
-  anchor: ChatAnchor,
+  anchor: AnnotationAnchor,
   els: HTMLElement[]
 ): HTMLElement | null {
   return els[anchor.blockIndex] ?? null;
@@ -138,7 +138,7 @@ export function elementForAnchor(
  * the anchor no longer resolves (e.g. the book was re-converted).
  */
 export function rangeForAnchor(
-  anchor: ChatAnchor,
+  anchor: AnnotationAnchor,
   container: HTMLElement
 ): Range | null {
   if (anchor.kind !== "selection") return null;

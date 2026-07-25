@@ -10,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ReaderChatLayer } from "@/components/reading/chat/reader-chat-layer";
+import { ReaderAnnotationLayer } from "@/components/reading/annotations/reader-annotation-layer";
 import { formatTimeLeft, minutesToRead } from "@/lib/reading/reading-time";
 import { cn } from "@/lib/utils";
 import type { ReadingTocEntry } from "@/lib/types";
@@ -713,7 +713,7 @@ export function BookReader({
             {/* Books only: articles keep images/links/lists, which breaks the
                 flat block model anchors are addressed in. */}
             {!isArticle && (
-              <ReaderChatLayer
+              <ReaderAnnotationLayer
                 bookId={bookId}
                 memberEmail={memberEmail}
                 html={html}

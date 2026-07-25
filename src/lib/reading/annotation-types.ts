@@ -1,11 +1,11 @@
-import type { ChatAnchor } from "@/lib/reading/chat-anchors";
+import type { AnnotationAnchor } from "@/lib/reading/annotation-anchors";
 
 /** "fast" = claude-haiku-4-5, "deep" = claude-sonnet-5. */
 export type ReaderChatModelPreference = "fast" | "deep";
 
-export type ReaderChatSummary = {
+export type AnnotationSummary = {
   id: string;
-  anchor: ChatAnchor;
+  anchor: AnnotationAnchor;
   anchorCharOffset: number;
   anchorPage: number | null;
   /**
@@ -16,7 +16,7 @@ export type ReaderChatSummary = {
   contextThroughPage: number | null;
   quotedText: string | null;
   modelPreference: ReaderChatModelPreference;
-  forkedFromChatId: string | null;
+  forkedFromAnnotationId: string | null;
   messageCount: number;
   lastMessageAt: string | null;
   createdAt: string;
@@ -24,14 +24,14 @@ export type ReaderChatSummary = {
 
 export type ReaderChatMessage = {
   id: string;
-  /** "note" is app-authored UI text (e.g. a model promotion); never sent to the model. */
-  role: "user" | "assistant" | "note";
+  /** "notice" is app-authored UI text (e.g. a model promotion); never sent to the model. */
+  role: "user" | "assistant" | "notice";
   content: string;
   model: string | null;
   createdAt: string;
 };
 
-export type ReaderChatDetail = ReaderChatSummary & {
+export type AnnotationDetail = AnnotationSummary & {
   messages: ReaderChatMessage[];
 };
 
@@ -39,17 +39,17 @@ export type ReaderChatDetail = ReaderChatSummary & {
  * page -> first character, so a "[p.N]" citation can be scrolled to even when
  * the book has no `page-N` element in the DOM (which is the common case).
  */
-export type ReaderChatPageMark = {
+export type AnnotationPageMark = {
   pageNumber: number;
   charStart: number;
   anchorId: string;
 };
 
-export type ReaderChatData = {
-  chats: ReaderChatSummary[];
+export type ReaderAnnotationData = {
+  chats: AnnotationSummary[];
   /** The BOOK's current switch — governs new chats only. */
   spoilerFree: boolean;
-  pageMarks: ReaderChatPageMark[];
+  pageMarks: AnnotationPageMark[];
   /** False when page numbers are synthetic and shouldn't be shown to the reader. */
   hasRealPages: boolean;
 };

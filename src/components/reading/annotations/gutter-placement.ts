@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { blockElements, blockTopWithin } from "@/lib/reading/chat-anchors";
-import type { ReaderChatSummary } from "@/lib/reading/chat-types";
+import { blockElements, blockTopWithin } from "@/lib/reading/annotation-anchors";
+import type { AnnotationSummary } from "@/lib/reading/annotation-types";
 
 /**
  * Layout for the right-hand chat gutter, where existing chats are marked.
@@ -29,11 +29,11 @@ export type GutterRow = {
   blockIndex: number;
   /** Offset of the anchoring block from the top of the content container. */
   top: number;
-  chats: ReaderChatSummary[];
+  chats: AnnotationSummary[];
 };
 
 export function useGutterPlacement(
-  chats: ReaderChatSummary[],
+  chats: AnnotationSummary[],
   contentRef: React.RefObject<HTMLDivElement | null>,
   layoutNonce: number
 ): GutterRow[] {
@@ -48,7 +48,7 @@ export function useGutterPlacement(
     const els = blockElements(container);
     // Grouped by block index rather than by pixel position: two chats on the
     // same paragraph are the same anchor even if a reflow moves them.
-    const byBlock = new Map<number, ReaderChatSummary[]>();
+    const byBlock = new Map<number, AnnotationSummary[]>();
     for (const chat of chats) {
       const index = chat.anchor?.blockIndex ?? -1;
       if (!els[index]) continue;

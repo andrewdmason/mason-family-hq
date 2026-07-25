@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { MessageSquarePlus } from "lucide-react";
-import { blockElements, blockTopWithin } from "@/lib/reading/chat-anchors";
+import { blockElements, blockTopWithin } from "@/lib/reading/annotation-anchors";
 
 /** How close to a paragraph gap the cursor must be for the target to appear. */
 const GAP_BAND_PX = 14;
