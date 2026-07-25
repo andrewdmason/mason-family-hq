@@ -115,6 +115,7 @@ export async function ensureStretchQuiz(
   // One live quiz per book: retire any other open quiz left for this book.
   await archiveOtherOpenQuizzes(client, userId, bookId, quizId);
 
-  revalidatePath("/reader");
+  revalidatePath("/reader/library");
+  revalidatePath("/books");
   return { quizId, status: "created" };
 }

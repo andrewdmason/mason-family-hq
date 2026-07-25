@@ -16,8 +16,8 @@ import {
   steerQuizQuestions,
   updateQuizQuestion,
   type QuizSteeringMessage,
-} from "@/app/(reading)/reader/quizzes/actions";
-import { quizzesHref } from "@/lib/reading/links";
+} from "@/app/(books)/books/quizzes/actions";
+import { bookshelfHref } from "@/lib/reading/links";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
 import { cn } from "@/lib/utils";
 import type { ReadingQuizQuestion, ReadingQuizWithQuestions } from "@/lib/types";
@@ -70,7 +70,7 @@ export function QuizDraftEditor({
     startTransition(async () => {
       try {
         await publishQuiz(quiz.id, memberEmail);
-        router.push(quizzesHref(memberEmail));
+        router.push(bookshelfHref(memberEmail));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't publish.");
       }
@@ -83,7 +83,7 @@ export function QuizDraftEditor({
     startTransition(async () => {
       try {
         await deleteQuiz(quiz.id, memberEmail);
-        router.push(quizzesHref(memberEmail));
+        router.push(bookshelfHref(memberEmail));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't delete.");
       }

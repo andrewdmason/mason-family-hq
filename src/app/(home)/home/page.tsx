@@ -9,7 +9,7 @@ import { WorkoutWidget } from "@/components/home/workout-widget";
 import { getHomeTodos } from "@/lib/home/todos";
 import { getHomeWorkout } from "@/lib/home/workouts";
 import { getReadingHome } from "@/app/(reading)/reader/actions";
-import { getActiveQuizzesByBook } from "@/app/(reading)/reader/quizzes/actions";
+import { getActiveQuizzesByBook } from "@/app/(books)/books/quizzes/actions";
 import { getStreakData, getTrailingPracticeData } from "@/app/practice/reports/actions";
 import { getIsOwner } from "@/lib/members/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
@@ -93,6 +93,7 @@ export default async function HomePage() {
       weeklyPageGoal={reading?.weeklyPageGoal ?? 0}
       activeQuiz={activeQuiz}
       variant={isKid ? "goal" : "default"}
+      href={isKid ? "/books" : "/reader"}
       today={today}
     />
   ) : null;

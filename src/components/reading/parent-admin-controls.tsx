@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import {
   deleteQuiz,
   generateQuizDraft,
-} from "@/app/(reading)/reader/quizzes/actions";
+} from "@/app/(books)/books/quizzes/actions";
 import { quizEditHref } from "@/lib/reading/links";
 
 /**

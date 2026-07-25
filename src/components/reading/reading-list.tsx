@@ -41,7 +41,8 @@ export function ReadingList({
   books,
   emphasizeCheckIn,
   memberEmail = null,
-  isOwner = false,
+  isAdult = false,
+  canRead = false,
   activeQuizzesByBook = {},
   recommendations,
   recsHasSignal,
@@ -50,7 +51,9 @@ export function ReadingList({
   books: ReadingBookWithProgress[];
   emphasizeCheckIn: boolean;
   memberEmail?: string | null;
-  isOwner?: boolean;
+  isAdult?: boolean;
+  /** Reader only — Bookshelf uploads book files but never opens them. */
+  canRead?: boolean;
   /** Per-book active check-in quiz, keyed by book id. */
   activeQuizzesByBook?: Record<string, ActiveBookQuiz>;
   recommendations: ReadingRecommendation[];
@@ -177,7 +180,11 @@ export function ReadingList({
           {/* Books: the archive tab uses the cover shelf; other tabs use cards. */}
           {visibleBooks.length > 0 &&
             (activeTab === "archive" ? (
-              <ArchiveShelf books={visibleBooks} memberEmail={memberEmail} />
+              <ArchiveShelf
+                books={visibleBooks}
+                memberEmail={memberEmail}
+                canRead={canRead}
+              />
             ) : (
               visibleBooks.map((book) => (
                 <BookCard
@@ -185,7 +192,8 @@ export function ReadingList({
                   book={book}
                   emphasizeCheckIn={emphasizeCheckIn}
                   memberEmail={memberEmail}
-                  isOwner={isOwner}
+                  isAdult={isAdult}
+                  canRead={canRead}
                   activeQuiz={activeQuizzesByBook[book.id] ?? null}
                 />
               ))
@@ -196,6 +204,7 @@ export function ReadingList({
               key={article.id}
               article={article}
               memberEmail={memberEmail}
+              canRead={canRead}
             />
           ))}
         </div>
@@ -204,7 +213,8 @@ export function ReadingList({
       <PausedSection
         books={pausedBooks}
         memberEmail={memberEmail}
-        isOwner={isOwner}
+        isAdult={isAdult}
+        canRead={canRead}
         activeQuizzesByBook={activeQuizzesByBook}
       />
     </div>

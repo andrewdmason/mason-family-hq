@@ -1,239 +1,27 @@
-import Link from "next/link";
-import { Settings } from "lucide-react";
-import { AddBookDialog } from "@/components/reading/add-book-dialog";
-import { AppHeaderContent } from "@/components/layout/app-header";
-import { ReadingAdminPanel } from "@/components/reading/reading-admin";
-import { ReadingList } from "@/components/reading/reading-list";
-import { ReadingProgressHeader } from "@/components/reading/reading-progress-header";
-import {
-  ReaderOverflowMenu,
-  type CopyableBook,
-} from "@/components/reading/reader-overflow-menu";
-import { listFamilyMembers } from "@/app/(journal)/settings/family/actions";
-import { getIsOwner } from "@/lib/members/auth";
-import { getUserTimezone, localDate } from "@/lib/date-utils";
-import { readingHomeHref } from "@/lib/reading/links";
-import { cn } from "@/lib/utils";
-import { getReadingHome, listRecommendRecipients } from "./actions";
-import { getDiscover } from "./discover/actions";
-import { getActiveQuizzesByBook, getReadingAdmin } from "./quizzes/actions";
-import type { ReadingHome } from "@/lib/types";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { bookReaderHref, readerLibraryHref } from "@/lib/reading/links";
+import { READER_PLACE_COOKIE, parseReaderPlace } from "@/lib/reading/last-place";
+import { getResumeBookId } from "./actions";
 
 export const dynamic = "force-dynamic";
 
-function firstName(name: string | null, fallback: string): string {
-  return name?.trim().split(/\s+/)[0] || fallback;
-}
-
-/** The archived shelf, trimmed to what "Copy books as markdown" needs — the
- * header is a client component, so this is what crosses the wire. Articles are
- * left out: the copied list is about book taste. */
-function copyableArchive(home: ReadingHome): CopyableBook[] {
-  return home.books
-    .filter((b) => b.status === "archive" && (b.type ?? "book") === "book")
-    .map((b) => ({
-      title: b.title,
-      author: b.author,
-      rating: b.rating,
-      published_year: b.published_year,
-    }));
-}
-
-export default async function ReadingPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ member?: string }>;
-}) {
-  const { member } = await searchParams;
-
-  // Only the owner can view other members; resolve who we're looking at.
-  const isOwner = await getIsOwner();
-  const members = isOwner ? await listFamilyMembers() : [];
-  const ownerEmail = members.find((m) => m.role === "owner")?.email ?? "";
-  // Kids get their own admin tab (signed-in kids only, so their data exists).
-  const kids = members.filter((m) => m.role === "kid" && m.user_id);
-
-  const requested = isOwner ? member?.trim().toLowerCase() || null : null;
-  // A kid tab shows the parent-admin view for that child; anything else is the
-  // owner's own "My books".
-  const viewedKid =
-    requested && requested !== ownerEmail
-      ? kids.find((m) => m.email === requested) ?? null
-      : null;
-  const viewingEmail = viewedKid?.email ?? null;
-
-  // Recommend-to-someone is offered in self-view only (a kid tab administers
-  // that child, it doesn't recommend on their behalf).
-  // The reading home is fetched here rather than inside the tab so the toolbar's
-  // overflow menu can copy the archived shelf; the tab reuses the same result.
-  const [recipients, home] = await Promise.all([
-    viewedKid ? Promise.resolve([]) : listRecommendRecipients(),
-    getReadingHome(viewingEmail),
-  ]);
-
-  // The tab strip (owner with signed-in kids only): self plus one per kid.
-  const tabs =
-    isOwner && kids.length > 0 ? (
-      <div className="flex flex-wrap gap-1.5 border-b border-border pb-3">
-        <ReadingTab href={readingHomeHref(null)} active={!viewedKid}>
-          You
-        </ReadingTab>
-        {kids.map((k) => (
-          <ReadingTab
-            key={k.email}
-            href={readingHomeHref(k.email)}
-            active={viewedKid?.email === k.email}
-          >
-            {firstName(k.name, k.email)}
-          </ReadingTab>
-        ))}
-      </div>
-    ) : null;
-
-  return (
-    <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
-      {/* Reader settings + Add-a-book live in the global toolbar (right of the
-          app switcher, left of the bell) rather than a page heading row. */}
-      <AppHeaderContent>
-        <div className="ml-auto flex items-center gap-2">
-          <Link
-            href="/reader/settings"
-            aria-label="Reader settings"
-            className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <Settings className="h-4 w-4" />
-          </Link>
-          <ReaderOverflowMenu
-            books={copyableArchive(home)}
-            title={
-              viewedKid
-                ? `Books ${firstName(viewedKid.name, viewedKid.email)} has read`
-                : "Books I've read"
-            }
-          />
-          <AddBookDialog
-            triggerVariant="default"
-            memberEmail={viewingEmail}
-            recipients={recipients}
-          />
-        </div>
-      </AppHeaderContent>
-
-      {tabs}
-
-      {viewedKid ? (
-        <KidAdminTab
-          email={viewedKid.email}
-          name={viewedKid.name}
-          home={home}
-          isOwner={isOwner}
-        />
-      ) : (
-        <SelfReadingTab home={home} isOwner={isOwner} />
-      )}
-    </main>
+/**
+ * Opening Reader returns you to wherever you left off — back in your book if
+ * you were reading, on the shelf if that's where you stopped. A device that
+ * hasn't been here before falls back to your most recently read book, and a
+ * brand-new reader with nothing to resume lands on the shelf.
+ *
+ * A book that's since been deleted or archived just bounces to the shelf from
+ * the read route, which re-records the place — so a stale cookie self-heals.
+ */
+export default async function ReaderPage() {
+  const place = parseReaderPlace(
+    (await cookies()).get(READER_PLACE_COOKIE)?.value
   );
-}
+  if (place?.kind === "library") redirect(readerLibraryHref());
+  if (place?.kind === "book") redirect(bookReaderHref(place.bookId));
 
-/** A single tab in the reading-home strip. Full navigation (server-rendered
- * content differs per tab), styled to match the old admin pills. */
-function ReadingTab({
-  href,
-  active,
-  children,
-}: {
-  href: string;
-  active: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "rounded-full px-3 py-1 text-sm font-medium transition-colors",
-        active
-          ? "bg-foreground text-background"
-          : "bg-muted/70 text-muted-foreground hover:text-foreground"
-      )}
-    >
-      {children}
-    </Link>
-  );
-}
-
-/** The owner's (or any reader's) own book list — progress header plus books. */
-async function SelfReadingTab({
-  home,
-  isOwner,
-}: {
-  home: ReadingHome;
-  isOwner: boolean;
-}) {
-  const discover = await getDiscover(null);
-
-  // Per-book check-in quizzes (published, not yet passed) — drive the
-  // "check in & take quiz" CTA on each book card.
-  const activeQuizzesByBook = await getActiveQuizzesByBook(
-    home.books.map((b) => b.id),
-    null
-  );
-  const recommendations = discover.recommendations;
-
-  const tz = await getUserTimezone();
-  const today = localDate(new Date(), tz);
-  const dayOfWeek = new Date(`${today}T12:00:00`).getDay(); // 0 = Sun, 6 = Sat
-  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-  const urgent = isWeekend || !home.checkedInThisWeek;
-
-  return (
-    <>
-      <ReadingProgressHeader
-        bonusPagesTotal={home.bonusPagesTotal}
-        memberEmail={null}
-      />
-
-      <ReadingList
-        books={home.books}
-        emphasizeCheckIn={urgent}
-        memberEmail={null}
-        isOwner={isOwner}
-        activeQuizzesByBook={activeQuizzesByBook}
-        recommendations={recommendations}
-        recsHasSignal={discover.hasSignal}
-        recsGenres={discover.genres}
-      />
-    </>
-  );
-}
-
-/** A kid's parent-admin panel: their weekly goal and in-progress books/quizzes,
- * plus their queue and archived shelf (from the reading home, scoped to them). */
-async function KidAdminTab({
-  email,
-  name,
-  home,
-  isOwner,
-}: {
-  email: string;
-  name: string | null;
-  home: ReadingHome;
-  isOwner: boolean;
-}) {
-  const adminMembers = await getReadingAdmin();
-  const adminMember = adminMembers.find((m) => m.email === email) ?? {
-    email,
-    name,
-    weeklyPageGoal: 0,
-    books: [],
-  };
-  const queuedBooks = home.books.filter((b) => b.status === "queued");
-  const archivedBooks = home.books.filter((b) => b.status === "archive");
-  return (
-    <ReadingAdminPanel
-      member={adminMember}
-      queuedBooks={queuedBooks}
-      archivedBooks={archivedBooks}
-      isOwner={isOwner}
-    />
-  );
+  const bookId = await getResumeBookId();
+  redirect(bookId ? bookReaderHref(bookId) : readerLibraryHref());
 }

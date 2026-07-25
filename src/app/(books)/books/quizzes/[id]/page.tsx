@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { QuizRunner } from "@/components/reading/quiz-runner";
 import { CloseQuizButton } from "@/components/reading/close-quiz-button";
-import { getIsOwner } from "@/lib/members/auth";
+import { getIsAdult } from "@/lib/members/auth";
 import { quizResultsHref } from "@/lib/reading/links";
 import { getQuizForTaking } from "../actions";
 
@@ -24,9 +24,9 @@ export default async function TakeQuizPage({
 
   // Always takeable while published — submitting records a fresh attempt. After a
   // failed attempt, only the missed questions come back (retake: true).
-  const [result, isOwner] = await Promise.all([
+  const [result, isAdult] = await Promise.all([
     getQuizForTaking(id, memberEmail),
-    getIsOwner(),
+    getIsAdult(),
   ]);
   if (!result) notFound();
 
@@ -49,9 +49,9 @@ export default async function TakeQuizPage({
       isBonusShot={result.isBonusShot}
       // The kid must type their essay. The owner/parent may paste so they can test —
       // and in local dev pasting is always allowed regardless of who's signed in.
-      allowPaste={isOwner || process.env.NODE_ENV !== "production"}
+      allowPaste={isAdult || process.env.NODE_ENV !== "production"}
       ownerSlot={
-        isOwner ? (
+        isAdult ? (
           <CloseQuizButton
             quizId={id}
             memberEmail={memberEmail}

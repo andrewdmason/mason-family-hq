@@ -31,7 +31,8 @@ const QUIZ_BADGE = {
  * chrome down to the page they're aiming for ("Goal: Page 180") and a loud alert
  * when they've blown past the deadline. Either way, a published, unpassed quiz on
  * the book surfaces a "Take quiz" CTA (the kid needs that nudge most). The title
- * opens the Reader either way.
+ * opens whichever app owns that reader's books — Reader for a parent, Bookshelf
+ * for a kid.
  */
 export function ReaderWidget({
   book,
@@ -39,12 +40,15 @@ export function ReaderWidget({
   activeQuiz,
   variant = "default",
   today,
+  href,
 }: {
   book: ReadingBookWithProgress;
   weeklyPageGoal: number;
   activeQuiz: ActiveBookQuiz | null;
   variant?: "default" | "goal";
   today?: string;
+  /** Where the card's title links — the viewer's own reading app. */
+  href: string;
 }) {
   const pct =
     weeklyPageGoal > 0
@@ -80,7 +84,7 @@ export function ReaderWidget({
           : `Due in ${daysUntilDue} days`;
 
   return (
-    <WidgetCard title="Reading" icon={BookOpen} href="/reader">
+    <WidgetCard title="Reading" icon={BookOpen} href={href}>
       <div className="flex items-start gap-3">
         {book.cover_image_url ? (
           // eslint-disable-next-line @next/next/no-img-element

@@ -20,7 +20,7 @@ export default async function EditQuizPage({
   const { member } = await searchParams;
 
   // Curation is adult-only (owner or parent); the actions enforce this server-side.
-  if (!(await getIsAdult())) redirect("/reader");
+  if (!(await getIsAdult())) redirect("/books");
 
   const memberEmail = member?.trim().toLowerCase() || null;
   const [quiz, steering] = await Promise.all([

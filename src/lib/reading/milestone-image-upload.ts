@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
-import { createMilestoneImageUploadUrl } from "@/app/(reading)/reader/quizzes/milestone-actions";
+import { createMilestoneImageUploadUrl } from "@/app/(books)/books/quizzes/milestone-actions";
 import { READING_MILESTONES_BUCKET } from "@/lib/reading/constants";
 
 // Mirrors the storage bucket's file_size_limit (see migration 00149).

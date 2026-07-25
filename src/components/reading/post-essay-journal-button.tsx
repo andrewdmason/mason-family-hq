@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { postEssayToFamilyJournal } from "@/app/(reading)/reader/quizzes/actions";
+import { postEssayToFamilyJournal } from "@/app/(books)/books/quizzes/actions";
 
 /**
  * One-tap "share this passed essay to the family journal" — the opt-in action that used

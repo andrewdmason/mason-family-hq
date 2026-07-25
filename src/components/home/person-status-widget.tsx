@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { WidgetCard } from "./widget-card";
 import { formatTimeRange } from "@/lib/calendar/calendar-utils";
-import { quizTakeHref, readingHomeHref } from "@/lib/reading/links";
+import { quizTakeHref, bookshelfHref } from "@/lib/reading/links";
 import { chapterTargetLabel } from "@/lib/reading/chapter-target";
 import { cn } from "@/lib/utils";
 import type {
@@ -105,7 +105,9 @@ export function PersonStatusWidget({
   tz: string;
 }) {
   const reading = person.reading;
-  const readingHref = readingHomeHref(person.email);
+  // Only a kid's reading is administered in Bookshelf. The other parent's books
+  // are theirs alone — Reader is self-scoped — so their card doesn't link out.
+  const readingHref = person.role === "kid" ? bookshelfHref(person.email) : null;
   const visibleBooks = reading?.books.slice(0, 1) ?? [];
 
   return (
@@ -128,13 +130,20 @@ export function PersonStatusWidget({
         {visibleBooks.length > 0 && (
           <section>
             <div className="mb-2 flex items-center justify-between gap-2">
-              <Link
-                href={readingHref}
-                className="inline-flex items-center gap-1.5 text-xs font-medium uppercase text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <BookOpen className="size-3.5" />
-                Reading
-              </Link>
+              {readingHref ? (
+                <Link
+                  href={readingHref}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium uppercase text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <BookOpen className="size-3.5" />
+                  Reading
+                </Link>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium uppercase text-muted-foreground">
+                  <BookOpen className="size-3.5" />
+                  Reading
+                </span>
+              )}
               {reading && reading.weeklyPageGoal > 0 && (
                 <span className="text-xs tabular-nums text-muted-foreground">
                   {reading.pagesReadThisWeek}/{reading.weeklyPageGoal} pages

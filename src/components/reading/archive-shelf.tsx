@@ -30,9 +30,12 @@ function groupHeading(group: ReadingRating | "unrated"): string {
 export function ArchiveShelf({
   books,
   memberEmail = null,
+  canRead = false,
 }: {
   books: ReadingBookWithProgress[];
   memberEmail?: string | null;
+  /** Reader only — Bookshelf has no e-reader. */
+  canRead?: boolean;
 }) {
   const byGroup = new Map<ReadingRating | "unrated", ReadingBookWithProgress[]>();
   for (const book of books) {
@@ -59,6 +62,7 @@ export function ArchiveShelf({
                   key={book.id}
                   book={book}
                   memberEmail={memberEmail}
+                  canRead={canRead}
                 />
               ))}
             </div>

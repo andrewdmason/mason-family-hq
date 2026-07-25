@@ -91,6 +91,7 @@ async function GlobalHeaderData() {
       streak={streak}
       notifications={notifications}
       isOwner={isOwner}
+      isAdult={isAdult}
       bucksBalance={bucksBalance}
     />
   );

@@ -140,12 +140,12 @@ export function ReadingAdminPanel({
   member,
   queuedBooks,
   archivedBooks,
-  isOwner = false,
+  isAdult = false,
 }: {
   member: ReadingAdminMember;
   queuedBooks: ReadingBookWithProgress[];
   archivedBooks: ReadingBookWithProgress[];
-  isOwner?: boolean;
+  isAdult?: boolean;
 }) {
   const [tab, setTab] = useState<AdminTab>("reading");
   const tabs: { value: AdminTab; label: string; count: number }[] = [
@@ -203,7 +203,7 @@ export function ReadingAdminPanel({
                 key={book.id}
                 book={book}
                 memberEmail={member.email}
-                isOwner={isOwner}
+                isAdult={isAdult}
                 activeQuiz={null}
               />
             ))}

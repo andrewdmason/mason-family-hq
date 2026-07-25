@@ -44,6 +44,24 @@ function wordLabel(wordCount: number | null): string | null {
   return `${wordCount.toLocaleString()} words`;
 }
 
+/** The article summary: a link into the reader where there is one, otherwise
+ * the same block as plain markup. */
+function ArticleSummaryShell({
+  href,
+  children,
+}: {
+  href: string | null;
+  children: React.ReactNode;
+}) {
+  return href ? (
+    <Link href={href} className="min-w-0 flex-1">
+      {children}
+    </Link>
+  ) : (
+    <div className="min-w-0 flex-1">{children}</div>
+  );
+}
+
 function savedLabel(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
     month: "short",
@@ -59,9 +77,12 @@ function savedLabel(iso: string): string {
 export function ArticleCard({
   article,
   memberEmail = null,
+  canRead = false,
 }: {
   article: ReadingBookWithProgress;
   memberEmail?: string | null;
+  /** Reader only — Bookshelf has no e-reader. */
+  canRead?: boolean;
 }) {
   const [busy, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -100,9 +121,10 @@ export function ArticleCard({
   return (
     <div className="rounded-lg border border-border px-4 py-3">
       <div className="flex items-start gap-3">
-        <Link
-          href={bookReaderHref(article.id, memberEmail)}
-          className="min-w-0 flex-1"
+        {/* Outside Reader there's nowhere to open an article, so the summary
+            stops being a link rather than pointing at a blocked route. */}
+        <ArticleSummaryShell
+          href={canRead ? bookReaderHref(article.id, memberEmail) : null}
         >
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             {favicon && (
@@ -132,16 +154,18 @@ export function ArticleCard({
             {words && <span aria-hidden>·</span>}
             {words && <span>{words}</span>}
           </div>
-        </Link>
+        </ArticleSummaryShell>
 
         <div className="flex shrink-0 items-center gap-1.5">
-          <Link
-            href={bookReaderHref(article.id, memberEmail)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-90"
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            {article.hasResumePoint ? "Continue" : "Read"}
-          </Link>
+          {canRead && (
+            <Link
+              href={bookReaderHref(article.id, memberEmail)}
+              className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background transition-opacity hover:opacity-90"
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              {article.hasResumePoint ? "Continue" : "Read"}
+            </Link>
+          )}
 
           <DropdownMenu>
             <DropdownMenuTrigger

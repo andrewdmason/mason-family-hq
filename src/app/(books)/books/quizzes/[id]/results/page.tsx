@@ -10,12 +10,12 @@ import { QuizSuccessModal } from "@/components/reading/quiz-success-modal";
 import { PostEssayToJournalButton } from "@/components/reading/post-essay-journal-button";
 import { CloseQuizButton } from "@/components/reading/close-quiz-button";
 import { AttemptAdminControls } from "@/components/reading/quiz-attempt-admin";
-import { getIsOwner } from "@/lib/members/auth";
+import { getIsAdult } from "@/lib/members/auth";
 import { addDays, getUserTimezone, localDate } from "@/lib/date-utils";
 import {
   quizResultsHref,
   quizTakeHref,
-  readingHomeHref,
+  bookshelfHref,
 } from "@/lib/reading/links";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
 import { cn } from "@/lib/utils";
@@ -59,9 +59,9 @@ export default async function QuizResultsPage({
   const memberEmail = member?.trim().toLowerCase() || null;
   const celebrateMilestone = celebrate?.trim() || null;
 
-  const [result, isOwner] = await Promise.all([
+  const [result, isAdult] = await Promise.all([
     getQuizResult(id, memberEmail, submissionParam ?? null),
-    getIsOwner(),
+    getIsAdult(),
   ]);
   if (!result) notFound();
 
@@ -90,7 +90,7 @@ export default async function QuizResultsPage({
     submission.score_correct === submission.score_total;
   const tz = await getUserTimezone();
   const dueDateLabel = nextFridayLabel(localDate(new Date(), tz));
-  const readingHref = readingHomeHref(memberEmail);
+  const readingHref = bookshelfHref(memberEmail);
   const rangeLabel = quizRangeLabel(quiz.from_page, quiz.through_page);
 
   // The essay format gets the doc-style feedback view — a continuation of the
@@ -180,7 +180,7 @@ export default async function QuizResultsPage({
             />
           )}
 
-          {isOwner && attempts.length > 0 && (
+          {isAdult && attempts.length > 0 && (
             <AttemptAdminControls
               quizId={id}
               memberEmail={memberEmail}
@@ -262,7 +262,7 @@ export default async function QuizResultsPage({
             >
               Back to reading
             </Link>
-            {isOwner && !passed && (
+            {isAdult && !passed && (
               <CloseQuizButton quizId={id} memberEmail={memberEmail} />
             )}
           </div>
@@ -301,7 +301,7 @@ export default async function QuizResultsPage({
         />
       )}
 
-      {isOwner && attempts.length > 0 && (
+      {isAdult && attempts.length > 0 && (
         <AttemptAdminControls
           quizId={id}
           memberEmail={memberEmail}
@@ -356,7 +356,7 @@ export default async function QuizResultsPage({
         questions={questions}
         answersByQuestionId={answersByQuestionId}
         showByDefault={viewedPerfect}
-        canReveal={isOwner}
+        canReveal={isAdult}
         attempted={!!submission}
       />
 
@@ -375,7 +375,7 @@ export default async function QuizResultsPage({
         >
           Back to reading
         </Link>
-        {isOwner && !passed && (
+        {isAdult && !passed && (
           <CloseQuizButton quizId={id} memberEmail={memberEmail} />
         )}
       </div>

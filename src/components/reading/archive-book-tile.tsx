@@ -38,9 +38,12 @@ import type { ReadingBookWithProgress } from "@/lib/types";
 export function ArchiveBookTile({
   book,
   memberEmail = null,
+  canRead = false,
 }: {
   book: ReadingBookWithProgress;
   memberEmail?: string | null;
+  /** Reader only — Bookshelf has no e-reader. */
+  canRead?: boolean;
 }) {
   const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
@@ -98,7 +101,7 @@ export function ArchiveBookTile({
 
         {/* Readable: a small icon badge by default that grows into a Read button
             on hover. While preparing/failed, show the matching status badge. */}
-        {isReady ? (
+        {canRead && isReady ? (
           <Link
             href={bookReaderHref(book.id, memberEmail)}
             aria-label={`Read ${book.title}`}

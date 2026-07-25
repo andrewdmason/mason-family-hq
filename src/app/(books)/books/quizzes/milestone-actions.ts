@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireOwner } from "@/lib/members/auth";
+import { requireAdult } from "@/lib/members/auth";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { READING_MILESTONES_BUCKET } from "@/lib/reading/constants";
 import {
@@ -60,7 +60,7 @@ export async function createMilestoneImageUploadUrl(
   ext: string,
   memberEmail?: string | null
 ): Promise<{ path: string; token: string }> {
-  await requireOwner();
+  await requireAdult();
   const { client, userId, isMemberMode } = await resolveReadingScope(memberEmail);
 
   const cleanExt = ext.trim().toLowerCase().replace(/^\./, "");
@@ -89,8 +89,8 @@ export async function createMilestoneImageUploadUrl(
 }
 
 function revalidateMilestones() {
-  revalidatePath("/reader");
-  revalidatePath("/reader/quizzes");
+  revalidatePath("/reader/library");
+  revalidatePath("/books");
 }
 
 /**
@@ -100,7 +100,7 @@ function revalidateMilestones() {
 export async function getReadingMilestonesForAdmin(
   memberEmail?: string | null
 ): Promise<ReadingAdminMilestone[]> {
-  await requireOwner();
+  await requireAdult();
   const { client, userId } = await resolveReadingScope(memberEmail);
 
   const [{ data: rows }, ledger] = await Promise.all([
@@ -145,7 +145,7 @@ export async function previewMilestoneCount(
   metric: MilestoneMetric,
   startOn?: string | null
 ): Promise<number> {
-  await requireOwner();
+  await requireAdult();
   if (!METRICS.includes(metric)) throw new Error("Unknown metric.");
   const { client, userId } = await resolveReadingScope(memberEmail);
   return sumMetricSince(client, userId, metric, normalizeStartOn(startOn));
@@ -159,7 +159,7 @@ export async function createMilestone(input: {
   threshold: number;
   startOn?: string | null;
 }): Promise<{ milestoneId: string }> {
-  await requireOwner();
+  await requireAdult();
   const { client, userId } = await resolveReadingScope(input.memberEmail);
   const {
     data: { user },
@@ -212,7 +212,7 @@ export async function updateMilestone(
   },
   memberEmail?: string | null
 ): Promise<void> {
-  await requireOwner();
+  await requireAdult();
   const { client, userId } = await resolveReadingScope(memberEmail);
 
   const update: Record<string, unknown> = {};
@@ -278,7 +278,7 @@ export async function markMilestoneAwarded(
   milestoneId: string,
   memberEmail?: string | null
 ): Promise<void> {
-  await requireOwner();
+  await requireAdult();
   const { client, userId } = await resolveReadingScope(memberEmail);
   const { error } = await client
     .from("reading_milestones")
@@ -294,7 +294,7 @@ export async function deleteMilestone(
   milestoneId: string,
   memberEmail?: string | null
 ): Promise<void> {
-  await requireOwner();
+  await requireAdult();
   const { client, userId } = await resolveReadingScope(memberEmail);
 
   const { data: existing } = await client

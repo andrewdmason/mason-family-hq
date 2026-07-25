@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getIsAdult, getIsOwner } from "@/lib/members/auth";
+import { getIsAdult } from "@/lib/members/auth";
 
 export type ReadingScope = {
   /** RLS-scoped session client in self mode; service-role admin in member mode. */
@@ -11,14 +11,14 @@ export type ReadingScope = {
   userId: string;
   /** That user's email, for the reading_settings (weekly goal) lookup. */
   email: string | null;
-  /** True when the owner is viewing/managing another member's reading. */
+  /** True when a parent is viewing/managing another member's reading. */
   isMemberMode: boolean;
 };
 
 /**
  * Resolve whose reading a request operates on. Mirrors the journal's
  * resolveSettingsScope: no member (or your own) → self mode on the RLS client; a
- * different member → owner-gated member mode on a service-role admin client
+ * different member → adult-gated member mode on a service-role admin client
  * scoped to that member's id.
  *
  * The admin client bypasses RLS, so callers MUST filter every read/write by the
@@ -26,8 +26,7 @@ export type ReadingScope = {
  * `userId` always comes from a trusted email→user_id lookup, never client input.
  */
 export async function resolveReadingScope(
-  memberEmail?: string | null,
-  opts?: { adultOk?: boolean }
+  memberEmail?: string | null
 ): Promise<ReadingScope> {
   const supabase = await createClient();
   const {
@@ -45,13 +44,9 @@ export async function resolveReadingScope(
     return { client: supabase, userId: callerId, email: callerEmail, isMemberMode: false };
   }
 
-  // Member mode is owner-only by default. Essay steering opts in (adultOk) so a
-  // non-owner parent can curate a kid's quiz question — without loosening this
-  // shared gate for every other member-mode reading action.
-  const authorized = opts?.adultOk
-    ? await getIsAdult(supabase)
-    : await getIsOwner(supabase);
-  if (!authorized) throw new Error("Not authorized");
+  // Member mode is open to either parent: administering a kid's reading is a
+  // parenting job, not an account-owner one. Kids stay locked to self mode.
+  if (!(await getIsAdult(supabase))) throw new Error("Not authorized");
 
   const admin = createAdminClient();
   const { data: member, error } = await admin

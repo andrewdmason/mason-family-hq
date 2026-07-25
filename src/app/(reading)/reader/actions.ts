@@ -26,7 +26,7 @@ import {
   readingIncrement,
 } from "@/lib/reading/advance";
 import { sumMetricSince } from "@/lib/reading/milestones";
-import { getActiveQuizzesByBook } from "./quizzes/actions";
+import { getActiveQuizzesByBook } from "@/app/(books)/books/quizzes/actions";
 import type {
   ReadingBook,
   ReadingBookContentSummary,
@@ -1109,6 +1109,53 @@ export type ReadingBookReaderData = {
     scrollRatio: number | null;
   };
 };
+
+/**
+ * The book to drop straight into when Reader opens — most recently read first,
+ * so the app behaves like a Kindle rather than a bookshelf. Only books whose
+ * file finished converting can be opened, and archived ones are done with, so
+ * both are excluded. Null means "nothing to resume" — show the library instead.
+ */
+export async function getResumeBookId(): Promise<string | null> {
+  const { client, userId } = await resolveReadingScope(null);
+
+  const { data: states } = await client
+    .from("reading_book_state")
+    .select("book_id, last_read_at")
+    .eq("user_id", userId)
+    .not("last_read_at", "is", null)
+    .order("last_read_at", { ascending: false })
+    .limit(20);
+  if (!states || states.length === 0) return null;
+
+  const bookIds = states.map((s) => s.book_id as string);
+  const [{ data: books }, { data: contents }] = await Promise.all([
+    client
+      .from("reading_books")
+      .select("id, status")
+      .eq("user_id", userId)
+      .in("id", bookIds),
+    client
+      .from("reading_book_content")
+      .select("book_id, status")
+      .eq("user_id", userId)
+      .in("book_id", bookIds),
+  ]);
+
+  const openable = new Set(
+    (contents ?? [])
+      .filter((c) => c.status === "ready")
+      .map((c) => c.book_id as string)
+  );
+  const readable = new Set(
+    (books ?? [])
+      .filter((b) => b.status !== "archive" && openable.has(b.id as string))
+      .map((b) => b.id as string)
+  );
+
+  // `states` is already newest-first, so the first survivor is the resume point.
+  return bookIds.find((id) => readable.has(id)) ?? null;
+}
 
 /** Everything the reader needs: a signed content URL, pagination, resume point. */
 export async function getBookReaderData(

@@ -8,7 +8,7 @@ import { quizResultsHref } from "@/lib/reading/links";
 import {
   deleteQuizAttempt,
   resubmitLatestAttempt,
-} from "@/app/(reading)/reader/quizzes/actions";
+} from "@/app/(books)/books/quizzes/actions";
 
 /**
  * Owner-only attempt controls, a parent troubleshooting tool: re-grade the most
