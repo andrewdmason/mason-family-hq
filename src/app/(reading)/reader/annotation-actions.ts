@@ -23,7 +23,8 @@ import type {
 
 const CHAT_COLUMNS =
   "id, book_id, anchor, anchor_char_offset, anchor_page, spoiler_free, " +
-  "context_through_page, quoted_text, model_preference, forked_from_annotation_id, created_at";
+  "context_through_page, quoted_text, note, color, model_preference, " +
+  "forked_from_annotation_id, created_at";
 
 type AnnotationRow = {
   id: string;
@@ -34,6 +35,8 @@ type AnnotationRow = {
   spoiler_free: boolean;
   context_through_page: number | null;
   quoted_text: string | null;
+  note: string | null;
+  color: string;
   model_preference: string;
   forked_from_annotation_id: string | null;
   created_at: string;
@@ -51,6 +54,8 @@ function toSummary(
     spoilerFree: row.spoiler_free,
     contextThroughPage: row.context_through_page,
     quotedText: row.quoted_text,
+    note: row.note,
+    color: row.color,
     modelPreference: (row.model_preference === "deep"
       ? "deep"
       : "fast") as ReaderChatModelPreference,
@@ -176,6 +181,8 @@ export async function createAnnotation(input: {
   anchor: AnnotationAnchor;
   anchorCharOffset: number;
   quotedText?: string | null;
+  /** Set when the reader picked "Note" rather than "Highlight" or "Ask". */
+  note?: string | null;
   forkedFromAnnotationId?: string | null;
   memberEmail?: string | null;
 }): Promise<AnnotationDetail> {
@@ -235,6 +242,7 @@ export async function createAnnotation(input: {
       // "no page map", and the route falls back to anchor_char_offset.
       context_through_page: spoilerFree ? anchorPage : null,
       quoted_text: input.quotedText?.trim() || null,
+      note: input.note?.trim() || null,
       forked_from_annotation_id: input.forkedFromAnnotationId ?? null,
     })
     .select(CHAT_COLUMNS)
@@ -362,7 +370,7 @@ export async function setAnnotationModelPreference(
  * committed to, even if the reply failed. Returns whether it was discarded.
  */
 export async function discardAnnotationIfEmpty(
-  chatId: string,
+  annotationId: string,
   memberEmail?: string | null
 ): Promise<boolean> {
   const { client, userId } = await resolveReadingScope(memberEmail);
@@ -370,17 +378,50 @@ export async function discardAnnotationIfEmpty(
   const { count } = await client
     .from("reading_annotation_messages")
     .select("id", { count: "exact", head: true })
-    .eq("annotation_id", chatId)
+    .eq("annotation_id", annotationId)
     .eq("user_id", userId);
   if ((count ?? 0) > 0) return false;
+
+  // A note makes this the reader's writing, not an abandoned draft. Under the
+  // old chat-only model "no messages" meant "garbage"; it no longer does, and
+  // this check is what stops a highlight being deleted out from under someone.
+  const { data: row } = await client
+    .from("reading_annotations")
+    .select("note")
+    .eq("id", annotationId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!row || row.note != null) return false;
 
   const { error } = await client
     .from("reading_annotations")
     .delete()
-    .eq("id", chatId)
+    .eq("id", annotationId)
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
   return true;
+}
+
+/**
+ * Write (or clear) the reader's note on an annotation. This is how a highlight
+ * becomes a note and how a note is edited — always the same row, never a new one.
+ *
+ * Clearing the note does NOT delete the annotation: erasing what you wrote
+ * leaves the passage highlighted, which is the reversible reading of the
+ * gesture. Getting rid of it entirely is what the delete control is for.
+ */
+export async function setAnnotationNote(
+  annotationId: string,
+  note: string | null,
+  memberEmail?: string | null
+): Promise<void> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+  const { error } = await client
+    .from("reading_annotations")
+    .update({ note: note?.trim() || null })
+    .eq("id", annotationId)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
 }
 
 export async function deleteAnnotation(

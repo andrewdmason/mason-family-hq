@@ -72,6 +72,15 @@ export function ReaderAnnotationLayer({
   // Whether anything has been sent in the open chat. Drives both the discard on
   // close and whether clicking back into the book dismisses the panel.
   const [touched, setTouched] = useState(false);
+  /**
+   * The annotation THIS interaction created as an empty chat draft, if any.
+   *
+   * Load-bearing under the one-annotation model. "No messages" used to mean
+   * "abandoned draft, throw it away"; now it also describes a perfectly good
+   * highlight. Without this, opening a chat on a highlight you made last week
+   * and closing it without typing would silently delete the highlight.
+   */
+  const [draftId, setDraftId] = useState<string | null>(null);
 
   // Articles never touch the conversion char space: their HTML was never run
   // through convert.ts, so blockMap would be measuring a stream that doesn't
@@ -121,11 +130,12 @@ export function ReaderAnnotationLayer({
   }, [bookId, memberEmail]);
 
   const openPanelWith = useCallback(
-    (chat: AnnotationDetail) => {
-      setDetail(chat);
+    (annotation: AnnotationDetail, asDraft = false) => {
+      setDetail(annotation);
       // A chat opened with an empty transcript is a draft until something is
       // sent — see closePanel.
-      setTouched(chat.messages.length > 0);
+      setTouched(annotation.messages.length > 0);
+      setDraftId(asDraft ? annotation.id : null);
       onPanelOpenChange(true);
     },
     [onPanelOpenChange]
@@ -135,20 +145,34 @@ export function ReaderAnnotationLayer({
    * Closing a chat you never wrote in throws it away, so an abandoned draft
    * doesn't leave a marker in the margin. The row is created up front (the
    * anchor has to exist before there's anywhere to send to), so this is the
-   * cleanup for it; the server re-checks emptiness before deleting.
+   * cleanup for it.
+   *
+   * Only ever the draft this interaction created: anything else on screen is an
+   * annotation that already existed, and closing a panel is not a request to
+   * delete it.
+   *
+   * Worth knowing exactly how much the server backstop covers, because it isn't
+   * everything. It refuses to discard a row carrying a note or any message — so
+   * notes and chats are safe twice over. A PLAIN HIGHLIGHT looks identical to an
+   * abandoned draft in the database (no note, no messages), so nothing on the
+   * server can tell them apart, and this `draftId` check is the only thing
+   * standing between it and deletion. Do not route any other close path through
+   * discardAnnotationIfEmpty.
    */
   const closePanel = useCallback(() => {
     const closing = detail;
     const wasTouched = touched;
+    const wasDraft = closing != null && closing.id === draftId;
     onPanelOpenChange(false);
     setDetail(null);
-    if (!closing || wasTouched) return;
+    setDraftId(null);
+    if (!closing || wasTouched || !wasDraft) return;
     void discardAnnotationIfEmpty(closing.id, memberEmail)
       .then((discarded) => {
         if (discarded) refreshList();
       })
       .catch(() => {});
-  }, [detail, memberEmail, onPanelOpenChange, refreshList, touched]);
+  }, [detail, draftId, memberEmail, onPanelOpenChange, refreshList, touched]);
 
   const startAtGap = useCallback(
     async (blockIndex: number) => {
@@ -164,7 +188,7 @@ export function ReaderAnnotationLayer({
           anchorCharOffset: resolved.anchorCharOffset,
           memberEmail,
         });
-        openPanelWith(chat);
+        openPanelWith(chat, true);
         refreshList();
       } finally {
         setBusy(false);
@@ -173,22 +197,34 @@ export function ReaderAnnotationLayer({
     [bookId, busy, contentRef, memberEmail, openPanelWith, refreshList, space]
   );
 
-  const startFromSelection = useCallback(
-    async (range: Range) => {
+  /**
+   * The three things a selection can become. They differ only in what the row
+   * starts with and whether the panel opens — it is one annotation either way,
+   * and any of them can grow into any other later.
+   */
+  const annotateSelection = useCallback(
+    async (range: Range, intent: "highlight" | "note" | "ask") => {
       const container = contentRef.current;
       if (!container || busy) return;
       const resolved = anchorFromRange(range, container, space);
       if (!resolved) return;
       setBusy(true);
       try {
-        const chat = await createAnnotation({
+        const annotation = await createAnnotation({
           bookId,
           anchor: resolved.anchor,
           anchorCharOffset: resolved.anchorCharOffset,
           quotedText: resolved.quotedText,
           memberEmail,
         });
-        openPanelWith(chat);
+        // Highlighting is a one-gesture action: mark it and keep reading. Notes
+        // and chats need somewhere to write, so they open the panel.
+        //
+        // "Note" deliberately does NOT pre-write an empty note. The row starts
+        // as a highlight and becomes a note the moment you type something, so
+        // tapping Note and changing your mind leaves a highlight rather than a
+        // blank entry in the sidebar. Only "Ask" creates a discardable draft.
+        if (intent !== "highlight") openPanelWith(annotation, intent === "ask");
         refreshList();
       } finally {
         setBusy(false);
@@ -277,7 +313,7 @@ export function ReaderAnnotationLayer({
       anchorCharOffset: resolved.anchorCharOffset,
       memberEmail,
     });
-    openPanelWith(chat);
+    openPanelWith(chat, true);
     refreshList();
   }, [contentRef, detail, memberEmail, openPanelWith, refreshList, space]);
 
@@ -324,7 +360,7 @@ export function ReaderAnnotationLayer({
       />
       <SelectionToolbar
         contentRef={contentRef}
-        onStart={(r) => void startFromSelection(r)}
+        onStart={(r) => void annotateSelection(r, "ask")}
         disabled={busy}
       />
       <AnnotationPanel
