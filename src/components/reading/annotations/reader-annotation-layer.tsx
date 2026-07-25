@@ -400,7 +400,9 @@ export function ReaderAnnotationLayer({
         open={panelOpen}
         isMobile={isMobile}
         onClose={closePanel}
-        dismissOnOutsidePress={!touched}
+        // The list is a destination and stays put; only an untouched chat
+        // draft behaves like a popover and gets out of your way.
+        dismissOnOutsidePress={mode === "thread" && !touched}
       >
         {mode === "list" ? (
           <AnnotationList

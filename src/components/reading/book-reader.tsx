@@ -564,7 +564,10 @@ export function BookReader({
           {/* Full-bleed: the book sits hard left, the contents menu dead centre.
               Equal 1fr flanks are what keep the middle column truly centred
               however long the title runs. */}
-          <div className="grid h-full grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 sm:px-6">
+          {/* pr- clears the annotations button, which floats above this bar at a
+                  fixed top-right position and is visible even when the header is
+                  not (see annotations-button.tsx). */}
+              <div className="grid h-full grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 pr-14 sm:px-6 sm:pr-16">
             <div className="flex min-w-0 items-center gap-2">
               <Link
                 href={backHref}
