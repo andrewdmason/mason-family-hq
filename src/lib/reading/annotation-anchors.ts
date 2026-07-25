@@ -97,6 +97,16 @@ export type ResolvedAnchor = {
   quotedText: string | null;
 };
 
+/**
+ * Every way anchoring can fail looks identical to the reader — the selection
+ * clears and nothing appears — so each one says which it was. Chasing this
+ * without that distinction cost more than the logging ever will.
+ */
+function fail(reason: string): null {
+  console.warn(`[reader] couldn't anchor that selection: ${reason}`);
+  return null;
+}
+
 const QUOTE_MAX = 300;
 const QUOTE_CONTEXT = 32;
 
@@ -154,16 +164,21 @@ export function anchorFromRange(
   if (!quotedText) return null;
 
   const startEl = closestBlock(range.startContainer, container);
-  const endEl = closestBlock(range.endContainer, container);
-  if (!startEl || !endEl) return null;
+  if (!startEl) return fail("selection starts outside any block");
+
+  const end = endBoundary(range, container, startEl);
 
   const els = blockElements(container);
   const blockIndex = els.indexOf(startEl);
-  const endBlockIndex = els.indexOf(endEl);
-  if (blockIndex < 0 || endBlockIndex < 0) return null;
+  const endBlockIndex = els.indexOf(end.el);
+  if (blockIndex < 0 || endBlockIndex < 0) {
+    return fail(`block not in list (start ${blockIndex}, end ${endBlockIndex}, of ${els.length})`);
+  }
 
   const startOffset = offsetWithinBlock(startEl, range.startContainer, range.startOffset);
-  const endOffset = offsetWithinBlock(endEl, range.endContainer, range.endOffset);
+  const endOffset = end.node
+    ? offsetWithinBlock(end.el, end.node, end.offset)
+    : textLengthOf(end.el);
 
   const anchor: AnnotationAnchor = {
     v: ANCHOR_VERSION,
@@ -178,7 +193,14 @@ export function anchorFromRange(
   let anchorCharOffset: number;
   if (space.kind === "book") {
     const block = space.blocks[blockIndex];
-    if (!block) return null;
+    if (!block) {
+      // The converter's block stream and the rendered DOM have gone out of
+      // step. Worth naming precisely: it means an index that is valid against
+      // the page is invalid against the character space the server reasons in.
+      return fail(
+        `block ${blockIndex} missing from the converter stream (${space.blocks.length} blocks)`
+      );
+    }
     anchorCharOffset = block.charStart + startOffset;
   } else {
     anchorCharOffset = domOffsetOfBoundary(
@@ -442,6 +464,44 @@ function textPositionAt(
   }
   // Offset past the end (stale anchor): clamp to the block's last position.
   return last ? { node: last, offset: last.data.length } : null;
+}
+
+/**
+ * Which block a range's END boundary belongs to, and where inside it.
+ *
+ * The subtlety that makes this its own function: a selection does not have to
+ * end inside a block. Triple-clicking a paragraph ends the range at whatever
+ * comes NEXT — usually the following block (fine), but in a converted book the
+ * next sibling is often a zero-height `<span class="page-anchor">`, and at the
+ * end of the content it is the container itself. Neither is a block, so walking
+ * up from them finds nothing.
+ *
+ * That used to sink the whole anchor: no end block, return null, no annotation,
+ * and — because the toolbar clears the selection either way — a Highlight
+ * button that visibly did nothing on exactly the paragraphs that happen to sit
+ * on a page boundary.
+ *
+ * When the boundary isn't in a block, the honest reading of the gesture is "to
+ * the end of the block it started in", which is what a triple-click means.
+ */
+function endBoundary(
+  range: Range,
+  container: HTMLElement,
+  startEl: HTMLElement
+): { el: HTMLElement; node: Node | null; offset: number } {
+  const direct = closestBlock(range.endContainer, container);
+  if (direct) {
+    return { el: direct, node: range.endContainer, offset: range.endOffset };
+  }
+  // `node: null` means "the whole block", resolved by the caller.
+  return { el: startEl, node: null, offset: 0 };
+}
+
+/** Rendered text length of a block, i.e. its last valid in-block offset. */
+function textLengthOf(el: HTMLElement): number {
+  const probe = el.ownerDocument.createRange();
+  probe.selectNodeContents(el);
+  return probe.toString().length;
 }
 
 /** Nearest block element at or above `node`, stopping at the content container. */
