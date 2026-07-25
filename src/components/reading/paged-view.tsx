@@ -222,20 +222,33 @@ export function PagedView({
         <div
           ref={clipRef}
           className="absolute overflow-hidden"
+          // The window onto the strip. This is the element that knows how many
+          // columns a page shows: it's `cols` columns wide, and everything past
+          // its right edge is the rest of the book, clipped.
           style={{
             left: geometry.offsetX,
             top: PAGE_PAD_TOP,
-            width: geometry.contentW,
+            width: geometry.viewW,
             height: geometry.pageH,
           }}
         >
           <div
             ref={flowRef}
             className={cn("font-serif text-foreground", BOOK_PROSE, BOOK_PROSE_PAGED)}
+            // The flow is ALWAYS exactly one column wide, whatever the page is
+            // showing. The book overflows into further columns to the right at a
+            // constant stride, and a page turn slides the whole strip.
+            //
+            // This is what makes showing two columns instead of one — which is
+            // what opening the chat panel changes — cost nothing: the browser's
+            // column breaking depends on the size of a column box and the gap
+            // between boxes, and none of those move. Only the clip above does.
+            // Verified identical to the pixel, in Chromium and WebKit, over a
+            // 3,500-block book.
             style={{
-              width: geometry.contentW,
+              width: geometry.colW,
               height: geometry.pageH,
-              columnCount: geometry.cols,
+              columnCount: 1,
               columnGap: `${geometry.gap}px`,
               // Without this, engines balance the columns and the whole
               // fragmentation model falls apart.
@@ -262,7 +275,7 @@ export function PagedView({
           />
           <PageTurnZone
             side="right"
-            x={geometry.offsetX + geometry.contentW}
+            x={geometry.offsetX + geometry.viewW}
             // Mirrored rather than "everything to the right": the chat panel owns
             // the far side of the screen when it's open.
             width={geometry.offsetX}

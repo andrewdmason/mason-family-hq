@@ -20,7 +20,7 @@ import {
   readPosition,
   rememberPosition,
 } from "@/lib/reading/offline/positions";
-import { PAGE_PAD_BOTTOM, bookAreaWidth } from "@/lib/reading/paged-geometry";
+import { PAGE_PAD_BOTTOM, bookAreaWidth, sidePanelFits } from "@/lib/reading/paged-geometry";
 import { note, startTimer, time } from "@/lib/reading/perf";
 import { MARGIN_MEASURE_PX } from "@/lib/reading/reader-settings";
 import {
@@ -287,13 +287,27 @@ export function BookReader({
 
   // ---- Paged --------------------------------------------------------------
 
+  /**
+   * Whether the chat has to be presented over the book rather than beside it.
+   *
+   * A 448px panel needs a column's width left over, and on a phone or an iPad
+   * held upright there isn't one — the book would be squeezed to a ribbon. It's
+   * a sheet there instead, and the point of a sheet is that it doesn't move the
+   * book at all: the geometry below never hears about it, so opening the chat
+   * costs nothing. That was a real bug on a phone, where the sheet was already
+   * shown but the book was still being re-fragmented to 240px underneath it.
+   */
+  const chatAsSheet =
+    paged && viewportWidth > 0 && !sidePanelFits(viewportWidth, settings);
+  const chatNarrowsBook = chatPanelOpen && !chatAsSheet;
+
   const pagination = usePagination({
     enabled: paged,
     html,
     flowRef,
     blocks,
     settings,
-    chatPanelOpen,
+    chatPanelOpen: chatNarrowsBook,
     charOffset: scrollPosition.charOffset,
     onPositionChange: report,
   });
@@ -670,7 +684,7 @@ export function BookReader({
   // both come out at the same text edges).
   const chromeBounds: React.CSSProperties =
     paged && pagedGeometry
-      ? { left: pagedGeometry.offsetX, width: pagedGeometry.contentW }
+      ? { left: pagedGeometry.offsetX, width: pagedGeometry.viewW }
       : {
           left: 0,
           right: 0,
@@ -697,6 +711,7 @@ export function BookReader({
       paged={pagedChat}
       panelOpen={chatPanelOpen}
       onPanelOpenChange={handleChatPanelOpenChange}
+      preferSheet={chatAsSheet}
       layoutNonce={layoutNonce}
     />
   );
@@ -878,7 +893,7 @@ export function BookReader({
             minutesLeft={progress.minutesLeft}
             height={PAGE_PAD_BOTTOM}
             left={pagedGeometry?.offsetX ?? null}
-            width={pagedGeometry?.contentW ?? null}
+            width={pagedGeometry?.viewW ?? null}
           />
         </>
       ) : (
@@ -951,7 +966,7 @@ export function BookReader({
         supportsPaging={!isArticle}
         // The live answer, chat panel included: what the Columns control offers
         // has to match what the book is doing behind the dialog.
-        availableWidth={bookAreaWidth(viewportWidth, chatPanelOpen)}
+        availableWidth={bookAreaWidth(viewportWidth, chatNarrowsBook)}
       />
     </div>
   );

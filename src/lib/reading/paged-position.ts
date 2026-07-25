@@ -205,6 +205,20 @@ export function assertPagesMoveForward(ctx: MeasureCtx, totalPages: number): voi
     return;
   }
 
+  // The strip has to be an exact whole number of strides. Every page turn is a
+  // multiple of the stride, so a fractional one is drift: harmless at column 5,
+  // and by column 700 it's the difference between the right page and the wrong
+  // one. Catching it here means catching it the moment it appears rather than
+  // 200px later, deep in a book, where it reads as "the reader lost my place".
+  const strideCount = (ctx.flow.scrollWidth + ctx.geom.gap) / ctx.geom.colStride;
+  if (Math.abs(strideCount - Math.round(strideCount)) > 0.01) {
+    console.warn(
+      `[reader] the column strip isn't a whole number of strides ` +
+        `(${ctx.flow.scrollWidth}px + ${ctx.geom.gap} / ${ctx.geom.colStride} = ${strideCount}) — ` +
+        `page positions will drift toward the end of the book`
+    );
+  }
+
   // Sampled: walking every page of a 1,000-page book on every repagination
   // would cost more than the pagination did.
   const step = Math.max(1, Math.floor(totalPages / 40));

@@ -217,11 +217,18 @@ export function usePagination({
     };
   }, [enabled, html, settings, chatPanelOpen]);
 
-  // What the browser actually needs to re-fragment for. Everything else about
-  // the geometry — really just offsetX — only moves the finished flow around.
+  // What the browser actually needs to re-fragment for: the size of a column box
+  // and the gap between boxes. Notably not `cols` — the flow element is always
+  // one column wide, so how many columns a page shows never reaches the text.
   const fragmentationKey = geometry
-    ? `${geometry.cols}:${geometry.colW}:${geometry.gap}:${geometry.pageH}`
+    ? `${geometry.colW}:${geometry.gap}:${geometry.pageH}`
     : null;
+
+  // What the position solve has to re-run for. `cols` is here because it changes
+  // how many columns a page holds, and so which page any given character is on —
+  // but it costs almost nothing, because the flow's own styles don't change and
+  // the browser's layout never goes dirty. See the effect below.
+  const pagingKey = geometry ? `${fragmentationKey}:${geometry.cols}` : null;
 
   // Positional-only geometry changes: keep the ref current and re-paint where we
   // already are, without re-fragmenting. This is the chat panel sliding the book
@@ -237,10 +244,17 @@ export function usePagination({
   // Repaginate. Runs before paint, so the reader never sees the un-jumped
   // layout — no flash, and no need to animate anything to cover it up.
   //
-  // Keyed on the fragmentation, not on the geometry object: an offsetX-only
-  // change must not land here, or opening a chat pays for a full re-fragmentation
-  // of the book to move the text 224px to the left. Geometry itself is read from
-  // geometryRef, kept current by the effect above.
+  // Keyed on the paging, not on the geometry object: an offsetX-only change must
+  // not land here, or moving the book sideways costs a whole-book pass. Geometry
+  // itself is read from geometryRef, kept current by the effect above.
+  //
+  // Landing here does NOT necessarily mean re-fragmenting. When only `cols`
+  // changed — the chat panel opening, a page going from a spread to a single
+  // column — React writes no new styles to the flow, so layout is still clean and
+  // the forced read below is free; all that's left is re-deriving which page the
+  // reader's character is now on. The expensive path is taken only when the
+  // fragmentation triple itself moves, and the `fragment` timing says which
+  // happened.
   useLayoutEffect(() => {
     const geom = geometryRef.current;
     if (!enabled || html == null || !geom) return;
@@ -280,7 +294,7 @@ export function usePagination({
     stopSolve(`${total}pp → p${page}`);
 
     assertPagesMoveForward(ctx, total);
-  }, [enabled, html, fragmentationKey, blocks, revision, flowRef, paint]);
+  }, [enabled, html, pagingKey, blocks, revision, flowRef, paint]);
 
   // Web fonts swapping in changes every line's metrics, which changes where the
   // column breaks fall.

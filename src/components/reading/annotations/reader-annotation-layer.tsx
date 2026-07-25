@@ -57,6 +57,7 @@ export function ReaderAnnotationLayer({
   paged,
   panelOpen,
   onPanelOpenChange,
+  preferSheet,
   layoutNonce,
 }: {
   bookId: string;
@@ -73,6 +74,8 @@ export function ReaderAnnotationLayer({
   paged: PagedGutterContext | null;
   panelOpen: boolean;
   onPanelOpenChange: (open: boolean) => void;
+  /** Present the chat over the book rather than beside it — see chatAsSheet. */
+  preferSheet: boolean;
   layoutNonce: number;
 }) {
   const [data, setData] = useState<ReaderAnnotationData | null>(null);
@@ -164,6 +167,11 @@ export function ReaderAnnotationLayer({
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
   }, []);
+
+  // A phone is always a sheet; so is any window where the book has no room to
+  // sit beside a panel, which the reader works out from its own geometry and
+  // tells us. See chatAsSheet in book-reader.tsx.
+  const asSheet = isMobile || preferSheet;
 
   useEffect(() => {
     let cancelled = false;
@@ -469,7 +477,7 @@ export function ReaderAnnotationLayer({
       />
       <AnnotationPanel
         open={panelOpen}
-        isMobile={isMobile}
+        isMobile={asSheet}
         onClose={closePanel}
         // The list is a destination and stays put; only an untouched chat
         // draft behaves like a popover and gets out of your way.
