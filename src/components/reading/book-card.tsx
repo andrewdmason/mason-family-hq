@@ -61,14 +61,18 @@ export function BookCard({
   book,
   emphasizeCheckIn = false,
   memberEmail = null,
-  isOwner = false,
+  isAdult = false,
+  canRead = false,
   activeQuiz = null,
 }: {
   book: ReadingBookWithProgress;
   emphasizeCheckIn?: boolean;
   memberEmail?: string | null;
-  /** Owners get the "Generate quiz" action on books that have been uploaded. */
-  isOwner?: boolean;
+  /** Parents get the "Generate quiz" action on books that have been uploaded. */
+  isAdult?: boolean;
+  /** Reader only. Bookshelf still uploads files (quizzes need the text) but
+   * never opens them: the kids read paper, and the e-reader is Reader's job. */
+  canRead?: boolean;
   /** A published, not-yet-passed quiz tied to this book's check-in, if any. */
   activeQuiz?: ActiveBookQuiz | null;
 }) {
@@ -273,7 +277,7 @@ export function BookCard({
                 </>
               )}
               {/* Journaling is the signed-in user's own act, so this entry point
-                  is self-view only (hidden when an owner views a member's books). */}
+                  is self-view only (hidden when a parent views a kid's books). */}
               {!memberEmail && (
                 <>
                   <DropdownMenuItem onClick={handleReflect} disabled={reflecting}>
@@ -285,7 +289,7 @@ export function BookCard({
               )}
               {/* Reading is uncommon for now, so it lives in the menu rather
                   than as a prominent button. Only shown once the file is ready. */}
-              {isReady && (
+              {canRead && isReady && (
                 <DropdownMenuItem
                   render={<Link href={bookReaderHref(book.id, memberEmail)} />}
                 >
@@ -293,10 +297,15 @@ export function BookCard({
                   {book.hasResumePoint ? "Continue reading" : "Read"}
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem disabled={busy} onClick={openFilePicker}>
-                <Upload />
-                {hasFile ? "Replace book file" : "Upload book file"}
-              </DropdownMenuItem>
+              {/* Attaching a file is a parent's job — it's what quizzes are
+                  generated from, and the conversion endpoint lives behind
+                  Reader's adult gate. Kids never need it: they read paper. */}
+              {isAdult && (
+                <DropdownMenuItem disabled={busy} onClick={openFilePicker}>
+                  <Upload />
+                  {hasFile ? "Replace book file" : "Upload book file"}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => setEditOpen(true)}>
                 <Pencil />
                 Edit details
@@ -326,8 +335,8 @@ export function BookCard({
                 Find on Kobo
               </DropdownMenuItem>
               {/* Quizzes need the converted text, so only offer this once the
-                  uploaded file is ready — and only to the account owner. */}
-              {isOwner && isReady && (
+                  uploaded file is ready — and only to a parent. */}
+              {isAdult && isReady && (
                 <DropdownMenuItem onClick={() => setQuizOpen(true)}>
                   <GraduationCap />
                   Generate quiz
@@ -419,7 +428,7 @@ export function BookCard({
         open={editOpen}
         onOpenChange={setEditOpen}
       />
-      {isOwner && (
+      {isAdult && (
         <GenerateQuizDialog
           book={book}
           memberEmail={memberEmail}

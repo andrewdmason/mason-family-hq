@@ -128,7 +128,7 @@ async function buildKid(
       targetPage: (b.target_page as number | null) ?? null,
       totalPages: (b.total_pages as number | null) ?? null,
       pagesReadThisWeek: readThisWeekByBook.get(b.id as string) ?? 0,
-      checkInQuizUrl: quizId ? `${origin}/reader/quizzes/${quizId}` : null,
+      checkInQuizUrl: quizId ? `${origin}/books/quizzes/${quizId}` : null,
     };
   });
 

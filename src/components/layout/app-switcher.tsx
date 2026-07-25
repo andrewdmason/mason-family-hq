@@ -16,6 +16,7 @@ import {
   Dumbbell,
   GraduationCap,
   House,
+  Library,
   ListTodo,
   Menu,
   Music,
@@ -74,8 +75,15 @@ const APPS: App[] = [
     href: "/reader",
     label: "Reader",
     match: "/reader",
-    description: "Books & reading",
+    description: "Your books & saved articles",
     icon: BookOpen,
+  },
+  {
+    href: "/books",
+    label: "Bookshelf",
+    match: "/books",
+    description: "The kids' reading & quizzes",
+    icon: Library,
   },
   {
     href: "/journal",
@@ -169,9 +177,20 @@ function isActive(pathname: string, match: string): boolean {
  * phones it collapses to a hamburger opening a left nav sheet (MobileNav,
  * below) that holds the same app list plus the current app's own nav section.
  */
-export function AppSwitcher({ isOwner = false }: { isOwner?: boolean }) {
+export function AppSwitcher({
+  isOwner = false,
+  isAdult = false,
+}: {
+  isOwner?: boolean;
+  isAdult?: boolean;
+}) {
   const pathname = usePathname();
-  const apps = isOwner ? [...APPS, PRACTICE_APP] : APPS;
+  // Reader is the parents' e-reader (gated in middleware); the kids' reading
+  // lives in Bookshelf, which everyone gets.
+  const apps = [
+    ...APPS.filter((app) => app.match !== "/reader" || isAdult),
+    ...(isOwner ? [PRACTICE_APP] : []),
+  ];
   // Settings is a matchable destination too, so the trigger reads "Settings"
   // while you're in it — even though it renders in the footer, not the list.
   const current =

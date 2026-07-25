@@ -2,7 +2,7 @@ import "server-only";
 
 import type { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getIsOwner } from "@/lib/members/auth";
+import { getIsAdult } from "@/lib/members/auth";
 import type { JournalNotification } from "@/lib/types";
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
@@ -12,16 +12,16 @@ function firstName(name: string | null, fallback: string): string {
 }
 
 /**
- * Bell items for reached-but-unawarded reward milestones, surfaced to the owner so
+ * Bell items for reached-but-unawarded reward milestones, surfaced to parents so
  * they remember the real-world handoff. There's no persistent notifications table,
- * so this is computed each render like the journal/todo sources. Owner-only — it
+ * so this is computed each render like the journal/todo sources. Parents only — it
  * reads across kids via the service role (RLS otherwise hides other members'
- * milestones); a non-owner gets nothing. Clears when the parent marks it awarded.
+ * milestones); a kid gets nothing. Clears when the parent marks it awarded.
  */
 export async function getReadingMilestoneNotifications(
   supabase: SupabaseClient
 ): Promise<JournalNotification[]> {
-  if (!(await getIsOwner(supabase))) return [];
+  if (!(await getIsAdult(supabase))) return [];
 
   const admin = createAdminClient();
   const { data: rows } = await admin
@@ -48,6 +48,6 @@ export async function getReadingMilestoneNotifications(
     id: `milestone:${r.id}`,
     title: r.title as string,
     reason: `${nameByUser.get(r.user_id as string) ?? "A reader"} reached this milestone`,
-    href: "/reader/quizzes",
+    href: "/books",
   }));
 }

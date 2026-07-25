@@ -1,16 +1,27 @@
-/** Shared URL builders for the reading app, so member scoping stays consistent. */
+/**
+ * Shared URL builders for the two reading surfaces.
+ *
+ * Reader (`/reader`) is the adults' e-reader: their own books and saved
+ * articles, always self-scoped. Bookshelf (`/books`) is the kids' reading
+ * program — current book, queue, quizzes — which a parent administers by
+ * passing `?member=<kid email>`.
+ *
+ * Because the surfaces don't overlap, each builder belongs to exactly one of
+ * them; there's no "which app am I in?" ambiguity to thread through.
+ */
 
 function withMember(path: string, memberEmail?: string | null): string {
   const email = memberEmail?.trim();
   return email ? `${path}?member=${encodeURIComponent(email)}` : path;
 }
 
-/** The reading home (book list). */
-export function readingHomeHref(memberEmail?: string | null): string {
-  return withMember("/reader", memberEmail);
+/** The adults' book list. `/reader` itself resumes the last book, so links that
+ * mean "show me the shelf" have to name the library explicitly. */
+export function readerLibraryHref(): string {
+  return "/reader/library";
 }
 
-/** The reader for a book whose content is ready. */
+/** The reader for a book whose content is ready. Adults only. */
 export function bookReaderHref(
   bookId: string,
   memberEmail?: string | null
@@ -18,20 +29,19 @@ export function bookReaderHref(
   return withMember(`/reader/${bookId}/read`, memberEmail);
 }
 
-/** The owner-facing admin view for a reader — now a tab on the reading home
- * (a kid's tab when scoped to that child, else the owner's own books). */
-export function quizzesHref(memberEmail?: string | null): string {
-  return withMember("/reader", memberEmail);
+/** The Bookshelf home: a kid's own shelf, or the parent view of that kid's. */
+export function bookshelfHref(memberEmail?: string | null): string {
+  return withMember("/books", memberEmail);
 }
 
-/** The owner's draft review/edit screen for a quiz. */
+/** A parent's draft review/edit screen for a quiz. */
 export function quizEditHref(quizId: string, memberEmail?: string | null): string {
-  return withMember(`/reader/quizzes/${quizId}/edit`, memberEmail);
+  return withMember(`/books/quizzes/${quizId}/edit`, memberEmail);
 }
 
 /** The page where a reader takes a published quiz. */
 export function quizTakeHref(quizId: string, memberEmail?: string | null): string {
-  return withMember(`/reader/quizzes/${quizId}`, memberEmail);
+  return withMember(`/books/quizzes/${quizId}`, memberEmail);
 }
 
 /** A graded quiz's results/feedback. `celebrate` shows a milestone-reached banner. */
@@ -40,7 +50,7 @@ export function quizResultsHref(
   memberEmail?: string | null,
   celebrate?: string | null
 ): string {
-  const base = withMember(`/reader/quizzes/${quizId}/results`, memberEmail);
+  const base = withMember(`/books/quizzes/${quizId}/results`, memberEmail);
   if (!celebrate) return base;
   const sep = base.includes("?") ? "&" : "?";
   return `${base}${sep}celebrate=${encodeURIComponent(celebrate)}`;

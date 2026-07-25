@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { closeQuizWithoutPassing } from "@/app/(reading)/reader/quizzes/actions";
+import { closeQuizWithoutPassing } from "@/app/(books)/books/quizzes/actions";
 
 /**
  * Owner-only override: mark a published quiz complete without the kid passing it.

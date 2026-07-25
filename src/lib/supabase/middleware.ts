@@ -1,6 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseUrl, supabaseAnonKey } from "./config";
+import {
+  READER_PLACE_COOKIE,
+  readerPlaceForPath,
+  serializeReaderPlace,
+} from "@/lib/reading/last-place";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -89,19 +94,58 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  // The practice book is owner-only. Resolve the role from the membership table
-  // (authoritative, and /practice is owner-only/low-traffic so the extra lookup
-  // is negligible). RLS scopes the read to the caller's own row.
-  if (userId && request.nextUrl.pathname.startsWith("/practice")) {
+  // Two role-gated apps: the practice book is owner-only, and Reader is the
+  // parents' e-reader (the kids' reading lives in Bookshelf, which is open to
+  // everyone). Resolve the role from the membership table (authoritative, and
+  // both are low-traffic so the extra lookup is negligible). RLS scopes the
+  // read to the caller's own row.
+  const gated = userId
+    ? (["/practice", "/reader"] as const).find((prefix) =>
+        request.nextUrl.pathname.startsWith(prefix)
+      )
+    : undefined;
+  if (gated) {
     const { data: membership } = await supabase
       .from("family_members")
       .select("role")
       .eq("user_id", userId)
       .maybeSingle();
-    if (membership?.role !== "owner") {
+    const allowed =
+      gated === "/practice"
+        ? membership?.role === "owner"
+        : membership?.role === "owner" || membership?.role === "parent";
+    if (!allowed) {
       const url = request.nextUrl.clone();
-      url.pathname = "/home";
+      // Send kids to their own reading rather than a bare dashboard.
+      url.pathname = gated === "/reader" ? "/books" : "/home";
       return NextResponse.redirect(url);
+    }
+  }
+
+  // Remember which Reader screen you're on, so opening /reader returns you to
+  // it. This is the only hook that can write a cookie on a plain navigation.
+  //
+  // Prefetches are excluded: Next fetches <Link> targets ahead of the click, so
+  // counting them would move your place to a book you merely hovered over.
+  // Real client-side navigations send `RSC` but not `Next-Router-Prefetch`.
+  if (
+    userId &&
+    request.method === "GET" &&
+    !request.headers.has("Next-Router-Prefetch")
+  ) {
+    const place = readerPlaceForPath(request.nextUrl.pathname);
+    if (place) {
+      supabaseResponse.cookies.set(
+        READER_PLACE_COOKIE,
+        serializeReaderPlace(place),
+        {
+          httpOnly: true,
+          sameSite: "lax",
+          secure: process.env.NODE_ENV === "production",
+          path: "/reader",
+          maxAge: 60 * 60 * 24 * 365,
+        }
+      );
     }
   }
 

@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   submitComprehension,
   submitQuiz,
-} from "@/app/(reading)/reader/quizzes/actions";
+} from "@/app/(books)/books/quizzes/actions";
 import { EssayEditor } from "@/components/reading/essay-editor";
 import { EssayGradeCard } from "@/components/reading/quiz-essay-feedback";
 import { EssayGradingOverlay } from "@/components/reading/quiz-grading-overlay";

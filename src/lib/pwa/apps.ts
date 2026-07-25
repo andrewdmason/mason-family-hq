@@ -33,6 +33,7 @@ export const PWA_APPS: PwaApp[] = [
   { key: "family", name: "Family", shortName: "Family", startUrl: "/family", pageTitle: "Family" },
   { key: "todos", name: "Todos", shortName: "Todos", startUrl: "/todos", pageTitle: "Todos" },
   { key: "reader", name: "Reader", shortName: "Reader", startUrl: "/reader", pageTitle: "Reader" },
+  { key: "books", name: "Bookshelf", shortName: "Bookshelf", startUrl: "/books", pageTitle: "Bookshelf" },
   { key: "journal", name: "Journal", shortName: "Journal", startUrl: "/journal", pageTitle: "Journal" },
   { key: "bucks", name: "Mason Bucks", shortName: "Bucks", startUrl: "/bucks", pageTitle: "Mason Bucks" },
   { key: "timeline", name: "Timeline", shortName: "Timeline", startUrl: "/timeline", pageTitle: "Timeline" },

@@ -14,12 +14,14 @@ import type { ActiveBookQuiz, ReadingBookWithProgress } from "@/lib/types";
 export function PausedSection({
   books,
   memberEmail = null,
-  isOwner = false,
+  isAdult = false,
+  canRead = false,
   activeQuizzesByBook = {},
 }: {
   books: ReadingBookWithProgress[];
   memberEmail?: string | null;
-  isOwner?: boolean;
+  isAdult?: boolean;
+  canRead?: boolean;
   activeQuizzesByBook?: Record<string, ActiveBookQuiz>;
 }) {
   const [open, setOpen] = useState(false);
@@ -45,7 +47,8 @@ export function PausedSection({
               key={book.id}
               book={book}
               memberEmail={memberEmail}
-              isOwner={isOwner}
+              isAdult={isAdult}
+              canRead={canRead}
               activeQuiz={activeQuizzesByBook[book.id] ?? null}
             />
           ))}

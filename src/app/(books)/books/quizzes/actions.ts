@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdult, requireOwner } from "@/lib/members/auth";
+import { requireAdult } from "@/lib/members/auth";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { isQuizDue } from "@/lib/reading/quiz-due";
@@ -93,8 +93,8 @@ async function callerEmail(): Promise<string> {
 }
 
 function revalidateQuizzes() {
-  revalidatePath("/reader");
-  revalidatePath("/reader/quizzes");
+  revalidatePath("/reader/library");
+  revalidatePath("/books");
 }
 
 /**
@@ -245,7 +245,7 @@ export async function generateQuizDraft(input: {
   throughPage: number;
   memberEmail?: string | null;
 }): Promise<{ quizId: string }> {
-  await requireOwner();
+  await requireAdult();
   const author = await callerEmail();
   const { client, userId, email } = await resolveReadingScope(input.memberEmail);
 
@@ -325,7 +325,7 @@ export async function regenerateQuizDraft(
   quizId: string,
   memberEmail?: string | null
 ): Promise<void> {
-  await requireOwner();
+  await requireAdult();
   const { client, userId, email } = await resolveReadingScope(memberEmail);
 
   const { data: quiz, error } = await client
@@ -421,9 +421,7 @@ export async function updateQuizQuestion(
   memberEmail?: string | null
 ): Promise<void> {
   await requireAdult();
-  const { client, userId } = await resolveReadingScope(memberEmail, {
-    adultOk: true,
-  });
+  const { client, userId } = await resolveReadingScope(memberEmail);
 
   const { data: question } = await client
     .from("reading_quiz_questions")
@@ -467,7 +465,7 @@ export async function publishQuiz(
   quizId: string,
   memberEmail?: string | null
 ): Promise<void> {
-  await requireOwner();
+  await requireAdult();
   const { client, userId } = await resolveReadingScope(memberEmail);
 
   const { count } = await client
@@ -526,7 +524,7 @@ export async function deleteQuiz(
   quizId: string,
   memberEmail?: string | null
 ): Promise<void> {
-  await requireOwner();
+  await requireAdult();
   const { client, userId } = await resolveReadingScope(memberEmail);
   const { error } = await client
     .from("reading_quizzes")
@@ -548,9 +546,7 @@ export async function getQuizForEditing(
   memberEmail?: string | null
 ): Promise<ReadingQuizWithQuestions | null> {
   await requireAdult();
-  const { client, userId } = await resolveReadingScope(memberEmail, {
-    adultOk: true,
-  });
+  const { client, userId } = await resolveReadingScope(memberEmail);
 
   const { data: quiz } = await client
     .from("reading_quizzes")
@@ -1028,9 +1024,7 @@ export async function setChosenQuestion(
   memberEmail?: string | null
 ): Promise<{ chosenQuestionId: string }> {
   await requireAdult();
-  const { client, userId } = await resolveReadingScope(memberEmail, {
-    adultOk: true,
-  });
+  const { client, userId } = await resolveReadingScope(memberEmail);
 
   const { data: quiz } = await client
     .from("reading_quizzes")
@@ -1084,9 +1078,7 @@ export async function steerQuizQuestions(
 ): Promise<SteerResult> {
   await requireAdult();
   const author = await callerEmail();
-  const { client, userId, email } = await resolveReadingScope(memberEmail, {
-    adultOk: true,
-  });
+  const { client, userId, email } = await resolveReadingScope(memberEmail);
 
   const trimmed = guidance.trim();
   if (!trimmed) throw new Error("Add a note telling the AI what to change.");
@@ -1219,9 +1211,7 @@ export async function getQuizSteering(
   memberEmail?: string | null
 ): Promise<QuizSteeringState | null> {
   await requireAdult();
-  const { client, userId } = await resolveReadingScope(memberEmail, {
-    adultOk: true,
-  });
+  const { client, userId } = await resolveReadingScope(memberEmail);
 
   const { data: quiz } = await client
     .from("reading_quizzes")
@@ -1728,7 +1718,7 @@ export async function closeQuizWithoutPassing(
   | { ok: true; advanced: boolean; finished: boolean }
   | { ok: false; message: string }
 > {
-  await requireOwner();
+  await requireAdult();
   const closedBy = await callerEmail();
   const scope = await resolveReadingScope(memberEmail);
   const { client, userId } = scope;
@@ -1813,7 +1803,7 @@ export async function closeQuizWithoutPassing(
   }
 
   revalidateQuizzes();
-  revalidatePath(`/reader/quizzes/${quizId}/results`);
+  revalidatePath(`/books/quizzes/${quizId}/results`);
   return { ok: true, advanced, finished };
 }
 
@@ -1828,7 +1818,7 @@ export async function deleteQuizAttempt(
   submissionId: string,
   memberEmail?: string | null
 ): Promise<void> {
-  await requireOwner();
+  await requireAdult();
   const { client, userId } = await resolveReadingScope(memberEmail);
   const { error } = await client
     .from("reading_quiz_submissions")
@@ -1838,7 +1828,7 @@ export async function deleteQuizAttempt(
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
   revalidateQuizzes();
-  revalidatePath(`/reader/quizzes/${quizId}/results`);
+  revalidatePath(`/books/quizzes/${quizId}/results`);
 }
 
 /**
@@ -1852,7 +1842,7 @@ export async function resubmitLatestAttempt(
   quizId: string,
   memberEmail?: string | null
 ): Promise<{ submissionId: string; attemptNumber: number }> {
-  await requireOwner();
+  await requireAdult();
   const { client, userId } = await resolveReadingScope(memberEmail);
 
   const { data: latestSub } = await client
@@ -1891,7 +1881,7 @@ export async function resubmitLatestAttempt(
   const res = await submitQuiz(quizId, answers, memberEmail, {
     bypassEssayLock: true,
   });
-  revalidatePath(`/reader/quizzes/${quizId}/results`);
+  revalidatePath(`/books/quizzes/${quizId}/results`);
   return { submissionId: res.submissionId, attemptNumber: res.attemptNumber };
 }
 
@@ -2065,10 +2055,10 @@ function toAdminQuiz(
 /**
  * The Parent Admin console: every kid with reading, each of their relevant books
  * (in progress, or with quiz history), the single live quiz + any draft, and the
- * passed/archived quizzes as history. Owner-only. Drives /reader/quizzes.
+ * passed/archived quizzes as history. Either parent. Drives the Bookshelf app.
  */
 export async function getReadingAdmin(): Promise<ReadingAdminMember[]> {
-  await requireOwner();
+  await requireAdult();
   const admin = createAdminClient();
 
   // Kids only — the admin console is for managing children's reading, not the

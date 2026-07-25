@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { generateQuizDraft } from "@/app/(reading)/reader/quizzes/actions";
+import { generateQuizDraft } from "@/app/(books)/books/quizzes/actions";
 import { quizEditHref } from "@/lib/reading/links";
 import type { ReadingBook } from "@/lib/types";
 

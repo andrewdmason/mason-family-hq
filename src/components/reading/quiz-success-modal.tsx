@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { buttonVariants } from "@/components/ui/button-variants";
-import { postEssayToFamilyJournal } from "@/app/(reading)/reader/quizzes/actions";
+import { postEssayToFamilyJournal } from "@/app/(books)/books/quizzes/actions";
 import { cn } from "@/lib/utils";
 import { ESSAY_BONUS_BUCKS } from "@/lib/reading/essay-scoring";
 import type { ReadingQuizNextAssignment } from "@/lib/types";

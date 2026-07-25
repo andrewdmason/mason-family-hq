@@ -47,11 +47,13 @@ export function GlobalHeaderClient({
   streak,
   notifications,
   isOwner,
+  isAdult,
   bucksBalance,
 }: {
   streak: JournalStreakStats;
   notifications: JournalNotifications;
   isOwner: boolean;
+  isAdult: boolean;
   bucksBalance: number | null;
 }) {
   const pathname = usePathname();
@@ -66,7 +68,7 @@ export function GlobalHeaderClient({
             headerWidthClass(pathname)
           )}
         >
-          <AppSwitcher isOwner={isOwner} />
+          <AppSwitcher isOwner={isOwner} isAdult={isAdult} />
           <AppHeaderSlot />
           <div className="flex shrink-0 items-center gap-2">
             {showsStreak(pathname) && <JournalStreakBadge streak={streak} />}
@@ -107,15 +109,17 @@ function BucksBalanceBadge({ balance }: { balance: number }) {
  * streak badge will land so nothing shifts when it arrives. The switcher
  * assumes non-owner until the real header replaces it — the only difference is
  * an extra dropdown item, visible only if the menu is opened in that moment.
- * The exception is practice, an owner-gated route: anyone seeing this shell
- * there is an owner, so we say so up front — otherwise the switcher would name
- * the fallback's first app ("Home") for a frame before resolving to "Practice".
+ * The exceptions are the role-gated routes: anyone seeing this shell on
+ * /practice is an owner, and anyone seeing it on /reader is a parent, so we say
+ * so up front — otherwise the switcher would name the fallback's first app
+ * ("Home") for a frame before resolving to the real one.
  */
 export function GlobalHeaderShell() {
   const pathname = usePathname();
   if (hidesGlobalChrome(pathname)) return null;
 
   const ownerByRoute = pathname?.startsWith("/practice") ?? false;
+  const adultByRoute = ownerByRoute || (pathname?.startsWith("/reader") ?? false);
 
   return (
     <header className="sticky top-0 z-50 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -125,7 +129,7 @@ export function GlobalHeaderShell() {
           headerWidthClass(pathname)
         )}
       >
-        <AppSwitcher isOwner={ownerByRoute} />
+        <AppSwitcher isOwner={ownerByRoute} isAdult={adultByRoute} />
         <AppHeaderSlot />
         <div className="flex shrink-0 items-center gap-2">
           {showsStreak(pathname) && (

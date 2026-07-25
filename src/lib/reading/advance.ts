@@ -133,7 +133,8 @@ export async function advanceStretch(
     quizId,
   });
 
-  revalidatePath("/reader");
+  revalidatePath("/reader/library");
+  revalidatePath("/books");
 
   if (!finished && nextTarget != null) {
     await ensureStretchQuizInline(scope, {
