@@ -38,7 +38,15 @@ export type BookBlock = {
   charStart: number;
   /** Entity-decoded block text (no trailing separator). */
   text: string;
+  /**
+   * The block's id attribute, when it has one. Headings carry `sec-N`, which is
+   * what table-of-contents entries point at — so a chapter's position in the
+   * char space is readable straight off the block stream, with no DOM involved.
+   */
+  id: string | null;
 };
+
+const ID_ATTR = /\bid\s*=\s*"([^"]*)"/i;
 
 /**
  * Rebuild the block stream from converted content HTML. Each block contributes
@@ -46,16 +54,21 @@ export type BookBlock = {
  * separator per block.
  */
 export function blockMap(html: string): BookBlock[] {
-  const blockRe = /<(h[1-6]|p)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+  const blockRe = /<(h[1-6]|p)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
   const blocks: BookBlock[] = [];
   let charStart = 0;
   let match: RegExpExecArray | null;
   while ((match = blockRe.exec(html)) !== null) {
     // Strip any inline tags (there shouldn't be any inside a block, but be safe),
     // then decode entities to recover the raw text the converter counted.
-    const inner = match[2].replace(/<[^>]+>/g, "");
+    const inner = match[3].replace(/<[^>]+>/g, "");
     const text = decodeEntities(inner);
-    blocks.push({ index: blocks.length, charStart, text });
+    blocks.push({
+      index: blocks.length,
+      charStart,
+      text,
+      id: ID_ATTR.exec(match[2])?.[1] ?? null,
+    });
     charStart += text.length + 1;
   }
   return blocks;

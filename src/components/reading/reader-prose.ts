@@ -1,0 +1,94 @@
+import type { CSSProperties } from "react";
+import {
+  FONT_STEPS,
+  LEADING_STEPS,
+  type ReaderSettings,
+} from "@/lib/reading/reader-settings";
+
+/**
+ * How book and article text is styled in the reader. Shared by the paged and
+ * scrolling views so the two never drift apart typographically — the only thing
+ * that should differ between them is where the text stops.
+ */
+
+/**
+ * Converted books are plain text: <p>, <h1>, <h2>, <blockquote>, and zero-height
+ * page-anchor marks. Nothing else survives conversion, so this is the whole
+ * stylesheet for a book.
+ */
+export const BOOK_PROSE = [
+  "[&_p]:mb-5",
+  "[&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:italic",
+  "[&_.page-anchor]:block [&_.page-anchor]:h-0",
+  "[&_.reader-heading]:scroll-mt-28 [&_.reader-heading]:text-center [&_.reader-heading]:font-serif [&_.reader-heading]:text-balance",
+  "[&_.reader-h1]:mb-3 [&_.reader-h1]:text-3xl [&_.reader-h1]:font-semibold [&_.reader-h1]:tracking-tight",
+  "[&_.reader-h2]:mb-7 [&_.reader-h2]:text-xl [&_.reader-h2]:font-medium [&_.reader-h2]:text-muted-foreground",
+].join(" ");
+
+/**
+ * Scrolling only: headings need air above them when nothing else separates one
+ * section from the last. The top margins live here rather than in BOOK_PROSE so
+ * the paged rules never have to fight them for specificity.
+ */
+export const BOOK_PROSE_SCROLL = [
+  "[&_.reader-h1]:mt-16 first:[&_.reader-h1]:mt-2",
+  "[&_.reader-h2]:mt-8",
+].join(" ");
+
+/**
+ * Paged only: a section starts a fresh column, the way a chapter starts a fresh
+ * page in print.
+ *
+ * Targets `.reader-heading` — both levels — rather than h1 alone. Which tag a
+ * book's chapters use is not something we get to assume: the converter emits h1
+ * for parts and h2 for chapters, and plenty of books have no parts at all, so
+ * their chapters are h2 throughout. Breaking only on h1 leaves those books
+ * running chapter into chapter mid-column with nothing to mark the seam.
+ *
+ * The -webkit- alias is not redundant — Safari still needs it. No top margin,
+ * because the break already put the heading at the top of a column.
+ */
+export const BOOK_PROSE_PAGED = [
+  "[&_.reader-heading]:mt-0",
+  "[&_.reader-heading]:[break-before:column] [&_.reader-heading]:[-webkit-column-break-before:always]",
+  // Headings and quotes look broken when split across a column boundary;
+  // paragraphs are meant to flow.
+  "[&_.reader-heading]:[break-inside:avoid] [&_blockquote]:[break-inside:avoid]",
+].join(" ");
+
+/** Saved web articles keep their images, lists, tables and code. */
+export const ARTICLE_PROSE = [
+  "[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2",
+  "[&_img]:my-4 [&_img]:mx-auto [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-md",
+  "[&_figure]:my-5 [&_figcaption]:mt-1.5 [&_figcaption]:text-center [&_figcaption]:text-sm [&_figcaption]:text-muted-foreground",
+  "[&_ul]:my-5 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-5 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-2",
+  "[&_h1]:mt-8 [&_h1]:mb-3 [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:tracking-tight",
+  "[&_h2]:mt-7 [&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold",
+  "[&_h3]:mt-6 [&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-medium",
+  "[&_h4]:mt-5 [&_h4]:mb-2 [&_h4]:font-medium",
+  "[&_pre]:my-5 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-muted [&_pre]:p-4 [&_pre]:text-sm",
+  "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.9em]",
+  "[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-inherit",
+  "[&_hr]:my-8 [&_hr]:border-border",
+  "[&_table]:my-5 [&_table]:w-full [&_table]:text-sm [&_th]:border [&_th]:border-border [&_th]:p-2 [&_th]:text-left [&_td]:border [&_td]:border-border [&_td]:p-2",
+].join(" ");
+
+/**
+ * The reader's own typography, from this device's settings.
+ *
+ * Inline rather than classes because the sizes are a continuous scale the reader
+ * picks from, and because both views have to agree on them exactly — a paged
+ * layout measured at one font size and painted at another lands on the wrong
+ * page.
+ */
+export function typographyStyle(settings: ReaderSettings): CSSProperties {
+  const justified = settings.align === "justify";
+  return {
+    fontSize: `${FONT_STEPS[settings.fontStep]}rem`,
+    lineHeight: LEADING_STEPS[settings.leading],
+    textAlign: justified ? "justify" : "left",
+    // Justified text without hyphenation opens rivers of white space, which is
+    // exactly what makes it look bad in a narrow column.
+    hyphens: justified ? "auto" : "manual",
+  };
+}

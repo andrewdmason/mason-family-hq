@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { blockElements, blockTopWithin } from "@/lib/reading/annotation-anchors";
 import {
+  colContentRight,
+  colIndexForX,
+  pageForCol,
+  type PageGeometry,
+} from "@/lib/reading/paged-geometry";
+import {
   annotationKind,
   type AnnotationSummary,
 } from "@/lib/reading/annotation-types";
@@ -22,28 +28,47 @@ import {
  * The "start a chat here" affordance deliberately lives in the LEFT margin
  * instead (see paragraph-hover-target.tsx), so adding and opening never share
  * space.
+ *
+ * Paged mode has no such luxury: two columns use up the margins, and the left
+ * column has no outer margin at all. So each marker follows its own column —
+ * into the column gap for a left-hand column, into the outer margin for the
+ * right-hand one — and only blocks visible on the current page get a marker,
+ * since the rest aren't on screen to point at.
  */
 
 /** Icon height (24px) plus the gap between stacked icons. */
 export const MARKER_PITCH = 28;
 
+/** Half the icon's width, for centring it on a position. */
+const MARKER_HALF = 12;
+
 /**
- * The gutter sits just outside the text column on desktop and tucks against the
- * column edge on phones, where there is no margin to spare.
+ * Scrolling: the gutter sits just outside the text column on desktop and tucks
+ * against the column edge on phones, where there is no margin to spare.
  */
 export const GUTTER_X_CLASS = "-right-9 max-md:right-0";
 
 export type GutterRow = {
   blockIndex: number;
-  /** Offset of the anchoring block from the top of the content container. */
+  /** Distance from the top of the positioning container. */
   top: number;
+  /** Paged only: viewport x for the marker. Null while scrolling, where a class positions it. */
+  left: number | null;
   annotations: AnnotationSummary[];
+};
+
+export type PagedGutterContext = {
+  geom: PageGeometry;
+  pageIndex: number;
+  /** The fixed reading area the markers are positioned against. */
+  viewport: HTMLDivElement | null;
 };
 
 export function useGutterPlacement(
   annotations: AnnotationSummary[],
   contentRef: React.RefObject<HTMLDivElement | null>,
-  layoutNonce: number
+  layoutNonce: number,
+  paged: PagedGutterContext | null
 ): GutterRow[] {
   const [rows, setRows] = useState<GutterRow[]>([]);
 
@@ -63,16 +88,47 @@ export function useGutterPlacement(
       if (!els[index]) continue;
       byBlock.set(index, [...(byBlock.get(index) ?? []), a]);
     }
+    const viewport = paged?.viewport ?? null;
+    if (paged && viewport) {
+      const { geom, pageIndex } = paged;
+      const flowLeft = container.getBoundingClientRect().left;
+      const view = viewport.getBoundingClientRect();
+      const next: GutterRow[] = [];
+      for (const [blockIndex, list] of byBlock) {
+        // A block split across a column break has a rect per fragment; we want
+        // the one that's actually on this page, if any.
+        const fragment = Array.from(els[blockIndex].getClientRects()).find(
+          (rect) => pageForCol(colIndexForX(rect.left, flowLeft, geom), geom) === pageIndex
+        );
+        if (!fragment) continue;
+        const col = colIndexForX(fragment.left, flowLeft, geom);
+        const textRight = colContentRight(col, flowLeft, geom);
+        const isOuterColumn = col % geom.cols === geom.cols - 1;
+        next.push({
+          blockIndex,
+          top: Math.round(fragment.top - view.top),
+          left: Math.round(
+            (isOuterColumn ? textRight + MARKER_HALF : textRight + geom.gap / 2 - MARKER_HALF) -
+              view.left
+          ),
+          annotations: list,
+        });
+      }
+      setRows(next.sort((a, b) => a.top - b.top));
+      return;
+    }
+
     setRows(
       [...byBlock.entries()]
         .map(([blockIndex, list]) => ({
           blockIndex,
           top: Math.round(blockTopWithin(els[blockIndex], container)),
+          left: null,
           annotations: list,
         }))
         .sort((a, b) => a.top - b.top)
     );
-  }, [annotations, contentRef]);
+  }, [annotations, contentRef, paged]);
 
   // Next frame rather than synchronously, so we measure a laid-out DOM.
   //

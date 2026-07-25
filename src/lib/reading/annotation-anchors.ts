@@ -447,8 +447,11 @@ function domOffsetOfNodeStart(container: HTMLElement, el: HTMLElement): number {
  * Walk a block's text nodes to find the one containing `charOffset`. Converted
  * blocks normally hold a single text node; article blocks routinely do not
  * (inline <em>/<a> split them), which is why this walks rather than indexes.
+ *
+ * Exported for paged-position.ts, which needs a Range around a single character
+ * to ask the browser which column that character was fragmented into.
  */
-function textPositionAt(
+export function textPositionAt(
   el: HTMLElement,
   charOffset: number
 ): { node: Text; offset: number } | null {

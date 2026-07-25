@@ -18,9 +18,17 @@ import { useEffect, useState } from "react";
  * which is exactly the symptom this was written to fix. Deriving anything from
  * this DOM means re-deriving it when the DOM changes, and layoutNonce is bumped
  * on its own schedule that does not reliably line up.
+ *
+ * `nonce` exists because a ref gives this nothing to re-run on. The paged
+ * reader doesn't mount its content container until it has measured the window
+ * and laid the book out, which is several renders after this hook first runs —
+ * so the observer attached to nothing, never retried, and the highlights stayed
+ * dead for the whole session. Passing a value that changes when the layout does
+ * gives the effect a reason to look again.
  */
 export function useContentVersion(
-  contentRef: React.RefObject<HTMLDivElement | null>
+  contentRef: React.RefObject<HTMLDivElement | null>,
+  nonce: number
 ): number {
   const [version, setVersion] = useState(0);
 
@@ -42,7 +50,7 @@ export function useContentVersion(
     });
     observer.observe(container, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [contentRef]);
+  }, [contentRef, nonce]);
 
   return version;
 }

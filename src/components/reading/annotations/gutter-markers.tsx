@@ -44,7 +44,10 @@ export function GutterMarkers({
               key={annotation.id}
               type="button"
               onClick={() => onOpen(annotation.id)}
-              style={{ top: row.top + i * MARKER_PITCH }}
+              style={{
+                top: row.top + i * MARKER_PITCH,
+                ...(row.left != null ? { left: row.left } : null),
+              }}
               aria-label={
                 row.annotations.length > 1
                   ? `Open ${label} ${i + 1} of ${row.annotations.length} here`
@@ -52,7 +55,10 @@ export function GutterMarkers({
               }
               className={cn(
                 "pointer-events-auto absolute flex h-6 w-6 items-center justify-center rounded-full border transition-colors",
-                GUTTER_X_CLASS,
+                // Paged mode measures an exact x per marker (its column decides
+                // whether it lands in the gap or the outer margin); scrolling
+                // has one gutter for the lot.
+                row.left == null && GUTTER_X_CLASS,
                 annotation.id === openAnnotationId
                   ? "border-foreground/30 bg-foreground text-background"
                   : "border-border bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground"
