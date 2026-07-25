@@ -16,6 +16,7 @@ import {
   anchorForGap,
   anchorFromRange,
   blockElements,
+  type AnchorSpace,
 } from "@/lib/reading/annotation-anchors";
 import type {
   ReaderAnnotationData,
@@ -44,6 +45,7 @@ export function ReaderAnnotationLayer({
   bookId,
   memberEmail,
   html,
+  isArticle,
   contentRef,
   currentPage,
   scrollToAnchor,
@@ -54,6 +56,8 @@ export function ReaderAnnotationLayer({
   bookId: string;
   memberEmail: string | null;
   html: string;
+  /** Articles have no page map and no conversion char space — see AnchorSpace. */
+  isArticle: boolean;
   contentRef: React.RefObject<HTMLDivElement | null>;
   currentPage: number | null;
   scrollToAnchor: (anchorId: string) => void;
@@ -69,7 +73,14 @@ export function ReaderAnnotationLayer({
   // close and whether clicking back into the book dismisses the panel.
   const [touched, setTouched] = useState(false);
 
-  const blocks = useMemo(() => blockMap(html), [html]);
+  // Articles never touch the conversion char space: their HTML was never run
+  // through convert.ts, so blockMap would be measuring a stream that doesn't
+  // exist. Skipping it also avoids scanning the whole document on every load.
+  const blocks = useMemo(() => (isArticle ? [] : blockMap(html)), [html, isArticle]);
+  const space = useMemo<AnchorSpace>(
+    () => (isArticle ? { kind: "dom" } : { kind: "book", blocks }),
+    [isArticle, blocks]
+  );
   // Memoized, not `data?.chats ?? []`: a fresh array literal every render would
   // re-run the placement effect, which sets state, which renders again — a loop.
   const chats = useMemo(() => data?.chats ?? [], [data]);
@@ -141,8 +152,9 @@ export function ReaderAnnotationLayer({
 
   const startAtGap = useCallback(
     async (blockIndex: number) => {
-      if (busy) return;
-      const resolved = anchorForGap(blockIndex, blocks);
+      const container = contentRef.current;
+      if (!container || busy) return;
+      const resolved = anchorForGap(blockIndex, space, container);
       if (!resolved) return;
       setBusy(true);
       try {
@@ -158,14 +170,14 @@ export function ReaderAnnotationLayer({
         setBusy(false);
       }
     },
-    [blocks, bookId, busy, memberEmail, openPanelWith, refreshList]
+    [bookId, busy, contentRef, memberEmail, openPanelWith, refreshList, space]
   );
 
   const startFromSelection = useCallback(
     async (range: Range) => {
       const container = contentRef.current;
       if (!container || busy) return;
-      const resolved = anchorFromRange(range, container, blocks);
+      const resolved = anchorFromRange(range, container, space);
       if (!resolved) return;
       setBusy(true);
       try {
@@ -182,7 +194,7 @@ export function ReaderAnnotationLayer({
         setBusy(false);
       }
     },
-    [blocks, bookId, busy, contentRef, memberEmail, openPanelWith, refreshList]
+    [bookId, busy, contentRef, memberEmail, openPanelWith, refreshList, space]
   );
 
   const openExisting = useCallback(
@@ -254,7 +266,7 @@ export function ReaderAnnotationLayer({
       if (els[i].getBoundingClientRect().top + window.scrollY <= line) idx = i;
       else break;
     }
-    const resolved = anchorForGap(idx, blocks);
+    const resolved = anchorForGap(idx, space, container);
     if (!resolved) return;
     const chat = await forkAnnotation({
       chatId: detail.id,
@@ -264,7 +276,7 @@ export function ReaderAnnotationLayer({
     });
     openPanelWith(chat);
     refreshList();
-  }, [blocks, contentRef, detail, memberEmail, openPanelWith, refreshList]);
+  }, [contentRef, detail, memberEmail, openPanelWith, refreshList, space]);
 
   // Deletes outright rather than going through closePanel, which would then
   // also try to discard the row it just removed.

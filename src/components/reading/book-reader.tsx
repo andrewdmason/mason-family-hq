@@ -710,21 +710,22 @@ export function BookReader({
               )}
               dangerouslySetInnerHTML={{ __html: html }}
             />
-            {/* Books only: articles keep images/links/lists, which breaks the
-                flat block model anchors are addressed in. */}
-            {!isArticle && (
-              <ReaderAnnotationLayer
-                bookId={bookId}
-                memberEmail={memberEmail}
-                html={html}
-                contentRef={contentRef}
-                currentPage={currentPage}
-                scrollToAnchor={scrollToAnchor}
-                panelOpen={chatPanelOpen}
-                onPanelOpenChange={handleChatPanelOpenChange}
-                layoutNonce={layoutNonce}
-              />
-            )}
+            {/* Books and articles both. Articles keep images/links/lists, so
+                they have no conversion char space and no page map — the layer
+                switches coordinate spaces on isArticle rather than opting out. */}
+            <ReaderAnnotationLayer
+              bookId={bookId}
+              memberEmail={memberEmail}
+              html={html}
+              isArticle={isArticle}
+              contentRef={contentRef}
+              currentPage={currentPage}
+              scrollToAnchor={scrollToAnchor}
+              panelOpen={chatPanelOpen}
+              onPanelOpenChange={handleChatPanelOpenChange}
+              layoutNonce={layoutNonce}
+            />
+
           </div>
         </article>
       )}
