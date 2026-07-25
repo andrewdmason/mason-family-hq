@@ -623,15 +623,17 @@ export function BookReader({
             headerVisible ? "opacity-100" : "pointer-events-none opacity-0"
           )}
         >
-          {/* Full-bleed: the book sits hard left, the contents menu dead centre.
-              Equal 1fr flanks are what keep the middle column truly centred
-              however long the title runs. The extra right padding clears the
-              annotations button, which floats above this bar at a fixed
-              top-right position and is visible even when the header is not
-              (see annotations-button.tsx). */}
+          {/* Where you are reads left to right: the book, then the chapter
+              inside it, then the controls. The contents menu sits against the
+              title rather than centred because it names a place in that book —
+              centred, it read as a third, unrelated thing.
+
+              The extra right padding clears the annotations button, which floats
+              above this bar at a fixed top-right position and is visible even
+              when the header is not (see annotations-button.tsx). */}
           <div
             className={cn(
-              "grid h-full grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 pr-14 sm:px-6 sm:pr-16",
+              "flex h-full items-center gap-3 px-4 pr-14 sm:px-6 sm:pr-16",
               paged && "[&_a]:pointer-events-auto [&_button]:pointer-events-auto"
             )}
           >
@@ -664,11 +666,11 @@ export function BookReader({
               </div>
             </div>
 
-            {toc.length > 0 ? (
+            {toc.length > 0 && (
               <DropdownMenu open={tocOpen} onOpenChange={setTocOpen}>
                 <DropdownMenuTrigger
                   aria-label="Table of contents"
-                  className="inline-flex max-w-[42vw] items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  className="inline-flex min-w-0 max-w-[32vw] shrink items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
                   <List className="h-4 w-4 shrink-0" />
                   {/* Where you are, not what the menu is — the icon already says
@@ -689,7 +691,7 @@ export function BookReader({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   ref={tocListRef}
-                  align="center"
+                  align="start"
                   className="max-h-80 w-64 overflow-y-auto"
                 >
                   {toc.map((entry) => {
@@ -713,11 +715,9 @@ export function BookReader({
                   })}
                 </DropdownMenuContent>
               </DropdownMenu>
-            ) : (
-              <span />
             )}
 
-            <div className="justify-self-end">
+            <div className="ml-auto shrink-0">
               <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
                 <DropdownMenuTrigger
                   aria-label="Reader options"
