@@ -183,7 +183,7 @@ export async function createAnnotation(input: {
 
   const { data: book } = await client
     .from("reading_books")
-    .select("id, spoiler_free")
+    .select("id, spoiler_free, type")
     .eq("id", input.bookId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -199,7 +199,10 @@ export async function createAnnotation(input: {
     throw new Error("This book isn't ready to read yet.");
   }
 
-  // Never trust a client offset: clamp into the book before it decides anything.
+  // Never trust a client offset: clamp before it decides anything. For an
+  // article char_count is the length of the HTML, not of the text, so this stays
+  // a safe upper bound (HTML >= text) without being a tight one — nothing
+  // downstream needs it to be, because articles never resolve a page.
   const charCount = (content.char_count as number | null) ?? 0;
   const charOffset = Math.max(
     0,
@@ -212,7 +215,12 @@ export async function createAnnotation(input: {
     input.bookId,
     charOffset
   );
-  const spoilerFree = book.spoiler_free === true;
+  // Spoiler-free is meaningless for an article and actively wrong to honour:
+  // the route would cut context at anchor_char_offset, which for articles is
+  // measured in DOM-text space rather than the conversion char space the cut
+  // assumes. The UI hides the toggle too; this is the guard that matters.
+  const isArticle = book.type === "article";
+  const spoilerFree = !isArticle && book.spoiler_free === true;
 
   const { data: inserted, error } = await client
     .from("reading_annotations")

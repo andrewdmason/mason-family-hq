@@ -214,6 +214,9 @@ export function ReaderAnnotationLayer({
     const onClick = (e: MouseEvent) => {
       const selection = window.getSelection();
       if (selection && !selection.isCollapsed) return;
+      // Articles keep real links. A click inside one is meant for the link, and
+      // opening a panel on top of a navigation is the wrong answer to both.
+      if ((e.target as HTMLElement | null)?.closest("a")) return;
       const hit = annotationAtPoint(chats, container, e.clientX, e.clientY);
       if (hit) void openExisting(hit.id);
     };
@@ -336,6 +339,7 @@ export function ReaderAnnotationLayer({
             chat={detail}
             memberEmail={memberEmail}
             bookSpoilerFree={data?.spoilerFree ?? false}
+            isArticle={isArticle}
             hasRealPages={data?.hasRealPages ?? false}
             currentPage={currentPage}
             labelForPage={labelForPage}

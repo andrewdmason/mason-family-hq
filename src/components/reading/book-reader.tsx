@@ -521,6 +521,10 @@ export function BookReader({
       if (target?.closest('a, button, [role="menuitem"], input, textarea, select')) {
         return;
       }
+      // Nor the tap that dismisses a selection. Once selecting text is the way
+      // you annotate, toggling the chrome on every such tap is constant noise.
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed) return;
       setChromeTapped((v) => !v);
     };
     document.addEventListener("touchstart", onStart, { passive: true });

@@ -40,9 +40,20 @@ export function ParagraphHoverTarget({
     const container = contentRef.current;
     if (!container) return;
 
-    let tops: number[] = [];
+    // Gap targets are offered only between TOP-LEVEL blocks, but the index we
+    // hand back must still address the full block list the anchor scheme uses.
+    // On a book every block is a direct child, so this changes nothing; on an
+    // article it stops us offering a "start a chat here" gap above every <li>
+    // and every table cell, which would carpet the margin.
+    let gaps: { top: number; blockIndex: number }[] = [];
     const remeasure = () => {
-      tops = blockElements(container).map((el) => blockTopWithin(el, container));
+      gaps = blockElements(container)
+        .map((el, blockIndex) => ({ el, blockIndex }))
+        .filter(({ el }) => el.parentElement === container)
+        .map(({ el, blockIndex }) => ({
+          top: blockTopWithin(el, container),
+          blockIndex,
+        }));
     };
     remeasure();
 
@@ -56,10 +67,11 @@ export function ParagraphHoverTarget({
       }
       const y = e.clientY - rect.top;
       let best: { top: number; blockIndex: number } | null = null;
-      for (let i = 1; i < tops.length; i++) {
-        const distance = Math.abs(tops[i] - y);
+      // From 1: the gap above the very first block isn't a place to write.
+      for (let i = 1; i < gaps.length; i++) {
+        const distance = Math.abs(gaps[i].top - y);
         if (distance <= GAP_BAND_PX && (!best || distance < Math.abs(best.top - y))) {
-          best = { top: tops[i], blockIndex: i };
+          best = gaps[i];
         }
       }
       setHit(best);

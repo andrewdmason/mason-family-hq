@@ -20,6 +20,7 @@ export function AnnotationThread({
   chat,
   memberEmail,
   bookSpoilerFree,
+  isArticle,
   hasRealPages,
   currentPage,
   labelForPage,
@@ -34,6 +35,8 @@ export function AnnotationThread({
   chat: AnnotationDetail;
   memberEmail: string | null;
   bookSpoilerFree: boolean;
+  /** Articles have no pages, so nothing spoiler-scoped applies to them. */
+  isArticle: boolean;
   hasRealPages: boolean;
   currentPage: number | null;
   labelForPage: (page: number) => string | null;
@@ -157,11 +160,13 @@ export function AnnotationThread({
                 : "In the text"}
           </p>
           <p className="truncate text-[11px] text-muted-foreground">
-            {chat.spoilerFree
-              ? chat.contextThroughPage != null
-                ? `Claude has read to p.${chat.contextThroughPage}`
-                : "Claude has read to here"
-              : "Claude has read the whole book"}
+            {isArticle
+              ? "Claude has read the whole article"
+              : chat.spoilerFree
+                ? chat.contextThroughPage != null
+                  ? `Claude has read to p.${chat.contextThroughPage}`
+                  : "Claude has read to here"
+                : "Claude has read the whole book"}
           </p>
         </div>
         <ModelPicker value={chat.modelPreference} onChange={onModelChange} />
@@ -277,15 +282,20 @@ export function AnnotationThread({
             )}
           </button>
         </div>
-        <label className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={bookSpoilerFree}
-            onChange={(e) => onSpoilerFreeChange(e.target.checked)}
-            className="h-3 w-3 accent-foreground"
-          />
-          Spoiler-safe — applies to new chats
-        </label>
+        {/* Books only. An article has no page map to scope against, and the
+            server refuses to honour spoiler_free for one regardless — showing a
+            control that silently does nothing is worse than showing none. */}
+        {!isArticle && (
+          <label className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={bookSpoilerFree}
+              onChange={(e) => onSpoilerFreeChange(e.target.checked)}
+              className="h-3 w-3 accent-foreground"
+            />
+            Spoiler-safe — applies to new chats
+          </label>
+        )}
       </div>
     </div>
   );
