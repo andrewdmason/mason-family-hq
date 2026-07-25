@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
 import { stripHtmlToText } from "@/lib/reading/block-stream";
+import { articleHtmlToText } from "@/lib/reading/article-sanitize";
 
 /**
  * Pulling plain text back out of a converted book so a quiz can be scoped to
@@ -17,6 +18,39 @@ import { stripHtmlToText } from "@/lib/reading/block-stream";
 const MAX_QUIZ_CONTEXT_CHARS = 60_000;
 
 export { stripHtmlToText };
+
+/**
+ * The whole article as plain text.
+ *
+ * There is no range to resolve: an article has no page map, so there is nothing
+ * to scope "through page N" against and no [p.N] markers to interleave. That
+ * also means hasPageMarkers is false, which is what makes buildReaderChatSystem
+ * leave the citation rule out of the prompt — the model is never asked to cite
+ * pages that don't exist.
+ */
+async function getArticleText(
+  client: SupabaseClient,
+  contentPath: string,
+  budget: number
+): Promise<BookTextSlice | null> {
+  const download = await client.storage
+    .from(READING_BOOKS_BUCKET)
+    .download(contentPath);
+  if (download.error || !download.data) return null;
+
+  const { text, truncated } = fitToBudget(
+    articleHtmlToText(await download.data.text()),
+    budget
+  );
+  return {
+    text,
+    fromEffectivePage: 1,
+    throughEffectivePage: 1,
+    hasRealPages: false,
+    truncated,
+    hasPageMarkers: false,
+  };
+}
 
 /**
  * Trim text to the model budget while preserving cumulative coverage: keep the
@@ -93,12 +127,20 @@ export async function getTextForRange(
   const budget = options?.maxChars ?? MAX_QUIZ_CONTEXT_CHARS;
   const { data: content } = await client
     .from("reading_book_content")
-    .select("content_path, status, has_real_pages, page_count, char_count")
+    .select("content_path, status, has_real_pages, page_count, char_count, source_format")
     .eq("book_id", bookId)
     .eq("user_id", userId)
     .maybeSingle();
   if (!content || content.status !== "ready" || !content.content_path) {
     return null;
+  }
+
+  // Articles short-circuit the whole page-range machinery below: they have no
+  // reading_book_pages rows, so every one of those queries comes back empty and
+  // falls through to "the whole thing" regardless. Branching here also keeps the
+  // book path, and its exact char offsets, completely untouched.
+  if (content.source_format === "article") {
+    return getArticleText(client, content.content_path as string, budget);
   }
 
   const hasRealPages = content.has_real_pages as boolean;
