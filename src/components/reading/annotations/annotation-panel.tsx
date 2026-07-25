@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
 
-export const CHAT_PANEL_WIDTH_CLASS = "w-[26rem]";
+export const ANNOTATION_PANEL_WIDTH_CLASS = "w-[26rem]";
 
 /**
  * Desktop: a non-modal right-edge drawer. Deliberately NOT a dialog — no
@@ -16,7 +16,7 @@ export const CHAT_PANEL_WIDTH_CLASS = "w-[26rem]";
  * Mobile: the app's existing BottomSheet, which can be parked at half height to
  * peek at the text behind it.
  */
-export function ChatPanel({
+export function AnnotationPanel({
   open,
   isMobile,
   onClose,
@@ -71,7 +71,7 @@ export function ChatPanel({
     // z-50 clears the reader's hover header (z-40).
     <aside
       ref={panelRef}
-      className={`fixed inset-y-0 right-0 z-50 flex ${CHAT_PANEL_WIDTH_CLASS} flex-col border-l border-border bg-background shadow-lg`}
+      className={`fixed inset-y-0 right-0 z-50 flex ${ANNOTATION_PANEL_WIDTH_CLASS} flex-col border-l border-border bg-background shadow-lg`}
       aria-label="Chat about this book"
     >
       {/* No floating close button: it would sit on top of whatever the panel

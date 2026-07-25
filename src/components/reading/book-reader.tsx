@@ -10,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ReaderChatLayer } from "@/components/reading/chat/reader-chat-layer";
+import { ReaderAnnotationLayer } from "@/components/reading/annotations/reader-annotation-layer";
 import { formatTimeLeft, minutesToRead } from "@/lib/reading/reading-time";
 import { cn } from "@/lib/utils";
 import type { ReadingTocEntry } from "@/lib/types";
@@ -521,6 +521,10 @@ export function BookReader({
       if (target?.closest('a, button, [role="menuitem"], input, textarea, select')) {
         return;
       }
+      // Nor the tap that dismisses a selection. Once selecting text is the way
+      // you annotate, toggling the chrome on every such tap is constant noise.
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed) return;
       setChromeTapped((v) => !v);
     };
     document.addEventListener("touchstart", onStart, { passive: true });
@@ -560,7 +564,10 @@ export function BookReader({
           {/* Full-bleed: the book sits hard left, the contents menu dead centre.
               Equal 1fr flanks are what keep the middle column truly centred
               however long the title runs. */}
-          <div className="grid h-full grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 sm:px-6">
+          {/* pr- clears the annotations button, which floats above this bar at a
+                  fixed top-right position and is visible even when the header is
+                  not (see annotations-button.tsx). */}
+              <div className="grid h-full grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 pr-14 sm:px-6 sm:pr-16">
             <div className="flex min-w-0 items-center gap-2">
               <Link
                 href={backHref}
@@ -710,21 +717,22 @@ export function BookReader({
               )}
               dangerouslySetInnerHTML={{ __html: html }}
             />
-            {/* Books only: articles keep images/links/lists, which breaks the
-                flat block model anchors are addressed in. */}
-            {!isArticle && (
-              <ReaderChatLayer
-                bookId={bookId}
-                memberEmail={memberEmail}
-                html={html}
-                contentRef={contentRef}
-                currentPage={currentPage}
-                scrollToAnchor={scrollToAnchor}
-                panelOpen={chatPanelOpen}
-                onPanelOpenChange={handleChatPanelOpenChange}
-                layoutNonce={layoutNonce}
-              />
-            )}
+            {/* Books and articles both. Articles keep images/links/lists, so
+                they have no conversion char space and no page map — the layer
+                switches coordinate spaces on isArticle rather than opting out. */}
+            <ReaderAnnotationLayer
+              bookId={bookId}
+              memberEmail={memberEmail}
+              html={html}
+              isArticle={isArticle}
+              contentRef={contentRef}
+              currentPage={currentPage}
+              scrollToAnchor={scrollToAnchor}
+              panelOpen={chatPanelOpen}
+              onPanelOpenChange={handleChatPanelOpenChange}
+              layoutNonce={layoutNonce}
+            />
+
           </div>
         </article>
       )}

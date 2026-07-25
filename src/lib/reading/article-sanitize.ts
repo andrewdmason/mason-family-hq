@@ -51,17 +51,35 @@ export function sanitizeArticleHtml(dirty: string): string {
   return sanitizeHtml(dirty, ARTICLE_SANITIZE_OPTIONS);
 }
 
-/** Plain-text word count, used for the "N min read" estimate. */
-export function countWords(html: string): number {
-  // Insert whitespace at block boundaries so adjacent blocks don't merge into
-  // one "word" once tags are stripped (e.g. two <li>s, paragraph breaks).
+/**
+ * Article HTML down to readable plain text.
+ *
+ * Deliberately NOT the book path: block-stream.ts's `stripHtmlToText` matches
+ * only <p>/<h1-6>, which is exactly right for converted books (that is all
+ * convert.ts emits) and lossy for articles, where it silently drops every <li>,
+ * <td>, <pre>, <blockquote>, <figcaption> and bare <div>.
+ *
+ * How much that costs depends entirely on the article. Measured against the
+ * saved corpus: prose pieces lose ~0-2%, because their text is all in <p>. A
+ * recipe, listicle, or docs page loses ~73% — the ingredients, the benchmark
+ * table, the install command, all gone with no sign anything is missing. That
+ * asymmetry is the trap: it looks fine until the day it doesn't.
+ *
+ * Whitespace is inserted at closing block tags first so adjacent blocks don't
+ * fuse into one word once the tags come off.
+ */
+export function articleHtmlToText(html: string): string {
   const spaced = html
     .replace(
       /<\/(p|div|li|h[1-6]|blockquote|figcaption|tr|td|th|pre|dd|dt|ul|ol)>/gi,
       " $& "
     )
     .replace(/<br\s*\/?>/gi, " ");
-  const text = sanitizeHtml(spaced, { allowedTags: [], allowedAttributes: {} });
-  const matches = text.trim().match(/\S+/g);
+  return sanitizeHtml(spaced, { allowedTags: [], allowedAttributes: {} });
+}
+
+/** Plain-text word count, used for the "N min read" estimate. */
+export function countWords(html: string): number {
+  const matches = articleHtmlToText(html).trim().match(/\S+/g);
   return matches ? matches.length : 0;
 }

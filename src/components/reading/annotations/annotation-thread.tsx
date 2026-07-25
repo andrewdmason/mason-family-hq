@@ -4,10 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CornerDownLeft, Loader2, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
-  ReaderChatDetail,
+  AnnotationDetail,
   ReaderChatMessage,
   ReaderChatModelPreference,
-} from "@/lib/reading/chat-types";
+} from "@/lib/reading/annotation-types";
 import { ChatMessageText } from "./chat-message-text";
 
 /** The route marks a failed turn this way rather than persisting a message. */
@@ -16,10 +16,12 @@ const ERROR_MARKER = /\n\n\[error: ([\s\S]*)\]$/;
 let localSeq = 0;
 const localId = () => `local-${++localSeq}`;
 
-export function ChatThread({
+export function AnnotationThread({
   chat,
   memberEmail,
   bookSpoilerFree,
+  isArticle,
+  onNoteChange,
   hasRealPages,
   currentPage,
   labelForPage,
@@ -28,12 +30,16 @@ export function ChatThread({
   onDelete,
   onClose,
   onTouched,
+  onExchangeComplete,
   onSpoilerFreeChange,
   onModelChange,
 }: {
-  chat: ReaderChatDetail;
+  chat: AnnotationDetail;
   memberEmail: string | null;
   bookSpoilerFree: boolean;
+  /** Articles have no pages, so nothing spoiler-scoped applies to them. */
+  isArticle: boolean;
+  onNoteChange: (note: string | null) => void;
   hasRealPages: boolean;
   currentPage: number | null;
   labelForPage: (page: number) => string | null;
@@ -43,6 +49,8 @@ export function ChatThread({
   onClose: () => void;
   /** Fired on the first send: the chat is now real and shouldn't be discarded. */
   onTouched: () => void;
+  /** Fires once the row definitely has a persisted message on it. */
+  onExchangeComplete: () => void;
   onSpoilerFreeChange: (next: boolean) => void;
   onModelChange: (next: ReaderChatModelPreference) => void;
 }) {
@@ -98,10 +106,10 @@ export function ChatThread({
 
       if (res.headers.get("X-Reader-Chat-Promoted") === "1") {
         setMessages((prev) => {
-          if (prev.some((m) => m.role === "note")) return prev;
+          if (prev.some((m) => m.role === "notice")) return prev;
           const note: ReaderChatMessage = {
             id: localId(),
-            role: "note",
+            role: "notice",
             content:
               "Answered with the Deep model — this book is too long for the Fast model's context window.",
             model: null,
@@ -137,8 +145,12 @@ export function ChatThread({
       setMessages((prev) => prev.filter((m) => m.id !== assistantId));
     } finally {
       setSending(false);
+      // Whatever happened to the reply, the route persisted the user's turn
+      // before streaming — so this annotation is a chat now, and the list that
+      // decides its colour and its margin icon needs to hear about it.
+      onExchangeComplete();
     }
-  }, [draft, sending, chat.id, memberEmail, onTouched]);
+  }, [draft, sending, chat.id, memberEmail, onTouched, onExchangeComplete]);
 
   // The chat's boundary is frozen at its anchor, so once you've read past it the
   // assistant knows less than you do. Offer the fork exactly when that's true.
@@ -157,11 +169,13 @@ export function ChatThread({
                 : "In the text"}
           </p>
           <p className="truncate text-[11px] text-muted-foreground">
-            {chat.spoilerFree
-              ? chat.contextThroughPage != null
-                ? `Claude has read to p.${chat.contextThroughPage}`
-                : "Claude has read to here"
-              : "Claude has read the whole book"}
+            {isArticle
+              ? "Claude has read the whole article"
+              : chat.spoilerFree
+                ? chat.contextThroughPage != null
+                  ? `Claude has read to p.${chat.contextThroughPage}`
+                  : "Claude has read to here"
+                : "Claude has read the whole book"}
           </p>
         </div>
         <ModelPicker value={chat.modelPreference} onChange={onModelChange} />
@@ -190,9 +204,11 @@ export function ChatThread({
           </blockquote>
         )}
 
+        <NoteField value={chat.note} onCommit={onNoteChange} />
+
         <div className="flex flex-col gap-3">
           {messages.map((m) =>
-            m.role === "note" ? (
+            m.role === "notice" ? (
               <p
                 key={m.id}
                 className="mx-auto max-w-[85%] text-center text-[11px] leading-4 text-muted-foreground"
@@ -277,15 +293,20 @@ export function ChatThread({
             )}
           </button>
         </div>
-        <label className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={bookSpoilerFree}
-            onChange={(e) => onSpoilerFreeChange(e.target.checked)}
-            className="h-3 w-3 accent-foreground"
-          />
-          Spoiler-safe — applies to new chats
-        </label>
+        {/* Books only. An article has no page map to scope against, and the
+            server refuses to honour spoiler_free for one regardless — showing a
+            control that silently does nothing is worse than showing none. */}
+        {!isArticle && (
+          <label className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={bookSpoilerFree}
+              onChange={(e) => onSpoilerFreeChange(e.target.checked)}
+              className="h-3 w-3 accent-foreground"
+            />
+            Spoiler-safe — applies to new chats
+          </label>
+        )}
       </div>
     </div>
   );
@@ -316,5 +337,41 @@ function ModelPicker({
         </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * The reader's own words on this passage.
+ *
+ * Saved on blur rather than per keystroke: a note is a paragraph you think
+ * about, not a chat message, and a write per character would be a write per
+ * character. Emptying it clears the note and leaves the highlight — erasing
+ * what you wrote is not a request to unmark the passage.
+ */
+function NoteField({
+  value,
+  onCommit,
+}: {
+  value: string | null;
+  onCommit: (note: string | null) => void;
+}) {
+  // No effect syncing draft back to `value`: AnnotationThread is keyed by
+  // annotation id, so switching annotations remounts this with fresh initial
+  // state. The only other way `value` changes is our own commit, which the
+  // draft already matches.
+  const [draft, setDraft] = useState(value ?? "");
+
+  return (
+    <textarea
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        const next = draft.trim() || null;
+        if (next !== (value ?? null)) onCommit(next);
+      }}
+      rows={draft ? 3 : 1}
+      placeholder="Add a note…"
+      className="mb-3 w-full resize-none rounded-md border border-border bg-transparent px-2.5 py-2 text-sm leading-6 text-foreground placeholder:text-muted-foreground/70 focus:border-foreground/30 focus:outline-none"
+    />
   );
 }
