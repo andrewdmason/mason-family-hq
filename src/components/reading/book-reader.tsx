@@ -42,7 +42,7 @@ const ARTICLE_PROSE = [
 ].join(" ");
 
 type Anchor = { pageNumber: number; docTop: number; id: string };
-type Chapter = { title: string; docTop: number; startPage: number | null };
+type Chapter = { title: string; anchorId: string; docTop: number };
 
 export function BookReader({
   bookId,
@@ -89,6 +89,7 @@ export function BookReader({
   // shown on the contents menu, which is the "where am I?" control.
   const [chapter, setChapter] = useState<{
     title: string;
+    anchorId: string;
     minutesLeft: number | null;
   } | null>(null);
   // The book header stays out of the way: revealed only when the mouse is up in
@@ -155,8 +156,8 @@ export function BookReader({
     anchors.sort((a, b) => a.docTop - b.docTop);
     anchorsRef.current = anchors;
 
-    // Resolve each table-of-contents heading to its document position, plus the
-    // source page it starts on, so the header can show progress within a chapter.
+    // Resolve each table-of-contents heading to its document position, so the
+    // header can name the chapter you're in and the contents menu can open on it.
     // Skip the entry that's just the book's own title (some TOCs lead with it) —
     // it isn't a chapter, and treating it as one makes the readout repeat itself.
     const bookTitle = title.trim().toLowerCase();
@@ -165,13 +166,11 @@ export function BookReader({
       if (entry.title.trim().toLowerCase() === bookTitle) continue;
       const el = document.getElementById(entry.anchorId);
       if (!el) continue;
-      const docTop = el.getBoundingClientRect().top + window.scrollY;
-      let startPage: number | null = null;
-      for (const a of anchors) {
-        if (a.docTop <= docTop + READING_LINE_OFFSET) startPage = a.pageNumber;
-        else break;
-      }
-      chapters.push({ title: entry.title, docTop, startPage });
+      chapters.push({
+        title: entry.title,
+        anchorId: entry.anchorId,
+        docTop: el.getBoundingClientRect().top + window.scrollY,
+      });
     }
     chapters.sort((a, b) => a.docTop - b.docTop);
     chaptersRef.current = chapters;
@@ -239,7 +238,11 @@ export function BookReader({
         wordCount != null && doc.scrollHeight > 0
           ? (Math.max(0, endTop - line) / doc.scrollHeight) * wordCount
           : null;
-      setChapter({ title: cur.title, minutesLeft: minutesToRead(wordsLeft) });
+      setChapter({
+        title: cur.title,
+        anchorId: cur.anchorId,
+        minutesLeft: minutesToRead(wordsLeft),
+      });
     } else {
       setChapter(null);
     }
@@ -449,6 +452,34 @@ export function BookReader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatPanelOpen]);
 
+  // Open the contents on where you are, not on the front matter: a long book's
+  // menu is otherwise a wall of chapters you have to hunt through. The chapter
+  // you're in lands just below the top edge, with a little of the previous one
+  // showing so it reads as a position in a list rather than the start of it.
+  const tocListRef = useRef<HTMLDivElement>(null);
+  const currentChapterAnchor = chapter?.anchorId ?? null;
+  useEffect(() => {
+    if (!tocOpen || !currentChapterAnchor) return;
+    // Two frames: one for the popup to mount, one for it to be laid out.
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => {
+        const list = tocListRef.current;
+        const item = list?.querySelector<HTMLElement>('[data-toc-current="true"]');
+        if (!list || !item) return;
+        // Measured rather than offsetTop, so it doesn't matter which element the
+        // popup makes the offset parent.
+        const delta =
+          item.getBoundingClientRect().top - list.getBoundingClientRect().top;
+        list.scrollTop = Math.max(0, list.scrollTop + delta - 28);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [tocOpen, currentChapterAnchor]);
+
   const scrollToAnchor = useCallback((anchorId: string) => {
     const el = document.getElementById(anchorId);
     if (!el) return;
@@ -569,26 +600,35 @@ export function BookReader({
                     </span>
                   )}
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="center" className="max-h-80 w-64 overflow-y-auto">
-                  {toc.map((entry) => (
-                    <DropdownMenuItem
-                      key={entry.anchorId}
-                      onClick={() => scrollToAnchor(entry.anchorId)}
-                      className={cn(
-                        "flex items-baseline justify-between gap-3",
-                        entry.level <= 1
-                          ? "font-medium text-foreground"
-                          : "pl-4 text-muted-foreground"
-                      )}
-                    >
-                      <span className="truncate">{entry.title}</span>
-                      {entry.page != null && (
-                        <span className="shrink-0 text-xs tabular-nums opacity-60">
-                          {entry.page}
-                        </span>
-                      )}
-                    </DropdownMenuItem>
-                  ))}
+                <DropdownMenuContent
+                  ref={tocListRef}
+                  align="center"
+                  className="max-h-80 w-64 overflow-y-auto"
+                >
+                  {toc.map((entry) => {
+                    const current = entry.anchorId === currentChapterAnchor;
+                    return (
+                      <DropdownMenuItem
+                        key={entry.anchorId}
+                        data-toc-current={current || undefined}
+                        onClick={() => scrollToAnchor(entry.anchorId)}
+                        className={cn(
+                          "flex items-baseline justify-between gap-3",
+                          entry.level <= 1
+                            ? "font-medium text-foreground"
+                            : "pl-4 text-muted-foreground",
+                          current && "bg-accent font-medium text-accent-foreground"
+                        )}
+                      >
+                        <span className="truncate">{entry.title}</span>
+                        {entry.page != null && (
+                          <span className="shrink-0 text-xs tabular-nums opacity-60">
+                            {entry.page}
+                          </span>
+                        )}
+                      </DropdownMenuItem>
+                    );
+                  })}
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
