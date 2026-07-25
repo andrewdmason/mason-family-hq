@@ -243,12 +243,24 @@ export function elementForAnchor(
  */
 export function rangeForAnchor(
   anchor: AnnotationAnchor,
-  container: HTMLElement
+  container: HTMLElement,
+  /**
+   * The container's block elements, when the caller is resolving several anchors
+   * in one go and has already queried them. Without this, painting N highlights
+   * or hit-testing a tap ran one `querySelectorAll` over the whole book PER
+   * annotation — and a book is ~3,500 elements.
+   *
+   * Only ever pass a list queried during the same synchronous pass: React
+   * re-applies the book's innerHTML after mount, and a list that outlives that
+   * points at detached elements which report no rects at all. See the note on
+   * measureCtx in use-pagination.ts.
+   */
+  els?: HTMLElement[]
 ): Range | null {
   if (anchor.kind !== "selection") return null;
   if (anchor.startOffset == null || anchor.endOffset == null) return null;
 
-  const byIndex = rangeFromIndices(anchor, container);
+  const byIndex = rangeFromIndices(anchor, container, els ?? blockElements(container));
   if (byIndex && matchesQuote(byIndex, anchor.quote)) return byIndex;
 
   // The text under the stored indices is not what was annotated. Go find it.
@@ -257,9 +269,9 @@ export function rangeForAnchor(
 
 function rangeFromIndices(
   anchor: AnnotationAnchor,
-  container: HTMLElement
+  container: HTMLElement,
+  els: HTMLElement[]
 ): Range | null {
-  const els = blockElements(container);
   const startEl = els[anchor.blockIndex];
   const endEl = els[anchor.endBlockIndex ?? anchor.blockIndex];
   if (!startEl || !endEl) return null;

@@ -21,6 +21,7 @@ import {
   rememberPosition,
 } from "@/lib/reading/offline/positions";
 import { PAGE_PAD_BOTTOM, bookAreaWidth } from "@/lib/reading/paged-geometry";
+import { note, startTimer, time } from "@/lib/reading/perf";
 import { MARGIN_MEASURE_PX } from "@/lib/reading/reader-settings";
 import {
   chapterBounds,
@@ -34,6 +35,7 @@ import type { ReadingTocEntry } from "@/lib/types";
 import { PagedView } from "./paged-view";
 import { ReaderFooter } from "./reader-footer";
 import { ReaderLayoutDialog } from "./reader-layout-dialog";
+import { ReaderPerfOverlay } from "./reader-perf-overlay";
 import {
   ARTICLE_PROSE,
   BOOK_PROSE,
@@ -125,7 +127,13 @@ export function BookReader({
   const scrollContentRef = useRef<HTMLDivElement>(null);
   const contentRef = paged ? flowRef : scrollContentRef;
 
-  const blocks = useMemo(() => (html == null ? [] : blockMap(html)), [html]);
+  const blocks = useMemo(
+    () =>
+      html == null
+        ? []
+        : time("blockMap", () => blockMap(html), () => `${Math.round(html.length / 1000)}k chars`),
+    [html]
+  );
   const totalChars = useMemo(() => totalCharsOf(blocks), [blocks]);
   const chapters = useMemo(
     () => (blocks.length === 0 ? [] : chapterBounds(toc, title, blocks)),
@@ -137,9 +145,11 @@ export function BookReader({
   // downloads it; there's no separate step.
   useEffect(() => {
     let cancelled = false;
+    const stopLoad = startTimer("load");
     loadBookHtml(bookId, contentUrl)
-      .then(({ html: text }) => {
+      .then(({ html: text, fromCache }) => {
         if (cancelled) return;
+        stopLoad(`${fromCache ? "device" : "network"} ${Math.round(text.length / 1000)}k chars`);
         setHtml(text);
         // Only the reader page knows what the book is called, so the shelf's
         // "available offline" list is filled in from here.
@@ -498,6 +508,9 @@ export function BookReader({
           ? { el: best, delta: best.getBoundingClientRect().top + window.scrollY - line }
           : null;
       }
+      // Marked so the timings that follow can be read as "this is what opening
+      // the chat cost" — the whole question is whether it still re-fragments.
+      note("chat panel", `${open ? "open" : "close"} @${window.innerWidth}px`);
       setChatPanelOpen(open);
     },
     [paged]
@@ -676,7 +689,7 @@ export function BookReader({
     <ReaderAnnotationLayer
       bookId={bookId}
       memberEmail={memberEmail}
-      html={html}
+      blocks={blocks}
       isArticle={isArticle}
       contentRef={contentRef}
       currentCharOffset={currentCharOffset}
@@ -927,6 +940,8 @@ export function BookReader({
           </div>
         </article>
       )}
+
+      <ReaderPerfOverlay />
 
       <ReaderLayoutDialog
         open={layoutOpen}

@@ -16,6 +16,7 @@ import {
   type MeasureCtx,
 } from "@/lib/reading/paged-position";
 import type { ReaderSettings } from "@/lib/reading/reader-settings";
+import { note, startTimer } from "@/lib/reading/perf";
 
 /**
  * The paging engine: owns the geometry, the repagination lifecycle, and which
@@ -94,6 +95,9 @@ export function usePagination({
   const charRef = useRef(externalCharOffset);
   const totalRef = useRef(1);
   const pageRef = useRef(0);
+  // Width of the fragmented strip as of the last repagination. Only read to
+  // decide whether a late web font actually changed anything — see below.
+  const stripWidthRef = useRef(-1);
 
   // While paging is off, the scrolling view is the one moving; keep the
   // character we'd repaginate around in step with it, so switching paging on
@@ -136,6 +140,7 @@ export function usePagination({
 
   const goToPage = useCallback(
     (page: number) => {
+      const stopTurn = startTimer("turn");
       const total = totalRef.current;
       const next = Math.min(Math.max(0, page), Math.max(0, total - 1));
       pageRef.current = next;
@@ -150,6 +155,7 @@ export function usePagination({
       // forward to the last chapter of the book.
       setCharEnd(ctx && next + 1 < total ? charOffsetAtTopOfPage(next + 1, ctx) : char);
       onPositionChange(char, next >= total - 1);
+      stopTurn(`p${next}`);
     },
     [measureCtx, onPositionChange, paint]
   );
@@ -242,9 +248,15 @@ export function usePagination({
     if (!flow) return;
 
     // Force the fragmentation now rather than at paint, so the measurements
-    // below are against the new layout.
-    void flow.scrollWidth;
+    // below are against the new layout. This read is the single most expensive
+    // thing the reader does — laying a whole book out as one multi-column strip —
+    // so it's the one number worth having from the device that feels slow.
+    const stopFragment = startTimer("fragment");
+    const stripWidth = flow.scrollWidth;
+    stripWidthRef.current = stripWidth;
+    stopFragment(`${geom.cols}col ${geom.colW}w ${Math.round(stripWidth / 1000)}kpx`);
 
+    const stopSolve = startTimer("solve");
     const total = countPages(flow, geom);
     totalRef.current = total;
     setTotalPages(total);
@@ -265,22 +277,44 @@ export function usePagination({
     setCharOffset(char);
     setCharEnd(page + 1 < total ? charOffsetAtTopOfPage(page + 1, ctx) : char);
     setLayoutNonce((n) => n + 1);
+    stopSolve(`${total}pp → p${page}`);
 
     assertPagesMoveForward(ctx, total);
   }, [enabled, html, fragmentationKey, blocks, revision, flowRef, paint]);
 
   // Web fonts swapping in changes every line's metrics, which changes where the
   // column breaks fall.
+  //
+  // But `fonts.ready` resolving does not mean anything changed: on any reopen the
+  // faces are already in the cache and applied before the book was ever laid out,
+  // and the reader's own chrome has asked for them by then anyway. Bumping the
+  // revision unconditionally therefore paid for a second full fragmentation of
+  // the book — the most expensive thing here — on every single open, in the
+  // common case, for nothing.
+  //
+  // The strip's width is the cheapest exact test of whether the metrics actually
+  // moved: it's a whole book's worth of lines, so a change of even a fraction of
+  // a pixel per line shows up as hundreds of pixels across it. The layout is
+  // already clean at this point, so reading it costs nothing.
   useEffect(() => {
     if (!enabled || html == null) return;
     let cancelled = false;
     void document.fonts?.ready.then(() => {
-      if (!cancelled) setRevision((n) => n + 1);
+      if (cancelled) return;
+      const flow = flowRef.current;
+      const before = stripWidthRef.current;
+      const after = flow?.scrollWidth ?? -1;
+      if (flow && before >= 0 && after === before) {
+        note("fonts", "no metric change, skipped");
+        return;
+      }
+      note("fonts", `strip ${before} → ${after}, repaginating`);
+      setRevision((n) => n + 1);
     });
     return () => {
       cancelled = true;
     };
-  }, [enabled, html]);
+  }, [enabled, html, flowRef]);
 
   return {
     geometry,

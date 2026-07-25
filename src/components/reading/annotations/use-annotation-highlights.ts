@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { rangeForAnchor } from "@/lib/reading/annotation-anchors";
+import { blockElements, rangeForAnchor } from "@/lib/reading/annotation-anchors";
 import {
   annotationKind,
   type AnnotationKind,
@@ -107,8 +107,10 @@ export function useAnnotationHighlights(
       note: [],
       chat: [],
     };
+    // Queried once for the whole pass, not once per annotation.
+    const els = blockElements(container);
     for (const a of annotations) {
-      const range = rangeForAnchor(a.anchor, container);
+      const range = rangeForAnchor(a.anchor, container, els);
       if (!range) continue;
       const target = a.id === openAnnotationId ? activeBuckets : buckets;
       target[annotationKind(a)].push(range);
@@ -152,10 +154,15 @@ export function annotationAtPoint(
   x: number,
   y: number
 ): AnnotationSummary | null {
+  // Every tap in the book comes through here, including the ones that are just
+  // turning a page, so it has to be free when there's nothing to hit.
+  if (annotations.length === 0) return null;
+
   let best: AnnotationSummary | null = null;
   let bestSize = Infinity;
+  const els = blockElements(container);
   for (const a of annotations) {
-    const range = rangeForAnchor(a.anchor, container);
+    const range = rangeForAnchor(a.anchor, container, els);
     if (!range) continue;
     let hit = false;
     let size = 0;

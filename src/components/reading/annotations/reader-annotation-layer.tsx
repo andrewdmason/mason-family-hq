@@ -12,7 +12,7 @@ import {
   setAnnotationModelPreference,
   setAnnotationNote,
 } from "@/app/(reading)/reader/annotation-actions";
-import { blockIndexForCharOffset, blockMap } from "@/lib/reading/block-stream";
+import { blockIndexForCharOffset, type BookBlock } from "@/lib/reading/block-stream";
 import {
   anchorForGap,
   anchorFromRange,
@@ -43,10 +43,13 @@ import { useContentVersion } from "./use-content-version";
  * which is why pagination didn't disturb any of it. Only the placement of the
  * markers cares how the book is laid out.
  */
+/** Stable identity, so an article doesn't re-run every blocks-keyed memo. */
+const NO_BLOCKS: BookBlock[] = [];
+
 export function ReaderAnnotationLayer({
   bookId,
   memberEmail,
-  html,
+  blocks: allBlocks,
   isArticle,
   contentRef,
   currentCharOffset,
@@ -58,7 +61,8 @@ export function ReaderAnnotationLayer({
 }: {
   bookId: string;
   memberEmail: string | null;
-  html: string;
+  /** The book's block stream, mapped once by the reader and shared from there. */
+  blocks: BookBlock[];
   /** Articles have no page map and no conversion char space — see AnchorSpace. */
   isArticle: boolean;
   contentRef: React.RefObject<HTMLDivElement | null>;
@@ -91,9 +95,14 @@ export function ReaderAnnotationLayer({
   const [mode, setMode] = useState<"thread" | "list">("thread");
 
   // Articles never touch the conversion char space: their HTML was never run
-  // through convert.ts, so blockMap would be measuring a stream that doesn't
-  // exist. Skipping it also avoids scanning the whole document on every load.
-  const blocks = useMemo(() => (isArticle ? [] : blockMap(html)), [html, isArticle]);
+  // through convert.ts, so the block stream would be describing a stream that
+  // doesn't exist.
+  //
+  // The blocks themselves arrive as a prop rather than being derived here. They
+  // used to be a second `blockMap(html)` over the same string the reader had
+  // already mapped — a regex pass over 1.1M characters, run twice on every open
+  // for one copy of the answer.
+  const blocks = isArticle ? NO_BLOCKS : allBlocks;
   const space = useMemo<AnchorSpace>(
     () => (isArticle ? { kind: "dom" } : { kind: "book", blocks }),
     [isArticle, blocks]
