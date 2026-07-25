@@ -2,14 +2,22 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { blockElements, blockTopWithin } from "@/lib/reading/annotation-anchors";
-import type { AnnotationSummary } from "@/lib/reading/annotation-types";
+import {
+  annotationKind,
+  type AnnotationSummary,
+} from "@/lib/reading/annotation-types";
 
 /**
- * Layout for the right-hand chat gutter, where existing chats are marked.
+ * Layout for the right-hand annotation gutter.
  *
- * Every chat anchored to a block gets its own icon, stacked downward from that
- * block's top — several chats on one paragraph read as a short column rather
- * than a single counted badge, so each is its own target.
+ * A margin icon means "there is something here you can't see" — a note's text,
+ * a conversation. Plain highlights are therefore left out on purpose: the
+ * yellow IS the whole annotation, and an icon beside every one turns a clean
+ * margin into a picket fence.
+ *
+ * Everything that does qualify gets its own icon, stacked downward from its
+ * block's top — several on one paragraph read as a short column rather than a
+ * single counted badge, so each stays its own target.
  *
  * The "start a chat here" affordance deliberately lives in the LEFT margin
  * instead (see paragraph-hover-target.tsx), so adding and opening never share
@@ -29,11 +37,11 @@ export type GutterRow = {
   blockIndex: number;
   /** Offset of the anchoring block from the top of the content container. */
   top: number;
-  chats: AnnotationSummary[];
+  annotations: AnnotationSummary[];
 };
 
 export function useGutterPlacement(
-  chats: AnnotationSummary[],
+  annotations: AnnotationSummary[],
   contentRef: React.RefObject<HTMLDivElement | null>,
   layoutNonce: number
 ): GutterRow[] {
@@ -41,29 +49,30 @@ export function useGutterPlacement(
 
   const place = useCallback(() => {
     const container = contentRef.current;
-    if (!container || chats.length === 0) {
+    if (!container || annotations.length === 0) {
       setRows([]);
       return;
     }
     const els = blockElements(container);
-    // Grouped by block index rather than by pixel position: two chats on the
-    // same paragraph are the same anchor even if a reflow moves them.
+    // Grouped by block index rather than by pixel position: two annotations on
+    // the same paragraph share an anchor even if a reflow moves them.
     const byBlock = new Map<number, AnnotationSummary[]>();
-    for (const chat of chats) {
-      const index = chat.anchor?.blockIndex ?? -1;
+    for (const a of annotations) {
+      if (annotationKind(a) === "highlight") continue;
+      const index = a.anchor?.blockIndex ?? -1;
       if (!els[index]) continue;
-      byBlock.set(index, [...(byBlock.get(index) ?? []), chat]);
+      byBlock.set(index, [...(byBlock.get(index) ?? []), a]);
     }
     setRows(
       [...byBlock.entries()]
         .map(([blockIndex, list]) => ({
           blockIndex,
           top: Math.round(blockTopWithin(els[blockIndex], container)),
-          chats: list,
+          annotations: list,
         }))
         .sort((a, b) => a.top - b.top)
     );
-  }, [chats, contentRef]);
+  }, [annotations, contentRef]);
 
   // Next frame rather than synchronously, so we measure a laid-out DOM.
   useEffect(() => {
