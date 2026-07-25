@@ -1,31 +1,39 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { blockElements, blockTopWithin } from "@/lib/reading/chat-anchors";
+import { blockElements, blockTopWithin } from "@/lib/reading/annotation-anchors";
 import {
   colContentRight,
   colIndexForX,
   pageForCol,
   type PageGeometry,
 } from "@/lib/reading/paged-geometry";
-import type { ReaderChatSummary } from "@/lib/reading/chat-types";
+import {
+  annotationKind,
+  type AnnotationSummary,
+} from "@/lib/reading/annotation-types";
 
 /**
- * Layout for the chat gutter, where existing chats are marked.
+ * Layout for the right-hand annotation gutter.
  *
- * Every chat anchored to a block gets its own icon, stacked downward from that
- * block's top — several chats on one paragraph read as a short column rather
- * than a single counted badge, so each is its own target.
+ * A margin icon means "there is something here you can't see" — a note's text,
+ * a conversation. Plain highlights are therefore left out on purpose: the
+ * yellow IS the whole annotation, and an icon beside every one turns a clean
+ * margin into a picket fence.
  *
- * Scrolling puts the gutter in the right margin, opposite the "start a chat
- * here" affordance on the left (paragraph-hover-target.tsx), so adding and
- * opening never share space.
+ * Everything that does qualify gets its own icon, stacked downward from its
+ * block's top — several on one paragraph read as a short column rather than a
+ * single counted badge, so each stays its own target.
+ *
+ * The "start a chat here" affordance deliberately lives in the LEFT margin
+ * instead (see paragraph-hover-target.tsx), so adding and opening never share
+ * space.
  *
  * Paged mode has no such luxury: two columns use up the margins, and the left
  * column has no outer margin at all. So each marker follows its own column —
  * into the column gap for a left-hand column, into the outer margin for the
- * right-hand one — and only blocks visible on the current page get a marker at
- * all, since the rest aren't on screen to point at.
+ * right-hand one — and only blocks visible on the current page get a marker,
+ * since the rest aren't on screen to point at.
  */
 
 /** Icon height (24px) plus the gap between stacked icons. */
@@ -44,9 +52,9 @@ export type GutterRow = {
   blockIndex: number;
   /** Distance from the top of the positioning container. */
   top: number;
-  /** Paged only: viewport x for the marker. Null in scroll mode, where a class positions it. */
+  /** Paged only: viewport x for the marker. Null while scrolling, where a class positions it. */
   left: number | null;
-  chats: ReaderChatSummary[];
+  annotations: AnnotationSummary[];
 };
 
 export type PagedGutterContext = {
@@ -57,7 +65,7 @@ export type PagedGutterContext = {
 };
 
 export function useGutterPlacement(
-  chats: ReaderChatSummary[],
+  annotations: AnnotationSummary[],
   contentRef: React.RefObject<HTMLDivElement | null>,
   layoutNonce: number,
   paged: PagedGutterContext | null
@@ -66,20 +74,20 @@ export function useGutterPlacement(
 
   const place = useCallback(() => {
     const container = contentRef.current;
-    if (!container || chats.length === 0) {
+    if (!container || annotations.length === 0) {
       setRows([]);
       return;
     }
     const els = blockElements(container);
-    // Grouped by block index rather than by pixel position: two chats on the
-    // same paragraph are the same anchor even if a reflow moves them.
-    const byBlock = new Map<number, ReaderChatSummary[]>();
-    for (const chat of chats) {
-      const index = chat.anchor?.blockIndex ?? -1;
+    // Grouped by block index rather than by pixel position: two annotations on
+    // the same paragraph share an anchor even if a reflow moves them.
+    const byBlock = new Map<number, AnnotationSummary[]>();
+    for (const a of annotations) {
+      if (annotationKind(a) === "highlight") continue;
+      const index = a.anchor?.blockIndex ?? -1;
       if (!els[index]) continue;
-      byBlock.set(index, [...(byBlock.get(index) ?? []), chat]);
+      byBlock.set(index, [...(byBlock.get(index) ?? []), a]);
     }
-
     const viewport = paged?.viewport ?? null;
     if (paged && viewport) {
       const { geom, pageIndex } = paged;
@@ -103,7 +111,7 @@ export function useGutterPlacement(
             (isOuterColumn ? textRight + MARKER_HALF : textRight + geom.gap / 2 - MARKER_HALF) -
               view.left
           ),
-          chats: list,
+          annotations: list,
         });
       }
       setRows(next.sort((a, b) => a.top - b.top));
@@ -116,21 +124,37 @@ export function useGutterPlacement(
           blockIndex,
           top: Math.round(blockTopWithin(els[blockIndex], container)),
           left: null,
-          chats: list,
+          annotations: list,
         }))
         .sort((a, b) => a.top - b.top)
     );
-  }, [chats, contentRef, paged]);
+  }, [annotations, contentRef, paged]);
 
   // Next frame rather than synchronously, so we measure a laid-out DOM.
+  //
+  // Placement depends on the book HTML being in the container, and that arrives
+  // from a signed storage URL long after the annotations arrive from the
+  // database — so the first pass measures an empty container and finds nothing.
+  // Observed symptom: no margin icons at all on load, while a single synthetic
+  // resize event brought all seven back, which is what proved the measurement
+  // was fine and only the scheduling wasn't.
+  //
+  // The caller folds useContentVersion into `layoutNonce` so this re-runs when
+  // the content actually lands; the ResizeObserver additionally covers a
+  // container that changes size without changing children, such as images
+  // decoding late and pushing every block after them down.
   useEffect(() => {
     const frame = requestAnimationFrame(place);
     window.addEventListener("resize", place);
+    const container = contentRef.current;
+    const observer = new ResizeObserver(() => place());
+    if (container) observer.observe(container);
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", place);
+      observer.disconnect();
     };
-  }, [place, layoutNonce]);
+  }, [place, contentRef, layoutNonce]);
 
   return rows;
 }

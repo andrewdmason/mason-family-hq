@@ -21,7 +21,7 @@ const NO_PAGE_LIMIT = 1_000_000_000;
 const PROMOTION_NOTE =
   "Answered with the Deep model — this book is too long for the Fast model's context window.";
 
-type ChatRow = {
+type AnnotationRow = {
   id: string;
   book_id: string;
   spoiler_free: boolean;
@@ -30,7 +30,7 @@ type ChatRow = {
   anchor_page: number | null;
   quoted_text: string | null;
   model_preference: string;
-  forked_from_chat_id: string | null;
+  forked_from_annotation_id: string | null;
 };
 
 export async function POST(req: NextRequest) {
@@ -50,16 +50,16 @@ export async function POST(req: NextRequest) {
   const { client: db, userId } = await resolveReadingScope(body.memberEmail);
 
   const { data: chatRaw } = await db
-    .from("reading_chats")
+    .from("reading_annotations")
     .select(
       "id, book_id, spoiler_free, context_through_page, anchor_char_offset, " +
-        "anchor_page, quoted_text, model_preference, forked_from_chat_id"
+        "anchor_page, quoted_text, model_preference, forked_from_annotation_id"
     )
     .eq("id", chatId)
     .eq("user_id", userId)
     .maybeSingle();
   if (!chatRaw) return new Response("chat not found", { status: 404 });
-  const chat = chatRaw as unknown as ChatRow;
+  const chat = chatRaw as unknown as AnnotationRow;
 
   const { data: book } = await db
     .from("reading_books")
@@ -69,11 +69,11 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
   if (!book) return new Response("book not found", { status: 404 });
 
-  // Thread so far. 'note' rows are app-authored UI text and never go to the model.
+  // Thread so far. 'notice' rows are app-authored UI text and never go to the model.
   const { data: priorMsgs, error: msgsErr } = await db
-    .from("reading_chat_messages")
+    .from("reading_annotation_messages")
     .select("role, content")
-    .eq("chat_id", chatId)
+    .eq("annotation_id", chatId)
     .eq("user_id", userId)
     .in("role", ["user", "assistant"])
     .order("created_at", { ascending: true });
@@ -87,8 +87,8 @@ export async function POST(req: NextRequest) {
   }));
   turns.push({ role: "user", content: userMessage.trim() });
 
-  const { error: insertErr } = await db.from("reading_chat_messages").insert({
-    chat_id: chatId,
+  const { error: insertErr } = await db.from("reading_annotation_messages").insert({
+    annotation_id: chatId,
     user_id: userId,
     role: "user",
     content: userMessage.trim(),
@@ -117,19 +117,19 @@ export async function POST(req: NextRequest) {
   let priorTranscript: { role: "user" | "assistant"; content: string }[] | null =
     null;
   let parentAnchorPage: number | null = null;
-  if (chat.forked_from_chat_id) {
+  if (chat.forked_from_annotation_id) {
     const { data: parent } = await db
-      .from("reading_chats")
+      .from("reading_annotations")
       .select("anchor_page")
-      .eq("id", chat.forked_from_chat_id)
+      .eq("id", chat.forked_from_annotation_id)
       .eq("user_id", userId)
       .maybeSingle();
     parentAnchorPage = (parent?.anchor_page as number | null) ?? null;
 
     const { data: parentMsgs } = await db
-      .from("reading_chat_messages")
+      .from("reading_annotation_messages")
       .select("role, content")
-      .eq("chat_id", chat.forked_from_chat_id)
+      .eq("annotation_id", chat.forked_from_annotation_id)
       .eq("user_id", userId)
       .in("role", ["user", "assistant"])
       .order("created_at", { ascending: true });
@@ -185,17 +185,17 @@ export async function POST(req: NextRequest) {
 
   if (promoted) {
     const { data: existingNote } = await db
-      .from("reading_chat_messages")
+      .from("reading_annotation_messages")
       .select("id")
-      .eq("chat_id", chatId)
+      .eq("annotation_id", chatId)
       .eq("user_id", userId)
-      .eq("role", "note")
+      .eq("role", "notice")
       .limit(1);
     if (!existingNote || existingNote.length === 0) {
-      await db.from("reading_chat_messages").insert({
-        chat_id: chatId,
+      await db.from("reading_annotation_messages").insert({
+        annotation_id: chatId,
         user_id: userId,
-        role: "note",
+        role: "notice",
         content: PROMOTION_NOTE,
       });
     }
@@ -231,8 +231,8 @@ export async function POST(req: NextRequest) {
 
         const trimmed = full.trim();
         if (trimmed.length > 0) {
-          await db.from("reading_chat_messages").insert({
-            chat_id: chatId,
+          await db.from("reading_annotation_messages").insert({
+            annotation_id: chatId,
             user_id: userId,
             role: "assistant",
             content: trimmed,

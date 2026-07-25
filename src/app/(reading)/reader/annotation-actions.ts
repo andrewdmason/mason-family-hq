@@ -2,14 +2,14 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveReadingScope } from "@/lib/reading/scope";
-import type { ChatAnchor } from "@/lib/reading/chat-anchors";
+import type { AnnotationAnchor } from "@/lib/reading/annotation-anchors";
 import type {
-  ReaderChatData,
-  ReaderChatDetail,
+  ReaderAnnotationData,
+  AnnotationDetail,
   ReaderChatMessage,
   ReaderChatModelPreference,
-  ReaderChatSummary,
-} from "@/lib/reading/chat-types";
+  AnnotationSummary,
+} from "@/lib/reading/annotation-types";
 
 /**
  * Reader chat: anchored conversations about a book.
@@ -23,9 +23,10 @@ import type {
 
 const CHAT_COLUMNS =
   "id, book_id, anchor, anchor_char_offset, anchor_page, spoiler_free, " +
-  "context_through_page, quoted_text, model_preference, forked_from_chat_id, created_at";
+  "context_through_page, quoted_text, note, color, model_preference, " +
+  "forked_from_annotation_id, created_at";
 
-type ChatRow = {
+type AnnotationRow = {
   id: string;
   book_id: string;
   anchor: unknown;
@@ -34,27 +35,31 @@ type ChatRow = {
   spoiler_free: boolean;
   context_through_page: number | null;
   quoted_text: string | null;
+  note: string | null;
+  color: string;
   model_preference: string;
-  forked_from_chat_id: string | null;
+  forked_from_annotation_id: string | null;
   created_at: string;
 };
 
 function toSummary(
-  row: ChatRow,
+  row: AnnotationRow,
   counts?: { messageCount: number; lastMessageAt: string | null }
-): ReaderChatSummary {
+): AnnotationSummary {
   return {
     id: row.id,
-    anchor: row.anchor as ChatAnchor,
+    anchor: row.anchor as AnnotationAnchor,
     anchorCharOffset: row.anchor_char_offset,
     anchorPage: row.anchor_page,
     spoilerFree: row.spoiler_free,
     contextThroughPage: row.context_through_page,
     quotedText: row.quoted_text,
+    note: row.note,
+    color: row.color,
     modelPreference: (row.model_preference === "deep"
       ? "deep"
       : "fast") as ReaderChatModelPreference,
-    forkedFromChatId: row.forked_from_chat_id,
+    forkedFromAnnotationId: row.forked_from_annotation_id,
     messageCount: counts?.messageCount ?? 0,
     lastMessageAt: counts?.lastMessageAt ?? null,
     createdAt: row.created_at,
@@ -87,10 +92,10 @@ async function pageForCharOffset(
 }
 
 /** Everything the reader needs to render markers and open a chat. */
-export async function getReaderChatData(
+export async function getAnnotationData(
   bookId: string,
   memberEmail?: string | null
-): Promise<ReaderChatData> {
+): Promise<ReaderAnnotationData> {
   const { client, userId } = await resolveReadingScope(memberEmail);
 
   const { data: book } = await client
@@ -108,37 +113,37 @@ export async function getReaderChatData(
     .maybeSingle();
 
   const { data: chatRows, error } = await client
-    .from("reading_chats")
+    .from("reading_annotations")
     .select(CHAT_COLUMNS)
     .eq("book_id", bookId)
     .eq("user_id", userId)
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
 
-  const rows = (chatRows ?? []) as unknown as ChatRow[];
+  const rows = (chatRows ?? []) as unknown as AnnotationRow[];
 
   // One roll-up query rather than a count per chat. Skipped entirely when there
   // are no chats — an empty .in() list is a malformed PostgREST filter, not an
   // empty result.
   const { data: msgRows } = rows.length
     ? await client
-        .from("reading_chat_messages")
-        .select("chat_id, created_at")
+        .from("reading_annotation_messages")
+        .select("annotation_id, created_at")
         .eq("user_id", userId)
         .in(
-          "chat_id",
+          "annotation_id",
           rows.map((r) => r.id)
         )
     : { data: [] };
 
   const stats = new Map<string, { messageCount: number; lastMessageAt: string | null }>();
-  for (const m of (msgRows ?? []) as { chat_id: string; created_at: string }[]) {
-    const cur = stats.get(m.chat_id) ?? { messageCount: 0, lastMessageAt: null };
+  for (const m of (msgRows ?? []) as { annotation_id: string; created_at: string }[]) {
+    const cur = stats.get(m.annotation_id) ?? { messageCount: 0, lastMessageAt: null };
     cur.messageCount += 1;
     if (!cur.lastMessageAt || m.created_at > cur.lastMessageAt) {
       cur.lastMessageAt = m.created_at;
     }
-    stats.set(m.chat_id, cur);
+    stats.set(m.annotation_id, cur);
   }
 
   const { data: pageRows } = await client
@@ -171,19 +176,21 @@ export async function getReaderChatData(
  * char offset); the server decides what the chat is allowed to see and freezes
  * it here, once, for the life of the chat.
  */
-export async function createReaderChat(input: {
+export async function createAnnotation(input: {
   bookId: string;
-  anchor: ChatAnchor;
+  anchor: AnnotationAnchor;
   anchorCharOffset: number;
   quotedText?: string | null;
-  forkedFromChatId?: string | null;
+  /** Set when the reader picked "Note" rather than "Highlight" or "Ask". */
+  note?: string | null;
+  forkedFromAnnotationId?: string | null;
   memberEmail?: string | null;
-}): Promise<ReaderChatDetail> {
+}): Promise<AnnotationDetail> {
   const { client, userId } = await resolveReadingScope(input.memberEmail);
 
   const { data: book } = await client
     .from("reading_books")
-    .select("id, spoiler_free")
+    .select("id, spoiler_free, type")
     .eq("id", input.bookId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -199,7 +206,10 @@ export async function createReaderChat(input: {
     throw new Error("This book isn't ready to read yet.");
   }
 
-  // Never trust a client offset: clamp into the book before it decides anything.
+  // Never trust a client offset: clamp before it decides anything. For an
+  // article char_count is the length of the HTML, not of the text, so this stays
+  // a safe upper bound (HTML >= text) without being a tight one — nothing
+  // downstream needs it to be, because articles never resolve a page.
   const charCount = (content.char_count as number | null) ?? 0;
   const charOffset = Math.max(
     0,
@@ -212,10 +222,15 @@ export async function createReaderChat(input: {
     input.bookId,
     charOffset
   );
-  const spoilerFree = book.spoiler_free === true;
+  // Spoiler-free is meaningless for an article and actively wrong to honour:
+  // the route would cut context at anchor_char_offset, which for articles is
+  // measured in DOM-text space rather than the conversion char space the cut
+  // assumes. The UI hides the toggle too; this is the guard that matters.
+  const isArticle = book.type === "article";
+  const spoilerFree = !isArticle && book.spoiler_free === true;
 
   const { data: inserted, error } = await client
-    .from("reading_chats")
+    .from("reading_annotations")
     .insert({
       book_id: input.bookId,
       user_id: userId,
@@ -227,24 +242,25 @@ export async function createReaderChat(input: {
       // "no page map", and the route falls back to anchor_char_offset.
       context_through_page: spoilerFree ? anchorPage : null,
       quoted_text: input.quotedText?.trim() || null,
-      forked_from_chat_id: input.forkedFromChatId ?? null,
+      note: input.note?.trim() || null,
+      forked_from_annotation_id: input.forkedFromAnnotationId ?? null,
     })
     .select(CHAT_COLUMNS)
     .single();
   if (error) throw new Error(error.message);
 
-  return { ...toSummary(inserted as unknown as ChatRow), messages: [] };
+  return { ...toSummary(inserted as unknown as AnnotationRow), messages: [] };
 }
 
 /** A chat and its transcript. */
-export async function getReaderChat(
+export async function getAnnotation(
   chatId: string,
   memberEmail?: string | null
-): Promise<ReaderChatDetail | null> {
+): Promise<AnnotationDetail | null> {
   const { client, userId } = await resolveReadingScope(memberEmail);
 
   const { data: row } = await client
-    .from("reading_chats")
+    .from("reading_annotations")
     .select(CHAT_COLUMNS)
     .eq("id", chatId)
     .eq("user_id", userId)
@@ -252,9 +268,9 @@ export async function getReaderChat(
   if (!row) return null;
 
   const { data: msgs, error } = await client
-    .from("reading_chat_messages")
+    .from("reading_annotation_messages")
     .select("id, role, content, model, created_at")
-    .eq("chat_id", chatId)
+    .eq("annotation_id", chatId)
     .eq("user_id", userId)
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
@@ -275,7 +291,7 @@ export async function getReaderChat(
     createdAt: m.created_at,
   }));
 
-  const chatRow = row as unknown as ChatRow;
+  const chatRow = row as unknown as AnnotationRow;
   return {
     ...toSummary(chatRow, {
       messageCount: messages.length,
@@ -290,27 +306,27 @@ export async function getReaderChat(
  * transcript forward as prompt context (see chat-prompt.ts). The parent is left
  * exactly as it was — its frozen boundary is the whole point of forking.
  */
-export async function forkReaderChat(input: {
+export async function forkAnnotation(input: {
   chatId: string;
-  anchor: ChatAnchor;
+  anchor: AnnotationAnchor;
   anchorCharOffset: number;
   memberEmail?: string | null;
-}): Promise<ReaderChatDetail> {
+}): Promise<AnnotationDetail> {
   const { client, userId } = await resolveReadingScope(input.memberEmail);
 
   const { data: parent } = await client
-    .from("reading_chats")
+    .from("reading_annotations")
     .select("id, book_id")
     .eq("id", input.chatId)
     .eq("user_id", userId)
     .maybeSingle();
   if (!parent) throw new Error("Chat not found.");
 
-  return createReaderChat({
+  return createAnnotation({
     bookId: parent.book_id as string,
     anchor: input.anchor,
     anchorCharOffset: input.anchorCharOffset,
-    forkedFromChatId: parent.id as string,
+    forkedFromAnnotationId: parent.id as string,
     memberEmail: input.memberEmail,
   });
 }
@@ -330,14 +346,14 @@ export async function setBookSpoilerFree(
   if (error) throw new Error(error.message);
 }
 
-export async function setChatModelPreference(
+export async function setAnnotationModelPreference(
   chatId: string,
   preference: ReaderChatModelPreference,
   memberEmail?: string | null
 ): Promise<void> {
   const { client, userId } = await resolveReadingScope(memberEmail);
   const { error } = await client
-    .from("reading_chats")
+    .from("reading_annotations")
     .update({ model_preference: preference })
     .eq("id", chatId)
     .eq("user_id", userId);
@@ -353,35 +369,68 @@ export async function setChatModelPreference(
  * starts streaming, so a chat with any message at all is one the reader
  * committed to, even if the reply failed. Returns whether it was discarded.
  */
-export async function discardReaderChatIfEmpty(
-  chatId: string,
+export async function discardAnnotationIfEmpty(
+  annotationId: string,
   memberEmail?: string | null
 ): Promise<boolean> {
   const { client, userId } = await resolveReadingScope(memberEmail);
 
   const { count } = await client
-    .from("reading_chat_messages")
+    .from("reading_annotation_messages")
     .select("id", { count: "exact", head: true })
-    .eq("chat_id", chatId)
+    .eq("annotation_id", annotationId)
     .eq("user_id", userId);
   if ((count ?? 0) > 0) return false;
 
+  // A note makes this the reader's writing, not an abandoned draft. Under the
+  // old chat-only model "no messages" meant "garbage"; it no longer does, and
+  // this check is what stops a highlight being deleted out from under someone.
+  const { data: row } = await client
+    .from("reading_annotations")
+    .select("note")
+    .eq("id", annotationId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!row || row.note != null) return false;
+
   const { error } = await client
-    .from("reading_chats")
+    .from("reading_annotations")
     .delete()
-    .eq("id", chatId)
+    .eq("id", annotationId)
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
   return true;
 }
 
-export async function deleteReaderChat(
+/**
+ * Write (or clear) the reader's note on an annotation. This is how a highlight
+ * becomes a note and how a note is edited — always the same row, never a new one.
+ *
+ * Clearing the note does NOT delete the annotation: erasing what you wrote
+ * leaves the passage highlighted, which is the reversible reading of the
+ * gesture. Getting rid of it entirely is what the delete control is for.
+ */
+export async function setAnnotationNote(
+  annotationId: string,
+  note: string | null,
+  memberEmail?: string | null
+): Promise<void> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+  const { error } = await client
+    .from("reading_annotations")
+    .update({ note: note?.trim() || null })
+    .eq("id", annotationId)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteAnnotation(
   chatId: string,
   memberEmail?: string | null
 ): Promise<void> {
   const { client, userId } = await resolveReadingScope(memberEmail);
   const { error } = await client
-    .from("reading_chats")
+    .from("reading_annotations")
     .delete()
     .eq("id", chatId)
     .eq("user_id", userId);

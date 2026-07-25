@@ -10,7 +10,7 @@
  *   1. convert.ts  `advance()` — charCursor += text.length + 1 per emitted block
  *   2. this file   `blockMap()` — the inverse, rebuilt from the generated HTML
  *   3. reading_book_pages.char_start/char_end — recorded against (1)
- * extract-text.ts and chat-anchors.ts both consume this module rather than
+ * extract-text.ts and annotation-anchors.ts both consume this module rather than
  * re-implementing the regex, so there is only one place to keep in sync.
  *
  * A converted book contains exactly three element kinds — <p>, <h1 id="sec-N">,

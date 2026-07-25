@@ -10,9 +10,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ReaderChatLayer } from "@/components/reading/chat/reader-chat-layer";
+import { ReaderAnnotationLayer } from "@/components/reading/annotations/reader-annotation-layer";
 import { blockIndexForCharOffset, blockMap } from "@/lib/reading/block-stream";
-import { blockElements } from "@/lib/reading/chat-anchors";
+import { blockElements } from "@/lib/reading/annotation-anchors";
 import { PAGE_PAD_BOTTOM } from "@/lib/reading/paged-geometry";
 import { MARGIN_MEASURE_PX } from "@/lib/reading/reader-settings";
 import {
@@ -497,6 +497,10 @@ export function BookReader({
       if (target?.closest('a, button, [role="menuitem"], input, textarea, select')) {
         return;
       }
+      // Nor the tap that dismisses a selection. Once selecting text is the way
+      // you annotate, toggling the chrome on every such tap is constant noise.
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed) return;
       setChromeTapped((v) => !v);
     };
     document.addEventListener("touchstart", onStart, { passive: true });
@@ -582,11 +586,15 @@ export function BookReader({
   const chapterTimeLeft = formatTimeLeft(progress.chapter?.minutesLeft ?? null);
   const loaded = html != null && !loadError;
 
-  const chatLayer = loaded && !isArticle && (
-    <ReaderChatLayer
+  // Books and articles both: the layer switches coordinate spaces on isArticle
+  // rather than opting out. Articles never reach the paged branch, so the paged
+  // context it gets there is always null.
+  const annotationLayer = loaded && (
+    <ReaderAnnotationLayer
       bookId={bookId}
       memberEmail={memberEmail}
       html={html}
+      isArticle={isArticle}
       contentRef={contentRef}
       currentCharOffset={currentCharOffset}
       goToChar={goToChar}
@@ -615,9 +623,15 @@ export function BookReader({
             headerVisible ? "opacity-100" : "pointer-events-none opacity-0"
           )}
         >
+          {/* Full-bleed: the book sits hard left, the contents menu dead centre.
+              Equal 1fr flanks are what keep the middle column truly centred
+              however long the title runs. The extra right padding clears the
+              annotations button, which floats above this bar at a fixed
+              top-right position and is visible even when the header is not
+              (see annotations-button.tsx). */}
           <div
             className={cn(
-              "grid h-full grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 sm:px-6",
+              "grid h-full grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 pr-14 sm:px-6 sm:pr-16",
               paged && "[&_a]:pointer-events-auto [&_button]:pointer-events-auto"
             )}
           >
@@ -758,7 +772,7 @@ export function BookReader({
             onFirst={() => pagination.goToPage(0)}
             onLast={() => pagination.goToPage(pagination.totalPages - 1)}
           >
-            {chatLayer}
+            {annotationLayer}
           </PagedView>
           <ReaderFooter
             chapterTitle={progress.chapter?.title ?? null}
@@ -820,9 +834,10 @@ export function BookReader({
               )}
               dangerouslySetInnerHTML={{ __html: html }}
             />
-            {/* Books only: articles keep images/links/lists, which breaks the
-                flat block model anchors are addressed in. */}
-            {chatLayer}
+            {/* Books and articles both. Articles keep images/links/lists, so
+                they have no conversion char space and no page map — the layer
+                switches coordinate spaces on isArticle rather than opting out. */}
+            {annotationLayer}
           </div>
         </article>
       )}

@@ -14,7 +14,7 @@
  */
 
 import type { BookBlock } from "@/lib/reading/block-stream";
-import { textPositionAt } from "@/lib/reading/chat-anchors";
+import { textPositionAt } from "@/lib/reading/annotation-anchors";
 import {
   colIndexForX,
   firstColOfPage,

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { BookBlock } from "@/lib/reading/block-stream";
-import { blockElements } from "@/lib/reading/chat-anchors";
+import { blockElements } from "@/lib/reading/annotation-anchors";
 import {
   computeGeometry,
   sameGeometry,
