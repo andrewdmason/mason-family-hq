@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, List, Loader2, MoreHorizontal, Settings2 } from "lucide-react";
+import { List, Loader2, MoreHorizontal, PanelLeft, Settings2 } from "lucide-react";
 import { saveReadingPosition } from "@/app/(reading)/reader/actions";
 import {
   DropdownMenu,
@@ -649,6 +649,22 @@ export function BookReader({
   // A page has fixed bounds, so the chrome can simply stay: it never covers
   // text, which is the only reason it had to hide when scrolling.
   const headerVisible = paged || hoverTop || tocOpen || menuOpen || chromeTapped || scrollRevealed;
+
+  // The header and footer keep to the book's own margins rather than the
+  // window's, so the running head sits over the text block the way it does in a
+  // printed book. Paged mode knows its column bounds exactly; scrolling mode
+  // re-uses the article's measure (the +48 adds back its border-box px-6, so
+  // both come out at the same text edges).
+  const chromeBounds: React.CSSProperties =
+    paged && pagedGeometry
+      ? { left: pagedGeometry.offsetX, width: pagedGeometry.contentW }
+      : {
+          left: 0,
+          right: 0,
+          marginInline: "auto",
+          maxWidth: MARGIN_MEASURE_PX[settings.margins] + 48,
+        };
+
   const bookTimeLeft = formatTimeLeft(progress.minutesLeft);
   const chapterTimeLeft = formatTimeLeft(progress.chapter?.minutesLeft ?? null);
   const loaded = html != null && !loadError;
@@ -685,52 +701,70 @@ export function BookReader({
             // Scrolling needs the bar to be opaque, because text runs under it.
             // A page stops short of it, so it can be nothing but its contents.
             paged
-              ? "pointer-events-none"
+              ? "pointer-events-none [&_a]:pointer-events-auto [&_button]:pointer-events-auto"
               : "border-b border-border/60 bg-background/80 backdrop-blur",
             headerVisible ? "opacity-100" : "pointer-events-none opacity-0"
           )}
         >
-          {/* Where you are reads left to right: the book, then the chapter
-              inside it, then the controls. The contents menu sits against the
-              title rather than centred because it names a place in that book —
-              centred, it read as a third, unrelated thing.
+          {/* Two different things, so two different rules.
 
-              The extra right padding clears the annotations button, which floats
-              above this bar at a fixed top-right position and is visible even
-              when the header is not (see annotations-button.tsx). */}
-          <div
-            className={cn(
-              "flex h-full items-center gap-3 px-4 pr-14 sm:px-6 sm:pr-16",
-              paged && "[&_a]:pointer-events-auto [&_button]:pointer-events-auto"
-            )}
+              The way out of the book is a navigation control, not part of the
+              page — it belongs to the app. So it sits in the margin, hard
+              against the window edge, along with the reader's own options and
+              the annotations button that floats there already
+              (annotations-button.tsx). Margins are where a book puts its
+              furniture. */}
+          <Link
+            href={backHref}
+            aria-label="Back to my books"
+            className="absolute top-1/2 left-2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:left-3"
           >
-            <div className="flex min-w-0 items-center gap-2">
-              <Link
-                href={backHref}
-                aria-label="Back to my books"
-                className="inline-flex shrink-0 items-center text-sm text-muted-foreground transition-colors hover:text-foreground"
+            <PanelLeft className="h-4 w-4" />
+          </Link>
+
+          <div className="absolute top-1/2 right-12 z-10 -translate-y-1/2">
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+              <DropdownMenuTrigger
+                aria-label="Reader options"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
-                <ChevronLeft className="h-4 w-4" />
-              </Link>
-              <div className="min-w-0">
-                <p
-                  className={cn(
-                    "truncate text-sm font-medium",
-                    paged ? "text-muted-foreground/80" : "text-foreground"
-                  )}
-                >
-                  {title}
-                  {/* Scrolling has nowhere else to put this; a page has a footer. */}
-                  {!paged && loaded && (
-                    <span className="ml-1.5 text-xs font-normal tabular-nums text-muted-foreground">
-                      ({progress.percent}%{bookTimeLeft ? ` · ${bookTimeLeft}` : ""})
-                    </span>
-                  )}
-                </p>
-                {author && !paged && (
-                  <p className="truncate text-xs text-muted-foreground">{author}</p>
+                <MoreHorizontal className="h-4 w-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuItem onClick={() => setLayoutOpen(true)}>
+                  <Settings2 className="h-4 w-4" />
+                  Layout
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          {/* Where you are, on the other hand, is the running head of this page:
+              the book, then the chapter inside it, centred over the text block
+              and never wider than it. The padding is what keeps a long title
+              from sliding under the margin controls on a narrow window. */}
+          <div
+            className="absolute inset-y-0 flex items-center justify-center gap-2 px-12"
+            style={chromeBounds}
+          >
+            <div className="min-w-0 text-center">
+              <p
+                className={cn(
+                  "truncate text-sm font-medium",
+                  paged ? "text-muted-foreground/80" : "text-foreground"
                 )}
-              </div>
+              >
+                {title}
+                {/* Scrolling has nowhere else to put this; a page has a footer. */}
+                {!paged && loaded && (
+                  <span className="ml-1.5 text-xs font-normal tabular-nums text-muted-foreground">
+                    ({progress.percent}%{bookTimeLeft ? ` · ${bookTimeLeft}` : ""})
+                  </span>
+                )}
+              </p>
+              {author && !paged && (
+                <p className="truncate text-xs text-muted-foreground">{author}</p>
+              )}
             </div>
 
             {toc.length > 0 && (
@@ -758,7 +792,7 @@ export function BookReader({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   ref={tocListRef}
-                  align="start"
+                  align="center"
                   className="max-h-80 w-64 overflow-y-auto"
                 >
                   {toc.map((entry) => {
@@ -783,23 +817,6 @@ export function BookReader({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-
-            <div className="ml-auto shrink-0">
-              <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-                <DropdownMenuTrigger
-                  aria-label="Reader options"
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-40">
-                  <DropdownMenuItem onClick={() => setLayoutOpen(true)}>
-                    <Settings2 className="h-4 w-4" />
-                    Layout
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
           </div>
 
           {/* Slim completion bar along the header's bottom edge. */}
@@ -847,6 +864,8 @@ export function BookReader({
             percent={progress.percent}
             minutesLeft={progress.minutesLeft}
             height={PAGE_PAD_BOTTOM}
+            left={pagedGeometry?.offsetX ?? null}
+            width={pagedGeometry?.contentW ?? null}
           />
         </>
       ) : (
