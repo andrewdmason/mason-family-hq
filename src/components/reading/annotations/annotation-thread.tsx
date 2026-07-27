@@ -34,6 +34,8 @@ export function AnnotationThread({
   onExchangeComplete,
   onSpoilerFreeChange,
   onModelChange,
+  resolveChatId,
+  createError = null,
 }: {
   chat: AnnotationDetail;
   memberEmail: string | null;
@@ -54,6 +56,13 @@ export function AnnotationThread({
   onExchangeComplete: () => void;
   onSpoilerFreeChange: (next: boolean) => void;
   onModelChange: (next: ReaderChatModelPreference) => void;
+  /**
+   * The chat's real id, waiting for it if the annotation was opened before the
+   * server had created it. Resolves immediately in every other case.
+   */
+  resolveChatId?: (id: string) => Promise<string>;
+  /** Set when that creation failed, so this thread has nowhere to send to. */
+  createError?: string | null;
 }) {
   const [messages, setMessages] = useState<ReaderChatMessage[]>(chat.messages);
   const [draft, setDraft] = useState("");
@@ -89,18 +98,38 @@ export function AnnotationThread({
     // its first step, so the chat is committed even if the reply fails.
     onTouched();
 
+    const userId = localId();
     const assistantId = localId();
     setMessages((prev) => [
       ...prev,
-      { id: localId(), role: "user", content: text, model: null, createdAt: "" },
+      { id: userId, role: "user", content: text, model: null, createdAt: "" },
       { id: assistantId, role: "assistant", content: "", model: null, createdAt: "" },
     ]);
+
+    // The panel can open before the annotation row exists, so the id it was
+    // rendered with may still be a stand-in. Resolved here rather than at the
+    // top of send: the question and the pending reply are already on screen, so
+    // if this does have to wait, it waits behind a live-looking thread.
+    let chatId = chat.id;
+    if (resolveChatId) {
+      try {
+        chatId = await resolveChatId(chat.id);
+      } catch (err) {
+        // The annotation never saved, so there is nowhere for this to go. Give
+        // the reader their words back rather than leaving them in a dead thread.
+        setError(err instanceof Error ? err.message : "Couldn't save that annotation.");
+        setMessages((prev) => prev.filter((m) => m.id !== userId && m.id !== assistantId));
+        setDraft(text);
+        setSending(false);
+        return;
+      }
+    }
 
     try {
       const res = await fetch("/reader/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chatId: chat.id, userMessage: text, memberEmail }),
+        body: JSON.stringify({ chatId, userMessage: text, memberEmail }),
       });
       if (!res.ok || !res.body) {
         throw new Error((await res.text()) || "Couldn't send that.");
@@ -152,7 +181,7 @@ export function AnnotationThread({
       // decides its colour and its margin icon needs to hear about it.
       onExchangeComplete();
     }
-  }, [draft, sending, chat.id, memberEmail, onTouched, onExchangeComplete]);
+  }, [draft, sending, chat.id, memberEmail, onTouched, onExchangeComplete, resolveChatId]);
 
   // The chat's boundary is frozen at its anchor, so once you've read past it the
   // assistant knows less than you do. Offer the fork exactly when that's true.
@@ -259,8 +288,8 @@ export function AnnotationThread({
           </div>
         )}
 
-        {error && (
-          <p className="mt-3 text-xs text-destructive">{error}</p>
+        {(error || createError) && (
+          <p className="mt-3 text-xs text-destructive">{error ?? createError}</p>
         )}
         <div ref={endRef} />
       </div>

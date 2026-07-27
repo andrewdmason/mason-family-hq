@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import Link from "next/link";
 import { List, Loader2, MoreHorizontal, PanelLeft, Settings2 } from "lucide-react";
 import { saveReadingPosition } from "@/app/(reading)/reader/actions";
@@ -22,6 +29,11 @@ import {
 } from "@/lib/reading/offline/positions";
 import { PAGE_PAD_BOTTOM, bookAreaWidth, sidePanelFits } from "@/lib/reading/paged-geometry";
 import { note, startTimer, time } from "@/lib/reading/perf";
+import {
+  getServerViewportSize,
+  getViewportSize,
+  subscribeViewport,
+} from "@/lib/reading/viewport-size";
 import { MARGIN_MEASURE_PX } from "@/lib/reading/reader-settings";
 import {
   chapterBounds,
@@ -104,7 +116,14 @@ export function BookReader({
   const [menuOpen, setMenuOpen] = useState(false);
   const [layoutOpen, setLayoutOpen] = useState(false);
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
-  const [viewportWidth, setViewportWidth] = useState(0);
+  // The same store the paging engine derives its geometry from, so the chat
+  // panel's presentation and the book's layout can never disagree about how wide
+  // the window is.
+  const { width: viewportWidth } = useSyncExternalStore(
+    subscribeViewport,
+    getViewportSize,
+    getServerViewportSize
+  );
 
   // Scrolling only: the header stays out of the way until you reach for it.
   const [hoverTop, setHoverTop] = useState(false);
@@ -169,12 +188,6 @@ export function BookReader({
     };
   }, [author, bookId, contentUrl, isArticle, title]);
 
-  useEffect(() => {
-    const sync = () => setViewportWidth(window.innerWidth);
-    sync();
-    window.addEventListener("resize", sync);
-    return () => window.removeEventListener("resize", sync);
-  }, []);
 
   // ---- Position -----------------------------------------------------------
 

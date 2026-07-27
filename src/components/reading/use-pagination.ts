@@ -1,13 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { BookBlock } from "@/lib/reading/block-stream";
 import { blockElements } from "@/lib/reading/annotation-anchors";
+import { computeGeometry, type PageGeometry } from "@/lib/reading/paged-geometry";
 import {
-  computeGeometry,
-  sameGeometry,
-  type PageGeometry,
-} from "@/lib/reading/paged-geometry";
+  getServerViewportSize,
+  getViewportSize,
+  subscribeViewport,
+} from "@/lib/reading/viewport-size";
 import {
   assertPagesMoveForward,
   charOffsetAtTopOfPage,
@@ -33,8 +42,6 @@ import { note, startTimer } from "@/lib/reading/perf";
  * That's the whole trick to never losing your place. Position is a character
  * offset; pages are just where the characters happen to be right now.
  */
-
-const RESIZE_DEBOUNCE_MS = 150;
 
 export type Pagination = {
   geometry: PageGeometry | null;
@@ -79,10 +86,11 @@ export function usePagination({
   /** Called whenever the reader lands on a new page. Must be stable. */
   onPositionChange: (charOffset: number, atEnd: boolean) => void;
 }): Pagination {
-  const [measured, setMeasured] = useState<PageGeometry | null>(null);
-  // Derived rather than cleared when paging is switched off, so turning the
-  // setting on and off doesn't cascade an extra render each way.
-  const geometry = enabled ? measured : null;
+  const viewport = useSyncExternalStore(
+    subscribeViewport,
+    getViewportSize,
+    getServerViewportSize
+  );
   const [pageIndex, setPageIndex] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [charOffset, setCharOffset] = useState(externalCharOffset);
@@ -183,39 +191,27 @@ export function usePagination({
   // before its stylesheet applies it measures 0×0, we decline to paginate, and
   // the book never appears at all. The window is always the window.
   //
-  // Resizes are debounced (a drag fires dozens and each would re-fragment the
-  // whole book); a settings change re-runs this effect and repaginates at once,
-  // since that one is a deliberate action and should feel immediate.
-  useEffect(() => {
-    if (!enabled || html == null) {
-      geometryRef.current = null;
-      return;
-    }
-
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const remeasure = () => {
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      if (width === 0 || height === 0) return;
-      const nextGeometry = computeGeometry(width, height, settings, chatPanelOpen);
-      setMeasured((prev) => (sameGeometry(prev, nextGeometry) ? prev : nextGeometry));
-    };
-
-    remeasure();
-    const onResize = () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(remeasure, RESIZE_DEBOUNCE_MS);
-    };
-    window.addEventListener("resize", onResize);
-    // Phones change the visible height without a window resize when the browser
-    // chrome slides away.
-    window.visualViewport?.addEventListener("resize", onResize);
-    return () => {
-      window.removeEventListener("resize", onResize);
-      window.visualViewport?.removeEventListener("resize", onResize);
-      if (timer) clearTimeout(timer);
-    };
-  }, [enabled, html, settings, chatPanelOpen]);
+  // Derived during render rather than measured into state by an effect, and the
+  // difference is a frame you can see.
+  //
+  // As an effect, the geometry landed after the browser had already painted, so
+  // opening the chat came out as a staircase: one frame with the panel sitting on
+  // top of a book still where it was, then the new geometry, then the page
+  // repositioning. Nothing in it was slow — it was three frames of a change that
+  // should be one, and it read as the reader lagging behind the panel. Derived
+  // here, the panel and the book it moves arrive together, because the layout
+  // effects below run in the same pre-paint pass as the render that moved it.
+  //
+  // Free to do during render: computeGeometry is arithmetic on the window size.
+  // It reads no layout, so it forces none.
+  const measured = useMemo(
+    () =>
+      !enabled || html == null || viewport.width === 0 || viewport.height === 0
+        ? null
+        : computeGeometry(viewport.width, viewport.height, settings, chatPanelOpen),
+    [enabled, html, viewport, settings, chatPanelOpen]
+  );
+  const geometry = measured;
 
   // What the browser actually needs to re-fragment for: the size of a column box
   // and the gap between boxes. Notably not `cols` — the flow element is always
