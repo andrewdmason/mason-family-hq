@@ -359,21 +359,97 @@ function rangeFromQuote(
   return range.collapsed ? null : range;
 }
 
+/**
+ * The quote stored with an anchor: the passage, and a few characters either side
+ * of it to tell two identical sentences apart.
+ *
+ * The context is gathered by walking out from the selection until there's enough
+ * of it. That sounds obvious, and it is, but this used to flatten the ENTIRE book
+ * into one string — a TreeWalker over every text node plus a 1.1MB concatenation,
+ * and then a probe Range serialising up to 1.1MB more just to learn how far in
+ * the selection started — in order to slice 64 characters out of the middle. It
+ * ran on the click that creates a highlight, before anything appeared on screen.
+ */
 function quoteForRange(range: Range, container: HTMLElement): AnchorQuote {
   const full = range.toString();
-  const index = buildTextIndex(container);
-  const startAt = domOffsetOfBoundary(
-    container,
-    range.startContainer,
-    range.startOffset
-  );
-  const endAt = startAt + full.length;
   return {
     exact: full.slice(0, QUOTE_MAX),
-    prefix: index.text.slice(Math.max(0, startAt - QUOTE_CONTEXT), startAt),
-    suffix: index.text.slice(endAt, endAt + QUOTE_CONTEXT),
+    prefix: textBefore(container, range.startContainer, range.startOffset, QUOTE_CONTEXT),
+    suffix: textAfter(container, range.endContainer, range.endOffset, QUOTE_CONTEXT),
     length: full.length,
   };
+}
+
+/**
+ * How far out to keep reaching for context before settling for less. A block or
+ * two always suffices for 32 characters; the limit is only there so a run of
+ * empty page-anchor spans can't turn into a walk to the front of the book.
+ */
+const CONTEXT_BLOCK_LIMIT = 12;
+
+/**
+ * Up to `count` characters of text immediately before a boundary.
+ *
+ * A probe Range does the reading, because `Range.toString()` is exactly the
+ * concatenation the stored offsets are measured in — the same guarantee the old
+ * whole-document index relied on. The difference is where the probe starts: at
+ * the boundary's own block, reaching back into earlier ones only while it still
+ * needs characters. The cost is the context, not the book.
+ */
+function textBefore(container: HTMLElement, node: Node, offset: number, count: number): string {
+  const probe = container.ownerDocument.createRange();
+  try {
+    probe.setEnd(node, offset);
+  } catch {
+    return "";
+  }
+  let from: Node = closestBlock(node, container) ?? node;
+  let out = "";
+  for (let step = 0; step < CONTEXT_BLOCK_LIMIT; step++) {
+    probe.setStartBefore(from);
+    out = probe.toString();
+    if (out.length >= count) break;
+    const previous = previousInContainer(from, container);
+    if (!previous) break;
+    from = previous;
+  }
+  return out.slice(-count);
+}
+
+/** Up to `count` characters of text immediately after a boundary. */
+function textAfter(container: HTMLElement, node: Node, offset: number, count: number): string {
+  const probe = container.ownerDocument.createRange();
+  try {
+    probe.setStart(node, offset);
+  } catch {
+    return "";
+  }
+  let from: Node = closestBlock(node, container) ?? node;
+  let out = "";
+  for (let step = 0; step < CONTEXT_BLOCK_LIMIT; step++) {
+    probe.setEndAfter(from);
+    out = probe.toString();
+    if (out.length >= count) break;
+    const next = nextInContainer(from, container);
+    if (!next) break;
+    from = next;
+  }
+  return out.slice(0, count);
+}
+
+/** The node just before this one in document order, without leaving the book. */
+function previousInContainer(node: Node, container: HTMLElement): Node | null {
+  for (let n: Node | null = node; n && n !== container; n = n.parentNode) {
+    if (n.previousSibling) return n.previousSibling;
+  }
+  return null;
+}
+
+function nextInContainer(node: Node, container: HTMLElement): Node | null {
+  for (let n: Node | null = node; n && n !== container; n = n.parentNode) {
+    if (n.nextSibling) return n.nextSibling;
+  }
+  return null;
 }
 
 /* ------------------------------------------------------------------ *

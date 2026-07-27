@@ -13,6 +13,7 @@ import {
   setAnnotationNote,
 } from "@/app/(reading)/reader/annotation-actions";
 import { blockIndexForCharOffset, type BookBlock } from "@/lib/reading/block-stream";
+import { startTimer, time } from "@/lib/reading/perf";
 import {
   anchorForGap,
   anchorFromRange,
@@ -280,10 +281,15 @@ export function ReaderAnnotationLayer({
     async (range: Range, intent: SelectionIntent) => {
       const container = contentRef.current;
       if (!container || busy) return;
-      const resolved = anchorFromRange(range, container, space);
+      const resolved = time("anchor: from selection", () =>
+        anchorFromRange(range, container, space)
+      );
       // anchorFromRange reports its own reason — see fail() there.
       if (!resolved) return;
       setBusy(true);
+      // The panel can't open until this returns, so it is on the critical path
+      // between the tap and anything appearing on screen.
+      const stopCreate = startTimer("annotation: server create");
       try {
         const annotation = await createAnnotation({
           bookId,
@@ -292,6 +298,7 @@ export function ReaderAnnotationLayer({
           quotedText: resolved.quotedText,
           memberEmail,
         });
+        stopCreate(intent);
         // Highlighting is a one-gesture action: mark it and keep reading. Notes
         // and chats need somewhere to write, so they open the panel.
         //
