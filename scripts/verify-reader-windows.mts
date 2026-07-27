@@ -11,6 +11,12 @@
  */
 
 import { blockMap } from "../src/lib/reading/block-stream";
+import {
+  segmentsOf,
+  windowFor,
+  windowHolds,
+  windowHtml as sliceWindow,
+} from "../src/lib/reading/paged-window";
 
 let failures = 0;
 
@@ -141,6 +147,122 @@ check(
     return windowed[0].text === blocks[i].text && blocks[i].charStart >= 0;
   })
 );
+
+console.log("\nsegments");
+const segments = segmentsOf(blocks);
+check("one segment per heading, plus front matter if any", segments.length === 3, `${segments.length}`);
+check(
+  "segments tile the book with no gap and no overlap",
+  segments[0].startBlock === 0 &&
+    segments.at(-1)!.endBlock === blocks.length &&
+    segments.every((s, i) => i === 0 || s.startBlock === segments[i - 1].endBlock)
+);
+check(
+  "every segment starts at a forced column break",
+  segments.every((s) => s.startBlock === 0 || blocks[s.startBlock].tag.startsWith("h"))
+);
+check(
+  "segment char spans match their blocks",
+  segments.every(
+    (s) =>
+      s.charStart === blocks[s.startBlock].charStart &&
+      s.charEnd ===
+        blocks[s.endBlock - 1].charStart + blocks[s.endBlock - 1].text.length + 1
+  )
+);
+
+// A book opening on a heading must not produce an empty leading segment, and a
+// book with no headings at all must come back as one segment — which renders the
+// whole book, exactly as the reader did before windowing existed.
+const noHeadings = blockMap("<p>Only</p><p>Prose</p>");
+check("a book with no headings is a single segment", segmentsOf(noHeadings).length === 1);
+check("an empty book has no segments", segmentsOf([]).length === 0);
+check(
+  "a book opening on a heading has no empty leading segment",
+  segmentsOf(blocks).every((s) => s.endBlock > s.startBlock)
+);
+
+console.log("\nwindows");
+// Margins are taken in whole segments, so a margin larger than the book is the
+// whole book and a margin of zero is one chapter.
+const whole = windowFor(segments, blocks[5].charStart, 1_000_000);
+check(
+  "a margin bigger than the book renders all of it",
+  whole.startBlock === 0 && whole.endBlock === blocks.length
+);
+const single = windowFor(segments, blocks[5].charStart, 0);
+check(
+  "a zero margin renders just the segment being read",
+  single.startBlock === segments[1].startBlock && single.endBlock === segments[1].endBlock,
+  `${single.startBlock}-${single.endBlock}`
+);
+check(
+  "the window holds the character it was asked for",
+  segments.every((s) => {
+    const w = windowFor(segments, s.charStart, 0);
+    return windowHolds(w, s.charStart);
+  })
+);
+check(
+  "every window edge is a segment edge",
+  [0, 1, 2].every((i) => {
+    const w = windowFor(segments, segments[i].charStart, 20);
+    return (
+      segments.some((s) => s.startBlock === w.startBlock) &&
+      segments.some((s) => s.endBlock === w.endBlock)
+    );
+  })
+);
+check(
+  "a window's html is the exact slice of the book's own html",
+  segments.every((s) => {
+    const w = windowFor(segments, s.charStart, 0);
+    const slice = sliceWindow(book, blocks, w);
+    return (
+      book.includes(slice) &&
+      slice === book.slice(blocks[w.startBlock].htmlStart, blocks[w.endBlock - 1].htmlEnd)
+    );
+  })
+);
+check(
+  "a window re-parses to the same blocks, at rebasable offsets",
+  segments.every((s) => {
+    const w = windowFor(segments, s.charStart, 0);
+    const windowed = blockMap(sliceWindow(book, blocks, w));
+    return (
+      windowed.length === w.endBlock - w.startBlock &&
+      windowed.every(
+        (b, i) =>
+          b.text === blocks[w.startBlock + i].text &&
+          b.charStart + blocks[w.startBlock].charStart === blocks[w.startBlock + i].charStart
+      )
+    );
+  })
+);
+// The gap between the last block and the next segment belongs to the window: a
+// position landing in it must not read as being outside.
+check(
+  "a window's char span reaches the next segment's first character",
+  segments.slice(0, -1).every((s, i) => {
+    const w = windowFor(segments, s.charStart, 0);
+    return w.charEnd === segments[i + 1].charStart;
+  })
+);
+
+// Home and End are expressed in characters, because a page number only means
+// something inside the chapter currently rendered. Both ends of the book must
+// therefore land in a window that actually contains them.
+const lastChar = blocks.at(-1)!.charStart + blocks.at(-1)!.text.length;
+const atStart = windowFor(segments, 0, 0);
+const atEnd = windowFor(segments, lastChar, 0);
+check("Home lands in a window holding the first character", windowHolds(atStart, 0));
+check("Home's window starts at the front of the book", atStart.startBlock === 0);
+check("End lands in a window holding the last character", windowHolds(atEnd, lastChar));
+check("End's window runs to the end of the book", atEnd.endBlock === blocks.length);
+// A character past the end (an off-by-one in a caller) must not produce a
+// window that excludes everything — it should clamp to the last segment.
+const past = windowFor(segments, lastChar + 500, 0);
+check("a character past the end still yields the last segment", past.endBlock === blocks.length);
 
 console.log(
   failures === 0 ? "\nAll window invariants hold." : `\n${failures} check(s) failed.`

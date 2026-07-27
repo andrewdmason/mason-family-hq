@@ -68,7 +68,9 @@ export function useGutterPlacement(
   annotations: AnnotationSummary[],
   contentRef: React.RefObject<HTMLDivElement | null>,
   layoutNonce: number,
-  paged: PagedGutterContext | null
+  paged: PagedGutterContext | null,
+  /** Global index of the first rendered block — see RenderedBlocks. */
+  base: number
 ): GutterRow[] {
   const [rows, setRows] = useState<GutterRow[]>([]);
 
@@ -90,13 +92,15 @@ export function useGutterPlacement(
     }
     const paged = pagedRef.current;
     const els = blockElements(container);
+    // Markers only exist for blocks on the page; the rest are in another window.
     // Grouped by block index rather than by pixel position: two annotations on
     // the same paragraph share an anchor even if a reflow moves them.
     const byBlock = new Map<number, AnnotationSummary[]>();
     for (const a of annotations) {
       if (annotationKind(a) === "highlight") continue;
       const index = a.anchor?.blockIndex ?? -1;
-      if (!els[index]) continue;
+      // Not on the page — another chapter's window. No marker, no measurement.
+      if (!els[index - base]) continue;
       byBlock.set(index, [...(byBlock.get(index) ?? []), a]);
     }
     const viewport = paged?.viewport ?? null;
@@ -108,7 +112,9 @@ export function useGutterPlacement(
       for (const [blockIndex, list] of byBlock) {
         // A block split across a column break has a rect per fragment; we want
         // the one that's actually on this page, if any.
-        const fragment = Array.from(els[blockIndex].getClientRects()).find(
+        const el = els[blockIndex - base];
+        if (!el) continue;
+        const fragment = Array.from(el.getClientRects()).find(
           (rect) => pageForCol(colIndexForX(rect.left, flowLeft, geom), geom) === pageIndex
         );
         if (!fragment) continue;
@@ -133,13 +139,13 @@ export function useGutterPlacement(
       [...byBlock.entries()]
         .map(([blockIndex, list]) => ({
           blockIndex,
-          top: Math.round(blockTopWithin(els[blockIndex], container)),
+          top: Math.round(blockTopWithin(els[blockIndex - base], container)),
           left: null,
           annotations: list,
         }))
         .sort((a, b) => a.top - b.top)
     );
-  }, [annotations, contentRef]);
+  }, [annotations, base, contentRef]);
 
   // Next frame rather than synchronously, so we measure a laid-out DOM.
   //

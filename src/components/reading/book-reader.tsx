@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import Link from "next/link";
 import { List, Loader2, MoreHorizontal, PanelLeft, Settings2 } from "lucide-react";
 import { saveReadingPosition } from "@/app/(reading)/reader/actions";
@@ -20,7 +27,13 @@ import {
   readPosition,
   rememberPosition,
 } from "@/lib/reading/offline/positions";
-import { PAGE_PAD_BOTTOM, bookAreaWidth } from "@/lib/reading/paged-geometry";
+import { PAGE_PAD_BOTTOM, bookAreaWidth, sidePanelFits } from "@/lib/reading/paged-geometry";
+import { note, startTimer, time } from "@/lib/reading/perf";
+import {
+  getServerViewportSize,
+  getViewportSize,
+  subscribeViewport,
+} from "@/lib/reading/viewport-size";
 import { MARGIN_MEASURE_PX } from "@/lib/reading/reader-settings";
 import {
   chapterBounds,
@@ -34,6 +47,7 @@ import type { ReadingTocEntry } from "@/lib/types";
 import { PagedView } from "./paged-view";
 import { ReaderFooter } from "./reader-footer";
 import { ReaderLayoutDialog } from "./reader-layout-dialog";
+import { ReaderPerfOverlay } from "./reader-perf-overlay";
 import {
   ARTICLE_PROSE,
   BOOK_PROSE,
@@ -102,7 +116,14 @@ export function BookReader({
   const [menuOpen, setMenuOpen] = useState(false);
   const [layoutOpen, setLayoutOpen] = useState(false);
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
-  const [viewportWidth, setViewportWidth] = useState(0);
+  // The same store the paging engine derives its geometry from, so the chat
+  // panel's presentation and the book's layout can never disagree about how wide
+  // the window is.
+  const { width: viewportWidth } = useSyncExternalStore(
+    subscribeViewport,
+    getViewportSize,
+    getServerViewportSize
+  );
 
   // Scrolling only: the header stays out of the way until you reach for it.
   const [hoverTop, setHoverTop] = useState(false);
@@ -125,7 +146,13 @@ export function BookReader({
   const scrollContentRef = useRef<HTMLDivElement>(null);
   const contentRef = paged ? flowRef : scrollContentRef;
 
-  const blocks = useMemo(() => (html == null ? [] : blockMap(html)), [html]);
+  const blocks = useMemo(
+    () =>
+      html == null
+        ? []
+        : time("blockMap", () => blockMap(html), () => `${Math.round(html.length / 1000)}k chars`),
+    [html]
+  );
   const totalChars = useMemo(() => totalCharsOf(blocks), [blocks]);
   const chapters = useMemo(
     () => (blocks.length === 0 ? [] : chapterBounds(toc, title, blocks)),
@@ -137,9 +164,11 @@ export function BookReader({
   // downloads it; there's no separate step.
   useEffect(() => {
     let cancelled = false;
+    const stopLoad = startTimer("load");
     loadBookHtml(bookId, contentUrl)
-      .then(({ html: text }) => {
+      .then(({ html: text, fromCache }) => {
         if (cancelled) return;
+        stopLoad(`${fromCache ? "device" : "network"} ${Math.round(text.length / 1000)}k chars`);
         setHtml(text);
         // Only the reader page knows what the book is called, so the shelf's
         // "available offline" list is filled in from here.
@@ -159,12 +188,6 @@ export function BookReader({
     };
   }, [author, bookId, contentUrl, isArticle, title]);
 
-  useEffect(() => {
-    const sync = () => setViewportWidth(window.innerWidth);
-    sync();
-    window.addEventListener("resize", sync);
-    return () => window.removeEventListener("resize", sync);
-  }, []);
 
   // ---- Position -----------------------------------------------------------
 
@@ -277,13 +300,27 @@ export function BookReader({
 
   // ---- Paged --------------------------------------------------------------
 
+  /**
+   * Whether the chat has to be presented over the book rather than beside it.
+   *
+   * A 448px panel needs a column's width left over, and on a phone or an iPad
+   * held upright there isn't one — the book would be squeezed to a ribbon. It's
+   * a sheet there instead, and the point of a sheet is that it doesn't move the
+   * book at all: the geometry below never hears about it, so opening the chat
+   * costs nothing. That was a real bug on a phone, where the sheet was already
+   * shown but the book was still being re-fragmented to 240px underneath it.
+   */
+  const chatAsSheet =
+    paged && viewportWidth > 0 && !sidePanelFits(viewportWidth, settings);
+  const chatNarrowsBook = chatPanelOpen && !chatAsSheet;
+
   const pagination = usePagination({
     enabled: paged,
     html,
     flowRef,
     blocks,
     settings,
-    chatPanelOpen,
+    chatPanelOpen: chatNarrowsBook,
     charOffset: scrollPosition.charOffset,
     onPositionChange: report,
   });
@@ -498,6 +535,9 @@ export function BookReader({
           ? { el: best, delta: best.getBoundingClientRect().top + window.scrollY - line }
           : null;
       }
+      // Marked so the timings that follow can be read as "this is what opening
+      // the chat cost" — the whole question is whether it still re-fragments.
+      note("chat panel", `${open ? "open" : "close"} @${window.innerWidth}px`);
       setChatPanelOpen(open);
     },
     [paged]
@@ -641,10 +681,14 @@ export function BookReader({
   );
 
   // Stable, so PagedView's window keydown listener isn't torn down and re-added
-  // on every render. `goToPage` clamps, so "one past the end" is just the end.
-  const { goToPage, totalPages } = pagination;
-  const goToFirstPage = useCallback(() => goToPage(0), [goToPage]);
-  const goToLastPage = useCallback(() => goToPage(totalPages - 1), [goToPage, totalPages]);
+  // on every render. Expressed in characters rather than pages because a page
+  // number only means something within the chapter currently rendered — Home and
+  // End mean the ends of the BOOK.
+  const goToFirstPage = useCallback(() => goToPagedChar(0), [goToPagedChar]);
+  const goToLastPage = useCallback(
+    () => goToPagedChar(Math.max(0, totalChars - 1)),
+    [goToPagedChar, totalChars]
+  );
 
   // A page has fixed bounds, so the chrome can simply stay: it never covers
   // text, which is the only reason it had to hide when scrolling.
@@ -657,7 +701,7 @@ export function BookReader({
   // both come out at the same text edges).
   const chromeBounds: React.CSSProperties =
     paged && pagedGeometry
-      ? { left: pagedGeometry.offsetX, width: pagedGeometry.contentW }
+      ? { left: pagedGeometry.offsetX, width: pagedGeometry.viewW }
       : {
           left: 0,
           right: 0,
@@ -676,7 +720,7 @@ export function BookReader({
     <ReaderAnnotationLayer
       bookId={bookId}
       memberEmail={memberEmail}
-      html={html}
+      blocks={blocks}
       isArticle={isArticle}
       contentRef={contentRef}
       currentCharOffset={currentCharOffset}
@@ -684,6 +728,8 @@ export function BookReader({
       paged={pagedChat}
       panelOpen={chatPanelOpen}
       onPanelOpenChange={handleChatPanelOpenChange}
+      preferSheet={chatAsSheet}
+      windowBase={paged ? pagination.windowBase : 0}
       layoutNonce={layoutNonce}
     />
   );
@@ -843,13 +889,14 @@ export function BookReader({
       ) : paged ? (
         <>
           <PagedView
-            html={html}
+            // The window, not the whole book — see usePagination.
+            html={pagination.html ?? ""}
             viewport={viewport}
             onViewportRef={setViewport}
             flowRef={flowRef}
             geometry={pagination.geometry}
             settings={settings}
-            isFirstPage={pagination.pageIndex <= 0}
+            isFirstPage={pagination.atStart}
             isLastPage={pagination.atEnd}
             onNext={pagination.next}
             onPrev={pagination.prev}
@@ -865,7 +912,7 @@ export function BookReader({
             minutesLeft={progress.minutesLeft}
             height={PAGE_PAD_BOTTOM}
             left={pagedGeometry?.offsetX ?? null}
-            width={pagedGeometry?.contentW ?? null}
+            width={pagedGeometry?.viewW ?? null}
           />
         </>
       ) : (
@@ -928,6 +975,8 @@ export function BookReader({
         </article>
       )}
 
+      <ReaderPerfOverlay />
+
       <ReaderLayoutDialog
         open={layoutOpen}
         onOpenChange={setLayoutOpen}
@@ -936,7 +985,7 @@ export function BookReader({
         supportsPaging={!isArticle}
         // The live answer, chat panel included: what the Columns control offers
         // has to match what the book is doing behind the dialog.
-        availableWidth={bookAreaWidth(viewportWidth, chatPanelOpen)}
+        availableWidth={bookAreaWidth(viewportWidth, chatNarrowsBook)}
       />
     </div>
   );

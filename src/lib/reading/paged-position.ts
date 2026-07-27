@@ -21,6 +21,15 @@ import {
   type PageGeometry,
 } from "@/lib/reading/paged-geometry";
 
+/**
+ * Everything a position lookup measures against.
+ *
+ * `blocks` is the RENDERED blocks — the window's slice of the book's stream, not
+ * the whole stream — so that it stays index-parallel with `blockEls`. The slice
+ * elements keep their global `charStart`, which is what lets every function here
+ * take and return global character offsets while measuring only what's on the
+ * page. That one property is why windowing barely touches this module.
+ */
 export type MeasureCtx = {
   flow: HTMLElement;
   blocks: BookBlock[];
@@ -120,7 +129,12 @@ export function pageForCharOffset(charOffset: number, ctx: MeasureCtx): number {
 export function charOffsetAtTopOfPage(page: number, ctx: MeasureCtx): number {
   const { blocks, blockEls, geom } = ctx;
   if (blocks.length === 0 || blockEls.length === 0) return 0;
-  if (page <= 0) return 0;
+  // The first page starts at the first RENDERED block, which is the front of the
+  // book only when the whole book is rendered. Returning 0 here instead would
+  // quietly save the reader's position as page one of the book every time they
+  // sat on the first page of a window — losing their place, in the one function
+  // the rest of this module is defined against.
+  if (page <= 0) return blocks[0].charStart;
 
   const left = flowLeft(ctx);
   const targetCol = firstColOfPage(page, geom);
@@ -203,6 +217,30 @@ export function assertPagesMoveForward(ctx: MeasureCtx, totalPages: number): voi
         "Are they still attached to the document?"
     );
     return;
+  }
+
+  // The strip has to be an exact whole number of strides. Every page turn is a
+  // multiple of the stride, so a fractional one is drift: harmless at column 5,
+  // and by column 700 it's the difference between the right page and the wrong
+  // one. Catching it here means catching it the moment it appears rather than
+  // 200px later, deep in a book, where it reads as "the reader lost my place".
+  // Page 0 must report the first rendered character, not the front of the book.
+  // Under a window those differ, and the difference is the reader's saved place.
+  const firstTop = charOffsetAtTopOfPage(0, ctx);
+  if (firstTop !== ctx.blocks[0].charStart) {
+    console.warn(
+      `[reader] page 0 starts at char ${firstTop}, but the first rendered block ` +
+        `starts at ${ctx.blocks[0].charStart} — saved positions will be wrong`
+    );
+  }
+
+  const strideCount = (ctx.flow.scrollWidth + ctx.geom.gap) / ctx.geom.colStride;
+  if (Math.abs(strideCount - Math.round(strideCount)) > 0.01) {
+    console.warn(
+      `[reader] the column strip isn't a whole number of strides ` +
+        `(${ctx.flow.scrollWidth}px + ${ctx.geom.gap} / ${ctx.geom.colStride} = ${strideCount}) — ` +
+        `page positions will drift toward the end of the book`
+    );
   }
 
   // Sampled: walking every page of a 1,000-page book on every repagination

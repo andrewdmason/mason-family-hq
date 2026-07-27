@@ -33,39 +33,65 @@ export const CHAT_PANEL_WIDTH = 448;
 /** Smallest column we'll render before giving up on the requested layout. */
 const MIN_COLUMN_WIDTH = 240;
 
+/**
+ * The two halves of this type are the whole design.
+ *
+ * The browser's column breaking sees only the first three numbers: a column box
+ * is `colW` by `pageH`, and the boxes are `gap` apart. Everything else describes
+ * how the finished strip is *looked at* — how many of those columns a page shows
+ * and where the window onto them sits. Changing anything in the second group is
+ * a repaint; changing anything in the first re-fragments the whole book, which is
+ * the most expensive thing this reader does.
+ *
+ * Crucially `cols` is in the second group. The flow element is always exactly one
+ * column wide, so showing one column or two is a property of the clip box, not of
+ * the text. That's what lets the chat panel open on an iPad without re-laying-out
+ * a million characters — verified identical fragmentation in both Chromium and
+ * WebKit, to zero sub-pixels, at full book length.
+ */
 export type PageGeometry = {
-  cols: 1 | 2;
-  /** Width of one text column. */
+  // — Fragmentation. Changing any of these re-lays-out the entire book.
+  /** Width of one text column, and of the flow element itself. */
   colW: number;
   gap: number;
-  /** Width of the flow element: exactly `cols` columns and the gaps between them. */
-  contentW: number;
+  /** Height of the text area. */
+  pageH: number;
+
+  // — Viewing. Changing any of these is a repaint.
+  /** How many columns a page shows at once. */
+  cols: 1 | 2;
+  /** Width of the clip box: exactly `cols` columns and the gaps between them. */
+  viewW: number;
   /** Distance from one column's left edge to the next. */
   colStride: number;
   /** Distance from one page's left edge to the next. */
   pageStride: number;
-  /** Height of the text area. */
-  pageH: number;
-  /** Left offset of the flow element within the clip box. */
+  /** Left offset of the clip box within the window. */
   offsetX: number;
 };
 
 /**
- * The width the book itself has to work with: the window, less whatever the chat
- * panel has taken.
- *
- * Every layout question is asked of this rather than of the window, so opening a
- * chat narrows the page instead of redefining it.
+ * The width the book itself has to work with: the window, less whatever a side
+ * panel has taken. A panel presented over the book — a sheet — takes nothing.
  */
-export function bookAreaWidth(clipW: number, chatPanelOpen: boolean): number {
-  return Math.max(MIN_COLUMN_WIDTH, clipW - (chatPanelOpen ? CHAT_PANEL_WIDTH : 0));
+export function bookAreaWidth(clipW: number, sidePanelOpen: boolean): number {
+  return Math.max(MIN_COLUMN_WIDTH, clipW - (sidePanelOpen ? CHAT_PANEL_WIDTH : 0));
 }
 
-/** The column shape a given width produces — everything fragmentation depends on. */
-function columnsFor(width: number, settings: ReaderSettings) {
-  const cols = effectiveColumns(settings, width);
-  const gap = cols === 2 ? COLUMN_GAP : 0;
-  const avail = Math.max(MIN_COLUMN_WIDTH, width - MARGIN_INSET_PX[settings.margins] * 2);
+/**
+ * How wide a column is — the only width decision the browser's column breaking
+ * ever sees, and so the only one that can cost a re-fragmentation.
+ *
+ * Asked of the FULL window, always. The chat panel is not allowed to reach this
+ * function: what it can do is change how many of these columns a page shows, and
+ * where they sit, neither of which the text notices.
+ */
+function fragmentationFor(clipW: number, settings: ReaderSettings) {
+  // Whether the reader would get two columns on this window at all. It decides
+  // how wide a column is, because two columns have to share the width — not how
+  // many are shown, which is computeGeometry's business.
+  const intent = effectiveColumns(settings, clipW);
+  const avail = Math.max(MIN_COLUMN_WIDTH, clipW - MARGIN_INSET_PX[settings.margins] * 2);
 
   // Whichever binds first: the measure the reader asked for, or what the window
   // can actually give. On a desktop the measure wins and the setting visibly
@@ -75,44 +101,71 @@ function columnsFor(width: number, settings: ReaderSettings) {
     MIN_COLUMN_WIDTH,
     Math.min(
       MARGIN_MEASURE_PX[settings.margins],
-      Math.floor((avail - gap * (cols - 1)) / cols)
+      Math.floor((avail - COLUMN_GAP * (intent - 1)) / intent)
     )
   );
-  // Re-derived from the floored column width, so contentW is always an exact
-  // whole number of strides and the translate lands on a column boundary.
-  const contentW = colW * cols + gap * (cols - 1);
-  return { cols, gap, colW, contentW, colStride: colW + gap };
+  // The gap is constant, including when only one column is shown. That's what
+  // makes the one-column and two-column strips the same strip: an unchanging gap
+  // between column boxes means an unchanging stride, and the extra 56px simply
+  // falls outside the clip when a page shows a single column.
+  return { colW, gap: COLUMN_GAP, colStride: colW + COLUMN_GAP };
+}
+
+/**
+ * Below this a side panel is out of the question whatever the arithmetic says: a
+ * phone has no business splitting its screen in two. Matches the media query the
+ * annotation layer uses to pick a sheet.
+ */
+const SIDE_PANEL_MIN_WIDTH = 768;
+
+/**
+ * Whether the book can sit beside a side panel at all, or whether the chat has
+ * to be presented over the top of it instead.
+ *
+ * False means there is not even one column's width left over — a phone, or an
+ * iPad held upright. Above it the panel costs nothing but a repaint.
+ *
+ * The phone floor is not redundant with the width test. With wide margins a
+ * phone's column is already down at the 240px minimum, which technically does
+ * fit beside a panel — so without it, a phone showing the chat as a sheet would
+ * still have had its book re-fragmented to a 240px ribbon underneath.
+ */
+export function sidePanelFits(clipW: number, settings: ReaderSettings): boolean {
+  if (clipW < SIDE_PANEL_MIN_WIDTH) return false;
+  return bookAreaWidth(clipW, true) >= fragmentationFor(clipW, settings).colW;
 }
 
 export function computeGeometry(
   clipW: number,
   clipH: number,
   settings: ReaderSettings,
-  chatPanelOpen: boolean
+  sidePanelOpen: boolean
 ): PageGeometry {
-  const usable = bookAreaWidth(clipW, chatPanelOpen);
+  const frag = fragmentationFor(clipW, settings);
+  const usable = bookAreaWidth(clipW, sidePanelOpen);
 
-  // The columns are measured against the FULL window, not the narrowed one, and
-  // the panel is only allowed to change where the text sits — not how wide it
-  // is. That distinction is the whole point: re-fragmenting a 1.1M-character
-  // book costs hundreds of milliseconds, and it was being paid twice for every
-  // chat — once opening, once closing — which is the single most frequent thing
-  // that made the reader feel slow.
+  // Two columns are shown when two of this column plus the gap actually fit in
+  // what's left of the screen. The insets are part of the question so the text
+  // doesn't end up jammed against the edges of a narrowed area.
   //
-  // Wherever the panel can take its width out of the margin, the text keeps its
-  // exact column shape and merely shifts left, so `sameFragmentation` holds and
-  // nothing repaginates. Only when the panel would genuinely collide with the
-  // text (a narrow window) do we fall back to narrowing it and paying the
-  // relayout, because there the alternative is text hidden underneath a panel.
-  const full = columnsFor(clipW, settings);
-  const shape = full.contentW <= usable ? full : columnsFor(usable, settings);
+  // This is the line the chat panel moves, and moving it is free: the flow
+  // element is untouched, so the browser's layout never goes dirty. Opening the
+  // chat on an iPad drops the page from two columns to one and slides it — it
+  // does not re-fragment the book, which is what it used to do, on every open
+  // and every close, and which is what made reading with the chat open feel bad.
+  const availView = usable - MARGIN_INSET_PX[settings.margins] * 2;
+  const cols: 1 | 2 =
+    effectiveColumns(settings, clipW) === 2 && frag.colW * 2 + frag.gap <= availView ? 2 : 1;
+  const viewW = cols * frag.colW + (cols - 1) * frag.gap;
 
   return {
-    ...shape,
-    pageStride: shape.cols * shape.colStride,
+    ...frag,
     pageH: Math.max(120, clipH - PAGE_PAD_TOP - PAGE_PAD_BOTTOM),
+    cols,
+    viewW,
+    pageStride: cols * frag.colStride,
     // Centred in what's left of the screen once the panel has taken its share.
-    offsetX: Math.max(0, Math.round((usable - shape.contentW) / 2)),
+    offsetX: Math.max(0, Math.round((usable - viewW) / 2)),
   };
 }
 
@@ -143,17 +196,18 @@ export function colContentRight(col: number, flowLeft: number, g: PageGeometry):
 /** True when two geometries are identical (so we can skip the state update entirely). */
 export function sameGeometry(a: PageGeometry | null, b: PageGeometry | null): boolean {
   if (!a || !b) return a === b;
-  return sameFragmentation(a, b) && a.offsetX === b.offsetX;
+  return sameFragmentation(a, b) && a.cols === b.cols && a.offsetX === b.offsetX;
 }
 
 /**
  * True when two geometries would fragment the text identically.
  *
- * Only the column shape and the page height decide where the browser breaks
- * columns; `offsetX` just says where the resulting flow is painted. Separating
- * the two is what lets the chat panel slide the book sideways without paying to
- * re-fragment it — see computeGeometry.
+ * A column box is `colW` by `pageH`, and boxes are `gap` apart; nothing else
+ * decides where the browser breaks the text. `cols` is deliberately NOT here —
+ * it only says how many of those boxes a page shows at once, and it used to be
+ * in this comparison purely because it set the flow element's width. See the
+ * note on PageGeometry.
  */
 export function sameFragmentation(a: PageGeometry, b: PageGeometry): boolean {
-  return a.cols === b.cols && a.colW === b.colW && a.gap === b.gap && a.pageH === b.pageH;
+  return a.colW === b.colW && a.gap === b.gap && a.pageH === b.pageH;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { rangeForAnchor } from "@/lib/reading/annotation-anchors";
+import { rangeForAnchor, renderedBlocks } from "@/lib/reading/annotation-anchors";
 import {
   annotationKind,
   type AnnotationKind,
@@ -89,7 +89,9 @@ export function useAnnotationHighlights(
   annotations: AnnotationSummary[],
   contentRef: React.RefObject<HTMLDivElement | null>,
   openAnnotationId: string | null,
-  layoutNonce: number
+  layoutNonce: number,
+  /** Global index of the first rendered block — see RenderedBlocks. */
+  base: number
 ) {
   useEffect(() => {
     if (typeof CSS === "undefined" || !("highlights" in CSS)) return;
@@ -107,8 +109,11 @@ export function useAnnotationHighlights(
       note: [],
       chat: [],
     };
+    // Queried once for the whole pass, not once per annotation. Annotations
+    // whose blocks aren't in this window resolve to null and simply don't paint.
+    const view = renderedBlocks(container, base);
     for (const a of annotations) {
-      const range = rangeForAnchor(a.anchor, container);
+      const range = rangeForAnchor(a.anchor, container, view);
       if (!range) continue;
       const target = a.id === openAnnotationId ? activeBuckets : buckets;
       target[annotationKind(a)].push(range);
@@ -135,7 +140,7 @@ export function useAnnotationHighlights(
       for (const name of Object.values(REGISTRY)) CSS.highlights.delete(name);
       for (const name of Object.values(ACTIVE_REGISTRY)) CSS.highlights.delete(name);
     };
-  }, [annotations, contentRef, openAnnotationId, layoutNonce]);
+  }, [annotations, base, contentRef, openAnnotationId, layoutNonce]);
 }
 
 /**
@@ -150,12 +155,19 @@ export function annotationAtPoint(
   annotations: AnnotationSummary[],
   container: HTMLElement,
   x: number,
-  y: number
+  y: number,
+  /** Global index of the first rendered block — see RenderedBlocks. */
+  base: number
 ): AnnotationSummary | null {
+  // Every tap in the book comes through here, including the ones that are just
+  // turning a page, so it has to be free when there's nothing to hit.
+  if (annotations.length === 0) return null;
+
   let best: AnnotationSummary | null = null;
   let bestSize = Infinity;
+  const view = renderedBlocks(container, base);
   for (const a of annotations) {
-    const range = rangeForAnchor(a.anchor, container);
+    const range = rangeForAnchor(a.anchor, container, view);
     if (!range) continue;
     let hit = false;
     let size = 0;
