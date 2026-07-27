@@ -681,10 +681,14 @@ export function BookReader({
   );
 
   // Stable, so PagedView's window keydown listener isn't torn down and re-added
-  // on every render. `goToPage` clamps, so "one past the end" is just the end.
-  const { goToPage, totalPages } = pagination;
-  const goToFirstPage = useCallback(() => goToPage(0), [goToPage]);
-  const goToLastPage = useCallback(() => goToPage(totalPages - 1), [goToPage, totalPages]);
+  // on every render. Expressed in characters rather than pages because a page
+  // number only means something within the chapter currently rendered — Home and
+  // End mean the ends of the BOOK.
+  const goToFirstPage = useCallback(() => goToPagedChar(0), [goToPagedChar]);
+  const goToLastPage = useCallback(
+    () => goToPagedChar(Math.max(0, totalChars - 1)),
+    [goToPagedChar, totalChars]
+  );
 
   // A page has fixed bounds, so the chrome can simply stay: it never covers
   // text, which is the only reason it had to hide when scrolling.
@@ -725,8 +729,7 @@ export function BookReader({
       panelOpen={chatPanelOpen}
       onPanelOpenChange={handleChatPanelOpenChange}
       preferSheet={chatAsSheet}
-      // Zero for now: the whole book is still rendered. Windowing moves it.
-      windowBase={0}
+      windowBase={paged ? pagination.windowBase : 0}
       layoutNonce={layoutNonce}
     />
   );
@@ -886,13 +889,14 @@ export function BookReader({
       ) : paged ? (
         <>
           <PagedView
-            html={html}
+            // The window, not the whole book — see usePagination.
+            html={pagination.html ?? ""}
             viewport={viewport}
             onViewportRef={setViewport}
             flowRef={flowRef}
             geometry={pagination.geometry}
             settings={settings}
-            isFirstPage={pagination.pageIndex <= 0}
+            isFirstPage={pagination.atStart}
             isLastPage={pagination.atEnd}
             onNext={pagination.next}
             onPrev={pagination.prev}

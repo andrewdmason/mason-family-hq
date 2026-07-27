@@ -13,6 +13,13 @@ import type { BookBlock } from "@/lib/reading/block-stream";
 import { blockElements } from "@/lib/reading/annotation-anchors";
 import { computeGeometry, type PageGeometry } from "@/lib/reading/paged-geometry";
 import {
+  segmentsOf,
+  windowFor,
+  windowHolds,
+  windowHtml,
+  type BookWindow,
+} from "@/lib/reading/paged-window";
+import {
   getServerViewportSize,
   getViewportSize,
   subscribeViewport,
@@ -45,13 +52,23 @@ import { note, startTimer } from "@/lib/reading/perf";
 
 export type Pagination = {
   geometry: PageGeometry | null;
+  /**
+   * The markup to render: a few chapters of the book, not all of it. Null until
+   * the book has loaded or while paging is off.
+   */
+  html: string | null;
+  /** Global index of the first rendered block — see RenderedBlocks. */
+  windowBase: number;
   pageIndex: number;
   totalPages: number;
   /** Character at the top of the current page — the thing worth persisting. */
   charOffset: number;
   /** First character past the bottom of the page, for "what's visible here". */
   charEnd: number;
+  /** At the last page of the LAST window — the end of the book, not of a window. */
   atEnd: boolean;
+  /** At the first page of the first window. */
+  atStart: boolean;
   goToChar: (charOffset: number) => void;
   goToPage: (page: number) => void;
   next: () => void;
@@ -93,11 +110,39 @@ export function usePagination({
   );
   const [pageIndex, setPageIndex] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  /**
+   * The character the rendered window is chosen around.
+   *
+   * Deliberately NOT the reading position. Turning pages moves the reader freely
+   * inside the window and this doesn't move at all, so the book is re-laid-out
+   * only when they actually leave it — about once every couple of chapters —
+   * rather than at every chapter boundary. It is also why the two-column spread
+   * can't re-pair underneath a reader who hasn't asked to go anywhere.
+   */
+  const [windowChar, setWindowChar] = useState(externalCharOffset);
   const [charOffset, setCharOffset] = useState(externalCharOffset);
   const [charEnd, setCharEnd] = useState(externalCharOffset);
   const [layoutNonce, setLayoutNonce] = useState(0);
   // Bumped when something outside our control changed the metrics (web fonts).
   const [revision, setRevision] = useState(0);
+
+  const segments = useMemo(() => segmentsOf(blocks), [blocks]);
+  // While paging is off the scrolling view owns the position, so the window
+  // follows it — switching paging on then opens the chapter they were reading.
+  const centre = enabled ? windowChar : externalCharOffset;
+  const win = useMemo<BookWindow | null>(
+    () => (html == null || segments.length === 0 ? null : windowFor(segments, centre)),
+    [html, segments, centre]
+  );
+  /** The window's own blocks, index-parallel with what's in the DOM. */
+  const windowBlocks = useMemo(
+    () => (win ? blocks.slice(win.startBlock, win.endBlock) : blocks),
+    [blocks, win]
+  );
+  const renderedHtml = useMemo(
+    () => (html != null && win ? windowHtml(html, blocks, win) : null),
+    [html, blocks, win]
+  );
 
   const geometryRef = useRef<PageGeometry | null>(null);
   const charRef = useRef(externalCharOffset);
@@ -133,8 +178,8 @@ export function usePagination({
     if (!flow || !geom) return null;
     const blockEls = blockElements(flow);
     if (blockEls.length === 0) return null;
-    return { flow, blocks, blockEls, geom };
-  }, [blocks, flowRef]);
+    return { flow, blocks: windowBlocks, blockEls, geom };
+  }, [windowBlocks, flowRef]);
 
   const paint = useCallback(
     (page: number) => {
@@ -162,14 +207,24 @@ export function usePagination({
       // readout fall back to plain "the chapter I'm in" rather than reaching
       // forward to the last chapter of the book.
       setCharEnd(ctx && next + 1 < total ? charOffsetAtTopOfPage(next + 1, ctx) : char);
-      onPositionChange(char, next >= total - 1);
+      const lastWindow = !win || win.endBlock >= blocks.length;
+      onPositionChange(char, lastWindow && next >= total - 1);
       stopTurn(`p${next}`);
     },
-    [measureCtx, onPositionChange, paint]
+    [blocks.length, measureCtx, onPositionChange, paint, win]
   );
 
   const goToChar = useCallback(
     (target: number) => {
+      // Somewhere else in the book. Move the window rather than the page: the
+      // repagination effect below runs before paint, so it lands on the right
+      // page of the newly rendered chapter with nothing shown in between.
+      if (win && !windowHolds(win, target)) {
+        charRef.current = target;
+        note("window", `to char ${target}`);
+        setWindowChar(target);
+        return;
+      }
       const ctx = measureCtx();
       if (!ctx) {
         // Not laid out yet — remember it so the next repagination lands there.
@@ -178,11 +233,29 @@ export function usePagination({
       }
       goToPage(pageForCharOffset(target, ctx));
     },
-    [goToPage, measureCtx]
+    [goToPage, measureCtx, win]
   );
 
-  const next = useCallback(() => goToPage(pageRef.current + 1), [goToPage]);
-  const prev = useCallback(() => goToPage(pageRef.current - 1), [goToPage]);
+  // Turning off the end of a window is a jump to the character just past it —
+  // which is the first character of the next chapter, and the last of the
+  // previous one. Going back is the interesting direction: the previous
+  // window's final page isn't knowable until it has been laid out, and it never
+  // has to be. Solving for that character after fragmentation finds it.
+  const next = useCallback(() => {
+    if (win && pageRef.current >= totalRef.current - 1 && win.endBlock < blocks.length) {
+      goToChar(win.charEnd);
+      return;
+    }
+    goToPage(pageRef.current + 1);
+  }, [blocks.length, goToChar, goToPage, win]);
+
+  const prev = useCallback(() => {
+    if (win && pageRef.current <= 0 && win.startBlock > 0) {
+      goToChar(win.charStart - 1);
+      return;
+    }
+    goToPage(pageRef.current - 1);
+  }, [goToChar, goToPage, win]);
 
   // Geometry comes from the window, not from measuring the reading area's own
   // box. A paged reader covers the whole window by construction, so the two are
@@ -253,7 +326,7 @@ export function usePagination({
   // happened.
   useLayoutEffect(() => {
     const geom = geometryRef.current;
-    if (!enabled || html == null || !geom) return;
+    if (!enabled || renderedHtml == null || !geom) return;
     const flow = flowRef.current;
     if (!flow) return;
 
@@ -264,7 +337,10 @@ export function usePagination({
     const stopFragment = startTimer("fragment");
     const stripWidth = flow.scrollWidth;
     stripWidthRef.current = stripWidth;
-    stopFragment(`${geom.cols}col ${geom.colW}w ${Math.round(stripWidth / 1000)}kpx`);
+    stopFragment(
+      `${geom.cols}col ${geom.colW}w ${Math.round(stripWidth / 1000)}kpx ` +
+        `blocks ${windowBlocks[0]?.index ?? 0}+${windowBlocks.length}`
+    );
 
     const stopSolve = startTimer("solve");
     const total = countPages(flow, geom);
@@ -273,7 +349,7 @@ export function usePagination({
 
     const ctx: MeasureCtx = {
       flow,
-      blocks,
+      blocks: windowBlocks,
       blockEls: blockElements(flow),
       geom,
     };
@@ -290,7 +366,7 @@ export function usePagination({
     stopSolve(`${total}pp → p${page}`);
 
     assertPagesMoveForward(ctx, total);
-  }, [enabled, html, pagingKey, blocks, revision, flowRef, paint]);
+  }, [enabled, renderedHtml, pagingKey, windowBlocks, revision, flowRef, paint]);
 
   // Web fonts swapping in changes every line's metrics, which changes where the
   // column breaks fall.
@@ -328,11 +404,14 @@ export function usePagination({
 
   return {
     geometry,
+    html: enabled ? renderedHtml : null,
+    windowBase: win?.startBlock ?? 0,
     pageIndex,
     totalPages,
     charOffset,
     charEnd,
-    atEnd: pageIndex >= totalPages - 1,
+    atEnd: (!win || win.endBlock >= blocks.length) && pageIndex >= totalPages - 1,
+    atStart: (!win || win.startBlock === 0) && pageIndex <= 0,
     goToChar,
     goToPage,
     next,

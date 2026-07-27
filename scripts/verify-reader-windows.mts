@@ -249,6 +249,21 @@ check(
   })
 );
 
+// Home and End are expressed in characters, because a page number only means
+// something inside the chapter currently rendered. Both ends of the book must
+// therefore land in a window that actually contains them.
+const lastChar = blocks.at(-1)!.charStart + blocks.at(-1)!.text.length;
+const atStart = windowFor(segments, 0, 0);
+const atEnd = windowFor(segments, lastChar, 0);
+check("Home lands in a window holding the first character", windowHolds(atStart, 0));
+check("Home's window starts at the front of the book", atStart.startBlock === 0);
+check("End lands in a window holding the last character", windowHolds(atEnd, lastChar));
+check("End's window runs to the end of the book", atEnd.endBlock === blocks.length);
+// A character past the end (an off-by-one in a caller) must not produce a
+// window that excludes everything — it should clamp to the last segment.
+const past = windowFor(segments, lastChar + 500, 0);
+check("a character past the end still yields the last segment", past.endBlock === blocks.length);
+
 console.log(
   failures === 0 ? "\nAll window invariants hold." : `\n${failures} check(s) failed.`
 );
