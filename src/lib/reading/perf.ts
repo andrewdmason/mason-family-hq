@@ -55,7 +55,25 @@ function record(label: string, ms: number, detail?: string) {
   // Also to the console, because that's what survives being read back off a
   // tethered iPad, and it's where a long session's full history lives.
   console.log(`[reader:perf] ${label} ${ms.toFixed(1)}ms${detail ? ` (${detail})` : ""}`);
-  for (const fn of listeners) fn();
+  scheduleNotify();
+}
+
+/**
+ * Tell the overlay, but never during a render.
+ *
+ * Some of what's timed here — mapping the block stream — runs inside a `useMemo`
+ * during the reader's own render, and notifying synchronously from there is a
+ * setState in the middle of rendering a different component. React says so out
+ * loud. Deferring also coalesces a burst of entries into one repaint.
+ */
+let notifyQueued = false;
+function scheduleNotify() {
+  if (notifyQueued || listeners.size === 0) return;
+  notifyQueued = true;
+  setTimeout(() => {
+    notifyQueued = false;
+    for (const fn of listeners) fn();
+  }, 0);
 }
 
 /**
