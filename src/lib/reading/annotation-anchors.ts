@@ -56,8 +56,34 @@ export const ANCHOR_VERSION = 2;
  * the reader from whether it is showing a book or an article.
  */
 export type AnchorSpace =
-  | { kind: "book"; blocks: BookBlock[] }
+  | {
+      kind: "book";
+      /** The WHOLE book's block stream, whatever subset happens to be rendered. */
+      blocks: BookBlock[];
+      /** Global index of the first rendered block — see RenderedBlocks. */
+      base: number;
+    }
   | { kind: "dom" };
+
+/**
+ * The block elements on the page, and where they sit in the book.
+ *
+ * Stored anchors are global: `blockIndex` counts from the front of the book, and
+ * always will, because an anchor written today has to resolve against a page
+ * rendered by any future version of the reader. The DOM is not global — the
+ * paged reader renders a window of a few chapters — so every crossing between
+ * the two goes through `base`, and this pairs it with the elements it describes
+ * so the two can't drift apart.
+ *
+ * Getting this wrong is not a rendering bug. `anchorFromRange` writes
+ * `blockIndex` to the database, so a base missing at creation time stores a
+ * window-local index that will resolve to the wrong paragraph forever.
+ */
+export type RenderedBlocks = {
+  /** Global index of `els[0]`. Zero when the whole book is rendered. */
+  base: number;
+  els: HTMLElement[];
+};
 
 /**
  * Enough of the surrounding text to re-find a passage whose HTML moved under it.
@@ -115,6 +141,11 @@ export function blockElements(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>(BLOCK_SELECTOR));
 }
 
+/** The rendered blocks paired with the base that makes their indices global. */
+export function renderedBlocks(container: HTMLElement, base: number): RenderedBlocks {
+  return { base, els: blockElements(container) };
+}
+
 /** An anchor for the gap above `blockIndexBelow` (the hover-between-paragraphs target). */
 export function anchorForGap(
   blockIndexBelow: number,
@@ -169,12 +200,18 @@ export function anchorFromRange(
 
   const end = endBoundary(range, container, startEl);
 
+  // Global, not window-local. This number is written to the database and has to
+  // mean the same thing to a reader that renders the whole book and to one
+  // showing three chapters of it — see RenderedBlocks.
+  const base = space.kind === "book" ? space.base : 0;
   const els = blockElements(container);
-  const blockIndex = els.indexOf(startEl);
-  const endBlockIndex = els.indexOf(end.el);
-  if (blockIndex < 0 || endBlockIndex < 0) {
-    return fail(`block not in list (start ${blockIndex}, end ${endBlockIndex}, of ${els.length})`);
+  const found = els.indexOf(startEl);
+  const foundEnd = els.indexOf(end.el);
+  if (found < 0 || foundEnd < 0) {
+    return fail(`block not in list (start ${found}, end ${foundEnd}, of ${els.length})`);
   }
+  const blockIndex = base + found;
+  const endBlockIndex = base + foundEnd;
 
   const startOffset = offsetWithinBlock(startEl, range.startContainer, range.startOffset);
   const endOffset = end.node
@@ -225,12 +262,20 @@ export function blockTopWithin(el: HTMLElement, container: HTMLElement): number 
   );
 }
 
-/** The element a stored anchor points at, if it's still in range. */
+/** The element a stored anchor points at, if that block is on the page at all. */
 export function elementForAnchor(
   anchor: AnnotationAnchor,
-  els: HTMLElement[]
+  view: RenderedBlocks
 ): HTMLElement | null {
-  return els[anchor.blockIndex] ?? null;
+  return view.els[anchor.blockIndex - view.base] ?? null;
+}
+
+/** Whether both ends of an anchor are among the blocks currently rendered. */
+function withinView(anchor: AnnotationAnchor, view: RenderedBlocks): boolean {
+  const last = view.base + view.els.length;
+  const start = anchor.blockIndex;
+  const end = anchor.endBlockIndex ?? anchor.blockIndex;
+  return start >= view.base && end >= view.base && start < last && end < last;
 }
 
 /**
@@ -246,46 +291,50 @@ export function rangeForAnchor(
   anchor: AnnotationAnchor,
   container: HTMLElement,
   /**
-   * The container's block elements, when the caller is resolving several anchors
-   * in one go and has already queried them. Without this, painting N highlights
-   * or hit-testing a tap ran one `querySelectorAll` over the whole book PER
-   * annotation — and a book is ~3,500 elements.
+   * The blocks on the page, and the base that makes their indices global.
    *
-   * Only ever pass a list queried during the same synchronous pass: React
+   * Queried once by the caller and shared across a whole pass: without it,
+   * painting N highlights or hit-testing a tap ran one `querySelectorAll` over
+   * the entire book PER annotation.
+   *
+   * Only ever pass a list queried during the same synchronous pass. React
    * re-applies the book's innerHTML after mount, and a list that outlives that
    * points at detached elements which report no rects at all. See the note on
    * measureCtx in use-pagination.ts.
    */
-  els?: HTMLElement[]
+  view: RenderedBlocks
 ): Range | null {
   if (anchor.kind !== "selection") return null;
   if (anchor.startOffset == null || anchor.endOffset == null) return null;
 
-  const byIndex = rangeFromIndices(anchor, container, els ?? blockElements(container));
+  // Not on the page at all — a different chapter. Answering "no" here is what
+  // stops the quote fallback below from being consulted: the passage genuinely
+  // isn't in this window, so searching the window for it can only find a
+  // lookalike, and painting a highlight over the wrong paragraph is far worse
+  // than not painting one.
+  if (!withinView(anchor, view)) return null;
+
+  const byIndex = rangeFromIndices(anchor, view);
   if (byIndex && matchesQuote(byIndex, anchor.quote)) return byIndex;
 
   // The text under the stored indices is not what was annotated. Go find it —
-  // which means walking every text node in the book and building a string of the
-  // whole thing. Timed because it is by far the most expensive way to resolve an
-  // anchor, it happens per annotation per pass, and nothing else would tell you
-  // it was happening: a single stale anchor quietly taxes every tap.
+  // which means walking every text node in the window and building a string of
+  // the whole thing. Timed because it is by far the most expensive way to
+  // resolve an anchor, it happens per annotation per pass, and nothing else
+  // would tell you it was happening: one stale anchor quietly taxes every tap.
   return time("anchor: quote fallback", () => rangeFromQuote(anchor.quote, container)) ?? byIndex;
 }
 
-function rangeFromIndices(
-  anchor: AnnotationAnchor,
-  container: HTMLElement,
-  els: HTMLElement[]
-): Range | null {
-  const startEl = els[anchor.blockIndex];
-  const endEl = els[anchor.endBlockIndex ?? anchor.blockIndex];
+function rangeFromIndices(anchor: AnnotationAnchor, view: RenderedBlocks): Range | null {
+  const startEl = view.els[anchor.blockIndex - view.base];
+  const endEl = view.els[(anchor.endBlockIndex ?? anchor.blockIndex) - view.base];
   if (!startEl || !endEl) return null;
 
   const start = textPositionAt(startEl, anchor.startOffset ?? 0);
   const end = textPositionAt(endEl, anchor.endOffset ?? 0);
   if (!start || !end) return null;
 
-  const range = container.ownerDocument.createRange();
+  const range = startEl.ownerDocument.createRange();
   try {
     range.setStart(start.node, start.offset);
     range.setEnd(end.node, end.offset);

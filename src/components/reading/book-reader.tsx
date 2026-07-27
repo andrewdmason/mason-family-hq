@@ -725,6 +725,8 @@ export function BookReader({
       panelOpen={chatPanelOpen}
       onPanelOpenChange={handleChatPanelOpenChange}
       preferSheet={chatAsSheet}
+      // Zero for now: the whole book is still rendered. Windowing moves it.
+      windowBase={0}
       layoutNonce={layoutNonce}
     />
   );

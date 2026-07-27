@@ -98,6 +98,7 @@ export function ReaderAnnotationLayer({
   panelOpen,
   onPanelOpenChange,
   preferSheet,
+  windowBase,
   layoutNonce,
 }: {
   bookId: string;
@@ -116,6 +117,12 @@ export function ReaderAnnotationLayer({
   onPanelOpenChange: (open: boolean) => void;
   /** Present the chat over the book rather than beside it — see chatAsSheet. */
   preferSheet: boolean;
+  /**
+   * Global index of the first block currently rendered. Zero while the whole
+   * book is in the DOM; non-zero once the paged reader windows it. Every
+   * translation between a stored anchor and the page goes through this.
+   */
+  windowBase: number;
   layoutNonce: number;
 }) {
   const [data, setData] = useState<ReaderAnnotationData | null>(null);
@@ -153,8 +160,8 @@ export function ReaderAnnotationLayer({
   // for one copy of the answer.
   const blocks = isArticle ? NO_BLOCKS : allBlocks;
   const space = useMemo<AnchorSpace>(
-    () => (isArticle ? { kind: "dom" } : { kind: "book", blocks }),
-    [isArticle, blocks]
+    () => (isArticle ? { kind: "dom" } : { kind: "book", blocks, base: windowBase }),
+    [isArticle, blocks, windowBase]
   );
   // Memoized, not `data?.chats ?? []`: a fresh array literal every render would
   // re-run the placement effect, which sets state, which renders again — a loop.
@@ -201,14 +208,16 @@ export function ReaderAnnotationLayer({
     chats,
     contentRef,
     layoutNonce + contentVersion,
-    paged
+    paged,
+    windowBase
   );
   // Annotated passages stay marked in the text.
   useAnnotationHighlights(
     chats,
     contentRef,
     detail?.id ?? null,
-    layoutNonce + contentVersion
+    layoutNonce + contentVersion,
+    windowBase
   );
   const totalChars = useMemo(() => {
     const last = blocks.at(-1);
@@ -554,12 +563,12 @@ export function ReaderAnnotationLayer({
       // Articles keep real links. A click inside one is meant for the link, and
       // opening a panel on top of a navigation is the wrong answer to both.
       if ((e.target as HTMLElement | null)?.closest("a")) return;
-      const hit = annotationAtPoint(chats, container, e.clientX, e.clientY);
+      const hit = annotationAtPoint(chats, container, e.clientX, e.clientY, windowBase);
       if (hit) void openExisting(hit.id);
     };
     container.addEventListener("click", onClick);
     return () => container.removeEventListener("click", onClick);
-  }, [chats, contentRef, openExisting]);
+  }, [chats, contentRef, openExisting, windowBase]);
 
   // A citation cites a page, and every page we know about has a recorded
   // character offset — which navigates identically whether the book is paged or
