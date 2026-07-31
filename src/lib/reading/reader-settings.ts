@@ -24,6 +24,15 @@ export type ReaderSettings = {
   fontStep: number;
   /** Index into LEADING_STEPS. */
   leading: number;
+  /**
+   * Whether the chat panel takes width from the book instead of floating over it.
+   *
+   * A viewing preference, and it must stay one: it may reach `bookAreaWidth` and
+   * so `cols` and `offsetX`, but it must never reach `fragmentationFor`. Docking
+   * on a narrow screen would otherwise re-lay-out the entire book, which is the
+   * one thing the geometry is arranged to prevent — see PageGeometry.
+   */
+  chatDocked: boolean;
 };
 
 /** Body text sizes, in rem. The old fixed reader size (1.15rem) is the default. */
@@ -100,6 +109,11 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   align: "left",
   fontStep: DEFAULT_FONT_STEP,
   leading: DEFAULT_LEADING,
+  // Floating, because docking costs a column. Two columns at a comfortable
+  // measure plus a 448px panel needs about 1780px of window; a 15" laptop hasn't
+  // got it, so the honest default is a panel that sits over the page and leaves
+  // the book exactly as it was.
+  chatDocked: false,
 };
 
 const STORAGE_KEY = "reader:layout";
@@ -137,6 +151,8 @@ export function loadSettings(): ReaderSettings {
     align: oneOf(s.align, ["left", "justify"] as const, DEFAULT_SETTINGS.align),
     fontStep: clampStep(s.fontStep, FONT_STEPS.length, DEFAULT_FONT_STEP),
     leading: clampStep(s.leading, LEADING_STEPS.length, DEFAULT_LEADING),
+    chatDocked:
+      typeof s.chatDocked === "boolean" ? s.chatDocked : DEFAULT_SETTINGS.chatDocked,
   };
 }
 

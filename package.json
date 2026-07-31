@@ -15,7 +15,7 @@
     "db:reset": "supabase db reset && npm run seed:media && npm run db:heal",
     "baseball:capture": "tsx scripts/baseball/capture.mts",
     "baseball:generate": "tsx scripts/baseball/generate-migration.mts",
-    "verify:reader": "tsx scripts/verify-reader-windows.mts && tsx scripts/verify-paged-geometry.mts && tsx scripts/verify-window-seams.mts && tsx scripts/verify-paged-fragmentation.mts && tsx scripts/verify-anchor-quotes.mts && tsx scripts/verify-anchor-windows.mts"
+    "verify:reader": "tsx scripts/verify-reader-windows.mts && tsx scripts/verify-paged-geometry.mts && tsx scripts/verify-window-seams.mts && tsx scripts/verify-paged-fragmentation.mts && tsx scripts/verify-anchor-quotes.mts && tsx scripts/verify-anchor-windows.mts && tsx scripts/verify-gap-targets.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",

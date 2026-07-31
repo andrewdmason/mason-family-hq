@@ -22,12 +22,15 @@ export function AnnotationList({
   hasRealPages,
   onOpen,
   onClose,
+  dockToggle,
 }: {
   annotations: AnnotationSummary[];
   openAnnotationId: string | null;
   hasRealPages: boolean;
   onOpen: (id: string) => void;
   onClose: () => void;
+  /** The float/dock control, when the panel is presented in a way that can dock. */
+  dockToggle?: React.ReactNode;
 }) {
   // Reading order, not creation order: this is a companion to the text, so it
   // should run the way the text does. created_at breaks ties for two marks on
@@ -46,6 +49,7 @@ export function AnnotationList({
             ? "Nothing marked yet"
             : `${ordered.length} ${ordered.length === 1 ? "mark" : "marks"}`}
         </p>
+        {dockToggle}
         <button
           type="button"
           onClick={onClose}

@@ -11,7 +11,11 @@ import {
 } from "react";
 import type { BookBlock } from "@/lib/reading/block-stream";
 import { blockElements } from "@/lib/reading/annotation-anchors";
-import { computeGeometry, type PageGeometry } from "@/lib/reading/paged-geometry";
+import {
+  computeGeometry,
+  type ChatPanelPresentation,
+  type PageGeometry,
+} from "@/lib/reading/paged-geometry";
 import {
   segmentsOf,
   windowFor,
@@ -83,7 +87,7 @@ export function usePagination({
   flowRef,
   blocks,
   settings,
-  chatPanelOpen,
+  chatPanel,
   charOffset: externalCharOffset,
   onPositionChange,
 }: {
@@ -92,7 +96,8 @@ export function usePagination({
   flowRef: React.RefObject<HTMLDivElement | null>;
   blocks: BookBlock[];
   settings: ReaderSettings;
-  chatPanelOpen: boolean;
+  /** How the chat is presented, which decides what it costs — see ChatPanelPresentation. */
+  chatPanel: ChatPanelPresentation;
   /**
    * Where the reader is, owned by the caller. While paging is on this hook
    * drives it; while it's off the scrolling view does, and we track it so
@@ -281,8 +286,8 @@ export function usePagination({
     () =>
       !enabled || html == null || viewport.width === 0 || viewport.height === 0
         ? null
-        : computeGeometry(viewport.width, viewport.height, settings, chatPanelOpen),
-    [enabled, html, viewport, settings, chatPanelOpen]
+        : computeGeometry(viewport.width, viewport.height, settings, chatPanel),
+    [enabled, html, viewport, settings, chatPanel]
   );
   const geometry = measured;
 

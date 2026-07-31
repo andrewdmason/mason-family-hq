@@ -31,6 +31,7 @@ import { AnnotationsButton } from "./annotations-button";
 import { AnnotationThread } from "./annotation-thread";
 import { GutterMarkers } from "./gutter-markers";
 import { useGutterPlacement, type PagedGutterContext } from "./gutter-placement";
+import { PanelDockToggle } from "./panel-dock-toggle";
 import { ParagraphHoverTarget } from "./paragraph-hover-target";
 import { SelectionToolbar, type SelectionIntent } from "./selection-toolbar";
 import { annotationAtPoint, useAnnotationHighlights } from "./use-annotation-highlights";
@@ -98,6 +99,8 @@ export function ReaderAnnotationLayer({
   panelOpen,
   onPanelOpenChange,
   preferSheet,
+  docked,
+  canFloat,
   windowBase,
   layoutNonce,
 }: {
@@ -117,6 +120,14 @@ export function ReaderAnnotationLayer({
   onPanelOpenChange: (open: boolean) => void;
   /** Present the chat over the book rather than beside it — see chatAsSheet. */
   preferSheet: boolean;
+  /** The panel takes width from the book rather than sitting over it. */
+  docked: boolean;
+  /**
+   * Whether floating is on offer at all. Only a paged book has a second column
+   * worth protecting; a scrolling one is a single centred measure that simply
+   * shifts, and a sheet has taken nothing to give back.
+   */
+  canFloat: boolean;
   /**
    * Global index of the first block currently rendered. Zero while the whole
    * book is in the DOM; non-zero once the paged reader windows it. Every
@@ -202,8 +213,8 @@ export function ReaderAnnotationLayer({
   // have to be re-derived when that content is swapped in or replaced. See
   // use-content-version.ts: layoutNonce alone does not reliably cover it.
   const contentVersion = useContentVersion(contentRef, layoutNonce);
-  // One placement pass shared by the markers and the hover target, so they
-  // stack in the same column instead of landing on each other.
+  // Placed next to the hover target's own pass, in the same module, so the two
+  // margins can't disagree about where a block is — see gutter-placement.ts.
   const gutterRows = useGutterPlacement(
     chats,
     contentRef,
@@ -236,6 +247,10 @@ export function ReaderAnnotationLayer({
   // sit beside a panel, which the reader works out from its own geometry and
   // tells us. See chatAsSheet in book-reader.tsx.
   const asSheet = isMobile || preferSheet;
+  // Only offered where it changes something. On a sheet the book has no width to
+  // give — that's why it's a sheet — and a scrolling column has no second column
+  // to save, so the panel there is simply always docked.
+  const dockToggle = canFloat && !asSheet ? <PanelDockToggle /> : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -477,6 +492,8 @@ export function ReaderAnnotationLayer({
       .catch(() => {});
   }, [detail, draftId, memberEmail, onPanelOpenChange, refreshList, touched]);
 
+  // `blockIndex` is global, like every index that reaches an anchor — the hover
+  // target adds `windowBase` when it measures. See RenderedBlocks.
   const startAtGap = useCallback(
     (blockIndex: number) => {
       const container = contentRef.current;
@@ -697,18 +714,14 @@ export function ReaderAnnotationLayer({
         openAnnotationId={detail?.id ?? null}
         onOpen={(id) => void openExisting(id)}
       />
-      {/* Scrolling only. The affordance needs its own strip in the left margin,
-          and a two-column page has no margin to give it — the left column's only
-          gutter is the column gap, which the markers already own. Selecting text
-          and acting on it covers the same ground. */}
-      {paged == null && (
-        <ParagraphHoverTarget
-          contentRef={contentRef}
-          onStart={(i) => void startAtGap(i)}
-          layoutNonce={layoutNonce}
-          disabled={busy}
-        />
-      )}
+      <ParagraphHoverTarget
+        contentRef={contentRef}
+        onStart={(i) => void startAtGap(i)}
+        layoutNonce={layoutNonce + contentVersion}
+        disabled={busy}
+        paged={paged}
+        base={windowBase}
+      />
       <SelectionToolbar
         contentRef={contentRef}
         onAct={(range, intent) => void annotateSelection(range, intent)}
@@ -717,6 +730,7 @@ export function ReaderAnnotationLayer({
       <AnnotationPanel
         open={panelOpen}
         isMobile={asSheet}
+        docked={docked}
         onClose={closePanel}
         // The list is a destination and stays put; only an untouched chat
         // draft behaves like a popover and gets out of your way.
@@ -729,6 +743,7 @@ export function ReaderAnnotationLayer({
             hasRealPages={data?.hasRealPages ?? false}
             onOpen={(id) => void openExisting(id)}
             onClose={closePanel}
+            dockToggle={dockToggle}
           />
         ) : (
           detail && (
@@ -755,6 +770,7 @@ export function ReaderAnnotationLayer({
             onSpoilerFreeChange={(v) => void changeSpoilerFree(v)}
             onModelChange={(v) => void changeModel(v)}
             onNoteChange={(n) => void changeNote(n)}
+            dockToggle={dockToggle}
           />
           )
         )}

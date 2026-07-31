@@ -71,6 +71,19 @@ export type PageGeometry = {
 };
 
 /**
+ * How the chat is being presented, which is the only thing about it the geometry
+ * needs to know.
+ *
+ * The three cases differ in what they're allowed to cost, and two of them cost
+ * nothing. Closed and FLOATING are the same geometry: a floating panel sits over
+ * the page and the page is not told, so no column is lost, nothing slides, and
+ * closing it puts nothing back. Docked has width of its own, so the book is laid
+ * out in what's left and may lose a column — which is why it's a button and not
+ * a default. A sheet is "closed" here too; it deliberately takes nothing.
+ */
+export type ChatPanelPresentation = "closed" | "floating" | "docked";
+
+/**
  * The width the book itself has to work with: the window, less whatever a side
  * panel has taken. A panel presented over the book — a sheet — takes nothing.
  */
@@ -139,20 +152,27 @@ export function computeGeometry(
   clipW: number,
   clipH: number,
   settings: ReaderSettings,
-  sidePanelOpen: boolean
+  panel: ChatPanelPresentation
 ): PageGeometry {
   const frag = fragmentationFor(clipW, settings);
-  const usable = bookAreaWidth(clipW, sidePanelOpen);
+  // Only a DOCKED panel is allowed to change anything here. A floating one is
+  // geometrically identical to no panel at all — not "cheap", not "a repaint
+  // only", but the same numbers — and that is the entire point of it. Sliding the
+  // page sideways to make room, which an earlier version did, is exactly the
+  // disorienting re-layout the float exists to avoid: the reader's eye is in the
+  // middle of a sentence and the sentence moves. A floating panel covers some of
+  // the outer column and the book underneath it does not move at all.
+  const usable = bookAreaWidth(clipW, panel === "docked");
 
   // Two columns are shown when two of this column plus the gap actually fit in
   // what's left of the screen. The insets are part of the question so the text
   // doesn't end up jammed against the edges of a narrowed area.
   //
-  // This is the line the chat panel moves, and moving it is free: the flow
-  // element is untouched, so the browser's layout never goes dirty. Opening the
-  // chat on an iPad drops the page from two columns to one and slides it — it
-  // does not re-fragment the book, which is what it used to do, on every open
-  // and every close, and which is what made reading with the chat open feel bad.
+  // This is the line a docked chat panel moves, and moving it is free: the flow
+  // element is untouched, so the browser's layout never goes dirty. Docking on an
+  // iPad drops the page from two columns to one and slides it — it does not
+  // re-fragment the book, which is what it used to do, on every open and every
+  // close, and which is what made reading with the chat open feel bad.
   const availView = usable - MARGIN_INSET_PX[settings.margins] * 2;
   const cols: 1 | 2 =
     effectiveColumns(settings, clipW) === 2 && frag.colW * 2 + frag.gap <= availView ? 2 : 1;
@@ -164,7 +184,8 @@ export function computeGeometry(
     cols,
     viewW,
     pageStride: cols * frag.colStride,
-    // Centred in what's left of the screen once the panel has taken its share.
+    // Centred in what's left of the screen once a docked panel has taken its
+    // share. A floating panel took nothing, so this is where the page already was.
     offsetX: Math.max(0, Math.round((usable - viewW) / 2)),
   };
 }
