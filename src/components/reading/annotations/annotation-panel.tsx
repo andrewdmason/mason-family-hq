@@ -3,15 +3,26 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { BottomSheet } from "@/components/ui/bottom-sheet";
+import { cn } from "@/lib/utils";
 
 export const ANNOTATION_PANEL_WIDTH_CLASS = "w-[26rem]";
 
 /**
- * Desktop: a non-modal right-edge drawer. Deliberately NOT a dialog — no
- * backdrop, no focus trap, and clicking in the book does not dismiss it. The
- * whole point is to keep reading and selecting text while the chat is open, so
- * only Escape and the close button dismiss. The reading column is shifted left
- * by the same width in book-reader.tsx, so nothing is ever covered.
+ * Desktop: a non-modal panel. Deliberately NOT a dialog — no backdrop, no focus
+ * trap, and clicking in the book does not dismiss it. The whole point is to keep
+ * reading and selecting text while the chat is open, so only Escape and the close
+ * button dismiss.
+ *
+ * It FLOATS by default: an inset card over the page, with the book untouched
+ * behind it. It used to always dock — a flush drawer with the reading column
+ * shifted left by the same width — and on a 15" laptop that cost a whole column,
+ * which read less as "a panel opened" than as "the window shrank and the book
+ * didn't notice". Docking is still there for a screen wide enough to afford it,
+ * behind the button in the panel's header, and then nothing is covered.
+ *
+ * The 12px reveal on three sides of the floating card is doing work: the page
+ * visibly continues behind it, which is what says "on top of" rather than
+ * "instead of".
  *
  * Mobile: the app's existing BottomSheet, which can be parked at half height to
  * peek at the text behind it.
@@ -19,12 +30,15 @@ export const ANNOTATION_PANEL_WIDTH_CLASS = "w-[26rem]";
 export function AnnotationPanel({
   open,
   isMobile,
+  docked,
   onClose,
   dismissOnOutsidePress = false,
   children,
 }: {
   open: boolean;
   isMobile: boolean;
+  /** Take width from the book instead of floating over it — see PanelDockToggle. */
+  docked: boolean;
   onClose: () => void;
   /**
    * True only while the chat is untouched. An unused draft behaves like a
@@ -71,7 +85,13 @@ export function AnnotationPanel({
     // z-50 clears the reader's hover header (z-40).
     <aside
       ref={panelRef}
-      className={`fixed inset-y-0 right-0 z-50 flex ${ANNOTATION_PANEL_WIDTH_CLASS} flex-col border-l border-border bg-background shadow-lg`}
+      className={cn(
+        "fixed right-0 z-50 flex flex-col bg-background",
+        ANNOTATION_PANEL_WIDTH_CLASS,
+        docked
+          ? "inset-y-0 border-l border-border shadow-lg"
+          : "top-3 bottom-3 right-3 overflow-hidden rounded-xl border border-border shadow-2xl"
+      )}
       aria-label="Chat about this book"
     >
       {/* No floating close button: it would sit on top of whatever the panel
