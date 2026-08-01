@@ -54,6 +54,9 @@ export async function createTask(input: {
   assigneeEmail: string;
   bucket: TodoBucket;
   projectId?: string | null;
+  /** The section within projectId — the inline draft inherits it from the
+   * row it was summoned below. Ignored without a project. */
+  sectionId?: string | null;
   /** Plain text (e.g. the ingest path) — converted to paragraph HTML. */
   notes?: string;
   /** Rich HTML (the quick-add modal's Tiptap notes) — sanitized like edits. */
@@ -75,6 +78,8 @@ export async function createTask(input: {
   if (!title && !input.draft) throw new Error("Task title is required");
   // A task in a project can't be in the Inbox — having a project IS triage.
   if (input.projectId && input.bucket === "inbox") input.bucket = "anytime";
+
+  const sectionId = input.projectId ? (input.sectionId ?? null) : null;
 
   // Top wants the list's MIN (ascending), bottom its MAX (descending). The
   // list is the one the task will render in: the project's task list when it
@@ -110,6 +115,7 @@ export async function createTask(input: {
       assignee_email: input.assigneeEmail,
       creator_email: selfEmail,
       project_id: input.projectId ?? null,
+      section_id: sectionId,
       snoozed_until: input.snoozedUntil ?? null,
       sort_order: sortOrder,
       // Your own captures never need an "unseen" state.
@@ -177,7 +183,12 @@ export async function moveTaskToInbox(taskId: string): Promise<void> {
   const { supabase } = await ctx();
   const { error } = await supabase
     .from("todo_tasks")
-    .update({ bucket: "inbox", project_id: null, snoozed_until: null })
+    .update({
+      bucket: "inbox",
+      project_id: null,
+      section_id: null,
+      snoozed_until: null,
+    })
     .eq("id", taskId);
   if (error) throw error;
 }
@@ -345,7 +356,9 @@ export async function setAreaSortOrder(areaId: string, sortOrder: number): Promi
 /** Move a task into a project (or out, with null). The picker only offers
  * projects the task's assignee belongs to, keeping the membership rule.
  * Filing an Inbox task into a project triages it — it becomes Anytime
- * (a task in a project can't be in the Inbox). */
+ * (a task in a project can't be in the Inbox). Always lands in the project's
+ * unsectioned top area: the old section belonged to the old project, and
+ * re-filing into the same project is the gesture for "out of its section". */
 export async function setTaskProject(taskId: string, projectId: string | null): Promise<void> {
   const { supabase } = await ctx();
   const { data: current } = await supabase
@@ -358,11 +371,226 @@ export async function setTaskProject(taskId: string, projectId: string | null): 
     .from("todo_tasks")
     .update(
       autoTriage
-        ? { project_id: projectId, bucket: "anytime" }
-        : { project_id: projectId }
+        ? { project_id: projectId, section_id: null, bucket: "anytime" }
+        : { project_id: projectId, section_id: null }
     )
     .eq("id", taskId);
   if (error) throw error;
+}
+
+// ============================================================
+// Sections (Things-style headings inside a project; migration 00169)
+// ============================================================
+
+/** Bottom of the list a task will render in: the tasks in one section of a
+ * project (or its unsectioned top area). Mirrors createTask's edge query. */
+async function sectionBottom(
+  supabase: Awaited<ReturnType<typeof ctx>>["supabase"],
+  projectId: string,
+  sectionId: string | null
+): Promise<number> {
+  let query = supabase
+    .from("todo_tasks")
+    .select("sort_order")
+    .eq("project_id", projectId)
+    .is("completed_at", null)
+    .is("deleted_at", null);
+  query = sectionId
+    ? query.eq("section_id", sectionId)
+    : query.is("section_id", null);
+  const { data: edge } = await query
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return edge ? edge.sort_order + 1 : 1;
+}
+
+/**
+ * File a task into a section (or, with null, back into its project's
+ * unsectioned top area). The section carries its project, so this doubles as
+ * a cross-project move — with the same Inbox triage rule as setTaskProject.
+ *
+ * Without `sortOrder` the task appends to the bottom of wherever it lands,
+ * which is what "drop it on that heading" and the Move menu mean. A drag that
+ * lands the row between two others passes the position it computed.
+ */
+export async function setTaskSection(
+  taskId: string,
+  sectionId: string | null,
+  sortOrder?: number
+): Promise<void> {
+  const { supabase } = await ctx();
+  const { data: current } = await supabase
+    .from("todo_tasks")
+    .select("bucket, project_id")
+    .eq("id", taskId)
+    .maybeSingle();
+  if (!current) return;
+
+  if (!sectionId) {
+    if (!current.project_id) return;
+    const { error } = await supabase
+      .from("todo_tasks")
+      .update({
+        section_id: null,
+        sort_order:
+          sortOrder ?? (await sectionBottom(supabase, current.project_id, null)),
+      })
+      .eq("id", taskId);
+    if (error) throw error;
+    return;
+  }
+
+  const { data: section } = await supabase
+    .from("todo_sections")
+    .select("id, project_id")
+    .eq("id", sectionId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!section) throw new Error("Section not found");
+
+  const { error } = await supabase
+    .from("todo_tasks")
+    .update({
+      project_id: section.project_id,
+      section_id: section.id,
+      sort_order:
+        sortOrder ??
+        (await sectionBottom(supabase, section.project_id, section.id)),
+      ...(current.bucket === "inbox" ? { bucket: "anytime" } : {}),
+    })
+    .eq("id", taskId);
+  if (error) throw error;
+}
+
+/** New sections append to the bottom of the project — they accrete as the
+ * work grows, so a new one never shoves itself above what's organized. */
+export async function createSection(
+  projectId: string,
+  name: string
+): Promise<{ id: string; sortOrder: number }> {
+  const { supabase } = await ctx();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Section name is required");
+
+  const { data: last } = await supabase
+    .from("todo_sections")
+    .select("sort_order")
+    .eq("project_id", projectId)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const sortOrder = (last?.sort_order ?? 0) + 1;
+
+  const { data, error } = await supabase
+    .from("todo_sections")
+    .insert({ project_id: projectId, name: trimmed, sort_order: sortOrder })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return { id: data.id as string, sortOrder };
+}
+
+export async function renameSection(sectionId: string, name: string): Promise<void> {
+  const { supabase } = await ctx();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Section name is required");
+  const { error } = await supabase
+    .from("todo_sections")
+    .update({ name: trimmed })
+    .eq("id", sectionId);
+  if (error) throw error;
+}
+
+/**
+ * Delete a section but keep its to-dos: they merge upward into the preceding
+ * section, or into the project's unsectioned top area when there isn't one. A
+ * section is a label, not a container of value — so this never prompts, and
+ * the undo toast (restoreSection) puts both the heading and its to-dos back.
+ */
+export async function deleteSection(
+  sectionId: string
+): Promise<{ deletedAt: string; movedTaskIds: string[] }> {
+  const { supabase } = await ctx();
+  const { data: section } = await supabase
+    .from("todo_sections")
+    .select("id, project_id, sort_order")
+    .eq("id", sectionId)
+    .maybeSingle();
+  if (!section) return { deletedAt: new Date().toISOString(), movedTaskIds: [] };
+
+  const { data: preceding } = await supabase
+    .from("todo_sections")
+    .select("id")
+    .eq("project_id", section.project_id)
+    .is("deleted_at", null)
+    .neq("id", sectionId)
+    .lt("sort_order", section.sort_order)
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // Completed to-dos move too, so un-completing one from the Logbook lands it
+  // where its neighbors went rather than pointing at a deleted heading.
+  const { data: moved, error: taskError } = await supabase
+    .from("todo_tasks")
+    .update({ section_id: preceding?.id ?? null })
+    .eq("section_id", sectionId)
+    .is("deleted_at", null)
+    .select("id");
+  if (taskError) throw taskError;
+
+  const deletedAt = new Date().toISOString();
+  const { error } = await supabase
+    .from("todo_sections")
+    .update({ deleted_at: deletedAt })
+    .eq("id", sectionId);
+  if (error) throw error;
+
+  return { deletedAt, movedTaskIds: ((moved ?? []) as { id: string }[]).map((t) => t.id) };
+}
+
+/** Undo a section delete: the heading comes back and reclaims the to-dos that
+ * merged upward out of it. */
+export async function restoreSection(
+  sectionId: string,
+  taskIds: string[]
+): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_sections")
+    .update({ deleted_at: null })
+    .eq("id", sectionId);
+  if (error) throw error;
+  if (taskIds.length === 0) return;
+  const { error: taskError } = await supabase
+    .from("todo_tasks")
+    .update({ section_id: sectionId })
+    .in("id", taskIds);
+  if (taskError) throw taskError;
+}
+
+export async function setSectionSortOrder(
+  sectionId: string,
+  sortOrder: number
+): Promise<void> {
+  const { supabase } = await ctx();
+  const { error } = await supabase
+    .from("todo_sections")
+    .update({ sort_order: sortOrder })
+    .eq("id", sectionId);
+  if (error) throw error;
+}
+
+/** Reset a project's section positions to 1..n when midpoints run dry. */
+export async function renormalizeSectionOrder(orderedIds: string[]): Promise<void> {
+  const { supabase } = await ctx();
+  await Promise.all(
+    orderedIds.map((id, index) =>
+      supabase.from("todo_sections").update({ sort_order: index + 1 }).eq("id", id)
+    )
+  );
 }
 
 export async function createProject(name: string): Promise<{ id: string }> {

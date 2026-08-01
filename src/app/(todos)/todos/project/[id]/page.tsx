@@ -7,6 +7,7 @@ import {
   getLogbookProjects,
   getLogbookTasks,
   getProjects,
+  getSections,
   getSelfEmail,
   getTaskAttachments,
   getTodoMembers,
@@ -41,11 +42,12 @@ export default async function ProjectPage({
   const viewed = resolveViewedMember(as, selfEmail, members);
 
   await sweepElapsedSnoozes(supabase);
-  const [activeTasks, logbookTasks, projects, areas, logbookProjects] =
+  const [activeTasks, logbookTasks, projects, sections, areas, logbookProjects] =
     await Promise.all([
       getAllActiveTasks(supabase),
       getLogbookTasks(supabase, viewed.email),
       getProjects(supabase),
+      getSections(supabase),
       getAreas(supabase),
       getLogbookProjects(supabase),
     ]);
@@ -68,6 +70,7 @@ export default async function ProjectPage({
       attachmentsByTask={attachmentsByTask}
       members={members}
       projects={projects}
+      sections={sections}
       areas={areas}
       viewed={viewed}
       selfEmail={selfEmail}

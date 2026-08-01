@@ -19,6 +19,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MemberAvatar } from "@/components/journal/member-avatar";
@@ -36,6 +39,7 @@ import type {
   TodoBucket,
   TodoMember,
   TodoProject,
+  TodoSection,
   TodoTask,
   TodoView,
 } from "@/lib/todos/types";
@@ -72,6 +76,9 @@ export type TaskRowHandlers = {
   /** Commit (blur/Enter/close) — persists to the server. */
   onRenameTitle: (task: TodoTask, title: string) => void;
   onSetProject: (task: TodoTask, projectId: string | null) => void;
+  /** File into a project section (null = its project's top area). The section
+   * carries its project, so this doubles as a project move. */
+  onSetSection: (task: TodoTask, sectionId: string | null) => void;
   /** Back to the Inbox: clears project + snooze (un-triage). */
   onMoveToInbox: (task: TodoTask) => void;
   onSaveNotes: (task: TodoTask, html: string) => void;
@@ -98,6 +105,7 @@ export function TaskRow({
   context,
   members,
   projects,
+  sections,
   attachments,
   uploading,
   viewedEmail,
@@ -115,6 +123,9 @@ export function TaskRow({
   context: TaskRowContext;
   members: TodoMember[];
   projects: TodoProject[];
+  /** Every live project's sections — the Move picker nests them under their
+   * project. */
+  sections: TodoSection[];
   attachments: TodoTaskAttachment[];
   uploading: UploadingAttachment[];
   viewedEmail: string;
@@ -313,6 +324,7 @@ export function TaskRow({
               context={context}
               members={members}
               projects={projects}
+              sections={sections}
               attachments={attachments}
               uploading={uploading}
               openMenu={openMenu}
@@ -398,6 +410,7 @@ function ExpandedEditor({
   context,
   members,
   projects,
+  sections,
   attachments,
   uploading,
   openMenu,
@@ -408,6 +421,7 @@ function ExpandedEditor({
   context: TaskRowContext;
   members: TodoMember[];
   projects: TodoProject[];
+  sections: TodoSection[];
   attachments: TodoTaskAttachment[];
   uploading: UploadingAttachment[];
   openMenu: TaskRowMenu | null;
@@ -476,7 +490,9 @@ function ExpandedEditor({
         <ProjectPicker
           task={task}
           projects={projects}
+          sections={sections}
           onSetProject={(projectId) => handlers.onSetProject(task, projectId)}
+          onSetSection={(sectionId) => handlers.onSetSection(task, sectionId)}
           onMoveToInbox={() => handlers.onMoveToInbox(task)}
           open={openMenu === "project"}
           onOpenChange={(open) => onMenuOpenChange("project", open)}
@@ -513,20 +529,25 @@ function ExpandedEditor({
 function ProjectPicker({
   task,
   projects,
+  sections,
   onSetProject,
+  onSetSection,
   onMoveToInbox,
   open,
   onOpenChange,
 }: {
   task: TodoTask;
   projects: TodoProject[];
+  sections: TodoSection[];
   onSetProject: (projectId: string | null) => void;
+  onSetSection: (sectionId: string | null) => void;
   onMoveToInbox: () => void;
   /** Controlled open (the keyboard `m` summons it); omit for internal state. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
   const current = projects.find((p) => p.id === task.projectId);
+  const currentSection = sections.find((s) => s.id === task.sectionId);
   const options = projects.filter((p) =>
     p.memberEmails.includes(task.assigneeEmail)
   );
@@ -548,7 +569,11 @@ function ProjectPicker({
         {/* The chip stays the project's empty state even in the Inbox — the
             When chip already says Inbox, and twins read as a glitch. */}
         <CircleDashed className="size-4 text-primary/70" />
-        {current?.name ?? "No project"}
+        {current
+          ? currentSection
+            ? `${current.name} › ${currentSection.name}`
+            : current.name
+          : "No project"}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-52">
         <DropdownMenuItem
@@ -562,19 +587,68 @@ function ProjectPicker({
           {inInbox && <Check className="size-4 text-primary" />}
         </DropdownMenuItem>
         {options.length > 0 && <DropdownMenuSeparator />}
-        {options.map((project) => (
-          <DropdownMenuItem
-            key={project.id}
-            onClick={() => {
-              if (project.id !== task.projectId) onSetProject(project.id);
-            }}
-            className="gap-2"
-          >
-            <CircleDashed className="size-4 text-primary/70" />
-            <span className="flex-1 truncate">{project.name}</span>
-            {project.id === task.projectId && <Check className="size-4 text-primary" />}
-          </DropdownMenuItem>
-        ))}
+        {options.map((project) => {
+          const projectSections = sections
+            .filter((s) => s.projectId === project.id)
+            .sort((a, b) => a.sortOrder - b.sortOrder);
+          // A project with sections opens one level deeper, so `m` can file
+          // straight into "Kitchen Reno › Permits"; one without stays a
+          // single click.
+          if (projectSections.length === 0) {
+            return (
+              <DropdownMenuItem
+                key={project.id}
+                onClick={() => {
+                  if (project.id !== task.projectId) onSetProject(project.id);
+                }}
+                className="gap-2"
+              >
+                <CircleDashed className="size-4 text-primary/70" />
+                <span className="flex-1 truncate">{project.name}</span>
+                {project.id === task.projectId && (
+                  <Check className="size-4 text-primary" />
+                )}
+              </DropdownMenuItem>
+            );
+          }
+          const inTopArea = project.id === task.projectId && !task.sectionId;
+          return (
+            <DropdownMenuSub key={project.id}>
+              <DropdownMenuSubTrigger className="gap-2">
+                <CircleDashed className="size-4 text-primary/70" />
+                <span className="flex-1 truncate">{project.name}</span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-48">
+                <DropdownMenuItem
+                  onClick={() => {
+                    if (!inTopArea) onSetProject(project.id);
+                  }}
+                  className="gap-2"
+                >
+                  <span className="flex-1 truncate text-muted-foreground">
+                    No section
+                  </span>
+                  {inTopArea && <Check className="size-4 text-primary" />}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {projectSections.map((section) => (
+                  <DropdownMenuItem
+                    key={section.id}
+                    onClick={() => {
+                      if (section.id !== task.sectionId) onSetSection(section.id);
+                    }}
+                    className="gap-2"
+                  >
+                    <span className="flex-1 truncate">{section.name}</span>
+                    {section.id === task.sectionId && (
+                      <Check className="size-4 text-primary" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          );
+        })}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={() => {
