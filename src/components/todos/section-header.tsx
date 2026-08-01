@@ -100,6 +100,9 @@ export function SectionHeader({
         {...(dragHandle?.props ?? {})}
         className={cn(
           "mb-1 flex items-center gap-1.5 rounded-md px-1 py-1 transition-colors",
+          // The whole heading is the handle — a section drags like a task row
+          // does, from anywhere on it rather than from a dedicated grip.
+          !editing && "cursor-grab active:cursor-grabbing",
           dropActive && "bg-primary/10 ring-1 ring-primary/40"
         )}
       >
@@ -152,8 +155,12 @@ export function SectionHeader({
               type="button"
               onDoubleClick={onStartRename}
               onClick={onToggleCollapse}
-              onPointerDown={(e) => e.stopPropagation()}
-              className="min-w-0 flex-1 truncate text-left text-xs font-semibold uppercase tracking-wide text-foreground/70 hover:text-foreground"
+              // Deliberately does NOT stop the pointer from reaching the drag
+              // listeners above: this button is ~90% of the heading's width, so
+              // swallowing pointerdown here leaves nowhere to grab the section
+              // by. The sensor's 5px threshold is what separates a fold from a
+              // drag — a click that doesn't travel still just folds.
+              className="min-w-0 flex-1 cursor-grab truncate text-left text-xs font-semibold uppercase tracking-wide text-foreground/70 hover:text-foreground active:cursor-grabbing"
             >
               {name}
             </button>
