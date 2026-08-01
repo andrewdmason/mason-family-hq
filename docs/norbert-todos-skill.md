@@ -38,13 +38,17 @@ curl -s -H "Authorization: Bearer $FAMILY_HQ_AGENT_SECRET" \
 - **Projects** are shared checklists (dinner party, vacation packing); tasks
   in a project can be assigned to different people. A task in a project is
   never in the Inbox — filing it IS the triage (it becomes `anytime`).
+- **Sections** are headings inside a project ("Costco", "Permits"). You can
+  *see* them — tasks report `section` / `section_id`, and the context lists
+  each project's sections — but you can't file into one. Anything you put in
+  a project lands in its unsectioned top area; a human sorts it from there.
 
 ## Who's who and what exists
 
 `GET /api/agent/todos/context` returns the family members (name, email,
-role), the live projects (id, name, area, members, open-task counts), and
-the areas. Fetch it once per session to map names to emails and project
-names to ids.
+role), the live projects (id, name, area, members, open-task counts, and
+their sections), and the areas. Fetch it once per session to map names to
+emails and project names to ids.
 
 ## Reading lists
 
@@ -97,7 +101,7 @@ Required: `title`, `assignee_email`. Optional:
 | `"notes"` | replace notes wholesale (plain text; `null` clears). Careful: rewriting notes flattens any checklist formatting — read first and only rewrite when asked. |
 | `"bucket"` | move between inbox/today/anytime/someday (clears any snooze; moving to `inbox` also un-files it from its project) |
 | `"assignee_email"` | hand to someone else — lands in their Inbox unseen (unless it's a project task, which stays put) |
-| `"project_id"` | file into a project (`null` = remove from project) |
+| `"project_id"` | file into a project (`null` = remove from project). Lands in the project's top area — it never picks a section |
 | `"snoozed_until"` | ISO = snooze until then; `null` = wake it now (lands in Today) |
 | `"completed": true` | check it off — include `"completed_by_email"` if someone other than the assignee did it |
 | `"completed": false` | un-complete (back from the Logbook) |

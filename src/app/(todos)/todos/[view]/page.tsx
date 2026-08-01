@@ -7,6 +7,7 @@ import {
   getLogbookProjects,
   getLogbookTasks,
   getProjects,
+  getSections,
   getSelfEmail,
   getTaskAttachments,
   getTodoMembers,
@@ -67,7 +68,7 @@ export default async function TodoViewPage({
   if (view === "inbox" && viewed.email === selfEmail) {
     await markInboxSeen(supabase, selfEmail);
   }
-  const [activeTasks, logbookTasks, projects, areas, logbookProjects] =
+  const [activeTasks, logbookTasks, projects, sections, areas, logbookProjects] =
     await Promise.all([
       // The whole household's active set: the shell derives each member view
       // (filtered by assignee/creator) *and* any project (every assignee) from
@@ -75,6 +76,7 @@ export default async function TodoViewPage({
       getAllActiveTasks(supabase),
       getLogbookTasks(supabase, viewed.email),
       getProjects(supabase),
+      getSections(supabase),
       getAreas(supabase),
       getLogbookProjects(supabase),
     ]);
@@ -92,6 +94,7 @@ export default async function TodoViewPage({
       attachmentsByTask={attachmentsByTask}
       members={members}
       projects={projects}
+      sections={sections}
       areas={areas}
       viewed={viewed}
       selfEmail={selfEmail}

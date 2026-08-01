@@ -30,6 +30,7 @@ import type {
   TodoBucket,
   TodoMember,
   TodoProject,
+  TodoSection,
   TodoTask,
 } from "@/lib/todos/types";
 import { cn } from "@/lib/utils";
@@ -49,6 +50,7 @@ export type TaskContextActions = {
   snooze: (tasks: TodoTask[], when: Date) => void;
   wake: (tasks: TodoTask[]) => void;
   setProject: (tasks: TodoTask[], projectId: string | null) => void;
+  setSection: (tasks: TodoTask[], sectionId: string | null) => void;
   moveToInbox: (tasks: TodoTask[]) => void;
   assign: (tasks: TodoTask[], email: string) => void;
   duplicate: (tasks: TodoTask[]) => void;
@@ -67,6 +69,7 @@ export function TaskContextMenu({
   effectiveTasks,
   members,
   projects,
+  sections = [],
   onTargetTask,
   actions,
   children,
@@ -75,6 +78,9 @@ export function TaskContextMenu({
   effectiveTasks: TodoTask[];
   members: TodoMember[];
   projects: TodoProject[];
+  /** Every live project's sections — a project that has any opens a level
+   * deeper in the Project submenu. */
+  sections?: TodoSection[];
   /** Called on right-click so the parent can pull selection onto this row. */
   onTargetTask: (task: TodoTask) => void;
   actions: TaskContextActions;
@@ -190,17 +196,66 @@ export function TaskContextMenu({
             {eligibleProjects.length > 0 && <ContextMenuSeparator />}
             {eligibleProjects.map((project) => {
               const allHere = tasks.every((t) => t.projectId === project.id);
+              const projectSections = sections
+                .filter((s) => s.projectId === project.id)
+                .sort((a, b) => a.sortOrder - b.sortOrder);
+              // A project without sections stays a one-click item; one with
+              // them opens a level deeper so the keyboard path (`m`) can file
+              // straight into "Kitchen Reno › Permits".
+              if (projectSections.length === 0) {
+                return (
+                  <ContextMenuItem
+                    key={project.id}
+                    disabled={allHere}
+                    onClick={() => actions.setProject(tasks, project.id)}
+                    className="gap-2"
+                  >
+                    <CircleDashed className="size-4 text-primary/70" />
+                    <span className="flex-1 truncate">{project.name}</span>
+                    {allHere && <Check className="size-4 text-primary" />}
+                  </ContextMenuItem>
+                );
+              }
+              const allTopArea =
+                allHere && tasks.every((t) => !t.sectionId);
               return (
-                <ContextMenuItem
-                  key={project.id}
-                  disabled={allHere}
-                  onClick={() => actions.setProject(tasks, project.id)}
-                  className="gap-2"
-                >
-                  <CircleDashed className="size-4 text-primary/70" />
-                  <span className="flex-1 truncate">{project.name}</span>
-                  {allHere && <Check className="size-4 text-primary" />}
-                </ContextMenuItem>
+                <ContextMenuSub key={project.id}>
+                  <ContextMenuSubTrigger className="gap-2">
+                    <CircleDashed className="size-4 text-primary/70" />
+                    <span className="flex-1 truncate">{project.name}</span>
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent>
+                    <ContextMenuItem
+                      disabled={allTopArea}
+                      onClick={() => actions.setProject(tasks, project.id)}
+                      className="gap-2"
+                    >
+                      <span className="flex-1 truncate text-muted-foreground">
+                        No section
+                      </span>
+                      {allTopArea && <Check className="size-4 text-primary" />}
+                    </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    {projectSections.map((section) => {
+                      const allInSection = tasks.every(
+                        (t) => t.sectionId === section.id
+                      );
+                      return (
+                        <ContextMenuItem
+                          key={section.id}
+                          disabled={allInSection}
+                          onClick={() => actions.setSection(tasks, section.id)}
+                          className="gap-2"
+                        >
+                          <span className="flex-1 truncate">{section.name}</span>
+                          {allInSection && (
+                            <Check className="size-4 text-primary" />
+                          )}
+                        </ContextMenuItem>
+                      );
+                    })}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
               );
             })}
             {eligibleProjects.length > 0 && <ContextMenuSeparator />}

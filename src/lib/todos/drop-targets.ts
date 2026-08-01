@@ -1,12 +1,14 @@
 import type { TodoView } from "@/lib/todos/types";
 
 /**
- * The contract between the task list and the sidebar for drag-to-sidebar
- * drops. The sidebar's nav items carry a `data-todo-drop` key; while a task
- * drag is live the list hit-tests the pointer against those elements
- * (dnd-kit's droppables can't cross the separate DndContext trees) and
- * broadcasts the hovered key so the sidebar can highlight it — the same
- * window-event pattern as quick-add and inline-new.
+ * The contract between the task list and its drop targets — the sidebar's nav
+ * items, and (on a project page) the section headings. Each carries a
+ * `data-todo-drop` key; while a task drag is live the list hit-tests the
+ * pointer against those elements (dnd-kit's droppables can't cross the
+ * separate DndContext trees) and broadcasts the hovered key so the target can
+ * highlight itself — the same window-event pattern as quick-add and
+ * inline-new. Section headings ride this same path so a collapsed section is
+ * still a working drop target.
  */
 
 export const DROP_TARGET_ATTR = "data-todo-drop";
@@ -15,7 +17,8 @@ const DROP_TARGET_EVENT = "todos:sidebar-drop-target";
 
 export type SidebarDropTarget =
   | { kind: "view"; view: TodoView }
-  | { kind: "project"; projectId: string };
+  | { kind: "project"; projectId: string }
+  | { kind: "section"; sectionId: string };
 
 export function viewDropKey(view: TodoView): string {
   return `view:${view}`;
@@ -25,10 +28,18 @@ export function projectDropKey(projectId: string): string {
   return `project:${projectId}`;
 }
 
+export function sectionDropKey(sectionId: string): string {
+  return `section:${sectionId}`;
+}
+
 export function parseDropKey(key: string): SidebarDropTarget {
-  return key.startsWith("project:")
-    ? { kind: "project", projectId: key.slice("project:".length) }
-    : { kind: "view", view: key.slice("view:".length) as TodoView };
+  if (key.startsWith("project:")) {
+    return { kind: "project", projectId: key.slice("project:".length) };
+  }
+  if (key.startsWith("section:")) {
+    return { kind: "section", sectionId: key.slice("section:".length) };
+  }
+  return { kind: "view", view: key.slice("view:".length) as TodoView };
 }
 
 /** The drop target under the pointer, if any (visible elements only). */

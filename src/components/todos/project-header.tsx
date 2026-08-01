@@ -8,6 +8,7 @@ import {
   Folder,
   MoreHorizontal,
   Plus,
+  Rows3,
   Trash2,
   UserPlus,
 } from "lucide-react";
@@ -32,12 +33,18 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  InlineNewButton,
+  emitInlineNewSection,
+} from "@/components/todos/inline-new-button";
 import { Toast, ToastViewport } from "@/components/ui/toast";
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import { firstNameOf } from "@/components/todos/member-name";
@@ -158,6 +165,10 @@ export function ProjectHeader({
           aria-label="Project name"
         />
 
+        {/* New lives in the title row rather than a strip of its own — one
+            fewer band of chrome between the header and the first to-do. */}
+        <InlineNewButton className="shrink-0" />
+
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -171,42 +182,69 @@ export function ProjectHeader({
             <MoreHorizontal className="size-5" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuGroup>
-            <DropdownMenuLabel>Area</DropdownMenuLabel>
-            {areas.map((a) => (
-              <DropdownMenuItem
-                key={a.id}
-                onClick={() => {
-                  if (a.id !== project.areaId) {
-                    setProjectArea(project.id, a.id).finally(() => router.refresh());
-                  }
-                }}
-                className="gap-2"
-              >
-                <Folder className="size-4 text-muted-foreground" />
-                <span className="flex-1 truncate">{a.name}</span>
-                {a.id === project.areaId && <Check className="size-4 text-primary" />}
-              </DropdownMenuItem>
-            ))}
             <DropdownMenuItem
-              onClick={() => {
-                if (project.areaId) {
-                  setProjectArea(project.id, null).finally(() => router.refresh());
-                }
-              }}
-              className="gap-2 text-muted-foreground"
+              // The menu closes and hands focus back to its trigger on click;
+              // let that finish before the new heading's input asks for focus.
+              onClick={() => setTimeout(emitInlineNewSection, 0)}
+              className="gap-2"
             >
-              <span className="flex-1">No area</span>
-              {!project.areaId && <Check className="size-4 text-primary" />}
+              <Rows3 className="size-4 text-muted-foreground" />
+              <span className="flex-1">New section</span>
+              <DropdownMenuShortcut>⇧C</DropdownMenuShortcut>
             </DropdownMenuItem>
-            <NewAreaItem
-              onCreate={async (areaName) => {
-                const { id } = await createArea(areaName);
-                await setProjectArea(project.id, id);
-                router.refresh();
-              }}
-            />
-            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className="gap-2">
+                <Folder className="size-4 text-muted-foreground" />
+                <span className="flex-1">Area</span>
+                {area && (
+                  <span className="max-w-24 truncate text-xs text-muted-foreground">
+                    {area.name}
+                  </span>
+                )}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-52">
+                {areas.map((a) => (
+                  <DropdownMenuItem
+                    key={a.id}
+                    onClick={() => {
+                      if (a.id !== project.areaId) {
+                        setProjectArea(project.id, a.id).finally(() =>
+                          router.refresh()
+                        );
+                      }
+                    }}
+                    className="gap-2"
+                  >
+                    <Folder className="size-4 text-muted-foreground" />
+                    <span className="flex-1 truncate">{a.name}</span>
+                    {a.id === project.areaId && (
+                      <Check className="size-4 text-primary" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuItem
+                  onClick={() => {
+                    if (project.areaId) {
+                      setProjectArea(project.id, null).finally(() =>
+                        router.refresh()
+                      );
+                    }
+                  }}
+                  className="gap-2 text-muted-foreground"
+                >
+                  <span className="flex-1">No area</span>
+                  {!project.areaId && <Check className="size-4 text-primary" />}
+                </DropdownMenuItem>
+                <NewAreaItem
+                  onCreate={async (areaName) => {
+                    const { id } = await createArea(areaName);
+                    await setProjectArea(project.id, id);
+                    router.refresh();
+                  }}
+                />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleComplete} className="gap-2">
               <CheckCircle2 className="size-4 text-emerald-700" />

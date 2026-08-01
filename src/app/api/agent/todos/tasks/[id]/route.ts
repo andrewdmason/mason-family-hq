@@ -10,6 +10,7 @@ import {
   AGENT_TASK_COLUMNS,
   ensureProjectMember,
   getProjectNames,
+  getSectionNames,
   isFamilyMember,
   isTodoBucket,
   serializeTask,
@@ -40,8 +41,12 @@ export async function GET(req: NextRequest, { params }: Params) {
   if (!task) {
     return NextResponse.json({ error: "Task not found." }, { status: 404 });
   }
-  const projectNames = await getProjectNames(createAdminClient());
-  return NextResponse.json({ task: serializeTask(task, projectNames) });
+  const admin = createAdminClient();
+  const [projectNames, sectionNames] = await Promise.all([
+    getProjectNames(admin),
+    getSectionNames(admin),
+  ]);
+  return NextResponse.json({ task: serializeTask(task, projectNames, sectionNames) });
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
@@ -233,10 +238,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     );
   }
 
-  const projectNames = await getProjectNames(admin);
+  const [projectNames, sectionNames] = await Promise.all([
+    getProjectNames(admin),
+    getSectionNames(admin),
+  ]);
   return NextResponse.json({
     ok: true,
-    task: serializeTask(data as AgentTaskRow, projectNames),
+    task: serializeTask(data as AgentTaskRow, projectNames, sectionNames),
     ...(addedProjectMember
       ? { note: "Added the assignee to the project's members." }
       : {}),

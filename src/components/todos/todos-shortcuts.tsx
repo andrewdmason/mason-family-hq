@@ -145,7 +145,10 @@ type ShortcutRow = { keys: string[]; label: string };
 const SECTIONS: { title: string; rows: ShortcutRow[] }[] = [
   {
     title: "Capture",
-    rows: [{ keys: ["c"], label: "New to-do" }],
+    rows: [
+      { keys: ["c"], label: "New to-do" },
+      { keys: ["⇧", "C"], label: "New section (in a project)" },
+    ],
   },
   {
     title: "Go to",
