@@ -796,7 +796,7 @@ export function BookReader({
             <div className="min-w-0 text-center">
               <p
                 className={cn(
-                  "truncate text-sm font-medium",
+                  "reader-chrome-secondary truncate text-sm font-medium",
                   paged ? "text-muted-foreground/80" : "text-foreground"
                 )}
               >
@@ -882,7 +882,11 @@ export function BookReader({
           {loadError}
         </p>
       ) : html == null ? (
-        <div className="mx-auto mt-24 flex flex-col items-center gap-2 text-muted-foreground">
+        // reader-opening: e-ink drops the spinner and keeps the words — see
+        // globals.css. A spinning glyph on a panel that repaints in tenths of a
+        // second is a smear, and this is the one loading state you see every
+        // time you open a book.
+        <div className="reader-opening mx-auto mt-24 flex flex-col items-center gap-2 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
           <span className="text-sm">Opening your book…</span>
         </div>

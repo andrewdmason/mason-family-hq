@@ -99,6 +99,117 @@
   --sidebar-ring: oklch(0.45 0.08 35);
 }
 
+/**
+ * E-ink screens. Set per-device from the reader's Layout dialog (ReaderSettings
+ * .eink), applied to <html> by EinkModeSync.
+ *
+ * Two things are going on. The palette goes to true black on true white because
+ * an electrophoretic panel renders anything in between by dithering — a 50% grey
+ * is not a soft grey, it's a stipple, and at 300ppi it reads as muddy rather than
+ * quiet. The warm cream this app is otherwise built on costs contrast we can't
+ * spare: the Kaleido colour filter over these panels already makes white greyer
+ * before we've painted anything.
+ *
+ * So hierarchy stops coming from tint. There is no --muted-foreground here worth
+ * the name; secondary text steps down by size and weight instead, the way print
+ * does it, and fills become hairline rules.
+ */
+.eink {
+  --background: #ffffff;
+  --foreground: #000000;
+  --card: #ffffff;
+  --card-foreground: #000000;
+  --popover: #ffffff;
+  --popover-foreground: #000000;
+  /* Solid black with white knocked out — the most legible button an e-ink
+     panel can draw, and it needs no fill gradient to read as pressed. */
+  --primary: #000000;
+  --primary-foreground: #ffffff;
+  --secondary: #ffffff;
+  --secondary-foreground: #000000;
+  --muted: #ffffff;
+  --muted-foreground: #000000;
+  --accent: #ffffff;
+  --accent-foreground: #000000;
+  /* No red survives greyscale; a destructive action reads by its words. */
+  --destructive: #000000;
+  --destructive-foreground: #ffffff;
+  --border: #000000;
+  --input: #000000;
+  --ring: #000000;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #000000;
+  --sidebar-primary: #000000;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ffffff;
+  --sidebar-accent-foreground: #000000;
+  --sidebar-border: #000000;
+  --sidebar-ring: #000000;
+}
+
+/**
+ * Every frame an e-ink panel paints is a visible repaint that leaves a ghost, so
+ * motion is not a lesser version of itself here — it's a smear. The reader's own
+ * page turn is already a single transform with no transition, which is why it
+ * suits this screen; everything else that moves is UI polish we can drop whole.
+ */
+.eink *,
+.eink *::before,
+.eink *::after {
+  transition: none !important;
+  animation: none !important;
+  /* Translucent chrome over text is expensive to composite and dithers into a
+     haze on a panel with no subpixels. */
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+/**
+ * On an e-reader the Reader is the whole device, not one app in a family hub —
+ * so the hub's own controls (app switcher, streak, Bucks, bell) come off every
+ * /reader route. The reader's controls in AppHeaderSlot stay: "Add a book" and
+ * the settings menu live there, and a reading device that can't add a book is
+ * a worse trade than a slightly busier bar. See readerRouteProps in
+ * global-header-client.tsx for why this is a stylesheet rule, not a branch.
+ */
+.eink [data-global-header][data-reader-route] [data-hub-only] {
+  display: none;
+}
+
+/**
+ * The book-opening state keeps its words and loses its spinner. The rule above
+ * already stopped it turning; this stops it sitting there frozen mid-arc,
+ * looking broken. Done in CSS because this state renders on the server too, so
+ * branching on the flag in React would paint the icon and then remove it.
+ *
+ * Spinners elsewhere in the app are merely stilled, not hidden — they're
+ * transient, and none of them are on the path you walk to open a book.
+ */
+.eink .reader-opening svg {
+  display: none;
+}
+
+/**
+ * Hierarchy without tint, for the reader's own chrome — the running head and
+ * the footer's chapter and time-left. These are the two places the book leans
+ * on grey to say "this matters less than the text".
+ *
+ * They need their own rule because they don't get their grey from a token. They
+ * use Tailwind's opacity modifiers (text-muted-foreground/70, /80), which
+ * compile to a colour with alpha baked in, so redefining --muted-foreground
+ * above leaves them at 70% black — precisely the mid-grey that an e-ink panel
+ * has to dither and that reads as smudged rather than quiet.
+ *
+ * Full black, and nothing else: the size difference that now carries the
+ * hierarchy is already there in the utilities — text-sm on the running head,
+ * text-xs on the footer, against 18.4px body text. Small and black outranks
+ * large and grey on a screen with no subpixels to soften an edge.
+ */
+.eink .reader-chrome-secondary {
+  color: #000000;
+  font-weight: 400;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

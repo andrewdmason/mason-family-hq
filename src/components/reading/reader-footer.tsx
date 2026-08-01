@@ -44,7 +44,7 @@ export function ReaderFooter({
   return (
     <div
       className={cn(
-        "pointer-events-none fixed bottom-0 z-30 flex items-center justify-between gap-6 text-xs text-muted-foreground/70",
+        "reader-chrome-secondary pointer-events-none fixed bottom-0 z-30 flex items-center justify-between gap-6 text-xs text-muted-foreground/70",
         !bounded && "inset-x-0 px-6"
       )}
       style={bounded ? { height, left, width } : { height }}

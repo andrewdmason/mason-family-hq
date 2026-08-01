@@ -41,6 +41,13 @@ function check(name: string, ok: boolean, detail?: string) {
 
 /** Widths worth caring about, named so a failure says which device broke. */
 const DEVICES: { name: string; w: number; h: number }[] = [
+  // A 6" e-reader. The panel is 824x1648 physical; which CSS width that lands on
+  // depends on the density the firmware picks, and we don't have the device, so
+  // both plausible readings are here. 412 is the likely one (dpr 2, the width
+  // most Android phones report); 300 is what dpr 2.75 would give, and is the
+  // case that used to collapse the margin settings into each other.
+  { name: "pocket e-reader @dpr2", w: 412, h: 824 },
+  { name: "pocket e-reader @dpr2.75", w: 300, h: 599 },
   { name: "iPhone portrait", w: 390, h: 844 },
   { name: "iPhone landscape", w: 844, h: 390 },
   { name: "iPad portrait", w: 834, h: 1194 },
@@ -140,6 +147,91 @@ for (const e of expectations) {
       closed.colW === e.colW &&
       open.colW === e.colW,
     `${label(closed)} → ${label(open)}`
+  );
+}
+
+console.log("\ne-ink gives the text back the arrows' margins");
+// The pointer margins are a click target, not a margin: the page-turn arrows
+// live in them. An e-reader has no pointer and doesn't render them, so reserving
+// 64px a side spent a third of a 412px screen on a control that isn't there.
+for (const device of DEVICES.filter((d) => d.w <= 412)) {
+  for (const margins of MARGINS) {
+    const pointer = computeGeometry(device.w, device.h, settingsFor(margins, "auto"), false);
+    const eink = computeGeometry(
+      device.w,
+      device.h,
+      { ...settingsFor(margins, "auto"), eink: true },
+      false
+    );
+    // Never narrower, at any width. Strictly wider wherever the fixed pointer
+    // insets are still in play — below 380px the proportional fallback has
+    // already squeezed them, and matching it there is the right answer.
+    const arrowsCostSomething = device.w >= 380;
+    check(
+      `${device.name} / ${margins}: ${pointer.colW}px → ${eink.colW}px`,
+      arrowsCostSomething ? eink.colW > pointer.colW : eink.colW >= pointer.colW,
+      `e-ink should be the ${arrowsCostSomething ? "wider" : "no narrower"} column`
+    );
+    // Wider, but still a margin — text flush to the bezel is not the goal.
+    check(
+      `${device.name} / ${margins}: still has a margin`,
+      eink.offsetX >= 8 && eink.offsetX + eink.viewW <= device.w,
+      `offsetX ${eink.offsetX}, viewW ${eink.viewW} in ${device.w}px`
+    );
+  }
+}
+
+console.log("\nthe margin setting still means something in e-ink mode");
+for (const device of DEVICES.filter((d) => d.w <= 412)) {
+  const widths = MARGINS.map(
+    (margins) =>
+      computeGeometry(
+        device.w,
+        device.h,
+        { ...settingsFor(margins, "auto"), eink: true },
+        false
+      ).colW
+  );
+  check(
+    `${device.name}: narrow > normal > wide`,
+    widths[0] > widths[1] && widths[1] > widths[2],
+    MARGINS.map((m, i) => `${m} ${widths[i]}px`).join(", ")
+  );
+}
+
+console.log("\nthe margin setting always changes the measure");
+// The one control the reader has over line length. It used to die quietly on a
+// narrow screen: the three insets are fixed, so once MIN_COLUMN_WIDTH bit, all
+// three produced the same column and Margins did nothing at all — leaving text
+// size as the only way to change the measure, which is the wrong knob. Nobody
+// would see an error; the buttons just wouldn't do anything.
+for (const device of DEVICES) {
+  const widths = MARGINS.map(
+    (margins) => computeGeometry(device.w, device.h, settingsFor(margins, "auto"), false).colW
+  );
+  check(
+    `${device.name}: narrow > normal > wide`,
+    widths[0] > widths[1] && widths[1] > widths[2],
+    MARGINS.map((m, i) => `${m} ${widths[i]}px`).join(", ")
+  );
+  // A column has to leave room for a margin, or "wide" is the whole screen.
+  check(
+    `${device.name}: text never fills the screen edge to edge`,
+    widths.every((w) => w <= device.w - 16),
+    `widest column ${Math.max(...widths)}px in ${device.w}px`
+  );
+}
+
+console.log("\nthe text band survives on a short screen");
+// pageH is clipH less two fixed chrome bands. On a laptop that's noise; on a
+// 599px-tall pocket reader it's 18% of the display, and the floor is the only
+// thing standing between a short screen and a page with no room for text.
+for (const device of DEVICES) {
+  const g = computeGeometry(device.w, device.h, settingsFor("normal", "auto"), false);
+  check(
+    `${device.name}: ${g.pageH}px of text in ${device.h}px`,
+    g.pageH >= 120 && g.pageH >= device.h * 0.5,
+    label(g)
   );
 }
 

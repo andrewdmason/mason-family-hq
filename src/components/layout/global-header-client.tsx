@@ -22,6 +22,36 @@ function hidesGlobalChrome(pathname: string | null) {
   return /^\/reader\/[^/]+\/read\/?$/.test(pathname ?? "");
 }
 
+/**
+ * Marks the header on reader routes so e-ink mode can thin it out in CSS.
+ *
+ * An e-reader is a single-purpose device, and most of this header is the family
+ * hub speaking: the app switcher, journal streak, Mason Bucks balance and
+ * notification bell are all things you'd act on somewhere else, and on a 6"
+ * greyscale panel they cost real estate to say nothing.
+ *
+ * What stays is AppHeaderSlot — "Add a book", the reader's own settings and
+ * overflow. Those are the shelf's controls, not the hub's, and dropping the
+ * whole bar to be rid of the badges takes them with it, which leaves you on a
+ * device that can open books but not add one.
+ *
+ * Done as data attributes plus a stylesheet rule rather than a `return null`
+ * because the e-ink flag lives in localStorage: React can't know it until
+ * hydration, so branching on it here would render the badges and then yank
+ * them, which is a repaint on exactly the display we're trying to spare. The
+ * route is known during SSR, the class is set by EINK_BOOT_SCRIPT before first
+ * paint, and the two meet in CSS with nothing to flash.
+ */
+function readerRouteProps(pathname: string | null) {
+  return {
+    "data-global-header": "",
+    "data-reader-route": pathname?.startsWith("/reader") ? "" : undefined,
+  };
+}
+
+/** Wrapper that e-ink mode hides on reader routes; transparent to layout. */
+const HUB_ONLY = { "data-hub-only": "", className: "contents" } as const;
+
 // The journaling streak only applies where journaling happens — the personal
 // journal and the family feed — so the badge only renders on those apps
 // instead of riding along in every header.
@@ -61,21 +91,28 @@ export function GlobalHeaderClient({
 
   return (
     <TooltipProvider>
-      <header className="sticky top-0 z-50 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header
+        {...readerRouteProps(pathname)}
+        className="sticky top-0 z-50 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+      >
         <div
           className={cn(
             "relative mx-auto flex h-14 items-center gap-2 px-6",
             headerWidthClass(pathname)
           )}
         >
-          <AppSwitcher isOwner={isOwner} isAdult={isAdult} />
+          <span {...HUB_ONLY}>
+            <AppSwitcher isOwner={isOwner} isAdult={isAdult} />
+          </span>
           <AppHeaderSlot />
-          <div className="flex shrink-0 items-center gap-2">
-            {showsStreak(pathname) && <JournalStreakBadge streak={streak} />}
-            {bucksBalance !== null && <BucksBalanceBadge balance={bucksBalance} />}
-            {notifications.count > 0 && (
-              <NotificationBell notifications={notifications} />
-            )}
+          <div {...HUB_ONLY}>
+            <div className="flex shrink-0 items-center gap-2">
+              {showsStreak(pathname) && <JournalStreakBadge streak={streak} />}
+              {bucksBalance !== null && <BucksBalanceBadge balance={bucksBalance} />}
+              {notifications.count > 0 && (
+                <NotificationBell notifications={notifications} />
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -122,22 +159,29 @@ export function GlobalHeaderShell() {
   const adultByRoute = ownerByRoute || (pathname?.startsWith("/reader") ?? false);
 
   return (
-    <header className="sticky top-0 z-50 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header
+      {...readerRouteProps(pathname)}
+      className="sticky top-0 z-50 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+    >
       <div
         className={cn(
           "relative mx-auto flex h-14 items-center gap-2 px-6",
           headerWidthClass(pathname)
         )}
       >
-        <AppSwitcher isOwner={ownerByRoute} isAdult={adultByRoute} />
+        <span {...HUB_ONLY}>
+          <AppSwitcher isOwner={ownerByRoute} isAdult={adultByRoute} />
+        </span>
         <AppHeaderSlot />
-        <div className="flex shrink-0 items-center gap-2">
-          {showsStreak(pathname) && (
-            <div
-              aria-hidden
-              className="h-8 w-14 animate-pulse rounded-full bg-muted/70"
-            />
-          )}
+        <div {...HUB_ONLY}>
+          <div className="flex shrink-0 items-center gap-2">
+            {showsStreak(pathname) && (
+              <div
+                aria-hidden
+                className="h-8 w-14 animate-pulse rounded-full bg-muted/70"
+              />
+            )}
+          </div>
         </div>
       </div>
     </header>

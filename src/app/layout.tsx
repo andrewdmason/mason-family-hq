@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { Lora } from "next/font/google";
 import { GlobalQuickAdd } from "@/components/todos/global-quick-add";
 import { LastAppTracker } from "@/components/layout/last-app-tracker";
+import { EINK_BOOT_SCRIPT, EinkModeSync } from "@/components/reading/eink-mode";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 import { appleStartupImages } from "@/lib/pwa/apps";
 import "./globals.css";
@@ -73,9 +74,33 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${lora.variable} h-full antialiased`}>
+    // suppressHydrationWarning: EINK_BOOT_SCRIPT adds a class to <html> before
+    // React hydrates, so the server's className and the browser's necessarily
+    // disagree. Scoped to this element's own attributes — children still warn.
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${inter.variable} ${lora.variable} h-full antialiased`}
+    >
       <body className="min-h-full flex flex-col">
+        {/*
+          Paints e-ink mode before the first frame — see EINK_BOOT_SCRIPT.
+
+          First child of <body>, deliberately not in a hand-written <head>. The
+          App Router builds <head> itself, out of the Metadata API and React's
+          own hoisting, and a <head> we write by hand lands in the middle of
+          that — which is the hydration mismatch this used to throw. An inline
+          script has no src, so React leaves it exactly where it's written, and
+          the parser runs it before it reaches any content below. Nothing has
+          painted yet at that point, which is all the script needs.
+        */}
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: EINK_BOOT_SCRIPT }}
+        />
         {children}
+        {/* Keeps <html class="eink"> in step with the per-device setting. */}
+        <EinkModeSync />
         {/* Global to-do quick-add: press `c` anywhere (see quick-add.tsx). */}
         <GlobalQuickAdd />
         {/* Dev-only: remember the last app you were in so `/` returns there. */}
