@@ -2223,10 +2223,16 @@ export function TaskList({
 }
 
 /**
- * One reorderable section block. dnd-kit's split-handle pattern: the moving
- * node is the whole `<section>` (so the to-dos travel with their heading),
- * while the drag activator is the heading the child renders — passed back
- * through the render prop.
+ * One reorderable section block — the whole thing moves, so the to-dos travel
+ * with their heading, and the heading the child renders is the drag handle.
+ *
+ * The transform deliberately does NOT go on the `<section>`. That element is
+ * also dnd-kit's droppable, and droppables are re-measured *during* a drag: a
+ * translated node reports a rect that follows the pointer, so the dragged
+ * section stayed its own nearest collision and `over` never resolved to a
+ * neighbour — every drop was a no-op that snapped back. Keeping the measured
+ * node still and moving an inner wrapper leaves the drop rects where they
+ * actually are; CSS transforms don't affect the parent's layout box.
  */
 function SortableSection({
   id,
@@ -2252,13 +2258,17 @@ function SortableSection({
       ref={setNodeRef}
       // Anchor for the new-section scrollIntoView.
       data-section-id={id}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={cn("relative", isDragging && "z-10 opacity-70")}
+      className="relative"
     >
-      {children({
-        ref: setActivatorNodeRef,
-        props: disabled ? attributes : { ...attributes, ...listeners },
-      })}
+      <div
+        style={{ transform: CSS.Transform.toString(transform), transition }}
+        className={cn(isDragging && "relative z-10 opacity-70")}
+      >
+        {children({
+          ref: setActivatorNodeRef,
+          props: disabled ? attributes : { ...attributes, ...listeners },
+        })}
+      </div>
     </section>
   );
 }
