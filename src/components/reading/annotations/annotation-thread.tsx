@@ -36,6 +36,7 @@ export function AnnotationThread({
   onModelChange,
   resolveChatId,
   createError = null,
+  dockToggle,
 }: {
   chat: AnnotationDetail;
   memberEmail: string | null;
@@ -63,6 +64,8 @@ export function AnnotationThread({
   resolveChatId?: (id: string) => Promise<string>;
   /** Set when that creation failed, so this thread has nowhere to send to. */
   createError?: string | null;
+  /** The float/dock control, when the panel is presented in a way that can dock. */
+  dockToggle?: React.ReactNode;
 }) {
   const [messages, setMessages] = useState<ReaderChatMessage[]>(chat.messages);
   const [draft, setDraft] = useState("");
@@ -218,6 +221,7 @@ export function AnnotationThread({
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
+        {dockToggle}
         <button
           type="button"
           onClick={onClose}

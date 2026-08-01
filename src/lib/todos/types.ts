@@ -62,6 +62,15 @@ export type TodoArea = {
   sortOrder: number;
 };
 
+/** A Things-style heading inside a project. Sections group the project page
+ * only — bucket views still group by project alone. */
+export type TodoSection = {
+  id: string;
+  projectId: string;
+  name: string;
+  sortOrder: number;
+};
+
 export type TodoTask = {
   id: string;
   title: string;
@@ -70,6 +79,9 @@ export type TodoTask = {
   assigneeEmail: string;
   creatorEmail: string;
   projectId: string | null;
+  /** The section within projectId, or null for the project's top area.
+   * Always null when projectId is null. */
+  sectionId: string | null;
   snoozedUntil: string | null;
   completedAt: string | null;
   completedByEmail: string | null;
@@ -87,6 +99,7 @@ export type TodoTaskRow = {
   assignee_email: string;
   creator_email: string;
   project_id: string | null;
+  section_id: string | null;
   snoozed_until: string | null;
   completed_at: string | null;
   completed_by_email: string | null;
@@ -96,7 +109,7 @@ export type TodoTaskRow = {
 };
 
 export const TASK_COLUMNS =
-  "id, title, notes_html, bucket, assignee_email, creator_email, project_id, snoozed_until, completed_at, completed_by_email, sort_order, assignee_seen_at, created_at";
+  "id, title, notes_html, bucket, assignee_email, creator_email, project_id, section_id, snoozed_until, completed_at, completed_by_email, sort_order, assignee_seen_at, created_at";
 
 export function taskFromRow(row: TodoTaskRow): TodoTask {
   return {
@@ -107,6 +120,7 @@ export function taskFromRow(row: TodoTaskRow): TodoTask {
     assigneeEmail: row.assignee_email,
     creatorEmail: row.creator_email,
     projectId: row.project_id,
+    sectionId: row.section_id,
     snoozedUntil: row.snoozed_until,
     completedAt: row.completed_at,
     completedByEmail: row.completed_by_email,

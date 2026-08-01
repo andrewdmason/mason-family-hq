@@ -168,6 +168,8 @@ export function anchorForGap(
     return { anchor, anchorCharOffset: block.charStart, quotedText: null };
   }
 
+  // Articles are never windowed, so their base is always 0 and a global index is
+  // also a DOM index. If that ever stops being true this needs the base too.
   const el = blockElements(container)[blockIndexBelow];
   if (!el) return null;
   return {

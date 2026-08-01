@@ -27,7 +27,12 @@ import {
   readPosition,
   rememberPosition,
 } from "@/lib/reading/offline/positions";
-import { PAGE_PAD_BOTTOM, bookAreaWidth, sidePanelFits } from "@/lib/reading/paged-geometry";
+import {
+  PAGE_PAD_BOTTOM,
+  bookAreaWidth,
+  sidePanelFits,
+  type ChatPanelPresentation,
+} from "@/lib/reading/paged-geometry";
 import { note, startTimer, time } from "@/lib/reading/perf";
 import {
   getServerViewportSize,
@@ -312,7 +317,25 @@ export function BookReader({
    */
   const chatAsSheet =
     paged && viewportWidth > 0 && !sidePanelFits(viewportWidth, settings);
-  const chatNarrowsBook = chatPanelOpen && !chatAsSheet;
+  /**
+   * ...and, if it's beside the book, whether it takes width from it.
+   *
+   * A floating panel has the sheet's best property on a desktop too: the book is
+   * never told about it. Not a cheaper re-layout — no re-layout. The page keeps
+   * its columns, its position and its margins, and the panel sits over the outer
+   * one, because a page that rearranges itself under your eye mid-sentence is
+   * worse than a page partly covered.
+   *
+   * Docking is the old behaviour, now opt-in: two columns at a comfortable
+   * measure plus a docked panel needs about 1780px of window, and a 15" laptop is
+   * 80px short, so docking costs a column there. See PanelDockToggle.
+   */
+  const chatCanFloat = paged && !chatAsSheet;
+  const chatPanel: ChatPanelPresentation = !chatPanelOpen || chatAsSheet
+    ? "closed"
+    : chatCanFloat && !settings.chatDocked
+      ? "floating"
+      : "docked";
 
   const pagination = usePagination({
     enabled: paged,
@@ -320,7 +343,7 @@ export function BookReader({
     flowRef,
     blocks,
     settings,
-    chatPanelOpen: chatNarrowsBook,
+    chatPanel,
     charOffset: scrollPosition.charOffset,
     onPositionChange: report,
   });
@@ -729,6 +752,8 @@ export function BookReader({
       panelOpen={chatPanelOpen}
       onPanelOpenChange={handleChatPanelOpenChange}
       preferSheet={chatAsSheet}
+      docked={!chatCanFloat || settings.chatDocked}
+      canFloat={chatCanFloat}
       windowBase={paged ? pagination.windowBase : 0}
       layoutNonce={layoutNonce}
     />
@@ -927,6 +952,11 @@ export function BookReader({
             // selectable while the chat is open. 28rem, not the panel's 26rem —
             // the extra 2rem is clearance for the chat gutter, which sits
             // outside the text column and would otherwise slide under the panel.
+            //
+            // Always, unlike paged mode, which floats by default. There is no
+            // second column here to save by covering one, and on any window wide
+            // enough for the panel the shift only moves the column — its measure
+            // is capped, so nothing re-wraps.
             "transition-[margin] duration-200",
             chatPanelOpen && "md:mr-[28rem]"
           )}
@@ -988,8 +1018,9 @@ export function BookReader({
         onChange={updateSetting}
         supportsPaging={!isArticle}
         // The live answer, chat panel included: what the Columns control offers
-        // has to match what the book is doing behind the dialog.
-        availableWidth={bookAreaWidth(viewportWidth, chatNarrowsBook)}
+        // has to match what the book is doing behind the dialog. A floating panel
+        // isn't counted, because the book genuinely still has that width.
+        availableWidth={bookAreaWidth(viewportWidth, chatPanel === "docked")}
       />
     </div>
   );

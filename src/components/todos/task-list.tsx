@@ -4,12 +4,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
   closestCenter,
+  closestCorners,
+  pointerWithin,
+  useDroppable,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
   type DragMoveEvent,
+  type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
@@ -22,24 +28,38 @@ import { CSS } from "@dnd-kit/utilities";
 import { Archive, CircleDashed, Inbox, Layers, Moon, Send, Star } from "lucide-react";
 import {
   completeTask,
+  createSection,
   createTask,
+  deleteSection,
   deleteTask,
   deleteTasks,
   deleteTaskAttachment,
   clearSnooze,
   moveTaskToInbox,
   reassignTask,
+  renameSection,
+  renormalizeSectionOrder,
   renormalizeTaskOrder,
+  restoreSection,
   restoreTask,
+  setSectionSortOrder,
   setTaskBucket,
   setTaskProject,
+  setTaskSection,
   setTaskSortOrder,
   snoozeTask,
   uncompleteTask,
   updateTaskNotes,
   updateTaskTitle,
 } from "@/app/(todos)/todos/actions";
-import { onInlineNew } from "@/components/todos/inline-new-button";
+import {
+  onInlineNew,
+  onInlineNewSection,
+} from "@/components/todos/inline-new-button";
+import {
+  SectionHeader,
+  type SectionDragHandle,
+} from "@/components/todos/section-header";
 import {
   TaskContextMenu,
   type TaskContextActions,
@@ -69,16 +89,22 @@ import {
   dropTargetAtPoint,
   emitDropTarget,
   parseDropKey,
+  sectionDropKey,
 } from "@/lib/todos/drop-targets";
 import { withAs } from "@/lib/todos/member-context";
 import { useReconciler } from "@/lib/todos/reconcile";
 import type { TodoTaskAttachment } from "@/lib/todos/queries";
+import {
+  readCollapsedSections,
+  writeCollapsedSections,
+} from "@/lib/todos/section-collapse";
 import { snoozePresets } from "@/lib/todos/snooze";
 import { needsRenormalize, sortBetween } from "@/lib/todos/sort";
 import type {
   TodoBucket,
   TodoMember,
   TodoProject,
+  TodoSection,
   TodoTask,
   TodoView,
 } from "@/lib/todos/types";
@@ -104,11 +130,18 @@ type TaskGroup = {
   key: string;
   heading: string | null;
   href: string | null;
+  /** Set on a project page's section groups — those render a SectionHeader
+   * (foldable, renameable, a drop target) instead of the plain link heading,
+   * and unlike every other group they show even when empty. */
+  section?: TodoSection;
   tasks: TodoTask[];
 };
 
 const countLabel = (list: TodoTask[]) =>
   list.length === 1 ? "this to-do" : `${list.length} to-dos`;
+
+/** The drag overlay's row is a picture, not a control. */
+const NOOP = () => {};
 
 /**
  * Client state for a task list — sidebar views and project pages share this.
@@ -121,6 +154,7 @@ const countLabel = (list: TodoTask[]) =>
 export function TaskList({
   context,
   initialTasks,
+  initialSections = [],
   members,
   projects,
   attachmentsByTask = {},
@@ -129,6 +163,9 @@ export function TaskList({
 }: {
   context: TaskRowContext;
   initialTasks: TodoTask[];
+  /** Every live project's sections — the project page groups by its own, and
+   * the context menu's Project submenu offers the rest as move targets. */
+  initialSections?: TodoSection[];
   members: TodoMember[];
   projects: TodoProject[];
   attachmentsByTask?: Record<string, TodoTaskAttachment[]>;
@@ -137,6 +174,7 @@ export function TaskList({
 }) {
   const { run, idle } = useReconciler();
   const [tasks, setTasks] = useState(initialTasks);
+  const [sections, setSections] = useState(initialSections);
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
   // Completed rows mid-collapse (phase two of the check-off animation).
   const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
@@ -155,7 +193,23 @@ export function TaskList({
   const [confirmDelete, setConfirmDelete] = useState(false);
   // The shift-range anchor: the last plain/cmd click.
   const anchorId = useRef<string | null>(null);
-  const [undoTask, setUndoTask] = useState<TodoTask | null>(null);
+  // The undo toast, for the two soft deletes that don't confirm first: a
+  // single to-do, and a section (whose to-dos merged upward and come back
+  // with it).
+  const [undo, setUndo] = useState<
+    | { kind: "task"; label: string; task: TodoTask }
+    | { kind: "section"; label: string; section: TodoSection; taskIds: string[] }
+    | null
+  >(null);
+  // Which section heading is in its rename/name-me state (a `temp-` id is a
+  // brand-new one, not yet on the server).
+  const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
+    () => new Set()
+  );
+  // localStorage only exists after hydration; read it once on mount so SSR and
+  // the first client render agree.
+  useEffect(() => setCollapsedSections(readCollapsedSections()), []);
   const [attachments, setAttachments] = useState(attachmentsByTask);
   const [uploadingByTask, setUploadingByTask] = useState<
     Record<string, UploadingAttachment[]>
@@ -182,6 +236,15 @@ export function TaskList({
   // hit-testing the sidebar needs the native event's coordinates.
   const pointerRef = useRef<{ x: number; y: number } | null>(null);
   const [dragCount, setDragCount] = useState(0);
+  // The row riding the pointer, drawn in a DragOverlay on project pages. Once
+  // a drag can move a row into another section, the row's own translate stops
+  // tracking the pointer — dnd-kit measures it from where the row *started*,
+  // and crossing sections changes where it actually sits. The overlay is
+  // positioned from the pointer instead, so it can't drift.
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  // Mirrors dropTargetRef for rendering — the section heading under the
+  // pointer highlights itself.
+  const [hoverDropKey, setHoverDropKey] = useState<string | null>(null);
   const [pendingDrop, setPendingDrop] = useState<
     | { kind: "snooze"; tasks: TodoTask[]; anchor: HTMLElement }
     | { kind: "assign"; tasks: TodoTask[]; anchor: HTMLElement }
@@ -208,6 +271,17 @@ export function TaskList({
       : [editing, ...next];
   };
 
+  // A brand-new section lives only in local state until its name is committed
+  // (an untitled heading is never persisted), so snapshots must not sweep it
+  // away — same idea as withEditingCarried for an open task draft.
+  const withDraftSectionsCarried = (
+    prev: TodoSection[],
+    next: TodoSection[]
+  ) => {
+    const drafts = prev.filter((s) => s.id.startsWith("temp-"));
+    return drafts.length > 0 ? [...next, ...drafts] : next;
+  };
+
   // Instant view switches re-target this same mounted list (the views shell
   // swaps context + initialTasks in one render). Reset during render — not in
   // an effect — so the new view never paints a frame of the old view's rows,
@@ -218,6 +292,8 @@ export function TaskList({
   if (renderedContextKey !== contextKey) {
     setRenderedContextKey(contextKey);
     setTasks((prev) => withEditingCarried(prev, initialTasks));
+    setSections(initialSections);
+    setEditingSectionId(null);
     setSelectedIds(new Set());
     anchorId.current = null;
   }
@@ -234,8 +310,13 @@ export function TaskList({
     if (idle()) setAttachments(attachmentsByTask);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attachmentsByTask]);
+  useEffect(() => {
+    if (idle()) setSections((prev) => withDraftSectionsCarried(prev, initialSections));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSections]);
 
   const inProject = context.mode === "project";
+  const activeProjectId = context.mode === "project" ? context.projectId : null;
   const view: TodoView | null = context.mode === "view" ? context.view : null;
   // Mirrors the header button split (see [view]/page.tsx): bucket views and
   // project pages create in place; the status lenses (Snoozed, Delegated)
@@ -258,6 +339,36 @@ export function TaskList({
     setTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, ...patch } : t))
     );
+  };
+
+  const patchSection = (sectionId: string, patch: Partial<TodoSection>) => {
+    setSections((prev) =>
+      prev.map((s) => (s.id === sectionId ? { ...s, ...patch } : s))
+    );
+  };
+
+  // This project's sections, in order — the grouping axis for the page.
+  const projectSections = useMemo(
+    () =>
+      context.mode === "project"
+        ? sections
+            .filter((s) => s.projectId === context.projectId)
+            .sort((a, b) => a.sortOrder - b.sortOrder)
+        : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [context.mode, contextKey, sections]
+  );
+
+  /** Bottom of the list a to-do lands in when filed into a section — what the
+   * "drop it on that heading" gesture means (mirrors setTaskSection). */
+  const sectionBottomOrder = (
+    projectId: string,
+    sectionId: string | null
+  ): number => {
+    const siblings = tasks.filter(
+      (t) => t.projectId === projectId && (t.sectionId ?? null) === sectionId
+    );
+    return siblings.reduce((max, t) => Math.max(max, t.sortOrder), 0) + 1;
   };
 
   // Stable React keys across the temp→real id swap, so the in-place editor
@@ -321,8 +432,8 @@ export function TaskList({
     onDelete: (task) => {
       removeLocally(task.id);
       if (undoTimer.current) clearTimeout(undoTimer.current);
-      setUndoTask(task);
-      undoTimer.current = setTimeout(() => setUndoTask(null), UNDO_WINDOW_MS);
+      setUndo({ kind: "task", label: `Deleted “${task.title}”`, task });
+      undoTimer.current = setTimeout(() => setUndo(null), UNDO_WINDOW_MS);
       run(deleteTask(task.id));
     },
     onSnooze: (task, when) => {
@@ -393,11 +504,43 @@ export function TaskList({
         const autoTriage = !!projectId && task.bucket === "inbox";
         patchLocally(task.id, {
           projectId,
+          // A project move always lands in the top area — the old section
+          // belonged to the old project, and re-filing into the project it's
+          // already in is the "out of its section" gesture.
+          sectionId: null,
           ...(autoTriage ? { bucket: "anytime" as const } : {}),
         });
         if (autoTriage && view === "inbox") removeLocally(task.id);
       }
       run(setTaskProject(task.id, projectId));
+    },
+    onSetSection: (task, sectionId) => {
+      const section = sectionId
+        ? (sections.find((s) => s.id === sectionId) ?? null)
+        : null;
+      // A section carries its project, so this doubles as a project move.
+      const projectId = section ? section.projectId : task.projectId;
+      if (inProject && projectId !== context.projectId) {
+        removeLocally(task.id);
+      } else if (projectId) {
+        const autoTriage = !!section && task.bucket === "inbox";
+        patchLocally(task.id, {
+          projectId,
+          sectionId: section?.id ?? null,
+          // Only the project page holds the whole project's tasks, so only it
+          // can predict where the bottom of the destination is; elsewhere the
+          // drain refresh carries the server's answer.
+          ...(inProject
+            ? { sortOrder: sectionBottomOrder(projectId, section?.id ?? null) }
+            : {}),
+          ...(autoTriage ? { bucket: "anytime" as const } : {}),
+        });
+        if (inProject) {
+          setTasks((prev) => [...prev].sort((a, b) => a.sortOrder - b.sortOrder));
+        }
+        if (autoTriage && view === "inbox") removeLocally(task.id);
+      }
+      run(setTaskSection(task.id, sectionId));
     },
     onMoveToInbox: (task) => {
       // Un-triage: leaves projects and every view except the Inbox itself
@@ -408,6 +551,7 @@ export function TaskList({
         patchLocally(task.id, {
           bucket: "inbox",
           projectId: null,
+          sectionId: null,
           snoozedUntil: null,
         });
       }
@@ -461,12 +605,28 @@ export function TaskList({
   };
 
   const handleUndo = () => {
-    if (!undoTask) return;
-    const task = undoTask;
-    setUndoTask(null);
+    if (!undo) return;
+    const action = undo;
+    setUndo(null);
     if (undoTimer.current) clearTimeout(undoTimer.current);
-    setTasks((prev) => [...prev, task].sort((a, b) => a.sortOrder - b.sortOrder));
-    run(restoreTask(task.id));
+    if (action.kind === "task") {
+      setTasks((prev) =>
+        [...prev, action.task].sort((a, b) => a.sortOrder - b.sortOrder)
+      );
+      run(restoreTask(action.task.id));
+      return;
+    }
+    // The heading comes back and reclaims the to-dos that merged upward.
+    setSections((prev) =>
+      [...prev, action.section].sort((a, b) => a.sortOrder - b.sortOrder)
+    );
+    const reclaimed = new Set(action.taskIds);
+    setTasks((prev) =>
+      prev.map((t) =>
+        reclaimed.has(t.id) ? { ...t, sectionId: action.section.id } : t
+      )
+    );
+    run(restoreSection(action.section.id, action.taskIds));
   };
 
   // ⌘Z: bring back the last checked-off task. Caught mid-animation it never
@@ -521,9 +681,33 @@ export function TaskList({
   };
 
   // Anytime and Someday group by project (loose tasks first), like Things;
-  // Delegated groups by who holds the task.
+  // Delegated groups by who holds the task; a project page groups by section
+  // (unsectioned to-dos first, in the top area).
   const grouped = view === "anytime" || view === "someday";
   const groups = useMemo<TaskGroup[]>(() => {
+    if (inProject) {
+      const unsectioned = tasks.filter((t) => !t.sectionId);
+      const known = new Set(projectSections.map((s) => s.id));
+      // A section deleted in another tab would strand its to-dos; show them in
+      // the top area rather than nowhere.
+      const orphans = tasks.filter((t) => t.sectionId && !known.has(t.sectionId));
+      const top = [...unsectioned, ...orphans].sort(
+        (a, b) => a.sortOrder - b.sortOrder
+      );
+      return [
+        // Kept even when empty so the page has somewhere to drop a to-do that
+        // belongs to no section, and so New has a landing spot.
+        { key: "loose", heading: null, href: null, tasks: top },
+        // Sections show empty too — you often make one before filling it.
+        ...projectSections.map((section) => ({
+          key: section.id,
+          heading: section.name,
+          href: null,
+          section,
+          tasks: tasks.filter((t) => t.sectionId === section.id),
+        })),
+      ];
+    }
     if (view === "delegated") {
       return members
         .map((member) => ({
@@ -560,13 +744,29 @@ export function TaskList({
       result.unshift({ key: "loose", heading: null, href: null, tasks: orphans });
     }
     return result;
-  }, [grouped, view, tasks, members, projects, viewedEmail, selfEmail]);
+  }, [
+    grouped,
+    inProject,
+    projectSections,
+    view,
+    tasks,
+    members,
+    projects,
+    viewedEmail,
+    selfEmail,
+  ]);
 
   // Selection. Plain click selects one; shift extends a range from the last
-  // anchor through the visible order; cmd/ctrl toggles membership.
+  // anchor through the visible order; cmd/ctrl toggles membership. Folded
+  // sections drop out — j/k and shift-ranges only walk what's on screen.
   const visibleOrder = useMemo(
-    () => groups.flatMap((g) => g.tasks.map((t) => t.id)),
-    [groups]
+    () =>
+      groups.flatMap((g) =>
+        g.section && collapsedSections.has(g.section.id)
+          ? []
+          : g.tasks.map((t) => t.id)
+      ),
+    [groups, collapsedSections]
   );
 
   // Things' "New": an untitled draft opens for editing in place — at the top
@@ -587,6 +787,9 @@ export function TaskList({
       : grouped
         ? (after?.projectId ?? null)
         : null;
+    // Inside a project the draft also joins the section it lands in; summoned
+    // from the header (no `after`) it opens in the unsectioned top area.
+    const sectionId = inProject ? (after?.sectionId ?? null) : null;
     // Inside a project the assignee must be a member; default to the viewed
     // person when they belong, else the project's first member.
     const project = projectId
@@ -626,6 +829,7 @@ export function TaskList({
       assigneeEmail,
       creatorEmail: selfEmail,
       projectId,
+      sectionId,
       snoozedUntil: null,
       completedAt: null,
       completedByEmail: null,
@@ -653,6 +857,7 @@ export function TaskList({
         assigneeEmail,
         bucket,
         projectId,
+        sectionId,
       })
         .then((created) => {
           keyAliases.current.set(created.id, temp.id);
@@ -680,6 +885,359 @@ export function TaskList({
   const inlineNewRef = useRef(handleInlineNew);
   inlineNewRef.current = handleInlineNew;
   useEffect(() => onInlineNew(() => inlineNewRef.current()), []);
+
+  // ============================================================
+  // Sections (project pages only)
+  // ============================================================
+
+  const toggleCollapsed = (sectionId: string) => {
+    const folding = !collapsedSections.has(sectionId);
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(sectionId)) next.delete(sectionId);
+      else next.add(sectionId);
+      writeCollapsedSections(next);
+      return next;
+    });
+    if (!folding) return;
+    // Folding a section takes its rows off screen, so nothing inside it stays
+    // selected or open — otherwise `e`/Delete would act on invisible to-dos.
+    const hidden = new Set(
+      tasks.filter((t) => t.sectionId === sectionId).map((t) => t.id)
+    );
+    setSelectedIds((prev) => {
+      if (![...prev].some((id) => hidden.has(id))) return prev;
+      return new Set([...prev].filter((id) => !hidden.has(id)));
+    });
+    if (anchorId.current && hidden.has(anchorId.current)) anchorId.current = null;
+    setExpandedId((prev) => (prev && hidden.has(prev) ? null : prev));
+  };
+
+  /**
+   * "Section": an untitled heading appended at the *bottom* of the project,
+   * opened for naming in place. Bottom, not top (unlike a new to-do), because
+   * sections accrete as a project grows — a new one shouldn't shove itself
+   * above work that's already organized. It stays local until the name is
+   * committed, so an abandoned one leaves nothing behind.
+   */
+  const handleInlineNewSection = () => {
+    if (context.mode !== "project") return;
+    const temp: TodoSection = {
+      id: `temp-${crypto.randomUUID()}`,
+      projectId: context.projectId,
+      name: "",
+      sortOrder:
+        projectSections.reduce((max, s) => Math.max(max, s.sortOrder), 0) + 1,
+    };
+    setSections((prev) => [...prev, temp]);
+    setEditingSectionId(temp.id);
+    setExpandedId(null);
+    setOpenMenu(null);
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-section-id="${temp.id}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    });
+  };
+  const inlineNewSectionRef = useRef(handleInlineNewSection);
+  inlineNewSectionRef.current = handleInlineNewSection;
+  useEffect(() => onInlineNewSection(() => inlineNewSectionRef.current()), []);
+
+  const commitSectionName = (section: TodoSection, raw: string) => {
+    const name = raw.trim();
+    setEditingSectionId(null);
+    const isDraft = section.id.startsWith("temp-");
+    if (!name) {
+      // An empty name discards a new section rather than leaving an untitled
+      // heading; on an existing one it's simply not committed.
+      if (isDraft) setSections((prev) => prev.filter((s) => s.id !== section.id));
+      return;
+    }
+    if (name === section.name) return;
+    patchSection(section.id, { name });
+    if (!isDraft) {
+      run(renameSection(section.id, name));
+      return;
+    }
+    run(
+      createSection(section.projectId, name)
+        .then((created) => {
+          setSections((prev) =>
+            prev.map((s) =>
+              s.id === section.id
+                ? { ...s, id: created.id, name, sortOrder: created.sortOrder }
+                : s
+            )
+          );
+        })
+        .catch(() =>
+          setSections((prev) => prev.filter((s) => s.id !== section.id))
+        )
+    );
+  };
+
+  const cancelSectionEdit = (section: TodoSection) => {
+    setEditingSectionId(null);
+    if (section.id.startsWith("temp-")) {
+      setSections((prev) => prev.filter((s) => s.id !== section.id));
+    }
+  };
+
+  /**
+   * Deleting a section keeps its to-dos: they merge upward into the preceding
+   * section (or the top area). No prompt — a heading is a label, not a
+   * container of value, and the toast puts both back.
+   */
+  const handleDeleteSection = (section: TodoSection) => {
+    if (section.id.startsWith("temp-")) {
+      cancelSectionEdit(section);
+      return;
+    }
+    const index = projectSections.findIndex((s) => s.id === section.id);
+    const mergeInto = index > 0 ? projectSections[index - 1].id : null;
+    const movedIds = tasks
+      .filter((t) => t.sectionId === section.id)
+      .map((t) => t.id);
+
+    setSections((prev) => prev.filter((s) => s.id !== section.id));
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.sectionId === section.id ? { ...t, sectionId: mergeInto } : t
+      )
+    );
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    setUndo({
+      kind: "section",
+      label: `Deleted “${section.name}”`,
+      section,
+      taskIds: movedIds,
+    });
+    undoTimer.current = setTimeout(() => setUndo(null), UNDO_WINDOW_MS);
+    run(deleteSection(section.id));
+  };
+
+  // ============================================================
+  // Project-page drag: one context, many sections
+  // ============================================================
+  //
+  // A project page runs a *single* DndContext over both the section headings
+  // and every to-do row, because dnd-kit can only move an item between
+  // droppables that share a context — with a context per group (what the view
+  // pages still use) a row dragged into another section finds nothing to drop
+  // onto. Sections keep their own SortableContext, each group's rows another;
+  // the collision filter below keeps the two kinds from seeing each other.
+
+  const sectionIdSet = useMemo(
+    () => new Set(projectSections.map((s) => s.id)),
+    [projectSections]
+  );
+
+  /** Each group's own droppable, wrapping its rows. */
+  const CONTAINER_PREFIX = "container:";
+  const containerId = (key: string) => `${CONTAINER_PREFIX}${key}`;
+  const isContainerId = (id: string) => id.startsWith(CONTAINER_PREFIX);
+
+  /** Which section an `over` id belongs to (null = the top area). */
+  const overSection = (
+    overId: string
+  ): { sectionId: string | null } | null => {
+    if (overId.startsWith(CONTAINER_PREFIX)) {
+      const key = overId.slice(CONTAINER_PREFIX.length);
+      return { sectionId: key === "loose" ? null : key };
+    }
+    const task = tasks.find((t) => t.id === overId);
+    return task ? { sectionId: task.sectionId ?? null } : null;
+  };
+
+  const groupTasksOf = (sectionId: string | null) =>
+    tasks
+      .filter((t) => (t.sectionId ?? null) === sectionId)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  // Where the dragged row started, so a cancel can put it back and the drop
+  // knows whether it actually changed section.
+  const dragOriginRef = useRef<{
+    taskId: string;
+    sectionId: string | null;
+    sortOrder: number;
+  } | null>(null);
+
+  const revertDraggedTask = (origin = dragOriginRef.current) => {
+    dragOriginRef.current = null;
+    if (!origin) return;
+    patchLocally(origin.taskId, {
+      sectionId: origin.sectionId,
+      sortOrder: origin.sortOrder,
+    });
+    setTasks((prev) => [...prev].sort((a, b) => a.sortOrder - b.sortOrder));
+  };
+
+  /**
+   * Two kinds of drag share this context, so first split the droppables by
+   * kind — a heading only ever lands among headings.
+   *
+   * For a to-do it's the standard two-pass answer to "which group, then where
+   * in it": find the group the pointer is actually inside, then take the
+   * nearest row *within that group*. Asking for the nearest row outright would
+   * pick one in a neighbouring section whenever you hover empty space, and
+   * letting the group boxes compete with rows directly would swallow them —
+   * you could pick a section but never a position inside it.
+   */
+  const projectCollision: CollisionDetection = (args) => {
+    if (sectionIdSet.has(String(args.active.id))) {
+      return closestCorners({
+        ...args,
+        droppableContainers: args.droppableContainers.filter((c) =>
+          sectionIdSet.has(String(c.id))
+        ),
+      });
+    }
+    const rows = args.droppableContainers.filter(
+      (c) => !sectionIdSet.has(String(c.id)) && !isContainerId(String(c.id))
+    );
+    const boxes = args.droppableContainers.filter((c) =>
+      isContainerId(String(c.id))
+    );
+
+    const inside = pointerWithin({ ...args, droppableContainers: boxes })[0];
+    if (inside) {
+      const key = String(inside.id).slice(CONTAINER_PREFIX.length);
+      const sectionId = key === "loose" ? null : key;
+      const siblings = rows.filter((c) => {
+        const task = tasks.find((t) => t.id === String(c.id));
+        return task && (task.sectionId ?? null) === sectionId;
+      });
+      const nearest =
+        siblings.length > 0
+          ? closestCorners({ ...args, droppableContainers: siblings })
+          : [];
+      // An empty group (or one holding only the row being dragged) answers
+      // with itself, so it stays a target the whole way through the drop.
+      return nearest.length > 0 ? nearest : [{ id: inside.id }];
+    }
+    // In the gutters — between groups, or over a heading. Nearest row wins.
+    return closestCorners({ ...args, droppableContainers: rows });
+  };
+
+  /**
+   * Crossing into another section mid-drag: relocate the row there and then,
+   * so the gap opens where it will land. The exact index is settled on drop —
+   * this only has to put it in the right group.
+   */
+  const handleProjectDragOver = (event: DragOverEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+    const activeId = String(active.id);
+    if (sectionIdSet.has(activeId)) return;
+    const activeTask = tasks.find((t) => t.id === activeId);
+    if (!activeTask) return;
+    const dest = overSection(String(over.id));
+    if (!dest || (activeTask.sectionId ?? null) === dest.sectionId) return;
+
+    const destTasks = groupTasksOf(dest.sectionId).filter(
+      (t) => t.id !== activeId
+    );
+    const overIdx = destTasks.findIndex((t) => t.id === String(over.id));
+    const before = overIdx < 0 ? (destTasks[destTasks.length - 1] ?? null) : (destTasks[overIdx - 1] ?? null);
+    const after = overIdx < 0 ? null : destTasks[overIdx];
+    const sortOrder = needsRenormalize(before?.sortOrder, after?.sortOrder)
+      ? (destTasks[destTasks.length - 1]?.sortOrder ?? 0) + 1
+      : sortBetween(before?.sortOrder ?? null, after?.sortOrder ?? null);
+
+    patchLocally(activeId, { sectionId: dest.sectionId, sortOrder });
+    setTasks((prev) => [...prev].sort((a, b) => a.sortOrder - b.sortOrder));
+  };
+
+  const handleProjectDragEnd = (event: DragEndEvent) => {
+    const activeId = String(event.active.id);
+    // Same context, two kinds of drag: a heading reorders its siblings.
+    if (sectionIdSet.has(activeId)) {
+      handleSectionDragEnd(event);
+      return;
+    }
+
+    const { target, dragTasks } = settleDrag();
+    const origin = dragOriginRef.current;
+
+    // A drop on a heading or a sidebar item wins over the in-list position —
+    // rewind whatever dragOver did so the drop handler starts from the truth.
+    if (target && dragTasks.length > 0) {
+      revertDraggedTask(origin);
+      performSidebarDrop(target, dragTasks);
+      return;
+    }
+    dragOriginRef.current = null;
+
+    // Released over nothing (or over a group that vanished mid-drag): put the
+    // row back where it started rather than leaving dragOver's guess.
+    const over = event.over;
+    const dest = over ? overSection(String(over.id)) : null;
+    if (!over || !dest) {
+      revertDraggedTask(origin);
+      return;
+    }
+    const changedSection = !origin || origin.sectionId !== dest.sectionId;
+    if (String(over.id) === activeId && !changedSection) return;
+
+    const group = groupTasksOf(dest.sectionId);
+    const oldIndex = group.findIndex((t) => t.id === activeId);
+    if (oldIndex < 0) return;
+    const overIndex = group.findIndex((t) => t.id === String(over.id));
+    const newIndex = overIndex < 0 ? group.length - 1 : overIndex;
+    const next = arrayMove(group, oldIndex, newIndex);
+    const prevOrder = next[newIndex - 1]?.sortOrder ?? null;
+    const nextOrder = next[newIndex + 1]?.sortOrder ?? null;
+
+    if (needsRenormalize(prevOrder, nextOrder)) {
+      next.forEach((t, i) => patchLocally(t.id, { sortOrder: i + 1 }));
+      setTasks((prev) => [...prev].sort((a, b) => a.sortOrder - b.sortOrder));
+      if (changedSection) {
+        run(setTaskSection(activeId, dest.sectionId, newIndex + 1));
+      }
+      run(renormalizeTaskOrder(next.map((t) => t.id)));
+    } else {
+      const sortOrder = sortBetween(prevOrder, nextOrder);
+      patchLocally(activeId, { sortOrder });
+      setTasks((prev) => [...prev].sort((a, b) => a.sortOrder - b.sortOrder));
+      run(
+        changedSection
+          ? setTaskSection(activeId, dest.sectionId, sortOrder)
+          : setTaskSortOrder(activeId, sortOrder)
+      );
+    }
+
+    // The rest of a multi-selection follows into the new section, appended —
+    // only the row under the pointer gets an exact position.
+    if (changedSection && dragTasks.length > 1) {
+      dragTasks
+        .filter((t) => t.id !== activeId)
+        .forEach((t) => handlers.onSetSection(t, dest.sectionId));
+    }
+  };
+
+  const handleSectionDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = projectSections.findIndex((s) => s.id === active.id);
+    const newIndex = projectSections.findIndex((s) => s.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const next = arrayMove(projectSections, oldIndex, newIndex);
+    const prevOrder = next[newIndex - 1]?.sortOrder ?? null;
+    const nextOrder = next[newIndex + 1]?.sortOrder ?? null;
+    if (needsRenormalize(prevOrder, nextOrder)) {
+      setSections((prev) =>
+        prev.map((s) => {
+          const i = next.findIndex((n) => n.id === s.id);
+          return i < 0 ? s : { ...s, sortOrder: i + 1 };
+        })
+      );
+      run(renormalizeSectionOrder(next.map((s) => s.id)));
+      return;
+    }
+    const sortOrder = sortBetween(prevOrder, nextOrder);
+    patchSection(String(active.id), { sortOrder });
+    run(setSectionSortOrder(String(active.id), sortOrder));
+  };
 
   const handleRowClick = (task: TodoTask, e: React.MouseEvent) => {
     if (e.shiftKey && anchorId.current) {
@@ -948,9 +1506,17 @@ export function TaskList({
         return;
       }
       case "z": {
-        if (!undoTask) return;
+        if (!undo) return;
         e.preventDefault();
         handleUndo();
+        return;
+      }
+      case "C": {
+        // ⇧C: a new section, the project page's other create key. (`c` stays
+        // the to-do — the action you take dozens of times a day.)
+        if (!inProject || e.repeat) return;
+        e.preventDefault();
+        handleInlineNewSection();
         return;
       }
       case "c": {
@@ -1010,6 +1576,8 @@ export function TaskList({
       list.filter((t) => t.snoozedUntil).forEach((t) => handlers.onWake(t)),
     setProject: (list, projectId) =>
       list.forEach((t) => handlers.onSetProject(t, projectId)),
+    setSection: (list, sectionId) =>
+      list.forEach((t) => handlers.onSetSection(t, sectionId)),
     moveToInbox: (list) => list.forEach((t) => handlers.onMoveToInbox(t)),
     assign: (list, email) => list.forEach((t) => handlers.onReassign(t, email)),
     duplicate: (list) => {
@@ -1053,11 +1621,27 @@ export function TaskList({
   // Delegated stay live in their own views — re-snooze / re-delegate).
   const dropEligible = (key: string, dragTasks: TodoTask[]): boolean => {
     const target = parseDropKey(key);
+    if (target.kind === "section") {
+      // Same membership rule as a project drop (the section carries one), and
+      // no-op when everything dragged already lives there.
+      const section = sections.find((s) => s.id === target.sectionId);
+      if (!section) return false;
+      const project = projects.find((p) => p.id === section.projectId);
+      return (
+        !!project &&
+        dragTasks.every((t) => project.memberEmails.includes(t.assigneeEmail)) &&
+        dragTasks.some((t) => t.sectionId !== section.id)
+      );
+    }
     if (target.kind === "project") {
       const project = projects.find((p) => p.id === target.projectId);
       return (
         !!project &&
-        dragTasks.every((t) => project.memberEmails.includes(t.assigneeEmail))
+        dragTasks.every((t) => project.memberEmails.includes(t.assigneeEmail)) &&
+        // Re-filing into the project a to-do is already in means "out of its
+        // section" — only offer that when there's a section to leave.
+        (project.id !== activeProjectId ||
+          dragTasks.some((t) => t.sectionId !== null))
       );
     }
     if (target.view === view && view !== "snoozed" && view !== "delegated") {
@@ -1093,6 +1677,13 @@ export function TaskList({
     // Dragging a row inside the selection carries the whole selection;
     // dragging an unselected row pulls the selection onto it first (like the
     // context menu).
+    // Where it started, so a cancel can put it back and the drop can tell
+    // whether it crossed into another section (project pages only).
+    dragOriginRef.current = {
+      taskId: task.id,
+      sectionId: task.sectionId,
+      sortOrder: task.sortOrder,
+    };
     const inSelection = selectedIds.has(id);
     draggingTasksRef.current = inSelection
       ? tasks.filter((t) => selectedIds.has(t.id))
@@ -1104,16 +1695,22 @@ export function TaskList({
     setExpandedId(null);
     setOpenMenu(null);
     setDragCount(draggingTasksRef.current.length);
+    setActiveDragId(task.id);
   };
 
   const handleDragMove = (_event: DragMoveEvent) => {
     const pointer = pointerRef.current;
-    if (!pointer) return;
+    // A section heading is dragging (project pages share one context) — it has
+    // no to-dos riding it, so there's nothing the sidebar could accept.
+    if (!pointer || draggingTasksRef.current.length === 0) return;
     const hit = dropTargetAtPoint(pointer.x, pointer.y);
     const valid =
       hit && dropEligible(hit.key, draggingTasksRef.current) ? hit : null;
     if (dropTargetRef.current?.key !== valid?.key) {
       emitDropTarget(valid?.key ?? null);
+      // Section headings live in this tree, so they highlight from state
+      // rather than the window event the sidebar listens to.
+      setHoverDropKey(valid?.key ?? null);
     }
     dropTargetRef.current = valid;
   };
@@ -1125,6 +1722,8 @@ export function TaskList({
     dropTargetRef.current = null;
     draggingTasksRef.current = [];
     setDragCount(0);
+    setActiveDragId(null);
+    setHoverDropKey(null);
     emitDropTarget(null);
     return { target, dragTasks };
   };
@@ -1137,6 +1736,10 @@ export function TaskList({
     dragTasks: TodoTask[]
   ) => {
     const parsed = parseDropKey(target.key);
+    if (parsed.kind === "section") {
+      dragTasks.forEach((t) => handlers.onSetSection(t, parsed.sectionId));
+      return;
+    }
     if (parsed.kind === "project") {
       dragTasks.forEach((t) => handlers.onSetProject(t, parsed.projectId));
       return;
@@ -1190,6 +1793,12 @@ export function TaskList({
     run(setTaskSortOrder(String(active.id), sortOrder));
   };
 
+  // Looked up rather than captured at drag start — dragOver rewrites the row's
+  // section as it crosses, and the overlay should show the current one.
+  const activeDragTask = activeDragId
+    ? (tasks.find((t) => t.id === activeDragId) ?? null)
+    : null;
+
   const emptyKey = inProject ? "project" : (view as string);
   const empty = EMPTY_STATES[emptyKey] ?? EMPTY_STATES.project;
   const EmptyIcon = empty.icon;
@@ -1198,37 +1807,96 @@ export function TaskList({
     // data-inline-new tells the global quick-add host that `c` is taken
     // here (quick-add.tsx checks for it before opening the modal).
     <div className="space-y-3" data-inline-new={canInlineNew ? "" : undefined}>
-      {tasks.length === 0 ? (
+      {tasks.length === 0 && projectSections.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-10 text-center">
           <EmptyIcon className="mx-auto size-6 text-muted-foreground" />
           <p className="mt-2 text-sm text-muted-foreground">{empty.text}</p>
         </div>
       ) : (
-        <div className="space-y-5">
-          {groups.map((group) => (
-            <section key={group.key}>
-              {group.heading && (
-                <Link
-                  href={group.href!}
-                  className="mb-1 flex items-center gap-1.5 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground"
-                >
-                  <CircleDashed className="size-3.5 text-primary/70" />
-                  {group.heading}
-                </Link>
+        // On a project page every group shares ONE context (headings and rows
+        // both), so a to-do can be dragged from one section into another and
+        // dropped between two rows. The view pages keep a context per group —
+        // nothing crosses groups there.
+        <ProjectDragContext
+          enabled={inProject}
+          sensors={sensors}
+          collisionDetection={projectCollision}
+          sectionIds={projectSections.map((s) => s.id)}
+          onDragStart={handleDragStart}
+          onDragMove={handleDragMove}
+          onDragOver={handleProjectDragOver}
+          onDragCancel={() => {
+            settleDrag();
+            revertDraggedTask();
+          }}
+          onDragEnd={handleProjectDragEnd}
+          overlay={
+            // Follows the pointer exactly; the row left behind in the list is
+            // the gap showing where it will land.
+            <DragOverlay dropAnimation={null}>
+              {activeDragTask && (
+                <div className="relative cursor-grabbing rounded-lg bg-card shadow-lg ring-1 ring-foreground/10">
+                  <TaskRow
+                    task={activeDragTask}
+                    context={context}
+                    members={members}
+                    projects={projects}
+                    sections={sections}
+                    attachments={attachments[activeDragTask.id] ?? []}
+                    uploading={[]}
+                    viewedEmail={viewedEmail}
+                    completing={false}
+                    selected
+                    expanded={false}
+                    openMenu={null}
+                    onMenuOpenChange={NOOP}
+                    onSelect={NOOP}
+                    onOpen={NOOP}
+                    onClose={NOOP}
+                    handlers={handlers}
+                  />
+                  {dragCount > 1 && (
+                    <span className="pointer-events-none absolute -top-2 -right-2 z-20 flex size-5 items-center justify-center rounded-full bg-primary text-[11px] font-medium tabular-nums text-primary-foreground shadow-sm">
+                      {dragCount}
+                    </span>
+                  )}
+                </div>
               )}
-              <DndContext
-                id={`todos-tasks-${group.key}`}
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragStart={handleDragStart}
-                onDragMove={handleDragMove}
-                onDragCancel={() => void settleDrag()}
-                onDragEnd={(e) => handleDragEnd(e, group.tasks)}
-              >
-                <SortableContext
-                  items={group.tasks.map((t) => t.id)}
-                  strategy={verticalListSortingStrategy}
-                >
+            </DragOverlay>
+          }
+        >
+        <div className="space-y-5">
+          {groups.map((group) => {
+            const section = group.section;
+            const collapsed = !!section && collapsedSections.has(section.id);
+            const heading = (handle?: SectionDragHandle) =>
+              section ? (
+                <SectionHeader
+                  id={section.id}
+                  name={section.name}
+                  count={group.tasks.length}
+                  collapsed={collapsed}
+                  editing={editingSectionId === section.id}
+                  dropActive={hoverDropKey === sectionDropKey(section.id)}
+                  dragHandle={handle}
+                  onToggleCollapse={() => toggleCollapsed(section.id)}
+                  onStartRename={() => setEditingSectionId(section.id)}
+                  onCommitName={(name) => commitSectionName(section, name)}
+                  onCancelEdit={() => cancelSectionEdit(section)}
+                  onDelete={() => handleDeleteSection(section)}
+                />
+              ) : (
+                group.heading && (
+                  <Link
+                    href={group.href!}
+                    className="mb-1 flex items-center gap-1.5 px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground"
+                  >
+                    <CircleDashed className="size-3.5 text-primary/70" />
+                    {group.heading}
+                  </Link>
+                )
+              );
+            const rows = (
                   <div className="space-y-0.5">
                     {group.tasks.map((task) => (
                       <SortableTaskRow
@@ -1236,6 +1904,7 @@ export function TaskList({
                         id={task.id}
                         dragCount={dragCount}
                         removing={removingIds.has(task.id)}
+                        overlaid={inProject}
                       >
                         <TaskContextMenu
                           task={task}
@@ -1246,6 +1915,7 @@ export function TaskList({
                           }
                           members={members}
                           projects={projects}
+                          sections={sections}
                           onTargetTask={handleContextTarget}
                           actions={menuActions}
                         >
@@ -1254,6 +1924,7 @@ export function TaskList({
                             context={context}
                             members={members}
                             projects={projects}
+                            sections={sections}
                             attachments={attachments[task.id] ?? []}
                             uploading={uploadingByTask[task.id] ?? []}
                             viewedEmail={viewedEmail}
@@ -1281,11 +1952,66 @@ export function TaskList({
                       </SortableTaskRow>
                     ))}
                   </div>
+            );
+            const body = collapsed ? null : inProject ? (
+              // Project mode: the rows join the page-wide context above, and
+              // an *empty* group gets its own droppable so it's still a target
+              // (a container droppable over a group that has rows would
+              // swallow them and make "between these two" impossible).
+              <SortableContext
+                items={group.tasks.map((t) => t.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <DroppableGroup
+                  id={containerId(group.key)}
+                  empty={group.tasks.length === 0}
+                  dragging={dragCount > 0}
+                >
+                  {rows}
+                </DroppableGroup>
+              </SortableContext>
+            ) : (
+              <DndContext
+                id={`todos-tasks-${group.key}`}
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragMove={handleDragMove}
+                onDragCancel={() => void settleDrag()}
+                onDragEnd={(e) => handleDragEnd(e, group.tasks)}
+              >
+                <SortableContext
+                  items={group.tasks.map((t) => t.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {rows}
                 </SortableContext>
               </DndContext>
-            </section>
-          ))}
+            );
+            // A section is the sortable unit, so the whole block — heading and
+            // to-dos — travels with the drag; the heading is only the handle.
+            return section ? (
+              <SortableSection
+                key={group.key}
+                id={section.id}
+                disabled={editingSectionId === section.id}
+              >
+                {(handle) => (
+                  <>
+                    {heading(handle)}
+                    {body}
+                  </>
+                )}
+              </SortableSection>
+            ) : (
+              <section key={group.key}>
+                {heading()}
+                {body}
+              </section>
+            );
+          })}
         </div>
+        </ProjectDragContext>
       )}
 
       {/* Delete-key confirmation for the current selection */}
@@ -1478,12 +2204,10 @@ export function TaskList({
         </DialogContent>
       </Dialog>
 
-      {undoTask && (
+      {undo && (
         <ToastViewport>
           <Toast className="flex items-center justify-between gap-3">
-            <span className="truncate text-muted-foreground">
-              Deleted “{undoTask.title}”
-            </span>
+            <span className="truncate text-muted-foreground">{undo.label}</span>
             <button
               type="button"
               onClick={handleUndo}
@@ -1498,10 +2222,161 @@ export function TaskList({
   );
 }
 
+/**
+ * One reorderable section block — the whole thing moves, so the to-dos travel
+ * with their heading, and the heading the child renders is the drag handle.
+ *
+ * The transform deliberately does NOT go on the `<section>`. That element is
+ * also dnd-kit's droppable, and droppables are re-measured *during* a drag: a
+ * translated node reports a rect that follows the pointer, so the dragged
+ * section stayed its own nearest collision and `over` never resolved to a
+ * neighbour — every drop was a no-op that snapped back. Keeping the measured
+ * node still and moving an inner wrapper leaves the drop rects where they
+ * actually are; CSS transforms don't affect the parent's layout box.
+ */
+function SortableSection({
+  id,
+  disabled,
+  children,
+}: {
+  id: string;
+  /** True while the name is being edited — text selection isn't a drag. */
+  disabled: boolean;
+  children: (handle: SectionDragHandle) => React.ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled });
+  return (
+    <section
+      ref={setNodeRef}
+      // Anchor for the new-section scrollIntoView.
+      data-section-id={id}
+      className="relative"
+    >
+      <div
+        style={{ transform: CSS.Transform.toString(transform), transition }}
+        className={cn(isDragging && "relative z-10 opacity-70")}
+      >
+        {children({
+          ref: setActivatorNodeRef,
+          props: disabled ? attributes : { ...attributes, ...listeners },
+        })}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The project page's single drag context, covering the section headings and
+ * every to-do row at once — that shared registry is what lets a row cross from
+ * one section into another. Rendered transparently (children only) on the view
+ * pages, which keep a context per group.
+ */
+function ProjectDragContext({
+  enabled,
+  sensors,
+  collisionDetection,
+  sectionIds,
+  onDragStart,
+  onDragMove,
+  onDragOver,
+  onDragCancel,
+  onDragEnd,
+  overlay,
+  children,
+}: {
+  enabled: boolean;
+  sensors: ReturnType<typeof useSensors>;
+  collisionDetection: CollisionDetection;
+  sectionIds: string[];
+  onDragStart: (event: DragStartEvent) => void;
+  onDragMove: (event: DragMoveEvent) => void;
+  onDragOver: (event: DragOverEvent) => void;
+  onDragCancel: () => void;
+  onDragEnd: (event: DragEndEvent) => void;
+  /** The DragOverlay — must live inside the context to receive the drag. */
+  overlay: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  if (!enabled) return <>{children}</>;
+  return (
+    <DndContext
+      id="todos-project"
+      sensors={sensors}
+      collisionDetection={collisionDetection}
+      onDragStart={onDragStart}
+      onDragMove={onDragMove}
+      onDragOver={onDragOver}
+      onDragCancel={onDragCancel}
+      onDragEnd={onDragEnd}
+    >
+      {/* Headings sort among themselves; each group's rows have their own
+          SortableContext nested inside. */}
+      <SortableContext items={sectionIds} strategy={verticalListSortingStrategy}>
+        {children}
+      </SortableContext>
+      {overlay}
+    </DndContext>
+  );
+}
+
+/**
+ * The droppable box around a group's rows. Always registered — not just while
+ * the group is empty: a box that unregisters the moment a row enters it pulls
+ * the target out from under the drop, and the row snaps back. The collision
+ * strategy (projectCollision) is what keeps it from swallowing its own rows.
+ *
+ * An empty group keeps a row-sized landing strip that only *paints* during a
+ * drag. It has to hold its height at rest too: appearing on drag start would
+ * push every row below it down before dnd-kit measures the grabbed one, and
+ * the row would ride a good half-inch below the pointer for the whole drag.
+ */
+function DroppableGroup({
+  id,
+  empty,
+  dragging,
+  children,
+}: {
+  id: string;
+  empty: boolean;
+  dragging: boolean;
+  children: React.ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef}>
+      {children}
+      {empty && (
+        <div
+          aria-hidden={!dragging}
+          className={cn(
+            "flex h-9 items-center justify-center rounded-md border border-dashed text-xs transition-colors",
+            !dragging
+              ? "border-transparent text-transparent"
+              : isOver
+                ? "border-primary/60 bg-primary/10 text-foreground"
+                : "border-border text-muted-foreground"
+          )}
+        >
+          Drop here
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SortableTaskRow({
   id,
   dragCount,
   removing = false,
+  overlaid = false,
   children,
 }: {
   id: string;
@@ -1509,17 +2384,28 @@ function SortableTaskRow({
   dragCount: number;
   /** Phase two of check-off: collapse the row so the list closes around it. */
   removing?: boolean;
+  /** A DragOverlay is drawing this row while it's dragged (project pages), so
+   * what's left here is the gap it will drop into: faded, and *not* translated
+   * — a second copy sliding under the pointer would read as a glitch. */
+  overlaid?: boolean;
   children: React.ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id });
+  const placeheld = overlaid && isDragging;
   return (
     <div
       ref={setNodeRef}
       // Anchor for the keyboard selection's scrollIntoView.
       data-task-id={id}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={cn("relative", isDragging && "z-10 opacity-70")}
+      style={{
+        transform: placeheld ? undefined : CSS.Transform.toString(transform),
+        transition,
+      }}
+      className={cn(
+        "relative",
+        isDragging && (placeheld ? "opacity-30" : "z-10 opacity-70")
+      )}
       {...attributes}
       {...listeners}
     >
@@ -1534,7 +2420,7 @@ function SortableTaskRow({
           {children}
         </div>
       </div>
-      {isDragging && dragCount > 1 && (
+      {isDragging && !overlaid && dragCount > 1 && (
         <span className="pointer-events-none absolute -top-2 -right-2 z-20 flex size-5 items-center justify-center rounded-full bg-primary text-[11px] font-medium tabular-nums text-primary-foreground shadow-sm">
           {dragCount}
         </span>

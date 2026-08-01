@@ -11,6 +11,7 @@ import {
   appendSortOrder,
   ensureProjectMember,
   getProjectNames,
+  getSectionNames,
   isFamilyMember,
   isTodoBucket,
   serializeTask,
@@ -96,10 +97,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const projectNames = await getProjectNames(admin);
+  const [projectNames, sectionNames] = await Promise.all([
+    getProjectNames(admin),
+    getSectionNames(admin),
+  ]);
   return NextResponse.json({
     tasks: ((data ?? []) as AgentTaskRow[]).map((row) =>
-      serializeTask(row, projectNames),
+      serializeTask(row, projectNames, sectionNames),
     ),
   });
 }
@@ -221,11 +225,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const projectNames = await getProjectNames(admin);
+  const [projectNames, sectionNames] = await Promise.all([
+    getProjectNames(admin),
+    getSectionNames(admin),
+  ]);
   return NextResponse.json(
     {
       ok: true,
-      task: serializeTask(data as AgentTaskRow, projectNames),
+      task: serializeTask(data as AgentTaskRow, projectNames, sectionNames),
       ...(addedProjectMember
         ? { note: `Added ${assigneeEmail} to the project's members.` }
         : {}),

@@ -19,8 +19,13 @@ export async function GET(req: NextRequest) {
   if (!agentAuthorized(req)) return agentUnauthorized();
 
   const admin = createAdminClient();
-  const [{ data: members }, { data: projects }, { data: areas }, { data: open }] =
-    await Promise.all([
+  const [
+    { data: members },
+    { data: projects },
+    { data: sections },
+    { data: areas },
+    { data: open },
+  ] = await Promise.all([
       admin
         .from("family_members")
         .select("email, name, role")
@@ -30,6 +35,11 @@ export async function GET(req: NextRequest) {
         .from("todo_projects")
         .select("id, name, area_id, todo_project_members(member_email)")
         .is("completed_at", null)
+        .is("deleted_at", null)
+        .order("sort_order"),
+      admin
+        .from("todo_sections")
+        .select("id, project_id, name")
         .is("deleted_at", null)
         .order("sort_order"),
       admin.from("todo_areas").select("id, name").order("sort_order"),
@@ -49,6 +59,20 @@ export async function GET(req: NextRequest) {
     ((areas ?? []) as { id: string; name: string }[]).map((a) => [a.id, a.name]),
   );
 
+  // Sections are read-only here: knowing a project's headings lets the agent
+  // describe where a to-do sits, but it files into projects, not sections —
+  // capture stays dumb, a human sorts.
+  const sectionsByProject = new Map<string, { id: string; name: string }[]>();
+  for (const row of (sections ?? []) as {
+    id: string;
+    project_id: string;
+    name: string;
+  }[]) {
+    const list = sectionsByProject.get(row.project_id) ?? [];
+    list.push({ id: row.id, name: row.name });
+    sectionsByProject.set(row.project_id, list);
+  }
+
   return NextResponse.json({
     members: members ?? [],
     projects: ((projects ?? []) as ProjectRow[]).map((p) => ({
@@ -57,6 +81,7 @@ export async function GET(req: NextRequest) {
       area: p.area_id ? (areaNames.get(p.area_id) ?? null) : null,
       member_emails: p.todo_project_members.map((m) => m.member_email),
       open_tasks: openByProject.get(p.id) ?? 0,
+      sections: sectionsByProject.get(p.id) ?? [],
     })),
     areas: areas ?? [],
     buckets: ["inbox", "today", "anytime", "someday"],

@@ -10,6 +10,7 @@ import {
   type TodoArea,
   type TodoMember,
   type TodoProject,
+  type TodoSection,
   type TodoTask,
   type TodoTaskRow,
   type TodoView,
@@ -230,6 +231,33 @@ export async function getProjects(supabase: Supabase): Promise<TodoProject[]> {
     areaId: row.area_id,
     sortOrder: row.sort_order,
     memberEmails: row.todo_project_members.map((m) => m.member_email),
+  }));
+}
+
+/**
+ * Every live project's sections, in order. Small enough (a handful per
+ * project) to hand the views shell wholesale alongside the projects, so
+ * opening a project stays an in-memory filter.
+ */
+export async function getSections(supabase: Supabase): Promise<TodoSection[]> {
+  const { data } = await supabase
+    .from("todo_sections")
+    .select("id, project_id, name, sort_order")
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
+  return (
+    (data ?? []) as {
+      id: string;
+      project_id: string;
+      name: string;
+      sort_order: number;
+    }[]
+  ).map((row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+    sortOrder: row.sort_order,
   }));
 }
 

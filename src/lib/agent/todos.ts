@@ -25,7 +25,7 @@ export function isTodoBucket(value: unknown): value is TodoBucket {
 /** TASK_COLUMNS plus deleted_at — the agent surfaces soft-deletes so it can
  * report (and undo) its own deletions; the UI never shows them. */
 export const AGENT_TASK_COLUMNS =
-  "id, title, notes_html, bucket, assignee_email, creator_email, project_id, snoozed_until, completed_at, completed_by_email, sort_order, assignee_seen_at, created_at, deleted_at";
+  "id, title, notes_html, bucket, assignee_email, creator_email, project_id, section_id, snoozed_until, completed_at, completed_by_email, sort_order, assignee_seen_at, created_at, deleted_at";
 
 export type AgentTaskRow = TodoTaskRow & { deleted_at: string | null };
 
@@ -55,9 +55,13 @@ export function notesHtmlToText(html: string | null): string | null {
   return text || null;
 }
 
+/** Sections are read-only to the agent: it can *report* that a to-do sits
+ * under "Permits", but capture surfaces stay dumb — anything the agent files
+ * into a project lands in the top area for a human to sort. */
 export function serializeTask(
   row: AgentTaskRow,
   projectNames: Map<string, string>,
+  sectionNames: Map<string, string> = new Map(),
 ) {
   return {
     id: row.id,
@@ -68,6 +72,8 @@ export function serializeTask(
     creator: row.creator_email,
     project_id: row.project_id,
     project: row.project_id ? (projectNames.get(row.project_id) ?? null) : null,
+    section_id: row.section_id,
+    section: row.section_id ? (sectionNames.get(row.section_id) ?? null) : null,
     snoozed_until: row.snoozed_until,
     completed_at: row.completed_at,
     completed_by: row.completed_by_email,
@@ -83,6 +89,19 @@ export async function getProjectNames(
   const { data } = await admin.from("todo_projects").select("id, name");
   return new Map(
     ((data ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]),
+  );
+}
+
+/** id → name for live sections, so responses can name a to-do's heading. */
+export async function getSectionNames(
+  admin: AdminClient,
+): Promise<Map<string, string>> {
+  const { data } = await admin
+    .from("todo_sections")
+    .select("id, name")
+    .is("deleted_at", null);
+  return new Map(
+    ((data ?? []) as { id: string; name: string }[]).map((s) => [s.id, s.name]),
   );
 }
 

@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
  */
 
 const INLINE_NEW_EVENT = "todo-inline-new";
+const INLINE_NEW_SECTION_EVENT = "todo-inline-new-section";
 
 export function emitInlineNew(): void {
   window.dispatchEvent(new CustomEvent(INLINE_NEW_EVENT));
@@ -21,6 +22,15 @@ export function emitInlineNew(): void {
 export function onInlineNew(handler: () => void): () => void {
   window.addEventListener(INLINE_NEW_EVENT, handler);
   return () => window.removeEventListener(INLINE_NEW_EVENT, handler);
+}
+
+export function emitInlineNewSection(): void {
+  window.dispatchEvent(new CustomEvent(INLINE_NEW_SECTION_EVENT));
+}
+
+export function onInlineNewSection(handler: () => void): () => void {
+  window.addEventListener(INLINE_NEW_SECTION_EVENT, handler);
+  return () => window.removeEventListener(INLINE_NEW_SECTION_EVENT, handler);
 }
 
 export function InlineNewButton({

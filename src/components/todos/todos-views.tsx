@@ -27,6 +27,7 @@ import {
   type TodoArea,
   type TodoMember,
   type TodoProject,
+  type TodoSection,
   type TodoTask,
   type TodoView,
 } from "@/lib/todos/types";
@@ -54,6 +55,7 @@ export function TodosViews({
   attachmentsByTask,
   members,
   projects,
+  sections,
   areas,
   viewed,
   selfEmail,
@@ -65,6 +67,7 @@ export function TodosViews({
   attachmentsByTask: Record<string, TodoTaskAttachment[]>;
   members: TodoMember[];
   projects: TodoProject[];
+  sections: TodoSection[];
   areas: TodoArea[];
   viewed: TodoMember;
   selfEmail: string;
@@ -194,13 +197,10 @@ export function TodosViews({
                 logbookHref={withAs("/todos/logbook", viewed.email, selfEmail)}
               />
 
-              <div className="mb-1 flex justify-end">
-                <InlineNewButton />
-              </div>
-
               <TaskList
                 context={{ mode: "project", projectId: project.id }}
                 initialTasks={projectTasks}
+                initialSections={sections}
                 members={members}
                 projects={projects}
                 attachmentsByTask={attachmentsByTask}
@@ -239,6 +239,7 @@ export function TodosViews({
                 <TaskList
                   context={{ mode: "view", view }}
                   initialTasks={viewTasks}
+                  initialSections={sections}
                   members={members}
                   projects={projects}
                   attachmentsByTask={attachmentsByTask}
