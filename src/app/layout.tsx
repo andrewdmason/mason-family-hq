@@ -5,6 +5,7 @@ import { GlobalQuickAdd } from "@/components/todos/global-quick-add";
 import { LastAppTracker } from "@/components/layout/last-app-tracker";
 import { EINK_BOOT_SCRIPT, EinkModeSync } from "@/components/reading/eink-mode";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
+import { UnsupportedBrowser } from "@/components/unsupported-browser";
 import { appleStartupImages } from "@/lib/pwa/apps";
 import "./globals.css";
 
@@ -98,6 +99,13 @@ export default function RootLayout({
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: EINK_BOOT_SCRIPT }}
         />
+        {/*
+          Tells a too-old browser why the page it's looking at is broken. Pure
+          CSS and server-rendered, because on those browsers the stylesheet is
+          discarded and the JS never hydrates — see unsupported-browser.tsx.
+          Hidden (display:none) on everything we actually support.
+        */}
+        <UnsupportedBrowser />
         {children}
         {/* Keeps <html class="eink"> in step with the per-device setting. */}
         <EinkModeSync />
