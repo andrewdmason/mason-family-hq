@@ -1,6 +1,7 @@
 "use client";
 
 import { Highlighter, MessageSquareQuote, StickyNote } from "lucide-react";
+import { PAGE_PAD_BOTTOM } from "@/lib/reading/paged-geometry";
 import { cn } from "@/lib/utils";
 import { useFinePointer, useSelectionRange } from "./use-selection-range";
 
@@ -99,11 +100,23 @@ export function SelectionToolbar({
 
   return (
     <div
-      className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-background/95 shadow-lg backdrop-blur"
-      // Clear of the home indicator on iPhone; a no-op everywhere else.
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      // Opaque, not the usual translucent-with-a-blur chrome. This lands on top
+      // of the running foot (reader-footer.tsx, z-30, PAGE_PAD_BOTTOM tall), and
+      // in e-ink mode that foot is forced to pure black — so even a 5% bleed
+      // through a /95 background came back as legible text once the panel's
+      // dithering was done with it, and the bar read as two labels printed over
+      // each other. A backdrop blur is the wrong instinct on e-ink anyway: it
+      // costs a grey wash the display then has to approximate.
+      className="fixed inset-x-0 bottom-0 z-50 flex items-center border-t border-border bg-background shadow-lg"
+      style={{
+        // Cover the foot rather than sit on it — anything shorter leaves a strip
+        // of progress text peering out under the buttons.
+        minHeight: PAGE_PAD_BOTTOM,
+        // Clear of the home indicator on iPhone; a no-op everywhere else.
+        paddingBottom: "env(safe-area-inset-bottom)",
+      }}
     >
-      <div className="mx-auto flex max-w-md items-center gap-1 px-2 py-1.5">
+      <div className="mx-auto flex w-full max-w-md items-center gap-1 px-2 py-1.5">
         {buttons}
       </div>
     </div>
