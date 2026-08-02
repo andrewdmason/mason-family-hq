@@ -33,9 +33,15 @@ const ACTIONS: {
  * selection stays entirely native — which is what the reader has always
  * deliberately protected.
  *
- * `-webkit-touch-callout: none` would be the wrong tool: it governs the
- * long-press callout on links and images, not the text-selection edit menu, and
- * applying it to the content would break normal link behaviour in articles.
+ * Android is the one platform where the native menu CAN be taken away, and it
+ * is: see the displace step in use-selection-range.ts, which is what stops
+ * Chrome's action bar (Copy / Share / Select all / Web search) from burying
+ * these actions on the Boox. The bottom placement stays regardless — it is
+ * still right for iOS, and there is nothing to gain from two touch layouts.
+ *
+ * `-webkit-touch-callout: none` would be the wrong tool on either: it governs
+ * the long-press callout on links and images, not the text-selection edit menu,
+ * and applying it to the content would break normal link behaviour in articles.
  */
 export function SelectionToolbar({
   contentRef,
