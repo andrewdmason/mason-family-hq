@@ -33,16 +33,30 @@ export type SelectionSpot = {
 const DISPLACE_SETTLE_MS = 700;
 
 /**
+ * How long to disown `selectionchange` after displacing.
+ *
+ * Displacing drops the selection and immediately restores it, which is two more
+ * `selectionchange` events, and Chrome delivers them asynchronously. Left alone
+ * the first would read as "the reader deselected" and blink the toolbar out for
+ * as long as it took the second to be noticed — a flash on an LCD, a full-page
+ * repaint on e-ink. Nothing legitimate can land inside the window either: with
+ * the handles gone, changing the selection needs a fresh long press, which takes
+ * longer than this on its own.
+ */
+const SELF_CHANGE_MS = 250;
+
+/**
  * Whether this browser's native selection menu is one the page can displace.
  *
  * Android only, and the asymmetry is real rather than caution. Chrome for
- * Android decides whether to show its selection action bar (Copy / Share /
- * Select all / Web search) from Blink's "are the drag handles visible" flag,
- * and ANY selection the page sets through the Selection API clears that flag —
- * so re-stating the reader's own selection, unchanged, takes the menu with it.
- * iOS exposes no equivalent lever: its callout is not tied to anything the page
- * can reach, which is why the touch toolbar sits along the bottom edge instead
- * of competing for the space beside the selection (see selection-toolbar.tsx).
+ * Android starts its selection action bar (Copy / Share / Select all / Web
+ * search) from the GESTURE that made the selection, and tears it down when the
+ * selection goes empty — so a page that drops the selection and puts it back
+ * gets the text still selected with no action bar attached to it, because
+ * nothing restarts a bar that no gesture asked for. iOS exposes no equivalent
+ * lever: its callout is not tied to anything the page can reach, which is why
+ * the touch toolbar sits along the bottom edge instead of competing for the
+ * space beside the selection (see selection-toolbar.tsx).
  *
  * User-agent sniffing, deliberately. There is no feature to test for — the
  * thing being detected is a browser's own native UI, which reports nothing —
@@ -121,27 +135,31 @@ export function useSelectionRange(
     const displaceable = hasDisplaceableSelectionMenu();
     /** The span we have already taken the native menu away from. */
     let displaced: Range | null = null;
+    /** Selection changes before this are our own doing — see SELF_CHANGE_MS. */
+    let selfChangeUntil = 0;
 
     /**
      * Take Chrome's selection action bar off the reader's selection, leaving
      * our own toolbar as the only thing on offer.
      *
-     * The whole move is `setBaseAndExtent` with the selection's OWN boundary
-     * points — the span the reader chose, restated verbatim. Nothing about what
-     * is selected changes, and because the highlight is painted from the
-     * selection rather than from the handles, nothing visibly redraws either
-     * (which on e-ink is the difference between this being free and it costing
-     * a full-page flash). What does change is provenance: Blink now considers
-     * the selection page-made rather than gesture-made, drops the drag handles,
-     * and Android tears down the action bar that hangs off them.
+     * The move is to drop the selection and put the identical span straight
+     * back. Both halves matter, and the obvious shortcut does not work: simply
+     * re-stating the same span (`setBaseAndExtent` with the boundary points it
+     * already has) changes nothing Android is watching, so the bar stays put and
+     * the handles stay with it. Going through EMPTY is what does the work —
+     * that's the transition that makes Chrome tear the action bar down — and
+     * putting the span back afterwards doesn't bring it back, because the bar is
+     * raised by the selection GESTURE and a page-made selection isn't one.
      *
-     * The cost is those handles: after this the selection can no longer be
+     * Both halves land in the same task, so the selection is never painted in
+     * its dropped state and the reader sees no flicker — which on e-ink is the
+     * difference between this being free and it costing a full-page flash. The
+     * `selectionchange` events it causes are disowned via `selfChangeUntil`;
+     * see SELF_CHANGE_MS.
+     *
+     * The cost is the drag handles: after this the selection can no longer be
      * nudged wider by dragging its ends. That's the trade being made — a second
-     * long-press re-selects, and the reader asked for the native menu gone.
-     *
-     * Self-limiting rather than loop-guarded: the restatement fires another
-     * `selectionchange`, which schedules another pass, which finds the same span
-     * in `displaced` and stops. One extra no-op, no feedback loop.
+     * long press re-selects, and the reader asked for the native menu gone.
      */
     const displace = () => {
       const sel = window.getSelection();
@@ -156,13 +174,14 @@ export function useSelectionRange(
         return;
       }
       if (sameRange(displaced, range)) return;
+      // Two clones: one handed to the selection, one kept as the record of what
+      // has already been displaced. Sharing a single Range would let the live
+      // selection move ours out from under the comparison.
+      const restore = range.cloneRange();
       displaced = range.cloneRange();
-      sel.setBaseAndExtent(
-        range.startContainer,
-        range.startOffset,
-        range.endContainer,
-        range.endOffset
-      );
+      selfChangeUntil = performance.now() + SELF_CHANGE_MS;
+      sel.removeAllRanges();
+      sel.addRange(restore);
     };
 
     // Settle before measuring. Mid-drag on a mouse the selection is still
@@ -193,6 +212,9 @@ export function useSelectionRange(
       scheduleDisplace(0);
     };
     const onSelectionChange = () => {
+      // The drop-and-restore is not news, and reacting to its halves separately
+      // would blink the toolbar off and back on — see SELF_CHANGE_MS.
+      if (performance.now() < selfChangeUntil) return;
       const sel = window.getSelection();
       // Collapse is immediate — waiting to hide would let the toolbar linger
       // over text that is no longer selected.
