@@ -18,6 +18,11 @@ import { BOOK_PROSE, BOOK_PROSE_PAGED, typographyStyle } from "./reader-prose";
  * the text is how you select a passage or dismiss a selection, and a page that
  * moved under either was the most jarring thing about reading here. With a
  * pointer the targets are the margin arrows themselves, plus the keyboard.
+ *
+ * E-ink mode is the one exception: the arrows aren't rendered there, because
+ * the margins they sat in have gone back to the text, so a click turns the page
+ * like a tap does. Selecting is unaffected — that path is guarded by the click
+ * slop and the selection checks, not by which device is pointing.
  */
 
 /** Anything that has its own job when clicked. */
@@ -128,9 +133,15 @@ export function PagedView({
           return;
         }
         if (moved > TAP_SLOP_PX || e.timeStamp - startTime > TAP_MAX_MS) return;
-      } else if (pointerType === "mouse") {
+      } else if (pointerType === "mouse" && !settings.eink) {
         // Only the margin arrows and the keyboard turn pages with a mouse: a
         // click in the text belongs to the text.
+        //
+        // E-ink is the exception, and has to be: the arrows are gone there (the
+        // margins they lived in were the width we just gave back to the text),
+        // so a click would have nothing left to hit. Selecting still works —
+        // dragging exceeds the slop below, and a click that clears a selection
+        // is caught by dismissedSelection.
         return;
       } else if (moved > CLICK_SLOP_PX) {
         return;
@@ -153,7 +164,7 @@ export function PagedView({
       viewport.removeEventListener("pointerup", onUp);
       viewport.removeEventListener("pointercancel", onCancel);
     };
-  }, [onNext, onPrev, viewport]);
+  }, [onNext, onPrev, settings.eink, viewport]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -262,8 +273,13 @@ export function PagedView({
       {/* Before {children}, so the annotation markers and the "start a chat
           here" target — which share these margins — are painted over the arrows
           rather than under them. Pointer devices only: a touch device has no
-          hover and would latch the arrows on after a tap. */}
-      {geometry && (
+          hover and would latch the arrows on after a tap.
+
+          Not at all in e-ink mode: there is no margin left to put them in, and
+          nothing to point with. Tapping the page is the whole interface, which
+          is what a Kindle does and what these arrows were always standing in
+          for on a machine that had a mouse. */}
+      {geometry && !settings.eink && (
         <>
           <PageTurnZone
             side="left"

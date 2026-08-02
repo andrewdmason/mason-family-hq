@@ -48,7 +48,7 @@ export function ReaderLayoutDialog({
   const paged = supportsPaging && settings.paged;
   // Depends on the margins, so this answer changes under you as you set them —
   // which is the point: narrowing the margins is how a laptop earns two columns.
-  const tooNarrowForTwo = !fitsTwoColumns(availableWidth, settings.margins);
+  const tooNarrowForTwo = !fitsTwoColumns(availableWidth, settings.margins, settings.eink);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -61,6 +61,16 @@ export function ReaderLayoutDialog({
         </DialogHeader>
 
         <div className="flex flex-col divide-y divide-border">
+          <Row
+            label="E-ink mode"
+            hint="Black on white, no animation. For a Boox or similar."
+          >
+            <Switch
+              checked={settings.eink}
+              onCheckedChange={(checked) => onChange("eink", checked)}
+            />
+          </Row>
+
           {supportsPaging && (
             <Row label="Continuous scrolling">
               <Switch
@@ -153,10 +163,21 @@ export function ReaderLayoutDialog({
   );
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+function Row({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+}) {
   return (
-    <div className="flex items-center justify-between py-3">
-      <span className="text-sm text-foreground">{label}</span>
+    <div className="flex items-center justify-between gap-4 py-3">
+      <span className="flex flex-col gap-0.5">
+        <span className="text-sm text-foreground">{label}</span>
+        {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+      </span>
       {children}
     </div>
   );

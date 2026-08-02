@@ -17,9 +17,9 @@
 
 import {
   COLUMN_GAP,
-  MARGIN_INSET_PX,
   MARGIN_MEASURE_PX,
   effectiveColumns,
+  marginInsetFor,
   type ReaderSettings,
 } from "@/lib/reading/reader-settings";
 
@@ -32,6 +32,23 @@ export const CHAT_PANEL_WIDTH = 448;
 
 /** Smallest column we'll render before giving up on the requested layout. */
 const MIN_COLUMN_WIDTH = 240;
+
+/**
+ * The floor, for a screen this wide.
+ *
+ * A flat 240px is right on anything phone-sized: it stops a narrowed area from
+ * turning the book into a ribbon. On a 6" e-reader it does the opposite — 240px
+ * of a 300px screen is 80% of the display, so the floor, not the reader, is
+ * choosing the margins, and all three settings land on the same column. Below
+ * that the floor has to give way proportionally or the Margins control is inert.
+ *
+ * 0.62 leaves the widest setting a visible margin without dropping the measure
+ * somewhere unreadable. Unchanged at 388px and up, so no screen in the verify
+ * suite moves.
+ */
+function minColumnWidth(availableWidth: number): number {
+  return Math.min(MIN_COLUMN_WIDTH, Math.round(availableWidth * 0.62));
+}
 
 /**
  * The two halves of this type are the whole design.
@@ -104,14 +121,15 @@ function fragmentationFor(clipW: number, settings: ReaderSettings) {
   // how wide a column is, because two columns have to share the width — not how
   // many are shown, which is computeGeometry's business.
   const intent = effectiveColumns(settings, clipW);
-  const avail = Math.max(MIN_COLUMN_WIDTH, clipW - MARGIN_INSET_PX[settings.margins] * 2);
+  const floor = minColumnWidth(clipW);
+  const avail = Math.max(floor, clipW - marginInsetFor(clipW, settings.margins, settings.eink) * 2);
 
   // Whichever binds first: the measure the reader asked for, or what the window
   // can actually give. On a desktop the measure wins and the setting visibly
   // changes the text width; on a phone there's no room to choose, so the inset
   // wins and the setting changes the gap to the screen edge instead.
   const colW = Math.max(
-    MIN_COLUMN_WIDTH,
+    floor,
     Math.min(
       MARGIN_MEASURE_PX[settings.margins],
       Math.floor((avail - COLUMN_GAP * (intent - 1)) / intent)
@@ -173,7 +191,10 @@ export function computeGeometry(
   // iPad drops the page from two columns to one and slides it — it does not
   // re-fragment the book, which is what it used to do, on every open and every
   // close, and which is what made reading with the chat open feel bad.
-  const availView = usable - MARGIN_INSET_PX[settings.margins] * 2;
+  //
+  // Keyed to the full window, like fragmentationFor: the panel is allowed to
+  // change how many columns a page shows, never how wide the margins are.
+  const availView = usable - marginInsetFor(clipW, settings.margins, settings.eink) * 2;
   const cols: 1 | 2 =
     effectiveColumns(settings, clipW) === 2 && frag.colW * 2 + frag.gap <= availView ? 2 : 1;
   const viewW = cols * frag.colW + (cols - 1) * frag.gap;

@@ -33,6 +33,25 @@ export type ReaderSettings = {
    * one thing the geometry is arranged to prevent — see PageGeometry.
    */
   chatDocked: boolean;
+  /**
+   * This device has an electrophoretic screen — a Boox, a Kindle-alike.
+   *
+   * Deliberately a setting rather than a detection. `@media (update: slow)` is
+   * the feature CSS provides for exactly this, but it depends on the platform
+   * telling the browser its display is slow, and an e-ink Android tablet runs
+   * ordinary Chrome on hardware that reports itself as an ordinary display. It
+   * is very unlikely to fire, and betting the whole appearance of the app on a
+   * media query that silently never matches leaves nothing to fall back to.
+   *
+   * A flag sits naturally here anyway: everything in this file is already
+   * per-device and never synced, which is exactly what "this screen is e-ink"
+   * is. Turn it on once on the reader; the laptop never sees it.
+   *
+   * Unlike chatDocked this one DOES reach `fragmentationFor`, and has to: the
+   * margins it changes are the column's own. Turning it on repaginates once,
+   * which is the same cost as changing the Margins setting beside it.
+   */
+  eink: boolean;
 };
 
 /** Body text sizes, in rem. The old fixed reader size (1.15rem) is the default. */
@@ -74,6 +93,75 @@ export const MARGIN_INSET_PX: Record<ReaderMargins, number> = {
 };
 
 /**
+ * Below this width the fixed insets above stop being a choice.
+ *
+ * They were sized against a phone, where 40/64/104px still leaves a column wide
+ * enough that MIN_COLUMN_WIDTH doesn't bite. Go much narrower — a 6" e-reader —
+ * and the floor swallows the difference: at 300px every setting produces the
+ * same 240px column and the Margins control silently does nothing, leaving text
+ * size as the only way to change the measure, which is the wrong knob.
+ *
+ * 380 rather than something rounder because 412 CSS px is where the pocket
+ * e-readers and most Android phones land, and there the fixed insets still give
+ * three distinct columns (332/284/240). Only screens narrower than anything
+ * already working take the proportional path.
+ */
+const PROPORTIONAL_INSET_BELOW_PX = 380;
+
+/** Share of the screen each setting gives away, once the fixed values can't. */
+const MARGIN_INSET_RATIO: Record<ReaderMargins, number> = {
+  narrow: 0.05,
+  normal: 0.1,
+  wide: 0.16,
+};
+
+/**
+ * Margins on an e-reader, which are far tighter — a third of the pointer scale.
+ *
+ * The values above are not really margins, they're a click target: the page-turn
+ * arrows live in them, and they have to be wide enough to hit with a mouse and
+ * to hold a chat marker outside the text. None of that is true here. An e-reader
+ * has no pointer, so the arrows never render, and it turns pages by tapping the
+ * text itself — which left 64px of reserved nothing down each side of a 412px
+ * screen, a third of the display spent on a control that isn't there.
+ *
+ * What's left is a real margin: enough that the text isn't flush to the bezel,
+ * and no more. On a 412px screen this is the difference between a 284px column
+ * and a 356px one — about 31 characters a line against 39.
+ */
+const EINK_MARGIN_INSET_PX: Record<ReaderMargins, number> = {
+  narrow: 16,
+  normal: 28,
+  wide: 48,
+};
+
+/**
+ * The inset this margin setting actually gets on a screen this wide.
+ *
+ * Constant on anything phone-sized and up, so nothing that reads well today
+ * moves. There is a small step at the threshold; crossing it means a resize,
+ * which already repaginates and already keeps the reader's character offset.
+ */
+export function marginInsetFor(
+  availableWidth: number,
+  margins: ReaderMargins,
+  eink = false
+): number {
+  const pointer =
+    availableWidth >= PROPORTIONAL_INSET_BELOW_PX
+      ? MARGIN_INSET_PX[margins]
+      : Math.round(availableWidth * MARGIN_INSET_RATIO[margins]);
+  if (!eink) return pointer;
+  // Whichever is tighter. The e-ink scale is the smaller of the two on any
+  // ordinary screen, but on a very narrow one the proportional fallback has
+  // already squeezed the pointer margins below it — and an e-reader should
+  // never end up with a *wider* margin than the device that needs room for
+  // arrows. Taking the minimum makes "e-ink is never narrower" hold at every
+  // width, which is the invariant the verify script asserts.
+  return Math.min(EINK_MARGIN_INSET_PX[margins], pointer);
+}
+
+/**
  * Space between columns. Wide enough to hold a 24px chat marker with air on both
  * sides, because in two-column mode the gap is the left column's only gutter.
  */
@@ -95,8 +183,12 @@ const MIN_TWO_COLUMN_WIDTH = MARGIN_MEASURE_PX.wide;
  * what tips the page over into two columns. This used to be one flat width
  * threshold, which is why narrowing the margins appeared to do nothing.
  */
-export function fitsTwoColumns(availableWidth: number, margins: ReaderMargins): boolean {
-  const forText = availableWidth - MARGIN_INSET_PX[margins] * 2 - COLUMN_GAP;
+export function fitsTwoColumns(
+  availableWidth: number,
+  margins: ReaderMargins,
+  eink = false
+): boolean {
+  const forText = availableWidth - marginInsetFor(availableWidth, margins, eink) * 2 - COLUMN_GAP;
   return forText / 2 >= MIN_TWO_COLUMN_WIDTH;
 }
 
@@ -114,6 +206,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   // got it, so the honest default is a panel that sits over the page and leaves
   // the book exactly as it was.
   chatDocked: false,
+  eink: false,
 };
 
 const STORAGE_KEY = "reader:layout";
@@ -153,6 +246,7 @@ export function loadSettings(): ReaderSettings {
     leading: clampStep(s.leading, LEADING_STEPS.length, DEFAULT_LEADING),
     chatDocked:
       typeof s.chatDocked === "boolean" ? s.chatDocked : DEFAULT_SETTINGS.chatDocked,
+    eink: typeof s.eink === "boolean" ? s.eink : DEFAULT_SETTINGS.eink,
   };
 }
 
@@ -220,5 +314,5 @@ export const readerSettingsStore = {
  */
 export function effectiveColumns(settings: ReaderSettings, availableWidth: number): 1 | 2 {
   if (settings.columns === 1) return 1;
-  return fitsTwoColumns(availableWidth, settings.margins) ? 2 : 1;
+  return fitsTwoColumns(availableWidth, settings.margins, settings.eink) ? 2 : 1;
 }
