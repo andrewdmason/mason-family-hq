@@ -19,6 +19,56 @@ export type SelectionSpot = {
 };
 
 /**
+ * How long the selection has to hold still before we displace the native menu.
+ *
+ * Much longer than the 120ms the toolbar waits, and for a different reason. The
+ * toolbar only has to look settled; displacing takes the drag handles away, so
+ * it has to be genuinely OVER. Chrome hands the page no "the selection gesture
+ * ended" event — during a handle drag it just streams `selectionchange` — so a
+ * stall in that stream is the only end-of-gesture signal there is, and a short
+ * one would fire while a careful reader was still dragging. `touchend` below
+ * covers the common case long before this ever runs; this is the backstop for
+ * when the gesture is consumed and no touch event arrives at all.
+ */
+const DISPLACE_SETTLE_MS = 700;
+
+/**
+ * Whether this browser's native selection menu is one the page can displace.
+ *
+ * Android only, and the asymmetry is real rather than caution. Chrome for
+ * Android decides whether to show its selection action bar (Copy / Share /
+ * Select all / Web search) from Blink's "are the drag handles visible" flag,
+ * and ANY selection the page sets through the Selection API clears that flag —
+ * so re-stating the reader's own selection, unchanged, takes the menu with it.
+ * iOS exposes no equivalent lever: its callout is not tied to anything the page
+ * can reach, which is why the touch toolbar sits along the bottom edge instead
+ * of competing for the space beside the selection (see selection-toolbar.tsx).
+ *
+ * User-agent sniffing, deliberately. There is no feature to test for — the
+ * thing being detected is a browser's own native UI, which reports nothing —
+ * and guessing from touch support would wrongly rope in iOS, where this does
+ * not work and where collapsing the selection is a live risk.
+ */
+function hasDisplaceableSelectionMenu(): boolean {
+  return typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
+}
+
+/** Whether two ranges cover exactly the same span. */
+function sameRange(a: Range | null, b: Range): boolean {
+  if (!a) return false;
+  try {
+    return (
+      a.compareBoundaryPoints(Range.START_TO_START, b) === 0 &&
+      a.compareBoundaryPoints(Range.END_TO_END, b) === 0
+    );
+  } catch {
+    // Ranges in different documents throw rather than compare. Treat it as a
+    // new selection, which at worst displaces something already displaced.
+    return false;
+  }
+}
+
+/**
  * The current usable text selection inside the reader, or null.
  *
  * Deliberately not a mouse-only affair. The old version bailed on anything
@@ -68,6 +118,53 @@ export function useSelectionRange(
       });
     };
 
+    const displaceable = hasDisplaceableSelectionMenu();
+    /** The span we have already taken the native menu away from. */
+    let displaced: Range | null = null;
+
+    /**
+     * Take Chrome's selection action bar off the reader's selection, leaving
+     * our own toolbar as the only thing on offer.
+     *
+     * The whole move is `setBaseAndExtent` with the selection's OWN boundary
+     * points — the span the reader chose, restated verbatim. Nothing about what
+     * is selected changes, and because the highlight is painted from the
+     * selection rather than from the handles, nothing visibly redraws either
+     * (which on e-ink is the difference between this being free and it costing
+     * a full-page flash). What does change is provenance: Blink now considers
+     * the selection page-made rather than gesture-made, drops the drag handles,
+     * and Android tears down the action bar that hangs off them.
+     *
+     * The cost is those handles: after this the selection can no longer be
+     * nudged wider by dragging its ends. That's the trade being made — a second
+     * long-press re-selects, and the reader asked for the native menu gone.
+     *
+     * Self-limiting rather than loop-guarded: the restatement fires another
+     * `selectionchange`, which schedules another pass, which finds the same span
+     * in `displaced` and stops. One extra no-op, no feedback loop.
+     */
+    const displace = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
+      const range = sel.getRangeAt(0);
+      const container = contentRef.current;
+      if (
+        !container ||
+        !container.contains(range.startContainer) ||
+        !container.contains(range.endContainer)
+      ) {
+        return;
+      }
+      if (sameRange(displaced, range)) return;
+      displaced = range.cloneRange();
+      sel.setBaseAndExtent(
+        range.startContainer,
+        range.startOffset,
+        range.endContainer,
+        range.endOffset
+      );
+    };
+
     // Settle before measuring. Mid-drag on a mouse the selection is still
     // moving and the popover would chase the cursor; on touch the OS adjusts the
     // range after the gesture ends, so reading it immediately gets a stale one.
@@ -77,27 +174,52 @@ export function useSelectionRange(
       timer = window.setTimeout(evaluate, delay);
     };
 
+    // Kept on its own clock, because measuring and displacing want different
+    // answers to "is the reader done?" — see DISPLACE_SETTLE_MS.
+    let displaceTimer: number | undefined;
+    const scheduleDisplace = (delay: number) => {
+      if (!displaceable) return;
+      window.clearTimeout(displaceTimer);
+      displaceTimer = window.setTimeout(displace, delay);
+    };
+
     const onPointerUp = () => schedule(0);
+    // A lifted finger ends the gesture outright, so there is nothing left to
+    // wait for. Listened to instead of `pointercancel`, which Chrome fires at
+    // the START of a long press when it claims the gesture — acting on that
+    // would pull the handles away before the drag had begun.
+    const onTouchEnd = () => {
+      schedule(0);
+      scheduleDisplace(0);
+    };
     const onSelectionChange = () => {
       const sel = window.getSelection();
       // Collapse is immediate — waiting to hide would let the toolbar linger
       // over text that is no longer selected.
       if (!sel || sel.isCollapsed) {
         window.clearTimeout(timer);
+        window.clearTimeout(displaceTimer);
+        // Forgotten, not remembered: re-selecting the same words is a new
+        // selection and gets its own native menu to take away.
+        displaced = null;
         setSpot(null);
         return;
       }
       schedule(120);
+      scheduleDisplace(DISPLACE_SETTLE_MS);
     };
 
     document.addEventListener("pointerup", onPointerUp);
+    document.addEventListener("touchend", onTouchEnd);
     document.addEventListener("selectionchange", onSelectionChange);
     // Scrolling on touch is constant and the bottom bar is fixed, so only the
     // position-dependent desktop popover cares; recomputing is cheap enough.
     window.addEventListener("scroll", onPointerUp, { passive: true });
     return () => {
       window.clearTimeout(timer);
+      window.clearTimeout(displaceTimer);
       document.removeEventListener("pointerup", onPointerUp);
+      document.removeEventListener("touchend", onTouchEnd);
       document.removeEventListener("selectionchange", onSelectionChange);
       window.removeEventListener("scroll", onPointerUp);
     };
