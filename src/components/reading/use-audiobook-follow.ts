@@ -7,10 +7,14 @@ import {
   type RenderedBlocks,
 } from "@/lib/reading/annotation-anchors";
 import { blockIndexForCharOffset, type BookBlock } from "@/lib/reading/block-stream";
-import { useAudiobook } from "@/components/audiobook/audiobook-provider";
+import { cueOnPage, type AudioCue } from "@/lib/reading/audio/types";
+import {
+  useAudiobook,
+  useAudiobookControls,
+} from "@/components/audiobook/audiobook-provider";
 
 /**
- * Keeping the page with the voice.
+ * Keeping the page and the voice together, in whichever direction you meant.
  *
  * The reader stores where you are as a character offset into the converted
  * text, and the narration's timing map says which characters are being spoken
@@ -25,11 +29,17 @@ import { useAudiobook } from "@/components/audiobook/audiobook-provider";
  *
  * Two things it deliberately does NOT do:
  *
- * It doesn't hold you in place. Turn a page while it's speaking and it notices
- * you've gone somewhere of your own accord and stops steering; a control
- * appears to send you back to the voice when you want it. Being yanked back
- * mid-sentence because the narrator is elsewhere is the single most irritating
- * thing a follow-along can do.
+ * It doesn't hold you in place. Turn a single page while it's speaking and it
+ * notices you've gone somewhere of your own accord and stops steering, and
+ * offers both ways back: send the page to the voice, or send the voice to the
+ * page. Being yanked back mid-sentence because the narrator is elsewhere is the
+ * single most irritating thing a follow-along can do — and having to hunt for
+ * the passage you just read with your eyes is the second.
+ *
+ * Neither direction happens by itself. Moving the voice to every page you turn
+ * to would make flicking back a page to re-read a sentence rewind the narration
+ * and lose the place you were actually up to, and flicking ahead to see how long
+ * the chapter is would drag the voice with you. Both are worse than a button.
  *
  * It doesn't highlight on e-ink. A sentence highlight is a screen repaint every
  * few seconds, which on a Boox is either visible flashing or accumulated
@@ -39,13 +49,6 @@ import { useAudiobook } from "@/components/audiobook/audiobook-provider";
 
 const HIGHLIGHT_NAME = "reader-listen";
 const STYLE_ID = "reader-listen-highlight-style";
-
-/**
- * How far the reader can be from where we put them before we conclude they
- * moved themselves. Comfortably more than a page turn's worth of characters at
- * the largest type size, so following never switches itself off by accident.
- */
-const WANDER_CHARS = 3_000;
 
 /**
  * A soft wash rather than the annotation yellow.
@@ -98,7 +101,13 @@ function rangeForChars(
   return range.collapsed ? null : range;
 }
 
-/** Whether an element is currently on screen, allowing for the reader's chrome. */
+/**
+ * Whether an element is currently on screen, allowing for the reader's chrome.
+ *
+ * Scrolling mode only, where "further on" means "further down" and this is the
+ * whole question. A paged book runs sideways instead — see cueOnPage, which
+ * answers it in characters and is what paged mode uses.
+ */
 function isVisible(el: HTMLElement): boolean {
   const rect = el.getBoundingClientRect();
   if (rect.height === 0 && rect.width === 0) return false;
@@ -112,6 +121,8 @@ export type AudiobookFollow = {
   following: boolean;
   /** Put the reader back where the voice is, and resume steering. */
   resume: () => void;
+  /** Put the voice where the reader is, and resume steering. */
+  bringVoiceHere: () => void;
 };
 
 export function useAudiobookFollow({
@@ -122,6 +133,7 @@ export function useAudiobookFollow({
   layoutNonce,
   eink,
   currentCharOffset,
+  pageCharEnd,
   goToChar,
   onPosition,
 }: {
@@ -133,44 +145,87 @@ export function useAudiobookFollow({
   layoutNonce: number;
   eink: boolean;
   currentCharOffset: number;
+  /**
+   * First character past the bottom of the page, in paged mode; null while the
+   * book is scrolling, where the page has no end and the DOM is asked instead.
+   */
+  pageCharEnd: number | null;
   goToChar: (charOffset: number) => void;
   /** Report the voice's position as the reading position. */
   onPosition: (charOffset: number) => void;
 }): AudiobookFollow {
   const { bookId: playingBookId, cue, status } = useAudiobook();
+  const { listenFrom } = useAudiobookControls();
   const listening = playingBookId === bookId && status !== "idle";
 
-  /**
-   * Where we last steered the reader, and where the reader was when we did.
-   *
-   * Both are read only when a new sentence arrives, never during render, and
-   * together they answer the one question that matters: between that sentence
-   * and this one, did the page move because we moved it, or because you did?
-   */
-  const steeredToRef = useRef<number | null>(null);
   const lastCueRef = useRef<number | null>(null);
   const [following, setFollowing] = useState(true);
+
+  /**
+   * The sentence being spoken, readable without depending on it.
+   *
+   * The effect that notices YOU moved has to know where the VOICE is, but must
+   * not re-run when the voice moves — that's the other effect's job, and the two
+   * answer the same "not on this page" with opposite actions.
+   */
+  const cueRef = useRef<AudioCue | null>(null);
+  cueRef.current = cue;
+
+  /**
+   * Whether we are the ones who just moved the page.
+   *
+   * Set by the steering effect, cleared by the one below it, which is what makes
+   * the pair work: within one commit a steer runs first and the "you moved"
+   * check has to sit that round out, because it is still holding the page
+   * position from before the steer landed.
+   */
+  const steeredRef = useRef(false);
+
+  /**
+   * Is the voice on the page in front of you?
+   *
+   * Two answers, because the two reading modes disagree about what a page is.
+   * Paged mode knows exactly which characters are showing, so it's arithmetic —
+   * and it has to be, since every page of a paged book occupies the same
+   * vertical band and asking the DOM whether an element is on screen would say
+   * yes to the whole chapter. Scrolling has no such bounds, so it asks.
+   */
+  const voiceOnPage = useCallback(
+    (at: AudioCue): boolean => {
+      if (pageCharEnd != null) return cueOnPage(at, currentCharOffset, pageCharEnd);
+      const container = contentRef.current;
+      if (!container) return true;
+      const view = renderedBlocks(container, base);
+      const el = view.els[blockIndexForCharOffset(blocks, at.s) - view.base];
+      return !!el && isVisible(el);
+    },
+    [base, blocks, contentRef, currentCharOffset, pageCharEnd]
+  );
 
   const resume = useCallback(() => {
     setFollowing(true);
     const at = lastCueRef.current;
     if (at != null) {
-      steeredToRef.current = at;
+      steeredRef.current = true;
       goToChar(at);
     }
   }, [goToChar]);
 
+  const bringVoiceHere = useCallback(() => {
+    setFollowing(true);
+    listenFrom(currentCharOffset);
+  }, [currentCharOffset, listenFrom]);
+
   /**
-   * Everything that happens when the voice reaches a new sentence.
+   * The voice reached a new sentence.
    *
-   * Deliberately one effect rather than three. The three things — noticing you
-   * moved, turning the page, recording the position — have to see the same
-   * "before" state, and splitting them means each reads a world the others have
-   * already changed. Reading is a sequence of moments; this is one of them.
+   * Two things, deliberately together: recording the position and turning the
+   * page have to see the same moment, and splitting them means the second reads
+   * a world the first has already changed.
    */
   useEffect(() => {
     if (!listening) {
-      steeredToRef.current = null;
+      steeredRef.current = false;
       lastCueRef.current = null;
       setFollowing(true);
       return;
@@ -182,34 +237,44 @@ export function useAudiobookFollow({
     lastCueRef.current = cue.s;
     onPosition(cue.s);
 
-    // Did the page move under its own steam since the last sentence? Compared
-    // against where we put it, not against the voice: the voice has just moved
-    // on, so comparing to that would read every ordinary sentence as a wander.
-    const steered = steeredToRef.current;
-    let steering = following;
-    if (steering && steered != null && Math.abs(currentCharOffset - steered) > WANDER_CHARS) {
-      steering = false;
-      setFollowing(false);
+    if (!following || voiceOnPage(cue)) {
+      steeredRef.current = false;
+      return;
     }
-    if (!steering) return;
-
-    const container = contentRef.current;
-    if (!container) return;
-    const view = renderedBlocks(container, base);
-    const el = view.els[blockIndexForCharOffset(blocks, cue.s) - view.base];
-
-    // Off the page entirely (another chapter of the rendered window), or on it
-    // but scrolled past — either way, go there.
-    if (!el || !isVisible(el)) {
-      steeredToRef.current = cue.s;
-      goToChar(cue.s);
-    }
-    // currentCharOffset is read, not depended on: this runs when the VOICE
-    // moves, not when the page does. Listing it would re-run the wander check on
-    // every page turn and compare the reader against a position they had already
-    // left, which reads every deliberate page turn as a wander.
+    // Read past the bottom of the page, or off into another chapter of the
+    // rendered window — either way, go there.
+    steeredRef.current = true;
+    goToChar(cue.s);
+    // voiceOnPage is read, not depended on: it changes whenever the PAGE moves,
+    // and this runs when the VOICE does. Listing it would turn every page turn
+    // of yours into a page turn of ours, which is the opposite of the point.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [base, blocks, contentRef, cue, following, goToChar, layoutNonce, listening, onPosition]);
+  }, [cue, following, goToChar, layoutNonce, listening, onPosition]);
+
+  /**
+   * You moved the page.
+   *
+   * The same "the voice isn't on this page" the effect above acts on, arrived at
+   * from the other side: there the voice moved, here the page did, and only one
+   * of those is an instruction. A single page turn is enough — nothing is
+   * measured in a tolerance, so a nudge forward to see how the paragraph ends
+   * counts exactly as much as skipping a chapter, which is what makes the two
+   * controls appear when you'd expect them to and not two turns later.
+   *
+   * We never catch ourselves doing it: a steer of ours ends with the voice on
+   * the page by construction, and steeredRef covers the commit where the page
+   * has moved but this effect is still holding the position from before it.
+   */
+  useEffect(() => {
+    if (!listening || !following) return;
+    if (steeredRef.current) {
+      steeredRef.current = false;
+      return;
+    }
+    const at = cueRef.current;
+    if (!at || voiceOnPage(at)) return;
+    setFollowing(false);
+  }, [following, listening, voiceOnPage]);
 
   // Paint the sentence being spoken. Skipped entirely on e-ink.
   useEffect(() => {
@@ -237,5 +302,5 @@ export function useAudiobookFollow({
     };
   }, [base, blocks, contentRef, cue, eink, layoutNonce, listening]);
 
-  return { listening, following, resume };
+  return { listening, following, resume, bringVoiceHere };
 }

@@ -26,7 +26,7 @@ import {
   normaliseCues,
   planChunks,
 } from "../src/lib/reading/audio/script";
-import { cueAt, timeAtChar } from "../src/lib/reading/audio/types";
+import { cueAt, cueOnPage, timeAtChar } from "../src/lib/reading/audio/types";
 import type { NarrationBlock } from "../src/lib/reading/audio/clean";
 import type { BookBlock } from "../src/lib/reading/block-stream";
 import type { ReadingTocEntry } from "../src/lib/types";
@@ -356,6 +356,53 @@ console.log("\na chapter with no alignment still plays, it just can't follow alo
   const chunks = planChunks(narrationBlocks(3, 400));
   check("no timings means no cues, not a crash", cuesForChunk(chunks[0], null, 0).length === 0);
   check("a mismatched alignment is rejected", characterTimes("abc", ["a", "b"], [0]) === null);
+}
+
+// ---------------------------------------------------------------------------
+// Is the voice on this page?
+// ---------------------------------------------------------------------------
+
+/**
+ * The question both halves of following along come down to, asked from two
+ * sides: the voice moved off the page, so turn it; you turned the page away
+ * from the voice, so stop steering and offer both ways back. A wrong answer is
+ * silent either way — the page stops following, or it fights every page turn —
+ * so the boundaries are worth pinning down.
+ */
+console.log("\nthe page knows whether the voice is on it");
+{
+  const at = (s: number, e: number) => ({ t: 0, s, e });
+
+  check("a sentence inside the page is on it", cueOnPage(at(1200, 1260), 1000, 2000));
+  check(
+    "a sentence starting on the page's first character is on it",
+    cueOnPage(at(1000, 1060), 1000, 2000)
+  );
+  check("the page before is not this page", !cueOnPage(at(900, 960), 1000, 2000));
+  check("the page after is not this page", !cueOnPage(at(2000, 2060), 1000, 2000));
+  check(
+    "a sentence ending exactly at the top of the page belongs to the page before",
+    !cueOnPage(at(940, 1000), 1000, 2000)
+  );
+  check(
+    "a sentence spanning the top of the page counts as here",
+    cueOnPage(at(980, 1040), 1000, 2000)
+  );
+  check(
+    "a sentence spanning the bottom of the page counts as here",
+    cueOnPage(at(1960, 2040), 1000, 2000)
+  );
+  // The last page has no character after it, so the caller passes its own start
+  // and the page has to read as running to the end of the book. Getting this
+  // wrong turns the final page of every chapter into an unturnable one.
+  check(
+    "the last page of a book holds everything after it",
+    cueOnPage(at(9000, 9060), 1000, 1000)
+  );
+  check(
+    "the last page still doesn't hold what came before it",
+    !cueOnPage(at(400, 460), 1000, 1000)
+  );
 }
 
 // ---------------------------------------------------------------------------
