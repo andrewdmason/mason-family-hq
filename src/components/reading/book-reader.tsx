@@ -9,8 +9,21 @@ import {
   useSyncExternalStore,
 } from "react";
 import Link from "next/link";
-import { List, Loader2, MoreHorizontal, PanelLeft, Settings2 } from "lucide-react";
+import {
+  Headphones,
+  List,
+  Loader2,
+  MoreHorizontal,
+  PanelLeft,
+  Settings2,
+} from "lucide-react";
 import { getReadingPosition, saveReadingPosition } from "@/app/(reading)/reader/actions";
+import {
+  useAudiobook,
+  useAudiobookControls,
+} from "@/components/audiobook/audiobook-provider";
+import { useAudiobookFollow } from "@/components/reading/use-audiobook-follow";
+import { AUDIOBOOK_BAR_HEIGHT } from "@/lib/reading/audio/constants";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -87,6 +100,9 @@ const READING_LINE_OFFSET = 72;
 const READING_SETTLE_CAP_MS = 2000;
 const SAVE_DEBOUNCE_MS = 1500;
 
+/** Vertical pitch when both bottom-edge pills are outstanding at once. */
+const FLOATING_PILL_STACK = 44;
+
 export function BookReader({
   bookId,
   memberEmail,
@@ -101,6 +117,7 @@ export function BookReader({
   resumeCharOffset,
   resumeSavedAt = null,
   backHref,
+  canListen = false,
 }: {
   bookId: string;
   memberEmail: string | null;
@@ -123,6 +140,12 @@ export function BookReader({
    */
   resumeSavedAt?: string | null;
   backHref: string;
+  /**
+   * Whether this account may have a book read aloud. Adults only, on purpose —
+   * see lib/reading/audio/access.ts for why. The routes enforce it; this keeps
+   * the control from being offered to someone it would refuse.
+   */
+  canListen?: boolean;
 }) {
   const [html, setHtml] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -151,6 +174,13 @@ export function BookReader({
   // in ways that would take figure-aware fragmentation to fix. They're short
   // enough that scrolling costs nothing, so they simply don't page.
   const paged = !isArticle && settings.paged;
+
+  // The player bar takes a strip off the foot of the window while this book is
+  // the one being spoken. Read here rather than from the follow hook below
+  // because the page's geometry needs it before anything is laid out.
+  const { bookId: playingBookId, status: listenStatus } = useAudiobook();
+  const listenInset =
+    playingBookId === bookId && listenStatus !== "idle" ? AUDIOBOOK_BAR_HEIGHT : 0;
 
   // The paged reading area, as state: it doesn't exist until the book's HTML has
   // loaded, and everything that measures it needs something to re-run on when it
@@ -434,6 +464,7 @@ export function BookReader({
     blocks,
     settings,
     chatPanel,
+    bottomInset: listenInset,
     charOffset: scrollPosition.charOffset,
     onPositionChange: report,
   });
@@ -777,6 +808,41 @@ export function BookReader({
     [chapters, goToChar]
   );
 
+  // ---- Listening ----------------------------------------------------------
+
+  /**
+   * Reading and listening are the same position.
+   *
+   * The narration's timing map is expressed in the conversion character space —
+   * the same space this reader already stores its position in — so the voice
+   * can simply report where it is and the ordinary save path takes it from
+   * there. There is no second position to keep in step, which is the failure
+   * every app that models them separately eventually has.
+   *
+   * Articles don't listen: a page of prose off the web is short enough that
+   * chaptering it means nothing, and listening is a books feature.
+   */
+  const { listen } = useAudiobookControls();
+  const reportListening = useCallback(
+    (charOffset: number) => report(charOffset, false),
+    [report]
+  );
+  const follow = useAudiobookFollow({
+    bookId,
+    blocks,
+    contentRef,
+    base: paged ? pagination.windowBase : 0,
+    layoutNonce: paged ? pagination.layoutNonce : scrollLayoutNonce,
+    eink: settings.eink,
+    currentCharOffset,
+    goToChar,
+    onPosition: reportListening,
+  });
+
+  const startListening = useCallback(() => {
+    listen({ bookId, title, author }, currentCharOffset);
+  }, [author, bookId, currentCharOffset, listen, title]);
+
   // Open the contents on where you are, not on the front matter: a long book's
   // menu is otherwise a wall of chapters you have to hunt through.
   const tocListRef = useRef<HTMLDivElement>(null);
@@ -868,6 +934,16 @@ export function BookReader({
     [elsewhere]
   );
 
+  /**
+   * Where the strip of transient pills starts, above the bottom edge.
+   *
+   * Clear of the running foot in paged mode, clear of the thumb in scrolling
+   * mode (where the bottom edge is where the text keeps going), and clear of the
+   * player bar whenever it's showing.
+   */
+  const showElsewhere = loaded && elsewhereProgress != null;
+  const floatingBottom = listenInset + (paged ? PAGE_PAD_BOTTOM + 8 : 24);
+
   // Books and articles both: the layer switches coordinate spaces on isArticle
   // rather than opting out. Articles never reach the paged branch, so the paged
   // context it gets there is always null.
@@ -933,11 +1009,22 @@ export function BookReader({
               >
                 <MoreHorizontal className="h-4 w-4" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuContent align="end" className="w-44">
                 <DropdownMenuItem onClick={() => setLayoutOpen(true)}>
                   <Settings2 className="h-4 w-4" />
                   Layout
                 </DropdownMenuItem>
+                {/* Books only, and only when the voice isn't already on this
+                    book — the player bar is right there when it is. Starting
+                    from the character you're on is what makes read-then-listen
+                    a continuation rather than a handover: it picks up on the
+                    line you were reading. */}
+                {canListen && !isArticle && loaded && !follow.listening && (
+                  <DropdownMenuItem onClick={startListening}>
+                    <Headphones className="h-4 w-4" />
+                    Listen
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -1072,6 +1159,7 @@ export function BookReader({
             percent={progress.percent}
             minutesLeft={progress.minutesLeft}
             height={PAGE_PAD_BOTTOM}
+            bottom={listenInset}
             left={pagedGeometry?.offsetX ?? null}
             width={pagedGeometry?.viewW ?? null}
           />
@@ -1141,16 +1229,35 @@ export function BookReader({
         </article>
       )}
 
-      {loaded && elsewhereProgress && (
+      {/* Two offers can be outstanding at once — another device left off
+          somewhere, and the voice has walked away from the page you're on — so
+          they stack rather than overlap, and both clear the player bar when
+          it's there. Neither ever moves the page by itself: a page that
+          rearranges itself mid-sentence is worse than a page showing the wrong
+          place, whichever of the two put it there. */}
+      {showElsewhere && (
         <ReaderElsewhereBar
           chapterTitle={elsewhereProgress.chapter?.title ?? null}
           percent={elsewhereProgress.percent}
-          // Clear of the running foot in paged mode; clear of the thumb in
-          // scrolling mode, where the bottom edge is where the text keeps going.
-          bottom={paged ? PAGE_PAD_BOTTOM + 8 : 24}
+          bottom={floatingBottom}
           onGo={() => answerElsewhere(true)}
           onDismiss={() => answerElsewhere(false)}
         />
+      )}
+
+      {follow.listening && !follow.following && (
+        <div
+          className="pointer-events-none fixed inset-x-0 z-40 flex justify-center px-4"
+          style={{ bottom: floatingBottom + (showElsewhere ? FLOATING_PILL_STACK : 0) }}
+        >
+          <button
+            type="button"
+            onClick={follow.resume}
+            className="pointer-events-auto rounded-full border border-border bg-popover/95 px-4 py-1.5 text-sm font-medium shadow-lg backdrop-blur transition-colors hover:bg-muted"
+          >
+            Back to the voice
+          </button>
+        </div>
       )}
 
       <ReaderPerfOverlay />

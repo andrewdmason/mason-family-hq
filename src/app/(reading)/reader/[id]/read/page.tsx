@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { BookReader } from "@/components/reading/book-reader";
+import { getIsAdult } from "@/lib/members/auth";
 import { readerLibraryHref } from "@/lib/reading/links";
 import { getBookReaderData } from "../../actions";
 
@@ -22,8 +23,14 @@ export default async function ReadBookPage({
   // Nothing readable yet — send them back to the shelf to upload/convert.
   if (!data) redirect(readerLibraryHref());
 
+  // Listening is adults-only for now, and deliberately so — see
+  // lib/reading/audio/access.ts. The routes enforce it; this just keeps the
+  // control from being offered to someone who can't use it.
+  const canListen = await getIsAdult();
+
   return (
     <BookReader
+      canListen={canListen}
       bookId={id}
       memberEmail={null}
       title={data.title}
