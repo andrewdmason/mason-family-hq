@@ -1118,14 +1118,24 @@ export type ReadingBookReaderData = {
    * converted before word counts were recorded. */
   wordCount: number | null;
   toc: ReadingTocEntry[];
-  resume: {
-    /**
-     * Where to open, as an offset into the conversion char space. Resolved here
-     * rather than in the reader so the client has exactly one thing to restore,
-     * whichever era the stored position is from.
-     */
-    charOffset: number;
-  };
+  resume: ReadingPosition;
+};
+
+/**
+ * Where a book was left off, and when.
+ *
+ * The timestamp is what lets the reader tell "this is my own place" from "some
+ * other device has been reading since" — see getReadingPosition.
+ */
+export type ReadingPosition = {
+  /**
+   * Where to open, as an offset into the conversion char space. Resolved here
+   * rather than in the reader so the client has exactly one thing to restore,
+   * whichever era the stored position is from.
+   */
+  charOffset: number;
+  /** When this position was recorded, by whichever device recorded it. */
+  savedAt: string | null;
 };
 
 /**
@@ -1222,7 +1232,7 @@ export async function getBookReaderData(
 
   const { data: state } = await client
     .from("reading_book_state")
-    .select("last_char_offset, last_anchor_id, last_scroll_ratio")
+    .select("last_char_offset, last_anchor_id, last_scroll_ratio, last_read_at")
     .eq("book_id", bookId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -1247,7 +1257,69 @@ export async function getBookReaderData(
         scrollRatio: (state?.last_scroll_ratio as number) ?? null,
         charCount: (content.char_count as number) ?? null,
       }),
+      savedAt: (state?.last_read_at as string) ?? null,
     },
+  };
+}
+
+/**
+ * Just the position, asked again while the book is already open.
+ *
+ * The reader is rendered once and never refetched, and its page is served from
+ * the service worker's cache on a cold launch — so the place it is showing can
+ * be arbitrarily out of date. That is fine for a device nobody else is reading
+ * on and wrong the moment there are two: a Boox left open at chapter nine, woken
+ * up after an evening's reading on a phone, has no idea it is behind, and the
+ * first page turn would write its stale place over the good one.
+ *
+ * So the reader asks again on open and whenever it comes back to the foreground,
+ * and compares what comes back with what it last wrote itself. Deliberately just
+ * a read: what to do about a difference is the reader's decision, and the answer
+ * is to offer rather than to move the page under someone mid-sentence.
+ */
+export async function getReadingPosition(
+  bookId: string,
+  memberEmail?: string | null
+): Promise<ReadingPosition | null> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+
+  const { data: state } = await client
+    .from("reading_book_state")
+    .select("last_char_offset, last_anchor_id, last_scroll_ratio, last_read_at")
+    .eq("book_id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!state) return null;
+
+  const charOffset = (state.last_char_offset as number) ?? null;
+  const anchorId = (state.last_anchor_id as string) ?? null;
+  const scrollRatio = (state.last_scroll_ratio as number) ?? null;
+
+  // The ratio fallback is the only branch that needs the book's length, and it
+  // only fires for positions saved before the reader stored offsets at all. Not
+  // worth a second query on every foreground for the other 99% of cases.
+  const needsCharCount = !(charOffset != null && charOffset > 0) && !anchorId;
+  let charCount: number | null = null;
+  if (needsCharCount) {
+    const { data: content } = await client
+      .from("reading_book_content")
+      .select("char_count")
+      .eq("book_id", bookId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    charCount = (content?.char_count as number) ?? null;
+  }
+
+  return {
+    charOffset: await resolveResumeCharOffset(client, {
+      bookId,
+      userId,
+      charOffset,
+      anchorId,
+      scrollRatio,
+      charCount,
+    }),
+    savedAt: (state.last_read_at as string) ?? null,
   };
 }
 

@@ -35,6 +35,7 @@ export default async function ReadBookPage({
       wordCount={data.wordCount}
       toc={data.toc}
       resumeCharOffset={data.resume.charOffset}
+      resumeSavedAt={data.resume.savedAt}
       backHref={readerLibraryHref()}
     />
   );
