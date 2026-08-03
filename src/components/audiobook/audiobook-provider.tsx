@@ -78,6 +78,12 @@ export type AudiobookControls = {
     book: { bookId: string; title: string; author: string | null },
     charOffset: number
   ) => void;
+  /**
+   * Move the voice to a place in the book it is already reading — the other
+   * direction from `listen`, and the one that makes turning a page while
+   * listening mean something.
+   */
+  listenFrom: (charOffset: number) => void;
   toggle: () => void;
   pause: () => void;
   skipBack: () => void;
@@ -385,6 +391,51 @@ export function AudiobookProvider({ children }: { children: React.ReactNode }) {
     [startChapter, unlock]
   );
 
+  /**
+   * Take the voice to where the reader is.
+   *
+   * Inside the chapter already loaded this is a seek, because the timing map is
+   * the inverse of the one that started playback here in the first place: a
+   * character offset is a time. Further afield it's a chapter change, with the
+   * cost that implies — a chapter nobody has listened to yet has to be voiced
+   * first — which is the same bargain as skipping forward in the player, and is
+   * why this is asked for rather than done automatically.
+   *
+   * The cue is published here rather than left to the next timeupdate. The
+   * reader is already looking at this page, and a quarter of a second of the
+   * old cue is long enough for the follow-along to conclude the voice has
+   * wandered off and offer to bring it back to where it just left.
+   */
+  const listenFrom = useCallback(
+    (charOffset: number) => {
+      unlock();
+      const { bookId, title, author, chapters, spentDollars, chapterIndex } = stateRef.current;
+      if (!bookId) return;
+      const chapter = chapterAtChar(chapters, charOffset);
+      if (!chapter) return;
+
+      if (chapter.index !== chapterIndex || cuesRef.current.length === 0) {
+        void startChapter(
+          { bookId, title, author },
+          { bookId, title, author, chapters, spentDollars },
+          chapter.index,
+          charOffset
+        );
+        return;
+      }
+
+      const element = audio();
+      const ms = timeAtChar(cuesRef.current, charOffset);
+      element.currentTime = ms / 1000;
+      const cue = cueAt(cuesRef.current, ms);
+      currentCueRef.current = cue;
+      setState((s) => ({ ...s, cue, charOffset: cue?.s ?? charOffset }));
+      setPosition((p) => ({ ...p, positionMs: ms }));
+      if (element.paused) void element.play().catch(() => {});
+    },
+    [audio, startChapter, unlock]
+  );
+
   const goToChapter = useCallback(
     (index: number) => {
       unlock();
@@ -613,6 +664,7 @@ export function AudiobookProvider({ children }: { children: React.ReactNode }) {
   const controls = useMemo<AudiobookControls>(
     () => ({
       listen,
+      listenFrom,
       toggle,
       pause,
       skipBack,
@@ -627,6 +679,7 @@ export function AudiobookProvider({ children }: { children: React.ReactNode }) {
     [
       goToChapter,
       listen,
+      listenFrom,
       nextChapter,
       pause,
       previousChapter,

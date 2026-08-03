@@ -835,6 +835,7 @@ export function BookReader({
     layoutNonce: paged ? pagination.layoutNonce : scrollLayoutNonce,
     eink: settings.eink,
     currentCharOffset,
+    pageCharEnd: charEnd ?? null,
     goToChar,
     onPosition: reportListening,
   });
@@ -1245,18 +1246,33 @@ export function BookReader({
         />
       )}
 
+      {/* Both ways back, because a page and a voice that have come apart can be
+          put together at either end and only you know which one you meant.
+          "Read from here" moves the narration to the page you turned to; "Back
+          to the voice" moves you to the narration. Nothing decides for you —
+          see use-audiobook-follow.ts for why not. */}
       {follow.listening && !follow.following && (
         <div
           className="pointer-events-none fixed inset-x-0 z-40 flex justify-center px-4"
           style={{ bottom: floatingBottom + (showElsewhere ? FLOATING_PILL_STACK : 0) }}
         >
-          <button
-            type="button"
-            onClick={follow.resume}
-            className="pointer-events-auto rounded-full border border-border bg-popover/95 px-4 py-1.5 text-sm font-medium shadow-lg backdrop-blur transition-colors hover:bg-muted"
-          >
-            Back to the voice
-          </button>
+          <div className="pointer-events-auto flex items-stretch overflow-hidden rounded-full border border-border bg-popover/95 text-sm font-medium shadow-lg backdrop-blur">
+            <button
+              type="button"
+              onClick={follow.bringVoiceHere}
+              className="px-4 py-1.5 transition-colors hover:bg-muted"
+            >
+              Read from here
+            </button>
+            <span aria-hidden className="w-px shrink-0 bg-border" />
+            <button
+              type="button"
+              onClick={follow.resume}
+              className="px-4 py-1.5 transition-colors hover:bg-muted"
+            >
+              Back to the voice
+            </button>
+          </div>
         </div>
       )}
 

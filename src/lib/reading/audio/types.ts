@@ -117,6 +117,25 @@ export function timeAtChar(cues: AudioCue[], charOffset: number): number {
   return cue.t + through * (next.t - cue.t);
 }
 
+/**
+ * Whether the sentence being spoken falls on the page in front of the reader.
+ *
+ * Both sides are ranges in the same character space, so this is an overlap test
+ * and nothing else — no measuring, no DOM, no second notion of where anything
+ * is. That matters more than it looks: asking the page's elements whether they
+ * are on screen cannot tell a paged reader apart, because a paged book is one
+ * tall strip of columns running off to the right and every page of it sits in
+ * the same vertical band. The next page is beside you, not below you.
+ *
+ * `pageEnd` is the first character past the bottom of the page. The last page of
+ * a book has no such character, and the caller passes the page's own start
+ * instead — which reads here as "this page runs to the end of the book".
+ */
+export function cueOnPage(cue: AudioCue, pageStart: number, pageEnd: number): boolean {
+  if (cue.e <= pageStart) return false;
+  return pageEnd <= pageStart || cue.s < pageEnd;
+}
+
 /** The chapter containing a character offset, or the last one before it. */
 export function chapterAtChar(chapters: AudioChapter[], charOffset: number): AudioChapter | null {
   if (chapters.length === 0) return null;
