@@ -73,6 +73,8 @@ export function QuickAddHost({
       // the selection — see task-list.tsx). Listener order between the two
       // window handlers isn't guaranteed, so the marker is the contract.
       if (document.querySelector("[data-inline-new]")) return;
+      // Focus mode isn't a capture surface — same marker contract.
+      if (document.querySelector("[data-focus-mode]")) return;
       e.preventDefault();
       // Like Things' quick entry, the When defaults to where you're standing:
       // `c` on /todos/anytime preselects Anytime; the ?as= member carries

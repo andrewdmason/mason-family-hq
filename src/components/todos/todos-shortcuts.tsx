@@ -11,7 +11,7 @@ import {
 import { emitChordHints } from "@/lib/todos/chord-hints";
 import { inOpenOverlay, isTypingTarget } from "@/lib/todos/keyboard";
 import type { TodoView } from "@/lib/todos/types";
-import { requestViewSwitch } from "@/lib/todos/view-switch";
+import { requestFocusSwitch, requestViewSwitch } from "@/lib/todos/view-switch";
 
 /**
  * Gmail-style `g` navigation chords for the whole Todos app (mounted in the
@@ -118,6 +118,17 @@ export function TodosShortcuts() {
       if (e.key === "?") {
         e.preventDefault();
         setHelpOpen(true);
+        return;
+      }
+      // `f` drops into focus mode from anywhere in Todos. Focus mode has its
+      // own bubble-phase handler and no `f` binding, so this never fires from
+      // inside it — leaving is Escape.
+      if (e.key === "f") {
+        e.preventDefault();
+        if (requestFocusSwitch()) return;
+        router.push(
+          asParam ? `/todos/focus?as=${encodeURIComponent(asParam)}` : "/todos/focus"
+        );
       }
     };
     // Releasing `g` hides the hints immediately. The chord stays armed —
@@ -160,6 +171,15 @@ const SECTIONS: { title: string; rows: ShortcutRow[] }[] = [
       { keys: ["g", "z"], label: "Snoozed" },
       { keys: ["g", "d"], label: "Delegated" },
       { keys: ["g", "l"], label: "Logbook" },
+    ],
+  },
+  {
+    title: "Focus",
+    rows: [
+      { keys: ["f"], label: "Focus mode (one Today task)" },
+      { keys: ["e", "⏎"], label: "Done, next task" },
+      { keys: ["⌘Z"], label: "Undo done" },
+      { keys: ["esc"], label: "Back to Today" },
     ],
   },
   {

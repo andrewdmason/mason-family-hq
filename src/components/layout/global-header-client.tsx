@@ -16,10 +16,12 @@ import { cn } from "@/lib/utils";
 import type { JournalStreakStats } from "@/components/layout/global-header";
 import type { JournalNotifications } from "@/lib/types";
 
-// The distraction-free reader (/reader/[id]/read) hides all global chrome —
-// the book's own (hover-revealed) header is the only way out.
+// Two single-purpose screens hide all global chrome: the distraction-free
+// reader (/reader/[id]/read), whose book has its own hover-revealed header,
+// and Todos focus mode (/todos/focus), which is one task on an empty field.
 function hidesGlobalChrome(pathname: string | null) {
-  return /^\/reader\/[^/]+\/read\/?$/.test(pathname ?? "");
+  const path = pathname ?? "";
+  return /^\/reader\/[^/]+\/read\/?$/.test(path) || /^\/todos\/focus\/?$/.test(path);
 }
 
 /**

@@ -1,18 +1,5 @@
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { resolveViewedMember } from "@/lib/todos/member-context";
-import {
-  getAllActiveTasks,
-  getAreas,
-  getLogbookProjects,
-  getLogbookTasks,
-  getProjects,
-  getSections,
-  getSelfEmail,
-  getTaskAttachments,
-  getTodoMembers,
-  sweepElapsedSnoozes,
-} from "@/lib/todos/queries";
+import { loadShellData } from "@/lib/todos/shell-data";
 import { TodosViews } from "@/components/todos/todos-views";
 
 export const dynamic = "force-dynamic";
@@ -34,46 +21,24 @@ export default async function ProjectPage({
 }) {
   const [{ id }, { as }] = await Promise.all([params, searchParams]);
 
-  const supabase = await createClient();
-  const [selfEmail, members] = await Promise.all([
-    getSelfEmail(supabase),
-    getTodoMembers(),
-  ]);
-  const viewed = resolveViewedMember(as, selfEmail, members);
-
-  await sweepElapsedSnoozes(supabase);
-  const [activeTasks, logbookTasks, projects, sections, areas, logbookProjects] =
-    await Promise.all([
-      getAllActiveTasks(supabase),
-      getLogbookTasks(supabase, viewed.email),
-      getProjects(supabase),
-      getSections(supabase),
-      getAreas(supabase),
-      getLogbookProjects(supabase),
-    ]);
-
-  if (!projects.some((p) => p.id === id)) notFound();
-
-  const attachmentsByTask = await getTaskAttachments(
-    supabase,
-    activeTasks.map((t) => t.id)
-  );
+  const data = await loadShellData(as);
+  if (!data.projects.some((p) => p.id === id)) notFound();
 
   // initialView is only the SSR fallback the shell uses when the URL names no
   // view — here the URL names a project, so the shell renders project mode.
   return (
     <TodosViews
       initialView="today"
-      activeTasks={activeTasks}
-      logbookTasks={logbookTasks}
-      logbookProjects={logbookProjects}
-      attachmentsByTask={attachmentsByTask}
-      members={members}
-      projects={projects}
-      sections={sections}
-      areas={areas}
-      viewed={viewed}
-      selfEmail={selfEmail}
+      activeTasks={data.activeTasks}
+      logbookTasks={data.logbookTasks}
+      logbookProjects={data.logbookProjects}
+      attachmentsByTask={data.attachmentsByTask}
+      members={data.members}
+      projects={data.projects}
+      sections={data.sections}
+      areas={data.areas}
+      viewed={data.viewed}
+      selfEmail={data.selfEmail}
     />
   );
 }

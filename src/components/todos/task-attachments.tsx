@@ -19,17 +19,22 @@ export type UploadingAttachment = {
  * placeholders, hover-delete, and an add button. Paste and drag-drop are
  * handled by the surrounding detail/row — this is the rendering and the
  * explicit picker.
+ *
+ * `readOnly` keeps the thumbnails, chips and lightbox but drops both ways to
+ * change the set: focus mode shows a task, it doesn't edit one.
  */
 export function TaskAttachments({
   attachments,
   uploading,
   onAddFiles,
   onDelete,
+  readOnly = false,
 }: {
   attachments: TodoTaskAttachment[];
   uploading: UploadingAttachment[];
   onAddFiles: (files: File[]) => void;
   onDelete: (attachment: TodoTaskAttachment) => void;
+  readOnly?: boolean;
 }) {
   const [lightbox, setLightbox] = useState<TodoTaskAttachment | null>(null);
   const images = attachments.filter((a) => a.kind === "image");
@@ -50,7 +55,7 @@ export function TaskAttachments({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={image.url} alt="" className="h-20 w-20 object-cover" />
             </button>
-            <RemoveBadge onClick={() => onDelete(image)} />
+            {!readOnly && <RemoveBadge onClick={() => onDelete(image)} />}
           </div>
         ))}
 
@@ -74,7 +79,8 @@ export function TaskAttachments({
         <label
           className={cn(
             "flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-border text-muted-foreground hover:border-primary/40 hover:text-foreground",
-            empty ? "h-9 px-2.5" : "h-20 w-20 flex-col"
+            empty ? "h-9 px-2.5" : "h-20 w-20 flex-col",
+            readOnly && "hidden"
           )}
         >
           <Paperclip className="size-4" />
@@ -105,7 +111,7 @@ export function TaskAttachments({
                 <FileText className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="truncate">{file.fileName ?? "Attachment"}</span>
               </a>
-              <RemoveBadge onClick={() => onDelete(file)} />
+              {!readOnly && <RemoveBadge onClick={() => onDelete(file)} />}
             </span>
           ))}
           {uploading
