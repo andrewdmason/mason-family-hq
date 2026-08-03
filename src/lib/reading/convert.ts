@@ -2,7 +2,8 @@ import "server-only";
 import JSZip from "jszip";
 import { DOMParser } from "@xmldom/xmldom";
 import sanitizeHtml from "sanitize-html";
-import { WORDS_PER_PAGE, chapterSpans } from "@/lib/reading/chapter-target";
+import { chapterSpans } from "@/lib/reading/chapter-target";
+import { layoutSyntheticPages } from "@/lib/reading/synthetic-pages";
 
 /**
  * Turning an uploaded PDF/EPUB into the reading experience: reflowable HTML with
@@ -1027,27 +1028,10 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
   // actual stretch instead of falling back to the whole book. The page space is
   // block-aligned and matches wordsToPage(), so target/current pages line up.
   const chaptered = chapterSpans(toc, wordCursor).length > 0;
-  const syntheticPages: ConvertedPage[] = [];
-  if (!hasRealPages && chaptered && wordCursor > 0) {
-    const pageTotal = Math.max(1, Math.ceil(wordCursor / WORDS_PER_PAGE));
-    let mark = 0;
-    let startChar = 0;
-    for (let pn = 1; pn <= pageTotal; pn++) {
-      // First block boundary at/after this page's word threshold (monotonic).
-      while (mark < blockMarks.length && blockMarks[mark].word < pn * WORDS_PER_PAGE) {
-        mark++;
-      }
-      const endChar = pn === pageTotal ? charCursor : (blockMarks[mark]?.char ?? charCursor);
-      if (endChar <= startChar) continue; // skip empty pages (incl. an overshoot tail)
-      syntheticPages.push({
-        pageNumber: pn,
-        anchorId: `wpage-${pn}`,
-        charStart: startChar,
-        charEnd: endChar,
-      });
-      startChar = endChar;
-    }
-  }
+  const syntheticPages: ConvertedPage[] =
+    !hasRealPages && chaptered
+      ? layoutSyntheticPages(blockMarks, charCursor, wordCursor)
+      : [];
 
   return {
     html: sanitizeHtml(htmlParts.join("\n"), SANITIZE_OPTIONS),

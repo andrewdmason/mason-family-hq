@@ -108,6 +108,7 @@ export async function POST(req: NextRequest) {
 
   const slice = await getTextForRange(db, userId, chat.book_id, null, throughPage, {
     pageMarkers: true,
+    chapterMarkers: true,
     maxChars: READER_CHAT_MAX_CONTEXT_CHARS,
     throughCharOffset,
   });
@@ -147,6 +148,8 @@ export async function POST(req: NextRequest) {
     bookAuthor: (book.author as string | null) ?? null,
     bookText: slice.text,
     hasPageMarkers: slice.hasPageMarkers,
+    hasChapterMarkers: slice.hasChapterMarkers,
+    chapters: slice.chapters,
     spoilerFree: scoped,
     contextThroughPage: scoped ? chat.context_through_page : null,
     quotedText: chat.quoted_text,

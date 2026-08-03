@@ -39,6 +39,16 @@ export type ReaderChatPromptInput = {
   bookText: string;
   /** Whether bookText carries "[p.N]" markers to cite. */
   hasPageMarkers: boolean;
+  /** Whether bookText marks chapter starts with a "## " heading line. */
+  hasChapterMarkers: boolean;
+  /**
+   * The book's heading lines, in order, exactly as they appear in bookText.
+   * Rendered as a <contents> index ahead of the text: without it the model has to
+   * find a chapter by scanning a quarter-million tokens of undifferentiated prose,
+   * which is how "summarize chapter 21" turns into "I can't find chapter 21".
+   * Spoiler-scoped chats get only the chapters inside their boundary.
+   */
+  chapters: string[];
   /** True when this chat is spoiler-scoped. */
   spoilerFree: boolean;
   /** The page the scope ends at, when known. */
@@ -82,6 +92,23 @@ export function buildReaderChatSystem(
     );
   }
 
+  if (input.hasChapterMarkers) {
+    rules.push(
+      "Chapter and section starts in the book text are marked as Markdown " +
+        'headings ("## Chapter 21"). A chapter is everything from its heading ' +
+        "down to the next one. When the reader names a chapter, locate that " +
+        "heading in the text and answer from the text between it and the " +
+        "following heading — never from what you recall of this work. If they " +
+        "name a chapter and you cannot find its heading, say which headings you " +
+        "do see near where they mean rather than asking them to describe the " +
+        "passage back to you." +
+        (input.chapters.length > 0
+          ? " The <contents> list ahead of the text is every heading in it, in " +
+            "order, written exactly as it appears there."
+          : "")
+    );
+  }
+
   if (input.spoilerFree) {
     const limit =
       input.contextThroughPage != null
@@ -103,10 +130,17 @@ export function buildReaderChatSystem(
   blocks.push({ type: "text", text: rules.join("\n\n") });
 
   // The big stable prefix. Cached, so repeat turns skip re-reading the novel.
+  // The contents index rides inside it: it is derived from the same (book,
+  // boundary) the text is, so it is just as stable and costs nothing after the
+  // first turn.
   const author = input.bookAuthor ? ` author="${input.bookAuthor}"` : "";
+  const contents =
+    input.chapters.length > 0
+      ? `<contents>\n${input.chapters.join("\n")}\n</contents>\n`
+      : "";
   blocks.push({
     type: "text",
-    text: `<book title="${input.bookTitle}"${author}>\n${input.bookText}\n</book>`,
+    text: `<book title="${input.bookTitle}"${author}>\n${contents}${input.bookText}\n</book>`,
     cache_control: { type: "ephemeral" },
   });
 

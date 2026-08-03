@@ -1,8 +1,16 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
-import { stripHtmlToText } from "@/lib/reading/block-stream";
+import { blockMap, stripHtmlToText, textFromBlocks } from "@/lib/reading/block-stream";
 import { articleHtmlToText } from "@/lib/reading/article-sanitize";
+import {
+  MAX_CHAPTER_INDEX_ENTRIES,
+  chapterMarks,
+  pageMarks,
+  spliceMarks,
+  type ContextMark,
+  type PageRange,
+} from "@/lib/reading/context-markup";
 
 /**
  * Pulling plain text back out of a converted book so a quiz can be scoped to
@@ -49,6 +57,8 @@ async function getArticleText(
     hasRealPages: false,
     truncated,
     hasPageMarkers: false,
+    hasChapterMarkers: false,
+    chapters: [],
   };
 }
 
@@ -81,6 +91,13 @@ export type TextForRangeOptions = {
    */
   pageMarkers?: boolean;
   /**
+   * Prefix each chapter/section heading with "## " and return the list of them,
+   * so a model can be told where chapters begin (reader chat). Like pageMarkers,
+   * the prefix is added while BUILDING the output and never enters the counted
+   * stream. No-op for text with no heading blocks.
+   */
+  chapterMarkers?: boolean;
+  /**
    * Char budget before head/tail elision. Defaults to MAX_QUIZ_CONTEXT_CHARS.
    * Reader chat passes a much larger cap and relies on token counting instead.
    */
@@ -107,6 +124,16 @@ export type BookTextSlice = {
   truncated: boolean;
   /** Whether "[p.N]" markers were actually emitted (see options.pageMarkers). */
   hasPageMarkers: boolean;
+  /** Whether "## " chapter markers were emitted (see options.chapterMarkers). */
+  hasChapterMarkers: boolean;
+  /**
+   * The heading lines in the slice, in reading order — exactly as they appear in
+   * the marked-up text, so a chapter named here can be found there verbatim.
+   * Empty when chapterMarkers is off, the text has no headings, or the slice was
+   * windowed (an index that promises chapters the elision removed is worse than
+   * none).
+   */
+  chapters: string[];
 };
 
 /**
@@ -210,15 +237,18 @@ export async function getTextForRange(
   if (download.error || !download.data) return null;
 
   const html = await download.data.text();
-  const fullText = stripHtmlToText(html);
+  const blocks = blockMap(html);
+  const fullText = textFromBlocks(blocks);
   const effectiveEnd = charEnd ?? fullText.length;
 
-  let sliced = fullText.slice(charStart, effectiveEnd);
-  let hasPageMarkers = false;
+  // What the model sees on top of the plain text. Both kinds are spliced in by
+  // context-markup, never written into fullText, so the char offsets everything
+  // else depends on stay exact.
+  let marks: ContextMark[] = [];
 
   // Reader chat: label each page so the model can cite "[p.212]" and the client
-  // can turn that into a jump. Assembled here rather than by mutating fullText,
-  // so the char offsets everything else depends on stay exact.
+  // can turn that into a jump.
+  let hasPageMarkers = false;
   if (options?.pageMarkers) {
     const { data: pageRows } = await client
       .from("reading_book_pages")
@@ -229,27 +259,22 @@ export async function getTextForRange(
       .lt("char_start", effectiveEnd)
       .order("page_number", { ascending: true });
 
-    if (pageRows && pageRows.length > 0) {
-      const parts: string[] = [];
-      let cursor = charStart;
-      for (const row of pageRows) {
-        const start = Math.max(row.char_start as number, charStart);
-        const end = Math.min(row.char_end as number, effectiveEnd);
-        if (end <= start) continue;
-        // Anything ahead of the first page mark (front matter) stays unlabelled
-        // rather than being attributed to the page that follows it.
-        if (start > cursor) parts.push(fullText.slice(cursor, start));
-        parts.push(`\n[p.${row.page_number}]\n`);
-        parts.push(fullText.slice(start, end));
-        cursor = end;
-      }
-      if (cursor < effectiveEnd) parts.push(fullText.slice(cursor, effectiveEnd));
-      sliced = parts.join("");
-      hasPageMarkers = true;
-    }
+    marks = pageMarks((pageRows ?? []) as PageRange[], charStart, effectiveEnd);
+    hasPageMarkers = marks.length > 0;
   }
 
-  const { text, truncated } = fitToBudget(sliced, budget);
+  // Reader chat: make chapter starts visible, and index them.
+  let chapters: string[] = [];
+  if (options?.chapterMarkers) {
+    const found = chapterMarks(blocks, charStart, effectiveEnd);
+    marks = marks.concat(found.marks);
+    chapters = found.titles;
+  }
+
+  const { text, truncated } = fitToBudget(
+    spliceMarks(fullText, charStart, effectiveEnd, marks),
+    budget
+  );
 
   return {
     text,
@@ -258,5 +283,9 @@ export async function getTextForRange(
     hasRealPages,
     truncated,
     hasPageMarkers,
+    hasChapterMarkers: chapters.length > 0,
+    // A windowed slice has had its middle elided, so the index would name
+    // chapters that are no longer in the text.
+    chapters: truncated || chapters.length > MAX_CHAPTER_INDEX_ENTRIES ? [] : chapters,
   };
 }
