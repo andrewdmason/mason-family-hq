@@ -17,7 +17,7 @@ import {
   PanelLeft,
   Settings2,
 } from "lucide-react";
-import { saveReadingPosition } from "@/app/(reading)/reader/actions";
+import { getReadingPosition, saveReadingPosition } from "@/app/(reading)/reader/actions";
 import {
   useAudiobook,
   useAudiobookControls,
@@ -47,6 +47,7 @@ import {
   type ChatPanelPresentation,
 } from "@/lib/reading/paged-geometry";
 import { note, startTimer, time } from "@/lib/reading/perf";
+import { localPositionWins, shouldOfferElsewhere } from "@/lib/reading/position-sync";
 import {
   getServerViewportSize,
   getViewportSize,
@@ -63,6 +64,7 @@ import { formatTimeLeft } from "@/lib/reading/reading-time";
 import { cn } from "@/lib/utils";
 import type { ReadingTocEntry } from "@/lib/types";
 import { PagedView } from "./paged-view";
+import { ReaderElsewhereBar } from "./reader-elsewhere-bar";
 import { ReaderFooter } from "./reader-footer";
 import { ReaderLayoutDialog } from "./reader-layout-dialog";
 import { ReaderPerfOverlay } from "./reader-perf-overlay";
@@ -98,6 +100,9 @@ const READING_LINE_OFFSET = 72;
 const READING_SETTLE_CAP_MS = 2000;
 const SAVE_DEBOUNCE_MS = 1500;
 
+/** Vertical pitch when both bottom-edge pills are outstanding at once. */
+const FLOATING_PILL_STACK = 44;
+
 export function BookReader({
   bookId,
   memberEmail,
@@ -110,6 +115,7 @@ export function BookReader({
   wordCount = null,
   toc,
   resumeCharOffset,
+  resumeSavedAt = null,
   backHref,
   canListen = false,
 }: {
@@ -127,6 +133,12 @@ export function BookReader({
   toc: ReadingTocEntry[];
   /** Where to open, in the conversion char space. Resolved server-side. */
   resumeCharOffset: number;
+  /**
+   * When that position was recorded. The book's own "as of", so a reader that
+   * has been opened and left alone still knows how old the place it is showing
+   * is, and can recognise another device's later reading as later.
+   */
+  resumeSavedAt?: string | null;
   backHref: string;
   /**
    * Whether this account may have a book read aloud. Adults only, on purpose —
@@ -236,21 +248,65 @@ export function BookReader({
   const totalCharsRef = useRef(0);
   totalCharsRef.current = totalChars;
 
-  // A position the server never received outranks the one the page was rendered
-  // with — either we read offline since, or this page itself came from the
-  // service worker's cache and its resume point is however old that copy is.
+  /**
+   * How old this device's idea of its own place is.
+   *
+   * Starts as the timestamp on the position the page was rendered with, and
+   * moves on with every save. It's the thing another device's position is
+   * measured against: a later timestamp somewhere else means someone has been
+   * reading since, which is the only case worth interrupting anybody over.
+   *
+   * Server clock against device clock, strictly speaking. A few seconds of skew
+   * either way doesn't matter, because a difference in time alone never shows
+   * anything — the position has to have genuinely moved as well.
+   */
+  const ourSavedAtRef = useRef<string | null>(resumeSavedAt);
+  /**
+   * Whether the server has told us where this book actually is.
+   *
+   * Until it has, a page turn goes to the device but is not published. The page
+   * we're looking at may have come from the service worker's cache, and
+   * publishing its resume point would make a days-old place the newest thing
+   * there is — a phone's evening of reading destroyed by one page turn on a
+   * tablet that was merely woken up. The device write still happens either way,
+   * and the replay carries it up afterwards with its own timestamp, which the
+   * server checks against what it already has.
+   */
+  const publishReadyRef = useRef(false);
+  /** Somewhere else's position, in characters, once it's worth offering. */
+  const [elsewhere, setElsewhere] = useState<number | null>(null);
+  /**
+   * The place already offered and answered.
+   *
+   * Kept as a position rather than a timestamp, because "no thanks" means no
+   * thanks to that place — and a device left open on it goes on re-saving the
+   * same position with a new time. Somewhere genuinely different is new
+   * information and gets to ask again.
+   */
+  const answeredRef = useRef<number | null>(null);
+  /**
+   * A place to move to that isn't the reader's own doing: a position restored
+   * from the device, or one accepted from another device. Applied through the
+   * jump both reading modes already share, once there's a book to jump in.
+   */
+  const [pendingJump, setPendingJump] = useState<number | null>(null);
+
+  // A position the server never received usually outranks the one the page was
+  // rendered with — either we read offline since, or this page itself came from
+  // the service worker's cache and its resume point is however old that copy is.
   // Once a position has synced, the server's answer already includes it.
   useEffect(() => {
     let cancelled = false;
     void readPosition(bookId).then((stored) => {
       if (cancelled || !stored?.dirty) return;
-      positionRef.current = stored.charOffset;
-      setScrollPosition({ charOffset: stored.charOffset, atEnd: false });
+      if (!localPositionWins(stored.savedAt, resumeSavedAt)) return;
+      ourSavedAtRef.current = stored.savedAt;
+      setPendingJump(stored.charOffset);
     });
     return () => {
       cancelled = true;
     };
-  }, [bookId]);
+  }, [bookId, resumeSavedAt]);
 
   // Local first, server second. The device write is the one that must not fail:
   // reading three chapters offline and having the book reopen at the start is
@@ -262,44 +318,75 @@ export function BookReader({
     // written — just derived from the character offset instead of pixels.
     const scrollRatio = total > 0 ? Math.min(1, charOffset / total) : null;
 
-    void rememberPosition(bookId, charOffset, scrollRatio).then((record) =>
-      saveReadingPosition(
+    void rememberPosition(bookId, charOffset, scrollRatio).then((record) => {
+      ourSavedAtRef.current = record.savedAt;
+      if (!publishReadyRef.current) return;
+      return saveReadingPosition(
         bookId,
         { charOffset, scrollRatio, anchorId: null, pageNumber: null },
         memberEmail
       )
         .then(() => markPositionSynced(record))
-        .catch(() => {})
-    );
+        .catch(() => {});
+    });
   }, [bookId, memberEmail]);
 
-  // Hand back anything the server never got — on open, and the moment the
-  // network returns. Positions carry the time they were taken, so replaying an
-  // old one can't overwrite newer reading from another device.
-  useEffect(() => {
-    const replay = () => {
-      void pendingPositions().then((pending) => {
-        for (const p of pending) {
-          void saveReadingPosition(
-            p.bookId,
-            {
-              charOffset: p.charOffset,
-              scrollRatio: p.scrollRatio,
-              anchorId: null,
-              pageNumber: null,
-              savedAt: p.savedAt,
-            },
-            memberEmail
-          )
-            .then(() => markPositionSynced(p))
-            .catch(() => {});
-        }
-      });
-    };
-    replay();
-    window.addEventListener("online", replay);
-    return () => window.removeEventListener("online", replay);
+  // Hand back anything the server never got. Positions carry the time they were
+  // taken, so replaying an old one can't overwrite newer reading from another
+  // device — which is also what makes it safe to hold saves back until the
+  // check below has run: nothing is lost, it just arrives timestamped.
+  const replayPending = useCallback(() => {
+    void pendingPositions().then((pending) => {
+      for (const p of pending) {
+        void saveReadingPosition(
+          p.bookId,
+          {
+            charOffset: p.charOffset,
+            scrollRatio: p.scrollRatio,
+            anchorId: null,
+            pageNumber: null,
+            savedAt: p.savedAt,
+          },
+          memberEmail
+        )
+          .then(() => markPositionSynced(p))
+          .catch(() => {});
+      }
+    });
   }, [memberEmail]);
+
+  /**
+   * Ask where this book actually is, and offer the answer if it isn't ours.
+   *
+   * Runs on open and every time the book comes back to the foreground, which is
+   * the case that matters: a reading device is rarely closed, it's put down. A
+   * Boox with the book still on screen from yesterday never reloads the page and
+   * so never learns anything — this is the only thing that tells it.
+   */
+  const checkElsewhere = useCallback(() => {
+    void getReadingPosition(bookId, memberEmail)
+      .then((remote) => {
+        publishReadyRef.current = true;
+        replayPending();
+        if (
+          remote &&
+          shouldOfferElsewhere({
+            remote,
+            ourSavedAt: ourSavedAtRef.current,
+            current: positionRef.current,
+            answered: answeredRef.current,
+          })
+        ) {
+          setElsewhere(remote.charOffset);
+        }
+      })
+      .catch(() => {
+        // Offline, most likely. Publishing has to resume regardless, or a device
+        // that opened the book with no network would never save again; the
+        // timestamps on the replay are what keep that safe.
+        publishReadyRef.current = true;
+      });
+  }, [bookId, memberEmail, replayPending]);
 
   const report = useCallback(
     (next: number, atEnd: boolean) => {
@@ -312,6 +399,8 @@ export function BookReader({
   );
 
   useEffect(() => {
+    // Going away is the moment to publish: the position is final, and on a phone
+    // it's the last thing that runs before the tab is frozen.
     const onHide = () => {
       if (document.visibilityState !== "hidden" && document.hidden) return;
       if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -319,16 +408,20 @@ export function BookReader({
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") onHide();
+      else checkElsewhere();
     };
+    checkElsewhere();
     window.addEventListener("pagehide", onHide);
+    window.addEventListener("online", checkElsewhere);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       window.removeEventListener("pagehide", onHide);
+      window.removeEventListener("online", checkElsewhere);
       document.removeEventListener("visibilitychange", onVisibility);
       if (saveTimer.current) clearTimeout(saveTimer.current);
       flush();
     };
-  }, [flush]);
+  }, [checkElsewhere, flush]);
 
   // ---- Paged --------------------------------------------------------------
 
@@ -685,6 +778,28 @@ export function BookReader({
     [blocks, goToPagedChar, paged]
   );
 
+  /**
+   * Apply a jump that came from outside the reading itself.
+   *
+   * Both sources — the device's own unsynced position, and one accepted from
+   * another device — arrive after the book has been asked for, so they can't be
+   * an opening value; they have to be a move. Paged mode needs this because its
+   * page is derived from the character it was seeded with and nothing re-seeds
+   * it, so an offline position that only ever reached the scroll state was
+   * silently ignored on every device reading in pages, which is most of them.
+   *
+   * Scrolling mode gets it for free while the book is already on screen, but on
+   * open its own restore hasn't run yet and knows how to wait for images and web
+   * fonts to settle — scrolling before that lands against a half-height page. So
+   * that case just moves the mark and lets the restore do the scrolling.
+   */
+  useEffect(() => {
+    if (pendingJump == null || html == null) return;
+    setPendingJump(null);
+    report(pendingJump, false);
+    if (paged || restoredRef.current) goToChar(pendingJump);
+  }, [goToChar, html, paged, pendingJump, report]);
+
   const goToChapter = useCallback(
     (anchorId: string) => {
       const chapter = chapters.find((c) => c.anchorId === anchorId);
@@ -798,6 +913,36 @@ export function BookReader({
   const bookTimeLeft = formatTimeLeft(progress.minutesLeft);
   const chapterTimeLeft = formatTimeLeft(progress.chapter?.minutesLeft ?? null);
   const loaded = html != null && !loadError;
+
+  // Named in the book's own terms — "chapter nine" is a place, "62%" is a
+  // measurement, and only one of them tells you whether you want to go.
+  const elsewhereProgress = useMemo(
+    () =>
+      elsewhere == null
+        ? null
+        : progressAt(elsewhere, totalChars, wordCount, chapters, false),
+    [chapters, elsewhere, totalChars, wordCount]
+  );
+
+  const answerElsewhere = useCallback(
+    (go: boolean) => {
+      if (elsewhere == null) return;
+      answeredRef.current = elsewhere;
+      if (go) setPendingJump(elsewhere);
+      setElsewhere(null);
+    },
+    [elsewhere]
+  );
+
+  /**
+   * Where the strip of transient pills starts, above the bottom edge.
+   *
+   * Clear of the running foot in paged mode, clear of the thumb in scrolling
+   * mode (where the bottom edge is where the text keeps going), and clear of the
+   * player bar whenever it's showing.
+   */
+  const showElsewhere = loaded && elsewhereProgress != null;
+  const floatingBottom = listenInset + (paged ? PAGE_PAD_BOTTOM + 8 : 24);
 
   // Books and articles both: the layer switches coordinate spaces on isArticle
   // rather than opting out. Articles never reach the paged branch, so the paged
@@ -1084,18 +1229,35 @@ export function BookReader({
         </article>
       )}
 
-      {/* You wandered off while it was speaking. Nothing snatches the page
-          back — flipping ahead to check a name and being yanked mid-sentence is
-          the worst thing a follow-along does — so the way back is offered
-          instead. Sits above the player bar, out of the text. */}
+      {/* Two offers can be outstanding at once — another device left off
+          somewhere, and the voice has walked away from the page you're on — so
+          they stack rather than overlap, and both clear the player bar when
+          it's there. Neither ever moves the page by itself: a page that
+          rearranges itself mid-sentence is worse than a page showing the wrong
+          place, whichever of the two put it there. */}
+      {showElsewhere && (
+        <ReaderElsewhereBar
+          chapterTitle={elsewhereProgress.chapter?.title ?? null}
+          percent={elsewhereProgress.percent}
+          bottom={floatingBottom}
+          onGo={() => answerElsewhere(true)}
+          onDismiss={() => answerElsewhere(false)}
+        />
+      )}
+
       {follow.listening && !follow.following && (
-        <button
-          type="button"
-          onClick={follow.resume}
-          className="fixed bottom-16 left-1/2 z-40 -translate-x-1/2 rounded-full border border-border bg-background/95 px-3 py-1.5 text-xs font-medium shadow-sm backdrop-blur transition-colors hover:bg-muted"
+        <div
+          className="pointer-events-none fixed inset-x-0 z-40 flex justify-center px-4"
+          style={{ bottom: floatingBottom + (showElsewhere ? FLOATING_PILL_STACK : 0) }}
         >
-          Back to the voice
-        </button>
+          <button
+            type="button"
+            onClick={follow.resume}
+            className="pointer-events-auto rounded-full border border-border bg-popover/95 px-4 py-1.5 text-sm font-medium shadow-lg backdrop-blur transition-colors hover:bg-muted"
+          >
+            Back to the voice
+          </button>
+        </div>
       )}
 
       <ReaderPerfOverlay />
