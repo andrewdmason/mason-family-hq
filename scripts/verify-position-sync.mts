@@ -12,7 +12,9 @@
 
 import {
   ELSEWHERE_MIN_CHARS,
+  READING_MIN_CHARS,
   localPositionWins,
+  readingHappened,
   shouldOfferElsewhere,
 } from "../src/lib/reading/position-sync";
 
@@ -163,6 +165,30 @@ check(
   "an unsynced position older than the server's is not restored",
   !localPositionWins(MONDAY, TUESDAY)
 );
+
+// ---- Whether anything was read at all -------------------------------------
+//
+// A save is also the record that this book was read just now, and that record is
+// what Reader opens to next time. So a book that was only opened must not write
+// one — or it nominates itself, and every launch re-nominates it.
+
+check(
+  "closing a book you only opened saves nothing",
+  !readingHappened(11_479, 11_479)
+);
+
+// Paged mode snaps the resume offset to the top of the page holding it, so the
+// offset on open is near the place it opened at without anyone turning a page.
+check(
+  "settling onto the page that holds the resume point isn't reading",
+  !readingHappened(11_479 + READING_MIN_CHARS - 1, 11_479)
+);
+
+check("turning a page is", readingHappened(11_479 + 2_400, 11_479));
+
+// Measured against what's recorded, not where the book opened — otherwise
+// reading on and coming back would leave the server on the furthest page.
+check("and so is turning back to where you came from", readingHappened(11_479, 13_879));
 
 console.log(
   failures === 0

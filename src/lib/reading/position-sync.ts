@@ -29,6 +29,34 @@
 export const ELSEWHERE_MIN_CHARS = 400;
 
 /**
+ * How far the book has to have moved before this counts as having read it.
+ *
+ * Opening a book puts it back where you left it, and both reading modes then
+ * settle: paged mode snaps the resume offset to the top of the page containing
+ * it, so the offset the reader reports on open is near the place it opened at
+ * but rarely equal to it. Without a floor here, every glance at a book would
+ * publish a position — the same position, stamped now — and that stamp is what
+ * decides which book the app opens to next time. A book you merely landed on
+ * would nominate itself as the book you were reading, forever.
+ *
+ * A page is thousands of characters, so a paragraph sits comfortably below any
+ * real page turn and comfortably above that settling.
+ */
+export const READING_MIN_CHARS = 400;
+
+/**
+ * Whether the book has moved far enough from the position already recorded to
+ * be worth writing down — i.e. whether any reading actually happened.
+ *
+ * Measured against what's been recorded rather than where the book opened, so
+ * that turning forward a chapter and then coming back still ends up saying
+ * where the reader really is.
+ */
+export function readingHappened(current: number, recorded: number): boolean {
+  return Math.abs(current - recorded) >= READING_MIN_CHARS;
+}
+
+/**
  * Whether the device's own unsynced position beats the one the page opened with.
  *
  * A position the server never received is usually the newest thing there is —
