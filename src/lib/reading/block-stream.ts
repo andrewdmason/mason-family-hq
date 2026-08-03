@@ -96,8 +96,17 @@ export function blockMap(html: string): BookBlock[] {
  * text of that page range.
  */
 export function stripHtmlToText(html: string): string {
+  return textFromBlocks(blockMap(html));
+}
+
+/**
+ * The same stream, from a block list the caller already has. Split out so a
+ * caller that needs the blocks *and* the text (extract-text.ts, which locates
+ * chapter headings while assembling the text) parses the HTML once.
+ */
+export function textFromBlocks(blocks: BookBlock[]): string {
   let out = "";
-  for (const block of blockMap(html)) out += block.text + "\n";
+  for (const block of blocks) out += block.text + "\n";
   return out;
 }
 

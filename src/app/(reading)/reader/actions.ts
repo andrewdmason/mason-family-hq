@@ -13,6 +13,10 @@ import {
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
 import { computeBookWordCounts } from "@/lib/reading/word-counts";
+import {
+  blockMarksFromHtml,
+  layoutSyntheticPages,
+} from "@/lib/reading/synthetic-pages";
 import { capTarget, defaultTargetPage } from "@/lib/reading/targets";
 import { readingTargetDueDateKey } from "@/lib/reading/target-due";
 import { resolveNextTarget } from "@/lib/reading/next-target";
@@ -1230,6 +1234,17 @@ export async function getBookReaderData(
     toc: (content.toc as ReadingTocEntry[]) ?? [],
   });
 
+  await healPageMap(client, {
+    bookId,
+    userId,
+    isArticle,
+    contentPath: content.content_path as string,
+    hasRealPages: content.has_real_pages as boolean,
+    charCount: (content.char_count as number) ?? null,
+    wordCount: counts.wordCount,
+    toc: counts.toc,
+  });
+
   const { data: state } = await client
     .from("reading_book_state")
     .select("last_char_offset, last_anchor_id, last_scroll_ratio, last_read_at")
@@ -1398,6 +1413,108 @@ async function healWordCounts(
     return { wordCount: counts.wordCount, toc: counts.toc };
   } catch {
     return asIs;
+  }
+}
+
+/**
+ * Rebuild the 280-word page map for a chaptered book that has none.
+ *
+ * Books converted before synthetic pages existed have no reading_book_pages rows
+ * at all, and nothing but conversion ever writes them. The cost is quiet but real:
+ * getTextForRange resolves every page query to nothing, so a stretch quiz silently
+ * widens to the whole book and the reader chat gets no "[p.N]" markers — which
+ * means it cannot cite or link a single spot in the book it just read.
+ *
+ * Rebuilt from the stored HTML rather than by reconverting, for the same reason as
+ * healWordCounts: the character space stays exactly as it is, so every annotation,
+ * chat anchor and saved position keeps pointing where it did. layoutSyntheticPages
+ * is the same function conversion uses, so the rows are the ones that book would
+ * have been given today.
+ *
+ * Best-effort throughout: a book that can't be healed keeps behaving the way it
+ * does now, so every failure path here just returns.
+ */
+async function healPageMap(
+  client: SupabaseClient,
+  input: {
+    bookId: string;
+    userId: string;
+    isArticle: boolean;
+    contentPath: string;
+    hasRealPages: boolean;
+    charCount: number | null;
+    wordCount: number | null;
+    toc: ReadingTocEntry[];
+  }
+): Promise<void> {
+  // Real pages come from the source file and can't be synthesized. Articles have
+  // no page map by design (see extract-text.ts). No word count means healWordCounts
+  // couldn't read this HTML either, so there is nothing to lay a grid over.
+  if (input.isArticle || input.hasRealPages) return;
+  if (input.wordCount == null || input.wordCount <= 0 || input.charCount == null) return;
+  // Conversion only lays synthetic pages over a book with real chapters; an
+  // unchaptered EPUB is deliberately left without a page map.
+  if (chapterSpans(input.toc, input.wordCount).length === 0) return;
+
+  try {
+    // The common path by far: the map is already there.
+    const { count, error: countError } = await client
+      .from("reading_book_pages")
+      .select("page_number", { count: "exact", head: true })
+      .eq("book_id", input.bookId)
+      .eq("user_id", input.userId);
+    if (countError || count == null || count > 0) return;
+
+    const download = await client.storage
+      .from(READING_BOOKS_BUCKET)
+      .download(input.contentPath);
+    if (download.error || !download.data) return;
+
+    const marks = blockMarksFromHtml(await download.data.text());
+    if (marks.length === 0) return;
+
+    // Same guard as healWordCounts: if this HTML doesn't imply the stored
+    // char_count, it isn't the file those offsets were recorded against and a
+    // page map built from it would point at the wrong text.
+    const implied = marks[marks.length - 1].char;
+    if (implied !== input.charCount) {
+      console.warn(
+        `[reading/heal] book=${input.bookId} char_count mismatch ` +
+          `(stored ${input.charCount}, recomputed ${implied}) — page map skipped`
+      );
+      return;
+    }
+
+    const pages = layoutSyntheticPages(marks, input.charCount, input.wordCount);
+    if (pages.length === 0) return;
+
+    const rows = pages.map((p) => ({
+      book_id: input.bookId,
+      user_id: input.userId,
+      page_number: p.pageNumber,
+      anchor_id: p.anchorId,
+      char_start: p.charStart,
+      char_end: p.charEnd,
+    }));
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await client
+        .from("reading_book_pages")
+        .insert(rows.slice(i, i + 500));
+      // A partial map is worse than none — it would scope a quiz to a fraction of
+      // the book — so undo the whole thing and leave the book as it was.
+      if (error) {
+        await client
+          .from("reading_book_pages")
+          .delete()
+          .eq("book_id", input.bookId)
+          .eq("user_id", input.userId);
+        return;
+      }
+    }
+
+    console.log(`[reading/heal] book=${input.bookId} pages=${pages.length}`);
+  } catch {
+    return;
   }
 }
 
