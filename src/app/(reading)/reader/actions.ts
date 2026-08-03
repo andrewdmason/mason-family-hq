@@ -11,6 +11,7 @@ import {
   type BookLookupResult,
 } from "@/lib/reading/book-lookup";
 import { resolveReadingScope } from "@/lib/reading/scope";
+import type { ResumeCandidate } from "@/lib/reading/last-place";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
 import { computeBookWordCounts } from "@/lib/reading/word-counts";
 import {
@@ -1143,12 +1144,15 @@ export type ReadingPosition = {
 };
 
 /**
- * The book to drop straight into when Reader opens — most recently read first,
- * so the app behaves like a Kindle rather than a bookshelf. Only books whose
- * file finished converting can be opened, and archived ones are done with, so
- * both are excluded. Null means "nothing to resume" — show the library instead.
+ * The books Reader could drop straight into when it opens, most recently read
+ * first, so the app behaves like a Kindle rather than a bookshelf. Only books
+ * whose file finished converting can be opened, and archived ones are done with,
+ * so both are excluded. Empty means "nothing to resume" — show the library.
+ *
+ * The whole list rather than just the winner, because the device's own last
+ * place gets to hold unless the reading overtakes it — see resumeTarget.
  */
-export async function getResumeBookId(): Promise<string | null> {
+export async function getResumeCandidates(): Promise<ResumeCandidate[]> {
   const { client, userId } = await resolveReadingScope(null);
 
   const { data: states } = await client
@@ -1158,7 +1162,7 @@ export async function getResumeBookId(): Promise<string | null> {
     .not("last_read_at", "is", null)
     .order("last_read_at", { ascending: false })
     .limit(20);
-  if (!states || states.length === 0) return null;
+  if (!states || states.length === 0) return [];
 
   const bookIds = states.map((s) => s.book_id as string);
   const [{ data: books }, { data: contents }] = await Promise.all([
@@ -1185,8 +1189,13 @@ export async function getResumeBookId(): Promise<string | null> {
       .map((b) => b.id as string)
   );
 
-  // `states` is already newest-first, so the first survivor is the resume point.
-  return bookIds.find((id) => readable.has(id)) ?? null;
+  // `states` is already newest-first, and filtering keeps that order.
+  return states
+    .filter((s) => readable.has(s.book_id as string))
+    .map((s) => ({
+      bookId: s.book_id as string,
+      lastReadAt: s.last_read_at as string,
+    }));
 }
 
 /** Everything the reader needs: a signed content URL, pagination, resume point. */

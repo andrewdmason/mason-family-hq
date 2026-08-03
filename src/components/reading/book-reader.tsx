@@ -47,7 +47,11 @@ import {
   type ChatPanelPresentation,
 } from "@/lib/reading/paged-geometry";
 import { note, startTimer, time } from "@/lib/reading/perf";
-import { localPositionWins, shouldOfferElsewhere } from "@/lib/reading/position-sync";
+import {
+  localPositionWins,
+  readingHappened,
+  shouldOfferElsewhere,
+} from "@/lib/reading/position-sync";
 import {
   getServerViewportSize,
   getViewportSize,
@@ -244,6 +248,16 @@ export function BookReader({
     atEnd: false,
   });
   const positionRef = useRef(resumeCharOffset);
+  /**
+   * The position already written down — the one the book opened at, and then
+   * every one saved since.
+   *
+   * A save is only worth making if the book has moved off it, because a save is
+   * also the app's record that this book was read just now, and that record is
+   * what decides which book opening Reader takes you to. Closing a book you only
+   * glanced at must not nominate it as the book you were reading.
+   */
+  const recordedRef = useRef(resumeCharOffset);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const totalCharsRef = useRef(0);
   totalCharsRef.current = totalChars;
@@ -301,6 +315,10 @@ export function BookReader({
       if (cancelled || !stored?.dirty) return;
       if (!localPositionWins(stored.savedAt, resumeSavedAt)) return;
       ourSavedAtRef.current = stored.savedAt;
+      // The book now opens here instead, and this position is already written
+      // down — it's still owed to the server, but replayPending carries that up
+      // with its own timestamp rather than needing a save from this reader.
+      recordedRef.current = stored.charOffset;
       setPendingJump(stored.charOffset);
     });
     return () => {
@@ -313,6 +331,10 @@ export function BookReader({
   // the only offline failure that would actually be felt.
   const flush = useCallback(() => {
     const charOffset = positionRef.current;
+    // Nothing has moved, so there's nothing to say — and saying it anyway would
+    // record a book that was merely opened as the one most recently read.
+    if (!readingHappened(charOffset, recordedRef.current)) return;
+    recordedRef.current = charOffset;
     const total = totalCharsRef.current;
     // The shelf reads this for each book's percent label, so it keeps being
     // written — just derived from the character offset instead of pixels.
