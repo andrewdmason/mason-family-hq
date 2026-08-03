@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Lora } from "next/font/google";
+import { AudiobookBar } from "@/components/audiobook/audiobook-bar";
+import { AudiobookProvider } from "@/components/audiobook/audiobook-provider";
 import { GlobalQuickAdd } from "@/components/todos/global-quick-add";
 import { LastAppTracker } from "@/components/layout/last-app-tracker";
 import { EINK_BOOT_SCRIPT, EinkModeSync } from "@/components/reading/eink-mode";
@@ -98,7 +100,20 @@ export default function RootLayout({
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: EINK_BOOT_SCRIPT }}
         />
-        {children}
+        {/*
+          The audiobook player lives above every screen, not inside the reader.
+
+          The reason to listen to a book is that you're doing something else,
+          and here "something else" is often another part of this app — checking
+          the calendar, knocking out a to-do. A player mounted inside the reader
+          would stop dead on the first navigation. Mounted here it doesn't, and
+          `children` is a stable element so nothing below re-renders when the
+          playhead moves.
+        */}
+        <AudiobookProvider>
+          {children}
+          <AudiobookBar />
+        </AudiobookProvider>
         {/* Keeps <html class="eink"> in step with the per-device setting. */}
         <EinkModeSync />
         {/* Global to-do quick-add: press `c` anywhere (see quick-add.tsx). */}

@@ -5,6 +5,9 @@ import {
   ReadingApiTokens,
   type ReadingApiTokenRow,
 } from "@/components/reading/api-tokens";
+import { formatCost } from "@/lib/reading/audio/constants";
+import { getAudioSpend } from "@/lib/reading/audio/plan";
+import { resolveReadingScope } from "@/lib/reading/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -12,10 +15,16 @@ export const metadata = { title: "Reader settings" };
 
 /**
  * Reader settings: personal API tokens for the Chrome article-capture
- * extension. Always your own tokens — no view-as here.
+ * extension, and what listening has cost. Always your own — no view-as here.
  */
 export default async function ReaderSettingsPage() {
   const supabase = await createClient();
+
+  const scope = await resolveReadingScope(null);
+  const since = new Date();
+  since.setDate(since.getDate() - 30);
+  const spend = await getAudioSpend(scope.client, scope.userId, since);
+
   const { data: tokenRows } = await supabase
     .from("reading_api_tokens")
     .select("id, name, created_at, last_used_at")
@@ -55,6 +64,36 @@ export default async function ReaderSettingsPage() {
       </p>
 
       <ReadingApiTokens tokens={tokens} />
+
+      {/*
+        Listening costs real money — a couple of dollars a chapter — and the
+        design that keeps that safe is a number you can't avoid noticing rather
+        than a cap. A cap would fail in the one place it must not: mid-chapter,
+        with the voice stopping in the middle of a sentence. This is the whole
+        safeguard, so it lives on the page rather than behind anything.
+      */}
+      <section className="mt-10">
+        <h2 className="mb-1 font-serif text-lg tracking-tight text-foreground">
+          Listening
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {spend.chapters === 0 ? (
+            <>Nothing has been narrated in the last 30 days.</>
+          ) : (
+            <>
+              About{" "}
+              <span className="font-medium text-foreground">
+                {formatCost(spend.dollars)}
+              </span>{" "}
+              of narration in the last 30 days, across {spend.chapters}{" "}
+              {spend.chapters === 1 ? "chapter" : "chapters"}.
+            </>
+          )}{" "}
+          An estimate — the real figure depends on the plan&apos;s allowance and
+          where in the month you are. Chapters are voiced once and kept, so
+          re-listening is free.
+        </p>
+      </section>
     </main>
   );
 }

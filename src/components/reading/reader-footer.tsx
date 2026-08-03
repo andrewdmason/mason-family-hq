@@ -25,6 +25,7 @@ export function ReaderFooter({
   percent,
   minutesLeft,
   height,
+  bottom = 0,
   left,
   width,
 }: {
@@ -33,6 +34,13 @@ export function ReaderFooter({
   percent: number;
   minutesLeft: number | null;
   height: number;
+  /**
+   * How far off the bottom of the window to sit — the audiobook player bar's
+   * height while something is playing, zero otherwise. The page shrinks by the
+   * same amount, so the foot stays in the margin below the text rather than
+   * being pushed into it.
+   */
+  bottom?: number;
   /** The text column's viewport bounds. Null until the page has been measured. */
   left: number | null;
   width: number | null;
@@ -44,10 +52,10 @@ export function ReaderFooter({
   return (
     <div
       className={cn(
-        "reader-chrome-secondary pointer-events-none fixed bottom-0 z-30 flex items-center justify-between gap-6 text-xs text-muted-foreground/70",
+        "reader-chrome-secondary pointer-events-none fixed z-30 flex items-center justify-between gap-6 text-xs text-muted-foreground/70",
         !bounded && "inset-x-0 px-6"
       )}
-      style={bounded ? { height, left, width } : { height }}
+      style={bounded ? { height, bottom, left, width } : { height, bottom }}
     >
       <span className="min-w-0 truncate">
         {chapterTitle}

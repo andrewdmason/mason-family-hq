@@ -88,6 +88,7 @@ export function usePagination({
   blocks,
   settings,
   chatPanel,
+  bottomInset = 0,
   charOffset: externalCharOffset,
   onPositionChange,
 }: {
@@ -98,6 +99,17 @@ export function usePagination({
   settings: ReaderSettings;
   /** How the chat is presented, which decides what it costs — see ChatPanelPresentation. */
   chatPanel: ChatPanelPresentation;
+  /**
+   * Height at the foot of the window the page may not use — the audiobook
+   * player bar, when something is playing.
+   *
+   * The page shrinks from the bottom rather than the bar covering it, so the
+   * running foot stays visible and no line of text ends up underneath a
+   * control. Changing it repaginates once, which is the same cost as changing
+   * the Margins setting and happens at the same moment you deliberately started
+   * listening.
+   */
+  bottomInset?: number;
   /**
    * Where the reader is, owned by the caller. While paging is on this hook
    * drives it; while it's off the scrolling view does, and we track it so
@@ -286,8 +298,13 @@ export function usePagination({
     () =>
       !enabled || html == null || viewport.width === 0 || viewport.height === 0
         ? null
-        : computeGeometry(viewport.width, viewport.height, settings, chatPanel),
-    [enabled, html, viewport, settings, chatPanel]
+        : computeGeometry(
+            viewport.width,
+            Math.max(200, viewport.height - bottomInset),
+            settings,
+            chatPanel
+          ),
+    [enabled, html, viewport, settings, chatPanel, bottomInset]
   );
   const geometry = measured;
 
