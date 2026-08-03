@@ -1,19 +1,5 @@
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { resolveViewedMember } from "@/lib/todos/member-context";
-import {
-  getAllActiveTasks,
-  getAreas,
-  getLogbookProjects,
-  getLogbookTasks,
-  getProjects,
-  getSections,
-  getSelfEmail,
-  getTaskAttachments,
-  getTodoMembers,
-  markInboxSeen,
-  sweepElapsedSnoozes,
-} from "@/lib/todos/queries";
+import { loadShellData } from "@/lib/todos/shell-data";
 import { isTodoView, viewLabel } from "@/lib/todos/types";
 import { TodosViews } from "@/components/todos/todos-views";
 
@@ -53,51 +39,24 @@ export default async function TodoViewPage({
   const [{ view }, { as }] = await Promise.all([params, searchParams]);
   if (!isTodoView(view)) notFound();
 
-  const supabase = await createClient();
-  const [selfEmail, members] = await Promise.all([
-    getSelfEmail(supabase),
-    getTodoMembers(),
-  ]);
-  const viewed = resolveViewedMember(as, selfEmail, members);
-
-  // Wake elapsed snoozes before reading (keeps Today and the badge
-  // consistent), then fetch. Landing on your own Inbox also acknowledges the
-  // tasks others put there (clears the bell); instant client-side switches to
-  // it do the same through the acknowledgeInbox action.
-  await sweepElapsedSnoozes(supabase);
-  if (view === "inbox" && viewed.email === selfEmail) {
-    await markInboxSeen(supabase, selfEmail);
-  }
-  const [activeTasks, logbookTasks, projects, sections, areas, logbookProjects] =
-    await Promise.all([
-      // The whole household's active set: the shell derives each member view
-      // (filtered by assignee/creator) *and* any project (every assignee) from
-      // it, so view↔project switches never hit the server.
-      getAllActiveTasks(supabase),
-      getLogbookTasks(supabase, viewed.email),
-      getProjects(supabase),
-      getSections(supabase),
-      getAreas(supabase),
-      getLogbookProjects(supabase),
-    ]);
-  const attachmentsByTask = await getTaskAttachments(
-    supabase,
-    activeTasks.map((t) => t.id)
-  );
+  // Landing on your own Inbox also acknowledges the tasks others put there
+  // (clears the bell); instant client-side switches to it do the same through
+  // the acknowledgeInbox action.
+  const data = await loadShellData(as, { acknowledgeInbox: view === "inbox" });
 
   return (
     <TodosViews
       initialView={view}
-      activeTasks={activeTasks}
-      logbookTasks={logbookTasks}
-      logbookProjects={logbookProjects}
-      attachmentsByTask={attachmentsByTask}
-      members={members}
-      projects={projects}
-      sections={sections}
-      areas={areas}
-      viewed={viewed}
-      selfEmail={selfEmail}
+      activeTasks={data.activeTasks}
+      logbookTasks={data.logbookTasks}
+      logbookProjects={data.logbookProjects}
+      attachmentsByTask={data.attachmentsByTask}
+      members={data.members}
+      projects={data.projects}
+      sections={data.sections}
+      areas={data.areas}
+      viewed={data.viewed}
+      selfEmail={data.selfEmail}
     />
   );
 }

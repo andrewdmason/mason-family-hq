@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { usePathname } from "next/navigation";
+import { Crosshair } from "lucide-react";
 import { acknowledgeInbox } from "@/app/(todos)/todos/actions";
 import { BackToLists } from "@/components/todos/back-to-lists";
+import { FocusMode } from "@/components/todos/focus-mode";
 import { InlineNewButton } from "@/components/todos/inline-new-button";
 import { LogbookList } from "@/components/todos/logbook-list";
 import { ProjectHeader } from "@/components/todos/project-header";
@@ -31,7 +33,10 @@ import {
   type TodoTask,
   type TodoView,
 } from "@/lib/todos/types";
-import { registerViewSwitcher } from "@/lib/todos/view-switch";
+import {
+  registerViewSwitcher,
+  requestFocusSwitch,
+} from "@/lib/todos/view-switch";
 
 /**
  * The client shell for the sidebar views *and* projects. The server page hands
@@ -88,6 +93,9 @@ export function TodosViews({
     ? (projects.find((p) => p.id === projectId) ?? null)
     : null;
   const inProject = project != null;
+  // Focus mode is a destination like a project is — not a sidebar view, so it
+  // deliberately stays out of TodoView (no sidebar row, no `g` chord).
+  const inFocus = segment === "focus";
   const view: TodoView = isTodoView(segment) ? segment : initialView;
 
   const pathnameRef = useRef(pathname);
@@ -115,10 +123,19 @@ export function TodosViews({
   useEffect(() => {
     const isFirstRender = !mounted.current;
     mounted.current = true;
-    if (isFirstRender || inProject || view !== "inbox" || viewed.email !== selfEmail)
+    // `view` still holds the entry view on the focus path (the URL names no
+    // view there), so focus needs its own guard or it would acknowledge an
+    // Inbox you never opened.
+    if (
+      isFirstRender ||
+      inProject ||
+      inFocus ||
+      view !== "inbox" ||
+      viewed.email !== selfEmail
+    )
       return;
     void run(acknowledgeInbox());
-  }, [inProject, view, viewed.email, selfEmail, run]);
+  }, [inProject, inFocus, view, viewed.email, selfEmail, run]);
 
   // Re-sweep on every switch (not just new snapshots) so a tab left open
   // overnight still shows elapsed snoozes in Today, like a fresh load would.
@@ -130,6 +147,13 @@ export function TodosViews({
   const viewTasks = useMemo(
     () => (view === "logbook" ? [] : deriveViewTasks(swept, view, viewed.email)),
     [swept, view, viewed.email]
+  );
+
+  // Focus mode always walks Today, whichever view you pressed `f` from — the
+  // URL names no view on that path, so `view` can't be trusted here.
+  const focusTasks = useMemo(
+    () => (inFocus ? deriveViewTasks(swept, "today", viewed.email) : []),
+    [swept, inFocus, viewed.email]
   );
 
   // A project shows every assignee's tasks (hence the household-wide set), in
@@ -164,6 +188,20 @@ export function TodosViews({
       ),
     [swept, viewed.email]
   );
+
+  // Everything below — sidebar, view header, add buttons — is the chrome focus
+  // mode exists to remove, so it renders instead of the frame rather than
+  // inside it. (The global header hides itself on this path; see
+  // global-header-client.tsx.)
+  if (inFocus) {
+    return (
+      <FocusMode
+        tasks={focusTasks}
+        projects={projects}
+        attachmentsByTask={attachmentsByTask}
+      />
+    );
+  }
 
   return (
     <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-6 sm:px-6">
@@ -216,6 +254,17 @@ export function TodosViews({
                 <h1 className="font-serif text-2xl tracking-tight text-foreground">
                   {viewLabel(view)}
                 </h1>
+                {view === "today" && viewTasks.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => requestFocusSwitch()}
+                    className="ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                    title="Focus mode (f)"
+                  >
+                    <Crosshair className="size-4" />
+                    <span className="hidden sm:inline">Focus</span>
+                  </button>
+                )}
                 {view === "snoozed" || view === "delegated" || view === "logbook" ? (
                   // Status/history lenses can't host an inline draft — fall back
                   // to the capture modal.

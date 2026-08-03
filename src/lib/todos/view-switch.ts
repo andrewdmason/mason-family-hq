@@ -37,3 +37,8 @@ export function requestViewSwitch(view: TodoView): boolean {
 export function requestProjectSwitch(id: string): boolean {
   return requestSwitch(`/todos/project/${id}`);
 }
+
+/** Switch into focus mode (one Today task at a time). */
+export function requestFocusSwitch(): boolean {
+  return requestSwitch("/todos/focus");
+}

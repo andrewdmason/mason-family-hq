@@ -74,6 +74,7 @@ import type { UploadingAttachment } from "@/components/todos/task-attachments";
 import { MiniCalendar, WhenMenu } from "@/components/todos/when-picker";
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import { inOpenOverlay, isTypingTarget } from "@/lib/todos/keyboard";
+import { takePendingSelection } from "@/lib/todos/pending-selection";
 import {
   Dialog,
   DialogContent,
@@ -297,6 +298,23 @@ export function TaskList({
     setSelectedIds(new Set());
     anchorId.current = null;
   }
+
+  // Leaving focus mode hands over the task you were on so Today opens with it
+  // selected — executing and curating stay on the same row. One-shot, and
+  // ignored if the task isn't in this list (e.g. you completed it on the way
+  // out), so a later switch back can't resurrect a stale highlight.
+  useEffect(() => {
+    const pending = takePendingSelection();
+    if (!pending || !initialTasks.some((t) => t.id === pending)) return;
+    setSelectedIds(new Set([pending]));
+    anchorId.current = pending;
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-task-id="${pending}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contextKey]);
 
   // Server snapshots are the source of truth, but only between mutations
   // (idle): a snapshot rendered before a later optimistic change committed
