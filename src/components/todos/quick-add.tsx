@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useTodosRefresh } from "@/lib/todos/shell-refresh";
 import { Plus } from "lucide-react";
 import {
   NewTaskModal,
@@ -55,7 +55,7 @@ export function QuickAddHost({
   members: TodoMember[];
   selfEmail: string;
 }) {
-  const router = useRouter();
+  const refresh = useTodosRefresh();
   const [open, setOpen] = useState(false);
   const [defaults, setDefaults] = useState<NewTaskDefaults | undefined>();
   const [toast, setToast] = useState<CreatedToast | null>(null);
@@ -106,7 +106,7 @@ export function QuickAddHost({
   }, [toast]);
 
   const onCreated = (task: TodoTask) => {
-    router.refresh();
+    refresh();
     // The capture modal can file a task anywhere — another person's list, a
     // snooze, a different bucket — so confirm where it landed, with a way
     // there. Snoozed creations ride bucket=today but render in Snoozed.

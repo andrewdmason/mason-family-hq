@@ -61,7 +61,6 @@ export async function loadShellData(
   );
 
   return {
-    supabase,
     selfEmail,
     members,
     viewed,
@@ -74,3 +73,10 @@ export async function loadShellData(
     attachmentsByTask,
   };
 }
+
+/**
+ * Everything the client shell renders — and nothing else, so the same payload
+ * can travel back from a server action (see loadShellSnapshot) without a route
+ * re-render. Keep it serializable.
+ */
+export type TodosShellData = Awaited<ReturnType<typeof loadShellData>>;

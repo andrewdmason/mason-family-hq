@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useTodosRefresh } from "@/lib/todos/shell-refresh";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { getProjectLogged, uncompleteTask } from "@/app/(todos)/todos/actions";
 import { TaskCheckbox } from "@/components/todos/task-row";
@@ -15,7 +15,7 @@ import type { TodoTask } from "@/lib/todos/types";
  * back in). The count only shows once loaded — it isn't known up front.
  */
 export function ProjectLogged({ projectId }: { projectId: string }) {
-  const router = useRouter();
+  const refresh = useTodosRefresh();
   const [tasks, setTasks] = useState<TodoTask[] | null>(null);
   const [shown, setShown] = useState(false);
 
@@ -40,7 +40,7 @@ export function ProjectLogged({ projectId }: { projectId: string }) {
 
   const handleUncomplete = (task: TodoTask) => {
     setTasks((prev) => prev?.filter((t) => t.id !== task.id) ?? null);
-    uncompleteTask(task.id).finally(() => router.refresh());
+    uncompleteTask(task.id).finally(() => refresh());
   };
 
   const Chevron = shown ? ChevronDown : ChevronRight;

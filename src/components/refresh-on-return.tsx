@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 /**
@@ -15,8 +15,12 @@ import { useRouter } from "next/navigation";
  */
 const MIN_GAP_MS = 5_000;
 
-export function RefreshOnReturn() {
-  const router = useRouter();
+/**
+ * The return-to-window trigger, minus the decision about *how* to refresh —
+ * todos re-reads its data in place instead of re-running the route (see
+ * shell-refresh.ts), and passes its own refresher here.
+ */
+export function useRefreshOnReturn(refresh: () => void) {
   const lastRefresh = useRef(0);
 
   useEffect(() => {
@@ -24,22 +28,27 @@ export function RefreshOnReturn() {
     // that often immediately follows a load.
     lastRefresh.current = Date.now();
 
-    const refresh = () => {
+    const maybeRefresh = () => {
       const now = Date.now();
       if (now - lastRefresh.current < MIN_GAP_MS) return;
       lastRefresh.current = now;
-      router.refresh();
+      refresh();
     };
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") refresh();
+      if (document.visibilityState === "visible") maybeRefresh();
     };
-    window.addEventListener("focus", refresh);
+    window.addEventListener("focus", maybeRefresh);
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
-      window.removeEventListener("focus", refresh);
+      window.removeEventListener("focus", maybeRefresh);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [router]);
+    // Callers pass a stable refresher, so this subscribes once per mount.
+  }, [refresh]);
+}
 
+export function RefreshOnReturn() {
+  const router = useRouter();
+  useRefreshOnReturn(useCallback(() => router.refresh(), [router]));
   return null;
 }

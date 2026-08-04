@@ -25,9 +25,9 @@ export async function generateMetadata({
  * task set is small, so this is barely more than any single view's queries
  * cost. The client shell (todos-views.tsx) derives the view the URL names
  * (sidebar badge counts included) and switches between views instantly,
- * without coming back here; mutations still reconcile through
- * router.refresh(), which re-runs this page for whichever URL the shell has
- * pushed.
+ * without coming back here; mutations reconcile by re-reading the same data
+ * into the mounted shell (see shell-refresh.ts) rather than re-running this
+ * page, so a refresh can never cost you an open editor.
  */
 export default async function TodoViewPage({
   params,

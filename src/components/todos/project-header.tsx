@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTodosRefresh } from "@/lib/todos/shell-refresh";
 import {
   Check,
   CheckCircle2,
@@ -79,6 +80,7 @@ export function ProjectHeader({
   logbookHref: string;
 }) {
   const router = useRouter();
+  const refresh = useTodosRefresh();
   const [name, setName] = useState(project.name);
   const [confirmComplete, setConfirmComplete] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -97,7 +99,7 @@ export function ProjectHeader({
   const saveName = () => {
     const trimmed = name.trim();
     if (trimmed && trimmed !== project.name) {
-      renameProject(project.id, trimmed).finally(() => router.refresh());
+      renameProject(project.id, trimmed).finally(() => refresh());
     } else {
       setName(project.name);
     }
@@ -122,7 +124,7 @@ export function ProjectHeader({
   const handleRemoveMember = async (email: string) => {
     const result = await removeProjectMember(project.id, email);
     if (result.blocked) setNotice(result.blocked);
-    router.refresh();
+    refresh();
   };
 
   const handleDelete = async () => {
@@ -138,7 +140,7 @@ export function ProjectHeader({
     if (deleteTimer.current) clearTimeout(deleteTimer.current);
     await restoreProject(project.id, pendingDelete.deletedAt);
     setPendingDelete(null);
-    router.refresh();
+    refresh();
   };
 
   return (
@@ -210,7 +212,7 @@ export function ProjectHeader({
                     onClick={() => {
                       if (a.id !== project.areaId) {
                         setProjectArea(project.id, a.id).finally(() =>
-                          router.refresh()
+                          refresh()
                         );
                       }
                     }}
@@ -227,7 +229,7 @@ export function ProjectHeader({
                   onClick={() => {
                     if (project.areaId) {
                       setProjectArea(project.id, null).finally(() =>
-                        router.refresh()
+                        refresh()
                       );
                     }
                   }}
@@ -240,7 +242,7 @@ export function ProjectHeader({
                   onCreate={async (areaName) => {
                     const { id } = await createArea(areaName);
                     await setProjectArea(project.id, id);
-                    router.refresh();
+                    refresh();
                   }}
                 />
               </DropdownMenuSubContent>
@@ -318,7 +320,7 @@ export function ProjectHeader({
                   key={member.email}
                   onClick={() =>
                     addProjectMember(project.id, member.email).finally(() =>
-                      router.refresh()
+                      refresh()
                     )
                   }
                   className="gap-2"
