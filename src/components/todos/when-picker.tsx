@@ -115,7 +115,7 @@ export function WhenPicker({
 /**
  * The picker body, shared by the chip's popover and the keyboard `s` popover
  * (which anchors it to the row without opening the editor). A focused
- * type-ahead ("tom", "fri", "in 3 days"…) sits above the quick rows; empty,
+ * type-ahead ("tom", "fri", "in 3 days", "today 10am"…) sits above the quick rows; empty,
  * it shows Gmail-style snooze shortcuts — Today, then This evening / Tomorrow
  * / This weekend / Next week, a "Pick date & time" reveal for the mini
  * calendar, then the Anytime and Someday parks. Mount it only while the
@@ -208,7 +208,7 @@ function PickDateTime({ onPick }: { onPick: (when: Date) => void }) {
 /**
  * The hands-on-keyboard path: a focused input above the preset list. Empty
  * query shows `children` (the usual presets + calendar); typing swaps in
- * parsed suggestions ("tom", "fri", "in 3 days", "jun 24"…) navigable with
+ * parsed suggestions ("tom", "fri 9am", "in 3 days", "jun 24"…) navigable with
  * arrows + Enter. Lives in its own component, mounted per-open, so the query
  * and highlight reset on every summon without effect gymnastics.
  */
@@ -244,7 +244,7 @@ function WhenTypeahead({
             onPick(suggestions[Math.min(activeIdx, suggestions.length - 1)]);
           }
         }}
-        placeholder="Try “tomorrow” or “in 3 days”"
+        placeholder="Try “tomorrow” or “today 10am”"
         aria-label="When"
         className="mb-0.5 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground/60 focus:border-ring"
       />
@@ -253,7 +253,7 @@ function WhenTypeahead({
         children
       ) : suggestions.length === 0 ? (
         <p className="px-2 py-1.5 text-xs text-muted-foreground">
-          No match — try “tomorrow”, “fri”, or “jun 24”
+          No match — try “tomorrow”, “fri 9am”, or “jun 24”
         </p>
       ) : (
         suggestions.map((s, i) => {
