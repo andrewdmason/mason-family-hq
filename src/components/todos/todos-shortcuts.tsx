@@ -178,8 +178,9 @@ const SECTIONS: { title: string; rows: ShortcutRow[] }[] = [
     rows: [
       { keys: ["f"], label: "Focus mode (one Today task)" },
       { keys: ["e", "⏎"], label: "Done, next task" },
-      { keys: ["⌘Z"], label: "Undo done" },
-      { keys: ["esc"], label: "Back to Today" },
+      { keys: ["s"], label: "Snooze…" },
+      { keys: ["⌘Z"], label: "Undo" },
+      { keys: ["esc"], label: "Leave the field / Back to Today" },
     ],
   },
   {
