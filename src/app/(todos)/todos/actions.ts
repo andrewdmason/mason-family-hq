@@ -10,6 +10,7 @@ import {
   getSelfEmail,
   markInboxSeen,
 } from "@/lib/todos/queries";
+import { loadShellData, type TodosShellData } from "@/lib/todos/shell-data";
 import {
   TASK_COLUMNS,
   taskFromRow,
@@ -26,7 +27,7 @@ import {
  * member emails.
  *
  * Task/project actions deliberately do NOT revalidatePath: every consumer
- * reconciles client-side (useReconciler's drained router.refresh()), and the
+ * reconciles client-side (useReconciler's drained refresh), and the
  * todos + home pages are force-dynamic, so revalidation here would only bolt
  * a full page re-render onto every mutation's POST. Keeping the actions lean
  * is what makes optimistic bursts (multi-select drops) cheap in production.
@@ -47,6 +48,25 @@ async function ctx() {
 export async function acknowledgeInbox(): Promise<void> {
   const { supabase, selfEmail } = await ctx();
   await markInboxSeen(supabase, selfEmail);
+}
+
+/**
+ * The shell's whole data set, re-read on demand.
+ *
+ * The reconciler used to ask for freshness with router.refresh(), which re-runs
+ * the *route*. That is unsafe here: the shell switches destinations with a bare
+ * history.pushState (instant, no server roundtrip), so after any switch the
+ * URL names a different route than the one Next's router has a tree for — and a
+ * refresh against a mismatched URL is handled as a navigation, remounting the
+ * whole screen. Mid-typing that reads as the page glitching: the draft you were
+ * writing in vanishes and focus lands on the body.
+ *
+ * Fetching the same payload through an action instead keeps the mounted shell
+ * mounted — it just receives newer props — so freshness never costs the user
+ * their place. (It's also less work: no header/layout re-render per mutation.)
+ */
+export async function loadShellSnapshot(as?: string): Promise<TodosShellData> {
+  return loadShellData(as);
 }
 
 export async function createTask(input: {

@@ -22,6 +22,7 @@ import {
 import { withAs } from "@/lib/todos/member-context";
 import type { LogbookProject, TodoTaskAttachment } from "@/lib/todos/queries";
 import { useReconciler } from "@/lib/todos/reconcile";
+import { useShellData } from "@/lib/todos/shell-refresh";
 import {
   isTodoView,
   viewLabel,
@@ -48,23 +49,14 @@ import {
  * deep links, the back button, and reloads all still resolve through their
  * server route (which renders this same shell).
  *
- * Freshness rides the existing reconcile loop: every mutation's drained
- * router.refresh() re-runs the page for the current (pushed) URL, and the new
- * snapshot updates every view's and project's derivation at once.
+ * Freshness rides the existing reconcile loop: every mutation's drained refresh
+ * re-reads the same payload into this mounted shell (see shell-refresh.ts), and
+ * the new snapshot updates every view's and project's derivation at once. It
+ * deliberately does NOT go through router.refresh(): the pushState above means
+ * the URL names a route Next's router has no tree for, so a route refresh would
+ * be handled as a navigation and remount this shell mid-edit.
  */
-export function TodosViews({
-  initialView,
-  activeTasks,
-  logbookTasks,
-  logbookProjects,
-  attachmentsByTask,
-  members,
-  projects,
-  sections,
-  areas,
-  viewed,
-  selfEmail,
-}: {
+export function TodosViews(props: {
   initialView: TodoView;
   activeTasks: TodoTask[];
   logbookTasks: TodoTask[];
@@ -77,6 +69,22 @@ export function TodosViews({
   viewed: TodoMember;
   selfEmail: string;
 }) {
+  // The server render to begin with, then whatever the reconciler last re-read
+  // (see shell-refresh.ts) — this shell must never be remounted to get fresh
+  // data, or it takes the open editor and your keystrokes down with it.
+  const {
+    initialView,
+    activeTasks,
+    logbookTasks,
+    logbookProjects,
+    attachmentsByTask,
+    members,
+    projects,
+    sections,
+    areas,
+    viewed,
+    selfEmail,
+  } = useShellData(props);
   const pathname = usePathname();
   const { run } = useReconciler();
 

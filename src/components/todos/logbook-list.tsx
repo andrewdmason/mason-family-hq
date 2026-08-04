@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useTodosRefresh } from "@/lib/todos/shell-refresh";
 import { BookCheck, CircleDashed } from "lucide-react";
 import { uncompleteProject, uncompleteTask } from "@/app/(todos)/todos/actions";
 import { TaskCheckbox } from "@/components/todos/task-row";
@@ -24,7 +24,7 @@ export function LogbookList({
   initialTasks: TodoTask[];
   initialProjects: LogbookProject[];
 }) {
-  const router = useRouter();
+  const refresh = useTodosRefresh();
   const [items, setItems] = useState<LogbookItem[]>(() =>
     merge(initialTasks, initialProjects)
   );
@@ -38,7 +38,7 @@ export function LogbookList({
     setItems((prev) => prev.filter((i) => !(i.kind === item.kind && i.id === item.id)));
     const action =
       item.kind === "task" ? uncompleteTask(item.id) : uncompleteProject(item.id);
-    action.finally(() => router.refresh());
+    action.finally(() => refresh());
   };
 
   if (items.length === 0) {

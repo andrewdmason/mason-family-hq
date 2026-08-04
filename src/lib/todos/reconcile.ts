@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useTodosRefresh } from "@/lib/todos/shell-refresh";
 
 /**
  * Optimistic-mutation bookkeeping for the todos client components.
  *
  * The pattern everywhere here: local state mutates instantly, the server
- * action fires, and the next server snapshot (via router.refresh()) reconciles.
+ * action fires, and the next server snapshot (see shell-refresh.ts) reconciles.
  * Two production realities make the naive version — refresh after every
  * action, adopt every snapshot — feel broken on a real network:
  *
@@ -20,7 +20,7 @@ import { useRouter } from "next/navigation";
  *   is in flight — the drain refresh that follows carries consistent truth.
  */
 export function useReconciler() {
-  const router = useRouter();
+  const refresh = useTodosRefresh();
   const pending = useRef(0);
 
   /** True when no mutation is in flight — server snapshots are safe to adopt. */
@@ -34,10 +34,10 @@ export function useReconciler() {
         await action;
       } finally {
         pending.current -= 1;
-        if (pending.current === 0) router.refresh();
+        if (pending.current === 0) refresh();
       }
     },
-    [router]
+    [refresh]
   );
 
   return { run, idle };
