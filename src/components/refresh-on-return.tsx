@@ -24,8 +24,12 @@ export function useRefreshOnReturn(refresh: () => void) {
   const lastRefresh = useRef(0);
 
   useEffect(() => {
-    // The page just rendered fresh; don't refresh again for the focus click
-    // that often immediately follows a load.
+    // Don't refresh again for the focus click that often immediately follows a
+    // load. Note what this assumes: that a render reaching the screen is a
+    // render just made. The installed PWA breaks that — the service worker
+    // replays the last HTML it cached to a cold launch (public/sw.js) — so
+    // whoever renders a cached document has to notice that for itself; todos
+    // does it in useShellData, off the render's own timestamp.
     lastRefresh.current = Date.now();
 
     const maybeRefresh = () => {

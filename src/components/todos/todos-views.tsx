@@ -68,6 +68,10 @@ export function TodosViews(props: {
   areas: TodoArea[];
   viewed: TodoMember;
   selfEmail: string;
+  /** When the server read this data — useShellData checks it against the clock
+   * to tell a render made for this screen from one replayed out of the app-shell
+   * cache hours later. */
+  renderedAt: number;
 }) {
   // The server render to begin with, then whatever the reconciler last re-read
   // (see shell-refresh.ts) — this shell must never be remounted to get fresh

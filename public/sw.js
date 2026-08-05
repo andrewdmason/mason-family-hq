@@ -14,9 +14,15 @@
 //                    always correct and never needs revalidation.
 //   • StaleWhileRevalidate — full-document navigations to app routes. Serve the
 //                    last rendered HTML immediately, fetch a fresh copy in the
-//                    background for next time. The app already re-syncs data after
-//                    paint (SyncTrigger → router.refresh), so a flash of
-//                    last-known content is the intended native feel.
+//                    background for next time. A flash of last-known content is
+//                    the intended native feel — but only a flash, which is the
+//                    page's job, not this worker's: the background copy lands in
+//                    the cache for the *next* launch and never touches the screen
+//                    in front of you. So a page cached here has to re-read its own
+//                    data after paint or it shows yesterday until something else
+//                    asks. Todos does it off the render's timestamp (useShellData
+//                    in src/lib/todos/shell-refresh.ts); the calendar and
+//                    assignments hang it on their mount-time SyncTrigger.
 //
 // Never cached (always network): /login, /auth/*, /api/*, /family-status, any
 // non-GET, cross-origin, redirected, or non-200 response — so auth and writes are

@@ -61,6 +61,12 @@ export async function loadShellData(
   );
 
   return {
+    // When this data was read. The app-shell service worker hands a cold launch
+    // the last HTML it rendered and revalidates behind it (public/sw.js), so a
+    // render can reach the screen hours after this timestamp — with a to-do list
+    // that stopped being true overnight. The shell compares it against the clock
+    // on arrival and re-reads if it's looking at yesterday (see useShellData).
+    renderedAt: Date.now(),
     selfEmail,
     members,
     viewed,
