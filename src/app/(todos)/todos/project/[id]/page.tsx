@@ -39,6 +39,7 @@ export default async function ProjectPage({
       areas={data.areas}
       viewed={data.viewed}
       selfEmail={data.selfEmail}
+      renderedAt={data.renderedAt}
     />
   );
 }
