@@ -392,6 +392,20 @@ export function TaskList({
   // Stable React keys across the temp→real id swap, so the in-place editor
   // (and whatever the user is mid-typing) survives the server roundtrip.
   const keyAliases = useRef(new Map<string, string>());
+  // Edits a draft committed while it was still waiting on its server id. They
+  // can't be sent yet — there's nothing to update — so they wait here for the
+  // create to land.
+  //
+  // Deliberately only *committed* text, never the keystroke-by-keystroke value:
+  // a server action fired from inside a state updater (which React runs during
+  // render) entangles with the render loop, and until it settles React holds
+  // back the state every subsequent keystroke produces. The onChange fires, the
+  // title never updates, the controlled input snaps back — a second or two of a
+  // new to-do's name typed into nothing. An open editor commits itself on close,
+  // by which time the id is real and the normal path handles it.
+  const pendingDraftEdits = useRef(
+    new Map<string, { title?: string; notesHtml?: string }>()
+  );
   const stableKey = (taskId: string) => keyAliases.current.get(taskId) ?? taskId;
 
   // Things discards an untitled to-do when it's closed: once the open editor
@@ -512,7 +526,14 @@ export function TaskList({
       if (!trimmed) return;
       patchLocally(task.id, { title: trimmed });
       // A draft still waiting on its server id syncs via the create handler.
-      if (!task.id.startsWith("temp-")) run(updateTaskTitle(task.id, trimmed));
+      if (task.id.startsWith("temp-")) {
+        pendingDraftEdits.current.set(task.id, {
+          ...pendingDraftEdits.current.get(task.id),
+          title: trimmed,
+        });
+      } else {
+        run(updateTaskTitle(task.id, trimmed));
+      }
     },
     onSetProject: (task, projectId) => {
       if (inProject && projectId !== context.projectId) {
@@ -577,7 +598,14 @@ export function TaskList({
     },
     onSaveNotes: (task, html) => {
       patchLocally(task.id, { notesHtml: html });
-      if (!task.id.startsWith("temp-")) run(updateTaskNotes(task.id, html));
+      if (task.id.startsWith("temp-")) {
+        pendingDraftEdits.current.set(task.id, {
+          ...pendingDraftEdits.current.get(task.id),
+          notesHtml: html,
+        });
+      } else {
+        run(updateTaskNotes(task.id, html));
+      }
     },
     onAddFiles: (task, files) => {
       if (files.length === 0) return;
@@ -879,16 +907,23 @@ export function TaskList({
       })
         .then((created) => {
           keyAliases.current.set(created.id, temp.id);
+          // Keep anything typed while the roundtrip was in flight.
           setTasks((prev) =>
-            prev.map((t) => {
-              if (t.id !== temp.id) return t;
-              // Keep anything typed while the roundtrip was in flight, and
-              // sync it up if it already diverged from the (empty) draft.
-              if (t.title.trim()) void updateTaskTitle(created.id, t.title);
-              if (t.notesHtml) void updateTaskNotes(created.id, t.notesHtml);
-              return { ...created, title: t.title, notesHtml: t.notesHtml };
-            })
+            prev.map((t) =>
+              t.id === temp.id
+                ? { ...created, title: t.title, notesHtml: t.notesHtml }
+                : t
+            )
           );
+          // Whatever the draft committed before it had an id goes now — out
+          // here, not inside the updater above: React may run an updater more
+          // than once, and a server action started from one stalls typing (see
+          // pendingDraftEdits).
+          const stashed = pendingDraftEdits.current.get(temp.id);
+          pendingDraftEdits.current.delete(temp.id);
+          if (stashed?.title) void updateTaskTitle(created.id, stashed.title);
+          if (stashed?.notesHtml)
+            void updateTaskNotes(created.id, stashed.notesHtml);
           setExpandedId((prev) => (prev === temp.id ? created.id : prev));
           setSelectedIds((prev) =>
             prev.has(temp.id)
