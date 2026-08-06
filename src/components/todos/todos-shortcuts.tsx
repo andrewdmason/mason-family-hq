@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { emitChordHints } from "@/lib/todos/chord-hints";
-import { inOpenOverlay, isTypingTarget } from "@/lib/todos/keyboard";
+import { inOpenOverlay, isTypingTarget } from "@/lib/keyboard";
 import type { TodoView } from "@/lib/todos/types";
 import { requestFocusSwitch, requestViewSwitch } from "@/lib/todos/view-switch";
 

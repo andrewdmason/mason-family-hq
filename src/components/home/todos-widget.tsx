@@ -21,8 +21,8 @@ type TabKey = "today" | "inbox";
  * Home dashboard widget: a Todos header that links into the app, with Today
  * and the Inbox as two tabs below it (Today selected by default, Inbox
  * wearing a count badge), each completable right here, plus a "New"
- * affordance that summons the global quick-add modal (also on `c` from
- * anywhere).
+ * affordance that summons the global quick-add modal — the button, because the
+ * `c` key only fires inside the to-dos app and this widget is on the home page.
  */
 export function TodosWidget({ data }: { data: HomeTodos }) {
   const router = useRouter();

@@ -14,8 +14,8 @@ import {
  *
  * Its own route rather than a branch of /reader/api/chat, because almost nothing
  * is shared: the context is one chapter instead of the whole book, the model is
- * fixed rather than chosen, and there is no spoiler boundary to resolve, no fork
- * transcript to carry, and no promotion to decide. What the two DO share — the
+ * fixed rather than chosen, and there is no spoiler boundary to resolve and no
+ * promotion to decide. What the two DO share — the
  * annotation row, the transcript table, the streaming contract the panel reads —
  * they share exactly, which is why a follow-up question typed under a summary
  * goes to the chat route and simply works.

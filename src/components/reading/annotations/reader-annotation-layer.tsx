@@ -5,14 +5,15 @@ import {
   createAnnotation,
   deleteAnnotation,
   discardAnnotationIfEmpty,
-  forkAnnotation,
   getAnnotation,
   getAnnotationData,
   setBookSpoilerFree,
+  addAnnotationNote,
   setAnnotationModelPreference,
-  setAnnotationNote,
+  setAnnotationSpoilerFree,
 } from "@/app/(reading)/reader/annotation-actions";
 import { blockIndexForCharOffset, type BookBlock } from "@/lib/reading/block-stream";
+import { inOpenOverlay, isTypingTarget } from "@/lib/keyboard";
 import { note, startTimer, time } from "@/lib/reading/perf";
 import {
   INLINE_MARK_ATTR,
@@ -41,7 +42,7 @@ import { CHAPTER_TAP_CLASS } from "../reader-prose";
 import { AnnotationPanel } from "./annotation-panel";
 import { AnnotationList } from "./annotation-list";
 import { ReaderMarginControls } from "./annotations-button";
-import { AnnotationThread } from "./annotation-thread";
+import { AnnotationThread, type ComposeMode } from "./annotation-thread";
 import { ChapterMenu } from "./chapter-menu";
 import { GutterMarkers } from "./gutter-markers";
 import { useGutterPlacement, type PagedGutterContext } from "./gutter-placement";
@@ -95,6 +96,13 @@ const READING_LINE = 72;
  * an ordinary highlight, because the id it discards can only ever have come from
  * this interaction's own insert.
  */
+/**
+ * What just made an annotation real: a question to Claude, or the reader's own
+ * note. They are not interchangeable — see markTouched, where telling them apart
+ * is what keeps a note looking like a note.
+ */
+type TouchKind = "question" | "note";
+
 type PendingCreate = {
   /** Also the optimistic row's id, until the real one arrives. */
   clientId: string;
@@ -111,10 +119,6 @@ type PendingCreate = {
    */
   settled: boolean;
 };
-
-function isPendingId(id: string): boolean {
-  return id.startsWith("pending:");
-}
 
 export function ReaderAnnotationLayer({
   bookId,
@@ -214,6 +218,13 @@ export function ReaderAnnotationLayer({
   const [createError, setCreateError] = useState<string | null>(null);
   /** Bumped per open, so the thread remounts per annotation but not per id swap. */
   const [threadKey, setThreadKey] = useState(0);
+  /**
+   * Which way the composer opens. Set from the selection toolbar's intent, so
+   * choosing Note there lands in a panel already set to write one; reopening
+   * anything from the margin or the list starts on Chat, because by then the
+   * gesture that carried an intent is long over.
+   */
+  const [threadMode, setThreadMode] = useState<ComposeMode>("chat");
   /** The row the panel is showing, while it exists only on this device. */
   const pendingRef = useRef<PendingCreate | null>(null);
 
@@ -259,17 +270,14 @@ export function ReaderAnnotationLayer({
       c.id === detail.id
         ? {
             ...c,
-            note: detail.note,
+            latestNote: detail.latestNote ?? c.latestNote,
+            noteCount: Math.max(c.noteCount, detail.noteCount),
             // The mark in the page appears on the send, not on the reply — see
             // markTouched. Until the list is refetched, this is the only place
             // that knows the question was asked. `detail.messageCount` carries
             // that for a summary, whose mark isn't keyed on a question at all.
             firstQuestion: c.firstQuestion ?? detail.firstQuestion,
-            messageCount: Math.max(
-              c.messageCount,
-              detail.messageCount,
-              detail.messages.length
-            ),
+            messageCount: Math.max(c.messageCount, detail.messageCount),
           }
         : c
     );
@@ -450,16 +458,25 @@ export function ReaderAnnotationLayer({
    * what reflows the page, and that should happen once, at the moment the reader
    * committed to asking.
    */
-  const markTouched = useCallback((question: string) => {
+  const markTouched = useCallback((text: string, kind: TouchKind) => {
     setTouched(true);
     setDetail((d) =>
       d
         ? {
             ...d,
-            firstQuestion: d.firstQuestion ?? markText(question),
-            // A summary's mark is keyed on having a message rather than on the
-            // question, so it needs this to appear at the same moment.
-            messageCount: Math.max(d.messageCount, 1),
+            firstQuestion: d.firstQuestion ?? markText(text),
+            // Only a question bumps this. It is the count of the CONVERSATION,
+            // and it is what annotationKind reads to decide a passage is a chat
+            // — so bumping it for a note painted notes in the chat's purple and
+            // gave them its speech-bubble icon. A summary's mark is keyed on
+            // having a message rather than on the question, so it still needs
+            // this to appear at the same moment.
+            //
+            // The matching bump for a note lives in addNote, deliberately: it
+            // happens once the write lands, so a passage doesn't dress itself as
+            // annotated until the words are actually saved.
+            messageCount:
+              kind === "question" ? Math.max(d.messageCount, 1) : d.messageCount,
           }
         : d
     );
@@ -513,8 +530,11 @@ export function ReaderAnnotationLayer({
       resolved: ResolvedAnchor,
       asDraft: boolean,
       /** Set when this is a chapter's summary — see createAnnotation. */
-      chapterAnchorId: string | null = null
+      chapterAnchorId: string | null = null,
+      /** Which way the composer opens — see AnnotationThread's initialMode. */
+      composeMode: ComposeMode = "chat"
     ) => {
+      setThreadMode(composeMode);
       const stopOpen = startTimer("annotate: click → panel");
       const clientId = `pending:${crypto.randomUUID()}`;
       const anchorPage = pageForCharOffset(resolved.anchorCharOffset);
@@ -534,11 +554,11 @@ export function ReaderAnnotationLayer({
         contextThroughPage: spoilerFree ? anchorPage : null,
         quotedText: resolved.quotedText,
         chapterAnchorId,
-        note: null,
+        latestNote: null,
+        noteCount: 0,
         // The column's default, and its only permitted value today.
         color: "yellow",
         modelPreference: isSummary ? "deep" : "fast",
-        forkedFromAnnotationId: null,
         messageCount: 0,
         lastMessageAt: null,
         firstQuestion: null,
@@ -584,8 +604,20 @@ export function ReaderAnnotationLayer({
         }
         const real = settled.detail;
         note("annotate: id settled", real.id);
-        // Anything typed in the meantime outranks the empty row the server made.
-        setDetail((d) => (d && d.id === clientId ? { ...real, note: d.note ?? real.note } : d));
+        // Anything written in the meantime outranks the empty row the server
+        // made — a note typed inside the create round trip is already drawn in
+        // the thread and queued for the insert, so the server's freshly-created
+        // (and therefore noteless) row must not paint over it.
+        setDetail((d) =>
+          d && d.id === clientId
+            ? {
+                ...real,
+                latestNote: d.latestNote ?? real.latestNote,
+                noteCount: Math.max(d.noteCount, real.noteCount),
+                firstQuestion: d.firstQuestion ?? real.firstQuestion,
+              }
+            : d
+        );
         setDraftId((d) => (d === clientId ? real.id : d));
 
         const queued = pending.queue;
@@ -718,8 +750,12 @@ export function ReaderAnnotationLayer({
       // a highlight and becomes a note the moment you type something, so tapping
       // Note and changing your mind leaves a highlight rather than a blank entry
       // in the sidebar. Only "Ask" creates a discardable draft.
+      //
+      // The intent also decides which way the one composer opens — the toolbar
+      // already asked, so making the reader answer again inside the panel would
+      // be asking twice.
       if (intent !== "highlight") {
-        openDraft(resolved, intent === "ask");
+        openDraft(resolved, intent === "ask", null, intent === "note" ? "note" : "chat");
         return;
       }
 
@@ -753,7 +789,9 @@ export function ReaderAnnotationLayer({
   const openExisting = useCallback(
     async (chatId: string) => {
       const chat = await getAnnotation(chatId, memberEmail);
-      if (chat) openPanelWith(chat);
+      if (!chat) return;
+      setThreadMode("chat");
+      openPanelWith(chat);
     },
     [memberEmail, openPanelWith]
   );
@@ -855,6 +893,52 @@ export function ReaderAnnotationLayer({
     startAtGap(blockIndex);
   }, [busy, contentRef, isCreating, onPage, startAtGap]);
 
+  /**
+   * `c` — start a conversation about what you're looking at.
+   *
+   * One key, two meanings, decided by whether anything is selected: with a
+   * passage highlighted it asks about that passage, and with nothing selected it
+   * asks about the page. Those are the same two things the selection toolbar's
+   * "Ask" and the margin control already do, so this adds a way in rather than a
+   * behaviour — which is what makes one letter for both defensible.
+   *
+   * Matched on the physical key like `b` above (see annotations-button.tsx):
+   * e.key is whatever the layout produces, e.code is the key you pressed.
+   */
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== "KeyC") return;
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.repeat) return;
+      if (isTypingTarget(e.target) || inOpenOverlay(e.target)) return;
+      const container = contentRef.current;
+      if (!container) return;
+
+      // Cloned before the selection is dropped, for the same reason the toolbar
+      // clones (see use-selection-range.ts): the anchor has to survive whatever
+      // happens to the live selection next.
+      const selection = window.getSelection();
+      const live =
+        selection && !selection.isCollapsed && selection.rangeCount > 0
+          ? selection.getRangeAt(0)
+          : null;
+      const onPassage =
+        live != null &&
+        container.contains(live.commonAncestorContainer) &&
+        live.toString().trim().length > 0;
+
+      e.preventDefault();
+      if (onPassage && live) {
+        const range = live.cloneRange();
+        selection?.removeAllRanges();
+        void annotateSelection(range, "ask");
+        return;
+      }
+      askHere();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [annotateSelection, askHere, contentRef]);
+
   // Clicking a highlighted passage opens its chat — the highlight should be the
   // affordance, not just a colour. Ignored while a selection is live, so this
   // never hijacks the click that finishes selecting text.
@@ -940,14 +1024,6 @@ export function ReaderAnnotationLayer({
     [data, goToChar]
   );
 
-  // Which page the reader has reached, for the spoiler-free scoping and the
-  // "you've read past this" note. Derived from where they are rather than from
-  // page-anchor elements, which most books don't actually carry.
-  const currentPage = useMemo(
-    () => pageForCharOffset(currentCharOffset),
-    [currentCharOffset, pageForCharOffset]
-  );
-
   /** Synthetic page numbers mean nothing on screen — show progress instead. */
   const labelForPage = useCallback(
     (page: number) => {
@@ -957,40 +1033,6 @@ export function ReaderAnnotationLayer({
     },
     [data, totalChars]
   );
-
-  const forkHere = useCallback(async () => {
-    // Forking references the annotation being forked FROM, so it needs a row
-    // that exists. Unreachable in practice — the offer only appears once the
-    // reader has read past the anchor — but a stand-in id must never be sent.
-    if (!detail || isPendingId(detail.id)) return;
-    const container = contentRef.current;
-    if (!container) return;
-    // Anchor the fork where the reader is now. Both modes report that as a
-    // character offset, so this no longer has to know how the book is laid out.
-    const resolved = anchorForGap(
-      blockIndexForCharOffset(blocks, currentCharOffset),
-      space,
-      container
-    );
-    if (!resolved) return;
-    const chat = await forkAnnotation({
-      chatId: detail.id,
-      anchor: resolved.anchor,
-      anchorCharOffset: resolved.anchorCharOffset,
-      memberEmail,
-    });
-    openPanelWith(chat, true);
-    refreshList();
-  }, [
-    blocks,
-    contentRef,
-    currentCharOffset,
-    detail,
-    memberEmail,
-    openPanelWith,
-    refreshList,
-    space,
-  ]);
 
   // Deletes outright rather than going through closePanel, which would then
   // also try to discard the row it just removed.
@@ -1012,21 +1054,68 @@ export function ReaderAnnotationLayer({
     refreshList();
   }, [detail, memberEmail, onPanelOpenChange, refreshList]);
 
+  /**
+   * Move the open chat's spoiler boundary — and take the book's default with it.
+   *
+   * Two writes because they answer two different questions. The chat's own row
+   * is what the reader is actually changing: the box sits by the composer, so it
+   * has to govern the question about to be asked, not some future one. The
+   * book's switch follows along because spoiler-safety is a stance about the
+   * book you're in the middle of, not a per-question mood — having to re-tick it
+   * at every passage would be the same paper cut as the old "applies to new
+   * chats" label, from the other direction.
+   *
+   * The server ignores the first write once the chat has been asked something;
+   * the panel stops offering the control at the same moment.
+   */
   const changeSpoilerFree = useCallback(
     async (next: boolean) => {
+      if (!detail) return;
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              spoilerFree: next,
+              // Kept in step with what the server writes, so the header's "read
+              // to p.N" line answers the tick immediately.
+              contextThroughPage: next ? d.anchorPage : null,
+            }
+          : d
+      );
       setData((d) => (d ? { ...d, spoilerFree: next } : d));
+      await onceCreated(detail.id, (id) =>
+        setAnnotationSpoilerFree(id, next, memberEmail)
+      );
       await setBookSpoilerFree(bookId, next, memberEmail);
     },
-    [bookId, memberEmail]
+    [bookId, detail, memberEmail, onceCreated]
   );
 
-  const changeNote = useCallback(
-    async (noteText: string | null) => {
+  /**
+   * Append a note to the open annotation.
+   *
+   * The thread has already drawn it, so this only has to make it real and tell
+   * the list — which cares because a note is what turns a highlight into
+   * something with words in the margin.
+   */
+  const addNote = useCallback(
+    async (text: string) => {
       if (!detail) return;
-      // Optimistic: the textarea already shows this, and a note that flickered
-      // back to its old text on save would read as a lost edit.
-      setDetail((d) => (d ? { ...d, note: noteText } : d));
-      await onceCreated(detail.id, (id) => setAnnotationNote(id, noteText, memberEmail));
+      // Recorded after the write rather than before it. The thread has already
+      // drawn the note optimistically and rolls its own copy back if this
+      // throws; these fields only feed the marks list, so writing them up front
+      // would leave a note in the sidebar that no longer exists in the panel.
+      await onceCreated(detail.id, (id) => addAnnotationNote(id, text, memberEmail));
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              latestNote: text,
+              noteCount: d.noteCount + 1,
+              firstQuestion: d.firstQuestion ?? markText(text),
+            }
+          : d
+      );
       refreshList();
     },
     [detail, memberEmail, onceCreated, refreshList]
@@ -1111,13 +1200,10 @@ export function ReaderAnnotationLayer({
             resolveChatId={realIdFor}
             createError={createError}
             memberEmail={memberEmail}
-            bookSpoilerFree={data?.spoilerFree ?? false}
             isArticle={isArticle}
             hasRealPages={data?.hasRealPages ?? false}
-            currentPage={currentPage}
             labelForPage={labelForPage}
             onJumpToPage={jumpToPage}
-            onFork={() => void forkHere()}
             onDelete={() => void removeChat()}
             onBack={backToList}
             onClose={closePanel}
@@ -1128,7 +1214,8 @@ export function ReaderAnnotationLayer({
             onExchangeComplete={refreshList}
             onSpoilerFreeChange={(v) => void changeSpoilerFree(v)}
             onModelChange={(v) => void changeModel(v)}
-            onNoteChange={(n) => void changeNote(n)}
+            initialMode={threadMode}
+            onAddNote={addNote}
             dockToggle={dockToggle}
           />
           )

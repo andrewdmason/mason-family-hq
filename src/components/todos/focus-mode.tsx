@@ -20,7 +20,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Toast, ToastViewport } from "@/components/ui/toast";
-import { inOpenOverlay, isTypingTarget } from "@/lib/todos/keyboard";
+import { inOpenOverlay, isTypingTarget } from "@/lib/keyboard";
 import { setPendingSelection } from "@/lib/todos/pending-selection";
 import type { TodoTaskAttachment } from "@/lib/todos/queries";
 import { useReconciler } from "@/lib/todos/reconcile";

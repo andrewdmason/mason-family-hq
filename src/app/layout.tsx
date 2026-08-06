@@ -116,7 +116,8 @@ export default function RootLayout({
         </AudiobookProvider>
         {/* Keeps <html class="eink"> in step with the per-device setting. */}
         <EinkModeSync />
-        {/* Global to-do quick-add: press `c` anywhere (see quick-add.tsx). */}
+        {/* The to-do quick-add modal, mounted app-wide so any surface can
+            summon it. Its `c` key only fires inside /todos — see quick-add.tsx. */}
         <GlobalQuickAdd />
         {/* Dev-only: remember the last app you were in so `/` returns there. */}
         {process.env.NODE_ENV === "development" && <LastAppTracker />}

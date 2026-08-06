@@ -19,6 +19,12 @@ import { cn } from "@/lib/utils";
  * macOS itself are all clear of ⌘\ — 1Password is the collision.
  */
 export const ANNOTATIONS_SHORTCUT_KEY = "b";
+/**
+ * Starts a chat about the page, or about the passage if one is selected. Owned
+ * by reader-annotation-layer.tsx, where both of those already have a home;
+ * named here so the button can say so in its tooltip, the way `b` does.
+ */
+export const ASK_SHORTCUT_KEY = "c";
 
 const BUTTON_CLASS =
   "flex h-8 w-8 items-center justify-center rounded-full transition-colors";
@@ -79,7 +85,7 @@ export function ReaderMarginControls({
         type="button"
         onClick={onAsk}
         aria-label="Ask about this page"
-        title="Ask about this page"
+        title={`Ask about this page (${ASK_SHORTCUT_KEY})`}
         className={cn(
           BUTTON_CLASS,
           "text-muted-foreground/50 hover:bg-muted hover:text-foreground"

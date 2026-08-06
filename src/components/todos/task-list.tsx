@@ -73,7 +73,7 @@ import {
 import type { UploadingAttachment } from "@/components/todos/task-attachments";
 import { MiniCalendar, WhenMenu } from "@/components/todos/when-picker";
 import { MemberAvatar } from "@/components/journal/member-avatar";
-import { inOpenOverlay, isTypingTarget } from "@/lib/todos/keyboard";
+import { inOpenOverlay, isTypingTarget } from "@/lib/keyboard";
 import { takePendingSelection } from "@/lib/todos/pending-selection";
 import {
   Dialog,
