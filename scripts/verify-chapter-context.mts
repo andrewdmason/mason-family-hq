@@ -27,6 +27,7 @@ import {
   summarizableChapters,
 } from "../src/lib/reading/reading-progress";
 import {
+  chapterIndex,
   chapterMarks,
   pageMarks,
   spliceMarks,
@@ -89,10 +90,19 @@ function stripMarkers(text: string): string {
   return text.replace(/\n\[p\.\d+\]\n/g, "").replace(/\n\n## /g, "");
 }
 
-function markup(from: number, to: number): { text: string; titles: string[] } {
+function markup(from: number, to: number) {
   const chapters = chapterMarks(BLOCKS, from, to);
   const marks: ContextMark[] = pageMarks(PAGE_ROWS, from, to).concat(chapters.marks);
-  return { text: spliceMarks(FULL_TEXT, from, to, marks), titles: chapters.titles };
+  return {
+    text: spliceMarks(FULL_TEXT, from, to, marks),
+    titles: chapters.chapters.map((c) => c.title),
+    index: chapterIndex(chapters.chapters, PAGE_ROWS, to),
+  };
+}
+
+/** The page a character offset falls on, read straight off the page map. */
+function pageOf(at: number): number {
+  return PAGES.find((p) => at >= p.charStart && at < p.charEnd)!.pageNumber;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +166,54 @@ check(
 );
 
 // ---------------------------------------------------------------------------
+// Where each chapter ends
+//
+// The index has to state the LAST page of a chapter, not just its first. Without
+// that a model reads until something sounds like an ending and stops there —
+// which is how a summary of a 24-page chapter covered its first 14 pages and
+// then quoted a mid-chapter parting as the closing words.
+// ---------------------------------------------------------------------------
+
+console.log("\nthe contents index says how far each chapter runs");
+
+const chapterStarts = Array.from(
+  { length: CHAPTERS },
+  (_, i) => BLOCKS.find((b) => b.text === `Chapter ${i + 1}`)!.charStart
+);
+
+check(
+  "every chapter opens on the page its heading is on",
+  whole.index.every((entry, i) => entry.fromPage === pageOf(chapterStarts[i]))
+);
+check(
+  "every chapter runs through the page before the next one opens",
+  whole.index.every(
+    (entry, i) =>
+      entry.throughPage ===
+      pageOf(i + 1 < CHAPTERS ? chapterStarts[i + 1] - 1 : CHAR_COUNT - 1)
+  ),
+  whole.index.map((e) => `${e.title}:${e.fromPage}-${e.throughPage}`).join(" ")
+);
+check(
+  "a chapter's range covers more than the page it starts on",
+  whole.index.every((entry) => entry.throughPage! > entry.fromPage!)
+);
+check(
+  "the ranges tile the book — no gap between one chapter and the next",
+  whole.index.every((entry, i) => i === 0 || entry.fromPage! >= whole.index[i - 1].throughPage!)
+);
+check(
+  "the last chapter runs to the last page of the book",
+  whole.index[CHAPTERS - 1].throughPage === PAGES[PAGES.length - 1].pageNumber
+);
+check(
+  "with no page map at all, chapters are named but not placed",
+  chapterIndex(chapterMarks(BLOCKS, 0, CHAR_COUNT).chapters, [], CHAR_COUNT).every(
+    (entry) => entry.fromPage === null && entry.throughPage === null
+  )
+);
+
+// ---------------------------------------------------------------------------
 // A spoiler-scoped chat
 // ---------------------------------------------------------------------------
 
@@ -175,7 +233,14 @@ check("no later chapter is marked", !scoped.text.includes("## Chapter 4"));
 check("nothing past the boundary leaks in", stripMarkers(scoped.text).length < chapter4At);
 check(
   "a boundary landing exactly on a heading excludes it",
-  chapterMarks(BLOCKS, 0, chapter3At).titles.join("|") === "Chapter 1|Chapter 2"
+  chapterMarks(BLOCKS, 0, chapter3At)
+    .chapters.map((c) => c.title)
+    .join("|") === "Chapter 1|Chapter 2"
+);
+check(
+  "the chapter they're in ends at the boundary, not at its real end",
+  scoped.index[2].throughPage === pageOf(chapter3At + 199),
+  `${scoped.index[2].throughPage} vs ${pageOf(chapter3At + 199)}`
 );
 
 // ---------------------------------------------------------------------------

@@ -11,9 +11,11 @@ import {
 import type { ReadingTocEntry } from "@/lib/types";
 import {
   MAX_CHAPTER_INDEX_ENTRIES,
+  chapterIndex,
   chapterMarks,
   pageMarks,
   spliceMarks,
+  type ChapterIndexEntry,
   type ContextMark,
   type PageRange,
 } from "@/lib/reading/context-markup";
@@ -218,13 +220,13 @@ export type BookTextSlice = {
   /** Whether "## " chapter markers were emitted (see options.chapterMarkers). */
   hasChapterMarkers: boolean;
   /**
-   * The heading lines in the slice, in reading order — exactly as they appear in
-   * the marked-up text, so a chapter named here can be found there verbatim.
-   * Empty when chapterMarkers is off, the text has no headings, or the slice was
-   * windowed (an index that promises chapters the elision removed is worse than
-   * none).
+   * The headings in the slice, in reading order — exactly as they appear in the
+   * marked-up text, so a chapter named here can be found there verbatim, each
+   * with the page range it covers. Empty when chapterMarkers is off, the text has
+   * no headings, or the slice was windowed (an index that promises chapters the
+   * elision removed is worse than none).
    */
-  chapters: string[];
+  chapters: ChapterIndexEntry[];
 };
 
 /**
@@ -337,11 +339,11 @@ export async function getTextForRange(
   // else depends on stay exact.
   let marks: ContextMark[] = [];
 
-  // Reader chat: label each page so the model can cite "[p.212]" and the client
-  // can turn that into a jump.
-  let hasPageMarkers = false;
-  if (options?.pageMarkers) {
-    const { data: pageRows } = await client
+  // The pages overlapping the slice. Read once: page labels are spliced into the
+  // text from them, and the chapter index is placed against them.
+  let pageRows: PageRange[] = [];
+  if (options?.pageMarkers || options?.chapterMarkers) {
+    const { data } = await client
       .from("reading_book_pages")
       .select("page_number, char_start, char_end")
       .eq("book_id", bookId)
@@ -349,17 +351,23 @@ export async function getTextForRange(
       .gt("char_end", charStart)
       .lt("char_start", effectiveEnd)
       .order("page_number", { ascending: true });
+    pageRows = (data ?? []) as PageRange[];
+  }
 
-    marks = pageMarks((pageRows ?? []) as PageRange[], charStart, effectiveEnd);
+  // Reader chat: label each page so the model can cite "[p.212]" and the client
+  // can turn that into a jump.
+  let hasPageMarkers = false;
+  if (options?.pageMarkers) {
+    marks = pageMarks(pageRows, charStart, effectiveEnd);
     hasPageMarkers = marks.length > 0;
   }
 
-  // Reader chat: make chapter starts visible, and index them.
-  let chapters: string[] = [];
+  // Reader chat: make chapter starts visible, and index them with their extents.
+  let chapters: ChapterIndexEntry[] = [];
   if (options?.chapterMarkers) {
     const found = chapterMarks(blocks, charStart, effectiveEnd);
     marks = marks.concat(found.marks);
-    chapters = found.titles;
+    chapters = chapterIndex(found.chapters, pageRows, effectiveEnd);
   }
 
   const { text, truncated } = fitToBudget(
