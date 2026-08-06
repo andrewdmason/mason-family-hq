@@ -51,8 +51,12 @@ export function AnnotationThread({
   onFork: () => void;
   onDelete: () => void;
   onClose: () => void;
-  /** Fired on the first send: the chat is now real and shouldn't be discarded. */
-  onTouched: () => void;
+  /**
+   * Fired on the first send: the chat is now real and shouldn't be discarded.
+   * Carries the question, which is also what the mark in the page shows — see
+   * markTouched in reader-annotation-layer.tsx.
+   */
+  onTouched: (question: string) => void;
   /** Fires once the row definitely has a persisted message on it. */
   onExchangeComplete: () => void;
   onSpoilerFreeChange: (next: boolean) => void;
@@ -99,7 +103,7 @@ export function AnnotationThread({
     setSending(true);
     // Before the request, not after: the route persists the user's message as
     // its first step, so the chat is committed even if the reply fails.
-    onTouched();
+    onTouched(text);
 
     const userId = localId();
     const assistantId = localId();
@@ -270,7 +274,9 @@ export function AnnotationThread({
                     onJumpToPage={onJumpToPage}
                   />
                 ) : (
-                  m.content
+                  // The reader's own words, kept as typed — a question written
+                  // over two lines shouldn't come back as one.
+                  <span className="whitespace-pre-wrap">{m.content}</span>
                 )}
               </div>
             )

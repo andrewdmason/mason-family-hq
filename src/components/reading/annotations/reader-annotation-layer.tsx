@@ -15,8 +15,15 @@ import {
 import { blockIndexForCharOffset, type BookBlock } from "@/lib/reading/block-stream";
 import { note, startTimer, time } from "@/lib/reading/perf";
 import {
+  INLINE_MARK_ATTR,
+  markText,
+  pageBlocks,
+  type InlineChatMark,
+} from "@/lib/reading/inline-chat-blocks";
+import {
   anchorForGap,
   anchorFromRange,
+  blockElements,
   type AnchorSpace,
   type ResolvedAnchor,
 } from "@/lib/reading/annotation-anchors";
@@ -25,14 +32,14 @@ import type {
   AnnotationDetail,
   ReaderChatModelPreference,
 } from "@/lib/reading/annotation-types";
+import type { ChapterBound } from "@/lib/reading/reading-progress";
 import { AnnotationPanel } from "./annotation-panel";
 import { AnnotationList } from "./annotation-list";
-import { AnnotationsButton } from "./annotations-button";
+import { ReaderMarginControls } from "./annotations-button";
 import { AnnotationThread } from "./annotation-thread";
 import { GutterMarkers } from "./gutter-markers";
 import { useGutterPlacement, type PagedGutterContext } from "./gutter-placement";
 import { PanelDockToggle } from "./panel-dock-toggle";
-import { ParagraphHoverTarget } from "./paragraph-hover-target";
 import { SelectionToolbar, type SelectionIntent } from "./selection-toolbar";
 import { annotationAtPoint, useAnnotationHighlights } from "./use-annotation-highlights";
 import { useContentVersion } from "./use-content-version";
@@ -41,6 +48,14 @@ import { useContentVersion } from "./use-content-version";
  * Owns reader chat: loads the anchored chats for a book, renders the two ways to
  * start one and the markers that reopen them, and hosts the panel.
  *
+ * The two ways are deliberately different in kind. Selecting a passage asks
+ * about that sentence and leaves a highlight; the control in the top margin asks
+ * about where you are, anchors at the first paragraph break on screen, and — once
+ * you have actually asked something — leaves a one-line mark in the page itself
+ * (see inline-chat-blocks.ts). The second replaced a hover-between-paragraphs
+ * affordance that could not exist on a phone or an e-reader, which is most of
+ * where this book gets read.
+ *
  * Everything positional is computed from the book HTML the reader already
  * fetched (see block-stream.ts), so anchors resolve without measuring text —
  * which is why pagination didn't disturb any of it. Only the placement of the
@@ -48,6 +63,14 @@ import { useContentVersion } from "./use-content-version";
  */
 /** Stable identity, so an article doesn't re-run every blocks-keyed memo. */
 const NO_BLOCKS: BookBlock[] = [];
+const NO_CHAPTERS: ChapterBound[] = [];
+
+/**
+ * Where "the top of the screen" is once the header's space is allowed for —
+ * the same measure the scrolling reader uses to decide where you are. Only
+ * articles need it; everything else answers that question in characters.
+ */
+const READING_LINE = 72;
 
 /**
  * An annotation the reader can see and type into before the server has heard
@@ -91,9 +114,12 @@ export function ReaderAnnotationLayer({
   bookId,
   memberEmail,
   blocks: allBlocks,
+  chapters,
   isArticle,
   contentRef,
   currentCharOffset,
+  visibleThroughChar,
+  onInlineMarksChange,
   goToChar,
   paged,
   panelOpen,
@@ -108,11 +134,29 @@ export function ReaderAnnotationLayer({
   memberEmail: string | null;
   /** The book's block stream, mapped once by the reader and shared from there. */
   blocks: BookBlock[];
+  /**
+   * The book's chapters in the character space, for grouping the marks list.
+   * Empty for an article, whose offsets aren't in that space at all.
+   */
+  chapters: ChapterBound[];
   /** Articles have no page map and no conversion char space — see AnchorSpace. */
   isArticle: boolean;
   contentRef: React.RefObject<HTMLDivElement | null>;
   /** Where the reader is now, in the conversion char space. */
   currentCharOffset: number;
+  /**
+   * First character past the bottom of the page, which with the above bounds
+   * exactly what's on screen. Null while scrolling, and on the last page of a
+   * paged window, where the reader has no next page to measure against — read as
+   * "unbounded" rather than "empty" (see pageBlocks).
+   */
+  visibleThroughChar: number | null;
+  /**
+   * Publishes the conversations that leave a mark in the page. They have to be
+   * an input to the rendered HTML rather than something drawn over it, so they
+   * go up to the reader instead of being painted here — see inline-chat-blocks.
+   */
+  onInlineMarksChange: (marks: InlineChatMark[]) => void;
   goToChar: (charOffset: number) => void;
   /** Non-null in paged mode; drives marker placement. */
   paged: PagedGutterContext | null;
@@ -204,11 +248,49 @@ export function ReaderAnnotationLayer({
         ? {
             ...c,
             note: detail.note,
+            // The mark in the page appears on the send, not on the reply — see
+            // markTouched. Until the list is refetched, this is the only place
+            // that knows the question was asked.
+            firstQuestion: c.firstQuestion ?? detail.firstQuestion,
             messageCount: Math.max(c.messageCount, detail.messages.length),
           }
         : c
     );
   }, [loaded, detail]);
+
+  /**
+   * The conversations that show as a line in the book: the ones anchored to a
+   * paragraph break that have actually been asked something.
+   *
+   * A chat started from a selection is deliberately not here. It already has a
+   * visible home in the text — the highlight and its margin icon — and inlining
+   * those as well would interrupt the prose on every passage you ever marked.
+   *
+   * Articles are out too: their HTML is arbitrary sanitized markup with no
+   * character space to splice against, so they keep the margin icon alone.
+   */
+  const inlineMarks = useMemo<InlineChatMark[]>(() => {
+    if (isArticle) return [];
+    return chats.flatMap((c) =>
+      c.anchor?.kind === "between" && c.firstQuestion
+        ? [{ chatId: c.id, blockIndex: c.anchor.blockIndex, text: c.firstQuestion }]
+        : []
+    );
+  }, [chats, isArticle]);
+
+  // Published on change rather than every render: the reader folds these into
+  // the book's markup, and re-rendering the book to hand it an identical list
+  // would repaginate it for nothing.
+  const marksRef = useRef(inlineMarks);
+  useEffect(() => {
+    marksRef.current = inlineMarks;
+  });
+  const marksKey = inlineMarks
+    .map((m) => `${m.chatId}@${m.blockIndex}:${m.text}`)
+    .join("|");
+  useEffect(() => {
+    onInlineMarksChange(marksRef.current);
+  }, [marksKey, onInlineMarksChange]);
   // Both of the things below are derived from the rendered content, so both
   // have to be re-derived when that content is swapped in or replaced. See
   // use-content-version.ts: layoutNonce alone does not reliably cover it.
@@ -322,6 +404,23 @@ export function ReaderAnnotationLayer({
     [onPanelOpenChange]
   );
 
+  /**
+   * The first send in a chat.
+   *
+   * Two things become true at once: the conversation is real and must survive
+   * being closed, and the page now has a mark to carry. The question comes back
+   * with the callback rather than being refetched, so the mark appears on the
+   * send instead of a round trip later — which matters, because inserting it is
+   * what reflows the page, and that should happen once, at the moment the reader
+   * committed to asking.
+   */
+  const markTouched = useCallback((question: string) => {
+    setTouched(true);
+    setDetail((d) =>
+      d && !d.firstQuestion ? { ...d, firstQuestion: markText(question) } : d
+    );
+  }, []);
+
   /** True while an annotation is being inserted — one at a time is plenty. */
   const isCreating = useCallback(
     () => pendingRef.current != null && !pendingRef.current.settled,
@@ -389,6 +488,7 @@ export function ReaderAnnotationLayer({
         forkedFromAnnotationId: null,
         messageCount: 0,
         lastMessageAt: null,
+        firstQuestion: null,
         createdAt: new Date().toISOString(),
         messages: [],
       };
@@ -492,8 +592,8 @@ export function ReaderAnnotationLayer({
       .catch(() => {});
   }, [detail, draftId, memberEmail, onPanelOpenChange, refreshList, touched]);
 
-  // `blockIndex` is global, like every index that reaches an anchor — the hover
-  // target adds `windowBase` when it measures. See RenderedBlocks.
+  // `blockIndex` is global, like every index that reaches an anchor. See
+  // RenderedBlocks.
   const startAtGap = useCallback(
     (blockIndex: number) => {
       const container = contentRef.current;
@@ -504,6 +604,40 @@ export function ReaderAnnotationLayer({
     },
     [busy, contentRef, isCreating, openDraft, space]
   );
+
+  /**
+   * What's on the page, in block indices, and where a conversation about it
+   * would go. Null for articles, which have no character space — they fall back
+   * to measuring the DOM in `askHere`.
+   */
+  const onPage = useMemo(
+    () =>
+      isArticle
+        ? null
+        : pageBlocks(blocks, currentCharOffset, visibleThroughChar ?? currentCharOffset),
+    [blocks, currentCharOffset, isArticle, visibleThroughChar]
+  );
+
+  /**
+   * The conversation this page already has, if any.
+   *
+   * One page, one conversation: the control in the margin reopens this rather
+   * than starting a second one a few paragraphs from the first. Anything more
+   * specific is what selecting a passage is for.
+   */
+  const chatOnThisPage = useMemo(() => {
+    if (!onPage) return null;
+    return (
+      chats
+        .filter(
+          (c) =>
+            c.anchor?.kind === "between" &&
+            c.anchor.blockIndex >= onPage.start &&
+            c.anchor.blockIndex < onPage.end
+        )
+        .sort((a, b) => a.anchorCharOffset - b.anchorCharOffset)[0] ?? null
+    );
+  }, [chats, onPage]);
 
   /**
    * The three things a selection can become. They differ only in what the row
@@ -568,6 +702,52 @@ export function ReaderAnnotationLayer({
     [memberEmail, openPanelWith]
   );
 
+  /**
+   * Start — or reopen — the conversation about the visible page.
+   *
+   * An article has no character space to reason in, so its break is measured off
+   * the DOM instead: the first block starting below the top of the window. Books
+   * never take that path, in either reading mode — a scrolling book reports no
+   * page end, which `pageBlocks` reads as "the next paragraph start", and that is
+   * the same answer.
+   */
+  const askHere = useCallback(() => {
+    const container = contentRef.current;
+    if (!container || busy || isCreating()) return;
+
+    if (onPage) {
+      if (chatOnThisPage) {
+        void openExisting(chatOnThisPage.id);
+        return;
+      }
+      startAtGap(onPage.breakIndex);
+      return;
+    }
+
+    const els = blockElements(container);
+    const found = els.findIndex((el) => el.getBoundingClientRect().top > READING_LINE);
+    // Articles are never windowed, so a DOM index is already a global one.
+    const blockIndex = found >= 0 ? found : els.length - 1;
+    if (blockIndex < 0) return;
+    const existing = chats.find(
+      (c) => c.anchor?.kind === "between" && c.anchor.blockIndex === blockIndex
+    );
+    if (existing) {
+      void openExisting(existing.id);
+      return;
+    }
+    startAtGap(blockIndex);
+  }, [
+    busy,
+    chatOnThisPage,
+    chats,
+    contentRef,
+    isCreating,
+    onPage,
+    openExisting,
+    startAtGap,
+  ]);
+
   // Clicking a highlighted passage opens its chat — the highlight should be the
   // affordance, not just a colour. Ignored while a selection is live, so this
   // never hijacks the click that finishes selecting text.
@@ -577,6 +757,15 @@ export function ReaderAnnotationLayer({
     const onClick = (e: MouseEvent) => {
       const selection = window.getSelection();
       if (selection && !selection.isCollapsed) return;
+      // A mark set into the page IS the way back into its conversation. It lives
+      // in the book's own markup rather than in React, so it is opened from here
+      // — see inline-chat-blocks.ts.
+      const mark = (e.target as HTMLElement | null)?.closest(`[${INLINE_MARK_ATTR}]`);
+      const markId = mark?.getAttribute(INLINE_MARK_ATTR);
+      if (markId) {
+        void openExisting(markId);
+        return;
+      }
       // Articles keep real links. A click inside one is meant for the link, and
       // opening a panel on top of a navigation is the wrong answer to both.
       if ((e.target as HTMLElement | null)?.closest("a")) return;
@@ -705,22 +894,19 @@ export function ReaderAnnotationLayer({
 
   return (
     <>
-      <AnnotationsButton
-        onClick={openList}
-        active={panelOpen && mode === "list"}
+      <ReaderMarginControls
+        onAsk={askHere}
+        askActive={
+          panelOpen && mode === "thread" && detail != null && detail.id === chatOnThisPage?.id
+        }
+        hasChatHere={chatOnThisPage != null}
+        onOpenList={openList}
+        listActive={panelOpen && mode === "list"}
       />
       <GutterMarkers
         rows={gutterRows}
         openAnnotationId={detail?.id ?? null}
         onOpen={(id) => void openExisting(id)}
-      />
-      <ParagraphHoverTarget
-        contentRef={contentRef}
-        onStart={(i) => void startAtGap(i)}
-        layoutNonce={layoutNonce + contentVersion}
-        disabled={busy}
-        paged={paged}
-        base={windowBase}
       />
       <SelectionToolbar
         contentRef={contentRef}
@@ -739,6 +925,10 @@ export function ReaderAnnotationLayer({
         {mode === "list" ? (
           <AnnotationList
             annotations={chats}
+            // An article's anchors are DOM offsets, not the book character
+            // space these chapters are measured in — there is nothing to group.
+            chapters={isArticle ? NO_CHAPTERS : chapters}
+            totalChars={totalChars}
             openAnnotationId={detail?.id ?? null}
             hasRealPages={data?.hasRealPages ?? false}
             onOpen={(id) => void openExisting(id)}
@@ -762,7 +952,7 @@ export function ReaderAnnotationLayer({
             onFork={() => void forkHere()}
             onDelete={() => void removeChat()}
             onClose={closePanel}
-            onTouched={() => setTouched(true)}
+            onTouched={markTouched}
             // A sent message promotes a highlight to a chat, which changes both
             // its colour and whether it gets a margin icon. Refetch so the
             // change outlives the panel being open.

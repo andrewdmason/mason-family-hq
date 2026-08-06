@@ -2,6 +2,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveReadingScope } from "@/lib/reading/scope";
+import { markText } from "@/lib/reading/inline-chat-blocks";
 import type { AnnotationAnchor } from "@/lib/reading/annotation-anchors";
 import type {
   ReaderAnnotationData,
@@ -44,7 +45,11 @@ type AnnotationRow = {
 
 function toSummary(
   row: AnnotationRow,
-  counts?: { messageCount: number; lastMessageAt: string | null }
+  counts?: {
+    messageCount: number;
+    lastMessageAt: string | null;
+    firstQuestion?: string | null;
+  }
 ): AnnotationSummary {
   return {
     id: row.id,
@@ -62,6 +67,7 @@ function toSummary(
     forkedFromAnnotationId: row.forked_from_annotation_id,
     messageCount: counts?.messageCount ?? 0,
     lastMessageAt: counts?.lastMessageAt ?? null,
+    firstQuestion: counts?.firstQuestion ?? null,
     createdAt: row.created_at,
   };
 }
@@ -125,10 +131,14 @@ export async function getAnnotationData(
   // One roll-up query rather than a count per chat. Skipped entirely when there
   // are no chats — an empty .in() list is a malformed PostgREST filter, not an
   // empty result.
+  // `content` rides along so the opening question can be derived here rather
+  // than in a query per annotation. Only the reader's own first line survives
+  // this function — a truncated one at that — so no transcript is ever shipped
+  // to a client that only wanted to draw margin marks.
   const { data: msgRows } = rows.length
     ? await client
         .from("reading_annotation_messages")
-        .select("annotation_id, created_at")
+        .select("annotation_id, created_at, role, content")
         .eq("user_id", userId)
         .in(
           "annotation_id",
@@ -136,12 +146,36 @@ export async function getAnnotationData(
         )
     : { data: [] };
 
-  const stats = new Map<string, { messageCount: number; lastMessageAt: string | null }>();
-  for (const m of (msgRows ?? []) as { annotation_id: string; created_at: string }[]) {
-    const cur = stats.get(m.annotation_id) ?? { messageCount: 0, lastMessageAt: null };
+  type Stat = {
+    messageCount: number;
+    lastMessageAt: string | null;
+    firstQuestion: string | null;
+    firstQuestionAt: string | null;
+  };
+  const stats = new Map<string, Stat>();
+  for (const m of (msgRows ?? []) as {
+    annotation_id: string;
+    created_at: string;
+    role: string;
+    content: string;
+  }[]) {
+    const cur = stats.get(m.annotation_id) ?? {
+      messageCount: 0,
+      lastMessageAt: null,
+      firstQuestion: null,
+      firstQuestionAt: null,
+    };
     cur.messageCount += 1;
     if (!cur.lastMessageAt || m.created_at > cur.lastMessageAt) {
       cur.lastMessageAt = m.created_at;
+    }
+    // Rows arrive unordered, so the earliest is found rather than assumed.
+    if (
+      m.role === "user" &&
+      (!cur.firstQuestionAt || m.created_at < cur.firstQuestionAt)
+    ) {
+      cur.firstQuestion = markText(m.content);
+      cur.firstQuestionAt = m.created_at;
     }
     stats.set(m.annotation_id, cur);
   }
@@ -296,6 +330,10 @@ export async function getAnnotation(
     ...toSummary(chatRow, {
       messageCount: messages.length,
       lastMessageAt: messages.at(-1)?.createdAt ?? null,
+      firstQuestion: (() => {
+        const asked = messages.find((m) => m.role === "user");
+        return asked ? markText(asked.content) : null;
+      })(),
     }),
     messages,
   };

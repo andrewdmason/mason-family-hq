@@ -9,14 +9,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import Link from "next/link";
-import {
-  Headphones,
-  List,
-  Loader2,
-  MoreHorizontal,
-  PanelLeft,
-  Settings2,
-} from "lucide-react";
+import { ArrowLeft, ChevronDown, Headphones, Loader2, Settings2 } from "lucide-react";
 import { getReadingPosition, saveReadingPosition } from "@/app/(reading)/reader/actions";
 import {
   useAudiobook,
@@ -28,11 +21,13 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ReaderAnnotationLayer } from "@/components/reading/annotations/reader-annotation-layer";
 import { blockIndexForCharOffset, blockMap } from "@/lib/reading/block-stream";
 import { blockElements } from "@/lib/reading/annotation-anchors";
+import { withInlineChats, type InlineChatMark } from "@/lib/reading/inline-chat-blocks";
 import { describeDownload, loadBookHtml } from "@/lib/reading/offline/content-cache";
 import {
   markPositionSynced,
@@ -153,8 +148,18 @@ export function BookReader({
 }) {
   const [html, setHtml] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [tocOpen, setTocOpen] = useState(false);
+  // One menu in the middle of the header now — the book's name opens it, and it
+  // holds both what to do with the book and where to go in it.
   const [menuOpen, setMenuOpen] = useState(false);
+  /**
+   * The conversations that leave a line in the page.
+   *
+   * Owned here rather than by the chat layer because they are part of the book's
+   * markup: the paged reader has to fragment the text with them already in it,
+   * or the mark would sit on top of a layout that never made room for it. See
+   * inline-chat-blocks.ts.
+   */
+  const [inlineMarks, setInlineMarks] = useState<InlineChatMark[]>([]);
   const [layoutOpen, setLayoutOpen] = useState(false);
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
   // The same store the paging engine derives its geometry from, so the chat
@@ -202,6 +207,19 @@ export function BookReader({
     [html]
   );
   const totalChars = useMemo(() => totalCharsOf(blocks), [blocks]);
+  /**
+   * What the scrolling view renders: the book with its chat marks set into it.
+   * Paged mode does the same thing one window at a time, inside usePagination.
+   *
+   * Articles are left alone. Their markup is arbitrary sanitized HTML, so the
+   * block stream above isn't the character space the anchors are stored in and
+   * there is nothing safe to splice against — they keep the margin icon instead.
+   */
+  const scrollHtml = useMemo(
+    () =>
+      html == null || isArticle ? html : withInlineChats(html, blocks, inlineMarks, 0),
+    [blocks, html, inlineMarks, isArticle]
+  );
   const chapters = useMemo(
     () => (blocks.length === 0 ? [] : chapterBounds(toc, title, blocks)),
     [blocks, title, toc]
@@ -484,6 +502,7 @@ export function BookReader({
     html,
     flowRef,
     blocks,
+    inlineMarks,
     settings,
     chatPanel,
     bottomInset: listenInset,
@@ -678,8 +697,11 @@ export function BookReader({
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", measureScroll);
     };
+    // Keyed on the rendered markup, not the book: setting a chat mark into the
+    // page moves every block after it, and the cached block tops this reads
+    // positions off would otherwise stay a mark's height out of date.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [html, paged, settings]);
+  }, [scrollHtml, paged, settings]);
 
   // Opening the chat panel narrows the scrolling column, which re-wraps every
   // line and changes the height of the whole document. Note which block is at
@@ -761,7 +783,13 @@ export function BookReader({
     const onEnd = (e: TouchEvent) => {
       if (moved || e.timeStamp - startT > 500) return;
       const target = e.target as HTMLElement | null;
-      if (target?.closest('a, button, [role="menuitem"], input, textarea, select')) {
+      // Nor a chat mark set into the text: tapping one opens its conversation,
+      // and toggling the chrome on the way is noise.
+      if (
+        target?.closest(
+          'a, button, [role="menuitem"], input, textarea, select, [data-reader-chat]'
+        )
+      ) {
         return;
       }
       // Nor the tap that dismisses a selection. Once selecting text is the way
@@ -871,7 +899,7 @@ export function BookReader({
   const tocListRef = useRef<HTMLDivElement>(null);
   const currentChapterAnchor = progress.chapter?.anchorId ?? null;
   useEffect(() => {
-    if (!tocOpen || !currentChapterAnchor) return;
+    if (!menuOpen || !currentChapterAnchor) return;
     // Two frames: one for the popup to mount, one for it to be laid out.
     let inner = 0;
     const outer = requestAnimationFrame(() => {
@@ -888,7 +916,7 @@ export function BookReader({
       cancelAnimationFrame(outer);
       cancelAnimationFrame(inner);
     };
-  }, [tocOpen, currentChapterAnchor]);
+  }, [menuOpen, currentChapterAnchor]);
 
   // ---- Render -------------------------------------------------------------
 
@@ -916,7 +944,7 @@ export function BookReader({
 
   // A page has fixed bounds, so the chrome can simply stay: it never covers
   // text, which is the only reason it had to hide when scrolling.
-  const headerVisible = paged || hoverTop || tocOpen || menuOpen || chromeTapped || scrollRevealed;
+  const headerVisible = paged || hoverTop || menuOpen || chromeTapped || scrollRevealed;
 
   // The header and footer keep to the book's own margins rather than the
   // window's, so the running head sits over the text block the way it does in a
@@ -975,9 +1003,12 @@ export function BookReader({
       bookId={bookId}
       memberEmail={memberEmail}
       blocks={blocks}
+      chapters={chapters}
       isArticle={isArticle}
       contentRef={contentRef}
       currentCharOffset={currentCharOffset}
+      visibleThroughChar={charEnd ?? null}
+      onInlineMarksChange={setInlineMarks}
       goToChar={goToChar}
       paged={pagedChat}
       panelOpen={chatPanelOpen}
@@ -1012,124 +1043,120 @@ export function BookReader({
 
               The way out of the book is a navigation control, not part of the
               page — it belongs to the app. So it sits in the margin, hard
-              against the window edge, along with the reader's own options and
-              the annotations button that floats there already
-              (annotations-button.tsx). Margins are where a book puts its
-              furniture. */}
+              against the window edge, opposite the two chat controls that float
+              there already (annotations-button.tsx). Margins are where a book
+              puts its furniture.
+
+              An arrow rather than a panel glyph: it goes back to the shelf, and
+              nothing here opens a panel on the left. */}
           <Link
             href={backHref}
             aria-label="Back to my books"
             className="absolute top-1/2 left-2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:left-3"
           >
-            <PanelLeft className="h-4 w-4" />
+            <ArrowLeft className="h-4 w-4" />
           </Link>
-
-          <div className="absolute top-1/2 right-12 z-10 -translate-y-1/2">
-            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-              <DropdownMenuTrigger
-                aria-label="Reader options"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem onClick={() => setLayoutOpen(true)}>
-                  <Settings2 className="h-4 w-4" />
-                  Layout
-                </DropdownMenuItem>
-                {/* Books only, and only when the voice isn't already on this
-                    book — the player bar is right there when it is. Starting
-                    from the character you're on is what makes read-then-listen
-                    a continuation rather than a handover: it picks up on the
-                    line you were reading. */}
-                {canListen && !isArticle && loaded && !follow.listening && (
-                  <DropdownMenuItem onClick={startListening}>
-                    <Headphones className="h-4 w-4" />
-                    Listen
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
 
           {/* Where you are, on the other hand, is the running head of this page:
               the book, then the chapter inside it, centred over the text block
               and never wider than it. The padding is what keeps a long title
-              from sliding under the margin controls on a narrow window. */}
+              from sliding under the margin controls on a narrow window.
+
+              The title is also the only control in the centre. It used to sit
+              between two of them — an overflow menu off to the right and a
+              contents icon beside it — which is three targets for what is really
+              one question: this book. Now everything about the book hangs off
+              its name. Actions first, contents below: a menu that opens on forty
+              chapters would otherwise bury Layout under a scroll. */}
           <div
-            className="absolute inset-y-0 flex items-center justify-center gap-2 px-12"
+            className="absolute inset-y-0 flex items-center justify-center px-12"
             style={chromeBounds}
           >
-            <div className="min-w-0 text-center">
-              <p
-                className={cn(
-                  "reader-chrome-secondary truncate text-sm font-medium",
-                  paged ? "text-muted-foreground/80" : "text-foreground"
-                )}
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+              <DropdownMenuTrigger
+                aria-label="This book"
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-muted"
               >
-                {title}
-                {/* Scrolling has nowhere else to put this; a page has a footer. */}
-                {!paged && loaded && (
-                  <span className="ml-1.5 text-xs font-normal tabular-nums text-muted-foreground">
-                    ({progress.percent}%{bookTimeLeft ? ` · ${bookTimeLeft}` : ""})
-                  </span>
-                )}
-              </p>
-              {author && !paged && (
-                <p className="truncate text-xs text-muted-foreground">{author}</p>
-              )}
-            </div>
-
-            {toc.length > 0 && (
-              <DropdownMenu open={tocOpen} onOpenChange={setTocOpen}>
-                <DropdownMenuTrigger
-                  aria-label="Table of contents"
-                  className="inline-flex min-w-0 max-w-[32vw] shrink items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <List className="h-4 w-4 shrink-0" />
-                  {/* Where you are, not what the menu is — the icon already says
-                      "contents". In paged mode the footer names the chapter, so
-                      the trigger stays an icon and the bar stays quiet. */}
-                  {!paged && (
-                    <>
-                      <span className="hidden truncate sm:inline">
-                        {progress.chapter?.title ?? "Contents"}
+                <div className="min-w-0 text-center">
+                  <p
+                    className={cn(
+                      "reader-chrome-secondary truncate text-sm font-medium",
+                      paged ? "text-muted-foreground/80" : "text-foreground"
+                    )}
+                  >
+                    {title}
+                    {/* Scrolling has nowhere else to put this; a page has a footer. */}
+                    {!paged && loaded && (
+                      <span className="ml-1.5 text-xs font-normal tabular-nums text-muted-foreground">
+                        ({progress.percent}%{bookTimeLeft ? ` · ${bookTimeLeft}` : ""})
                       </span>
-                      {chapterTimeLeft && (
-                        <span className="hidden shrink-0 text-xs tabular-nums opacity-70 sm:inline">
-                          · {chapterTimeLeft}
+                    )}
+                  </p>
+                  {/* The chapter used to be the label on the contents button.
+                      That button is gone, so it stays here as plain text —
+                      information, not a target. Paged mode names it in the
+                      footer and doesn't repeat it. */}
+                  {!paged && (
+                    <p className="truncate text-xs text-muted-foreground">
+                      {progress.chapter?.title ?? author}
+                      {progress.chapter?.title && chapterTimeLeft && (
+                        <span className="tabular-nums opacity-70">
+                          {" · "}
+                          {chapterTimeLeft}
                         </span>
                       )}
-                    </>
+                    </p>
                   )}
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  ref={tocListRef}
-                  align="center"
-                  className="max-h-80 w-64 overflow-y-auto"
-                >
-                  {toc.map((entry) => {
-                    const current = entry.anchorId === currentChapterAnchor;
-                    return (
-                      <DropdownMenuItem
-                        key={entry.anchorId}
-                        data-toc-current={current || undefined}
-                        onClick={() => goToChapter(entry.anchorId)}
-                        className={cn(
-                          "flex items-baseline justify-between gap-3",
-                          entry.level <= 1
-                            ? "font-medium text-foreground"
-                            : "pl-4 text-muted-foreground",
-                          current && "bg-accent font-medium text-accent-foreground"
-                        )}
-                      >
-                        <span className="truncate">{entry.title}</span>
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+                </div>
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                ref={tocListRef}
+                align="center"
+                className="max-h-80 w-64 overflow-y-auto"
+              >
+                {/* Stuck to the top of the menu, because the contents below
+                    opens scrolled to the chapter you're in — which on a long
+                    book would otherwise carry these off the top of the list. */}
+                <div className="sticky top-0 z-10 bg-popover">
+                  <DropdownMenuItem onClick={() => setLayoutOpen(true)}>
+                    <Settings2 className="h-4 w-4" />
+                    Layout
+                  </DropdownMenuItem>
+                  {/* Books only, and only when the voice isn't already on this
+                      book — the player bar is right there when it is. Starting
+                      from the character you're on is what makes read-then-listen
+                      a continuation rather than a handover: it picks up on the
+                      line you were reading. */}
+                  {canListen && !isArticle && loaded && !follow.listening && (
+                    <DropdownMenuItem onClick={startListening}>
+                      <Headphones className="h-4 w-4" />
+                      Listen
+                    </DropdownMenuItem>
+                  )}
+                  {toc.length > 0 && <DropdownMenuSeparator />}
+                </div>
+                {toc.map((entry) => {
+                  const current = entry.anchorId === currentChapterAnchor;
+                  return (
+                    <DropdownMenuItem
+                      key={entry.anchorId}
+                      data-toc-current={current || undefined}
+                      onClick={() => goToChapter(entry.anchorId)}
+                      className={cn(
+                        "flex items-baseline justify-between gap-3",
+                        entry.level <= 1
+                          ? "font-medium text-foreground"
+                          : "pl-4 text-muted-foreground",
+                        current && "bg-accent font-medium text-accent-foreground"
+                      )}
+                    >
+                      <span className="truncate">{entry.title}</span>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           {/* Slim completion bar along the header's bottom edge. */}
@@ -1242,7 +1269,7 @@ export function BookReader({
                 isArticle && "article-content",
                 isArticle && ARTICLE_PROSE
               )}
-              dangerouslySetInnerHTML={{ __html: html }}
+              dangerouslySetInnerHTML={{ __html: scrollHtml ?? "" }}
             />
             {/* Books and articles both. Articles keep images/links/lists, so
                 they have no conversion char space and no page map — the layer

@@ -12,6 +12,34 @@ import {
  */
 
 /**
+ * A conversation you started about this place in the book, set into the page.
+ *
+ * Written to read as marginalia rather than as a control sitting on top of the
+ * text: a hairline above and below, the question in a smaller sans face, one
+ * line and no more. No tint and no rounded box on purpose — the Palma renders
+ * this in black and white, so the whole distinction has to survive in
+ * typography and rules.
+ *
+ * `select-none` is not decoration. Selecting text that starts inside the mark
+ * would hand the anchoring code a range beginning in an element that is
+ * deliberately not a block, which produces no anchor at all — so the mark simply
+ * isn't selectable, and a drag across it selects the prose either side.
+ *
+ * `text-left` and `text-indent` reset it out of the book's own justification,
+ * which would otherwise stretch a short question across the measure.
+ */
+const CHAT_MARK_PROSE = [
+  "[&_.reader-chat-mark]:my-5 [&_.reader-chat-mark]:block [&_.reader-chat-mark]:py-1.5",
+  "[&_.reader-chat-mark]:cursor-pointer [&_.reader-chat-mark]:select-none",
+  "[&_.reader-chat-mark]:border-y [&_.reader-chat-mark]:border-foreground/20",
+  "[&_.reader-chat-mark]:truncate [&_.reader-chat-mark]:text-left [&_.reader-chat-mark]:[text-indent:0] [&_.reader-chat-mark]:[hyphens:none]",
+  "[&_.reader-chat-mark]:font-sans [&_.reader-chat-mark]:text-[0.72em] [&_.reader-chat-mark]:leading-normal [&_.reader-chat-mark]:text-muted-foreground",
+  // A mark split down the middle by a column edge reads as two broken rules.
+  "[&_.reader-chat-mark]:[break-inside:avoid]",
+  "[&_.reader-chat-mark:hover]:border-foreground/40 [&_.reader-chat-mark:hover]:text-foreground",
+];
+
+/**
  * Converted books are plain text: <p>, <h1>, <h2>, <blockquote>, and zero-height
  * page-anchor marks. Nothing else survives conversion, so this is the whole
  * stylesheet for a book.
@@ -23,6 +51,7 @@ export const BOOK_PROSE = [
   "[&_.reader-heading]:scroll-mt-28 [&_.reader-heading]:text-center [&_.reader-heading]:font-serif [&_.reader-heading]:text-balance",
   "[&_.reader-h1]:mb-3 [&_.reader-h1]:text-3xl [&_.reader-h1]:font-semibold [&_.reader-h1]:tracking-tight",
   "[&_.reader-h2]:mb-7 [&_.reader-h2]:text-xl [&_.reader-h2]:font-medium [&_.reader-h2]:text-muted-foreground",
+  ...CHAT_MARK_PROSE,
 ].join(" ");
 
 /**

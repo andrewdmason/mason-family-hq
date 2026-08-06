@@ -11,6 +11,7 @@ import {
 } from "react";
 import type { BookBlock } from "@/lib/reading/block-stream";
 import { blockElements } from "@/lib/reading/annotation-anchors";
+import { withInlineChats, type InlineChatMark } from "@/lib/reading/inline-chat-blocks";
 import {
   computeGeometry,
   type ChatPanelPresentation,
@@ -86,6 +87,7 @@ export function usePagination({
   html,
   flowRef,
   blocks,
+  inlineMarks,
   settings,
   chatPanel,
   bottomInset = 0,
@@ -96,6 +98,14 @@ export function usePagination({
   html: string | null;
   flowRef: React.RefObject<HTMLDivElement | null>;
   blocks: BookBlock[];
+  /**
+   * The conversations that leave a mark in the page. An input to the rendered
+   * HTML rather than something painted over it, so a new one repaginates through
+   * the ordinary lifecycle below — which keeps the character at the top of the
+   * page fixed, so the text moves downward from the mark and nothing being read
+   * disappears. See inline-chat-blocks.ts.
+   */
+  inlineMarks: InlineChatMark[];
   settings: ReaderSettings;
   /** How the chat is presented, which decides what it costs — see ChatPanelPresentation. */
   chatPanel: ChatPanelPresentation;
@@ -157,8 +167,16 @@ export function usePagination({
     [blocks, win]
   );
   const renderedHtml = useMemo(
-    () => (html != null && win ? windowHtml(html, blocks, win) : null),
-    [html, blocks, win]
+    () =>
+      html != null && win
+        ? withInlineChats(
+            windowHtml(html, blocks, win),
+            blocks,
+            inlineMarks,
+            blocks[win.startBlock].htmlStart
+          )
+        : null,
+    [html, blocks, win, inlineMarks]
   );
 
   const geometryRef = useRef<PageGeometry | null>(null);
