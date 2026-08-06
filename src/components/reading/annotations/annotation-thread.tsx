@@ -20,6 +20,7 @@ import { chapterSummaryQuestion } from "@/lib/reading/chapter-summary";
 import { chapterName } from "@/lib/reading/chapter-target";
 import { useIsOnline } from "@/lib/reading/offline/use-is-online";
 import { ChatMessageText } from "./chat-message-text";
+import { useAutosizeTextarea } from "./use-autosize-textarea";
 
 /**
  * What the one composer does with what you type: ask Claude, or keep it.
@@ -152,6 +153,9 @@ export function AnnotationThread({
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Same composer, same growth — a note written on a passage is as likely to
+  // run long as an answer in an interview.
+  useAutosizeTextarea(inputRef, draft);
   // Scrolling up mid-reply is deliberate — back to the question, or up into an
   // earlier turn — so the next streamed token mustn't yank the reader back down.
   // Streamed text appending never fires a scroll event, and the follow below only
@@ -687,7 +691,7 @@ export function AnnotationThread({
                     ? "Ask about this chapter…"
                     : "Ask about this part…"
             }
-            className="min-h-[2.5rem] flex-1 resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
+            className="min-h-[3.375rem] flex-1 resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
           />
           <button
             type="button"
