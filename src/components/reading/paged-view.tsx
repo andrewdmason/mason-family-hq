@@ -258,6 +258,13 @@ export function PagedView({
             style={{
               width: geometry.colW,
               height: geometry.pageH,
+              // A column box is `colW` of TEXT, whatever else the box carries.
+              // usePagination pads this element out to the width of the whole
+              // strip so that selecting across the white space between two
+              // paragraphs doesn't fall out of the text (see widenHitBox there);
+              // under the app's border-box default that padding would come out
+              // of the measure instead, and every column would narrow.
+              boxSizing: "content-box",
               columnCount: 1,
               columnGap: `${geometry.gap}px`,
               // Without this, engines balance the columns and the whole
