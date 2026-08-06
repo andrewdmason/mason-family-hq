@@ -1086,6 +1086,21 @@ export type ReadingTocEntry = {
   anchorId: string;
   /** 1 = major section (Part/Book), 2 = chapter/section. */
   level: number;
+  /**
+   * How deeply the book's OWN contents nested this entry: 1 = top level, 2 = a
+   * section inside one of those, unbounded below that.
+   *
+   * Kept separate from `level` on purpose. `level` is a two-value guess made from
+   * the title's wording, and chapter goals, quiz coverage labels and the audiobook
+   * planner all read it as "2 means this is a chapter" — so replacing it with real
+   * depth would quietly redefine a chapter for every one of them. Only the
+   * contents dialog reads this.
+   *
+   * Absent for PDFs (headings inferred from font size, no nav document to read),
+   * for articles, and for books converted before this existed → callers fall back
+   * to `level`.
+   */
+  depth?: number;
   /** Source page the heading falls on, when known. */
   page: number | null;
   /** Cumulative body words before this heading (the chapter's start offset).

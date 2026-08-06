@@ -16,7 +16,7 @@
     "db:reset": "supabase db reset && npm run seed:media && npm run seed:world-appears && npm run db:heal",
     "baseball:capture": "tsx scripts/baseball/capture.mts",
     "baseball:generate": "tsx scripts/baseball/generate-migration.mts",
-    "verify:reader": "tsx scripts/verify-reader-windows.mts && tsx scripts/verify-paged-geometry.mts && tsx scripts/verify-window-seams.mts && tsx scripts/verify-paged-fragmentation.mts && tsx scripts/verify-paged-selection.mts && tsx scripts/verify-anchor-quotes.mts && tsx scripts/verify-anchor-windows.mts && tsx scripts/verify-inline-chat-blocks.mts && tsx scripts/verify-position-sync.mts && tsx scripts/verify-reader-resume.mts && tsx scripts/verify-audiobook.mts && tsx scripts/verify-chapter-context.mts"
+    "verify:reader": "tsx scripts/verify-reader-windows.mts && tsx scripts/verify-paged-geometry.mts && tsx scripts/verify-window-seams.mts && tsx scripts/verify-paged-fragmentation.mts && tsx scripts/verify-paged-selection.mts && tsx scripts/verify-anchor-quotes.mts && tsx scripts/verify-anchor-windows.mts && tsx scripts/verify-inline-chat-blocks.mts && tsx scripts/verify-position-sync.mts && tsx scripts/verify-reader-resume.mts && tsx scripts/verify-audiobook.mts && tsx scripts/verify-chapter-context.mts && tsx scripts/verify-contents-tree.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",

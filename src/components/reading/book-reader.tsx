@@ -9,7 +9,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import Link from "next/link";
-import { ArrowLeft, ChevronDown, Headphones, Loader2, Settings2 } from "lucide-react";
+import { ArrowLeft, Headphones, List, Loader2, Settings2 } from "lucide-react";
 import { getReadingPosition, saveReadingPosition } from "@/app/(reading)/reader/actions";
 import {
   useAudiobook,
@@ -21,7 +21,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ReaderAnnotationLayer } from "@/components/reading/annotations/reader-annotation-layer";
@@ -66,6 +65,7 @@ import { PagedView } from "./paged-view";
 import { ReaderElsewhereBar } from "./reader-elsewhere-bar";
 import { ReaderFooter } from "./reader-footer";
 import { ReaderLayoutDialog } from "./reader-layout-dialog";
+import { ContentsDialog } from "./contents-dialog";
 import { ReaderPerfOverlay } from "./reader-perf-overlay";
 import {
   ARTICLE_PROSE,
@@ -161,6 +161,7 @@ export function BookReader({
    */
   const [inlineMarks, setInlineMarks] = useState<InlineChatMark[]>([]);
   const [layoutOpen, setLayoutOpen] = useState(false);
+  const [contentsOpen, setContentsOpen] = useState(false);
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
   // The same store the paging engine derives its geometry from, so the chat
   // panel's presentation and the book's layout can never disagree about how wide
@@ -894,36 +895,11 @@ export function BookReader({
     listen({ bookId, title, author }, currentCharOffset);
   }, [author, bookId, currentCharOffset, listen, title]);
 
-  // Open the contents on where you are, not on the front matter: a long book's
-  // menu is otherwise a wall of chapters you have to hunt through.
-  const tocListRef = useRef<HTMLDivElement>(null);
-  const tocActionsRef = useRef<HTMLDivElement>(null);
+  // Where the contents opens, and what it marks. Opening it on where you are —
+  // rather than on the front matter — is the dialog's job now; this is the
+  // reader's half of that, the only two facts it needs from the book.
   const currentChapterAnchor = progress.chapter?.anchorId ?? null;
-  useEffect(() => {
-    if (!menuOpen || !currentChapterAnchor) return;
-    // Two frames: one for the popup to mount, one for it to be laid out.
-    let inner = 0;
-    const outer = requestAnimationFrame(() => {
-      inner = requestAnimationFrame(() => {
-        const list = tocListRef.current;
-        const item = list?.querySelector<HTMLElement>('[data-toc-current="true"]');
-        if (!list || !item) return;
-        // Layout and Listen are pinned to the top of the scroller, so scrolling
-        // the chapter to y=0 parks it underneath them — the menu then opens
-        // looking like it landed a chapter late. Measure what's pinned rather
-        // than assuming its height: Listen is only there for books, and only
-        // when the voice isn't already on this one.
-        const covered = tocActionsRef.current?.getBoundingClientRect().height ?? 0;
-        const delta =
-          item.getBoundingClientRect().top - list.getBoundingClientRect().top;
-        list.scrollTop = Math.max(0, list.scrollTop + delta - covered - 8);
-      });
-    });
-    return () => {
-      cancelAnimationFrame(outer);
-      cancelAnimationFrame(inner);
-    };
-  }, [menuOpen, currentChapterAnchor]);
+  const currentChapterMinutesLeft = progress.chapter?.minutesLeft ?? null;
 
   // ---- Render -------------------------------------------------------------
 
@@ -1069,20 +1045,20 @@ export function BookReader({
               and never wider than it. The padding is what keeps a long title
               from sliding under the margin controls on a narrow window.
 
-              The title is also the only control in the centre. It used to sit
-              between two of them — an overflow menu off to the right and a
-              contents icon beside it — which is three targets for what is really
-              one question: this book. Now everything about the book hangs off
-              its name. Actions first, contents below: a menu that opens on forty
-              chapters would otherwise bury Layout under a scroll. */}
+              Two controls here, and they answer the book's two questions. The
+              name holds what you DO to it — how it's laid out, whether it's read
+              aloud. The contents beside it holds where you are in it, which
+              outgrew a dropdown and has its own dialog now (contents-dialog).
+              Both belong to the book, so both sit with its name rather than out
+              in the margin, which is where the reading's own furniture lives. */}
           <div
-            className="absolute inset-y-0 flex items-center justify-center px-12"
+            className="absolute inset-y-0 flex items-center justify-center gap-0.5 px-12"
             style={chromeBounds}
           >
             <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger
                 aria-label="This book"
-                className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-muted"
+                className="inline-flex min-w-0 items-center rounded-md px-2 py-1 transition-colors hover:bg-muted"
               >
                 <div className="min-w-0 text-center">
                   <p
@@ -1099,10 +1075,10 @@ export function BookReader({
                       </span>
                     )}
                   </p>
-                  {/* The chapter used to be the label on the contents button.
-                      That button is gone, so it stays here as plain text —
-                      information, not a target. Paged mode names it in the
-                      footer and doesn't repeat it. */}
+                  {/* The chapter reads as plain text — information, not a
+                      target. Getting to a chapter is the contents' job, and it
+                      has its own control in the margin. Paged mode names the
+                      chapter in the footer and doesn't repeat it here. */}
                   {!paged && (
                     <p className="truncate text-xs text-muted-foreground">
                       {progress.chapter?.title ?? author}
@@ -1115,75 +1091,45 @@ export function BookReader({
                     </p>
                   )}
                 </div>
-                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
               </DropdownMenuTrigger>
-              <DropdownMenuContent
-                ref={tocListRef}
-                align="center"
-                className="max-h-80 w-64 overflow-y-auto"
-              >
-                {/* Stuck to the top of the menu, because the contents below
-                    opens scrolled to the chapter you're in — which on a long
-                    book would otherwise carry these off the top of the list. */}
-                <div ref={tocActionsRef} className="sticky top-0 z-10 bg-popover">
-                  <DropdownMenuItem onClick={() => setLayoutOpen(true)}>
-                    <Settings2 className="h-4 w-4" />
-                    Layout
+              {/* Actions only. The chapter list moved out to its own dialog
+                  (contents-dialog.tsx), which took the scrolling with it — so
+                  this no longer needs the pinned header that kept Layout above
+                  forty chapters. */}
+              <DropdownMenuContent align="center" className="w-56">
+                <DropdownMenuItem onClick={() => setLayoutOpen(true)}>
+                  <Settings2 className="h-4 w-4" />
+                  Layout
+                </DropdownMenuItem>
+                {/* Books only, and only when the voice isn't already on this
+                    book — the player bar is right there when it is. Starting
+                    from the character you're on is what makes read-then-listen
+                    a continuation rather than a handover: it picks up on the
+                    line you were reading. */}
+                {canListen && !isArticle && loaded && !follow.listening && (
+                  <DropdownMenuItem onClick={startListening}>
+                    <Headphones className="h-4 w-4" />
+                    Listen
                   </DropdownMenuItem>
-                  {/* Books only, and only when the voice isn't already on this
-                      book — the player bar is right there when it is. Starting
-                      from the character you're on is what makes read-then-listen
-                      a continuation rather than a handover: it picks up on the
-                      line you were reading. */}
-                  {canListen && !isArticle && loaded && !follow.listening && (
-                    <DropdownMenuItem onClick={startListening}>
-                      <Headphones className="h-4 w-4" />
-                      Listen
-                    </DropdownMenuItem>
-                  )}
-                  {toc.length > 0 && <DropdownMenuSeparator />}
-                </div>
-                {/* The chapter you're in is marked three ways over, because the
-                    one way it used to be marked — a filled row — is the same
-                    fill this menu gives whatever the pointer or the arrow keys
-                    are on, so it said "hovered" as loudly as it said "here".
-                    A rule in the margin, the weight of the type, and the word
-                    itself. In e-ink mode every fill in the palette collapses to
-                    white, so the rule and the weight are what survive; both are
-                    drawn in the primary colour, which is true black there. */}
-                {toc.map((entry) => {
-                  const current = entry.anchorId === currentChapterAnchor;
-                  return (
-                    <DropdownMenuItem
-                      key={entry.anchorId}
-                      data-toc-current={current || undefined}
-                      aria-current={current ? "true" : undefined}
-                      onClick={() => goToChapter(entry.anchorId)}
-                      className={cn(
-                        "flex items-baseline justify-between gap-3 pl-3",
-                        entry.level <= 1
-                          ? "font-medium text-foreground"
-                          : "pl-6 text-muted-foreground",
-                        current && "font-semibold text-foreground"
-                      )}
-                    >
-                      {current && (
-                        <span
-                          aria-hidden
-                          className="absolute inset-y-1 left-0.5 w-[3px] rounded-full bg-primary"
-                        />
-                      )}
-                      <span className="truncate">{entry.title}</span>
-                      {current && (
-                        <span className="shrink-0 text-[0.6875rem] font-semibold tracking-wide text-primary uppercase">
-                          Reading
-                        </span>
-                      )}
-                    </DropdownMenuItem>
-                  );
-                })}
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {/* A sibling of the title's menu rather than something inside it: a
+                button cannot be nested in a button, and the two open different
+                things anyway. Articles have no chapters to list, and a book
+                whose conversion found no headings has nothing to show. */}
+            {!isArticle && toc.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setContentsOpen(true)}
+                aria-label="Contents"
+                title="Contents"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <List className="h-4 w-4" />
+              </button>
+            )}
           </div>
 
           {/* Slim completion bar along the header's bottom edge. */}
@@ -1364,6 +1310,17 @@ export function BookReader({
         // has to match what the book is doing behind the dialog. A floating panel
         // isn't counted, because the book genuinely still has that width.
         availableWidth={bookAreaWidth(viewportWidth, chatPanel === "docked")}
+      />
+
+      <ContentsDialog
+        open={contentsOpen}
+        onOpenChange={setContentsOpen}
+        toc={toc}
+        bookTitle={title}
+        wordCount={wordCount}
+        currentAnchorId={currentChapterAnchor}
+        currentMinutesLeft={currentChapterMinutesLeft}
+        onGoToChapter={goToChapter}
       />
     </div>
   );

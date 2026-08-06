@@ -30,6 +30,20 @@ export type TocEntry = {
   anchorId: string;
   /** 1 = major section (Part/Book), 2 = chapter/section. */
   level: number;
+  /**
+   * How deeply the book's OWN contents nested this entry: 1 = top level, 2 = a
+   * section inside one of those, and so on, unbounded.
+   *
+   * Deliberately separate from `level`, which is a two-value guess made from the
+   * title's wording and is read by chapter goals, quiz coverage and the audiobook
+   * planner — all of which treat "2" as "this is a chapter". Overwriting `level`
+   * with real depth would silently redefine what a chapter is for every one of
+   * them. This field is additive and read only by the contents dialog.
+   *
+   * Absent for PDFs, whose headings are inferred from font size rather than read
+   * from a nav document, and for conversions predating this field.
+   */
+  depth?: number;
   /** Source page the heading falls on, when known. */
   page: number | null;
   /**
@@ -473,6 +487,9 @@ const BLOCK_TAGS = new Set([
 type XmlNode = {
   nodeType: number;
   childNodes: { length: number; [index: number]: XmlNode };
+  /** Climbing this is how the nav readers recover nesting that
+   *  getElementsByTagName flattens away. Null at the document root. */
+  parentNode: XmlNode | null;
 };
 type XmlElement = XmlNode & {
   tagName: string;
@@ -603,8 +620,46 @@ function stripLeadingTitle(blocks: Block[], title: string): Block[] {
 }
 
 /** A single table-of-contents entry: which spine file it lands in, the fragment
- *  id within that file (null = the file's start), and its title. */
-type NavEntry = { file: string; fragment: string | null; title: string };
+ *  id within that file (null = the file's start), its title, and how deeply the
+ *  book's own contents nested it (1 = top level). */
+type NavEntry = {
+  file: string;
+  fragment: string | null;
+  title: string;
+  depth: number;
+};
+
+/**
+ * How many ancestors of the given tag an element has, up to (not including)
+ * `stopAt`.
+ *
+ * This is how the nav readers below recover nesting. They collect entries with
+ * getElementsByTagName, which returns every match in document order but says
+ * nothing about hierarchy — so a chapter and a section inside that chapter
+ * arrive indistinguishable, which is exactly the flattening that made every
+ * contents list render at one indent. Both EPUB formats express the hierarchy
+ * structurally (nested `<ol>` in an EPUB3 nav document, nested `<navPoint>` in
+ * an EPUB2 NCX), so climbing back up recovers it without disturbing the flat
+ * walk's ordering.
+ *
+ * `stopAt` bounds the climb at whatever the walk was scoped to, so a nav that
+ * happens to sit inside other list markup doesn't inflate every depth.
+ *
+ * Returns a raw count; the callers turn it into a 1-based depth, and they do it
+ * differently — an EPUB3 anchor sits *inside* the `<ol>` that holds it, while an
+ * NCX navPoint *is* the thing being counted.
+ */
+function countAncestors(el: XmlElement, tag: string, stopAt: XmlNode | null): number {
+  const wanted = tag.toLowerCase();
+  let count = 0;
+  let node: XmlNode | null = el.parentNode;
+  while (node && node !== stopAt) {
+    const name = (node as XmlElement).tagName;
+    if (name && name.toLowerCase() === wanted) count++;
+    node = node.parentNode;
+  }
+  return count;
+}
 
 /** Split an href/src ("file.html#frag") into its file path and fragment id. */
 function splitHref(base: string, href: string): { file: string; fragment: string | null } {
@@ -664,7 +719,11 @@ async function readEpubNav(
         const title = anchors[i].textContent?.replace(/\s+/g, " ").trim();
         if (!href || !title) continue;
         const { file, fragment } = splitHref(navDir, href);
-        entries.push({ file, fragment, title });
+        // An anchor lives inside the <ol> that lists it, so the count of <ol>
+        // ancestors is already the 1-based depth. Floored at 1 for a nav that
+        // uses no list markup at all — a bare run of links is one flat level.
+        const depth = Math.max(1, countAncestors(anchors[i], "ol", tocNav));
+        entries.push({ file, fragment, title, depth });
       }
     }
   }
@@ -686,7 +745,10 @@ async function readEpubNav(
         const src = points[i].getElementsByTagName("content")[0]?.getAttribute("src");
         if (!label || !src) continue;
         const { file, fragment } = splitHref(ncxDir, src);
-        entries.push({ file, fragment, title: label });
+        // A navPoint IS the counted element rather than sitting inside one, so a
+        // top-level point has no navPoint ancestors and the count needs the +1.
+        const depth = countAncestors(points[i], "navPoint", null) + 1;
+        entries.push({ file, fragment, title: label, depth });
       }
     }
   }
@@ -924,7 +986,10 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
   // Resolve each nav entry to a block index, in order; group them so a heading
   // can be injected at that spot during HTML assembly. A fragment that can't be
   // found falls back to the file's start.
-  const navByBlock = new Map<number, { title: string; level: number }[]>();
+  const navByBlock = new Map<
+    number,
+    { title: string; level: number; depth: number }[]
+  >();
   const seenNav = new Set<string>();
   for (const e of navEntries) {
     let index = e.fragment != null ? anchorAt.get(`${e.file}#${e.fragment}`) : undefined;
@@ -935,7 +1000,7 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
     if (seenNav.has(key)) continue;
     seenNav.add(key);
     const list = navByBlock.get(index) ?? [];
-    list.push({ title, level: tocLevel(e.title) });
+    list.push({ title, level: tocLevel(e.title), depth: e.depth });
     navByBlock.set(index, list);
   }
 
@@ -979,7 +1044,10 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
     wordCursor += countWords(text);
   };
 
-  const pushHeading = (text: string, level: number) => {
+  // `depth` is what the book's own contents said; it only ever reaches the TOC
+  // entry. The emitted tag still comes from `level`, so adding depth cannot move
+  // a single character in the stream that annotations are anchored to.
+  const pushHeading = (text: string, level: number, depth?: number) => {
     const anchorId = `sec-${++sectionSeq}`;
     const lvl = level <= 1 ? 1 : 2;
     const tag = lvl === 1 ? "h1" : "h2";
@@ -991,6 +1059,7 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
       title: text,
       anchorId,
       level: lvl,
+      ...(depth != null ? { depth } : {}),
       page: hasRealPages ? currentPage : null,
       startWord: wordCursor,
     });
@@ -1011,10 +1080,14 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
     // to avoid a doubled title.
     const injected = navByBlock.get(i);
     if (injected && block.kind !== "heading") {
-      for (const nv of injected) pushHeading(nv.title, nv.level);
+      for (const nv of injected) pushHeading(nv.title, nv.level, nv.depth);
     }
     if (block.kind === "heading") {
-      pushHeading(block.text, block.level);
+      // The nav entry at this spot was suppressed in favour of the book's own
+      // heading, but it described the same place in the contents — so its depth
+      // still applies. Without this, a chapter whose file opens with a real <h*>
+      // would lose the nesting its siblings keep.
+      pushHeading(block.text, block.level, injected?.[0]?.depth);
     } else {
       htmlParts.push(`<p>${escapeHtml(block.text)}</p>`);
       advance(block.text);
