@@ -897,6 +897,7 @@ export function BookReader({
   // Open the contents on where you are, not on the front matter: a long book's
   // menu is otherwise a wall of chapters you have to hunt through.
   const tocListRef = useRef<HTMLDivElement>(null);
+  const tocActionsRef = useRef<HTMLDivElement>(null);
   const currentChapterAnchor = progress.chapter?.anchorId ?? null;
   useEffect(() => {
     if (!menuOpen || !currentChapterAnchor) return;
@@ -907,9 +908,15 @@ export function BookReader({
         const list = tocListRef.current;
         const item = list?.querySelector<HTMLElement>('[data-toc-current="true"]');
         if (!list || !item) return;
+        // Layout and Listen are pinned to the top of the scroller, so scrolling
+        // the chapter to y=0 parks it underneath them — the menu then opens
+        // looking like it landed a chapter late. Measure what's pinned rather
+        // than assuming its height: Listen is only there for books, and only
+        // when the voice isn't already on this one.
+        const covered = tocActionsRef.current?.getBoundingClientRect().height ?? 0;
         const delta =
           item.getBoundingClientRect().top - list.getBoundingClientRect().top;
-        list.scrollTop = Math.max(0, list.scrollTop + delta - 28);
+        list.scrollTop = Math.max(0, list.scrollTop + delta - covered - 8);
       });
     });
     return () => {
@@ -1118,7 +1125,7 @@ export function BookReader({
                 {/* Stuck to the top of the menu, because the contents below
                     opens scrolled to the chapter you're in — which on a long
                     book would otherwise carry these off the top of the list. */}
-                <div className="sticky top-0 z-10 bg-popover">
+                <div ref={tocActionsRef} className="sticky top-0 z-10 bg-popover">
                   <DropdownMenuItem onClick={() => setLayoutOpen(true)}>
                     <Settings2 className="h-4 w-4" />
                     Layout
@@ -1136,22 +1143,42 @@ export function BookReader({
                   )}
                   {toc.length > 0 && <DropdownMenuSeparator />}
                 </div>
+                {/* The chapter you're in is marked three ways over, because the
+                    one way it used to be marked — a filled row — is the same
+                    fill this menu gives whatever the pointer or the arrow keys
+                    are on, so it said "hovered" as loudly as it said "here".
+                    A rule in the margin, the weight of the type, and the word
+                    itself. In e-ink mode every fill in the palette collapses to
+                    white, so the rule and the weight are what survive; both are
+                    drawn in the primary colour, which is true black there. */}
                 {toc.map((entry) => {
                   const current = entry.anchorId === currentChapterAnchor;
                   return (
                     <DropdownMenuItem
                       key={entry.anchorId}
                       data-toc-current={current || undefined}
+                      aria-current={current ? "true" : undefined}
                       onClick={() => goToChapter(entry.anchorId)}
                       className={cn(
-                        "flex items-baseline justify-between gap-3",
+                        "flex items-baseline justify-between gap-3 pl-3",
                         entry.level <= 1
                           ? "font-medium text-foreground"
-                          : "pl-4 text-muted-foreground",
-                        current && "bg-accent font-medium text-accent-foreground"
+                          : "pl-6 text-muted-foreground",
+                        current && "font-semibold text-foreground"
                       )}
                     >
+                      {current && (
+                        <span
+                          aria-hidden
+                          className="absolute inset-y-1 left-0.5 w-[3px] rounded-full bg-primary"
+                        />
+                      )}
                       <span className="truncate">{entry.title}</span>
+                      {current && (
+                        <span className="shrink-0 text-[0.6875rem] font-semibold tracking-wide text-primary uppercase">
+                          Reading
+                        </span>
+                      )}
                     </DropdownMenuItem>
                   );
                 })}
