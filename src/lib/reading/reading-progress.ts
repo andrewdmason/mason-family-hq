@@ -14,6 +14,7 @@
  */
 
 import type { BookBlock } from "@/lib/reading/block-stream";
+import { isContentSection } from "@/lib/reading/chapter-target";
 import { minutesToRead } from "@/lib/reading/reading-time";
 import type { ReadingTocEntry } from "@/lib/types";
 
@@ -24,6 +25,8 @@ export type ChapterBound = {
   charStart: number;
   /** Cumulative body words before the heading, when the TOC recorded it. */
   startWord: number | null;
+  /** The TOC's own nesting: 1 = a part or book divider, 2 = a chapter. */
+  level: number;
 };
 
 export type ReadingProgress = {
@@ -65,9 +68,61 @@ export function chapterBounds(
       anchorId: entry.anchorId,
       charStart: block.charStart,
       startWord: entry.startWord ?? null,
+      level: entry.level,
     });
   }
   return bounds.sort((a, b) => a.charStart - b.charStart);
+}
+
+/**
+ * The chapters worth summarizing: the ones a reader would point at and say
+ * "what happened in that?"
+ *
+ * Two filters, both of which the contents alone can apply. FINEST LEVEL: a book
+ * with parts lists "Part One" beside its chapters, and a part is a container
+ * rather than a thing that happens — tapping one would recap a divider whose
+ * whole text is its own title. The rule matches chapterSpans, so a weekly goal
+ * and a summary agree on what a chapter is. CONTENT ONLY: "Contents",
+ * "Copyright" and "About the Author" are headings too, and none of them is a
+ * chapter.
+ *
+ * The result is a filter on what's OFFERED, never on where a chapter ends —
+ * chapterSpan still bounds against the full list, so a chapter that runs up to
+ * the next part divider stops there rather than swallowing it.
+ */
+export function summarizableChapters(chapters: ChapterBound[]): ChapterBound[] {
+  const hasChapters = chapters.some((c) => c.level >= 2);
+  return chapters.filter(
+    (c) => (!hasChapters || c.level >= 2) && isContentSection(c.title)
+  );
+}
+
+/**
+ * The half-open character span one chapter covers: its heading through the
+ * character before the next chapter's heading.
+ *
+ * The end comes from the CONTENTS, not from "the next heading in the stream",
+ * and that distinction is the whole reason this is a function. A converted book
+ * emits `<h2>` for a chapter and for a section inside one alike (convert.ts), so
+ * stopping at the next heading would cut any chapter that has sections in it
+ * short at its first section — and silently, since the result is still a
+ * plausible-looking run of prose.
+ *
+ * Returns null when the anchor isn't one of the contents' own entries: front
+ * matter, a part divider the TOC skipped, or a heading from a conversion the
+ * contents no longer describes.
+ */
+export function chapterSpan(
+  chapters: ChapterBound[],
+  anchorId: string,
+  totalChars: number
+): { title: string; from: number; to: number } | null {
+  const at = chapters.findIndex((c) => c.anchorId === anchorId);
+  if (at < 0) return null;
+  const from = chapters[at].charStart;
+  const to = Math.min(chapters[at + 1]?.charStart ?? totalChars, totalChars);
+  if (to <= from) return null;
+  return { title: chapters[at].title, from, to };
 }
 
 export function chapterIndexAt(charTop: number, chapters: ChapterBound[]): number {

@@ -40,6 +40,26 @@ const CHAT_MARK_PROSE = [
 ];
 
 /**
+ * A chapter's summary, offered in the page under the chapter's own heading.
+ *
+ * The same mark as above — same element, same hairlines, same splice — but it
+ * says the same two words under every chapter it exists for, so it is set as a
+ * label rather than as a sentence: centred beneath the centred heading, small
+ * caps, a size down. Typography is the whole distinction, because the Palma
+ * renders both of these in black and white and a tint would say nothing.
+ *
+ * The break rule is the load-bearing line. A chapter heading starts a fresh
+ * column in paged mode; without this, the label it belongs to could fragment
+ * away from it and land alone at the top of the next page, reading as a caption
+ * for whatever paragraph happened to follow.
+ */
+const SUMMARY_MARK_PROSE = [
+  "[&_.reader-summary-mark]:text-center [&_.reader-summary-mark]:uppercase",
+  "[&_.reader-summary-mark]:text-[0.62em] [&_.reader-summary-mark]:tracking-[0.14em]",
+  "[&_.reader-summary-mark]:[break-before:avoid] [&_.reader-summary-mark]:[-webkit-column-break-before:avoid]",
+];
+
+/**
  * Converted books are plain text: <p>, <h1>, <h2>, <blockquote>, and zero-height
  * page-anchor marks. Nothing else survives conversion, so this is the whole
  * stylesheet for a book.
@@ -52,6 +72,7 @@ export const BOOK_PROSE = [
   "[&_.reader-h1]:mb-3 [&_.reader-h1]:text-3xl [&_.reader-h1]:font-semibold [&_.reader-h1]:tracking-tight",
   "[&_.reader-h2]:mb-7 [&_.reader-h2]:text-xl [&_.reader-h2]:font-medium [&_.reader-h2]:text-muted-foreground",
   ...CHAT_MARK_PROSE,
+  ...SUMMARY_MARK_PROSE,
 ].join(" ");
 
 /**

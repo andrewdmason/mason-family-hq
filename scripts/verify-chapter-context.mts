@@ -16,7 +16,16 @@
  *   npx tsx scripts/verify-chapter-context.mts
  */
 
-import { blockMap, stripHtmlToText } from "../src/lib/reading/block-stream";
+import {
+  blockMap,
+  stripHtmlToText,
+  textFromBlocks,
+} from "../src/lib/reading/block-stream";
+import {
+  chapterBounds,
+  chapterSpan,
+  summarizableChapters,
+} from "../src/lib/reading/reading-progress";
 import {
   chapterMarks,
   pageMarks,
@@ -28,6 +37,7 @@ import {
   layoutSyntheticPages,
 } from "../src/lib/reading/synthetic-pages";
 import { countWords } from "../src/lib/reading/word-counts";
+import type { ReadingTocEntry } from "../src/lib/types";
 
 let failures = 0;
 
@@ -167,6 +177,100 @@ check(
   "a boundary landing exactly on a heading excludes it",
   chapterMarks(BLOCKS, 0, chapter3At).titles.join("|") === "Chapter 1|Chapter 2"
 );
+
+// ---------------------------------------------------------------------------
+// The span one chapter covers, which is what a chapter summary is built from
+// ---------------------------------------------------------------------------
+
+console.log("\nthe span a chapter summary is cut from");
+
+/**
+ * A more awkward book than the one above, and awkward in the way real ones are:
+ * a part divider the contents lists as level 1, chapters under it, and — the
+ * case that matters — sections INSIDE a chapter, emitted as the same <h2> tag
+ * the chapters use. Nothing in the markup distinguishes them; only the contents
+ * does, which is exactly what chapterSpan relies on.
+ */
+{
+  const parts: string[] = [
+    `<h1 id="sec-p1" class="reader-heading reader-h1">Part One</h1>`,
+    `<h2 id="sec-c1" class="reader-heading reader-h2">Chapter 1</h2>`,
+    `<p>The first chapter opens.</p>`,
+    `<h2 id="sec-c1s1" class="reader-heading reader-h2">A section inside chapter one</h2>`,
+    `<p>Still chapter one, under a heading the contents never mentions.</p>`,
+    `<h2 id="sec-c2" class="reader-heading reader-h2">Chapter 2</h2>`,
+    `<p>The second chapter opens.</p>`,
+    `<h2 id="sec-c3" class="reader-heading reader-h2">Chapter 3</h2>`,
+    `<p>The last chapter, running to the end of the book.</p>`,
+    `<h2 id="sec-ack" class="reader-heading reader-h2">Acknowledgments</h2>`,
+    `<p>With thanks to everyone.</p>`,
+  ];
+  const html = parts.join("\n");
+  const blocks = blockMap(html);
+  const text = textFromBlocks(blocks);
+  // The contents lists the part and the chapters — never the inner section.
+  const toc: ReadingTocEntry[] = [
+    { title: "Part One", anchorId: "sec-p1", level: 1, page: null },
+    { title: "Chapter 1", anchorId: "sec-c1", level: 2, page: null },
+    { title: "Chapter 2", anchorId: "sec-c2", level: 2, page: null },
+    { title: "Chapter 3", anchorId: "sec-c3", level: 2, page: null },
+    { title: "Acknowledgments", anchorId: "sec-ack", level: 2, page: null },
+  ];
+  const bounds = chapterBounds(toc, "A Book", blocks);
+  const cut = (anchorId: string) => {
+    const span = chapterSpan(bounds, anchorId, text.length);
+    return span ? text.slice(span.from, span.to) : null;
+  };
+
+  const first = cut("sec-c1");
+  check(
+    "a chapter starts at its own heading",
+    first != null && first.startsWith("Chapter 1\n"),
+    JSON.stringify(first?.slice(0, 20))
+  );
+  // The one that silently breaks if the boundary is ever "the next heading".
+  check(
+    "a section inside a chapter stays inside it",
+    first != null && first.includes("A section inside chapter one"),
+    JSON.stringify(first)
+  );
+  check(
+    "and the next chapter stays out",
+    first != null && !first.includes("Chapter 2"),
+    JSON.stringify(first)
+  );
+  check(
+    "the last chapter stops at the back matter that follows it",
+    cut("sec-c3") ===
+      "Chapter 3\nThe last chapter, running to the end of the book.\n",
+    JSON.stringify(cut("sec-c3"))
+  );
+  check(
+    "a part divider covers only what precedes its first chapter",
+    cut("sec-p1") === "Part One\n"
+  );
+  check(
+    "a heading the contents doesn't list has no span at all",
+    cut("sec-c1s1") === null && cut("sec-nope") === null
+  );
+
+  // What the reader is actually OFFERED, which is narrower than what has a span.
+  const offered = summarizableChapters(bounds).map((c) => c.anchorId);
+  check(
+    "only the real chapters are offered a summary",
+    offered.join("|") === "sec-c1|sec-c2|sec-c3",
+    offered.join("|")
+  );
+  check(
+    "a book with no chapter level falls back to its parts",
+    summarizableChapters([
+      { title: "Part One", anchorId: "a", charStart: 0, startWord: null, level: 1 },
+      { title: "Part Two", anchorId: "b", charStart: 9, startWord: null, level: 1 },
+    ])
+      .map((c) => c.anchorId)
+      .join("|") === "a|b"
+  );
+}
 
 // ---------------------------------------------------------------------------
 // The page map the repair path rebuilds

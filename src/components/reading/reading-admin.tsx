@@ -54,7 +54,11 @@ import {
 import { updateReadingGoal } from "@/app/(journal)/settings/family/actions";
 import { quizEditHref, quizResultsHref } from "@/lib/reading/links";
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
-import { chapterTargetLabel, WORDS_PER_PAGE } from "@/lib/reading/chapter-target";
+import {
+  chapterName,
+  chapterTargetLabel,
+  WORDS_PER_PAGE,
+} from "@/lib/reading/chapter-target";
 import { amazonHref, koboHref } from "@/lib/reading/store-links";
 import { useBookFileActions } from "@/lib/reading/use-book-file-actions";
 import { cn } from "@/lib/utils";
@@ -895,7 +899,7 @@ function OutlineDialog({
                     >
                       <td className="px-3 py-2 align-top">
                         <span className="break-words">
-                          {chapterDisplayName(c.title)}
+                          {chapterName(c.title)}
                         </span>
                         {c.current && (
                           <Badge
@@ -936,12 +940,6 @@ function OutlineDialog({
       </DialogContent>
     </Dialog>
   );
-}
-
-/** "Chapter 8" from a bare "8"; leaves named sections ("Prologue") untouched. */
-function chapterDisplayName(title: string): string {
-  const t = title.trim();
-  return /^\d{1,3}$/.test(t) ? `Chapter ${t}` : t;
 }
 
 function ActiveQuizCard({

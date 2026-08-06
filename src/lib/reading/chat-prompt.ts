@@ -2,12 +2,14 @@ import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
 
 /**
- * The ONE place the reader-chat system prompt is assembled.
+ * The ONE place the reader's system prompts are assembled — the anchored chat,
+ * and the chapter recap below it.
  *
- * Kept in a single function deliberately: a kid-appropriate variant will need to
- * behave very differently (an AI that will summarize a chapter on demand is a
- * cheat engine for the reading quizzes, which pay out Mason Bucks). When that
- * lands it should be a branch here, not a second prompt scattered elsewhere.
+ * Kept together deliberately: a kid-appropriate variant will need to behave very
+ * differently (an AI that will summarize a chapter on demand is a cheat engine
+ * for the reading quizzes, which pay out Mason Bucks — and the recap makes that
+ * a tap rather than a question someone has to think to ask). When that lands it
+ * should be a branch in each of these, not a second prompt scattered elsewhere.
  */
 
 /** Fast: snappy, 200K context. */
@@ -31,6 +33,81 @@ export const READER_CHAT_MAX_TOKENS = 1024;
  * backstop so a pathological book can't build a multi-megabyte request.
  */
 export const READER_CHAT_MAX_CONTEXT_CHARS = 3_000_000;
+
+/**
+ * A recap is read once and remembered, so it is always written by the stronger
+ * model — unlike a chat turn, which is one of many and can simply be asked
+ * again. The reader never chooses this; the picker in the panel governs the
+ * follow-up questions.
+ */
+export const CHAPTER_SUMMARY_MODEL = READER_CHAT_DEEP_MODEL;
+
+/** A few sentences of prose, with room to overrun rather than stop mid-word. */
+export const CHAPTER_SUMMARY_MAX_TOKENS = 700;
+
+export type ChapterSummaryPromptInput = {
+  bookTitle: string;
+  bookAuthor: string | null;
+  /** The heading, exactly as the contents lists it. */
+  chapterTitle: string;
+  /** That chapter's text, and no other chapter's — see getChapterText. */
+  chapterText: string;
+  /** Whether the middle of the chapter was elided to fit. */
+  truncated: boolean;
+};
+
+/**
+ * The recap of a single chapter.
+ *
+ * The whole design of this prompt is the sentence about scope. The model is
+ * given one chapter and told that is all there is, because a summary that
+ * reaches for the rest of the book — or for what the model happens to know about
+ * a famous novel — is exactly the thing a reader tapping a chapter title does
+ * not want: they asked what they just read, not what it turns out to mean.
+ *
+ * No cache breakpoint, unlike the chat prompt. A chapter is summarized once and
+ * regenerated rarely, so the write premium would be paid on nearly every call
+ * and read back on almost none.
+ */
+export function buildChapterSummarySystem(
+  input: ChapterSummaryPromptInput
+): Anthropic.TextBlockParam[] {
+  const rules: string[] = [
+    "You are a reading companion inside a family reading app. The reader has " +
+      "tapped a chapter's title and asked for a recap of that chapter.",
+    "The text below is that ONE chapter, and it is everything you have. " +
+      "Summarize it from the text itself — never from what you recall of this " +
+      "work, its author, its adaptations, or its reputation. If something in " +
+      "the chapter only resolves elsewhere in the book, say what this chapter " +
+      "says about it and stop there rather than completing the thought.",
+    "Write four to six sentences of flowing prose — the way a reader would " +
+      "recap it to themselves before picking the book back up. No heading, no " +
+      "bullet list, no preamble: open with what happens. Name people and " +
+      "places the way the chapter names them.",
+    "If the chapter argues rather than narrates, summarize the argument and " +
+      "what it rests on instead of the events.",
+  ];
+
+  if (input.truncated) {
+    rules.push(
+      "The chapter was too long to send whole, so a stretch of its middle has " +
+        "been elided and marked as such. Recap what you were given and say in " +
+        "one clause that the middle is missing."
+    );
+  }
+
+  const author = input.bookAuthor ? ` author="${input.bookAuthor}"` : "";
+  return [
+    { type: "text", text: rules.join("\n\n") },
+    {
+      type: "text",
+      text:
+        `<book title="${input.bookTitle}"${author}>\n` +
+        `<chapter title="${input.chapterTitle}">\n${input.chapterText}\n</chapter>\n` +
+        `</book>`,
+    },
+  ];
+}
 
 export type ReaderChatPromptInput = {
   bookTitle: string;

@@ -41,12 +41,17 @@ export type ChapterSpan = { title: string; startWord: number; endWord: number };
  * are excluded from chapter goals (and from the word count that defines the book's
  * length) so a book "finishes" at the end of its last real chapter, not after a
  * 8,000-word teaser for the sequel. Matched on the title's opening words.
+ *
+ * `acknowledg\w*` rather than a bare stem: every other entry here is a whole
+ * word, and the trailing \b it relies on can only match at a word END — so
+ * "acknowledg" alone matched nothing at all, since no book calls its section
+ * that. It needs the suffix to reach one.
  */
 const NON_CONTENT_TITLE =
-  /^(cover|title page|copyright|contents|table of contents|dedication|acknowledg|about the (author|publisher)|also (by|available)|by the same author|other books|newsletter|praise for|excerpt|preview|teaser|sneak peek|bonus|end of book|back ad|advertisement|discussion guide|reading group|a note (on|about)|imprint|colophon)\b/i;
+  /^(cover|title page|copyright|contents|table of contents|dedication|acknowledg\w*|about the (author|publisher)|also (by|available)|by the same author|other books|newsletter|praise for|excerpt|preview|teaser|sneak peek|bonus|end of book|back ad|advertisement|discussion guide|reading group|a note (on|about)|imprint|colophon)\b/i;
 
 /** Whether a TOC title names actual story content (vs front/back matter). */
-function isContentSection(title: string): boolean {
+export function isContentSection(title: string): boolean {
   return !NON_CONTENT_TITLE.test(title.trim());
 }
 
@@ -195,7 +200,7 @@ export function pickChapterTarget(input: {
 }
 
 /** "Chapter 8" from a bare "8"; leaves named sections ("Prologue") untouched. */
-function chapterName(title: string): string {
+export function chapterName(title: string): string {
   const t = title.trim();
   return /^\d{1,3}$/.test(t) ? `Chapter ${t}` : t;
 }
