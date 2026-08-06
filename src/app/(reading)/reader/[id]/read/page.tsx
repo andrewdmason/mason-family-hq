@@ -12,10 +12,13 @@ export const metadata = {
 
 export default async function ReadBookPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  /** `notes=1` arrives from the shelf's annotation count — see bookNotesHref. */
+  searchParams: Promise<{ notes?: string }>;
 }) {
-  const { id } = await params;
+  const [{ id }, query] = await Promise.all([params, searchParams]);
 
   // Always your own book: Reader is self-scoped, and the kids' books are
   // administered from Bookshelf rather than read here.
@@ -43,6 +46,7 @@ export default async function ReadBookPage({
       toc={data.toc}
       resumeCharOffset={data.resume.charOffset}
       resumeSavedAt={data.resume.savedAt}
+      openNotes={query.notes === "1"}
       backHref={readerLibraryHref()}
     />
   );

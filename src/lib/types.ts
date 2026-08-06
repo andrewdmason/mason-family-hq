@@ -1008,6 +1008,9 @@ export type ReadingBookWithProgress = ReadingBook & {
    * has never been opened in the reader (Bookshelf's manual page counts are a
    * separate, deliberately un-merged notion of progress). */
   readerPercent: number | null;
+  /** How many passages you've marked in this book — highlights, notes and
+   * conversations all counted the same, since each is one marked passage. */
+  annotationCount: number;
   /** Closed journal entries linked to this book, newest first. */
   relatedEntries: ReadingBookJournalEntry[];
 };

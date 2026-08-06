@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { rateBook, removeBook, updateBook } from "@/app/(reading)/reader/actions";
 import { startBookReflection } from "@/app/(journal)/journal/actions";
-import { bookReaderHref } from "@/lib/reading/links";
+import { bookNotesHref, bookReaderHref } from "@/lib/reading/links";
 import { amazonHref, koboHref } from "@/lib/reading/store-links";
 import { useBookFileActions } from "@/lib/reading/use-book-file-actions";
 import { cn } from "@/lib/utils";
@@ -94,6 +94,12 @@ export function ReaderBookTile({ book }: { book: ReadingBookWithProgress }) {
   const pending = busy || deleting || moving || reflecting || retrying || savingRating;
   const percent = readerProgressPercent(book);
   const downloaded = useIsDownloaded(book.id);
+
+  // How much you marked this one up. Withheld while the file is being prepared
+  // or has failed, for the same reason Offline is: those captions are saying
+  // something you need to act on, and a count would only crowd them out.
+  const showNotes =
+    book.annotationCount > 0 && isReady && !busy && !isProcessing && !isFailed;
 
   /** Tap the rating you already gave to clear it, mirroring the rating picker. */
   function handleRate(next: ReadingRating) {
@@ -340,9 +346,10 @@ export function ReaderBookTile({ book }: { book: ReadingBookWithProgress }) {
         {book.title}
       </span>
 
-      {/* How far through you are — the one number worth carrying on the shelf.
-          Where there's no progress to report, the file's state is the more
-          useful thing to say; a finished book shows the verdict instead. */}
+      {/* How far through you are, and how much you marked up — the two numbers
+          worth carrying on the shelf. Where there's no progress to report, the
+          file's state is the more useful thing to say; a finished book shows the
+          verdict instead. */}
       <span
         className={cn(
           "text-[11px] tabular-nums text-muted-foreground",
@@ -360,6 +367,23 @@ export function ReaderBookTile({ book }: { book: ReadingBookWithProgress }) {
                 : hasFile
                   ? "Not started"
                   : "No file yet"}
+        {/* A finished book's caption used to be the word "Finished" and nothing
+            else — a slot doing no work, under a Finished heading, inside an
+            Archive tab. This is what belongs there. It's a link rather than a
+            label because the count is only interesting as a way back into what
+            you actually wrote. */}
+        {showNotes && (
+          <>
+            {" · "}
+            <Link
+              href={bookNotesHref(book.id)}
+              className="underline-offset-2 hover:text-foreground hover:underline"
+            >
+              {book.annotationCount}{" "}
+              {book.annotationCount === 1 ? "note" : "notes"}
+            </Link>
+          </>
+        )}
         {/* Quiet on purpose: it matters exactly once, when you're deciding what
             to take on a plane, and never while you're just picking a book. */}
         {downloaded && !isFailed && !isProcessing && (

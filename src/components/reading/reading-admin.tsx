@@ -379,6 +379,7 @@ function BookBlock({
     content: book.content,
     hasResumePoint: false,
     readerPercent: null,
+    annotationCount: 0,
     relatedEntries: [],
   };
   const { inputRef, openFilePicker, handleFile, busy, hasFile } =
