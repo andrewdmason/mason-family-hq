@@ -141,9 +141,8 @@ export type ReaderChatPromptInput = {
   readerPosition: { page: number | null; percent: number | null } | null;
   /** Selection-initiated chats: the passage the reader highlighted. */
   quotedText: string | null;
-  /** Fork: the parent chat's transcript, carried forward as context. */
-  priorTranscript: { role: "user" | "assistant"; content: string }[] | null;
-  parentAnchorPage: number | null;
+  /** True when the transcript carries notes the reader wrote to themselves. */
+  hasReaderNotes: boolean;
 };
 
 /**
@@ -297,18 +296,18 @@ export function buildReaderChatSystem(
     );
   }
 
-  if (input.priorTranscript && input.priorTranscript.length > 0) {
-    const where =
-      input.parentAnchorPage != null
-        ? ` earlier, at page ${input.parentAnchorPage}`
-        : " earlier";
-    const rendered = input.priorTranscript
-      .map((m) => `${m.role === "user" ? "Reader" : "You"}: ${m.content}`)
-      .join("\n\n");
+  // Notes are shown to the model but were never addressed to it. Said plainly
+  // here because the alternative — hiding them — makes the reader's own words
+  // invisible to the thing they are talking to, so a follow-up that says "that"
+  // or "this idea" refers to something only one side of the conversation can
+  // see. Marked rather than silently folded in, so the model does not answer a
+  // thought that was not a question.
+  if (input.hasReaderNotes) {
     tail.push(
-      `This conversation continues one you had with them${where}. They have ` +
-        "read further since. Earlier transcript:\n\n" +
-        `<prior_conversation>\n${rendered}\n</prior_conversation>`
+      "Some lines in this conversation are marked [Reader's note]. Those are " +
+        "the reader thinking on the page, not questions to you — they were " +
+        "written without expecting a reply. Treat them as context for what the " +
+        "reader believes and cares about, and answer only what they actually ask."
     );
   }
 

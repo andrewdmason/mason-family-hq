@@ -200,9 +200,13 @@ export function AnnotationList({
                               {a.firstQuestion ?? "In the text"}
                             </p>
                           )}
-                          {a.note && (
+                          {/* The most recent thing written here. A passage can
+                              carry several notes now, and the list is a
+                              retrieval surface — the latest thought is the one
+                              most likely to be what you're looking for. */}
+                          {a.latestNote && (
                             <p className="mt-1 line-clamp-2 text-xs leading-snug text-foreground">
-                              {a.note}
+                              {a.latestNote}
                             </p>
                           )}
                           {a.messageCount > 0 && (

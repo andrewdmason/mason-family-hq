@@ -31,7 +31,6 @@ type AnnotationRow = {
   anchor_page: number | null;
   quoted_text: string | null;
   model_preference: string;
-  forked_from_annotation_id: string | null;
 };
 
 export async function POST(req: NextRequest) {
@@ -54,7 +53,7 @@ export async function POST(req: NextRequest) {
     .from("reading_annotations")
     .select(
       "id, book_id, spoiler_free, context_through_page, anchor_char_offset, " +
-        "anchor_page, quoted_text, model_preference, forked_from_annotation_id"
+        "anchor_page, quoted_text, model_preference"
     )
     .eq("id", chatId)
     .eq("user_id", userId)
@@ -70,23 +69,42 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
   if (!book) return new Response("book not found", { status: 404 });
 
-  // Thread so far. 'notice' rows are app-authored UI text and never go to the model.
+  // Thread so far. 'notice' rows are app-authored UI text and never go to the
+  // model; 'note' rows are the reader's own writing and do — see the marker
+  // below and the explanation of it in chat-prompt.ts.
   const { data: priorMsgs, error: msgsErr } = await db
     .from("reading_annotation_messages")
     .select("role, content")
     .eq("annotation_id", chatId)
     .eq("user_id", userId)
-    .in("role", ["user", "assistant"])
+    .in("role", ["user", "assistant", "note"])
     .order("created_at", { ascending: true });
   if (msgsErr) return new Response(msgsErr.message, { status: 500 });
 
-  const turns: Anthropic.MessageParam[] = (
-    (priorMsgs ?? []) as { role: string; content: string }[]
-  ).map((m) => ({
-    role: m.role === "assistant" ? "assistant" : "user",
-    content: m.content,
-  }));
-  turns.push({ role: "user", content: userMessage.trim() });
+  const rendered = ((priorMsgs ?? []) as { role: string; content: string }[]).map(
+    (m) => ({
+      role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
+      content: m.role === "note" ? `[Reader's note] ${m.content}` : m.content,
+    })
+  );
+  rendered.push({ role: "user", content: userMessage.trim() });
+  const hasReaderNotes = (priorMsgs ?? []).some(
+    (m) => (m as { role: string }).role === "note"
+  );
+
+  // Consecutive same-role turns are folded into one. A note followed by the
+  // question it prompted is the ordinary case now, and that is two user turns in
+  // a row — permitted by the API, but merging costs nothing and keeps this
+  // working whichever way that rule lands.
+  const turns: Anthropic.MessageParam[] = [];
+  for (const turn of rendered) {
+    const last = turns.at(-1);
+    if (last && last.role === turn.role) {
+      last.content = `${last.content as string}\n\n${turn.content}`;
+    } else {
+      turns.push({ role: turn.role, content: turn.content });
+    }
+  }
 
   const { error: insertErr } = await db.from("reading_annotation_messages").insert({
     annotation_id: chatId,
@@ -96,7 +114,9 @@ export async function POST(req: NextRequest) {
   });
   if (insertErr) return new Response(insertErr.message, { status: 500 });
 
-  // The spoiler boundary was frozen when the chat was created. `spoiler_free`
+  // The spoiler boundary is frozen by the first question, and the insert above
+  // was that question if this is the first turn — so it can no longer move under
+  // this thread while the thread is being answered. `spoiler_free`
   // with a null page means the book has no page map at all, so fall back to the
   // anchor's character offset rather than silently taking the whole book.
   const scoped = chat.spoiler_free;
@@ -127,35 +147,6 @@ export async function POST(req: NextRequest) {
       ? null
       : await resolveReaderPosition(db, userId, chat.book_id, chat.anchor_char_offset);
 
-  // Fork: carry the parent transcript forward as context (not as real turns).
-  let priorTranscript: { role: "user" | "assistant"; content: string }[] | null =
-    null;
-  let parentAnchorPage: number | null = null;
-  if (chat.forked_from_annotation_id) {
-    const { data: parent } = await db
-      .from("reading_annotations")
-      .select("anchor_page")
-      .eq("id", chat.forked_from_annotation_id)
-      .eq("user_id", userId)
-      .maybeSingle();
-    parentAnchorPage = (parent?.anchor_page as number | null) ?? null;
-
-    const { data: parentMsgs } = await db
-      .from("reading_annotation_messages")
-      .select("role, content")
-      .eq("annotation_id", chat.forked_from_annotation_id)
-      .eq("user_id", userId)
-      .in("role", ["user", "assistant"])
-      .order("created_at", { ascending: true });
-    const rendered = ((parentMsgs ?? []) as { role: string; content: string }[]).map(
-      (m) => ({
-        role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
-        content: m.content,
-      })
-    );
-    priorTranscript = rendered.length > 0 ? rendered : null;
-  }
-
   const system = buildReaderChatSystem({
     bookTitle: book.title as string,
     bookAuthor: (book.author as string | null) ?? null,
@@ -167,8 +158,7 @@ export async function POST(req: NextRequest) {
     contextThroughPage: scoped ? chat.context_through_page : null,
     readerPosition,
     quotedText: chat.quoted_text,
-    priorTranscript,
-    parentAnchorPage,
+    hasReaderNotes,
   });
 
   const client = anthropic();

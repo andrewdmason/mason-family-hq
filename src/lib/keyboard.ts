@@ -1,7 +1,12 @@
 /**
- * Shared guards for the single-letter keyboard shortcuts (quick-add's `c`,
- * the `g` navigation chords, and the task-list keys). Letter shortcuts only
- * fire when the user isn't typing and no overlay owns the keyboard.
+ * Shared guards for the single-letter keyboard shortcuts across the apps —
+ * to-dos' `c` and `g` chords and task-list keys, the reader's `c`. Letter
+ * shortcuts only fire when the user isn't typing and no overlay owns the
+ * keyboard.
+ *
+ * App-neutral on purpose: the same letter means different things in different
+ * apps, but "am I allowed to act on a bare keystroke right now" is one question
+ * with one answer, and two copies of it would eventually disagree.
  */
 
 /** True when the key event originates from a text-entry surface. */

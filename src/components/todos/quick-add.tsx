@@ -9,18 +9,23 @@ import {
   type NewTaskDefaults,
 } from "@/components/todos/new-task-modal";
 import { Toast, ToastViewport } from "@/components/ui/toast";
-import { inOpenOverlay, isTypingTarget } from "@/lib/todos/keyboard";
+import { inOpenOverlay, isTypingTarget } from "@/lib/keyboard";
 import { withAs } from "@/lib/todos/member-context";
 import { viewLabel, type TodoMember, type TodoTask } from "@/lib/todos/types";
 import { cn } from "@/lib/utils";
 
 /**
- * Global quick-add: the new-to-do modal is mounted once (root layout, via
- * global-quick-add.tsx) and summoned from anywhere — press `c` (Gmail/Linear's
- * create key; single letters never collide with Chrome's shortcuts) or
- * dispatch the window event via emitQuickAdd() / <QuickAddButton>. The same
- * window-event pattern as src/lib/optimistic-task.ts, so openers don't need
- * a shared React context across layouts.
+ * Quick-add: the new-to-do modal is mounted once (root layout, via
+ * global-quick-add.tsx) and summoned by pressing `c` (Gmail/Linear's create
+ * key) or by dispatching the window event via emitQuickAdd() /
+ * <QuickAddButton>. The same window-event pattern as src/lib/optimistic-task.ts,
+ * so openers don't need a shared React context across layouts.
+ *
+ * The MODAL is global; the KEY is not. `c` only fires inside /todos, because a
+ * single letter reserved app-wide is a letter no other app can ever use — and
+ * the reader wanted it for starting a chat about the passage you're looking at.
+ * Every other way in still works everywhere: the button in the home widget, and
+ * anything else that calls emitQuickAdd().
  *
  * Views that create in place (bucket views, project pages) own `c` instead —
  * their task list marks itself with data-inline-new and the key handler here
@@ -29,6 +34,11 @@ import { cn } from "@/lib/utils";
 
 const QUICK_ADD_EVENT = "todo-quick-add";
 const QUICK_ADD_KEY = "c";
+
+/** Where `c` means "new to-do". Everywhere else the letter belongs to that app. */
+function isTodosPath(pathname: string): boolean {
+  return pathname === "/todos" || pathname.startsWith("/todos/");
+}
 
 export function emitQuickAdd(defaults?: NewTaskDefaults): void {
   window.dispatchEvent(
@@ -68,6 +78,10 @@ export function QuickAddHost({
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== QUICK_ADD_KEY) return;
       if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+      // The modal is mounted app-wide so that any surface can summon it, which
+      // is exactly why the key has to check where it is: without this, `c`
+      // captures a to-do while you are reading a book.
+      if (!isTodosPath(window.location.pathname)) return;
       if (isTypingTarget(e.target) || inOpenOverlay(e.target)) return;
       // A task list that creates in place owns `c` (an inline draft below
       // the selection — see task-list.tsx). Listener order between the two
