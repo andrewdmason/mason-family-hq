@@ -62,6 +62,21 @@ export function pageMarks(rows: PageRange[], from: number, to: number): ContextM
   return marks;
 }
 
+/** A heading found in the slice: its text, and where it starts in char space. */
+export type ChapterMark = { title: string; charStart: number };
+
+/**
+ * A chapter as the contents index describes it: the heading verbatim, and the
+ * first and last page it occupies. The pages are null when the book has no page
+ * map to resolve them against — the index then names chapters without placing
+ * them, which is what it did before it could place them at all.
+ */
+export type ChapterIndexEntry = {
+  title: string;
+  fromPage: number | null;
+  throughPage: number | null;
+};
+
 /**
  * Chapter markers for every heading block starting inside [from, to), plus the
  * headings themselves as an index. The titles are returned exactly as they appear
@@ -71,18 +86,58 @@ export function chapterMarks(
   blocks: BookBlock[],
   from: number,
   to: number
-): { marks: ContextMark[]; titles: string[] } {
+): { marks: ContextMark[]; chapters: ChapterMark[] } {
   const marks: ContextMark[] = [];
-  const titles: string[] = [];
+  const chapters: ChapterMark[] = [];
   for (const block of blocks) {
     if (block.tag === "p") continue; // headings are the only other kind
     if (block.charStart < from || block.charStart >= to) continue;
     const title = block.text.trim();
     if (!title) continue;
     marks.push({ at: block.charStart, text: CHAPTER_MARKER_PREFIX, order: CHAPTER_MARK_ORDER });
-    titles.push(title);
+    chapters.push({ title, charStart: block.charStart });
   }
-  return { marks, titles };
+  return { marks, chapters };
+}
+
+/** The page covering `at` — the last one that starts at or before it. */
+function pageAt(rows: PageRange[], at: number): number | null {
+  let found: number | null = null;
+  for (const row of rows) {
+    if (row.char_start > at) break;
+    found = row.page_number;
+  }
+  return found;
+}
+
+/**
+ * Where each chapter begins and ends, in pages.
+ *
+ * The end matters more than the start, and is the whole reason this exists. A
+ * chapter runs to the character before the next heading, but a model reading a
+ * quarter-million tokens of flat prose has no way to know that without finding
+ * the next heading first — so it stops at the first passage that *feels* like an
+ * ending and reports the chapter finished several pages early. Stating the last
+ * page up front turns that search into a lookup.
+ *
+ * `to` is the end of the slice, which closes the final chapter.
+ */
+export function chapterIndex(
+  chapters: ChapterMark[],
+  rows: PageRange[],
+  to: number
+): ChapterIndexEntry[] {
+  return chapters.map((chapter, i) => {
+    const next = chapters[i + 1]?.charStart ?? to;
+    // Half-open: the last character the chapter owns is the one before the next
+    // heading, and clamped so a heading with no body still lands on its own page.
+    const lastChar = Math.max(next - 1, chapter.charStart);
+    return {
+      title: chapter.title,
+      fromPage: pageAt(rows, chapter.charStart),
+      throughPage: pageAt(rows, lastChar),
+    };
+  });
 }
 
 /**

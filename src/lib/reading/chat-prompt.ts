@@ -1,5 +1,6 @@
 import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
+import type { ChapterIndexEntry } from "@/lib/reading/context-markup";
 
 /**
  * The ONE place the reader's system prompts are assembled — the anchored chat,
@@ -119,13 +120,15 @@ export type ReaderChatPromptInput = {
   /** Whether bookText marks chapter starts with a "## " heading line. */
   hasChapterMarkers: boolean;
   /**
-   * The book's heading lines, in order, exactly as they appear in bookText.
-   * Rendered as a <contents> index ahead of the text: without it the model has to
-   * find a chapter by scanning a quarter-million tokens of undifferentiated prose,
-   * which is how "summarize chapter 21" turns into "I can't find chapter 21".
-   * Spoiler-scoped chats get only the chapters inside their boundary.
+   * The book's headings, in order, exactly as they appear in bookText, each with
+   * the pages it spans. Rendered as a <contents> index ahead of the text: without
+   * it the model has to find a chapter by scanning a quarter-million tokens of
+   * undifferentiated prose, which is how "summarize chapter 21" turns into "I
+   * can't find chapter 21" — and without the page ranges it finds the start but
+   * not the end, and reports the chapter over at the first scene break that reads
+   * like one. Spoiler-scoped chats get only the chapters inside their boundary.
    */
-  chapters: string[];
+  chapters: ChapterIndexEntry[];
   /** True when this chat is spoiler-scoped. */
   spoilerFree: boolean;
   /** The page the scope ends at, when known. */
@@ -136,6 +139,22 @@ export type ReaderChatPromptInput = {
   priorTranscript: { role: "user" | "assistant"; content: string }[] | null;
   parentAnchorPage: number | null;
 };
+
+/**
+ * One <contents> line per chapter: the heading verbatim, then the pages it
+ * covers, in the same "[p.N]" vocabulary the text is marked up with — so a
+ * chapter's last page is something the model can look up and then navigate to,
+ * rather than something it has to infer by reading to the next heading.
+ */
+function contentsLine(chapter: ChapterIndexEntry): string {
+  if (chapter.fromPage == null || chapter.throughPage == null) return chapter.title;
+  return `${chapter.title} — [p.${chapter.fromPage}] through [p.${chapter.throughPage}]`;
+}
+
+/** Whether the index actually carries extents (it can't without a page map). */
+function hasChapterExtents(chapters: ChapterIndexEntry[]): boolean {
+  return chapters.some((c) => c.fromPage != null && c.throughPage != null);
+}
 
 /**
  * Returns the system blocks. Order matters for prompt caching: everything up to
@@ -184,6 +203,19 @@ export function buildReaderChatSystem(
             "order, written exactly as it appears there."
           : "")
     );
+
+    if (hasChapterExtents(input.chapters)) {
+      rules.push(
+        "Each <contents> entry also gives the pages that chapter runs through. " +
+          "Treat that range as authoritative about where the chapter ends, " +
+          "because a chapter routinely contains scene breaks, partings and " +
+          "closing-sounding beats well before its last page. When you summarize " +
+          "a chapter, cover it to the end of its stated range — check what is on " +
+          "its final pages before you write, and never describe a chapter as " +
+          "ending anywhere but there. Asked how a chapter ends or for its last " +
+          "words, read to the very end of its range and quote from there."
+      );
+    }
   }
 
   if (input.spoilerFree) {
@@ -213,7 +245,7 @@ export function buildReaderChatSystem(
   const author = input.bookAuthor ? ` author="${input.bookAuthor}"` : "";
   const contents =
     input.chapters.length > 0
-      ? `<contents>\n${input.chapters.join("\n")}\n</contents>\n`
+      ? `<contents>\n${input.chapters.map(contentsLine).join("\n")}\n</contents>\n`
       : "";
   blocks.push({
     type: "text",
