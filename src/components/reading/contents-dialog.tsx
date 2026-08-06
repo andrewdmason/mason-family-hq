@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, PenLine } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -15,6 +15,12 @@ import {
   type ContentsNode,
 } from "@/lib/reading/contents-tree";
 import { formatDuration, formatTimeLeft } from "@/lib/reading/reading-time";
+import {
+  BOOK_DOCUMENT_BLURB,
+  BOOK_DOCUMENT_LABEL,
+  type BookScope,
+} from "@/lib/reading/book-documents";
+import type { BookDocumentState } from "@/lib/reading/annotation-types";
 import { cn } from "@/lib/utils";
 import type { ReadingTocEntry } from "@/lib/types";
 
@@ -29,6 +35,12 @@ import type { ReadingTocEntry } from "@/lib/types";
  *
  * What's shown is decided in contents-tree.ts, which is pure and verified
  * separately. Everything here is presentation.
+ *
+ * The reader's own two documents bracket all of it — a preface above the book's
+ * contents, an afterword below them — and they sit OUTSIDE the tree on purpose.
+ * Plenty of books ship with a preface or an afterword of their own; those stay
+ * where the author put them, in the tree, and yours are the ones with your name
+ * on them at either end of it.
  */
 export function ContentsDialog({
   open,
@@ -39,6 +51,8 @@ export function ContentsDialog({
   currentAnchorId,
   currentMinutesLeft,
   onGoToChapter,
+  documents,
+  onOpenDocument,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -52,6 +66,14 @@ export function ContentsDialog({
   /** Minutes left in that chapter, so its row reads "left" rather than a length. */
   currentMinutesLeft: number | null;
   onGoToChapter: (anchorId: string) => void;
+  /**
+   * The reader's preface and afterword. Null until the annotations have loaded,
+   * which is when the two rows appear — showing them before we know whether
+   * they've been written would mean two rows that silently change their
+   * subtitle a moment later.
+   */
+  documents: BookDocumentState[] | null;
+  onOpenDocument: (scope: BookScope) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -77,6 +99,11 @@ export function ContentsDialog({
               onGoToChapter(anchorId);
               onOpenChange(false);
             }}
+            documents={documents}
+            onOpenDocument={(scope) => {
+              onOpenDocument(scope);
+              onOpenChange(false);
+            }}
           />
         )}
       </DialogContent>
@@ -91,6 +118,8 @@ function ContentsBody({
   currentAnchorId,
   currentMinutesLeft,
   onGoToChapter,
+  documents,
+  onOpenDocument,
 }: {
   toc: ReadingTocEntry[];
   bookTitle: string;
@@ -98,6 +127,8 @@ function ContentsBody({
   currentAnchorId: string | null;
   currentMinutesLeft: number | null;
   onGoToChapter: (anchorId: string) => void;
+  documents: BookDocumentState[] | null;
+  onOpenDocument: (scope: BookScope) => void;
 }) {
   const contents = useMemo(
     () => buildContents(toc, bookTitle, wordCount),
@@ -166,45 +197,117 @@ function ContentsBody({
       </Row>
     ));
 
-  if (
+  // A book with no contents of its own still has yours, so this is a branch in
+  // the middle of the list rather than the early return it used to be.
+  const noContents =
     contents.front.length === 0 &&
     contents.body.length === 0 &&
-    contents.back.length === 0
-  ) {
-    return (
-      <p className="pb-2 text-sm text-muted-foreground">
-        This book didn&rsquo;t come with a table of contents.
-      </p>
-    );
-  }
+    contents.back.length === 0;
+
+  const preface = documents?.find((d) => d.scope === "preface") ?? null;
+  const afterword = documents?.find((d) => d.scope === "afterword") ?? null;
 
   return (
     <div ref={scrollerRef} className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
-      {contents.front.length > 0 && (
-        <MatterGroup
-          label="Front matter"
-          count={contents.front.length}
-          open={groupsOpen.front}
-          onToggle={() => setGroupsOpen((g) => ({ ...g, front: !g.front }))}
-        >
-          {rows(contents.front, 1)}
-        </MatterGroup>
+      {preface && (
+        <DocumentRow state={preface} onOpen={() => onOpenDocument("preface")} />
       )}
 
-      {rows(contents.body, 0)}
+      {noContents ? (
+        <p className="py-3 text-sm text-muted-foreground">
+          This book didn&rsquo;t come with a table of contents.
+        </p>
+      ) : (
+        <>
+          {contents.front.length > 0 && (
+            <MatterGroup
+              label="Front matter"
+              count={contents.front.length}
+              open={groupsOpen.front}
+              onToggle={() => setGroupsOpen((g) => ({ ...g, front: !g.front }))}
+            >
+              {rows(contents.front, 1)}
+            </MatterGroup>
+          )}
 
-      {contents.back.length > 0 && (
-        <MatterGroup
-          label="Back matter"
-          count={contents.back.length}
-          open={groupsOpen.back}
-          onToggle={() => setGroupsOpen((g) => ({ ...g, back: !g.back }))}
-        >
-          {rows(contents.back, 1)}
-        </MatterGroup>
+          {rows(contents.body, 0)}
+
+          {contents.back.length > 0 && (
+            <MatterGroup
+              label="Back matter"
+              count={contents.back.length}
+              open={groupsOpen.back}
+              onToggle={() => setGroupsOpen((g) => ({ ...g, back: !g.back }))}
+            >
+              {rows(contents.back, 1)}
+            </MatterGroup>
+          )}
+        </>
+      )}
+
+      {afterword && (
+        <DocumentRow
+          state={afterword}
+          onOpen={() => onOpenDocument("afterword")}
+        />
       )}
     </div>
   );
+}
+
+/**
+ * The reader's preface or afterword, at the edge of the book's own contents.
+ *
+ * Set apart by a rule and by the hand icon rather than by indentation, because
+ * indentation in this list means "inside the thing above you" and these are
+ * inside nothing. The subtitle carries the whole state: an invitation before
+ * it's written, a date afterwards, and the reason it's closed when it is.
+ */
+function DocumentRow({
+  state,
+  onOpen,
+}: {
+  state: BookDocumentState;
+  onOpen: () => void;
+}) {
+  const written = state.written ? shortDate(state.writtenAt) : null;
+  const subtitle = written
+    ? `Written ${written}`
+    : BOOK_DOCUMENT_BLURB[state.scope];
+
+  return (
+    <div
+      className={cn(
+        "my-1",
+        state.scope === "preface"
+          ? "mb-2 border-b border-border pb-2"
+          : "mt-2 border-t border-border pt-2"
+      )}
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex w-full items-center gap-2.5 rounded-md px-1 py-1.5 text-left transition-colors hover:bg-muted"
+      >
+        <PenLine className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm text-foreground">
+            {BOOK_DOCUMENT_LABEL[state.scope]}
+          </span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {subtitle}
+          </span>
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function shortDate(value: string | null): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
 /**

@@ -3,6 +3,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "@/lib/journal/anthropic";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { getTextForRange } from "@/lib/reading/extract-text";
+import { getBookPreface } from "@/lib/reading/book-document-context";
 import { resolveReaderPosition } from "@/lib/reading/reader-position";
 import {
   buildReaderChatSystem,
@@ -147,6 +148,13 @@ export async function POST(req: NextRequest) {
       ? null
       : await resolveReaderPosition(db, userId, chat.book_id, chat.anchor_char_offset);
 
+  // The one place the reader's stated intent travels to. An article can't have
+  // a preface — there is no Contents to write one from — so this is a book-only
+  // lookup, and null for the vast majority of books.
+  const readerIntent = isArticle
+    ? null
+    : await getBookPreface(db, userId, chat.book_id);
+
   const system = buildReaderChatSystem({
     bookTitle: book.title as string,
     bookAuthor: (book.author as string | null) ?? null,
@@ -159,6 +167,7 @@ export async function POST(req: NextRequest) {
     readerPosition,
     quotedText: chat.quoted_text,
     hasReaderNotes,
+    readerIntent,
   });
 
   const client = anthropic();

@@ -1,4 +1,5 @@
 import type { AnnotationAnchor } from "@/lib/reading/annotation-anchors";
+import type { BookScope } from "@/lib/reading/book-documents";
 
 /** "fast" = claude-haiku-4-5, "deep" = claude-sonnet-5. */
 export type ReaderChatModelPreference = "fast" | "deep";
@@ -47,6 +48,17 @@ export type AnnotationSummary = {
    */
   chapterAnchorId: string | null;
   /**
+   * Set on the two annotations that are about the WHOLE book rather than a
+   * passage in it — the reader's preface and afterword. Null on everything else.
+   *
+   * These never appear in the margin, the gutter or the marks index: they have
+   * no passage, and their anchor exists only because the columns are NOT NULL.
+   * getAnnotationData filters them out of `chats` for exactly that reason, so a
+   * consumer holding an AnnotationSummary can assume this is null — the two that
+   * aren't arrive separately, in `documents`.
+   */
+  bookScope: BookScope | null;
+  /**
    * The most recent thing the reader wrote here, for the list's preview line.
    * Null until they write one. The notes themselves live in the thread — see
    * ReaderChatMessage — so this is a summary, not the content.
@@ -78,9 +90,11 @@ export type ReaderChatMessage = {
    * the model. "note" is the reader's own writing — it gets no reply, but it IS
    * sent to the model, because a thread where your own words are invisible to
    * the thing you're talking to makes every follow-up question mean something
-   * different to you than it does to it.
+   * different to you than it does to it. "document" is a finished preface or
+   * afterword: a turn the assistant took, marked apart from the conversation
+   * because it is the thing the conversation was for.
    */
-  role: "user" | "assistant" | "notice" | "note";
+  role: "user" | "assistant" | "notice" | "note" | "document";
   content: string;
   model: string | null;
   createdAt: string;
@@ -100,7 +114,31 @@ export type AnnotationPageMark = {
   anchorId: string;
 };
 
+/**
+ * Enough about the reader's preface or afterword for the Contents to offer it:
+ * whether it exists as a thread at all, whether anything has been written yet,
+ * and when the latest version was.
+ *
+ * Deliberately not an AnnotationSummary. The Contents is the only thing that
+ * ever renders these, it needs three facts, and shipping a summary would invite
+ * them back into the margin machinery they are excluded from. See
+ * getBookDocumentStates.
+ */
+export type BookDocumentState = {
+  scope: BookScope;
+  /** Null until the reader has opened it once. */
+  annotationId: string | null;
+  /** Whether a preface or afterword has actually been written into the thread. */
+  written: boolean;
+  /** When the most recent one was written. */
+  writtenAt: string | null;
+};
+
 export type ReaderAnnotationData = {
+  /**
+   * Everything marked in the book. Never the reader's preface or afterword:
+   * those have no passage to mark, and are read on their own page.
+   */
   chats: AnnotationSummary[];
   /** What a NEW chat in this book starts as. Each chat then carries its own. */
   spoilerFree: boolean;
