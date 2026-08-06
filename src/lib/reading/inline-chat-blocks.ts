@@ -106,6 +106,14 @@ export function markHtml(mark: InlineChatMark): string {
  *
  * Walked in descending order so that inserting one mark can't invalidate the
  * offset of the next.
+ *
+ * Several marks can share a boundary — the control in the top margin starts a
+ * new conversation about the page every time it's pressed, so a paragraph break
+ * can carry a stack of them. They come out in the order they were given, which
+ * the caller supplies oldest-first: each insert pushes the previous one down, so
+ * ties are walked newest-first to leave the oldest on top. Without that the
+ * stack would reorder itself every time it grew, and a mark you had learned the
+ * position of would move.
  */
 export function withInlineChats(
   html: string,
@@ -116,15 +124,15 @@ export function withInlineChats(
   if (marks.length === 0) return html;
 
   const placed = marks
-    .map((mark) => {
+    .map((mark, order) => {
       const block = blocks[mark.blockIndex];
-      return block ? { mark, at: block.htmlStart - htmlOffset } : null;
+      return block ? { mark, order, at: block.htmlStart - htmlOffset } : null;
     })
-    .filter((p): p is { mark: InlineChatMark; at: number } => p != null)
+    .filter((p): p is { mark: InlineChatMark; order: number; at: number } => p != null)
     // Outside this slice — another chapter's window, so there is nothing to
     // mark here.
     .filter((p) => p.at >= 0 && p.at <= html.length)
-    .sort((a, b) => b.at - a.at);
+    .sort((a, b) => b.at - a.at || b.order - a.order);
 
   let out = html;
   for (const { mark, at } of placed) {

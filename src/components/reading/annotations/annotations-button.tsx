@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { MessageSquare, MessageSquarePlus, NotebookPen } from "lucide-react";
+import { MessageSquarePlus, PanelRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -40,16 +40,11 @@ const BUTTON_CLASS =
  */
 export function ReaderMarginControls({
   onAsk,
-  askActive,
-  hasChatHere,
   onOpenList,
   listActive,
 }: {
-  /** Start (or reopen) the conversation about the visible page. */
+  /** Start a new conversation about the visible page. Always a new one. */
   onAsk: () => void;
-  askActive: boolean;
-  /** Whether the page already carries a conversation — see reader chat marks. */
-  hasChatHere: boolean;
   onOpenList: () => void;
   listActive: boolean;
 }) {
@@ -72,27 +67,25 @@ export function ReaderMarginControls({
     return () => document.removeEventListener("keydown", onKey);
   }, [onOpenList]);
 
-  // Solid once this page has a conversation on it, so reading past a place you
-  // have already talked about says so before you tap anything.
-  const AskIcon = hasChatHere ? MessageSquare : MessageSquarePlus;
-
   return (
     <div className="fixed top-3 right-3 z-40 flex items-center gap-0.5">
+      {/* One meaning, always: a new conversation about where you are. It used to
+          reopen the page's existing chat and go solid to say so, which made a
+          button that sometimes created and sometimes navigated — and left no way
+          at all to ask a second, unrelated question about the same page. What
+          the page already carries is said by the marks set into the text, which
+          can say it far better: they carry the question. */}
       <button
         type="button"
         onClick={onAsk}
-        aria-label={hasChatHere ? "Open the conversation about this page" : "Ask about this page"}
-        title={hasChatHere ? "Open the conversation about this page" : "Ask about this page"}
+        aria-label="Ask about this page"
+        title="Ask about this page"
         className={cn(
           BUTTON_CLASS,
-          askActive
-            ? "bg-foreground text-background"
-            : hasChatHere
-              ? "text-foreground hover:bg-muted"
-              : "text-muted-foreground/50 hover:bg-muted hover:text-foreground"
+          "text-muted-foreground/50 hover:bg-muted hover:text-foreground"
         )}
       >
-        <AskIcon className="h-4 w-4" />
+        <MessageSquarePlus className="h-4 w-4" />
       </button>
       <button
         type="button"
@@ -106,7 +99,10 @@ export function ReaderMarginControls({
             : "text-muted-foreground/50 hover:bg-muted hover:text-foreground"
         )}
       >
-        <NotebookPen className="h-4 w-4" />
+        {/* The ordinary sidebar glyph rather than something bookish: this button
+            toggles a panel, and every app that has one draws it this way. Right-
+            handed, because that is the side the panel comes in on. */}
+        <PanelRight className="h-4 w-4" />
       </button>
     </div>
   );

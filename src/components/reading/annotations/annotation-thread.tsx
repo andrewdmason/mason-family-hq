@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CornerDownLeft, Loader2, RotateCcw, Trash2, X } from "lucide-react";
+import { ChevronLeft, CornerDownLeft, Loader2, RotateCcw, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
   AnnotationDetail,
@@ -60,6 +60,7 @@ export function AnnotationThread({
   onJumpToPage,
   onFork,
   onDelete,
+  onBack,
   onClose,
   onTouched,
   onExchangeComplete,
@@ -88,6 +89,8 @@ export function AnnotationThread({
   onJumpToPage: (page: number) => void;
   onFork: () => void;
   onDelete: () => void;
+  /** Leave this chat for the index of everything marked in the book. */
+  onBack: () => void;
   onClose: () => void;
   /**
    * Fired on the first send: the chat is now real and shouldn't be discarded.
@@ -125,6 +128,9 @@ export function AnnotationThread({
   // Captured at mount (the panel remounts per chat via key): an empty transcript
   // means this chat was just started, so the reader's next move is to type.
   const [startedEmpty] = useState(() => chat.messages.length === 0);
+  // Also captured at mount, so that emptying a note doesn't pull the field out
+  // from under the cursor that just emptied it.
+  const [hadNote] = useState(() => chat.note != null);
   const isSummary = chat.chapterAnchorId != null;
   /**
    * Captured at mount, like startedEmpty. Keyed on there being no ANSWER rather
@@ -362,6 +368,21 @@ export function AnnotationThread({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
+        {/* The way out of a chat and back to everything marked in the book.
+            Without it the only exit was closing the panel outright, so getting
+            from one conversation to another meant leaving the panel and
+            reopening it from the margin — a chat was a dead end. Leftmost and a
+            chevron, so it reads as "back" rather than as one more action on this
+            chat, which is what the icons on the right all are. */}
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="All marks"
+          title="All marks"
+          className="-ml-1.5 shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium text-foreground">
             {isSummary
@@ -435,7 +456,15 @@ export function AnnotationThread({
           </blockquote>
         )}
 
-        <NoteField value={chat.note} onCommit={onNoteChange} />
+        {/* A note is something you write ABOUT A PASSAGE, so it only belongs on
+            an annotation that has one. A conversation about the page, or a
+            chapter's recap, has no passage to annotate — the field there was an
+            empty box between you and the thing you opened the panel to do.
+            Shown regardless on anything that already carries a note, so no
+            words ever become unreachable. */}
+        {(chat.quotedText || hadNote) && (
+          <NoteField value={chat.note} onCommit={onNoteChange} />
+        )}
 
         <div className="flex flex-col gap-3">
           {messages.map((m) =>

@@ -156,6 +156,35 @@ console.log("\nsplicing");
     drift >= 0 ? `block ${drift} moved to char ${after[drift].charStart}` : undefined
   );
 
+  // Several conversations about the same page stack at the same boundary — the
+  // margin control starts a new one every time it is pressed. They must come out
+  // in the order they were started, so a mark doesn't move when the next one is
+  // added, and the block stream must survive a boundary carrying three asides
+  // exactly as it survives one.
+  const stacked: InlineChatMark[] = [
+    { chatId: "first", blockIndex: 20, text: "Who is the porter?" },
+    { chatId: "second", blockIndex: 20, text: "And what year is this?" },
+    { chatId: "third", blockIndex: 20, text: "Why the detour?" },
+  ];
+  const stackedOut = withInlineChats(HTML, BLOCKS, stacked, 0);
+  const order = stacked.map((m) => stackedOut.indexOf(`${INLINE_MARK_ATTR}="${m.chatId}"`));
+  check(
+    "conversations stacked on one paragraph keep the order they were started in",
+    order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1]))
+  );
+  check(
+    "the whole stack sits above the paragraph it belongs to",
+    Math.max(...order) < stackedOut.indexOf("[b20]")
+  );
+  const stackedBlocks = blockMap(stackedOut);
+  check(
+    "a stack of marks leaves the block stream alone",
+    stackedBlocks.length === BLOCKS.length &&
+      stackedBlocks.every(
+        (b, i) => b.text === BLOCKS[i].text && b.charStart === BLOCKS[i].charStart
+      )
+  );
+
   const nasty: InlineChatMark[] = [
     { chatId: 'x"y', text: '<script>alert("x")</script> & "quotes"', blockIndex: 7 },
   ];
