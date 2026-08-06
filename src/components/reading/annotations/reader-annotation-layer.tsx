@@ -37,10 +37,12 @@ import {
   summarizableChapters,
   type ChapterBound,
 } from "@/lib/reading/reading-progress";
+import { CHAPTER_TAP_CLASS } from "../reader-prose";
 import { AnnotationPanel } from "./annotation-panel";
 import { AnnotationList } from "./annotation-list";
 import { ReaderMarginControls } from "./annotations-button";
 import { AnnotationThread } from "./annotation-thread";
+import { ChapterMenu } from "./chapter-menu";
 import { GutterMarkers } from "./gutter-markers";
 import { useGutterPlacement, type PagedGutterContext } from "./gutter-placement";
 import { PanelDockToggle } from "./panel-dock-toggle";
@@ -202,6 +204,12 @@ export function ReaderAnnotationLayer({
   const [draftId, setDraftId] = useState<string | null>(null);
   /** The panel shows one annotation, or the index of all of them. */
   const [mode, setMode] = useState<"thread" | "list">("thread");
+  /**
+   * The chapter heading whose menu is open, held as the element itself: the menu
+   * positions against it and re-measures, which a copied rectangle couldn't
+   * survive. Cleared whenever the page it sits on is relaid.
+   */
+  const [chapterMenu, setChapterMenu] = useState<HTMLElement | null>(null);
   /** Set when the row this panel is showing failed to save — see PendingCreate. */
   const [createError, setCreateError] = useState<string | null>(null);
   /** Bumped per open, so the thread remounts per annotation but not per id swap. */
@@ -597,13 +605,16 @@ export function ReaderAnnotationLayer({
   );
 
   /**
-   * Closing a chat you never wrote in throws it away, so an abandoned draft
+   * Leaving a chat you never wrote in throws it away, so an abandoned draft
    * doesn't leave a marker in the margin. The row is created up front (the
    * anchor has to exist before there's anywhere to send to), so this is the
-   * cleanup for it.
+   * cleanup for it. Reports whether it discarded anything.
+   *
+   * Every exit from a chat comes through here — closing the panel, and going
+   * back to the list — because they abandon a draft equally.
    *
    * Only ever the draft this interaction created: anything else on screen is an
-   * annotation that already existed, and closing a panel is not a request to
+   * annotation that already existed, and leaving a panel is not a request to
    * delete it.
    *
    * Worth knowing exactly how much the server backstop covers, because it isn't
@@ -614,14 +625,12 @@ export function ReaderAnnotationLayer({
    * standing between it and deletion. Do not route any other close path through
    * discardAnnotationIfEmpty.
    */
-  const closePanel = useCallback(() => {
+  const releaseOpenChat = useCallback(() => {
     const closing = detail;
     const wasTouched = touched;
     const wasDraft = closing != null && closing.id === draftId;
-    onPanelOpenChange(false);
-    setDetail(null);
     setDraftId(null);
-    if (!closing || wasTouched || !wasDraft) return;
+    if (!closing || wasTouched || !wasDraft) return false;
 
     const pending = pendingRef.current;
     if (pending && pending.clientId === closing.id) {
@@ -629,14 +638,36 @@ export function ReaderAnnotationLayer({
       // race the insert with. Record it; the create's own continuation carries
       // it out once it knows the id — see openDraft.
       pending.onCreate = "discardIfEmpty";
-      return;
+      return true;
     }
     void discardAnnotationIfEmpty(closing.id, memberEmail)
       .then((discarded) => {
         if (discarded) refreshList();
       })
       .catch(() => {});
-  }, [detail, draftId, memberEmail, onPanelOpenChange, refreshList, touched]);
+    return true;
+  }, [detail, draftId, memberEmail, refreshList, touched]);
+
+  const closePanel = useCallback(() => {
+    onPanelOpenChange(false);
+    releaseOpenChat();
+    setDetail(null);
+  }, [onPanelOpenChange, releaseOpenChat]);
+
+  /**
+   * Leave the open chat for the index, without closing the panel.
+   *
+   * Routed through the same release as closing, because leaving a chat you never
+   * wrote in abandons it either way — going back to the list must not be the one
+   * exit that leaves a phantom mark behind in the margin. What survives is the
+   * annotation itself: the list highlights the row you just came from, so you
+   * land looking at where you were rather than at the top of a list of ten.
+   * A discarded draft is the exception — there is no row left to point at.
+   */
+  const backToList = useCallback(() => {
+    if (releaseOpenChat()) setDetail(null);
+    setMode("list");
+  }, [releaseOpenChat]);
 
   // `blockIndex` is global, like every index that reaches an anchor. See
   // RenderedBlocks.
@@ -663,27 +694,6 @@ export function ReaderAnnotationLayer({
         : pageBlocks(blocks, currentCharOffset, visibleThroughChar ?? currentCharOffset),
     [blocks, currentCharOffset, isArticle, visibleThroughChar]
   );
-
-  /**
-   * The conversation this page already has, if any.
-   *
-   * One page, one conversation: the control in the margin reopens this rather
-   * than starting a second one a few paragraphs from the first. Anything more
-   * specific is what selecting a passage is for.
-   */
-  const chatOnThisPage = useMemo(() => {
-    if (!onPage) return null;
-    return (
-      chats
-        .filter(
-          (c) =>
-            c.anchor?.kind === "between" &&
-            c.anchor.blockIndex >= onPage.start &&
-            c.anchor.blockIndex < onPage.end
-        )
-        .sort((a, b) => a.anchorCharOffset - b.anchorCharOffset)[0] ?? null
-    );
-  }, [chats, onPage]);
 
   /**
    * The three things a selection can become. They differ only in what the row
@@ -808,7 +818,19 @@ export function ReaderAnnotationLayer({
   );
 
   /**
-   * Start — or reopen — the conversation about the visible page.
+   * Start a NEW conversation about the visible page.
+   *
+   * Always a new one. This used to reopen whatever conversation the page already
+   * had, on a one-page-one-conversation rule that turned out to be a rule about
+   * the wrong thing: a page can raise a second question that has nothing to do
+   * with the first, and threading it onto an unrelated exchange makes both worse
+   * — the model carries the old context, and neither conversation is findable
+   * afterwards by what it was about. So they stack instead. Each leaves its own
+   * mark at the same paragraph break, in the order they were started, and each
+   * is its own thread.
+   *
+   * Reopening is what the marks in the page and the list are for; nothing here
+   * has to double as that.
    *
    * An article has no character space to reason in, so its break is measured off
    * the DOM instead: the first block starting below the top of the window. Books
@@ -821,10 +843,6 @@ export function ReaderAnnotationLayer({
     if (!container || busy || isCreating()) return;
 
     if (onPage) {
-      if (chatOnThisPage) {
-        void openExisting(chatOnThisPage.id);
-        return;
-      }
       startAtGap(onPage.breakIndex);
       return;
     }
@@ -834,24 +852,8 @@ export function ReaderAnnotationLayer({
     // Articles are never windowed, so a DOM index is already a global one.
     const blockIndex = found >= 0 ? found : els.length - 1;
     if (blockIndex < 0) return;
-    const existing = chats.find(
-      (c) => c.anchor?.kind === "between" && c.anchor.blockIndex === blockIndex
-    );
-    if (existing) {
-      void openExisting(existing.id);
-      return;
-    }
     startAtGap(blockIndex);
-  }, [
-    busy,
-    chatOnThisPage,
-    chats,
-    contentRef,
-    isCreating,
-    onPage,
-    openExisting,
-    startAtGap,
-  ]);
+  }, [busy, contentRef, isCreating, onPage, startAtGap]);
 
   // Clicking a highlighted passage opens its chat — the highlight should be the
   // affordance, not just a colour. Ignored while a selection is live, so this
@@ -871,12 +873,10 @@ export function ReaderAnnotationLayer({
         void openExisting(markId);
         return;
       }
-      // A chapter title is quietly tappable, and opens the summary of the
-      // chapter it names. Only the headings the CONTENTS lists: a converted book
-      // also uses headings for front matter and part dividers, and neither of
-      // those is a chapter anyone wants recapped. Nothing marks a title as
-      // tappable on purpose — the page is a page, and a book that grew controls
-      // under every chapter heading would stop reading like one.
+      // A chapter title is tappable, and offers what can be done with the
+      // chapter it names — today, its summary. Only the headings the CONTENTS
+      // lists: a converted book also uses headings for front matter and part
+      // dividers, and neither of those is a chapter anyone wants recapped.
       //
       // Books only, like every other splice: an article's offsets aren't in the
       // conversion char space the anchor would be recorded in.
@@ -884,7 +884,9 @@ export function ReaderAnnotationLayer({
         ? null
         : (e.target as HTMLElement | null)?.closest<HTMLElement>(".reader-heading");
       if (heading?.id && chapterIds.has(heading.id)) {
-        openChapterSummary(heading.id);
+        // Toggle. A press on the open menu's own heading is deliberately not
+        // treated as a press outside it, so it arrives here and shuts it.
+        setChapterMenu((open) => (open === heading ? null : heading));
         return;
       }
       // Articles keep real links. A click inside one is meant for the link, and
@@ -895,15 +897,35 @@ export function ReaderAnnotationLayer({
     };
     container.addEventListener("click", onClick);
     return () => container.removeEventListener("click", onClick);
-  }, [
-    chapterIds,
-    chats,
-    contentRef,
-    isArticle,
-    openChapterSummary,
-    openExisting,
-    windowBase,
-  ]);
+  }, [chapterIds, chats, contentRef, isArticle, openExisting, windowBase]);
+
+  /**
+   * Mark the tappable titles as tappable.
+   *
+   * The pointer over a chapter heading has to stop saying "text", because on
+   * this one line of the page it isn't: it opens a menu. The class carries the
+   * cursor and the hover underline (see reader-prose.ts) and goes on only the
+   * headings the contents lists, so the front matter and part dividers that
+   * share the same markup keep reading as ordinary type.
+   *
+   * Stamped from here rather than emitted by the converter because which
+   * headings qualify is a question about the book's CONTENTS, which the
+   * converter never sees. Re-run whenever the rendered content is swapped —
+   * a paged window turns the whole book over several times a chapter.
+   */
+  useEffect(() => {
+    const container = contentRef.current;
+    if (!container || isArticle) return;
+    for (const h of container.querySelectorAll<HTMLElement>(".reader-heading")) {
+      h.classList.toggle(CHAPTER_TAP_CLASS, !!h.id && chapterIds.has(h.id));
+    }
+  }, [chapterIds, contentRef, contentVersion, isArticle, layoutNonce]);
+
+  // A relaid page has moved the heading out from under the menu — and in a paged
+  // window may have taken the element out of the document entirely.
+  useEffect(() => {
+    setChapterMenu(null);
+  }, [contentVersion, layoutNonce]);
 
   // A citation cites a page, and every page we know about has a recorded
   // character offset — which navigates identically whether the book is paged or
@@ -1032,10 +1054,6 @@ export function ReaderAnnotationLayer({
     <>
       <ReaderMarginControls
         onAsk={askHere}
-        askActive={
-          panelOpen && mode === "thread" && detail != null && detail.id === chatOnThisPage?.id
-        }
-        hasChatHere={chatOnThisPage != null}
         onOpenList={openList}
         listActive={panelOpen && mode === "list"}
       />
@@ -1049,6 +1067,19 @@ export function ReaderAnnotationLayer({
         onAct={(range, intent) => void annotateSelection(range, intent)}
         disabled={busy}
       />
+      {chapterMenu && (
+        <ChapterMenu
+          anchor={chapterMenu}
+          title={chapters.find((c) => c.anchorId === chapterMenu.id)?.title ?? null}
+          hasSummary={chats.some((c) => c.chapterAnchorId === chapterMenu.id)}
+          onSummarize={() => {
+            const anchorId = chapterMenu.id;
+            setChapterMenu(null);
+            openChapterSummary(anchorId);
+          }}
+          onDismiss={() => setChapterMenu(null)}
+        />
+      )}
       <AnnotationPanel
         open={panelOpen}
         isMobile={asSheet}
@@ -1088,6 +1119,7 @@ export function ReaderAnnotationLayer({
             onJumpToPage={jumpToPage}
             onFork={() => void forkHere()}
             onDelete={() => void removeChat()}
+            onBack={backToList}
             onClose={closePanel}
             onTouched={markTouched}
             // A sent message promotes a highlight to a chat, which changes both

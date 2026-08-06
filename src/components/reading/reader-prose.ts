@@ -60,6 +60,26 @@ const SUMMARY_MARK_PROSE = [
 ];
 
 /**
+ * A chapter heading that opens a menu when you tap it.
+ *
+ * Only some headings do — see the stamping effect in reader-annotation-layer.tsx
+ * — so the class is the switch, and the name is shared from here so the rule and
+ * the code that applies it can't drift.
+ *
+ * The whole treatment is a cursor and an underline on hover — nothing at rest.
+ * A marking every chapter title wore permanently would turn a page of the book
+ * into a page of controls, and hover is enough: by the time it can appear the
+ * pointer has already said this is clickable, and on a touch screen neither
+ * state exists to be missed.
+ */
+export const CHAPTER_TAP_CLASS = "reader-chapter-tap";
+
+const CHAPTER_TAP_PROSE = [
+  "[&_.reader-chapter-tap]:cursor-pointer",
+  "[&_.reader-chapter-tap:hover]:underline [&_.reader-chapter-tap:hover]:decoration-1 [&_.reader-chapter-tap:hover]:underline-offset-4",
+];
+
+/**
  * Converted books are plain text: <p>, <h1>, <h2>, <blockquote>, and zero-height
  * page-anchor marks. Nothing else survives conversion, so this is the whole
  * stylesheet for a book.
@@ -73,6 +93,7 @@ export const BOOK_PROSE = [
   "[&_.reader-h2]:mb-7 [&_.reader-h2]:text-xl [&_.reader-h2]:font-medium [&_.reader-h2]:text-muted-foreground",
   ...CHAT_MARK_PROSE,
   ...SUMMARY_MARK_PROSE,
+  ...CHAPTER_TAP_PROSE,
 ].join(" ");
 
 /**
