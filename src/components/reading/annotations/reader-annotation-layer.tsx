@@ -7,11 +7,13 @@ import {
   discardAnnotationIfEmpty,
   getAnnotation,
   getAnnotationData,
+  openBookDocument,
   setBookSpoilerFree,
   addAnnotationNote,
   setAnnotationModelPreference,
   setAnnotationSpoilerFree,
 } from "@/app/(reading)/reader/annotation-actions";
+import type { BookScope } from "@/lib/reading/book-documents";
 import { blockIndexForCharOffset, type BookBlock } from "@/lib/reading/block-stream";
 import { inOpenOverlay, isTypingTarget } from "@/lib/keyboard";
 import { note, startTimer, time } from "@/lib/reading/perf";
@@ -43,6 +45,7 @@ import { AnnotationPanel } from "./annotation-panel";
 import { AnnotationList } from "./annotation-list";
 import { ReaderMarginControls } from "./annotations-button";
 import { AnnotationThread, type ComposeMode } from "./annotation-thread";
+import { BookDocumentThread } from "./book-document-thread";
 import { ChapterMenu } from "./chapter-menu";
 import { GutterMarkers } from "./gutter-markers";
 import { useGutterPlacement, type PagedGutterContext } from "./gutter-placement";
@@ -130,6 +133,9 @@ export function ReaderAnnotationLayer({
   currentCharOffset,
   visibleThroughChar,
   onInlineMarksChange,
+  requestedDocument,
+  onDocumentRequestHandled,
+  onDocumentChanged,
   goToChar,
   paged,
   panelOpen,
@@ -167,6 +173,15 @@ export function ReaderAnnotationLayer({
    * go up to the reader instead of being painted here — see inline-chat-blocks.
    */
   onInlineMarksChange: (marks: InlineChatMark[]) => void;
+  /**
+   * One of the reader's own documents, asked for from the Contents. Cleared by
+   * onDocumentRequestHandled once acted on — a request rather than a state, so
+   * choosing the same entry twice reopens it.
+   */
+  requestedDocument: BookScope | null;
+  onDocumentRequestHandled: () => void;
+  /** One was written or deleted; the Contents dates what it offers. */
+  onDocumentChanged: () => void;
   goToChar: (charOffset: number) => void;
   /** Non-null in paged mode; drives marker placement. */
   paged: PagedGutterContext | null;
@@ -257,6 +272,12 @@ export function ReaderAnnotationLayer({
    */
   const chats = useMemo(() => {
     if (!detail) return loaded;
+    // The reader's preface and afterword are annotations but never marks. The
+    // server keeps them out of `loaded` for exactly that reason, and this
+    // overlay would otherwise put the open one straight back in — where its
+    // formality of an anchor (block zero) would paint a gutter icon at the top
+    // of the book and an entry in the marks list.
+    if (detail.bookScope != null) return loaded;
     // An annotation the server hasn't returned yet is still one the reader has
     // made, and they should see the passage marked the moment they act. It
     // dedupes itself: once refreshList lands, the row is in `loaded` under its
@@ -554,6 +575,9 @@ export function ReaderAnnotationLayer({
         contextThroughPage: spoilerFree ? anchorPage : null,
         quotedText: resolved.quotedText,
         chapterAnchorId,
+        // Never a book document: those are reached from the Contents and
+        // read on their own page, never as a mark in the margin.
+        bookScope: null,
         latestNote: null,
         noteCount: 0,
         // The column's default, and its only permitted value today.
@@ -795,6 +819,56 @@ export function ReaderAnnotationLayer({
     },
     [memberEmail, openPanelWith]
   );
+
+  /**
+   * The reader's preface or afterword, opened from the Contents.
+   *
+   * Not optimistic, unlike every other way into this panel. The row is
+   * find-or-create against a unique index — that is what stops two devices
+   * starting two prefaces — so there is a real id to wait for, and the wait is
+   * one round trip against something the reader has just deliberately navigated
+   * to rather than something they expect under their cursor.
+   *
+   * The ref guards a window state can't: this effect can fire twice for one
+   * request (React double-invokes effects in development, and the clearing
+   * setState has not necessarily flushed between the two), and the open is
+   * asynchronous — so `detail` is still the old thread when the second call
+   * checks it. Two opens would remount the panel twice, and a thread remounted
+   * mid-question asks a second one.
+   */
+  const openingDocumentRef = useRef<BookScope | null>(null);
+
+  const openDocument = useCallback(
+    async (scope: BookScope) => {
+      if (busy || isCreating() || openingDocumentRef.current === scope) return;
+      if (panelOpen && mode === "thread" && detail?.bookScope === scope) return;
+
+      openingDocumentRef.current = scope;
+      setBusy(true);
+      try {
+        const document = await openBookDocument({ bookId, scope, memberEmail });
+        setThreadMode("chat");
+        openPanelWith(document);
+      } catch (err) {
+        // `void openDocument(...)` would otherwise make this an unhandled
+        // rejection nobody sees, and the reader just watches nothing happen.
+        console.error("[reader] couldn't open that", err);
+      } finally {
+        openingDocumentRef.current = null;
+        setBusy(false);
+      }
+    },
+    [bookId, busy, detail, isCreating, memberEmail, mode, openPanelWith, panelOpen]
+  );
+
+  useEffect(() => {
+    if (!requestedDocument) return;
+    const scope = requestedDocument;
+    // Cleared first, so the request can't be replayed by this effect re-running
+    // when openDocument's identity changes underneath it.
+    onDocumentRequestHandled();
+    void openDocument(scope);
+  }, [onDocumentRequestHandled, openDocument, requestedDocument]);
 
   /** The headings a tap should mean something on — see summarizableChapters. */
   const chapterIds = useMemo(
@@ -1175,8 +1249,12 @@ export function ReaderAnnotationLayer({
         docked={docked}
         onClose={closePanel}
         // The list is a destination and stays put; only an untouched chat
-        // draft behaves like a popover and gets out of your way.
-        dismissOnOutsidePress={mode === "thread" && !touched}
+        // draft behaves like a popover and gets out of your way. So is a
+        // preface or afterword — you went to the Contents to get here, and it
+        // starts asking the moment it opens.
+        dismissOnOutsidePress={
+          mode === "thread" && !touched && detail?.bookScope == null
+        }
       >
         {mode === "list" ? (
           <AnnotationList
@@ -1192,7 +1270,28 @@ export function ReaderAnnotationLayer({
             dockToggle={dockToggle}
           />
         ) : (
-          detail && (
+          detail &&
+          (detail.bookScope != null ? (
+            <BookDocumentThread
+              key={threadKey}
+              chat={detail}
+              scope={detail.bookScope}
+              memberEmail={memberEmail}
+              hasRealPages={data?.hasRealPages ?? false}
+              labelForPage={labelForPage}
+              // The whole reason these came back to the panel: a citation moves
+              // the book behind it, and the conversation stays open.
+              onJumpToPage={jumpToPage}
+              // Deleting one is how you start it over, so the Contents has to
+              // hear about it as well as the marks list.
+              onDelete={() => void removeChat().then(onDocumentChanged)}
+              onBack={backToList}
+              onClose={closePanel}
+              onTouched={() => setTouched(true)}
+              onExchangeComplete={onDocumentChanged}
+              dockToggle={dockToggle}
+            />
+          ) : (
           <AnnotationThread
             key={threadKey}
             chat={detail}
@@ -1218,7 +1317,7 @@ export function ReaderAnnotationLayer({
             onAddNote={addNote}
             dockToggle={dockToggle}
           />
-          )
+          ))
         )}
       </AnnotationPanel>
     </>

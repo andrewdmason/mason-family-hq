@@ -79,12 +79,20 @@ export function ChatMessageText({
   hasRealPages,
   labelForPage,
   onJumpToPage,
+  spacing = "reply",
 }: {
   text: string;
   hasRealPages: boolean;
   /** Percent-through-the-book for a page, when real page numbers aren't shown. */
   labelForPage: (page: number) => string | null;
   onJumpToPage: (page: number) => void;
+  /**
+   * How far apart the paragraphs sit. A reply is a few lines and wants to read
+   * as one utterance; the reader's own preface or afterword is eight hundred
+   * words down a narrow column, where the same tight spacing reads as one
+   * unbroken block and the eye has nowhere to rest.
+   */
+  spacing?: "reply" | "document";
 }) {
   const inline = (source: string, keyPrefix: string): React.ReactNode[] => {
     const parts: React.ReactNode[] = [];
@@ -145,7 +153,7 @@ export function ChatMessageText({
   const blocks = chatBlocks(text.replace(DEEP_HEADING, "$1###$2"));
 
   return (
-    <div className="space-y-2.5">
+    <div className={spacing === "document" ? "space-y-4" : "space-y-2.5"}>
       {blocks.map((block, i) => {
         if (block.type === "heading") {
           const body = inline(block.text, `h${i}`);

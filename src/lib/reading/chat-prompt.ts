@@ -1,10 +1,12 @@
 import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ChapterIndexEntry } from "@/lib/reading/context-markup";
+import type { BookDocumentContext, ReaderMark } from "@/lib/reading/book-document-context";
 
 /**
  * The ONE place the reader's system prompts are assembled — the anchored chat,
- * and the chapter recap below it.
+ * the chapter recap below it, and the reader's own preface and afterword below
+ * that.
  *
  * Kept together deliberately: a kid-appropriate variant will need to behave very
  * differently (an AI that will summarize a chapter on demand is a cheat engine
@@ -143,6 +145,16 @@ export type ReaderChatPromptInput = {
   quotedText: string | null;
   /** True when the transcript carries notes the reader wrote to themselves. */
   hasReaderNotes: boolean;
+  /**
+   * The preface the reader wrote before starting this book, if they wrote one —
+   * their own statement of why they're reading it. Null otherwise, which is the
+   * common case.
+   *
+   * The only place their stated intent travels to. Deliberately not the chapter
+   * recap, which should say what a chapter said rather than filter it through an
+   * agenda, and deliberately nowhere that could interrupt them mid-book.
+   */
+  readerIntent: string | null;
 };
 
 /**
@@ -289,6 +301,26 @@ export function buildReaderChatSystem(
     }
   }
 
+  // Below the cache breakpoint with the reader's position, and for the same
+  // reason: it is a property of the reader rather than of the book, and it can
+  // change — rewriting their preface must not re-bill the novel on every chat in
+  // it. Framed as context rather than as an instruction, because a chat that
+  // bent every answer back toward a stated agenda would be worse than one that
+  // never knew: what this buys is an answer pitched at what they came for, not
+  // a companion with a thesis.
+  if (input.readerIntent) {
+    tail.push(
+      "WHAT THEY CAME FOR: before starting this book, the reader wrote down " +
+        "why they were reading it and what they wanted from it.\n\n" +
+        `"""\n${input.readerIntent}\n"""\n\n` +
+        "Treat that as background on what they care about. Let it shape what " +
+        "you lead with and how much you assume, not what you claim. Never " +
+        "quote it back at them, never tell them whether they are getting what " +
+        "they came for, and never decline to answer something because it sits " +
+        "outside it."
+    );
+  }
+
   if (input.quotedText) {
     tail.push(
       "The reader highlighted this passage and started the conversation from " +
@@ -314,6 +346,451 @@ export function buildReaderChatSystem(
   if (tail.length > 0) {
     blocks.push({ type: "text", text: tail.join("\n\n") });
   }
+
+  return blocks;
+}
+
+// ============================================================
+// The reader's own preface and afterword
+// ============================================================
+
+/**
+ * One model for both documents and both of their phases.
+ *
+ * These are the two things in the reader that are written once and kept, so they
+ * get the best model there is and the whole book to write them from — unlike a
+ * chat turn, which is one of many and can simply be asked again. There is no
+ * picker: nothing about "which model should write the thing I'll still be
+ * reading in three years" is a decision worth handing to the reader.
+ */
+export const BOOK_DOCUMENT_MODEL = "claude-opus-5";
+
+/**
+ * Which turn of the work this is.
+ *
+ * "converse" is the interview — and, once a document exists, anything else the
+ * reader wants to say about it. "document" writes the preface or afterword.
+ * Deliberately one prompt builder with a branch rather than two: everything
+ * above the branch is the same book and the same reader, and the two drifting
+ * apart is how an interview starts promising something the document won't do.
+ */
+export type BookDocumentPhase = "converse" | "document";
+
+/**
+ * Both of these are budgets for THINKING PLUS TEXT, which is the trap.
+ *
+ * This model reasons adaptively before it answers and those tokens come out of
+ * the same allowance, so a cap sized to the prose alone silently truncates the
+ * prose. The afterword ran into exactly that: an 800-word target under a 2,500
+ * ceiling, and every document stopped mid-sentence somewhere in its second
+ * half — which read as rambling with no ending, because it was.
+ *
+ * Sized generously rather than snugly. Nothing here is billed for room it
+ * doesn't use, the length is governed by the prompt anyway, and the failure
+ * these prevent is invisible: the document looks finished until you read to the
+ * bottom of it.
+ */
+export const BOOK_DOCUMENT_CONVERSE_MAX_TOKENS = 2_000;
+export const BOOK_DOCUMENT_WRITE_MAX_TOKENS = 8_000;
+
+/**
+ * Interview turns are conversational and want to feel quick; the document is
+ * read once and kept. Opus 5 runs adaptive thinking by default, and disabling it
+ * has failure modes that low effort doesn't — so the lever here is effort.
+ */
+export const BOOK_DOCUMENT_EFFORT: Record<BookDocumentPhase, "low" | "high"> = {
+  converse: "low",
+  document: "high",
+};
+
+/** One reader mark, rendered for the model. */
+function markBlock(mark: ReaderMark, index: number): string {
+  const where = mark.page != null ? ` page="${mark.page}"` : "";
+  const lines: string[] = [];
+  if (mark.isChapterSummary) lines.push("(a chapter recap they asked for)");
+  if (mark.quote) lines.push(`HIGHLIGHTED: "${mark.quote}"`);
+  for (const note of mark.notes) lines.push(`THEIR NOTE: ${note}`);
+  for (const ex of mark.exchanges) {
+    if (ex.question) lines.push(`THEY ASKED: ${ex.question}`);
+    if (ex.answer) lines.push(`ANSWER: ${ex.answer}`);
+  }
+  return `<mark n="${index + 1}"${where}>\n${lines.join("\n")}\n</mark>`;
+}
+
+/** What the reader has finished lately, and what they made of it. */
+function historyBlock(ctx: BookDocumentContext): string | null {
+  if (ctx.history.length === 0) return null;
+  const lines = ctx.history.map((h) => {
+    const author = h.author ? ` by ${h.author}` : "";
+    const rating = h.rating ? ` — they said: ${h.rating}` : "";
+    const when = h.finishedAt ? ` (finished ${h.finishedAt.slice(0, 10)})` : "";
+    return `- ${h.title}${author}${when}${rating}`;
+  });
+  return `<recently_finished>\n${lines.join("\n")}\n</recently_finished>`;
+}
+
+/** How the book got onto the shelf, when anyone can say. */
+function provenanceBlock(ctx: BookDocumentContext): string | null {
+  const parts: string[] = [];
+  if (ctx.recommendedBy) parts.push(`Recommended by ${ctx.recommendedBy}.`);
+  if (ctx.recommendationNote) parts.push(`They said: "${ctx.recommendationNote}"`);
+  if (ctx.genres.length > 0) parts.push(`Genres: ${ctx.genres.join(", ")}.`);
+  return parts.length > 0 ? `<how_they_found_it>\n${parts.join("\n")}\n</how_they_found_it>` : null;
+}
+
+/**
+ * The one-question rule and the evidence rule, which are the whole character of
+ * these interviews and are identical for both of them.
+ *
+ * The evidence rule is the load-bearing half. A question that guesses is worth
+ * far more than one that doesn't — it gives the reader something to push against
+ * instead of a blank page — but only while the guess comes from something real.
+ * A guess assembled from the book's reputation is worse than no guess at all: it
+ * sounds knowing, it is unfalsifiable, and agreeing with it is easier than
+ * thinking, which is the one thing this is for.
+ */
+function interviewRules(ctx: BookDocumentContext): string[] {
+  const rules = [
+    "Ask exactly ONE question per turn. Not two, not a question with parts, " +
+      "not a list. A second question in the same turn splits their attention " +
+      "and they answer neither well.",
+    "Carry an educated guess with the question, drawn from something real in " +
+      "the material below — a book they finished recently, who recommended " +
+      "this one and what they said about it, what they have already told you, " +
+      "or (for the afterword) what they actually marked. Make the guess " +
+      "specific enough to be wrong, so they can push back on it: that is what " +
+      "moves them somewhere rather than leaving them with a blank page. If " +
+      "nothing in the material supports a guess, ask plainly instead. NEVER " +
+      "invent one from this book's reputation, from its author, or from what " +
+      "readers generally want out of books like it — a guess that sounds " +
+      "knowing but rests on nothing is worse than no guess, because agreeing " +
+      "with it is easier than thinking.",
+    "Two or three sentences per turn. This is a conversation, not an essay: " +
+      "no preamble, no summarising back what they just said, no praise for " +
+      "their answer. Ask, and stop.",
+    "After four or five exchanges, say you have enough and offer to write it. " +
+      "Stop asking the moment they tell you to write it — and if they say so " +
+      "on the first turn, that is a complete answer.",
+    "If they ask you something instead of answering, answer it and then " +
+      "continue where you were.",
+  ];
+  if (ctx.scope === "preface") {
+    rules.push(
+      "You are helping them think before they read, not selling them the book " +
+        "and not summarising it. The subject of every question is THEM: why " +
+        "this book now, what they are bringing to it, what they want out of it, " +
+        "what would make it worth the hours."
+    );
+  }
+  return rules;
+}
+
+/** What the two documents have in common, said once. */
+function writingRules(ctx: BookDocumentContext): string[] {
+  return [
+    "Address the reader as \"you\". This is written back to them about their " +
+      "own reading — not in their voice, and not about the book in the " +
+      "abstract.",
+    "Flowing prose. No headings, no bullet lists, no bold labels, no title at " +
+      "the top — the app supplies the title. Open with the first real " +
+      "sentence. The structure below is the order to write in, not a set of " +
+      "sections to label: each part should run into the next.",
+    // The document is read down a narrow column beside a book. A 150-word
+    // paragraph there is a wall, and the fix is paragraphing rather than
+    // headings — which would turn an argument into a form.
+    "Break paragraphs often: one turn of thought each, and never longer than " +
+      "about six sentences. This is read down a narrow column, where a long " +
+      "block of prose is a wall rather than a paragraph.",
+    "Italicise the titles of books and other works with single asterisks " +
+      "(*Being and Time*). Nothing else takes emphasis — no bold, and no " +
+      "italics for stress.",
+    "Do not pad. Cover the substance and stop: no summary of what you just " +
+      "said, no closing flourish about the pleasures of reading, no " +
+      "restatement of the book's blurb. If you have little to say because " +
+      "there is little in the material, write less. A short honest " +
+      (ctx.scope === "preface" ? "preface" : "afterword") +
+      " is worth more than a long invented one.",
+    "Do not praise the book, the author, or the reader.",
+    // Left to itself it reaches into the book for a name to stand in for
+    // someone in the reader's life — one draft offered "say it out loud to
+    // Judith-equivalent" where the reader had said "my wife". Their people are
+    // theirs, and the book's are the book's.
+    "Refer to the people in the reader's life exactly as they did — \"your " +
+      "wife\", \"a friend\". Never borrow a name or a detail from the book to " +
+      "stand in for one of them, and never invent one.",
+  ];
+}
+
+/**
+ * The system blocks for a preface or afterword, in either phase.
+ *
+ * Ordering is for the cache, and it is the reverse of the anchored chat's. The
+ * book goes FIRST, with the breakpoint on it, so one cached prefix serves both
+ * documents and both phases for a given book — an interview is many turns, and
+ * re-reading a novel on each of them would be the whole cost of the feature. The
+ * reader's own material takes the second breakpoint for the same reason: it is
+ * large on a heavily-marked book and stable across a sitting. Only the rules and
+ * the ask below them are volatile.
+ */
+export function buildBookDocumentSystem(
+  ctx: BookDocumentContext,
+  phase: BookDocumentPhase,
+  options?: {
+    /** Whether the transcript carries notes the reader wrote to themselves. */
+    hasReaderNotes?: boolean;
+  }
+): Anthropic.TextBlockParam[] {
+  const blocks: Anthropic.TextBlockParam[] = [];
+
+  const author = ctx.bookAuthor ? ` author="${ctx.bookAuthor}"` : "";
+  const contents =
+    ctx.chapters.length > 0
+      ? `<contents>\n${ctx.chapters.map(contentsLine).join("\n")}\n</contents>\n`
+      : "";
+  blocks.push({
+    type: "text",
+    text: `<book title="${ctx.bookTitle}"${author}>\n${contents}${ctx.bookText}\n</book>`,
+    cache_control: { type: "ephemeral" },
+  });
+
+  // Everything about this reader, as opposed to about this book.
+  const reader: string[] = [];
+  const provenance = provenanceBlock(ctx);
+  if (provenance) reader.push(provenance);
+  const history = historyBlock(ctx);
+  if (history) reader.push(history);
+  if (ctx.preface) {
+    reader.push(
+      `<their_preface>\nBefore reading, they wrote this about why they were ` +
+        `reading it:\n\n${ctx.preface}\n</their_preface>`
+    );
+  }
+  if (ctx.marks) {
+    reader.push(
+      ctx.marks.length > 0
+        ? `<their_marks count="${ctx.markCount}">\n` +
+            `Everything they marked in this book, in reading order.\n` +
+            ctx.marks.map(markBlock).join("\n") +
+            (ctx.marksTruncated
+              ? `\n(Later marks omitted for length — there were ${ctx.markCount} in all.)`
+              : "") +
+            `\n</their_marks>`
+        : `<their_marks count="0">\nThey marked nothing in this book.\n</their_marks>`
+    );
+  }
+  if (reader.length > 0) {
+    blocks.push({
+      type: "text",
+      text: reader.join("\n\n"),
+      cache_control: { type: "ephemeral" },
+    });
+  }
+
+  // Volatile: the rules for this phase, and the ask.
+  const rules: string[] = [
+    "You are writing inside one person's private reading app. The book above " +
+      "is the whole book, and everything below it is what is known about this " +
+      "reader. Work from those and nothing else — never from what you recall " +
+      "of this work, its author, its adaptations or its reputation.",
+  ];
+
+  if (ctx.truncated) {
+    rules.push(
+      "A stretch of the book's middle was too long to include and has been " +
+        "elided, marked as such in the text. Work from what you were given."
+    );
+  }
+
+  if (ctx.scope === "preface") {
+    rules.push(
+      "This is the reader's PREFACE: their own front matter, written before " +
+        "they start the book, about why they are reading it and what they want " +
+        "from it. It is not a review, a summary, or a reading plan."
+    );
+
+    // The rule that governs everything a preface says about the book, and the
+    // one this feature got wrong first: a preface was told it could "say
+    // plainly what the book argues", read that as license to report where the
+    // author personally lands, and asked the reader whether they had been
+    // drawn to a destination three hundred pages in. Both halves of that are
+    // failures — it gave away the ending, and it asked a question nobody who
+    // hadn't read the book could answer.
+    //
+    // Stated as a test the model can actually apply, rather than a list of
+    // things not to mention. "Could they have known this before opening it?"
+    // is answerable about any given sentence; "is this a spoiler?" is not,
+    // which is how a cave in New Mexico gets through.
+    rules.push(
+      "THE READER HAS NOT OPENED THIS BOOK. Everything you say about it must " +
+        "be something they could already have learned WITHOUT reading it: " +
+        "from the cover, the jacket copy, the contents, the opening pages, or " +
+        "its general reputation. You were given the whole book so that you " +
+        "understand what they are walking into — not so that you can tell " +
+        "them. Never mention where it ends up, what it concludes, what the " +
+        "author comes to believe, or any scene, anecdote, argument or turn " +
+        "from beyond its opening. Never cite a page: a [p.284] here points " +
+        "somewhere they cannot go and says out loud that you have read ahead."
+    );
+    rules.push(
+      "It follows that a question can never assume they know something from " +
+        "inside the book. \"What drew you — X, or the fact that the author " +
+        "ends up doing Y?\" is broken twice over: they cannot answer it, " +
+        "because they do not know Y, and asking it is how they find out. Your " +
+        "guesses are about THEM — what they have read lately, who recommended " +
+        "this and what that person said, what they have already told you — " +
+        "and about what the book advertises itself to be, never about what it " +
+        "turns out to contain."
+    );
+
+    if (ctx.spoilerSensitive) {
+      rules.push(
+        "This one is a story, so hold that line hard. Never reveal, hint at " +
+          "or foreshadow anything that happens — not the plot, not a turn, " +
+          "not a character who is not what they seem, and not \"pay attention " +
+          "to X\". Knowing there is something to notice is itself a spoiler. " +
+          "The subject of every question is the reader, not the book."
+      );
+    } else {
+      rules.push(
+        "This one is not a story, so you may name what the book is about, the " +
+          "questions it takes up, and how it is organised — jacket-and-" +
+          "contents level, the sort of thing they would get from a bookshop " +
+          "table. Use that to sharpen what you ask: which of the questions it " +
+          "takes on are the ones they came for, and what it looks like it " +
+          "will not cover despite its title. What you must still not do is " +
+          "report its findings, its conclusions, or where the author " +
+          "personally lands — that is the reading, and it is theirs to do."
+      );
+    }
+  } else {
+    rules.push(
+      "This is the reader's AFTERWORD: their own back matter, about what this " +
+        "book was and what they took from it. Assume they read the whole " +
+        "thing — the app does not reliably know where anyone stopped, and " +
+        "hedging about it in a document meant to outlast the reading is worse " +
+        "than being wrong about it. Nothing in the book needs protecting."
+    );
+
+    // The line the whole document is written to, and the one it was failing
+    // before: an afterword that opens "Koch's doubts about physicalism" is
+    // useless to the person it is FOR, who by then will not remember who Koch
+    // was, what physicalism was, or why either mattered to them.
+    rules.push(
+      "WRITE IT FOR THEM FIVE YEARS FROM NOW, when they have forgotten this " +
+        "book almost completely. That is the whole job. They will not remember " +
+        "the argument, the people in it, the vocabulary, or why they cared. " +
+        "Every sentence has to survive that. Introduce each person, term and " +
+        "idea the first time it appears — \"Christof Koch, a neuroscientist " +
+        "who had spent his career sure that consciousness was physical\", not " +
+        "\"Koch\" — and never use a word like panpsychism as though it still " +
+        "means something to them."
+    );
+
+    rules.push(
+      "Their marks are the evidence for the second half of this, and the only " +
+        "evidence. Every claim about what they made of the book must point at " +
+        "something they actually highlighted, wrote, or asked. If they marked " +
+        "almost nothing, say the record is thin and keep it short. What you " +
+        "must NOT do is turn those marks into a list: a run of quotations each " +
+        "followed by a page number is an index, and an index is the one thing " +
+        "they can already generate for themselves."
+    );
+    rules.push(
+      "If this conversation contains answers they gave you, those outrank " +
+        "everything else. A highlight is a guess about what someone thought; " +
+        "a sentence they typed is what they thought. Where the two disagree, " +
+        "believe them, and use their own words rather than your inference."
+    );
+  }
+
+  // Afterword only. A citation is a way back to a page you have read, which is
+  // the whole of its value here — and in a preface it is worse than useless: a
+  // reference to page 284 of a book you have not opened both points somewhere
+  // you cannot go and advertises that the thing talking to you has read ahead.
+  if (ctx.hasPageMarkers && ctx.scope === "afterword") {
+    rules.push(
+      "The book text contains page markers like [p.212]. When you quote or " +
+        "point at something in it, cite the nearest preceding marker in " +
+        "exactly that bracketed form — never page numbers in prose. The app " +
+        "turns [p.212] into a tap back to the page."
+    );
+  }
+
+  // Same rule as the anchored chat's, and for the same reason: hiding the
+  // reader's own writing from the thing they are talking to makes a follow-up
+  // that says "that" mean something different to each side.
+  if (options?.hasReaderNotes) {
+    rules.push(
+      "Some lines in this conversation are marked [Reader's note]. Those are " +
+        "the reader thinking on the page, not questions or answers to you — " +
+        "they were written without expecting a reply. Treat them as context " +
+        "for what they believe and care about."
+    );
+  }
+
+  if (phase === "converse") {
+    rules.push(...interviewRules(ctx));
+    rules.push(
+      "If there is nothing from the reader yet, this turn is your opening " +
+        "question. Do not greet them, explain yourself, or describe what you " +
+        "are about to do — open with the question."
+    );
+  } else {
+    rules.push(...writingRules(ctx));
+    if (ctx.scope === "preface") {
+      rules.push(
+        "Write the preface now, in 150 to 250 words. Open with why they are " +
+          "reading this book now. Then what they are bringing to it. Close on " +
+          "what would make it worth the time, in their terms rather than " +
+          "yours. Ground all of it in what they actually said — where they " +
+          "said nothing, write less rather than inventing a motive for them." +
+          (ctx.spoilerSensitive
+            ? " Nothing about what happens in the book."
+            : " One or two sentences on which of the questions this book takes " +
+              "up bear on what they came for, and what it looks like it will " +
+              "not cover despite its title — but not what it concludes.")
+      );
+    } else {
+      rules.push(
+        "Write the afterword now, in 500 to 800 words. Do not open with a " +
+          "dateline or any statistics — the app puts those above your first " +
+          "line."
+      );
+      rules.push(
+        "Three things, in this order, as flowing paragraphs rather than " +
+          "labelled sections.\n\n" +
+          "FIRST, and at the greatest length: WHAT THIS BOOK WAS. Enough to " +
+          "bring it back to someone who has forgotten it — what it set out to " +
+          "do, how it went about it, and where it ended up. This is the part " +
+          "that does the remembering, so do not rush it and do not assume any " +
+          "of it is still familiar. It used to say \"don't recap it, they read " +
+          "it\"; that was wrong, because by the time they open this they will " +
+          "not remember having read it.\n\n" +
+          "SECOND: HOW IT LANDED ON THEM. What they kept returning to, what " +
+          "they pushed back on, what they passed straight over. Say what that " +
+          "pattern was ABOUT, in plain words — not which passages it came " +
+          "from.\n\n" +
+          "THIRD: WHAT THEY TOOK FROM IT. What is likely to have stayed with " +
+          "them, what it changed or failed to change, and what it left them " +
+          "still wondering." +
+          (ctx.preface
+            ? " Close on their preface: they came to this wanting what it says " +
+              "they wanted — did they get it? Say plainly if they came for one " +
+              "thing and left with another, which is the more interesting " +
+              "answer and the one only you can see."
+            : "")
+      );
+      rules.push(
+        "Quote sparingly: two or three of their highlights at most, short, " +
+          "worked into your own sentences. Cite a page only where the quote " +
+          "is worth going back to. A paragraph carrying six quotations and six " +
+          "citations is an index of their highlights, which is not what this " +
+          "is for."
+      );
+    }
+  }
+
+  blocks.push({ type: "text", text: rules.join("\n\n") });
 
   return blocks;
 }

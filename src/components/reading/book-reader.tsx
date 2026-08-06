@@ -59,6 +59,9 @@ import {
   type ReadingProgress,
 } from "@/lib/reading/reading-progress";
 import { formatTimeLeft } from "@/lib/reading/reading-time";
+import type { BookScope } from "@/lib/reading/book-documents";
+import type { BookDocumentState } from "@/lib/reading/annotation-types";
+import { getBookDocumentStates } from "@/app/(reading)/reader/annotation-actions";
 import { cn } from "@/lib/utils";
 import type { ReadingTocEntry } from "@/lib/types";
 import { PagedView } from "./paged-view";
@@ -163,6 +166,15 @@ export function BookReader({
   const [layoutOpen, setLayoutOpen] = useState(false);
   const [contentsOpen, setContentsOpen] = useState(false);
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
+  /**
+   * The reader's own preface and afterword, which bracket the Contents: whether
+   * each exists yet and when it was last written.
+   */
+  const [bookDocuments, setBookDocuments] = useState<BookDocumentState[] | null>(
+    null
+  );
+  /** Which one the Contents just asked for. Cleared once the layer has it. */
+  const [documentRequest, setDocumentRequest] = useState<BookScope | null>(null);
   // The same store the paging engine derives its geometry from, so the chat
   // panel's presentation and the book's layout can never disagree about how wide
   // the window is.
@@ -978,6 +990,23 @@ export function BookReader({
   const showElsewhere = loaded && elsewhereProgress != null;
   const floatingBottom = listenInset + (paged ? PAGE_PAD_BOTTOM + 8 : 24);
 
+  // Loaded once, and again whenever the document page writes or deletes
+  // something — the Contents dates what it offers, so a stale answer there
+  // would be a lie about the reader's own writing. Articles have no Contents to
+  // reach these from and are refused server-side regardless.
+  const refreshBookDocuments = useCallback(() => {
+    if (isArticle) return;
+    void getBookDocumentStates(bookId, memberEmail)
+      .then(setBookDocuments)
+      .catch(() => {});
+  }, [bookId, isArticle, memberEmail]);
+  useEffect(() => {
+    refreshBookDocuments();
+  }, [refreshBookDocuments]);
+
+  // Stable, so the layer's request effect isn't re-run every render.
+  const clearDocumentRequest = useCallback(() => setDocumentRequest(null), []);
+
   // Books and articles both: the layer switches coordinate spaces on isArticle
   // rather than opting out. Articles never reach the paged branch, so the paged
   // context it gets there is always null.
@@ -992,6 +1021,9 @@ export function BookReader({
       currentCharOffset={currentCharOffset}
       visibleThroughChar={charEnd ?? null}
       onInlineMarksChange={setInlineMarks}
+      requestedDocument={documentRequest}
+      onDocumentRequestHandled={clearDocumentRequest}
+      onDocumentChanged={refreshBookDocuments}
       goToChar={goToChar}
       paged={pagedChat}
       panelOpen={chatPanelOpen}
@@ -1321,6 +1353,11 @@ export function BookReader({
         currentAnchorId={currentChapterAnchor}
         currentMinutesLeft={currentChapterMinutesLeft}
         onGoToChapter={goToChapter}
+        // Articles have no Contents of their own and no page map to cite
+        // against, so they get neither document — see openBookDocument, which
+        // refuses one regardless.
+        documents={isArticle ? null : bookDocuments}
+        onOpenDocument={setDocumentRequest}
       />
     </div>
   );

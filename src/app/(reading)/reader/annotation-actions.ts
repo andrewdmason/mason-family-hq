@@ -3,10 +3,12 @@
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { markText } from "@/lib/reading/inline-chat-blocks";
 import { pageForCharOffset } from "@/lib/reading/reader-position";
-import type { AnnotationAnchor } from "@/lib/reading/annotation-anchors";
+import { ANCHOR_VERSION, type AnnotationAnchor } from "@/lib/reading/annotation-anchors";
+import { BOOK_SCOPES, isBookScope, type BookScope } from "@/lib/reading/book-documents";
 import type {
   ReaderAnnotationData,
   AnnotationDetail,
+  BookDocumentState,
   ReaderChatMessage,
   ReaderChatModelPreference,
   AnnotationSummary,
@@ -30,7 +32,7 @@ import type {
 // migrations to drop them would buy nothing back.
 const CHAT_COLUMNS =
   "id, book_id, anchor, anchor_char_offset, anchor_page, spoiler_free, " +
-  "context_through_page, quoted_text, chapter_anchor_id, color, " +
+  "context_through_page, quoted_text, chapter_anchor_id, book_scope, color, " +
   "model_preference, created_at";
 
 type AnnotationRow = {
@@ -43,6 +45,7 @@ type AnnotationRow = {
   context_through_page: number | null;
   quoted_text: string | null;
   chapter_anchor_id: string | null;
+  book_scope: string | null;
   color: string;
   model_preference: string;
   created_at: string;
@@ -67,6 +70,7 @@ function toSummary(
     contextThroughPage: row.context_through_page,
     quotedText: row.quoted_text,
     chapterAnchorId: row.chapter_anchor_id,
+    bookScope: isBookScope(row.book_scope) ? row.book_scope : null,
     latestNote: counts?.latestNote ?? null,
     noteCount: counts?.noteCount ?? 0,
     color: row.color,
@@ -199,8 +203,16 @@ export async function getAnnotationData(
     .eq("user_id", userId)
     .order("page_number", { ascending: true });
 
+  // The reader's preface and afterword are annotations, but they are not marks:
+  // they belong to the whole book, they have no passage, and their anchor exists
+  // only to satisfy the NOT NULL columns. Dropping them here is the single place
+  // that keeps them out of the margin, the gutter, the highlight painter and the
+  // marks index — all four of which draw from `chats` alone. They are read on
+  // their own page instead; see getBookDocumentStates.
+  const marks = rows.filter((r) => !isBookScope(r.book_scope));
+
   return {
-    chats: rows.map((r) => toSummary(r, stats.get(r.id))),
+    chats: marks.map((r) => toSummary(r, stats.get(r.id))),
     spoilerFree: book?.spoiler_free === true,
     hasRealPages: content?.has_real_pages === true,
     pageMarks: (
@@ -311,6 +323,170 @@ export async function createAnnotation(input: {
   if (error) throw new Error(error.message);
 
   return { ...toSummary(inserted as unknown as AnnotationRow), messages: [] };
+}
+
+/**
+ * Whether the reader's preface and afterword exist yet, and when each was last
+ * written — the three facts the Contents needs to offer them.
+ *
+ * Its own query rather than a field on getAnnotationData, because the two have
+ * nothing to do with each other any more: that one feeds the margin, and these
+ * are read on their own page. Always returns both scopes, in order, so the
+ * Contents renders a stable pair of rows rather than a list that grows.
+ */
+export async function getBookDocumentStates(
+  bookId: string,
+  memberEmail?: string | null
+): Promise<BookDocumentState[]> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+
+  const { data: rows } = await client
+    .from("reading_annotations")
+    .select("id, book_scope")
+    .eq("book_id", bookId)
+    .eq("user_id", userId)
+    .not("book_scope", "is", null);
+
+  const found = ((rows ?? []) as { id: string; book_scope: string | null }[]).filter(
+    (r) => isBookScope(r.book_scope)
+  );
+  if (found.length === 0) {
+    return BOOK_SCOPES.map((scope) => ({
+      scope,
+      annotationId: null,
+      written: false,
+      writtenAt: null,
+    }));
+  }
+
+  // The latest, ordered rather than assumed: a thread holds one document, but
+  // what the Contents dates has to be the one you would actually read if you
+  // opened it now, not whichever row came back first.
+  const { data: msgs } = await client
+    .from("reading_annotation_messages")
+    .select("annotation_id, created_at")
+    .eq("user_id", userId)
+    .eq("role", "document")
+    .in(
+      "annotation_id",
+      found.map((r) => r.id)
+    )
+    .order("created_at", { ascending: false });
+
+  const latest = new Map<string, string>();
+  for (const m of (msgs ?? []) as { annotation_id: string; created_at: string }[]) {
+    if (!latest.has(m.annotation_id)) latest.set(m.annotation_id, m.created_at);
+  }
+
+  return BOOK_SCOPES.map((scope) => {
+    const row = found.find((r) => r.book_scope === scope);
+    const writtenAt = row ? (latest.get(row.id) ?? null) : null;
+    return {
+      scope,
+      annotationId: row?.id ?? null,
+      written: writtenAt != null,
+      writtenAt,
+    };
+  });
+}
+
+/**
+ * Open the reader's preface or afterword for a book, creating the thread the
+ * first time it's asked for.
+ *
+ * Find-or-create rather than create-then-handle-duplicates, with the unique
+ * index as the arbiter: two devices opening the same preface at once must land
+ * in the same thread, and only the database can promise that. A 23505 here is
+ * the other device having won, so the answer is to read what it wrote.
+ *
+ * The anchor is a formality. A book-scoped annotation is about the whole book,
+ * so there is no passage to point at — the columns are NOT NULL, block zero is
+ * the honest answer, and nothing may ever read it. See the migration.
+ */
+export async function openBookDocument(input: {
+  bookId: string;
+  scope: BookScope;
+  memberEmail?: string | null;
+}): Promise<AnnotationDetail> {
+  const { client, userId } = await resolveReadingScope(input.memberEmail);
+
+  const { data: book } = await client
+    .from("reading_books")
+    .select("id, type")
+    .eq("id", input.bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!book) throw new Error("Book not found.");
+  // Articles have no Contents to reach these from, and no page map to cite
+  // against. Refused here as well as hidden, because this is the guard that
+  // matters.
+  if (book.type === "article") {
+    throw new Error("Articles don't have a preface or an afterword.");
+  }
+  const { data: content } = await client
+    .from("reading_book_content")
+    .select("status")
+    .eq("book_id", input.bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!content || content.status !== "ready") {
+    throw new Error("This book isn't ready to read yet.");
+  }
+
+  const find = async () =>
+    (
+      await client
+        .from("reading_annotations")
+        .select(CHAT_COLUMNS)
+        .eq("book_id", input.bookId)
+        .eq("user_id", userId)
+        .eq("book_scope", input.scope)
+        .maybeSingle()
+    ).data as unknown as AnnotationRow | null;
+
+  let row = await find();
+  if (!row) {
+    const { data: inserted, error } = await client
+      .from("reading_annotations")
+      .insert({
+        book_id: input.bookId,
+        user_id: userId,
+        anchor: {
+          v: ANCHOR_VERSION,
+          kind: "between",
+          blockIndex: 0,
+          endBlockIndex: null,
+          startOffset: null,
+          endOffset: null,
+          quote: null,
+        } satisfies AnnotationAnchor,
+        anchor_char_offset: 0,
+        anchor_page: null,
+        book_scope: input.scope,
+        // Both documents read the whole book — a preface that hadn't seen it
+        // could only ask about the cover, and an afterword is written after the
+        // ending anyway. Fiction leans on the prompt's spoiler rules instead,
+        // the same ones the mid-book chat already uses.
+        spoiler_free: false,
+        context_through_page: null,
+        // Never asked at these; the route picks the model outright. Set so
+        // nothing in the panel can describe this thread as Fast.
+        model_preference: "deep",
+      })
+      .select(CHAT_COLUMNS)
+      .single();
+    if (error) {
+      // 23505: another device created it between the select and the insert.
+      row = error.code === "23505" ? await find() : null;
+      if (!row) throw new Error(error.message);
+    } else {
+      row = inserted as unknown as AnnotationRow;
+    }
+  }
+
+  const detail = await getAnnotation(row.id, input.memberEmail);
+  if (!detail) throw new Error("Couldn't open that.");
+  return detail;
 }
 
 /** A chat and its transcript. */
