@@ -4,6 +4,12 @@ import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
 import { blockMap, stripHtmlToText, textFromBlocks } from "@/lib/reading/block-stream";
 import { articleHtmlToText } from "@/lib/reading/article-sanitize";
 import {
+  chapterBounds,
+  chapterSpan,
+  summarizableChapters,
+} from "@/lib/reading/reading-progress";
+import type { ReadingTocEntry } from "@/lib/types";
+import {
   MAX_CHAPTER_INDEX_ENTRIES,
   chapterMarks,
   pageMarks,
@@ -24,6 +30,14 @@ import {
 
 /** Largest text we feed the quiz model (~15k tokens). Longer ranges get windowed. */
 const MAX_QUIZ_CONTEXT_CHARS = 60_000;
+
+/**
+ * Backstop on a single chapter. Not a real limit — the longest chapter in the
+ * longest book on the shelf is an order of magnitude under it — just a guard so
+ * a book whose contents resolve to one enormous "chapter" can't build a
+ * multi-megabyte request.
+ */
+const MAX_CHAPTER_CONTEXT_CHARS = 400_000;
 
 export { stripHtmlToText };
 
@@ -80,6 +94,83 @@ function fitToBudget(
     text: `${head}\n\n[…earlier pages omitted for length…]\n\n${tail}`,
     truncated: true,
   };
+}
+
+export type ChapterText = {
+  /** The heading's own text, exactly as the contents lists it. */
+  title: string;
+  /** The chapter's plain text, heading line included. */
+  text: string;
+  /** Whether the middle was elided to fit MAX_CHAPTER_CONTEXT_CHARS. */
+  truncated: boolean;
+};
+
+/**
+ * One chapter's text, for a summary of that chapter and nothing else.
+ *
+ * Bounded by chapterSpan over the book's own contents, which is also exactly
+ * the list the reader makes tappable — so the text summarized here is the span
+ * the reader pointed at, with no second definition of where a chapter starts and
+ * stops. See chapterSpan for why "the next heading" is the wrong boundary.
+ *
+ * Deliberately unmarked, unlike the reader-chat slice: a recap of one chapter
+ * has no pages worth citing that the reader isn't already looking at, and no
+ * other chapters in it to index. What the model gets is the chapter, plainly.
+ *
+ * Returns null when the book isn't converted, the heading isn't one of the
+ * contents' own, or the span comes back empty. Scoping is the caller's: pass the
+ * resolved member client and userId (see resolveReadingScope).
+ */
+export async function getChapterText(
+  client: SupabaseClient,
+  userId: string,
+  bookId: string,
+  anchorId: string
+): Promise<ChapterText | null> {
+  const { data: content } = await client
+    .from("reading_book_content")
+    .select("content_path, status, toc")
+    .eq("book_id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!content || content.status !== "ready" || !content.content_path) return null;
+
+  const { data: book } = await client
+    .from("reading_books")
+    .select("title")
+    .eq("id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!book) return null;
+
+  const download = await client.storage
+    .from(READING_BOOKS_BUCKET)
+    .download(content.content_path as string);
+  if (download.error || !download.data) return null;
+
+  const blocks = blockMap(await download.data.text());
+  const bounds = chapterBounds(
+    (content.toc ?? []) as ReadingTocEntry[],
+    book.title as string,
+    blocks
+  );
+  // Gated on the same list the reader can tap, so the route can't be asked for
+  // a recap of a part divider or the copyright page.
+  if (!summarizableChapters(bounds).some((c) => c.anchorId === anchorId)) {
+    return null;
+  }
+
+  const fullText = textFromBlocks(blocks);
+  const span = chapterSpan(bounds, anchorId, fullText.length);
+  if (!span) return null;
+
+  const { text, truncated } = fitToBudget(
+    fullText.slice(span.from, span.to).trim(),
+    MAX_CHAPTER_CONTEXT_CHARS
+  );
+  if (!text) return null;
+
+  return { title: span.title, text, truncated };
 }
 
 export type TextForRangeOptions = {

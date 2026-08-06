@@ -37,6 +37,13 @@ export type AnnotationSummary = {
   spoilerFree: boolean;
   contextThroughPage: number | null;
   quotedText: string | null;
+  /**
+   * The heading this annotation recaps ("sec-42"), and null on every other kind
+   * of annotation. Frozen at creation: it is what makes tapping the same chapter
+   * title reopen its summary rather than start a second one, and it is why a
+   * summary is a column on this row rather than a table of its own.
+   */
+  chapterAnchorId: string | null;
   /** The reader's own words. Null on a plain highlight or a chat-only annotation. */
   note: string | null;
   color: string;

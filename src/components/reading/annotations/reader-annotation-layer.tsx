@@ -20,6 +20,7 @@ import {
   pageBlocks,
   type InlineChatMark,
 } from "@/lib/reading/inline-chat-blocks";
+import { CHAPTER_SUMMARY_MARK_TEXT } from "@/lib/reading/chapter-summary";
 import {
   anchorForGap,
   anchorFromRange,
@@ -32,7 +33,10 @@ import type {
   AnnotationDetail,
   ReaderChatModelPreference,
 } from "@/lib/reading/annotation-types";
-import type { ChapterBound } from "@/lib/reading/reading-progress";
+import {
+  summarizableChapters,
+  type ChapterBound,
+} from "@/lib/reading/reading-progress";
 import { AnnotationPanel } from "./annotation-panel";
 import { AnnotationList } from "./annotation-list";
 import { ReaderMarginControls } from "./annotations-button";
@@ -250,32 +254,56 @@ export function ReaderAnnotationLayer({
             note: detail.note,
             // The mark in the page appears on the send, not on the reply — see
             // markTouched. Until the list is refetched, this is the only place
-            // that knows the question was asked.
+            // that knows the question was asked. `detail.messageCount` carries
+            // that for a summary, whose mark isn't keyed on a question at all.
             firstQuestion: c.firstQuestion ?? detail.firstQuestion,
-            messageCount: Math.max(c.messageCount, detail.messages.length),
+            messageCount: Math.max(
+              c.messageCount,
+              detail.messageCount,
+              detail.messages.length
+            ),
           }
         : c
     );
   }, [loaded, detail]);
 
   /**
-   * The conversations that show as a line in the book: the ones anchored to a
-   * paragraph break that have actually been asked something.
+   * The things that show as a line in the book: conversations anchored to a
+   * paragraph break that have actually been asked something, and the summary of
+   * any chapter that has one.
    *
    * A chat started from a selection is deliberately not here. It already has a
    * visible home in the text — the highlight and its margin icon — and inlining
    * those as well would interrupt the prose on every passage you ever marked.
+   *
+   * A summary's mark says the same thing under every chapter rather than
+   * quoting its own opening turn, which is why it is keyed on having a message
+   * at all rather than on `firstQuestion`: the question is app-authored (see
+   * chapter-summary.ts) and would only ever read the mark back to itself.
    *
    * Articles are out too: their HTML is arbitrary sanitized markup with no
    * character space to splice against, so they keep the margin icon alone.
    */
   const inlineMarks = useMemo<InlineChatMark[]>(() => {
     if (isArticle) return [];
-    return chats.flatMap((c) =>
-      c.anchor?.kind === "between" && c.firstQuestion
+    return chats.flatMap((c) => {
+      if (c.anchor?.kind !== "between") return [];
+      if (c.chapterAnchorId) {
+        return c.messageCount > 0
+          ? [
+              {
+                chatId: c.id,
+                blockIndex: c.anchor.blockIndex,
+                text: CHAPTER_SUMMARY_MARK_TEXT,
+                kind: "summary" as const,
+              },
+            ]
+          : [];
+      }
+      return c.firstQuestion
         ? [{ chatId: c.id, blockIndex: c.anchor.blockIndex, text: c.firstQuestion }]
-        : []
-    );
+        : [];
+    });
   }, [chats, isArticle]);
 
   // Published on change rather than every render: the reader folds these into
@@ -417,7 +445,15 @@ export function ReaderAnnotationLayer({
   const markTouched = useCallback((question: string) => {
     setTouched(true);
     setDetail((d) =>
-      d && !d.firstQuestion ? { ...d, firstQuestion: markText(question) } : d
+      d
+        ? {
+            ...d,
+            firstQuestion: d.firstQuestion ?? markText(question),
+            // A summary's mark is keyed on having a message rather than on the
+            // question, so it needs this to appear at the same moment.
+            messageCount: Math.max(d.messageCount, 1),
+          }
+        : d
     );
   }, []);
 
@@ -465,14 +501,22 @@ export function ReaderAnnotationLayer({
    * differ only in the anchor they arrive with.
    */
   const openDraft = useCallback(
-    (resolved: ResolvedAnchor, asDraft: boolean) => {
+    (
+      resolved: ResolvedAnchor,
+      asDraft: boolean,
+      /** Set when this is a chapter's summary — see createAnnotation. */
+      chapterAnchorId: string | null = null
+    ) => {
       const stopOpen = startTimer("annotate: click → panel");
       const clientId = `pending:${crypto.randomUUID()}`;
       const anchorPage = pageForCharOffset(resolved.anchorCharOffset);
       // Everything createAnnotation would have told us, predicted from what the
       // client already holds. The header reads from these, so getting them right
-      // is what stops the panel visibly correcting itself a moment later.
-      const spoilerFree = !isArticle && data?.spoilerFree === true;
+      // is what stops the panel visibly correcting itself a moment later — which
+      // is why the two exemptions the server applies to a summary are mirrored
+      // here rather than waited for.
+      const isSummary = chapterAnchorId != null;
+      const spoilerFree = !isArticle && !isSummary && data?.spoilerFree === true;
       const optimistic: AnnotationDetail = {
         id: clientId,
         anchor: resolved.anchor,
@@ -481,10 +525,11 @@ export function ReaderAnnotationLayer({
         spoilerFree,
         contextThroughPage: spoilerFree ? anchorPage : null,
         quotedText: resolved.quotedText,
+        chapterAnchorId,
         note: null,
         // The column's default, and its only permitted value today.
         color: "yellow",
-        modelPreference: "fast",
+        modelPreference: isSummary ? "deep" : "fast",
         forkedFromAnnotationId: null,
         messageCount: 0,
         lastMessageAt: null,
@@ -498,6 +543,7 @@ export function ReaderAnnotationLayer({
         anchor: resolved.anchor,
         anchorCharOffset: resolved.anchorCharOffset,
         quotedText: resolved.quotedText,
+        chapterAnchorId,
         memberEmail,
       }).then(
         (detail) => ({ ok: true, detail }) as const,
@@ -702,6 +748,65 @@ export function ReaderAnnotationLayer({
     [memberEmail, openPanelWith]
   );
 
+  /** The headings a tap should mean something on — see summarizableChapters. */
+  const chapterIds = useMemo(
+    () => new Set(summarizableChapters(chapters).map((c) => c.anchorId)),
+    [chapters]
+  );
+
+  /**
+   * The summary of the chapter whose title was just tapped: reopened if it has
+   * one, written now if it doesn't.
+   *
+   * The anchor is the chapter's FIRST PARAGRAPH, not its heading, and that is
+   * what puts the mark where it belongs. Every mark is spliced in at the start
+   * of the block it names (inline-chat-blocks.ts), so anchoring one block below
+   * the heading lands it between the heading and the prose — which is where a
+   * summary of what follows should sit, and is also the only spot in a paged
+   * book guaranteed to be on screen when the chapter is.
+   */
+  const openChapterSummary = useCallback(
+    (anchorId: string) => {
+      const container = contentRef.current;
+      if (!container || busy || isCreating()) return;
+
+      const existing = chats.find((c) => c.chapterAnchorId === anchorId);
+      if (existing) {
+        // Already the open thread. Reopening would remount it, which throws
+        // away a recap that is still streaming — and a second tap on a title
+        // you can see is far more likely to be a stray one than a request.
+        if (panelOpen && mode === "thread" && detail?.id === existing.id) return;
+        void openExisting(existing.id);
+        return;
+      }
+
+      const bound = chapters.find((c) => c.anchorId === anchorId);
+      if (!bound) return;
+      const heading = blockIndexForCharOffset(blocks, bound.charStart);
+      // A chapter that is nothing but its heading has no paragraph to sit above,
+      // so the mark goes on the heading itself rather than nowhere.
+      const below = Math.min(heading + 1, blocks.length - 1);
+      const resolved = anchorForGap(below, space, container);
+      if (!resolved) return;
+
+      openDraft(resolved, true, anchorId);
+    },
+    [
+      blocks,
+      busy,
+      chapters,
+      chats,
+      contentRef,
+      detail,
+      isCreating,
+      mode,
+      openDraft,
+      openExisting,
+      panelOpen,
+      space,
+    ]
+  );
+
   /**
    * Start — or reopen — the conversation about the visible page.
    *
@@ -766,6 +871,22 @@ export function ReaderAnnotationLayer({
         void openExisting(markId);
         return;
       }
+      // A chapter title is quietly tappable, and opens the summary of the
+      // chapter it names. Only the headings the CONTENTS lists: a converted book
+      // also uses headings for front matter and part dividers, and neither of
+      // those is a chapter anyone wants recapped. Nothing marks a title as
+      // tappable on purpose — the page is a page, and a book that grew controls
+      // under every chapter heading would stop reading like one.
+      //
+      // Books only, like every other splice: an article's offsets aren't in the
+      // conversion char space the anchor would be recorded in.
+      const heading = isArticle
+        ? null
+        : (e.target as HTMLElement | null)?.closest<HTMLElement>(".reader-heading");
+      if (heading?.id && chapterIds.has(heading.id)) {
+        openChapterSummary(heading.id);
+        return;
+      }
       // Articles keep real links. A click inside one is meant for the link, and
       // opening a panel on top of a navigation is the wrong answer to both.
       if ((e.target as HTMLElement | null)?.closest("a")) return;
@@ -774,7 +895,15 @@ export function ReaderAnnotationLayer({
     };
     container.addEventListener("click", onClick);
     return () => container.removeEventListener("click", onClick);
-  }, [chats, contentRef, openExisting, windowBase]);
+  }, [
+    chapterIds,
+    chats,
+    contentRef,
+    isArticle,
+    openChapterSummary,
+    openExisting,
+    windowBase,
+  ]);
 
   // A citation cites a page, and every page we know about has a recorded
   // character offset — which navigates identically whether the book is paged or
@@ -881,6 +1010,13 @@ export function ReaderAnnotationLayer({
     [detail, memberEmail, onceCreated, refreshList]
   );
 
+  /** What the open thread is a summary OF, when it's a summary at all. */
+  const openChapterTitle = useMemo(() => {
+    const anchorId = detail?.chapterAnchorId;
+    if (!anchorId) return null;
+    return chapters.find((c) => c.anchorId === anchorId)?.title ?? null;
+  }, [chapters, detail]);
+
   const changeModel = useCallback(
     async (next: ReaderChatModelPreference) => {
       if (!detail) return;
@@ -940,6 +1076,7 @@ export function ReaderAnnotationLayer({
           <AnnotationThread
             key={threadKey}
             chat={detail}
+            chapterTitle={openChapterTitle}
             resolveChatId={realIdFor}
             createError={createError}
             memberEmail={memberEmail}

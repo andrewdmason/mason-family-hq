@@ -18,16 +18,11 @@ import {
   updateBook,
   type ChapterGoalOption,
 } from "@/app/(reading)/reader/actions";
+import { chapterName } from "@/lib/reading/chapter-target";
 import type { ReadingBook } from "@/lib/types";
 
 /** Sentinel "current location" value: the reader hasn't finished any chapter. */
 export const LOCATION_NOT_STARTED = -1;
-
-/** "Chapter 8" from a bare "8"; leaves named sections ("Prologue") untouched. */
-function chapterDisplayName(title: string): string {
-  const t = title.trim();
-  return /^\d{1,3}$/.test(t) ? `Chapter ${t}` : t;
-}
 
 /**
  * The chapter to preselect for a book's current location: the last chapter the
@@ -80,7 +75,7 @@ export function CurrentLocationField({
         <option value={LOCATION_NOT_STARTED}>Not started yet</option>
         {options.map((c) => (
           <option key={c.index} value={c.index}>
-            {chapterDisplayName(c.title)}
+            {chapterName(c.title)}
           </option>
         ))}
       </select>

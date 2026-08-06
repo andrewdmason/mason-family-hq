@@ -6,6 +6,10 @@
  * past it, rather than by opening an index and guessing which "In the text"
  * entry was the one you meant.
  *
+ * A chapter summary leaves the same kind of mark, in the same way, immediately
+ * below the chapter's heading — see `kind` on InlineChatMark. Only its
+ * typography differs, because only its content does.
+ *
  * Two rules make this safe, and both fail silently if broken:
  *
  *  1. THE MARK IS NOT A BLOCK. Every stored anchor is a block index counted by
@@ -33,6 +37,9 @@ import type { BookBlock } from "@/lib/reading/block-stream";
 /** Class the mark carries, for the reader's typography (see reader-prose.ts). */
 export const INLINE_MARK_CLASS = "reader-chat-mark";
 
+/** Carried IN ADDITION to the above by a chapter summary's mark. */
+export const SUMMARY_MARK_CLASS = "reader-summary-mark";
+
 /**
  * Attribute carrying the annotation id. The annotation layer's existing click
  * handler on the content container looks for this, so opening a mark needs no
@@ -52,6 +59,17 @@ export type InlineChatMark = {
   blockIndex: number;
   /** The reader's own question. Already collapsed and capped by `markText`. */
   text: string;
+  /**
+   * What kind of thing the mark leads to. Omitted means "chat" — a conversation,
+   * carrying the question that started it. "summary" is a chapter's recap,
+   * carrying a fixed label instead (see chapter-summary.ts).
+   *
+   * The two are the same `<aside>` spliced at the same boundary by the same
+   * code, on purpose: everything in the module comment above applies to both,
+   * and the only difference between them is which typography reader-prose gives
+   * them.
+   */
+  kind?: "chat" | "summary";
 };
 
 /** Collapse a question to the single line the page has room for. */
@@ -69,8 +87,12 @@ function escapeHtml(text: string): string {
 }
 
 export function markHtml(mark: InlineChatMark): string {
+  const classes =
+    mark.kind === "summary"
+      ? `${INLINE_MARK_CLASS} ${SUMMARY_MARK_CLASS}`
+      : INLINE_MARK_CLASS;
   return (
-    `<aside class="${INLINE_MARK_CLASS}" ${INLINE_MARK_ATTR}="${escapeHtml(mark.chatId)}">` +
+    `<aside class="${classes}" ${INLINE_MARK_ATTR}="${escapeHtml(mark.chatId)}">` +
     `${escapeHtml(markText(mark.text))}</aside>`
   );
 }

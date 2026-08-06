@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CornerDownLeft, Loader2, Trash2, X } from "lucide-react";
+import { CornerDownLeft, Loader2, RotateCcw, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type {
   AnnotationDetail,
   ReaderChatMessage,
   ReaderChatModelPreference,
 } from "@/lib/reading/annotation-types";
+import { chapterSummaryQuestion } from "@/lib/reading/chapter-summary";
+import { chapterName } from "@/lib/reading/chapter-target";
 import { useIsOnline } from "@/lib/reading/offline/use-is-online";
 import { ChatMessageText } from "./chat-message-text";
 
@@ -17,8 +19,37 @@ const ERROR_MARKER = /\n\n\[error: ([\s\S]*)\]$/;
 let localSeq = 0;
 const localId = () => `local-${++localSeq}`;
 
+/**
+ * Drain a reply into the thread as it arrives, and return the error a broken
+ * stream ends with — or null if it finished.
+ *
+ * Shared by the reader's questions and by the chapter summary, which are
+ * answered by different routes but must behave identically once the bytes start
+ * moving: same incremental render, same reading of the failure marker. Two
+ * copies of this loop would eventually disagree about the second one.
+ */
+async function streamReply(
+  body: ReadableStream<Uint8Array>,
+  onText: (soFar: string) => void
+): Promise<string | null> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let acc = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    acc += decoder.decode(value, { stream: true });
+    onText(acc);
+  }
+  // A stream that failed mid-flight carries the marker instead of ending
+  // cleanly; the caller surfaces it as an error rather than as something Claude
+  // said.
+  return acc.match(ERROR_MARKER)?.[1] ?? null;
+}
+
 export function AnnotationThread({
   chat,
+  chapterTitle = null,
   memberEmail,
   bookSpoilerFree,
   isArticle,
@@ -39,6 +70,13 @@ export function AnnotationThread({
   dockToggle,
 }: {
   chat: AnnotationDetail;
+  /**
+   * The chapter this thread recaps, from the book's contents. Null on every
+   * annotation that isn't a chapter summary, and on a summary whose heading has
+   * fallen out of the contents since — the thread still opens, it just can't
+   * name the chapter in its header.
+   */
+  chapterTitle?: string | null;
   memberEmail: string | null;
   bookSpoilerFree: boolean;
   /** Articles have no pages, so nothing spoiler-scoped applies to them. */
@@ -81,12 +119,25 @@ export function AnnotationThread({
   // Captured at mount (the panel remounts per chat via key): an empty transcript
   // means this chat was just started, so the reader's next move is to type.
   const [startedEmpty] = useState(() => chat.messages.length === 0);
+  const isSummary = chat.chapterAnchorId != null;
+  /**
+   * Captured at mount, like startedEmpty. Keyed on there being no ANSWER rather
+   * than no messages: the route commits the question before it streams, so a
+   * recap whose reply died left a thread holding a question and nothing else.
+   * Opening that should write the summary, not show the reader their own
+   * app-authored question with no answer under it.
+   */
+  const [needsSummary] = useState(
+    () => isSummary && !chat.messages.some((m) => m.role === "assistant")
+  );
 
   // Only on a NEW chat — reopening an old one to read it shouldn't grab focus,
-  // which on a phone would throw up the keyboard over the thread.
+  // which on a phone would throw up the keyboard over the thread. A summary is
+  // excluded even when it's new: the reader tapped a title to READ something,
+  // and a keyboard over the recap as it arrives is the opposite of that.
   useEffect(() => {
-    if (startedEmpty) inputRef.current?.focus();
-  }, [startedEmpty]);
+    if (startedEmpty && !isSummary) inputRef.current?.focus();
+  }, [isSummary, startedEmpty]);
 
   // No effect syncing `messages` back to props: the panel remounts this
   // component with key={chat.id}, so switching chats resets everything. Syncing
@@ -159,23 +210,13 @@ export function AnnotationThread({
         });
       }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let acc = "";
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        acc += decoder.decode(value, { stream: true });
+      const failed = await streamReply(res.body, (text) =>
         setMessages((prev) =>
-          prev.map((m) => (m.id === assistantId ? { ...m, content: acc } : m))
-        );
-      }
-
-      // A stream that failed mid-flight carries the marker instead of ending
-      // cleanly; surface it as an error rather than as something Claude "said".
-      const failed = acc.match(ERROR_MARKER);
+          prev.map((m) => (m.id === assistantId ? { ...m, content: text } : m))
+        )
+      );
       if (failed) {
-        setError(failed[1]);
+        setError(failed);
         setMessages((prev) => prev.filter((m) => m.id !== assistantId));
       }
     } catch (err) {
@@ -190,33 +231,158 @@ export function AnnotationThread({
     }
   }, [draft, sending, chat.id, memberEmail, onTouched, onExchangeComplete, resolveChatId]);
 
+  /**
+   * Write the recap — on opening a summary that doesn't have one yet, and again
+   * whenever Regenerate is pressed.
+   *
+   * Both are the same request because the route treats them as one: a summary
+   * owns its thread, so a fresh recap replaces the old one and anything asked
+   * about it. That is destructive and deliberately unconfirmed, like the delete
+   * control beside it — the alternative was a second recap stacked under stale
+   * follow-ups, which is worse to read and worse to undo.
+   */
+  const summarize = useCallback(async () => {
+    if (sending) return;
+    setError(null);
+    setSending(true);
+
+    // Rendered here as well as persisted by the route, so the thread reads as a
+    // question already asked while the answer is still coming. The wording is
+    // shared with the server precisely so the two copies are the same string.
+    const question = chapterSummaryQuestion(chapterTitle ?? "this chapter");
+    // Before the request, like send(): the route commits the question as its
+    // first step, so the summary survives a reply that fails.
+    onTouched(question);
+
+    const userId = localId();
+    const assistantId = localId();
+    setMessages([
+      { id: userId, role: "user", content: question, model: null, createdAt: "" },
+      { id: assistantId, role: "assistant", content: "", model: null, createdAt: "" },
+    ]);
+
+    // The panel can open before the annotation row exists — the reader tapped a
+    // chapter title and this fired on the next frame — so the id may still be a
+    // stand-in. See PendingCreate in reader-annotation-layer.tsx.
+    let annotationId = chat.id;
+    if (resolveChatId) {
+      try {
+        annotationId = await resolveChatId(chat.id);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Couldn't save that annotation."
+        );
+        setMessages([]);
+        setSending(false);
+        return;
+      }
+    }
+
+    try {
+      const res = await fetch("/reader/api/chapter-summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ annotationId, memberEmail }),
+      });
+      if (!res.ok || !res.body) {
+        throw new Error((await res.text()) || "Couldn't summarize that chapter.");
+      }
+
+      const failed = await streamReply(res.body, (text) =>
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantId ? { ...m, content: text } : m))
+        )
+      );
+      if (failed) {
+        setError(failed);
+        setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Couldn't summarize that chapter."
+      );
+      setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+    } finally {
+      setSending(false);
+      onExchangeComplete();
+    }
+  }, [
+    chapterTitle,
+    chat.id,
+    memberEmail,
+    onExchangeComplete,
+    onTouched,
+    resolveChatId,
+    sending,
+  ]);
+
+  /**
+   * A summary with no recap in it yet writes itself rather than waiting to be
+   * asked — the tap on the chapter title WAS the asking.
+   *
+   * Guarded by a ref rather than by the dependency list: `summarize` is rebuilt
+   * whenever anything it closes over changes, and re-running this effect on that
+   * would throw away the recap mid-stream and start another. It therefore runs
+   * at most once per opening, so a model that keeps failing costs one attempt
+   * each time the reader tries rather than a loop.
+   */
+  const summarizedRef = useRef(false);
+  useEffect(() => {
+    if (!needsSummary || summarizedRef.current) return;
+    summarizedRef.current = true;
+    void summarize();
+  }, [needsSummary, summarize]);
+
   // The chat's boundary is frozen at its anchor, so once you've read past it the
-  // assistant knows less than you do. Offer the fork exactly when that's true.
+  // assistant knows less than you do. Offer the fork exactly when that's true —
+  // but never on a summary, which was never scoped to where you were standing
+  // and so has nothing to catch up on.
   const behind =
-    chat.anchorPage != null && currentPage != null && currentPage > chat.anchorPage;
+    !isSummary &&
+    chat.anchorPage != null &&
+    currentPage != null &&
+    currentPage > chat.anchorPage;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium text-foreground">
-            {chat.anchorPage != null && hasRealPages
-              ? `Page ${chat.anchorPage}`
-              : chat.quotedText
-                ? "On a passage"
-                : "In the text"}
+            {isSummary
+              ? chapterTitle
+                ? chapterName(chapterTitle)
+                : "Chapter summary"
+              : chat.anchorPage != null && hasRealPages
+                ? `Page ${chat.anchorPage}`
+                : chat.quotedText
+                  ? "On a passage"
+                  : "In the text"}
           </p>
           <p className="truncate text-[11px] text-muted-foreground">
-            {isArticle
-              ? "Claude has read the whole article"
-              : chat.spoilerFree
-                ? chat.contextThroughPage != null
-                  ? `Claude has read to p.${chat.contextThroughPage}`
-                  : "Claude has read to here"
-                : "Claude has read the whole book"}
+            {isSummary
+              ? "A recap of this chapter alone"
+              : isArticle
+                ? "Claude has read the whole article"
+                : chat.spoilerFree
+                  ? chat.contextThroughPage != null
+                    ? `Claude has read to p.${chat.contextThroughPage}`
+                    : "Claude has read to here"
+                  : "Claude has read the whole book"}
           </p>
         </div>
         <ModelPicker value={chat.modelPreference} onChange={onModelChange} />
+        {isSummary && (
+          <button
+            type="button"
+            onClick={() => void summarize()}
+            disabled={!online || sending}
+            aria-label="Write a new summary"
+            title="Write a new summary"
+            className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={onDelete}
@@ -322,7 +488,13 @@ export function AnnotationThread({
             // come from a model, so this is the one part of the reader that
             // genuinely cannot work offline. Queuing it would be worse — a
             // question answered hours later is one you've stopped wondering about.
-            placeholder={online ? "Ask about this part…" : "AI chat needs a connection"}
+            placeholder={
+              !online
+                ? "AI chat needs a connection"
+                : isSummary
+                  ? "Ask about this chapter…"
+                  : "Ask about this part…"
+            }
             className="min-h-[2.5rem] flex-1 resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
           />
           <button

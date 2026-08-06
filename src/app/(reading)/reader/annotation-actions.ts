@@ -24,8 +24,8 @@ import type {
 
 const CHAT_COLUMNS =
   "id, book_id, anchor, anchor_char_offset, anchor_page, spoiler_free, " +
-  "context_through_page, quoted_text, note, color, model_preference, " +
-  "forked_from_annotation_id, created_at";
+  "context_through_page, quoted_text, chapter_anchor_id, note, color, " +
+  "model_preference, forked_from_annotation_id, created_at";
 
 type AnnotationRow = {
   id: string;
@@ -36,6 +36,7 @@ type AnnotationRow = {
   spoiler_free: boolean;
   context_through_page: number | null;
   quoted_text: string | null;
+  chapter_anchor_id: string | null;
   note: string | null;
   color: string;
   model_preference: string;
@@ -59,6 +60,7 @@ function toSummary(
     spoilerFree: row.spoiler_free,
     contextThroughPage: row.context_through_page,
     quotedText: row.quoted_text,
+    chapterAnchorId: row.chapter_anchor_id,
     note: row.note,
     color: row.color,
     modelPreference: (row.model_preference === "deep"
@@ -217,6 +219,11 @@ export async function createAnnotation(input: {
   quotedText?: string | null;
   /** Set when the reader picked "Note" rather than "Highlight" or "Ask". */
   note?: string | null;
+  /**
+   * Set when the reader tapped a chapter title: the heading's id, which makes
+   * this row that chapter's summary. See the migration for why it lives here.
+   */
+  chapterAnchorId?: string | null;
   forkedFromAnnotationId?: string | null;
   memberEmail?: string | null;
 }): Promise<AnnotationDetail> {
@@ -260,8 +267,15 @@ export async function createAnnotation(input: {
   // the route would cut context at anchor_char_offset, which for articles is
   // measured in DOM-text space rather than the conversion char space the cut
   // assumes. The UI hides the toggle too; this is the guard that matters.
+  //
+  // A chapter summary is exempt for a different reason. Asking for one is asking
+  // to be told what happens in a chapter, so honouring the boundary would either
+  // refuse the thing that was just requested, or — worse — answer it and then
+  // refuse every follow-up about the chapter it had already recapped.
   const isArticle = book.type === "article";
-  const spoilerFree = !isArticle && book.spoiler_free === true;
+  const chapterAnchorId = input.chapterAnchorId ?? null;
+  const spoilerFree =
+    !isArticle && chapterAnchorId == null && book.spoiler_free === true;
 
   const { data: inserted, error } = await client
     .from("reading_annotations")
@@ -276,8 +290,13 @@ export async function createAnnotation(input: {
       // "no page map", and the route falls back to anchor_char_offset.
       context_through_page: spoilerFree ? anchorPage : null,
       quoted_text: input.quotedText?.trim() || null,
+      chapter_anchor_id: chapterAnchorId,
       note: input.note?.trim() || null,
       forked_from_annotation_id: input.forkedFromAnnotationId ?? null,
+      // A recap is worth the stronger model — it is read once and remembered,
+      // where a chat turn is one of many and can be asked again. Follow-ups
+      // inherit it, and the picker in the panel can still change them.
+      ...(chapterAnchorId != null ? { model_preference: "deep" } : {}),
     })
     .select(CHAT_COLUMNS)
     .single();

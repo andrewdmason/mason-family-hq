@@ -30,6 +30,7 @@ import { blockMap } from "../src/lib/reading/block-stream";
 import {
   INLINE_MARK_ATTR,
   INLINE_MARK_CLASS,
+  SUMMARY_MARK_CLASS,
   markText,
   pageBlocks,
   withInlineChats,
@@ -98,6 +99,9 @@ console.log("\nsplicing");
     { chatId: "a", blockIndex: 5, text: "Who is Hoffman talking about?" },
     { chatId: "b", blockIndex: 9, text: "Why does the gallery keep coming back?" },
     { chatId: "c", blockIndex: 41, text: "What changed at the chapter break?" },
+    // A chapter summary, anchored the way the reader anchors one: at the first
+    // paragraph of the chapter, so it lands between the heading and the prose.
+    { chatId: "s", blockIndex: 81, text: "Chapter summary", kind: "summary" },
   ];
   const marked = withInlineChats(HTML, BLOCKS, marks, 0);
 
@@ -120,6 +124,23 @@ console.log("\nsplicing");
     "each mark sits immediately above its own block",
     misplaced.length === 0,
     misplaced.map((m) => m.chatId).join(", ")
+  );
+
+  // A summary is the same aside with one extra class on it. If the class is
+  // ever dropped the mark still works and still opens — it just silently loses
+  // the typography that tells it apart from a question.
+  const summaryAt = marked.indexOf(`${INLINE_MARK_ATTR}="s"`);
+  const summaryTag = marked.lastIndexOf("<aside", summaryAt);
+  check(
+    "a chapter summary's mark carries the summary class",
+    marked
+      .slice(summaryTag, summaryAt)
+      .includes(`class="${INLINE_MARK_CLASS} ${SUMMARY_MARK_CLASS}"`)
+  );
+  check(
+    "a chapter summary's mark sits below the heading, not above it",
+    marked.indexOf('id="sec-80"') < summaryAt &&
+      summaryAt < marked.indexOf("[b81]")
   );
 
   // The load-bearing one: the converter's character space is rebuilt from this
