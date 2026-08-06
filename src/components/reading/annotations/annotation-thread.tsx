@@ -76,8 +76,14 @@ export function AnnotationThread({
   const [sending, setSending] = useState(false);
   const online = useIsOnline();
   const [error, setError] = useState<string | null>(null);
-  const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Scrolling up mid-reply is deliberate — back to the question, or up into an
+  // earlier turn — so the next streamed token mustn't yank the reader back down.
+  // Streamed text appending never fires a scroll event, and the follow below only
+  // ever moves toward the bottom, so the one thing that un-pins is the reader
+  // scrolling up themselves. Scrolling back down re-pins.
+  const pinnedToBottom = useRef(true);
   // Captured at mount (the panel remounts per chat via key): an empty transcript
   // means this chat was just started, so the reader's next move is to type.
   const [startedEmpty] = useState(() => chat.messages.length === 0);
@@ -91,8 +97,14 @@ export function AnnotationThread({
   // No effect syncing `messages` back to props: the panel remounts this
   // component with key={chat.id}, so switching chats resets everything. Syncing
   // instead would risk clobbering a reply mid-stream.
+
+  // Follow new content only while pinned. Moving the panel's own scrollTop rather
+  // than scrollIntoView keeps this inside the thread: the page behind it stays
+  // exactly where the reader left it.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
+    if (!pinnedToBottom.current) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   const send = useCallback(async () => {
@@ -104,6 +116,10 @@ export function AnnotationThread({
     // Before the request, not after: the route persists the user's message as
     // its first step, so the chat is committed even if the reply fails.
     onTouched(text);
+
+    // Asking something is asking to see the answer, so a send re-pins even if you
+    // were reading back through the thread when you typed it.
+    pinnedToBottom.current = true;
 
     const userId = localId();
     const assistantId = localId();
@@ -236,7 +252,17 @@ export function AnnotationThread({
         </button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      <div
+        ref={scrollRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          // A little slack rather than an exact match: sub-pixel line heights and
+          // a phone's rubber-banding leave you a hair off the true bottom even
+          // when you're plainly sitting at it.
+          pinnedToBottom.current = el.scrollHeight - el.clientHeight - el.scrollTop < 32;
+        }}
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+      >
         {chat.quotedText && (
           <blockquote className="mb-3 border-l-2 border-border pl-3 font-serif text-sm leading-6 text-muted-foreground italic">
             {chat.quotedText}
@@ -301,7 +327,6 @@ export function AnnotationThread({
         {(error || createError) && (
           <p className="mt-3 text-xs text-destructive">{error ?? createError}</p>
         )}
-        <div ref={endRef} />
       </div>
 
       <div className="shrink-0 border-t border-border p-3">
