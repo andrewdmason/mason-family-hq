@@ -44,6 +44,13 @@ export type AnnotationSummary = {
   forkedFromAnnotationId: string | null;
   messageCount: number;
   lastMessageAt: string | null;
+  /**
+   * The reader's opening question, capped to a line. What the mark in the page
+   * carries (see inline-chat-blocks.ts), so the summary list can render the
+   * book's marginalia without fetching a transcript per annotation. Null on
+   * anything that isn't a conversation yet.
+   */
+  firstQuestion: string | null;
   createdAt: string;
 };
 
