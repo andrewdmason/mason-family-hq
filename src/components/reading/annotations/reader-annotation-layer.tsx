@@ -134,6 +134,7 @@ export function ReaderAnnotationLayer({
   paged,
   panelOpen,
   onPanelOpenChange,
+  openListOnMount,
   preferSheet,
   docked,
   canFloat,
@@ -172,6 +173,12 @@ export function ReaderAnnotationLayer({
   paged: PagedGutterContext | null;
   panelOpen: boolean;
   onPanelOpenChange: (open: boolean) => void;
+  /**
+   * Arrive with the list already showing. Honoured exactly once, on the first
+   * render of this layer: it describes how you got here, not a state to hold, so
+   * closing the panel afterwards has to stick.
+   */
+  openListOnMount: boolean;
   /** Present the chat over the book rather than beside it — see chatAsSheet. */
   preferSheet: boolean;
   /** The panel takes width from the book rather than sitting over it. */
@@ -428,6 +435,23 @@ export function ReaderAnnotationLayer({
     setDraftId(null);
     onPanelOpenChange(true);
   }, [mode, onPanelOpenChange, panelOpen]);
+
+  /**
+   * Coming in from the shelf's annotation count, which promised the notes.
+   *
+   * Deliberately not openList(): that one toggles, and a toggle fired on mount
+   * would be at the mercy of whatever the panel happened to be doing. This says
+   * the one thing it means, once, and then never again — the ref is what keeps a
+   * re-render from reopening a panel you just closed, with the query string
+   * still sitting in the URL.
+   */
+  const openedFromLink = useRef(false);
+  useEffect(() => {
+    if (!openListOnMount || openedFromLink.current) return;
+    openedFromLink.current = true;
+    setMode("list");
+    onPanelOpenChange(true);
+  }, [openListOnMount, onPanelOpenChange]);
 
   const openPanelWith = useCallback(
     (annotation: AnnotationDetail, asDraft = false) => {

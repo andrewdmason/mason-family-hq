@@ -29,6 +29,20 @@ export function bookReaderHref(
   return withMember(`/reader/${bookId}/read`, memberEmail);
 }
 
+/**
+ * The reader for a book, opened with everything you've marked in it already
+ * showing. What the shelf's annotation count points at, so the number is a way
+ * into what you wrote rather than a fact about the book.
+ */
+export function bookNotesHref(
+  bookId: string,
+  memberEmail?: string | null
+): string {
+  const base = bookReaderHref(bookId, memberEmail);
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}notes=1`;
+}
+
 /** The Bookshelf home: a kid's own shelf, or the parent view of that kid's. */
 export function bookshelfHref(memberEmail?: string | null): string {
   return withMember("/books", memberEmail);

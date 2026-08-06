@@ -203,9 +203,16 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
   // Closed journal entries linked to each book (from currently-reading questions),
   // newest first, so the card can show "From your journal".
   const relatedByBook = new Map<string, ReadingBookJournalEntry[]>();
+  // Marked passages per book, for the shelf's "· 24 notes". Counted in the
+  // database rather than here: see the view's own migration for why.
+  const annotationsByBook = new Map<string, number>();
   if (bookIds.length > 0) {
-    const [{ data: contentRows }, { data: stateRows }, { data: entryRows }] =
-      await Promise.all([
+    const [
+      { data: contentRows },
+      { data: stateRows },
+      { data: entryRows },
+      { data: annotationRows },
+    ] = await Promise.all([
         client
           .from("reading_book_content")
           .select("book_id, status, page_count, has_real_pages, word_count, error_message")
@@ -223,6 +230,12 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
           .eq("status", "closed")
           .in("reading_book_id", bookIds)
           .order("entry_date", { ascending: false }),
+        // Not filtered by book: the view already holds one row per book you've
+        // marked, so the whole shelf's worth is smaller than the id list would be.
+        client
+          .from("reading_annotation_counts")
+          .select("book_id, annotation_count")
+          .eq("user_id", userId),
       ]);
     for (const c of contentRows ?? []) {
       contentByBook.set(c.book_id as string, {
@@ -248,6 +261,9 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
         entry_date: e.entry_date as string,
       });
       relatedByBook.set(bookId, list);
+    }
+    for (const a of annotationRows ?? []) {
+      annotationsByBook.set(a.book_id as string, (a.annotation_count as number) ?? 0);
     }
   }
 
@@ -292,6 +308,7 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
         ratio == null
           ? null
           : Math.min(100, Math.max(0, Math.round(ratio * 100))),
+      annotationCount: annotationsByBook.get(book.id) ?? 0,
       relatedEntries: relatedByBook.get(book.id) ?? [],
     };
   });

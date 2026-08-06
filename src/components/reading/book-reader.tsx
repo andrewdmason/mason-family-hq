@@ -115,6 +115,7 @@ export function BookReader({
   toc,
   resumeCharOffset,
   resumeSavedAt = null,
+  openNotes = false,
   backHref,
   canListen = false,
 }: {
@@ -138,6 +139,12 @@ export function BookReader({
    * is, and can recognise another device's later reading as later.
    */
   resumeSavedAt?: string | null;
+  /**
+   * Open on the list of everything marked in this book, rather than on the book
+   * alone. Set when you arrive from the shelf's annotation count, which promises
+   * the notes and would otherwise land you in the text with the panel shut.
+   */
+  openNotes?: boolean;
   backHref: string;
   /**
    * Whether this account may have a book read aloud. Adults only, on purpose —
@@ -996,6 +1003,7 @@ export function BookReader({
       paged={pagedChat}
       panelOpen={chatPanelOpen}
       onPanelOpenChange={handleChatPanelOpenChange}
+      openListOnMount={openNotes}
       preferSheet={chatAsSheet}
       docked={!chatCanFloat || settings.chatDocked}
       canFloat={chatCanFloat}
