@@ -133,6 +133,12 @@ export type ReaderChatPromptInput = {
   spoilerFree: boolean;
   /** The page the scope ends at, when known. */
   contextThroughPage: number | null;
+  /**
+   * How far the reader has actually got, for chats that are NOT spoiler-scoped
+   * and therefore hold the whole book. Null for a scoped chat (the text already
+   * stops there) and for an article (there is no "further on" to protect).
+   */
+  readerPosition: { page: number | null; percent: number | null } | null;
   /** Selection-initiated chats: the passage the reader highlighted. */
   quotedText: string | null;
   /** Fork: the parent chat's transcript, carried forward as context. */
@@ -255,6 +261,34 @@ export function buildReaderChatSystem(
 
   // Everything below the breakpoint: per-chat, and small.
   const tail: string[] = [];
+
+  // The reader's position belongs here rather than up in the rules, volatile by
+  // nature: it moves as they read, and pinning it above the cache breakpoint
+  // would rewrite the prefix — and re-bill the whole novel — on every turn.
+  if (!input.spoilerFree && input.readerPosition) {
+    const { page, percent } = input.readerPosition;
+    const at = [
+      page != null && input.hasPageMarkers ? `[p.${page}]` : null,
+      percent != null ? `about ${percent}% of the way in` : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    if (at) {
+      tail.push(
+        `WHERE THE READER IS: they have read up to ${at}. Everything after ` +
+          "that point is text they have not seen yet. You were given the whole " +
+          "book rather than only the part they have read, so you may answer " +
+          "directly about anything they ask, the ending included — the mistake " +
+          "to avoid is volunteering it. Never say or imply they have finished " +
+          "the book, or that they stopped anywhere but that point. Do not " +
+          "raise, allude to or foreshadow a later event, reveal or ending " +
+          "unless their question actually calls for it, and never discuss " +
+          "later material as though they had already read it. When answering " +
+          "honestly does mean reaching past where they are, say so in a few " +
+          "words first, then answer."
+      );
+    }
+  }
 
   if (input.quotedText) {
     tail.push(

@@ -3,6 +3,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "@/lib/journal/anthropic";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { getTextForRange } from "@/lib/reading/extract-text";
+import { resolveReaderPosition } from "@/lib/reading/reader-position";
 import {
   buildReaderChatSystem,
   FAST_MODEL_CONTEXT_WINDOW,
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
 
   const { data: book } = await db
     .from("reading_books")
-    .select("title, author")
+    .select("title, author, type")
     .eq("id", chat.book_id)
     .eq("user_id", userId)
     .maybeSingle();
@@ -114,6 +115,18 @@ export async function POST(req: NextRequest) {
   });
   if (!slice) return new Response("book text unavailable", { status: 409 });
 
+  // An unscoped chat holds the whole book, so the model has to be told where the
+  // reader actually is — left to infer it from where the text runs out, it reads
+  // the last page as their position and starts explaining the ending. A scoped
+  // chat needs none of this: the text stops at the boundary. An article has no
+  // "further on" to protect, and its char_count is HTML length, so any
+  // percentage derived from it would be nonsense.
+  const isArticle = (book.type as string | null) === "article";
+  const readerPosition =
+    scoped || isArticle
+      ? null
+      : await resolveReaderPosition(db, userId, chat.book_id, chat.anchor_char_offset);
+
   // Fork: carry the parent transcript forward as context (not as real turns).
   let priorTranscript: { role: "user" | "assistant"; content: string }[] | null =
     null;
@@ -152,6 +165,7 @@ export async function POST(req: NextRequest) {
     chapters: slice.chapters,
     spoilerFree: scoped,
     contextThroughPage: scoped ? chat.context_through_page : null,
+    readerPosition,
     quotedText: chat.quoted_text,
     priorTranscript,
     parentAnchorPage,

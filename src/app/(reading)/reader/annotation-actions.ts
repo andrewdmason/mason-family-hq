@@ -1,8 +1,8 @@
 "use server";
 
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { markText } from "@/lib/reading/inline-chat-blocks";
+import { pageForCharOffset } from "@/lib/reading/reader-position";
 import type { AnnotationAnchor } from "@/lib/reading/annotation-anchors";
 import type {
   ReaderAnnotationData,
@@ -72,31 +72,6 @@ function toSummary(
     firstQuestion: counts?.firstQuestion ?? null,
     createdAt: row.created_at,
   };
-}
-
-/**
- * Resolve a character offset to the page containing it: the highest page whose
- * char_start is at or before the offset. Null when the book has no page map.
- *
- * Server-side on purpose — the client knows its block index but must never get
- * to choose its own spoiler boundary.
- */
-async function pageForCharOffset(
-  client: SupabaseClient,
-  userId: string,
-  bookId: string,
-  charOffset: number
-): Promise<number | null> {
-  const { data } = await client
-    .from("reading_book_pages")
-    .select("page_number")
-    .eq("book_id", bookId)
-    .eq("user_id", userId)
-    .lte("char_start", charOffset)
-    .order("page_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  return (data?.page_number as number | undefined) ?? null;
 }
 
 /** Everything the reader needs to render markers and open a chat. */
