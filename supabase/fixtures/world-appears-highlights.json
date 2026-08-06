@@ -1,0 +1,487 @@
+{
+  "_note": "Andrew's real Kindle highlights for \"A World Appears\" (Michael Pollan), exported from Readwise and located against the converted EPUB. Short quoted passages only — the book text itself is deliberately NOT in this repo. Consumed by scripts/seed-world-appears.mts.",
+  "title": "A World Appears",
+  "author": "Michael Pollan",
+  "highlights": [
+    {
+      "charOffset": 5684,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 59,
+        "endBlockIndex": 59,
+        "startOffset": 788,
+        "endOffset": 936,
+        "quote": {
+          "exact": "called the “hard problem” of consciousness: the puzzle of why any of these mental operations are accompanied by any conscious experience whatsoever.",
+          "prefix": "hen there was what he memorably ",
+          "suffix": " “Why doesn’t all this informati",
+          "length": 148
+        }
+      },
+      "quotedText": "called the “hard problem” of consciousness: the puzzle of why any of these mental operations are accompanied by any conscious experience whatsoever.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 13611,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 68,
+        "endBlockIndex": 68,
+        "startOffset": 608,
+        "endOffset": 822,
+        "quote": {
+          "exact": "world. The fact that consciousness can be altered by chemicals does not necessarily prove that consciousness is, at its core, a material phenomenon, but it would seem to lend at least some credence to the idea.[*7]",
+          "prefix": "ur subjective experience of the ",
+          "suffix": "\nSo you might say I am of two mi",
+          "length": 214
+        }
+      },
+      "quotedText": "world. The fact that consciousness can be altered by chemicals does not necessarily prove that consciousness is, at its core, a material phenomenon, but it would seem to lend at least some credence to the idea.[*7]",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 31223,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 94,
+        "endBlockIndex": 94,
+        "startOffset": 0,
+        "endOffset": 286,
+        "quote": {
+          "exact": "In small doses, psychedelics smudge the pane of normal perception in ways that allow us to see that there is indeed something standing between ourselves and reality, inflecting or possibly even constituting it, and that reality might be different than it appears in that unsmudged pane.",
+          "prefix": " had in my fifties and sixties.\n",
+          "suffix": " The experience defamiliarizes e",
+          "length": 286
+        }
+      },
+      "quotedText": "In small doses, psychedelics smudge the pane of normal perception in ways that allow us to see that there is indeed something standing between ourselves and reality, inflecting or possibly even constituting it, and that reality might be different than it appears in that unsmudged pane.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 31510,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 94,
+        "endBlockIndex": 94,
+        "startOffset": 287,
+        "endOffset": 428,
+        "quote": {
+          "exact": "The experience defamiliarizes everyday consciousness, allowing us to see it freshly—indeed, in some cases, to see it for the first time.[*13]",
+          "prefix": "appears in that unsmudged pane. ",
+          "suffix": " It’s a bit like the way art can",
+          "length": 141
+        }
+      },
+      "quotedText": "The experience defamiliarizes everyday consciousness, allowing us to see it freshly—indeed, in some cases, to see it for the first time.[*13]",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 57620,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 143,
+        "endBlockIndex": 143,
+        "startOffset": 606,
+        "endOffset": 832,
+        "quote": {
+          "exact": "Another study, this one done at Imperial College London, found that psychedelics altered people’s fundamental beliefs about reality, shifting them from materialism toward panpsychism or idealism—toward a world steeped in mind.",
+          "prefix": "t. (Fungi were not far behind.) ",
+          "suffix": "\nWho can say what this means? It",
+          "length": 226
+        }
+      },
+      "quotedText": "Another study, this one done at Imperial College London, found that psychedelics altered people’s fundamental beliefs about reality, shifting them from materialism toward panpsychism or idealism—toward a world steeped in mind.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 83511,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 180,
+        "endBlockIndex": 180,
+        "startOffset": 287,
+        "endOffset": 522,
+        "quote": {
+          "exact": "an experiment that unequivocally demonstrates plant intelligence, he sent me an astonishing video tracking the root of a corn plant as it navigated a maze where a quantity of ammonium nitrate fertilizer had been hidden in a far corner.",
+          "prefix": "asked Mancuso for an example of ",
+          "suffix": "\n“This is the standard way to me",
+          "length": 235
+        }
+      },
+      "quotedText": "an experiment that unequivocally demonstrates plant intelligence, he sent me an astonishing video tracking the root of a corn plant as it navigated a maze where a quantity of ammonium nitrate fertilizer had been hidden in a far corner.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 166986,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 353,
+        "endBlockIndex": 353,
+        "startOffset": 0,
+        "endOffset": 452,
+        "quote": {
+          "exact": "“I’ve never seen a good answer to the one question that, after nearly four decades as a psychologist, is the one I most want the answer to, which is why information processing has to be ‘like’ something,” Gilbert said. “That is, why is there even a thing called subjective experience when no psycholo",
+          "prefix": "tion about human consciousness.\n",
+          "suffix": "\nHere was a tidy restatement of ",
+          "length": 452
+        }
+      },
+      "quotedText": "“I’ve never seen a good answer to the one question that, after nearly four decades as a psychologist, is the one I most want the answer to, which is why information processing has to be ‘like’ something,” Gilbert said. “That is, why is there even a thing called subjective experience when no psychologist or philosopher has ever named a single thing that subjective experiencers can do that could not, in principle, be done by a sophisticated machine?”",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 170528,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 360,
+        "endBlockIndex": 360,
+        "startOffset": 275,
+        "endOffset": 777,
+        "quote": {
+          "exact": "Panpsychism, you’ll recall, is the theory that everything—even a rock or a grain of sand—has some infinitesimal parcel of protoconsciousness, with these parcels combining, somehow, to create the sort of complex mental lives we experience. In the other version, idealism, consciousness comprises a uni",
+          "prefix": "r energy, perhaps even more so. ",
+          "suffix": "\nI’m guessing it’s ideas like th",
+          "length": 502
+        }
+      },
+      "quotedText": "Panpsychism, you’ll recall, is the theory that everything—even a rock or a grain of sand—has some infinitesimal parcel of protoconsciousness, with these parcels combining, somehow, to create the sort of complex mental lives we experience. In the other version, idealism, consciousness comprises a universal field that precedes matter; the function of brains is to tune in to this field, much as a radio picks up and plays signals floating in the electromagnetic field, bringing them into our awareness.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 195079,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 401,
+        "endBlockIndex": 401,
+        "startOffset": 322,
+        "endOffset": 366,
+        "quote": {
+          "exact": "for the fluency with which he connected dots",
+          "prefix": " presentation didn’t prepare me ",
+          "suffix": " as seemingly distant as Freudia",
+          "length": 44
+        }
+      },
+      "quotedText": "for the fluency with which he connected dots",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 246840,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 509,
+        "endBlockIndex": 509,
+        "startOffset": 37,
+        "endOffset": 53,
+        "quote": {
+          "exact": "Antonio Damasio,",
+          "prefix": "ight be surprised to learn that ",
+          "suffix": " of all people, has also given s",
+          "length": 16
+        }
+      },
+      "quotedText": "Antonio Damasio,",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 263553,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 535,
+        "endBlockIndex": 535,
+        "startOffset": 240,
+        "endOffset": 469,
+        "quote": {
+          "exact": "We have Damasio and Solms to thank for recovering the body from decades of neglect by philosophers and neuroscientists, who treated it as a mechanical support system for the sovereign brain when the reality is the exact opposite.",
+          "prefix": "ling and consciousness in turn. ",
+          "suffix": " But will the faux vulnerability",
+          "length": 229
+        }
+      },
+      "quotedText": "We have Damasio and Solms to thank for recovering the body from decades of neglect by philosophers and neuroscientists, who treated it as a mechanical support system for the sovereign brain when the reality is the exact opposite.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 340226,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 674,
+        "endBlockIndex": 674,
+        "startOffset": 755,
+        "endOffset": 844,
+        "quote": {
+          "exact": "(As we get older, Christoff Hadjiilieva told me, our minds wander less and ruminate more.",
+          "prefix": "n describes a loop or a spiral. ",
+          "suffix": " I recognize this shift in mysel",
+          "length": 89
+        }
+      },
+      "quotedText": "(As we get older, Christoff Hadjiilieva told me, our minds wander less and ruminate more.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 346012,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 682,
+        "endBlockIndex": 686,
+        "startOffset": 3,
+        "endOffset": 433,
+        "quote": {
+          "exact": "evidence of the field’s bias in favor of productive thought, she cited a famous paper in the field, “A Wandering Mind Is an Unhappy Mind,” by Harvard psychologist Daniel Gilbert (whom we met earlier in the book) and Matt Killingsworth. One of the most frequently cited papers in psychology, it conclu",
+          "prefix": "na like spontaneous thought.\nAs ",
+          "suffix": " “That’s the network drawing peo",
+          "length": 1187
+        }
+      },
+      "quotedText": "evidence of the field’s bias in favor of productive thought, she cited a famous paper in the field, “A Wandering Mind Is an Unhappy Mind,” by Harvard psychologist Daniel Gilbert (whom we met earlier in the book) and Matt Killingsworth. One of the most frequently cited papers in psychology, it concludes that people are happier when their minds are engaged in a task rather than wandering. Two papers in The Oxford Handbook of Spontaneous Thought reanalyzed the authors’ own data and disputed the finding; according to their analyses, wandering minds are in fact happier than the title of the paper indicates.\n“It’s basically propaganda,” Christoff Hadjiilieva said.\n“For what?”\n“For how we can turn people into better soldiers of our capitalist order.”\n“There is a politicizing of the mind,” she added, “and I think it spills over into consciousness research.” She doesn’t think it’s an accident that neuroscientists favor some brain and neurotransmitter networks over others. For example, the dopamine system, which rewards self-interested behavior, receives far more scientific attention than the serotonin system, which is involved in, among other things, fostering human connection.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 348386,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 689,
+        "endBlockIndex": 689,
+        "startOffset": 396,
+        "endOffset": 702,
+        "quote": {
+          "exact": "It describes the routines of several highly accomplished historical figures—including Darwin, Beethoven, Dalí, and Chandler—who achieved great success despite working a relatively short day (four to five hours) followed by lots of long walks, afternoon naps, loads of unstructured time, and long vaca",
+          "prefix": "history of spontaneous thought. ",
+          "suffix": " It is often not until we leave ",
+          "length": 306
+        }
+      },
+      "quotedText": "It describes the routines of several highly accomplished historical figures—including Darwin, Beethoven, Dalí, and Chandler—who achieved great success despite working a relatively short day (four to five hours) followed by lots of long walks, afternoon naps, loads of unstructured time, and long vacations.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 402693,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 801,
+        "endBlockIndex": 801,
+        "startOffset": 151,
+        "endOffset": 673,
+        "quote": {
+          "exact": "“the numinous experience…that seems most like childhood is a state of openness and connection with the everyday people and things around us: we take in the richness of the world all at once, independent of ourselves and our usual goals and plans.” It is a comparatively self-less state that we adults",
+          "prefix": "erience. In it, she writes that ",
+          "suffix": "\n“[This] experience of the numin",
+          "length": 522
+        }
+      },
+      "quotedText": "“the numinous experience…that seems most like childhood is a state of openness and connection with the everyday people and things around us: we take in the richness of the world all at once, independent of ourselves and our usual goals and plans.” It is a comparatively self-less state that we adults, inured to the wonder of the everyday, must go to great lengths to recapture and experience again, as when we travel to new places, engage deeply with art, put ourselves in situations that evoke awe, or take psychedelics.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 405010,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 805,
+        "endBlockIndex": 805,
+        "startOffset": 0,
+        "endOffset": 754,
+        "quote": {
+          "exact": "Child and adult consciousness have different purposes, both for the individual and possibly for the species. Lantern consciousness is ideally suited to exploring one’s environment and learning how the world works, which is, of course, the child’s principal job. It is a job that requires not so much ",
+          "prefix": "that children see all the time.\n",
+          "suffix": "\nGopnik sees the explore-exploit",
+          "length": 754
+        }
+      },
+      "quotedText": "Child and adult consciousness have different purposes, both for the individual and possibly for the species. Lantern consciousness is ideally suited to exploring one’s environment and learning how the world works, which is, of course, the child’s principal job. It is a job that requires not so much a strong sense of self as a radical openness and a lack of preconceptions. Spotlight consciousness, by contrast, is ideally suited for exploiting rather than exploring one’s environment, a job that depends on a strong sense of self and self-interest. To facilitate the “getting and spending, we lay waste our powers,” as William Wordsworth, the great poet of the numinous, put it, describing the mode of being that our civilization demands of its adults.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 410374,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 815,
+        "endBlockIndex": 815,
+        "startOffset": 143,
+        "endOffset": 318,
+        "quote": {
+          "exact": "(You’ll recall it was Thomas Bayes, the eighteenth-century Presbyterian minister and statistician, who came up with the idea of reasoning by way of inference and probability.)",
+          "prefix": "idely accepted in neuroscience. ",
+          "suffix": " The theory has been elaborated ",
+          "length": 175
+        }
+      },
+      "quotedText": "(You’ll recall it was Thomas Bayes, the eighteenth-century Presbyterian minister and statistician, who came up with the idea of reasoning by way of inference and probability.)",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 433728,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 857,
+        "endBlockIndex": 858,
+        "startOffset": 109,
+        "endOffset": 277,
+        "quote": {
+          "exact": "In Jackson’s scenario, known as the knowledge argument, Mary is a brilliant scientist who studies vision. She knows literally everything there is to know about the visual system and how it works—the visible spectrum of light, how photons activate the rods and cones in our eyes, how the visual cortex",
+          "prefix": " the philosopher Frank Jackson. ",
+          "suffix": " But she has also acquired a fam",
+          "length": 812
+        }
+      },
+      "quotedText": "In Jackson’s scenario, known as the knowledge argument, Mary is a brilliant scientist who studies vision. She knows literally everything there is to know about the visual system and how it works—the visible spectrum of light, how photons activate the rods and cones in our eyes, how the visual cortex then constructs an image, and so on. But Mary has lived her entire life in a room that is completely black and white, so her knowledge, while complete on an informational level, is nevertheless missing something, something important.\nOne day, Mary leaves her black-and-white room. For the first time in her life, she sees color. So what kind of knowledge about vision has she now acquired that she had lacked before? Some philosophers would call what she has gained the qualia of color, and that is true enough.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 437390,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 863,
+        "endBlockIndex": 863,
+        "startOffset": 23,
+        "endOffset": 347,
+        "quote": {
+          "exact": "For this is precisely the role that Proust assigns to the artist—to translate, or decode, other people’s inner books of unknown signs in order to reveal what he calls “the qualitative difference in the ways we perceive the world, a difference which, if there were no art, would remain the eternal sec",
+          "prefix": "people.”\nWell, not quite never. ",
+          "suffix": "\nLosing Ourselves\nIt is the self",
+          "length": 324
+        }
+      },
+      "quotedText": "For this is precisely the role that Proust assigns to the artist—to translate, or decode, other people’s inner books of unknown signs in order to reveal what he calls “the qualitative difference in the ways we perceive the world, a difference which, if there were no art, would remain the eternal secret of each individual.”",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 440871,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 870,
+        "endBlockIndex": 871,
+        "startOffset": 199,
+        "endOffset": 587,
+        "quote": {
+          "exact": "What Arthur Schopenhauer wrote of aesthetic experience applies to all these ways of silencing the ego and collapsing the usual gap between the perceiving self and its object. Absorbed in art, we\ndevote the whole power of our mind to perception, sink ourselves completely therein, and let our whole co",
+          "prefix": " of awe, and absorption in art. ",
+          "suffix": "\nFor many of us, this kind of se",
+          "length": 782
+        }
+      },
+      "quotedText": "What Arthur Schopenhauer wrote of aesthetic experience applies to all these ways of silencing the ego and collapsing the usual gap between the perceiving self and its object. Absorbed in art, we\ndevote the whole power of our mind to perception, sink ourselves completely therein, and let our whole consciousness be filled by the calm contemplation of the natural object actually present, whether it be a landscape, a tree, a rock, a crag, a building, or anything else. We lose ourselves entirely in this object, to use a pregnant expression; in other words, we forget our individuality, our will…so that it is as though the object alone existed without anyone to perceive it, and thus we are no longer able to separate the perceiver from the perception, but the two have become one.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 442336,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 874,
+        "endBlockIndex": 874,
+        "startOffset": 0,
+        "endOffset": 338,
+        "quote": {
+          "exact": "The self is also a source of suffering—indeed, it is the source of suffering, according to Buddhists, who devote an inordinate amount of attention to the problem of the self and to practices that can help spring us from its trap. Matthieu Ricard, a French scientist turned Buddhist monk and author, h",
+          "prefix": " to break free of its confines.\n",
+          "suffix": " Now in his eighties, Ricard liv",
+          "length": 338
+        }
+      },
+      "quotedText": "The self is also a source of suffering—indeed, it is the source of suffering, according to Buddhists, who devote an inordinate amount of attention to the problem of the self and to practices that can help spring us from its trap. Matthieu Ricard, a French scientist turned Buddhist monk and author, has written extensively on the subject.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 444410,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 878,
+        "endBlockIndex": 878,
+        "startOffset": 0,
+        "endOffset": 139,
+        "quote": {
+          "exact": "Rather than protect us from suffering, the fiction of a permanent self opens us up to it by giving us something we feel the need to defend.",
+          "prefix": "g that is stable or permanent.”\n",
+          "suffix": " “The idea is, if you didn’t hav",
+          "length": 139
+        }
+      },
+      "quotedText": "Rather than protect us from suffering, the fiction of a permanent self opens us up to it by giving us something we feel the need to defend.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 470469,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 931,
+        "endBlockIndex": 931,
+        "startOffset": 851,
+        "endOffset": 1008,
+        "quote": {
+          "exact": "What quantum theory is telling us about the nature of reality has shaken science’s confidence that materialism can serve as a sturdy metaphysical foundation.",
+          "prefix": "ervations and measurements.[*6] ",
+          "suffix": "\nAnd, last, there was Koch’s own",
+          "length": 157
+        }
+      },
+      "quotedText": "What quantum theory is telling us about the nature of reality has shaken science’s confidence that materialism can serve as a sturdy metaphysical foundation.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    },
+    {
+      "charOffset": 472868,
+      "anchor": {
+        "v": 2,
+        "kind": "selection",
+        "blockIndex": 938,
+        "endBlockIndex": 938,
+        "startOffset": 666,
+        "endOffset": 844,
+        "quote": {
+          "exact": "And for most areas of scientific research, materialism “works” just fine—until, that is, you get to the two metaphysical deal-breakers: quantum physics and consciousness science.",
+          "prefix": "ltimately be reduced to matter. ",
+          "suffix": "\nRaising these doubts about mate",
+          "length": 178
+        }
+      },
+      "quotedText": "And for most areas of scientific research, materialism “works” just fine—until, that is, you get to the two metaphysical deal-breakers: quantum physics and consciousness science.",
+      "note": null,
+      "highlightedAt": "2026-04-06T04:56:00Z"
+    }
+  ]
+}
