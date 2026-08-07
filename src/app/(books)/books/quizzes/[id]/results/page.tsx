@@ -9,6 +9,8 @@ import {
 import { QuizSuccessModal } from "@/components/reading/quiz-success-modal";
 import { PostEssayToJournalButton } from "@/components/reading/post-essay-journal-button";
 import { CloseQuizButton } from "@/components/reading/close-quiz-button";
+import { ClearGateButton } from "@/components/reading/clear-gate-button";
+import { ComprehensionLog } from "@/components/reading/comprehension-log";
 import { AttemptAdminControls } from "@/components/reading/quiz-attempt-admin";
 import { getIsAdult } from "@/lib/members/auth";
 import { addDays, getUserTimezone, localDate } from "@/lib/date-utils";
@@ -20,7 +22,7 @@ import {
 import { quizRangeLabel } from "@/lib/reading/quiz-format";
 import { cn } from "@/lib/utils";
 import type { ReadingQuizAttemptSummary } from "@/lib/types";
-import { getQuizResult } from "../../actions";
+import { getComprehensionLog, getQuizResult } from "../../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +66,12 @@ export default async function QuizResultsPage({
     getIsAdult(),
   ]);
   if (!result) notFound();
+
+  // The Part 1 gate's history — a parent-only diagnostic, and the only record of a
+  // reader who's been turned away at the check and so has no submission at all.
+  const comprehensionLog = isAdult
+    ? await getComprehensionLog(id, memberEmail)
+    : null;
 
   const {
     quiz,
@@ -189,6 +197,17 @@ export default async function QuizResultsPage({
                 id: a.id,
                 attemptNumber: a.attemptNumber,
               }))}
+            />
+          )}
+
+          {comprehensionLog && (
+            <ComprehensionLog
+              log={comprehensionLog}
+              action={
+                quiz.status === "published" && !comprehensionLog.clearedAt ? (
+                  <ClearGateButton quizId={id} memberEmail={memberEmail} />
+                ) : null
+              }
             />
           )}
 
