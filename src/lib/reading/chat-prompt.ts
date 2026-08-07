@@ -29,6 +29,32 @@ export const FAST_MODEL_CONTEXT_WINDOW = 200_000;
 /** Headroom for the reply and count-vs-send drift before we promote. */
 export const FAST_MODEL_HEADROOM = 8_000;
 
+/**
+ * What the search tool costs, counted by hand.
+ *
+ * The count-tokens endpoint rejects any request carrying a server tool — the
+ * whole call 400s rather than counting what it can — so the tool has to be left
+ * out of the count and added back as a number. Leaving it out silently was the
+ * bug this constant exists to close: the count threw, the promotion check fell
+ * open to Fast, and a book far too long for Fast was sent anyway.
+ *
+ * Generous on purpose. The definition serializes to about 120 tokens and the
+ * API wraps it in an instruction block of unknown size, so this is an upper
+ * bound rather than a measurement — and it is spent against 8K of headroom, so
+ * being wrong high costs nothing.
+ */
+export const SEARCH_TOOL_TOKEN_ALLOWANCE = 1_500;
+
+/**
+ * Chars per token, for the estimate used only when counting fails outright.
+ *
+ * Deliberately below the ~4 that English prose actually runs at, so the
+ * estimate reads high and a borderline book goes to Deep. Promoting a book that
+ * would have fit costs a slightly slower answer; not promoting one that doesn't
+ * costs the reader an error where their answer should be.
+ */
+export const FALLBACK_CHARS_PER_TOKEN = 3.5;
+
 export const READER_CHAT_MAX_TOKENS = 1024;
 
 /**
