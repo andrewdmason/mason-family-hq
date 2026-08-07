@@ -23,8 +23,18 @@ import { cn } from "@/lib/utils";
  * document: headings are a weight and a size step, not a title page.
  */
 
-/** Citations, emphasis and code, in one pass so they can't nest wrongly. */
-const INLINE_RE = /\[p\.(\d+)\]|\*\*([^*]+)\*\*|(?<![*\w])\*([^*\n]+)\*|`([^`\n]+)`/g;
+/**
+ * Citations, links, emphasis and code, in one pass so they can't nest wrongly.
+ *
+ * The page citation comes first and the link second, and they can't be
+ * confused: a citation is "[p.212]" with nothing after the bracket, and a link
+ * always has "(http…)" after it. Links only ever appear in the Sources line the
+ * chat route appends to a searched answer — the model is told not to write URLs
+ * — but they're rendered generally rather than as a special case, because a
+ * markdown link in a reply should be a link wherever it turns up.
+ */
+export const INLINE_RE =
+  /\[p\.(\d+)\]|\*\*([^*]+)\*\*|(?<![*\w])\*([^*\n]+)\*|`([^`\n]+)`|\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g;
 
 /** The parser tops out at ###; anything deeper is still a small heading. */
 const DEEP_HEADING = /^(\s*)#{4,6}(\s+)/gm;
@@ -104,7 +114,7 @@ export function ChatMessageText({
     const re = new RegExp(INLINE_RE.source, "g");
 
     while ((match = re.exec(source)) !== null) {
-      const [whole, page, bold, italic, code] = match;
+      const [whole, page, bold, italic, code, linkText, linkHref] = match;
       const key = `${keyPrefix}-${match.index}`;
       let node: React.ReactNode = null;
 
@@ -135,6 +145,21 @@ export function ChatMessageText({
           <code key={key} className="rounded bg-muted px-1 py-0.5 text-[0.9em]">
             {code}
           </code>
+        );
+      } else if (linkHref != null) {
+        // A new tab, always. This opens from a panel beside a half-read book,
+        // and navigating the reader away from their place to show them a
+        // footnote would be the worst possible trade.
+        node = (
+          <a
+            key={key}
+            href={linkHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline decoration-muted-foreground/40 underline-offset-2 transition-colors hover:decoration-foreground"
+          >
+            {linkText}
+          </a>
         );
       }
 

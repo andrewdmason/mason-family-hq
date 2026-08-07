@@ -16,6 +16,7 @@ import type {
   ReaderChatMessage,
   ReaderChatModelPreference,
 } from "@/lib/reading/annotation-types";
+import { streamReply } from "@/lib/reading/chat-stream";
 import { chapterSummaryQuestion } from "@/lib/reading/chapter-summary";
 import { chapterName } from "@/lib/reading/chapter-target";
 import { useIsOnline } from "@/lib/reading/offline/use-is-online";
@@ -38,39 +39,8 @@ import { useAutosizeTextarea } from "./use-autosize-textarea";
  */
 export type ComposeMode = "chat" | "note";
 
-/** The route marks a failed turn this way rather than persisting a message. */
-const ERROR_MARKER = /\n\n\[error: ([\s\S]*)\]$/;
-
 let localSeq = 0;
 const localId = () => `local-${++localSeq}`;
-
-/**
- * Drain a reply into the thread as it arrives, and return the error a broken
- * stream ends with — or null if it finished.
- *
- * Shared by the reader's questions and by the chapter summary, which are
- * answered by different routes but must behave identically once the bytes start
- * moving: same incremental render, same reading of the failure marker. Two
- * copies of this loop would eventually disagree about the second one.
- */
-async function streamReply(
-  body: ReadableStream<Uint8Array>,
-  onText: (soFar: string) => void
-): Promise<string | null> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let acc = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    acc += decoder.decode(value, { stream: true });
-    onText(acc);
-  }
-  // A stream that failed mid-flight carries the marker instead of ending
-  // cleanly; the caller surfaces it as an error rather than as something Claude
-  // said.
-  return acc.match(ERROR_MARKER)?.[1] ?? null;
-}
 
 export function AnnotationThread({
   chat,
@@ -151,6 +121,12 @@ export function AnnotationThread({
   const [sending, setSending] = useState(false);
   const online = useIsOnline();
   const [error, setError] = useState<string | null>(null);
+  /**
+   * What the model is doing while it has nothing to say — currently only ever
+   * "Searching the web…". Lives for the length of one reply and is cleared
+   * however that reply ends, so a failed turn can't strand it on screen.
+   */
+  const [status, setStatus] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // Same composer, same growth — a note written on a passage is as likely to
@@ -317,10 +293,13 @@ export function AnnotationThread({
         });
       }
 
-      const failed = await streamReply(res.body, (text) =>
-        setMessages((prev) =>
-          prev.map((m) => (m.id === assistantId ? { ...m, content: text } : m))
-        )
+      const failed = await streamReply(
+        res.body,
+        (text) =>
+          setMessages((prev) =>
+            prev.map((m) => (m.id === assistantId ? { ...m, content: text } : m))
+          ),
+        setStatus
       );
       if (failed) {
         setError(failed);
@@ -330,6 +309,7 @@ export function AnnotationThread({
       setError(err instanceof Error ? err.message : "Couldn't send that.");
       setMessages((prev) => prev.filter((m) => m.id !== assistantId));
     } finally {
+      setStatus(null);
       setSending(false);
       // Whatever happened to the reply, the route persisted the user's turn
       // before streaming — so this annotation is a chat now, and the list that
@@ -595,7 +575,13 @@ export function AnnotationThread({
                 )}
               >
                 {m.role === "assistant" && m.content === "" ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                  // Same spinner either way; the difference is whether there is
+                  // anything worth saying about the wait. A search is long
+                  // enough that silence reads as a hang.
+                  <span className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {status && <span className="text-xs">{status}</span>}
+                  </span>
                 ) : m.role === "assistant" ? (
                   <ChatMessageText
                     text={m.content}

@@ -38,6 +38,86 @@ export const READER_CHAT_MAX_TOKENS = 1024;
 export const READER_CHAT_MAX_CONTEXT_CHARS = 3_000_000;
 
 /**
+ * How many searches one answer may run.
+ *
+ * Every search is several seconds of an empty bubble, so this is a latency
+ * budget rather than a cost one. Four rather than one or two because "what have
+ * critics made of this" is a real question here and rarely has a single source:
+ * the first result is a review, the second is the author disagreeing with it.
+ * Past four it stops being a remark in the margin.
+ */
+const WEB_SEARCH_MAX_USES = 4;
+
+/**
+ * Sites the reader's chat may never see.
+ *
+ * Everything here is a plot summary wearing some other hat. They are blocked
+ * because a search snippet arrives BEFORE the model has decided whether to use
+ * the result — so for a reader who is midway through, no instruction about
+ * spoilers can act in time. Blocking is the only guard that runs early enough.
+ *
+ * Nothing of value is lost. The reason to search about a book is the critical
+ * conversation around it, and none of it happens on these sites: a study guide
+ * is a summary, a fan wiki is a synopsis, a Goodreads page is a thousand people
+ * describing the ending in the first line. Reviews and criticism proper — the
+ * papers, the literary press, the journals, the author's own interviews — are
+ * all reachable and all where the answer actually lives.
+ *
+ * A blocklist rather than an allowlist because the legitimate use is most of the
+ * open web, and no allowlist survives that.
+ *
+ * Wikipedia is deliberately NOT here — it is the best single source for the
+ * real-world questions this answers, and for a book's publication history and
+ * reception. Its plot section is the risk, and the prompt handles that.
+ */
+const WEB_SEARCH_BLOCKED_DOMAINS = [
+  // Study guides: summary machines, and the first hit for any book query.
+  "sparknotes.com",
+  "cliffsnotes.com",
+  "shmoop.com",
+  "litcharts.com",
+  "gradesaver.com",
+  "bookrags.com",
+  "enotes.com",
+  "novelguide.com",
+  "supersummary.com",
+  "bookcompanion.com",
+  // Fan wikis: a character's name is enough to land on a full synopsis.
+  "fandom.com",
+  "wikia.com",
+  // Reader reviews and adaptations, which give away endings in the first line.
+  "goodreads.com",
+  "thestorygraph.com",
+  "imdb.com",
+];
+
+/**
+ * The tools a chat turn is given. One tool, and the same one every turn.
+ *
+ * Byte stability matters more here than anywhere else in this file: tools are
+ * rendered AHEAD of the system blocks, so anything that varies per chat would
+ * sit in front of the cached novel and re-bill it on every turn. Nothing in
+ * this depends on the book, the reader, or the boundary — only on the model,
+ * which scopes the cache anyway.
+ *
+ * The Fast model is a generation behind the dynamically-filtered search tool,
+ * so it gets the basic one. Same name, same behaviour from the prompt's side.
+ */
+export function readerChatTools(model: string): Anthropic.ToolUnion[] {
+  return [
+    {
+      type:
+        model === READER_CHAT_FAST_MODEL
+          ? ("web_search_20250305" as const)
+          : ("web_search_20260209" as const),
+      name: "web_search",
+      max_uses: WEB_SEARCH_MAX_USES,
+      blocked_domains: WEB_SEARCH_BLOCKED_DOMAINS,
+    },
+  ];
+}
+
+/**
  * A recap is read once and remembered, so it is always written by the stronger
  * model — unlike a chat turn, which is one of many and can simply be asked
  * again. The reader never chooses this; the picker in the panel governs the
@@ -194,6 +274,53 @@ export function buildReaderChatSystem(
       "not an essay. Match their register; a short question deserves a short answer.",
   ];
 
+  // Web search. The rule that governs it is about PRIMACY, not permission.
+  //
+  // The obvious version of this — "never search about the book" — is wrong, and
+  // was the first thing this got wrong. Half of what a reader wants from a
+  // companion is the conversation around the book: what the author said they
+  // were doing, what critics made of it, what it was answering. None of that is
+  // in the text, and refusing to fetch it makes the chat a worse reader than the
+  // person using it.
+  //
+  // What the text IS still authoritative for is itself. The failure to prevent
+  // isn't searching about the book, it's outsourcing the book: answering "what
+  // happens in chapter 21" from a summary when chapter 21 is sitting below.
+  rules.push(
+    "You can search the web. Two things it is for. First, the world outside " +
+      "the book: a real event, person, place or date the text refers to; a " +
+      "word, phrase or allusion the reader wouldn't be expected to know; " +
+      "whether something the book asserts is actually true. Second, the " +
+      "conversation around the book: what its author has said about it, how " +
+      "critics and other readers have read it, what it was responding to, how " +
+      "it was received, where it sits in the author's work. Interpretation is " +
+      "a good reason to search — a reader asking what to make of something " +
+      "usually wants to know what has been made of it."
+  );
+  rules.push(
+    "The book text below IS the book, and it outranks anything you find. Use " +
+      "the web for what people have MADE of the book, never as a substitute " +
+      "for reading it: what happens, what a passage contains, how a chapter " +
+      "goes, what a character does — all of that you read below, and looking " +
+      "up somebody's summary of it instead would be worse and slower. When a " +
+      "critic's reading and the page in front of you disagree, the page wins: " +
+      "say what the text actually does, then what they make of it."
+  );
+  rules.push(
+    "Don't search what you can already answer. A search is several seconds of " +
+      "silence for the reader, and most questions here are settled by the text."
+  );
+  rules.push(
+    "An interpretation belongs to somebody. Say whose — the author, a named " +
+      "critic, a common reading — and keep it apart from what you are reading " +
+      "off the page yourself, so the reader can tell an argument from a fact."
+  );
+  rules.push(
+    "Work what you found into your own sentences the way you would anything " +
+      "else. Do not write out URLs or list your sources: the app puts the " +
+      "links underneath your answer."
+  );
+
   if (input.hasPageMarkers) {
     rules.push(
       "The book text contains page markers like [p.212]. When you point at " +
@@ -251,6 +378,30 @@ export function buildReaderChatSystem(
         "about later events, tell them plainly that you'll stay inside what " +
         "they've read, and offer to pick it up when they get there."
     );
+
+    // The one place the general permission to search about the book is taken
+    // back, and it has to be taken back rather than qualified. A critical essay
+    // is written for someone who has finished: it moves through the whole arc as
+    // a matter of course, and the ending is usually its subject. There is no way
+    // to read one from page 90 and use only the safe parts — by the time the
+    // model is deciding what to quote, it has already read the ending, and the
+    // next thing it says is downstream of knowing it.
+    //
+    // The escape hatch is real and worth telling them about: an unscoped chat in
+    // the same book can go and get exactly this, and the toggle that starts one
+    // is right there in the panel.
+    rules.push(
+      "That extends to searching, and it is the only limit on it: while this " +
+        "conversation is spoiler-scoped, do not search for this book, for its " +
+        "author on the subject of it, or for anything written about it. " +
+        "Criticism, interviews and reviews are all written for someone who has " +
+        "finished, so there is no safe way to read them from where the reader " +
+        "is standing. Searching the world OUTSIDE the book is still fine and " +
+        "still encouraged. If what they want is the critical conversation, say " +
+        "plainly that you can't fetch it without spoiling them from here, and " +
+        "that a chat started with the spoiler boundary off can — it's their " +
+        "call, not yours to make quietly."
+    );
   }
 
   blocks.push({ type: "text", text: rules.join("\n\n") });
@@ -296,7 +447,10 @@ export function buildReaderChatSystem(
           "unless their question actually calls for it, and never discuss " +
           "later material as though they had already read it. When answering " +
           "honestly does mean reaching past where they are, say so in a few " +
-          "words first, then answer."
+          "words first, then answer. This governs what you find on the web as " +
+          "much as what you read below: criticism is written for someone who " +
+          "has finished the book, so a review you fetch will hand you the " +
+          "ending whether or not their question wanted it."
       );
     }
   }

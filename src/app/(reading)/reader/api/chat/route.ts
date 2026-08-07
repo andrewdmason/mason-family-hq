@@ -13,7 +13,9 @@ import {
   READER_CHAT_FAST_MODEL,
   READER_CHAT_MAX_CONTEXT_CHARS,
   READER_CHAT_MAX_TOKENS,
+  readerChatTools,
 } from "@/lib/reading/chat-prompt";
+import { statusFrame } from "@/lib/reading/chat-stream";
 
 export const runtime = "nodejs";
 
@@ -22,6 +24,41 @@ const NO_PAGE_LIMIT = 1_000_000_000;
 
 const PROMOTION_NOTE =
   "Answered with the Deep model — this book is too long for the Fast model's context window.";
+
+/** What the panel shows while a search is running. See chat-stream.ts. */
+const SEARCHING_STATUS = "Searching the web…";
+
+/**
+ * How many times a paused turn may be resumed.
+ *
+ * A turn that uses the search tool can come back `pause_turn` instead of
+ * finishing — the server-side tool loop hit its own iteration limit. Resuming is
+ * just re-sending the conversation with the paused turn on the end. Bounded
+ * because the alternative is a loop, and two rounds is far more than a
+ * three-search cap can actually need.
+ */
+const MAX_RESUMES = 2;
+
+/**
+ * A source, rendered for the line under the answer.
+ *
+ * The title is what the page calls itself, which is usually right and
+ * occasionally a hundred characters of SEO; capped rather than trusted. Square
+ * brackets and parentheses come out because this becomes a markdown link, and a
+ * title containing either would end the link early and leave a URL on screen.
+ */
+function sourceLink(title: string | null, url: string): string {
+  let label = (title ?? "").replace(/[[\]]/g, "").trim();
+  if (!label) {
+    try {
+      label = new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      label = url;
+    }
+  }
+  if (label.length > 48) label = `${label.slice(0, 47).trimEnd()}…`;
+  return `[${label}](${url.replace(/\)/g, "%29")})`;
+}
 
 type AnnotationRow = {
   id: string;
@@ -185,6 +222,7 @@ export async function POST(req: NextRequest) {
         model: READER_CHAT_FAST_MODEL,
         system,
         messages: turns,
+        tools: readerChatTools(READER_CHAT_FAST_MODEL),
       });
       if (
         counted.input_tokens >
@@ -217,32 +255,103 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const tools = readerChatTools(model);
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const encoder = new TextEncoder();
       let full = "";
+      // url -> the markdown link for it, so a page cited three times is listed
+      // once and in the order it was first leaned on.
+      const sources = new Map<string, string>();
       try {
-        const claudeStream = client.messages.stream({
-          model,
-          max_tokens: READER_CHAT_MAX_TOKENS,
-          system,
-          messages: turns,
-          // Sonnet 5 runs adaptive thinking when `thinking` is omitted, which
-          // costs tokens and delays the first visible character in a chat UI.
-          ...(model === READER_CHAT_DEEP_MODEL
-            ? { thinking: { type: "disabled" as const } }
-            : {}),
-        });
+        // Grows only when a turn comes back paused; the ordinary case runs this
+        // body once and breaks out at the bottom.
+        const conversation = [...turns];
 
-        for await (const event of claudeStream) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            const chunk = event.delta.text;
-            full += chunk;
-            controller.enqueue(encoder.encode(chunk));
+        for (let round = 0; ; round++) {
+          const claudeStream = client.messages.stream({
+            model,
+            max_tokens: READER_CHAT_MAX_TOKENS,
+            system,
+            tools,
+            messages: conversation,
+            // Sonnet 5 runs adaptive thinking when `thinking` is omitted, which
+            // costs tokens and delays the first visible character in a chat UI.
+            ...(model === READER_CHAT_DEEP_MODEL
+              ? { thinking: { type: "disabled" as const } }
+              : {}),
+          });
+
+          let searching = false;
+          for await (const event of claudeStream) {
+            // A search has started. Nothing will stream until it comes back, so
+            // say what's happening rather than leaving a spinner to imply it.
+            //
+            // Any server-side tool counts, not just the one named `web_search`:
+            // search is the only tool this chat has, and the newer version of it
+            // runs code of its own to filter results before they reach the
+            // model. That work is part of the wait the reader is sitting through.
+            if (
+              event.type === "content_block_start" &&
+              event.content_block.type === "server_tool_use"
+            ) {
+              if (!searching) {
+                controller.enqueue(encoder.encode(statusFrame(SEARCHING_STATUS)));
+                searching = true;
+              }
+              continue;
+            }
+            if (
+              event.type === "content_block_delta" &&
+              event.delta.type === "text_delta"
+            ) {
+              // The answer is arriving, which is a better answer to "what is it
+              // doing" than any status line.
+              if (searching) {
+                controller.enqueue(encoder.encode(statusFrame(null)));
+                searching = false;
+              }
+              const chunk = event.delta.text;
+              full += chunk;
+              controller.enqueue(encoder.encode(chunk));
+            }
           }
+
+          const finished = await claudeStream.finalMessage();
+          if (searching) {
+            controller.enqueue(encoder.encode(statusFrame(null)));
+          }
+
+          // Which pages the answer actually rests on, rather than everything the
+          // search happened to return. Citations are attached to the sentences
+          // that used them, so this is the honest list.
+          for (const block of finished.content) {
+            if (block.type !== "text" || !block.citations) continue;
+            for (const citation of block.citations) {
+              if (citation.type !== "web_search_result_location") continue;
+              if (sources.has(citation.url)) continue;
+              sources.set(citation.url, sourceLink(citation.title, citation.url));
+            }
+          }
+
+          if (finished.stop_reason !== "pause_turn" || round >= MAX_RESUMES) break;
+          // Resuming is re-sending with the paused turn appended; the server
+          // picks up from the trailing server-tool block on its own.
+          conversation.push({
+            role: "assistant",
+            content: finished.content as Anthropic.ContentBlockParam[],
+          });
+        }
+
+        // Appended by the app rather than written by the model, so a searched
+        // answer always says where it went and an unsearched one never grows a
+        // heading it doesn't need. Streamed and persisted identically, so a
+        // reload shows what the reader just watched arrive.
+        if (sources.size > 0) {
+          const line = `\n\nSources: ${[...sources.values()].join(" · ")}`;
+          full += line;
+          controller.enqueue(encoder.encode(line));
         }
 
         const trimmed = full.trim();
