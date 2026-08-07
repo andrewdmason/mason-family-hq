@@ -34,6 +34,7 @@ import {
   charOffsetAtTopOfPage,
   countPages,
   pageForCharOffset,
+  textEnd,
   type MeasureCtx,
 } from "@/lib/reading/paged-position";
 import type { ReaderSettings } from "@/lib/reading/reader-settings";
@@ -56,35 +57,39 @@ import { note, startTimer } from "@/lib/reading/perf";
  */
 
 /**
- * Give the flow a box as wide as the strip it paints, so that dragging a
- * selection over the white space inside a page stays inside the text.
+ * Fragment the book, then give the flow a box that holds every column of it.
+ * Returns the width of that box, which is the strip.
  *
- * The flow element is one column wide and slid sideways, so its box covers the
- * FIRST column of the book and nothing else — every other column is painted
- * outside it. Anywhere on the page with no text under it is therefore, as far as
- * the browser is concerned, a point on the clip box rather than on the book: the
- * gap between two paragraphs, the blank under a short last column, the space
- * either side of a centred heading. Asked to put a caret there mid-drag, the
- * browser resolves the point against the un-fragmented flow — one tall column
- * starting at the top of the window — and hands back a position near the START
- * of the rendered text. The selection flips to everything BEFORE where the reader
- * started, for as long as the pointer is in the gap: a whole page of the book
- * inverting as you cross a paragraph break, then correcting itself.
+ * Two steps because the length of the book is not knowable until it has been
+ * laid out: narrow the flow to a single column, read how far the text ran, then
+ * widen the box to exactly that many whole column strides. Widening cannot move
+ * the text — a column box is still `colW` by `pageH` with the same gap — so the
+ * second step adds columns to the box rather than changing what is in them.
  *
- * Padding fixes it because a point on the padding is a point on the flow, and a
- * point on the flow is mapped through the column it was painted in. Padding
- * specifically, not width: the column measure is the flow's CONTENT width, so
- * padding leaves fragmentation untouched — verified to the pixel, both engines,
- * over a whole book, by verify-paged-selection.mts.
+ * The box has to hold them because a column painted outside it is a column the
+ * reader may never see. iPadOS paints only what falls within the flow's own
+ * content box: a one-column-wide flow with the rest of the book overflowing to
+ * the right rendered the left half of every spread and nothing else, so a page
+ * turn silently skipped a screenful of text each time. Chromium and desktop
+ * WebKit both paint the overflow quite happily, which is why this survived a
+ * verify suite that runs in both.
  *
- * A pixel short of the strip on purpose. `scrollWidth` reports whichever is
- * wider, the text or the box, so a hit box the exact width of the strip would
- * pin it — and the web-font check below, which asks whether the strip moved, would
- * stop being able to see a book that got SHORTER. The pixel it gives up is the
- * right-hand edge of the last column of the book.
+ * It also puts the white space back inside the text, which a one-column flow did
+ * not. Anywhere on the page with no text under it — the gap between two
+ * paragraphs, the blank under a short last column, the space either side of a
+ * centred heading — used to be a point on the clip box rather than on the book,
+ * so asking for a caret there mid-drag resolved it against the un-fragmented
+ * flow and returned a position near the START of the rendered text. Selections
+ * inverted every time the pointer crossed a paragraph break.
  */
-function widenHitBox(flow: HTMLElement, stripWidth: number, geom: PageGeometry): void {
-  flow.style.paddingRight = `${Math.max(0, stripWidth - geom.colW - 1)}px`;
+function fitFlowToStrip(flow: HTMLElement, geom: PageGeometry): number {
+  // Narrow first: on a repagination the box is still as wide as the LAST book we
+  // laid out, and scrollWidth reports whichever is wider, the text or the box.
+  flow.style.width = `${geom.colW}px`;
+  const cols = Math.max(1, Math.round((flow.scrollWidth + geom.gap) / geom.colStride));
+  const stripWidth = cols * geom.colStride - geom.gap;
+  flow.style.width = `${stripWidth}px`;
+  return stripWidth;
 }
 
 export type Pagination = {
@@ -215,11 +220,11 @@ export function usePagination({
   const charRef = useRef(externalCharOffset);
   const totalRef = useRef(1);
   const pageRef = useRef(0);
-  // Width of the fragmented strip as of the last repagination. Only read to
-  // decide whether a late web font actually changed anything — see below.
-  const stripWidthRef = useRef(-1);
-  // What the flow's hit box was last sized for. See widenHitBox.
-  const hitBoxRef = useRef<{ flow: HTMLElement | null; key: string | null; html: string | null }>({
+  // Where the text ended as of the last repagination. Only read to decide
+  // whether a late web font actually changed anything — see below.
+  const textEndRef = useRef(-1);
+  // What the flow's box was last sized for. See fitFlowToStrip.
+  const boxRef = useRef<{ flow: HTMLElement | null; key: string | null; html: string | null }>({
     flow: null,
     key: null,
     html: null,
@@ -410,26 +415,24 @@ export function usePagination({
 
     // Whether the browser is about to re-fragment the book at all, or is only
     // re-deriving which page the reader's character is now on. Both land here;
-    // only the first invalidates the hit box, and only the first is expensive.
-    const hitBox = hitBoxRef.current;
+    // only the first resizes the flow, and only the first is expensive.
+    const box = boxRef.current;
     const refragmenting =
-      hitBox.flow !== flow ||
-      hitBox.key !== `${fragmentationKey}:${revision}` ||
-      hitBox.html !== renderedHtml;
-    // Off before measuring, or the hit box IS the measurement: scrollWidth
-    // reports whichever is wider, the text or the box around it, so one left over
-    // from a larger type size would be read as a longer book. Guarded, because on
-    // a cols-only pass the layout is still clean and dirtying it here would buy a
-    // whole-book re-lay-out to arrive at the number we already have.
-    if (refragmenting && flow.style.paddingRight) flow.style.paddingRight = "";
+      box.flow !== flow ||
+      box.key !== `${fragmentationKey}:${revision}` ||
+      box.html !== renderedHtml;
 
     // Force the fragmentation now rather than at paint, so the measurements
-    // below are against the new layout. This read is the single most expensive
-    // thing the reader does — laying a whole book out as one multi-column strip —
-    // so it's the one number worth having from the device that feels slow.
+    // below are against the new layout. This is the single most expensive thing
+    // the reader does — laying a whole book out as one multi-column strip — so
+    // it's the one number worth having from the device that feels slow.
+    //
+    // On a cols-only pass the flow's own styles are untouched and the layout is
+    // still clean, so the box it already has is still the right one: reading it
+    // costs nothing, where re-narrowing it to measure would buy a whole-book
+    // re-lay-out to arrive at the number we already have.
     const stopFragment = startTimer("fragment");
-    const stripWidth = flow.scrollWidth;
-    stripWidthRef.current = stripWidth;
+    const stripWidth = refragmenting ? fitFlowToStrip(flow, geom) : flow.scrollWidth;
     stopFragment(
       `${geom.cols}col ${geom.colW}w ${Math.round(stripWidth / 1000)}kpx ` +
         `blocks ${windowBlocks[0]?.index ?? 0}+${windowBlocks.length}`
@@ -460,9 +463,9 @@ export function usePagination({
 
     assertPagesMoveForward(ctx, total);
 
+    textEndRef.current = textEnd(flow, ctx.blockEls);
     if (refragmenting) {
-      widenHitBox(flow, stripWidth, geom);
-      hitBoxRef.current = {
+      boxRef.current = {
         flow,
         key: `${fragmentationKey}:${revision}`,
         html: renderedHtml,
@@ -489,27 +492,30 @@ export function usePagination({
   // the book — the most expensive thing here — on every single open, in the
   // common case, for nothing.
   //
-  // The strip's width is the cheapest exact test of whether the metrics actually
-  // moved: it's a whole book's worth of lines, so a change of even a fraction of
-  // a pixel per line shows up as hundreds of pixels across it. The layout is
-  // already clean at this point, so reading it costs nothing.
+  // Where the text ENDS is the cheapest exact test of whether the metrics
+  // actually moved: it sits at the far end of a whole book's worth of lines, so
+  // a change of even a fraction of a pixel per line shows up as hundreds of
+  // pixels of travel. The layout is already clean at this point, so reading it
+  // costs nothing.
   //
-  // This is the reading widenHitBox gives up a pixel to keep honest: a hit box
-  // the exact width of the strip would pin this number, and a book that got
-  // SHORTER when its real face arrived would measure as unchanged.
+  // Deliberately not the strip's width, which used to answer this and can't any
+  // more. The flow's box is now exactly as wide as the strip (fitFlowToStrip),
+  // and `scrollWidth` reports whichever is wider, the text or the box — so the
+  // box would pin the number and a book that got SHORTER when its real face
+  // arrived would measure as unchanged.
   useEffect(() => {
     if (!enabled || html == null) return;
     let cancelled = false;
     void document.fonts?.ready.then(() => {
       if (cancelled) return;
       const flow = flowRef.current;
-      const before = stripWidthRef.current;
-      const after = flow?.scrollWidth ?? -1;
-      if (flow && before >= 0 && after === before) {
+      const before = textEndRef.current;
+      const after = flow ? textEnd(flow, blockElements(flow)) : -1;
+      if (before >= 0 && after === before) {
         note("fonts", "no metric change, skipped");
         return;
       }
-      note("fonts", `strip ${before} → ${after}, repaginating`);
+      note("fonts", `text ends ${before} → ${after}, repaginating`);
       setRevision((n) => n + 1);
     });
     return () => {

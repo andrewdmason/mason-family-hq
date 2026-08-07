@@ -245,27 +245,23 @@ export function PagedView({
           <div
             ref={flowRef}
             className={cn("font-serif text-foreground", BOOK_PROSE, BOOK_PROSE_PAGED)}
-            // The flow is ALWAYS exactly one column wide, whatever the page is
-            // showing. The book overflows into further columns to the right at a
-            // constant stride, and a page turn slides the whole strip.
+            // The measure is set here; how many columns of it the box holds is
+            // set by usePagination, which is the only thing that knows how long
+            // the book turned out to be (see fitFlowToStrip). The width below is
+            // therefore the STARTING width — one column — and the hook widens it
+            // to the whole strip as soon as it has measured one.
             //
-            // This is what makes showing two columns instead of one — which is
-            // what opening the chat panel changes — cost nothing: the browser's
+            // Expressed as a column WIDTH rather than a count so that widening
+            // the box adds columns instead of stretching them. That is what keeps
+            // the fragmentation identical however wide the box is: the browser's
             // column breaking depends on the size of a column box and the gap
-            // between boxes, and none of those move. Only the clip above does.
-            // Verified identical to the pixel, in Chromium and WebKit, over a
-            // 3,500-block book.
+            // between boxes, and neither moves. Showing two columns instead of
+            // one — which is what opening the chat panel changes — still costs
+            // nothing, because it changes only the clip above.
             style={{
               width: geometry.colW,
               height: geometry.pageH,
-              // A column box is `colW` of TEXT, whatever else the box carries.
-              // usePagination pads this element out to the width of the whole
-              // strip so that selecting across the white space between two
-              // paragraphs doesn't fall out of the text (see widenHitBox there);
-              // under the app's border-box default that padding would come out
-              // of the measure instead, and every column would narrow.
-              boxSizing: "content-box",
-              columnCount: 1,
+              columnWidth: `${geometry.colW}px`,
               columnGap: `${geometry.gap}px`,
               // Without this, engines balance the columns and the whole
               // fragmentation model falls apart.

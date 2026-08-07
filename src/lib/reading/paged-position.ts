@@ -194,6 +194,25 @@ export function countPages(flow: HTMLElement, geom: PageGeometry): number {
 }
 
 /**
+ * How far the text runs, in pixels from the flow's left edge.
+ *
+ * A measure of the TEXT rather than of the box around it, which is the whole
+ * point: the flow is sized to hold every column it painted, so `scrollWidth`
+ * answers with the box and stops moving when the text does. Used to notice a web
+ * font landing late and changing every line's metrics under a laid-out book.
+ *
+ * Both rects are read in viewport coordinates, so the flow's page-turn transform
+ * cancels and this is stable whatever page the reader is on.
+ */
+export function textEnd(flow: HTMLElement, blockEls: HTMLElement[]): number {
+  const last = blockEls[blockEls.length - 1];
+  if (!last) return -1;
+  const rects = last.getClientRects();
+  const rect = rects[rects.length - 1] ?? last.getBoundingClientRect();
+  return Math.round(rect.right - flow.getBoundingClientRect().left);
+}
+
+/**
  * Development-only check on the invariant everything else rests on: pages run
  * forward through the book. pageForCharOffset binary-searches on that being
  * true, so if column arithmetic ever drifts far enough to make a later page
