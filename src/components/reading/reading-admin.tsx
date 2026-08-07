@@ -953,6 +953,11 @@ function ActiveQuizCard({
   memberEmail: string;
 }) {
   const attempted = quiz.attempts.length > 0;
+  // Turned away at the Part 1 check: real activity that leaves no submission behind,
+  // so without this the card would read "Not started yet" while they're stuck.
+  const stuckOnPart1 =
+    !attempted && !quiz.comprehensionCleared && quiz.comprehensionTries > 0;
+  const tries = quiz.comprehensionTries;
   const cover = quizCoverageLabel(book, quiz.fromPage, quiz.throughPage);
   return (
     <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
@@ -964,6 +969,10 @@ function ActiveQuizCard({
           <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-400">
             In progress · needs revision
           </Badge>
+        ) : stuckOnPart1 ? (
+          <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-400">
+            Stuck on Part 1
+          </Badge>
         ) : (
           <Badge variant="outline">Awaiting submission</Badge>
         )}
@@ -971,7 +980,11 @@ function ActiveQuizCard({
       <p className="mt-1 text-xs text-muted-foreground">
         {attempted
           ? `${quiz.attempts.length} ${quiz.attempts.length === 1 ? "attempt" : "attempts"} so far`
-          : "Not started yet"}
+          : stuckOnPart1
+            ? `${tries} ${tries === 1 ? "try" : "tries"} at the Part 1 check — view the quiz to read what they wrote`
+            : quiz.comprehensionCleared
+              ? "Past Part 1 — essay not turned in yet"
+              : "Not started yet"}
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -981,8 +994,9 @@ function ActiveQuizCard({
         >
           View quiz
         </Link>
-        {/* Curate/steer the question while the kid hasn't started (unlocked). */}
-        {!attempted && (
+        {/* Curate/steer the question while the kid hasn't started (unlocked) —
+            clearing Part 1 counts as starting, so it locks here too. */}
+        {!attempted && !quiz.comprehensionCleared && (
           <Link
             href={quizEditHref(quiz.id, memberEmail)}
             className={cn(buttonVariants({ variant: "outline", size: "sm" }))}

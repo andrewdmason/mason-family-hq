@@ -43,6 +43,7 @@ import type {
   ReadingAdminQuiz,
   ReadingBook,
   ReadingBookContentSummary,
+  ReadingComprehensionLog,
   ReadingEssayFeedback,
   ReadingQuiz,
   ReadingQuizAnswer,
@@ -66,7 +67,7 @@ const RESULT_QUESTION_COLUMNS =
 const ANSWER_COLUMNS =
   "id, submission_id, question_id, user_id, selected_index, response_text, comprehension_text, is_correct, ai_notes, rubric_scores, created_at";
 const QUIZ_COLUMNS =
-  "id, user_id, book_id, from_page, through_page, status, title, created_by_email, source, generation_error, chosen_question_id, comprehension_cleared_at, comprehension_text, published_at, created_at, updated_at";
+  "id, user_id, book_id, from_page, through_page, status, title, created_by_email, source, generation_error, chosen_question_id, comprehension_cleared_at, comprehension_text, comprehension_cleared_by_email, published_at, created_at, updated_at";
 
 /** True once any of a quiz's attempts answered every question correctly. */
 function isPassed(
@@ -956,6 +957,10 @@ export async function submitComprehension(
     return { met: true, note: "" };
   }
 
+  // Everything they've already tried here, so the grader picks up where it left off
+  // instead of re-judging cold (and turning the same right answer away twice).
+  const priorAttempts = await comprehensionAttemptRows(client, userId, quizId);
+
   const age = await readerAge(email);
   const grade = await gradeComprehension({
     prompt: chosen.comprehension_prompt,
@@ -963,11 +968,29 @@ export async function submitComprehension(
     rubric: chosen.essay_rubric?.comprehension ?? null,
     answer,
     readerAge: age,
+    priorAttempts: priorAttempts.map((a) => ({
+      answer: a.answer_text as string,
+      met: (a.met as boolean | null) ?? null,
+      note: (a.note as string | null) ?? null,
+    })),
+  });
+
+  // Log the try — passed or missed — before anything else. A missed gate used to
+  // vanish without a trace, leaving a stuck reader looking like they'd never started.
+  await logComprehensionAttempt(client, {
+    quizId,
+    questionId: chosen.id,
+    userId,
+    attemptNumber: priorAttempts.length + 1,
+    answerText: answer,
+    met: grade.met,
+    note: grade.note || null,
   });
 
   // A miss (or an ungradable API failure) leaves the gate uncleared so they can try
   // again — no attempt is spent. Only a clear pass advances them.
   if (grade.met !== true) {
+    revalidateQuizzes();
     return {
       met: false,
       note:
@@ -986,6 +1009,153 @@ export async function submitComprehension(
     .eq("user_id", userId);
   revalidateQuizzes();
   return { met: true, note: grade.note };
+}
+
+/** Every logged try at a quiz's Part 1 gate, oldest first. */
+async function comprehensionAttemptRows(
+  client: ScopedClient,
+  userId: string,
+  quizId: string
+): Promise<Record<string, unknown>[]> {
+  const { data } = await client
+    .from("reading_quiz_comprehension_attempts")
+    .select("id, attempt_number, answer_text, met, note, created_at")
+    .eq("quiz_id", quizId)
+    .eq("user_id", userId)
+    .order("attempt_number", { ascending: true });
+  return (data ?? []) as Record<string, unknown>[];
+}
+
+/**
+ * Record one try at the Part 1 gate. Never throws: the log is a diagnostic, so a
+ * failure to write it must not cost the reader their answer or block the gate.
+ */
+async function logComprehensionAttempt(
+  client: ScopedClient,
+  row: {
+    quizId: string;
+    questionId: string;
+    userId: string;
+    attemptNumber: number;
+    answerText: string;
+    met: boolean | null;
+    note: string | null;
+  }
+): Promise<void> {
+  const { error } = await client
+    .from("reading_quiz_comprehension_attempts")
+    .insert({
+      quiz_id: row.quizId,
+      question_id: row.questionId,
+      user_id: row.userId,
+      attempt_number: row.attemptNumber,
+      answer_text: row.answerText,
+      met: row.met,
+      note: row.note,
+    });
+  if (error) {
+    console.error("[reading/quizzes] comprehension attempt log failed:", error.message);
+  }
+}
+
+/**
+ * The Part 1 gate's full history for one quiz — what the reader wrote each time and
+ * what the grader told them. Adult-gated: it carries the grader-facing anchor (the
+ * detail a passing answer must show), which must never reach the reader's browser.
+ */
+export async function getComprehensionLog(
+  quizId: string,
+  memberEmail?: string | null
+): Promise<ReadingComprehensionLog | null> {
+  await requireAdult();
+  const { client, userId } = await resolveReadingScope(memberEmail);
+
+  const { data: quiz } = await client
+    .from("reading_quizzes")
+    .select(
+      "id, chosen_question_id, comprehension_cleared_at, comprehension_cleared_by_email"
+    )
+    .eq("id", quizId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!quiz) return null;
+
+  const [{ data: questions }, attempts] = await Promise.all([
+    client
+      .from("reading_quiz_questions")
+      .select(QUESTION_COLUMNS)
+      .eq("quiz_id", quizId)
+      .eq("user_id", userId)
+      .order("position", { ascending: true }),
+    comprehensionAttemptRows(client, userId, quizId),
+  ]);
+  const qs = (questions ?? []) as ReadingQuizQuestion[];
+  const chosen =
+    qs.find((q) => q.id === (quiz.chosen_question_id as string | null)) ?? qs[0];
+
+  return {
+    prompt: chosen?.comprehension_prompt ?? null,
+    anchorSummary: chosen?.anchor_summary ?? null,
+    rubric: chosen?.essay_rubric?.comprehension ?? null,
+    clearedAt: (quiz.comprehension_cleared_at as string | null) ?? null,
+    clearedByEmail: (quiz.comprehension_cleared_by_email as string | null) ?? null,
+    attempts: attempts.map((a) => ({
+      id: a.id as string,
+      attemptNumber: a.attempt_number as number,
+      answerText: (a.answer_text as string) ?? "",
+      met: (a.met as boolean | null) ?? null,
+      note: (a.note as string | null) ?? null,
+      createdAt: a.created_at as string,
+    })),
+  };
+}
+
+/**
+ * Wave a reader past the Part 1 gate (a parent override). Adult-gated.
+ *
+ * The gate is a low bar meant to prove they read the pages, but the grader can get it
+ * wrong or the prompt can turn on a detail the reader legitimately missed — and until
+ * they clear it, the essay screen won't open at all. This unblocks them without
+ * pretending they answered: comprehension_text stays null and the override is stamped
+ * with the parent's email, so the results view can say who let them through.
+ *
+ * One-way by design, and it engages the steering lock like any other start — once the
+ * reader is writing, the question can no longer change under them.
+ */
+export async function clearComprehensionGate(
+  quizId: string,
+  memberEmail?: string | null
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  await requireAdult();
+  const clearedBy = await callerEmail();
+  const { client, userId } = await resolveReadingScope(memberEmail);
+
+  const { data: quiz } = await client
+    .from("reading_quizzes")
+    .select("id, status, comprehension_cleared_at")
+    .eq("id", quizId)
+    .eq("user_id", userId)
+    .eq("status", "published")
+    .maybeSingle();
+  if (!quiz) return { ok: false, message: "This quiz isn't available." };
+  if (quiz.comprehension_cleared_at != null) {
+    return { ok: false, message: "Part 1 is already cleared." };
+  }
+
+  const { error } = await client
+    .from("reading_quizzes")
+    .update({
+      comprehension_cleared_at: new Date().toISOString(),
+      comprehension_cleared_by_email: clearedBy,
+    })
+    .eq("id", quizId)
+    .eq("user_id", userId)
+    .is("comprehension_cleared_at", null);
+  if (error) throw new Error(error.message);
+
+  revalidateQuizzes();
+  revalidatePath(`/books/quizzes/${quizId}/results`);
+  return { ok: true };
 }
 
 // ============================================================
@@ -2023,8 +2193,10 @@ function toAdminQuiz(
     from_page: number | null;
     through_page: number;
     created_at: string;
+    comprehension_cleared_at: string | null;
   },
-  subs: AdminSubmissionRow[]
+  subs: AdminSubmissionRow[],
+  comprehensionTries: number
 ): ReadingAdminQuiz {
   const attempts: ReadingAdminAttempt[] = subs.map((s) => ({
     id: s.id,
@@ -2049,6 +2221,8 @@ function toAdminQuiz(
     ),
     closedByParent: subs.some((s) => s.closed_by_email != null),
     attempts,
+    comprehensionTries,
+    comprehensionCleared: q.comprehension_cleared_at != null,
   };
 }
 
@@ -2091,7 +2265,9 @@ export async function getReadingAdmin(): Promise<ReadingAdminMember[]> {
       .in("user_id", userIds),
     admin
       .from("reading_quizzes")
-      .select("id, user_id, book_id, from_page, through_page, status, created_at")
+      .select(
+        "id, user_id, book_id, from_page, through_page, status, created_at, comprehension_cleared_at"
+      )
       .in("user_id", userIds)
       .order("created_at", { ascending: false }),
   ]);
@@ -2153,6 +2329,20 @@ export async function getReadingAdmin(): Promise<ReadingAdminMember[]> {
     subsByQuiz.set(s.quiz_id, list);
   }
 
+  // Tries at the Part 1 gate — a reader stuck there has no submission at all, so
+  // this is the only thing that distinguishes "stuck" from "hasn't started".
+  const { data: gateTries } = quizIds.length
+    ? await admin
+        .from("reading_quiz_comprehension_attempts")
+        .select("quiz_id")
+        .in("quiz_id", quizIds)
+    : { data: [] as { quiz_id: string }[] };
+  const triesByQuiz = new Map<string, number>();
+  for (const t of gateTries ?? []) {
+    const id = t.quiz_id as string;
+    triesByQuiz.set(id, (triesByQuiz.get(id) ?? 0) + 1);
+  }
+
   // Quizzes per book, newest first (the source order is created_at desc).
   const quizzesByBook = new Map<string, ReadingAdminQuiz[]>();
   for (const q of quizzes ?? []) {
@@ -2166,8 +2356,11 @@ export async function getReadingAdmin(): Promise<ReadingAdminMember[]> {
           from_page: (q.from_page as number | null) ?? null,
           through_page: q.through_page as number,
           created_at: q.created_at as string,
+          comprehension_cleared_at:
+            (q.comprehension_cleared_at as string | null) ?? null,
         },
-        subsByQuiz.get(q.id as string) ?? []
+        subsByQuiz.get(q.id as string) ?? [],
+        triesByQuiz.get(q.id as string) ?? 0
       )
     );
     quizzesByBook.set(bookId, list);

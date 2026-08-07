@@ -443,6 +443,13 @@ export type ComprehensionGrade = {
   note: string;
 };
 
+/** One earlier try at the same gate — the answer and the hint it was given. */
+export type PriorComprehensionAttempt = {
+  answer: string;
+  met: boolean | null;
+  note: string | null;
+};
+
 const GRADE_COMPREHENSION_TOOL = {
   name: "grade_comprehension",
   description:
@@ -481,6 +488,10 @@ const GRADE_COMPREHENSION_TOOL = {
  * clears before the essay screen opens. A blank answer short-circuits to a miss (no
  * API call). Any API/parse failure resolves to { met: null } so the caller leaves the
  * gate uncleared and lets them try again rather than failing hard.
+ *
+ * Every earlier try (and the hint it was given) comes in with the new one, so a retry
+ * is judged as a continuation instead of cold — the failure mode otherwise is a child
+ * whose answer is right being turned away three times for three different reasons.
  */
 export async function gradeComprehension(input: {
   prompt: string;
@@ -488,6 +499,8 @@ export async function gradeComprehension(input: {
   rubric?: string | null;
   answer: string;
   readerAge?: number | null;
+  /** Earlier tries at this same gate, oldest first. */
+  priorAttempts?: PriorComprehensionAttempt[];
 }): Promise<ComprehensionGrade> {
   if (!input.answer.trim()) {
     return {
@@ -500,6 +513,29 @@ export async function gradeComprehension(input: {
     input.readerAge != null
       ? `The child is ${input.readerAge} years old; judge at that level.\n`
       : "";
+
+  // The tries so far, with what you told them each time. Without this the grader
+  // re-judges from scratch every round and can keep moving the goalposts.
+  const priors = input.priorAttempts ?? [];
+  const priorBlock = priors.length
+    ? `They have already tried this check ${priors.length} ` +
+      `${priors.length === 1 ? "time" : "times"}. Oldest first:\n` +
+      priors
+        .map(
+          (a, i) =>
+            `Try ${i + 1}: "${a.answer.trim()}"\n` +
+            `  → You judged it ${a.met === true ? "PASSED" : a.met === false ? "not yet" : "(ungraded)"}` +
+            `${a.note ? ` and told them: "${a.note}"` : ""}\n`
+        )
+        .join("") +
+      `\nJudge the new answer on its own merits, but be consistent with yourself. If ` +
+      `you asked them for something specific and this answer now supplies it, credit ` +
+      `that and pass — never raise the bar or introduce a requirement you didn't ask ` +
+      `for last time. If an earlier try was in fact good enough and you turned it ` +
+      `away, pass now rather than making them keep guessing. Repeating the same wrong ` +
+      `or vague answer still doesn't pass, and your hint should then say plainly that ` +
+      `this is the same answer as before.\n\n`
+    : "";
 
   try {
     const client = anthropic();
@@ -521,7 +557,8 @@ export async function gradeComprehension(input: {
         {
           role: "user",
           content:
-            `${ageLine}The question (shown to the child): ${input.prompt}\n\n` +
+            `${ageLine}${priorBlock}` +
+            `The question (shown to the child): ${input.prompt}\n\n` +
             `What the answer must show they read (anchor — teacher-facing, do NOT repeat ` +
             `it to the child): ${input.anchorSummary || "(none provided)"}\n\n` +
             `The bar for a pass: ${input.rubric || "(use your judgment)"}\n\n` +

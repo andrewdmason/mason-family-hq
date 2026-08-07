@@ -1223,8 +1223,11 @@ export type ReadingQuiz = {
    *  cleared once). Null until cleared; the taking flow shows the comprehension step
    *  until it's set, and setting it also locks parent steering. */
   comprehension_cleared_at: string | null;
-  /** essay: the kid's short Part 1 answer that cleared the gate. */
+  /** essay: the kid's short Part 1 answer that cleared the gate. Null when a parent
+   *  waved them past it (they never wrote a passing answer). */
   comprehension_text: string | null;
+  /** essay: the parent who overrode the Part 1 gate, if it was overridden. */
+  comprehension_cleared_by_email: string | null;
   published_at: string | null;
   created_at: string;
   updated_at: string;
@@ -1360,6 +1363,35 @@ export type ActiveBookQuiz = {
   dueNow: boolean;
 };
 
+/**
+ * One try at the Part 1 comprehension gate — kept whether it passed or missed, so a
+ * parent can see what the reader actually wrote and what the grader told them.
+ */
+export type ReadingComprehensionAttempt = {
+  id: string;
+  attemptNumber: number;
+  answerText: string;
+  /** null = the grader failed outright, which also left the gate uncleared. */
+  met: boolean | null;
+  /** The one-sentence note the reader was shown. */
+  note: string | null;
+  createdAt: string;
+};
+
+/** The Part 1 gate's full state for one quiz, for the parent's diagnostic view. */
+export type ReadingComprehensionLog = {
+  /** The Part 1 question the reader was answering. Null on a legacy one-part essay. */
+  prompt: string | null;
+  /** The reading detail a passing answer has to show (grader-facing, adults only). */
+  anchorSummary: string | null;
+  /** What the grader was told a pass requires. */
+  rubric: string | null;
+  clearedAt: string | null;
+  /** Set when a parent waved them past rather than the reader clearing it. */
+  clearedByEmail: string | null;
+  attempts: ReadingComprehensionAttempt[];
+};
+
 /** One attempt in the Parent Admin view of a quiz. */
 export type ReadingAdminAttempt = {
   id: string;
@@ -1382,6 +1414,11 @@ export type ReadingAdminQuiz = {
   passed: boolean;
   closedByParent: boolean;
   attempts: ReadingAdminAttempt[];
+  /** How many times the reader has tried the Part 1 gate (passed or missed). Their
+   *  only visible activity while they're stuck before the essay. */
+  comprehensionTries: number;
+  /** True once Part 1 is behind them — by passing it or by a parent override. */
+  comprehensionCleared: boolean;
 };
 
 /** One book in the Parent Admin view: assignment state + its quizzes. */
