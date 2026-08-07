@@ -1,15 +1,17 @@
 name: Run Supabase Migrations
 
+# Manual only. Production migrations are applied by the deploy itself — the first
+# step of the production build, before `next build` (scripts/deploy-migrate.mjs) —
+# so the app can never ship ahead of its schema. This used to run on every push to
+# main, which meant two systems reacting to the same commit with no ordering between
+# them: on 2026-08-07 this job failed and Vercel deployed anyway, taking the reader's
+# quiz pages down. Leaving the push trigger in place now would be worse than useless:
+# two `db push` runs racing the same pending migration.
+#
+# Kept as the recovery lever for the case the deploy can't cover — applying a
+# migration without shipping a build, or re-running one after fixing the cause of a
+# failure. Run it with: gh workflow run migrate.yml --ref main
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "supabase/migrations/**"
-  # A migration that failed for a reason outside the SQL — a broken CLI release,
-  # an expired token — can't be retried by pushing, because the path filter above
-  # only fires on a migration change. This lets the same run be kicked off by hand
-  # once the cause is fixed, instead of landing an empty migration to trigger it.
   workflow_dispatch:
 
 jobs:
