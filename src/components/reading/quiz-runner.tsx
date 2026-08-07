@@ -155,6 +155,11 @@ function ComprehensionStep({
     }
   });
   const [miss, setMiss] = useState<string | null>(null);
+  // Set once the grader accepts: the note it handed back. Its presence flips the
+  // screen into the "you cleared it" state, which waits for a deliberate tap before
+  // opening Part 2 — the swap used to happen silently, and an essay screen that
+  // arrives on its own with an empty box reads as "it threw my answer away".
+  const [clearedNote, setClearedNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -169,7 +174,7 @@ function ComprehensionStep({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!answer.trim() || pending) return;
+    if (!answer.trim() || pending || clearedNote != null) return;
     setError(null);
     setMiss(null);
     startTransition(async () => {
@@ -181,8 +186,8 @@ function ComprehensionStep({
           } catch {
             // Ignore storage failures.
           }
-          // Cleared — refresh so the server renders the essay step next.
-          router.refresh();
+          // Cleared for good. Tell them so — and let them open Part 2 themselves.
+          setClearedNote(res.note || "You showed me you read it.");
         } else {
           setMiss(res.note);
         }
@@ -194,11 +199,20 @@ function ComprehensionStep({
     });
   }
 
+  const cleared = clearedNote != null;
+
+  /** Open Part 2: the server renders the writing screen once the gate is cleared. */
+  function openEssay() {
+    startTransition(() => {
+      router.refresh();
+    });
+  }
+
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-6 pb-28 pt-12">
       <header className="mb-8">
         <p className="font-serif text-sm text-muted-foreground">
-          Part 1 · Quick check
+          {cleared ? "Part 1 · Cleared" : "Part 1 · Quick check"}
         </p>
         <h1 className="mt-1 font-serif text-3xl tracking-tight text-foreground">
           {coverageLabel ??
@@ -206,8 +220,9 @@ function ComprehensionStep({
             `On ${quizRangeLabel(quiz.from_page, quiz.through_page)}`}
         </h1>
         <p className="mt-3 text-sm text-muted-foreground">
-          First, a quick check that you read the pages. Answer in a sentence or two —
-          get it and the essay opens up.
+          {cleared
+            ? "Nice — that's Part 1 done. Part 2 is the essay, on a different question about these pages."
+            : "First, a quick check that you read the pages. Answer in a sentence or two — get it and the essay opens up."}
         </p>
       </header>
 
@@ -223,13 +238,19 @@ function ComprehensionStep({
           placeholder="A sentence or two on what happened…"
           value={answer}
           onChange={(e) => update(e.target.value)}
-          disabled={pending}
+          disabled={pending || cleared}
           rows={3}
           className="mt-6"
           autoFocus
         />
 
-        {miss && (
+        {cleared && (
+          <p className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-800 dark:text-emerald-300">
+            <span className="font-medium">Got it. </span>
+            {clearedNote}
+          </p>
+        )}
+        {miss && !cleared && (
           <p className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300">
             {miss}
           </p>
@@ -237,9 +258,15 @@ function ComprehensionStep({
         {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
 
         <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-border/60 pt-4">
-          <Button type="submit" disabled={pending || !answer.trim()}>
-            {pending ? "Checking…" : "Check my answer"}
-          </Button>
+          {cleared ? (
+            <Button type="button" onClick={openEssay} disabled={pending}>
+              {pending ? "Opening…" : "Start Part 2 — the essay"}
+            </Button>
+          ) : (
+            <Button type="submit" disabled={pending || !answer.trim()}>
+              {pending ? "Checking…" : "Check my answer"}
+            </Button>
+          )}
           {ownerSlot}
         </div>
       </form>
@@ -341,11 +368,17 @@ function EssayRunner({
     });
   }
 
+  // Part 1 and Part 2 are the same shape on screen — a question above an empty box —
+  // so the eyebrow has to carry the step. Without it, arriving at the essay reads as
+  // being dropped back on the check with the answer wiped.
+  const hasPartOne = !!essay.comprehension_prompt;
   const eyebrow = isBonusShot
     ? "One more try for the bonus"
     : isRevision
       ? "Your revision"
-      : "Writing assignment";
+      : hasPartOne
+        ? "Part 2 · The essay"
+        : "Writing assignment";
 
   return (
     <>
@@ -375,12 +408,20 @@ function EssayRunner({
               quiz.title ??
               `On ${quizRangeLabel(quiz.from_page, quiz.through_page)}`}
           </h1>
-          {isBonusShot && (
+          {isBonusShot ? (
             <p className="mt-3 text-sm text-muted-foreground">
               You&apos;ve already passed — this is your one shot to reach
               &ldquo;exceeds&rdquo; and earn {ESSAY_BONUS_BUCKS} Mason Bucks. Push
               your thinking further, or head back if you&apos;re happy with it.
             </p>
+          ) : (
+            hasPartOne &&
+            !isRevision && (
+              <p className="mt-3 text-sm text-muted-foreground">
+                Part 1 is done and stays done. This is a new question about the
+                same pages — write your essay below.
+              </p>
+            )
           )}
         </header>
 
