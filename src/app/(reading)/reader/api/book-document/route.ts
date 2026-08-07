@@ -12,9 +12,18 @@ import {
   BOOK_DOCUMENT_EFFORT,
   BOOK_DOCUMENT_MODEL,
   BOOK_DOCUMENT_WRITE_MAX_TOKENS,
+  bookDocumentCanSearch,
   buildBookDocumentSystem,
+  readerWebSearchTools,
   type BookDocumentPhase,
 } from "@/lib/reading/chat-prompt";
+import { statusFrame } from "@/lib/reading/chat-stream";
+import {
+  collectWebSources,
+  MAX_SEARCH_RESUMES,
+  SEARCHING_STATUS,
+  sourcesLine,
+} from "@/lib/reading/web-sources";
 
 /**
  * The reader's preface and afterword: the interview, and the document it
@@ -147,25 +156,19 @@ export async function POST(req: NextRequest) {
   const dateline =
     phase === "document" && scope === "afterword" ? afterwordDateline(ctx) : "";
 
+  // The afterword interview can go and look things up; nothing else here can.
+  // Armed from the same predicate that writes the rules about it, so the tool
+  // and the instructions for it can never disagree.
+  const tools = bookDocumentCanSearch(scope, phase)
+    ? readerWebSearchTools(BOOK_DOCUMENT_MODEL)
+    : undefined;
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const encoder = new TextEncoder();
       let full = "";
+      const sources = new Map<string, string>();
       try {
-        const claudeStream = client.messages.stream({
-          model: BOOK_DOCUMENT_MODEL,
-          max_tokens:
-            phase === "document"
-              ? BOOK_DOCUMENT_WRITE_MAX_TOKENS
-              : BOOK_DOCUMENT_CONVERSE_MAX_TOKENS,
-          system,
-          messages: turns,
-          // Adaptive thinking is on by default on this model and stays on:
-          // disabling it can leak reasoning tags into the visible text, and
-          // effort is the cheaper lever for a turn that wants to feel quick.
-          output_config: { effort: BOOK_DOCUMENT_EFFORT[phase] },
-        });
-
         // The dateline goes out ahead of the first token so the reader watches
         // the document assemble under it, rather than having it appear above
         // finished prose a moment later.
@@ -174,15 +177,75 @@ export async function POST(req: NextRequest) {
           controller.enqueue(encoder.encode(full));
         }
 
-        for await (const event of claudeStream) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            const chunk = event.delta.text;
-            full += chunk;
-            controller.enqueue(encoder.encode(chunk));
+        // Grows only when a turn comes back paused, which only a searching turn
+        // can do; the writing phase runs this body once.
+        const conversation = [...turns];
+
+        for (let round = 0; ; round++) {
+          const claudeStream = client.messages.stream({
+            model: BOOK_DOCUMENT_MODEL,
+            max_tokens:
+              phase === "document"
+                ? BOOK_DOCUMENT_WRITE_MAX_TOKENS
+                : BOOK_DOCUMENT_CONVERSE_MAX_TOKENS,
+            system,
+            messages: conversation,
+            ...(tools ? { tools } : {}),
+            // Adaptive thinking is on by default on this model and stays on:
+            // disabling it can leak reasoning tags into the visible text, and
+            // effort is the cheaper lever for a turn that wants to feel quick.
+            output_config: { effort: BOOK_DOCUMENT_EFFORT[phase] },
+          });
+
+          let searching = false;
+          for await (const event of claudeStream) {
+            // Any server-side tool means a search is running — it is the only
+            // one armed here. Nothing streams until it returns, so say so.
+            if (
+              event.type === "content_block_start" &&
+              event.content_block.type === "server_tool_use"
+            ) {
+              if (!searching) {
+                controller.enqueue(encoder.encode(statusFrame(SEARCHING_STATUS)));
+                searching = true;
+              }
+              continue;
+            }
+            if (
+              event.type === "content_block_delta" &&
+              event.delta.type === "text_delta"
+            ) {
+              if (searching) {
+                controller.enqueue(encoder.encode(statusFrame(null)));
+                searching = false;
+              }
+              const chunk = event.delta.text;
+              full += chunk;
+              controller.enqueue(encoder.encode(chunk));
+            }
           }
+
+          const finished = await claudeStream.finalMessage();
+          if (searching) {
+            controller.enqueue(encoder.encode(statusFrame(null)));
+          }
+          collectWebSources(finished.content, sources);
+
+          if (finished.stop_reason !== "pause_turn" || round >= MAX_SEARCH_RESUMES) break;
+          // Resuming is re-sending with the paused turn appended; the server
+          // picks up from the trailing server-tool block on its own.
+          conversation.push({
+            role: "assistant",
+            content: finished.content as Anthropic.ContentBlockParam[],
+          });
+        }
+
+        // Only ever on an interview turn — the document phase has no tool, so
+        // an afterword never ends in a list of links.
+        const line = sourcesLine(sources);
+        if (line) {
+          full += line;
+          controller.enqueue(encoder.encode(line));
         }
 
         const trimmed = full.trim();

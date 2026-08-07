@@ -14,10 +14,16 @@ import {
   READER_CHAT_FAST_MODEL,
   READER_CHAT_MAX_CONTEXT_CHARS,
   READER_CHAT_MAX_TOKENS,
-  readerChatTools,
+  readerWebSearchTools,
   SEARCH_TOOL_TOKEN_ALLOWANCE,
 } from "@/lib/reading/chat-prompt";
 import { statusFrame } from "@/lib/reading/chat-stream";
+import {
+  collectWebSources,
+  MAX_SEARCH_RESUMES,
+  SEARCHING_STATUS,
+  sourcesLine,
+} from "@/lib/reading/web-sources";
 
 export const runtime = "nodejs";
 
@@ -26,41 +32,6 @@ const NO_PAGE_LIMIT = 1_000_000_000;
 
 const PROMOTION_NOTE =
   "Answered with the Deep model — this book is too long for the Fast model's context window.";
-
-/** What the panel shows while a search is running. See chat-stream.ts. */
-const SEARCHING_STATUS = "Searching the web…";
-
-/**
- * How many times a paused turn may be resumed.
- *
- * A turn that uses the search tool can come back `pause_turn` instead of
- * finishing — the server-side tool loop hit its own iteration limit. Resuming is
- * just re-sending the conversation with the paused turn on the end. Bounded
- * because the alternative is a loop, and two rounds is far more than a
- * three-search cap can actually need.
- */
-const MAX_RESUMES = 2;
-
-/**
- * A source, rendered for the line under the answer.
- *
- * The title is what the page calls itself, which is usually right and
- * occasionally a hundred characters of SEO; capped rather than trusted. Square
- * brackets and parentheses come out because this becomes a markdown link, and a
- * title containing either would end the link early and leave a URL on screen.
- */
-function sourceLink(title: string | null, url: string): string {
-  let label = (title ?? "").replace(/[[\]]/g, "").trim();
-  if (!label) {
-    try {
-      label = new URL(url).hostname.replace(/^www\./, "");
-    } catch {
-      label = url;
-    }
-  }
-  if (label.length > 48) label = `${label.slice(0, 47).trimEnd()}…`;
-  return `[${label}](${url.replace(/\)/g, "%29")})`;
-}
 
 type AnnotationRow = {
   id: string;
@@ -267,7 +238,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const tools = readerChatTools(model);
+  const tools = readerWebSearchTools(model);
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -335,19 +306,9 @@ export async function POST(req: NextRequest) {
             controller.enqueue(encoder.encode(statusFrame(null)));
           }
 
-          // Which pages the answer actually rests on, rather than everything the
-          // search happened to return. Citations are attached to the sentences
-          // that used them, so this is the honest list.
-          for (const block of finished.content) {
-            if (block.type !== "text" || !block.citations) continue;
-            for (const citation of block.citations) {
-              if (citation.type !== "web_search_result_location") continue;
-              if (sources.has(citation.url)) continue;
-              sources.set(citation.url, sourceLink(citation.title, citation.url));
-            }
-          }
+          collectWebSources(finished.content, sources);
 
-          if (finished.stop_reason !== "pause_turn" || round >= MAX_RESUMES) break;
+          if (finished.stop_reason !== "pause_turn" || round >= MAX_SEARCH_RESUMES) break;
           // Resuming is re-sending with the paused turn appended; the server
           // picks up from the trailing server-tool block on its own.
           conversation.push({
@@ -360,8 +321,8 @@ export async function POST(req: NextRequest) {
         // answer always says where it went and an unsearched one never grows a
         // heading it doesn't need. Streamed and persisted identically, so a
         // reload shows what the reader just watched arrive.
-        if (sources.size > 0) {
-          const line = `\n\nSources: ${[...sources.values()].join(" · ")}`;
+        const line = sourcesLine(sources);
+        if (line) {
           full += line;
           controller.enqueue(encoder.encode(line));
         }
