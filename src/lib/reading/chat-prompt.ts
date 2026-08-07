@@ -92,6 +92,13 @@ const WEB_SEARCH_MAX_USES = 4;
  * A blocklist rather than an allowlist because the legitimate use is most of the
  * open web, and no allowlist survives that.
  *
+ * The same list serves both interviews. For the afterword the reader has
+ * finished and nothing needs protecting, so the reason changes from spoilers to
+ * quality: asked what the author or the critics made of a book, a study guide
+ * answers with a summary of it, and outranks the real criticism in every result.
+ * For the preface the original reason applies harder than anywhere — they have
+ * not opened the book at all.
+ *
  * Wikipedia is deliberately NOT here — it is the best single source for the
  * real-world questions this answers, and for a book's publication history and
  * reception. Its plot section is the risk, and the prompt handles that.
@@ -118,7 +125,12 @@ const WEB_SEARCH_BLOCKED_DOMAINS = [
 ];
 
 /**
- * The tools a chat turn is given. One tool, and the same one every turn.
+ * The tools a searching turn is given — the anchored chat's, and both document
+ * interviews'. One tool, and the same one every turn.
+ *
+ * Note for anyone adding a token count to a route that uses this: the
+ * count-tokens endpoint refuses a request carrying a server tool and 400s the
+ * whole call. See SEARCH_TOOL_TOKEN_ALLOWANCE.
  *
  * Byte stability matters more here than anywhere else in this file: tools are
  * rendered AHEAD of the system blocks, so anything that varies per chat would
@@ -129,7 +141,7 @@ const WEB_SEARCH_BLOCKED_DOMAINS = [
  * The Fast model is a generation behind the dynamically-filtered search tool,
  * so it gets the basic one. Same name, same behaviour from the prompt's side.
  */
-export function readerChatTools(model: string): Anthropic.ToolUnion[] {
+export function readerWebSearchTools(model: string): Anthropic.ToolUnion[] {
   return [
     {
       type:
@@ -702,6 +714,121 @@ function writingRules(ctx: BookDocumentContext): string[] {
 }
 
 /**
+ * What an interview may do with the web, for whichever document it is.
+ *
+ * The two halves of this differ more than they look. An AFTERWORD is talking to
+ * someone who has finished: nothing needs protecting, and "what did the author
+ * say this was for" is one of the first things a person wants at the end. A
+ * PREFACE is talking to someone holding an unopened book, and its governing
+ * rule is that everything said about it must be knowable without reading it.
+ *
+ * Which is not the same as forbidding search there, and the distinction is the
+ * whole design: the preface is ALREADY allowed to draw on the book's general
+ * reputation — jacket copy, what it is taken to be, how it landed. Before this
+ * it could only do that from memory, which is exactly the failure mode worth
+ * removing. Searching doesn't widen what a preface may say; it makes the part
+ * it could always say true.
+ */
+function webSearchRules(ctx: BookDocumentContext): string[] {
+  const rules: string[] = [];
+
+  if (ctx.scope === "afterword") {
+    rules.push(
+      "You can search the web, and this is a good place for it. They have " +
+        "finished the book, so nothing needs protecting: what the author has " +
+        "said about it, how critics read it, what it was answering, how it " +
+        "landed when it came out — all of it is fair game, and it is often " +
+        "exactly what someone wants at the end of a book. Search when they " +
+        "ask something the book and their marks can't settle, and answer " +
+        "from what is in front of you when they can."
+    );
+    rules.push(
+      "What you find never overrules them. The book above is what the book " +
+        "says, their marks are what they made of it, and a critic is a third " +
+        "party with an opinion. If a critic's account and their experience " +
+        "of the book pull apart, that gap is the interesting thing and worth " +
+        "putting to them — never a mistake of theirs to correct."
+    );
+  } else {
+    rules.push(
+      "You can search the web, and here it is for one thing: what this book " +
+        "is KNOWN for. How it was received, what the author has said they " +
+        "were doing, what it was answering, what kind of book it is taken to " +
+        "be, why people pick it up. That is jacket-and-reputation material, " +
+        "which you are already allowed to use — searching just means getting " +
+        "it right instead of half-remembering it."
+    );
+    // The load-bearing rule of the whole preface, restated for the one input
+    // that arrives already violating it. A review's second paragraph is the
+    // plot; an interview's is what the author was getting at by the end.
+    rules.push(
+      "Everything you bring back faces the same test as everything else you " +
+        "say here: COULD THEY HAVE LEARNED THIS WITHOUT READING THE BOOK? A " +
+        "review or an interview will hand you the plot, the ending and the " +
+        "author's conclusions on the way past. Take the part that would be on " +
+        "the jacket and leave the rest. If you can't tell which part is " +
+        "which, say nothing about it — a preface that quietly imports a " +
+        "reviewer's account of the ending is the worst thing this can do."
+    );
+    if (ctx.spoilerSensitive) {
+      rules.push(
+        "This one is a story, so almost nothing a search returns about it is " +
+          "usable. Expect to find the plot and discard it. What survives is " +
+          "the kind of thing a bookshop table would tell them: what sort of " +
+          "novel this is, how it was received, what the author is known for."
+      );
+    }
+  }
+
+  // Shared. The first is the reason the tool is here at all — the model's
+  // instinct without it is to decline rather than invent, which is right and
+  // is also a dead end for the reader.
+  rules.push(
+    "Never pass off a half-remembered quote as a real one. If you are asked " +
+      "what the author said and you are not certain, go and find out — that " +
+      "is what the tool is for. Attribute what you bring back: whose reading " +
+      "it is, and roughly when or where they said it."
+  );
+  // Without this the tool quietly rewrites the interview: a model holding a
+  // stack of criticism starts quizzing the reader on it, and the one rule that
+  // makes these interviews worth doing — every question is about THEM — goes
+  // out from under it.
+  rules.push(
+    "Searching does not loosen the rule about guesses. A question is still " +
+      "built on what THEY marked, said and read, never on the book's " +
+      "reputation. What you find is for answering what they ask you, not for " +
+      "generating things to ask them."
+  );
+  rules.push(
+    "Do not write out URLs or list your sources: the app puts the links " +
+      "underneath your answer."
+  );
+
+  return rules;
+}
+
+/**
+ * Whether a preface/afterword turn may search the web: either interview, and
+ * neither writing turn. The reasoning is with `canSearch` in
+ * buildBookDocumentSystem, which calls this.
+ *
+ * Exported so the route arms the tool from the same predicate that writes the
+ * rules. Handing the model a search tool the prompt never mentions — or rules
+ * about searching with no tool to do it — are both silent failures, and the two
+ * live in different files.
+ */
+export function bookDocumentCanSearch(
+  scope: BookDocumentContext["scope"],
+  phase: BookDocumentPhase
+): boolean {
+  // `scope` is unused now that both documents may search. Kept in the signature
+  // because the two differ so much in what they may DO with a result (see
+  // webSearchRules) that a future "not this one" belongs here, not at a call site.
+  void scope;
+  return phase === "converse";
+}
+
+/**
  * The system blocks for a preface or afterword, in either phase.
  *
  * Ordering is for the cache, and it is the reverse of the anchored chat's. The
@@ -766,12 +893,36 @@ export function buildBookDocumentSystem(
     });
   }
 
+  /**
+   * Whether this turn may search the web: either interview, neither writing
+   * turn.
+   *
+   * An interview is a conversation, so a question like "what has the author
+   * said about this" has somewhere to be asked and answered, and a person is
+   * reading the answer as it arrives. What each document may DO with a result
+   * differs enormously — see webSearchRules — but both may look.
+   *
+   * The writing turns are left out for reasons that are not about permission.
+   * They are handed the whole transcript, so anything the interview found is
+   * already in front of them; a single long generation that stops to search
+   * would keep the reader waiting on the one turn where waiting is worst; and
+   * the tool's absence keeps the document grounded in what they marked and said
+   * rather than in what the book is known for.
+   */
+  const canSearch = bookDocumentCanSearch(ctx.scope, phase);
+
   // Volatile: the rules for this phase, and the ask.
   const rules: string[] = [
     "You are writing inside one person's private reading app. The book above " +
       "is the whole book, and everything below it is what is known about this " +
-      "reader. Work from those and nothing else — never from what you recall " +
-      "of this work, its author, its adaptations or its reputation.",
+      "reader." +
+      (canSearch
+        ? " Those two are your primary sources and outrank everything else. " +
+          "Never work from what you merely RECALL of this work, its author or " +
+          "its reputation — but you can search the web, and what you find " +
+          "there is a real source you may use. See the rules on it below."
+        : " Work from those and nothing else — never from what you recall " +
+          "of this work, its author, its adaptations or its reputation."),
   ];
 
   if (ctx.truncated) {
@@ -882,6 +1033,11 @@ export function buildBookDocumentSystem(
         "believe them, and use their own words rather than your inference."
     );
   }
+
+  // Both documents, and only in the interview. Placed after the scope's own
+  // rules so the test a result has to pass — theirs to use, or theirs to
+  // discard — is already established when the tool is granted.
+  if (canSearch) rules.push(...webSearchRules(ctx));
 
   // Afterword only. A citation is a way back to a page you have read, which is
   // the whole of its value here — and in a preface it is worse than useless: a

@@ -14,6 +14,7 @@ import type {
   AnnotationDetail,
   ReaderChatMessage,
 } from "@/lib/reading/annotation-types";
+import { streamReply } from "@/lib/reading/chat-stream";
 import { useIsOnline } from "@/lib/reading/offline/use-is-online";
 import { cn } from "@/lib/utils";
 import { ChatMessageText } from "./chat-message-text";
@@ -41,27 +42,8 @@ import { useAutosizeTextarea } from "./use-autosize-textarea";
  * worth.
  */
 
-/** The route marks a failed turn this way rather than persisting a message. */
-const ERROR_MARKER = /\n\n\[error: ([\s\S]*)\]$/;
-
 let localSeq = 0;
 const localId = () => `local-${++localSeq}`;
-
-async function streamReply(
-  body: ReadableStream<Uint8Array>,
-  onText: (soFar: string) => void
-): Promise<string | null> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let acc = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    acc += decoder.decode(value, { stream: true });
-    onText(acc);
-  }
-  return acc.match(ERROR_MARKER)?.[1] ?? null;
-}
 
 export function BookDocumentThread({
   chat,
@@ -96,6 +78,12 @@ export function BookDocumentThread({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * What the interview is doing while it has nothing to say — currently only
+   * ever "Searching the web…". Cleared however the turn ends, so a failed one
+   * can't strand it on screen.
+   */
+  const [status, setStatus] = useState<string | null>(null);
   const online = useIsOnline();
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -185,10 +173,13 @@ export function BookDocumentThread({
         if (!res.ok || !res.body) {
           throw new Error((await res.text()) || "Couldn't do that.");
         }
-        const failed = await streamReply(res.body, (streamed) =>
-          setMessages((prev) =>
-            prev.map((m) => (m.id === replyId ? { ...m, content: streamed } : m))
-          )
+        const failed = await streamReply(
+          res.body,
+          (streamed) =>
+            setMessages((prev) =>
+              prev.map((m) => (m.id === replyId ? { ...m, content: streamed } : m))
+            ),
+          setStatus
         );
         if (failed) {
           setError(failed);
@@ -199,6 +190,7 @@ export function BookDocumentThread({
         setMessages((prev) => prev.filter((m) => m.id !== replyId));
         if (text) setDraft(text);
       } finally {
+        setStatus(null);
         setSending(false);
         onExchangeComplete();
       }
@@ -324,6 +316,7 @@ export function BookDocumentThread({
                   hasRealPages={hasRealPages}
                   labelForPage={labelForPage}
                   onJumpToPage={onJumpToPage}
+                  status={status}
                 />
               )}
             </div>
@@ -334,6 +327,7 @@ export function BookDocumentThread({
               hasRealPages={hasRealPages}
               labelForPage={labelForPage}
               onJumpToPage={onJumpToPage}
+              status={status}
             />
           ))}
 
@@ -414,12 +408,19 @@ function Transcript({
   hasRealPages,
   labelForPage,
   onJumpToPage,
+  status,
 }: {
   messages: ReaderChatMessage[];
   scope: BookScope;
   hasRealPages: boolean;
   labelForPage: (page: number) => string | null;
   onJumpToPage: (page: number) => void;
+  /**
+   * What the pending turn is waiting on, when there is anything to say about
+   * it. Passed down rather than read here: named `status`, an undeclared one
+   * silently resolves to `window.status` and renders nothing at all.
+   */
+  status: string | null;
 }) {
   return (
     <div className="mt-3 flex flex-col gap-3">
@@ -462,7 +463,12 @@ function Transcript({
             )}
           >
             {m.role === "assistant" && m.content === "" ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              // A search is long enough that an unexplained spinner reads as a
+              // hang — say what the wait is for when there is something to say.
+              <span className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {status && <span className="text-xs">{status}</span>}
+              </span>
             ) : m.role === "assistant" ? (
               <ChatMessageText
                 text={m.content}
