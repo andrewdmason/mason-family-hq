@@ -7,6 +7,7 @@ import { getBookPreface } from "@/lib/reading/book-document-context";
 import { resolveReaderPosition } from "@/lib/reading/reader-position";
 import {
   buildReaderChatSystem,
+  FALLBACK_CHARS_PER_TOKEN,
   FAST_MODEL_CONTEXT_WINDOW,
   FAST_MODEL_HEADROOM,
   READER_CHAT_DEEP_MODEL,
@@ -14,6 +15,7 @@ import {
   READER_CHAT_MAX_CONTEXT_CHARS,
   READER_CHAT_MAX_TOKENS,
   readerChatTools,
+  SEARCH_TOOL_TOKEN_ALLOWANCE,
 } from "@/lib/reading/chat-prompt";
 import { statusFrame } from "@/lib/reading/chat-stream";
 
@@ -209,31 +211,41 @@ export async function POST(req: NextRequest) {
 
   const client = anthropic();
 
-  // Deterministic model choice: count the exact payload before sending, and
-  // promote if it won't fit Fast. Never a retry-on-error — an oversized request
-  // would fail mid-stream after the user already saw it start.
+  // Deterministic model choice: count the payload before sending, and promote
+  // if it won't fit Fast. Never a retry-on-error — an oversized request would
+  // fail mid-stream after the user already saw it start.
   let model = chat.model_preference === "deep"
     ? READER_CHAT_DEEP_MODEL
     : READER_CHAT_FAST_MODEL;
   let promoted = false;
   if (model === READER_CHAT_FAST_MODEL) {
+    const budget =
+      FAST_MODEL_CONTEXT_WINDOW - FAST_MODEL_HEADROOM - READER_CHAT_MAX_TOKENS;
+    let counted: number;
     try {
-      const counted = await client.messages.countTokens({
+      // No `tools` here, deliberately: the count-tokens endpoint refuses any
+      // request carrying a server tool and 400s the whole call rather than
+      // counting the rest. The search tool is added back as a flat allowance —
+      // see SEARCH_TOOL_TOKEN_ALLOWANCE, which is where the reasoning lives.
+      const counting = await client.messages.countTokens({
         model: READER_CHAT_FAST_MODEL,
         system,
         messages: turns,
-        tools: readerChatTools(READER_CHAT_FAST_MODEL),
       });
-      if (
-        counted.input_tokens >
-        FAST_MODEL_CONTEXT_WINDOW - FAST_MODEL_HEADROOM - READER_CHAT_MAX_TOKENS
-      ) {
-        model = READER_CHAT_DEEP_MODEL;
-        promoted = true;
-      }
+      counted = counting.input_tokens + SEARCH_TOOL_TOKEN_ALLOWANCE;
     } catch {
-      // Fail open to Fast rather than silently upgrading on a transient error;
-      // an over-long request then surfaces as a clear API error.
+      // Counting failed. Estimate from the payload's own length rather than
+      // assuming it fits: the failure mode this replaces was a silent fall
+      // through to Fast, which turned a long book into an error the reader saw
+      // in place of their answer.
+      const chars =
+        system.reduce((n, block) => n + block.text.length, 0) +
+        turns.reduce((n, turn) => n + (turn.content as string).length, 0);
+      counted = Math.ceil(chars / FALLBACK_CHARS_PER_TOKEN);
+    }
+    if (counted > budget) {
+      model = READER_CHAT_DEEP_MODEL;
+      promoted = true;
     }
   }
 
