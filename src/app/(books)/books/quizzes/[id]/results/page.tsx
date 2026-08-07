@@ -203,6 +203,7 @@ export default async function QuizResultsPage({
           {comprehensionLog && (
             <ComprehensionLog
               log={comprehensionLog}
+              timeZone={tz}
               action={
                 quiz.status === "published" && !comprehensionLog.clearedAt ? (
                   <ClearGateButton quizId={id} memberEmail={memberEmail} />
