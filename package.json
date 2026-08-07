@@ -6,7 +6,7 @@
     "predev": "bash scripts/db-heal-local.sh",
     "dev": "next dev",
     "dev:agent": "node scripts/dev-agent.js",
-    "build": "next build",
+    "build": "node scripts/deploy-migrate.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "seed:media": "node supabase/seed-journal-photos.mjs",
