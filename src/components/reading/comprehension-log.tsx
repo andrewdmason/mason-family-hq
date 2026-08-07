@@ -13,9 +13,12 @@ import type { ReadingComprehensionLog } from "@/lib/types";
  */
 export function ComprehensionLog({
   log,
+  timeZone,
   action = null,
 }: {
   log: ReadingComprehensionLog;
+  /** The reader's timezone — this renders on the server, which is UTC. */
+  timeZone: string;
   /** The "let them past Part 1" control, when it applies. */
   action?: React.ReactNode;
 }) {
@@ -92,6 +95,7 @@ export function ComprehensionLog({
                       day: "numeric",
                       hour: "numeric",
                       minute: "2-digit",
+                      timeZone,
                     })}
                   </span>
                 </p>
