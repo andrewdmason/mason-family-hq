@@ -11,13 +11,14 @@
  * near the start of the text, so the selection inverts: everything BEFORE where
  * the reader started, until the pointer finds a line again.
  *
- * usePagination's widenHitBox pads the flow out to the width of the strip so
- * those points land on the flow after all. This checks the two things that has
- * to be true of it, in both engines, because the device that matters runs WebKit:
+ * usePagination's fitFlowToStrip gives the flow a box as wide as the strip it
+ * paints, so those points land on the flow after all. This checks the two things
+ * that has to be true of it, in both engines, because the device that matters
+ * runs WebKit:
  *
  *   1. a drag across each kind of dead zone never flips backwards, and
- *   2. the padding moves no text and changes no strip width — it must not cost a
- *      single column break, or every saved position in every book shifts.
+ *   2. widening the box moves no text and changes no strip width — it must not
+ *      cost a single column break, or every saved position in every book shifts.
  *
  *   npx tsx scripts/verify-paged-selection.mts
  */
@@ -85,24 +86,26 @@ const VIEW_W = LAYOUT.colW * 2 + LAYOUT.gap;
 const PAGE = 8;
 
 /** The reader's page, as PagedView builds it: a clip box over a sliding flow. */
-async function open(browser: Browser, html: string, padded: boolean): Promise<Page> {
+async function open(browser: Browser, html: string, widened: boolean): Promise<Page> {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.setContent(
     `<!doctype html><html><head><meta charset="utf-8"><style>${PROSE_CSS}</style></head>
      <body style="margin:0">
        <div id="clip" style="position:absolute;left:${LAYOUT.offsetX}px;top:${LAYOUT.top}px;
             width:${VIEW_W}px;height:${LAYOUT.pageH}px;overflow:hidden">
-         <div id="flow" style="width:${LAYOUT.colW}px;height:${LAYOUT.pageH}px;column-count:1;
-              column-gap:${LAYOUT.gap}px">${html}</div>
+         <div id="flow" style="width:${LAYOUT.colW}px;height:${LAYOUT.pageH}px;
+              column-width:${LAYOUT.colW}px;column-gap:${LAYOUT.gap}px">${html}</div>
        </div>
      </body></html>`
   );
-  if (padded) {
-    // widenHitBox, exactly as usePagination does it.
-    await page.evaluate((colW) => {
+  if (widened) {
+    // fitFlowToStrip, exactly as usePagination does it.
+    await page.evaluate((gap) => {
       const flow = document.getElementById("flow")!;
-      flow.style.paddingRight = `${Math.max(0, flow.scrollWidth - colW - 1)}px`;
-    }, LAYOUT.colW);
+      const stride = flow.clientWidth + gap;
+      const cols = Math.max(1, Math.round((flow.scrollWidth + gap) / stride));
+      flow.style.width = `${cols * stride - gap}px`;
+    }, LAYOUT.gap);
   }
   return page;
 }
@@ -265,21 +268,21 @@ for (const [engineName, launcher] of [
   }
 
   const bare = await open(browser, html, false);
-  const padded = await open(browser, html, true);
+  const wide = await open(browser, html, true);
   const drags = await dragsFor(bare);
   check("found a chapter that ends part-way down a column", drags.length === 3);
 
   // The bug itself, in the layout as it was: if this stops reproducing, the
-  // checks below have stopped proving anything and the padding may no longer be
+  // checks below have stopped proving anything and the wide box may no longer be
   // earning its keep.
   const before = await runDrags(bare, drags);
   check(
-    "an unpadded flow still inverts the selection over white space",
+    "a one-column flow still inverts the selection over white space",
     before.every((r) => r.flips > 0),
     `${before.filter((r) => r.flips > 0).length}/${drags.length} drags flipped`
   );
 
-  for (const r of await runDrags(padded, drags)) {
+  for (const r of await runDrags(wide, drags)) {
     const name = r.drag.name;
     check(`selection holds its direction: ${name}`, r.flips === 0, `${r.flips} samples inverted`);
     // A flip also balloons the selection to everything back to the start of the
@@ -287,22 +290,22 @@ for (const [engineName, launcher] of [
     check(`selection stays plausible: ${name}`, r.worst < 4000, `${r.worst} characters`);
   }
 
-  const unpadded = await bare.evaluate(measureInPage, STRIDE);
-  const widened = await padded.evaluate(measureInPage, STRIDE);
+  const narrow = await bare.evaluate(measureInPage, STRIDE);
+  const widened = await wide.evaluate(measureInPage, STRIDE);
   check(
-    "the hit box moves no text",
-    unpadded.rects.length === widened.rects.length &&
-      unpadded.rects.every((r, i) => r.every((v, j) => v === widened.rects[i][j])),
-    `${unpadded.rects.length} vs ${widened.rects.length} fragments`
+    "widening the box moves no text",
+    narrow.rects.length === widened.rects.length &&
+      narrow.rects.every((r, i) => r.every((v, j) => v === widened.rects[i][j])),
+    `${narrow.rects.length} vs ${widened.rects.length} fragments`
   );
   check(
-    "the hit box doesn't lengthen the strip",
-    unpadded.scrollWidth === widened.scrollWidth,
-    `${unpadded.scrollWidth} vs ${widened.scrollWidth}`
+    "widening the box doesn't lengthen the strip",
+    narrow.scrollWidth === widened.scrollWidth,
+    `${narrow.scrollWidth} vs ${widened.scrollWidth}`
   );
 
   await bare.close();
-  await padded.close();
+  await wide.close();
   await browser.close();
 }
 
