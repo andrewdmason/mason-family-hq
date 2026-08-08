@@ -18,8 +18,34 @@ import { isReaderProfileEmpty, type ReaderProfile } from "@/lib/reading/reader-p
 
 /** Fast: snappy, 200K context. */
 export const READER_CHAT_FAST_MODEL = "claude-haiku-4-5";
-/** Deep: stronger, 1M context — the fallback when a book won't fit Fast. */
-export const READER_CHAT_DEEP_MODEL = "claude-sonnet-5";
+
+/**
+ * Deep: the best model there is, because Deep is now a different KIND of
+ * conversation rather than a better-answered version of the same one.
+ *
+ * It was Sonnet while both modes wrote marginalia and the only difference was
+ * how well. Deep now writes an interpretive essay — the register below — and
+ * that is the one thing in the reader where the gap between models is the whole
+ * product. The comparison that moved it: the same book, the same question,
+ * answered here and answered by Opus in a chat window with no instructions at
+ * all. The chat window won so completely that the feature read as broken.
+ */
+export const READER_CHAT_DEEP_MODEL = "claude-opus-5";
+
+/**
+ * What a book too long for Fast is answered with — NOT the Deep model.
+ *
+ * These were one constant, and conflating them was a real bug rather than a
+ * tidy simplification. "Deep" now means two unrelated things: a reader asking
+ * for an argument, and a book that does not fit in 200K. Promotion is about
+ * FITTING. A reader who picked Fast, asked "who is Judith again?", and happens
+ * to be reading a very long novel wants the short answer they asked for — at
+ * the cheapest model that can hold the book, not at Opus with an essay's budget.
+ *
+ * So the model follows what FITS and the register follows what they PICKED.
+ * Sonnet holds a million tokens, which is the only property this needs.
+ */
+export const READER_CHAT_PROMOTION_MODEL = "claude-sonnet-5";
 
 /**
  * Haiku 4.5's context window. Every other current model is 1M, which is why a
@@ -71,8 +97,15 @@ export const READER_CHAT_MAX_TOKENS = 1024;
  * because a cut-off remark still reads like a remark. Sized generously rather
  * than snugly: nothing is billed for room it doesn't use, and the length of the
  * answer is governed by the prompt anyway.
+ *
+ * 3072 was sized for a marginal remark plus some thinking. Deep now writes an
+ * interpretive essay: eight hundred words of prose is ~1,200 tokens before
+ * high-effort reasoning takes its share of the same allowance, so the old
+ * ceiling would have cut the good answers off in their second half — exactly
+ * the failure the reader's afterword hit, and the one nobody sees, because an
+ * essay that stops early reads as an essay that rambled.
  */
-export const READER_CHAT_DEEP_MAX_TOKENS = 3072;
+export const READER_CHAT_DEEP_MAX_TOKENS = 8192;
 
 /**
  * Deep reasons before it answers; Fast can't — Haiku has no effort dial and no
@@ -95,15 +128,19 @@ export const READER_CHAT_DEEP_MAX_TOKENS = 3072;
  * the interpretive question that is the whole reason to want it.
  *
  * High is the only level that ever engages on the questions worth engaging on,
- * but it engages rarely — six runs of the same interpretive question thought
- * once. The suspected cause is this file's own prompt: it tells the model
+ * but it engaged rarely — six runs of the same interpretive question thought
+ * once. The suspected cause was this file's own prompt: it told the model
  * repeatedly that this is marginalia, a remark in the margin, a short answer to
  * a short question, and a model weighing whether to reason first reads all of
- * that as permission not to. Untested against the real thing, though, because
- * the measurements above carry no book — the live prompt puts an entire novel
- * above this line, and a large context is exactly the condition under which
- * triggering is said to change. Worth re-measuring in place before concluding
- * anything from the numbers above.
+ * that as permission not to.
+ *
+ * That suspicion is now being tested, because Deep no longer says any of it —
+ * it asks for an argument and lets the question set the length (see the
+ * register below). If the theory was right, engagement should rise on its own
+ * without this dial moving. The numbers above were also taken with no book in
+ * the prompt, and a large context is exactly the condition under which
+ * triggering is said to change, so re-measure in place before concluding
+ * anything from them.
  *
  * What it costs meanwhile is small and paid on every Deep turn: ~2.1s to the
  * first character against ~1.0s with thinking off. What it buys, on the turn
@@ -345,7 +382,30 @@ export type ReaderChatPromptInput = {
    * in, which is the ordinary case for a kid.
    */
   readerProfile: ReaderProfile | null;
+  /**
+   * Which conversation the reader asked for — THEIR pick, not the model that
+   * ended up serving it.
+   *
+   * These came apart deliberately. A book too long for Fast is promoted to a
+   * bigger model, and reading the register off the resolved model would hand a
+   * reader who asked for a quick lookup an essay, purely because their novel is
+   * long. What they picked governs how it is written; what fits governs what
+   * writes it.
+   */
+  depth: ReaderChatDepth;
 };
+
+/**
+ * The two conversations this chat can be, which is what the Fast/Deep picker
+ * has always implied and never delivered.
+ *
+ * Until now the picker changed the model and nothing else: the prompt was built
+ * before the model was chosen and took no argument for the reader's choice, so
+ * Deep bought a stronger model and then read Fast's instruction telling it to
+ * write a remark in the margin. Paying for reasoning and then asking for a
+ * margin note is the whole of why Deep felt like Fast with a delay.
+ */
+export type ReaderChatDepth = "fast" | "deep";
 
 /**
  * One <contents> line per chapter: the heading verbatim, then the pages it
@@ -434,15 +494,85 @@ export function buildReaderChatSystem(
 ): Anthropic.TextBlockParam[] {
   const blocks: Anthropic.TextBlockParam[] = [];
 
+  const deep = input.depth === "deep";
+
   const rules: string[] = [
     "You are a reading companion inside a family reading app. The reader is " +
       "partway through a book and has opened a conversation anchored to a " +
       "specific spot in the text.",
-    "Ground every answer in the book text provided below. If the text doesn't " +
-      "settle a question, say so rather than speculating from outside knowledge.",
-    "Be concise and conversational. This is marginalia — a remark in the margin, " +
-      "not an essay. Match their register; a short question deserves a short answer.",
   ];
+
+  // The two registers. This is the picker, and until it reached this prompt the
+  // picker did nothing a reader could feel.
+  if (deep) {
+    // What Deep is FOR, written from the thing it was losing to: the same book
+    // and the same question put to a chat window with no instructions at all,
+    // which answered with an essay that opened "The novel runs on dream grammar
+    // rather than plot", claimed "the city is one man", and argued it. Nothing
+    // about that needed a better model than this one has. It needed permission.
+    rules.push(
+      "The reader chose the DEEP conversation. They want an argument about " +
+        "this book, not a remark about a sentence — the conversation they " +
+        "would have with the friend who knows the book best. Give them that."
+    );
+    rules.push(
+      "HAVE A POSITION AND COMMIT TO IT. Say what you think the book is doing " +
+        "and why, in your own voice, as a claim rather than a survey of what " +
+        "could be said. \"This is a novel about the deferral of intimacy in " +
+        "the name of vocation\" is worth ten times \"there are several ways to " +
+        "read this.\" Being interestingly wrong is useful to them, because " +
+        "they can argue with it; being uselessly balanced is not, because " +
+        "there is nothing there to push against. Where a reading is genuinely " +
+        "contested, say so and then say which one you find more convincing."
+    );
+    rules.push(
+      "Interpretation is the JOB here, not an overreach. You will not find " +
+        "your reading stated in the text — a reading never is — so do not " +
+        "decline one for want of a sentence to point at, and do not retreat " +
+        "into what the book literally says when they asked what it means. " +
+        "What the text still governs is fact: what happens, who is who, what " +
+        "a passage contains. Read those off the page and argue from there."
+    );
+    rules.push(
+      "Reach outside the book when it helps: the author's other work and what " +
+        "this one repeats or reverses in it, the tradition it sits in, an idea " +
+        "or a thinker the book is working with, another book that does the " +
+        "same thing better or worse. A reading that never leaves the covers is " +
+        "a summary with opinions attached."
+    );
+    rules.push(
+      "Let the question set the length. A factual aside still gets a sentence " +
+        "— do not inflate a small question into an essay because the mode is " +
+        "called Deep. But when they ask what a book is about, what to make of " +
+        "it, or why it works, take the room that answer actually needs: " +
+        "several hundred words, in paragraphs, structured as an argument. Use " +
+        "a bold lead-in on a paragraph when you are naming a distinct claim, " +
+        "so the shape of the argument is visible at a glance. No headings, and " +
+        "never a bulleted list of themes — that is a study guide, which is the " +
+        "opposite of this."
+    );
+    rules.push(
+      "Be specific and concrete. Name the character, the scene, the detail — " +
+        "\"the ruined old genius conducting on a sawn-off ironing board\", not " +
+        "\"a minor character\". The specifics are the evidence and they are " +
+        "also the pleasure; an interpretation made of abstractions is " +
+        "unfalsifiable and boring at the same time. Where the book is funny, " +
+        "say so: people miss comedy in serious books and are glad to be told."
+    );
+  } else {
+    rules.push(
+      "The reader chose the FAST conversation. Be concise and conversational: " +
+        "this is marginalia — a remark in the margin, not an essay. Match " +
+        "their register; a short question deserves a short answer. If they " +
+        "want the long argument there is a Deep mode one tap away, so you do " +
+        "not have to fit one in here."
+    );
+    rules.push(
+      "Ground your answer in the book text provided below. Where the text " +
+        "doesn't settle a question you can still say what you make of it — " +
+        "just be brief and say which it is."
+    );
+  }
 
   // Web search. The rule that governs it is about PRIMACY, not permission.
   //
@@ -480,10 +610,22 @@ export function buildReaderChatSystem(
     "Don't search what you can already answer. A search is several seconds of " +
       "silence for the reader, and most questions here are settled by the text."
   );
+  // Attribution, not timidity. The point is that the reader can tell an
+  // argument from a fact — NOT that every argument has to belong to a third
+  // party. Said explicitly for Deep, where the reading it is being asked for is
+  // its own, and where the un-nuanced version of this rule reads as an
+  // instruction to go and find someone else to have the opinion.
   rules.push(
-    "An interpretation belongs to somebody. Say whose — the author, a named " +
-      "critic, a common reading — and keep it apart from what you are reading " +
-      "off the page yourself, so the reader can tell an argument from a fact."
+    deep
+      ? "Keep an argument distinguishable from a fact. When a reading is a " +
+        "known one, say whose — the author's, a named critic's, the common " +
+        "one. When it is yours, own it as yours and make it anyway; you do " +
+        "not need a citation to have a reading, and hunting for someone else " +
+        "to attribute it to is how a position becomes a survey."
+      : "An interpretation belongs to somebody. Say whose — the author, a " +
+        "named critic, a common reading — and keep it apart from what you are " +
+        "reading off the page yourself, so the reader can tell an argument " +
+        "from a fact."
   );
   rules.push(
     "Work what you found into your own sentences the way you would anything " +
@@ -620,7 +762,25 @@ export function buildReaderChatSystem(
           "words first, then answer. This governs what you find on the web as " +
           "much as what you read below: criticism is written for someone who " +
           "has finished the book, so a review you fetch will hand you the " +
-          "ending whether or not their question wanted it."
+          "ending whether or not their question wanted it." +
+          // The one place the two halves of this feature pull against each
+          // other. Deep is told to have a position and argue it — and the
+          // natural way to argue what a novel is doing is to reach for how it
+          // resolves, which is the single worst thing to hand someone who is
+          // sixty percent through. So the license is bounded rather than
+          // withdrawn: a thesis is still wanted, it just has to be one they
+          // could weigh from where they are standing.
+          (deep
+            ? " This binds the argument you were asked for as tightly as " +
+              "anything else, and it is where that request is most dangerous: " +
+              "the natural way to argue what a book is doing is to reach for " +
+              "how it ends, and doing that here would cost them the book to " +
+              "win a point. Make the case from what they have already read. A " +
+              "thesis they can test against the pages behind them is a better " +
+              "answer anyway — and if the honest version of your reading " +
+              "genuinely depends on the ending, say that much and stop, " +
+              "rather than arguing around it in hints."
+            : "")
       );
     }
   }

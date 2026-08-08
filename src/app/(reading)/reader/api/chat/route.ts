@@ -18,7 +18,9 @@ import {
   READER_CHAT_FAST_MODEL,
   READER_CHAT_MAX_CONTEXT_CHARS,
   READER_CHAT_MAX_TOKENS,
+  READER_CHAT_PROMOTION_MODEL,
   readerWebSearchTools,
+  type ReaderChatDepth,
   SEARCH_TOOL_TOKEN_ALLOWANCE,
   THINKING_STATUS,
 } from "@/lib/reading/chat-prompt";
@@ -35,8 +37,11 @@ export const runtime = "nodejs";
 /** No page boundary — take the book to its end. */
 const NO_PAGE_LIMIT = 1_000_000_000;
 
+// Deliberately doesn't say "Deep": a promoted chat is still the Fast
+// conversation, answered by a bigger model only because the book doesn't fit.
+// Calling it Deep would promise the argument this answer isn't going to make.
 const PROMOTION_NOTE =
-  "Answered with the Deep model — this book is too long for the Fast model's context window.";
+  "Answered with a larger model — this book is too long for the Fast model's context window.";
 
 type AnnotationRow = {
   id: string;
@@ -178,6 +183,13 @@ export async function POST(req: NextRequest) {
     todayLocal().then((today) => gatherReaderProfile(db, userId, email, today)),
   ]);
 
+  // Which conversation they asked for. Read once, here, and used for BOTH the
+  // register below and the model above — the two used to be derived from the
+  // resolved model instead, which is how a long book silently turned a quick
+  // question into a deep one.
+  const depth: ReaderChatDepth =
+    chat.model_preference === "deep" ? "deep" : "fast";
+
   const system = buildReaderChatSystem({
     bookTitle: book.title as string,
     bookAuthor: (book.author as string | null) ?? null,
@@ -192,6 +204,7 @@ export async function POST(req: NextRequest) {
     hasReaderNotes,
     readerIntent,
     readerProfile,
+    depth,
   });
 
   const client = anthropic();
@@ -199,9 +212,14 @@ export async function POST(req: NextRequest) {
   // Deterministic model choice: count the payload before sending, and promote
   // if it won't fit Fast. Never a retry-on-error — an oversized request would
   // fail mid-stream after the user already saw it start.
-  let model = chat.model_preference === "deep"
-    ? READER_CHAT_DEEP_MODEL
-    : READER_CHAT_FAST_MODEL;
+  //
+  // Promotion goes to its own model rather than to Deep's. They used to be the
+  // same constant, which quietly meant a long book upgraded the CONVERSATION:
+  // a reader who picked Fast and asked a one-line question got Deep's model,
+  // Deep's token budget and Deep's thinking because their novel was long. What
+  // they picked is `depth` above and governs how the answer is written; this
+  // governs only what can hold the book.
+  let model = depth === "deep" ? READER_CHAT_DEEP_MODEL : READER_CHAT_FAST_MODEL;
   let promoted = false;
   if (model === READER_CHAT_FAST_MODEL) {
     const budget =
@@ -229,7 +247,7 @@ export async function POST(req: NextRequest) {
       counted = Math.ceil(chars / FALLBACK_CHARS_PER_TOKEN);
     }
     if (counted > budget) {
-      model = READER_CHAT_DEEP_MODEL;
+      model = READER_CHAT_PROMOTION_MODEL;
       promoted = true;
     }
   }
@@ -277,7 +295,10 @@ export async function POST(req: NextRequest) {
           controller.enqueue(encoder.encode(statusFrame(next)));
         };
 
-        const deep = model === READER_CHAT_DEEP_MODEL;
+        // What the READER picked, not what the book forced. A promoted Fast
+        // chat runs on a bigger model because that is the only one that holds
+        // the book — it does not get an essay's budget or thinking time.
+        const deep = depth === "deep";
 
         for (let round = 0; ; round++) {
           const claudeStream = client.messages.stream({

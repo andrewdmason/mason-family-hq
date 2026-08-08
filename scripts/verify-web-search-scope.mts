@@ -200,6 +200,7 @@ const chatInput = {
   hasReaderNotes: false,
   readerIntent: null,
   readerProfile: null,
+  depth: "fast" as const,
 };
 
 const openChat = flatten(buildReaderChatSystem({ ...chatInput, spoilerFree: false }));
