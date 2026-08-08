@@ -1,9 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { resolveReadingScope } from "@/lib/reading/scope";
+import { categorizeBook } from "@/lib/reading/categorize";
 import { genresForAge } from "@/lib/reading/genres";
 import { ratingImpliesFinished } from "@/lib/reading/status";
 import {
@@ -254,19 +256,31 @@ export async function queueRecommendation(
   // Stamp the provenance using the existing recommendation fields: there's no AI
   // "member" to reference, so leave the email null and record the AI label + the
   // rationale as the note, so the queued book shows where it came from and why.
-  const { error: bookError } = await client.from("reading_books").insert({
-    user_id: userId,
-    title: rec.title,
-    author: rec.author,
-    total_pages: rec.total_pages,
-    current_page: 0,
-    status: "queued",
-    cover_image_url: rec.cover_image_url,
-    recommended_by_email: null,
-    recommended_by_label: AI_RECOMMENDER_LABEL,
-    recommendation_note: rec.rationale,
-  });
+  const { data: queued, error: bookError } = await client
+    .from("reading_books")
+    .insert({
+      user_id: userId,
+      title: rec.title,
+      author: rec.author,
+      total_pages: rec.total_pages,
+      current_page: 0,
+      status: "queued",
+      cover_image_url: rec.cover_image_url,
+      recommended_by_email: null,
+      recommended_by_label: AI_RECOMMENDER_LABEL,
+      recommendation_note: rec.rationale,
+    })
+    .select("id")
+    .single();
   if (bookError) throw new Error(bookError.message);
+
+  after(() =>
+    categorizeBook(client, {
+      id: queued.id,
+      title: rec.title,
+      author: rec.author,
+    })
+  );
 
   const { error } = await client
     .from("reading_recommendations")
@@ -297,19 +311,31 @@ export async function rateRecommendation(
   const today = localDate(new Date(), tz);
 
   const finished = ratingImpliesFinished(rating);
-  const { error: bookError } = await client.from("reading_books").insert({
-    user_id: userId,
-    title: rec.title,
-    author: rec.author,
-    total_pages: rec.total_pages,
-    current_page: finished ? rec.total_pages ?? 0 : 0,
-    status: "archive",
-    cover_image_url: rec.cover_image_url,
-    finished_at: finished ? today : null,
-    rating,
-    rated_at: today,
-  });
+  const { data: archived, error: bookError } = await client
+    .from("reading_books")
+    .insert({
+      user_id: userId,
+      title: rec.title,
+      author: rec.author,
+      total_pages: rec.total_pages,
+      current_page: finished ? rec.total_pages ?? 0 : 0,
+      status: "archive",
+      cover_image_url: rec.cover_image_url,
+      finished_at: finished ? today : null,
+      rating,
+      rated_at: today,
+    })
+    .select("id")
+    .single();
   if (bookError) throw new Error(bookError.message);
+
+  after(() =>
+    categorizeBook(client, {
+      id: archived.id,
+      title: rec.title,
+      author: rec.author,
+    })
+  );
 
   const { error } = await client
     .from("reading_recommendations")

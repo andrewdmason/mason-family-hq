@@ -159,6 +159,71 @@ BEGIN
     SET rated_at = COALESCE(finished_at, created_at::date)
     WHERE rating IS NOT NULL AND rated_at IS NULL;
 
+  -- What kind of book each one is (00177). Stamped here rather than inline in the
+  -- INSERTs above, which mirrors how the app actually does it: a book is saved
+  -- first and classified straight after, whichever of the six add paths created
+  -- it. `genre_source = 'ai'` is what the backfill script checks, so seeded rows
+  -- read as classifier output rather than hand corrections.
+  --
+  -- The spread is deliberate: eleven of the seventeen genres, both sides of the
+  -- fiction line, and enough books per bucket that grouping the archive by genre
+  -- shows something. Sebastian's shelf is almost entirely middle grade, which is
+  -- what makes his Genre filter look different from Andrew's.
+  --
+  -- Note the two flags are set independently. `fiction` is the descriptive answer
+  -- and the one the reader chat branches on; `spoiler_free` is the more cautious
+  -- default seeding each new chat, and stays protective unless we positively know
+  -- a book is non-fiction — so an unclassified book keeps it on.
+  UPDATE reading_books AS b
+    SET fiction = c.fiction,
+        genre = c.genre,
+        genre_source = 'ai',
+        spoiler_free = c.fiction IS DISTINCT FROM false
+    FROM (VALUES
+      -- Currently reading
+      (andrew_book,    true,  'literary_fiction'),
+      (sebastian_book, true,  'middle_grade_ya'),
+      -- Andrew's finished shelf
+      ('a0000003-0001-4001-8001-000000000002'::uuid, false, 'business_leadership'),
+      ('a0000003-0001-4001-8001-000000000003'::uuid, true,  'literary_fiction'),
+      ('a0000003-0001-4001-8001-000000000004'::uuid, true,  'literary_fiction'),
+      ('a0000003-0001-4001-8001-000000000005'::uuid, true,  'science_fiction'),
+      ('a0000003-0001-4001-8001-000000000006'::uuid, true,  'science_fiction'),
+      ('a0000003-0001-4001-8001-000000000007'::uuid, true,  'science_fiction'),
+      -- Andrew's broader history
+      ('a0000003-0001-4001-8001-000000000008'::uuid, false, 'science'),
+      ('a0000003-0001-4001-8001-000000000009'::uuid, false, 'psychology_self'),
+      ('a0000003-0001-4001-8001-000000000010'::uuid, true,  'science_fiction'),
+      ('a0000003-0001-4001-8001-000000000011'::uuid, true,  'literary_fiction'),
+      ('a0000003-0001-4001-8001-000000000012'::uuid, true,  'literary_fiction'),
+      ('a0000003-0001-4001-8001-000000000013'::uuid, true,  'literary_fiction'),
+      ('a0000003-0001-4001-8001-000000000014'::uuid, true,  'literary_fiction'),
+      ('a0000003-0001-4001-8001-000000000015'::uuid, true,  'literary_fiction'),
+      ('a0000003-0001-4001-8001-000000000016'::uuid, true,  'literary_fiction'),
+      ('a0000003-0001-4001-8001-000000000017'::uuid, true,  'fantasy'),
+      ('a0000003-0001-4001-8001-000000000018'::uuid, true,  'science_fiction'),
+      ('a0000003-0001-4001-8001-000000000019'::uuid, true,  'literary_fiction'),
+      ('a0000003-0001-4001-8001-000000000020'::uuid, true,  'literary_fiction'),
+      ('a0000003-0001-4001-8001-000000000021'::uuid, true,  'classics'),
+      ('a0000003-0001-4001-8001-000000000022'::uuid, true,  'short_stories'),
+      ('a0000003-0001-4001-8001-000000000023'::uuid, true,  'short_stories'),
+      ('a0000003-0001-4001-8001-000000000024'::uuid, false, 'health_mortality'),
+      -- Autofiction: a life told as a novel. Filed as memoir per the taxonomy's
+      -- own note, and marked non-fiction — a defensible call rather than an
+      -- obvious one, which is exactly why the edit dialog can override it.
+      ('a0000003-0001-4001-8001-000000000025'::uuid, false, 'biography_memoir'),
+      ('a0000003-0001-4001-8001-000000000026'::uuid, true,  'science_fiction'),
+      -- Sebastian's queue and history
+      ('a0000003-0004-4001-8001-000000000002'::uuid, true,  'science_fiction'),
+      ('a0000003-0004-4001-8001-000000000003'::uuid, true,  'middle_grade_ya'),
+      ('a0000003-0004-4001-8001-000000000004'::uuid, true,  'middle_grade_ya'),
+      ('a0000003-0004-4001-8001-000000000005'::uuid, true,  'middle_grade_ya'),
+      ('a0000003-0004-4001-8001-000000000006'::uuid, true,  'middle_grade_ya'),
+      ('a0000003-0004-4001-8001-000000000007'::uuid, true,  'fantasy'),
+      ('a0000003-0004-4001-8001-000000000008'::uuid, true,  'middle_grade_ya')
+    ) AS c(id, fiction, genre)
+    WHERE b.id = c.id;
+
   -- Baseline check-ins (page at the start of the week) for the active books.
   INSERT INTO reading_checkins (user_id, book_id, checked_on, page) VALUES
     (andrew, andrew_book, baseline, 0),
