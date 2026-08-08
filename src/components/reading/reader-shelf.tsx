@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { ChevronRight } from "lucide-react";
 import { AppHeaderContent } from "@/components/layout/app-header";
 import { ArticleCard } from "@/components/reading/article-card";
@@ -8,30 +8,28 @@ import { QueueList } from "@/components/reading/queue-list";
 import { QueueRecommendations } from "@/components/reading/queue-recommendations";
 import { ReaderBookTile } from "@/components/reading/reader-book-tile";
 import { RATING_OPTIONS } from "@/components/reading/rating-picker";
+import { ShelfDisplayMenu } from "@/components/reading/shelf-display-menu";
 import { READING_STATUSES } from "@/lib/reading/status";
+import {
+  defaultView,
+  filterBooks,
+  groupBooks,
+  isDefaultView,
+  shelfViewStore,
+  type ShelfRating,
+  type ShelfView,
+} from "@/lib/reading/shelf-view";
 import { cn } from "@/lib/utils";
 import type {
   ReadingBookStatus,
   ReadingBookWithProgress,
-  ReadingRating,
   ReadingRecommendation,
 } from "@/lib/types";
 
 /** Reading and Queue are always offered, so an empty queue is still reachable. */
 const ALWAYS_SHOWN: ReadingBookStatus[] = ["in_progress", "queued"];
 
-/** How the archive stacks up: unrated first (a nudge to rate), then best to
- * worst, with "didn't finish" at the bottom. */
-const RATING_GROUPS: (ReadingRating | "unrated")[] = [
-  "unrated",
-  "loved",
-  "liked",
-  "neutral",
-  "disliked",
-  "didnt_finish",
-];
-
-function groupHeading(group: ReadingRating | "unrated"): string {
+function groupHeading(group: ShelfRating): string {
   if (group === "unrated") return "Unrated";
   const option = RATING_OPTIONS.find((o) => o.value === group);
   const glyph = option?.emoji ?? option?.chip ?? "";
@@ -61,6 +59,11 @@ function emptyMessage(tab: ReadingBookStatus): string {
  * make a decision rather than to find something you already know, so it's a ranked
  * list carrying each book's reason for being there. Covers are for recognising a
  * book; rows are for comparing them.
+ *
+ * How a tab is arranged is yours to set, behind the display button: the archive is
+ * a hundred covers, and grouping it by verdict is one good answer rather than the
+ * only one. Preferences are kept per tab — what you want from the archive is
+ * rarely what you want from a four-book queue.
  */
 export function ReaderShelf({
   books,
@@ -80,11 +83,8 @@ export function ReaderShelf({
 }) {
   const [pausedOpen, setPausedOpen] = useState(false);
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = {};
-    for (const b of books) c[b.status] = (c[b.status] ?? 0) + 1;
-    return c;
-  }, [books]);
+  const counts: Record<string, number> = {};
+  for (const b of books) counts[b.status] = (counts[b.status] ?? 0) + 1;
 
   const tabs = READING_STATUSES.filter(
     (s) =>
@@ -99,11 +99,61 @@ export function ReaderShelf({
     ? active
     : (tabs[0]?.value ?? "in_progress");
 
-  const visible = books.filter((b) => b.status === activeTab);
-  const visibleBooks = visible.filter((b) => (b.type ?? "book") === "book");
-  const visibleArticles = visible.filter((b) => b.type === "article");
+  // Subscribed rather than copied into state on mount, so the server renders the
+  // defaults without a hydration mismatch and a second tab stays in step.
+  const views = useSyncExternalStore(
+    shelfViewStore.subscribe,
+    shelfViewStore.getSnapshot,
+    shelfViewStore.getServerSnapshot
+  );
+  const view = views[activeTab] ?? defaultView(activeTab);
+  const setView = (next: ShelfView) =>
+    shelfViewStore.set({ ...views, [activeTab]: next });
+
+  const inTab = books.filter((b) => b.status === activeTab);
+  const tabBooks = inTab.filter((b) => (b.type ?? "book") === "book");
+
+  // Counted before filtering, so a chip always shows how many books it would
+  // bring back rather than how many survive the filters already applied.
+  const genreCounts = new Map<string, number>();
+  const ratingCounts = new Map<string, number>();
+  for (const b of tabBooks) {
+    if (b.genre) genreCounts.set(b.genre, (genreCounts.get(b.genre) ?? 0) + 1);
+    const rated = b.rating ?? "unrated";
+    ratingCounts.set(rated, (ratingCounts.get(rated) ?? 0) + 1);
+  }
+
+  const visibleBooks = filterBooks(tabBooks, view);
+  const groups = groupBooks(visibleBooks, view.groupBy, groupHeading);
+
+  // Articles have no cover, no genre and no rating, so outside the Queue they sit
+  // apart from the grouping — the text search is the only display option that
+  // reaches them, since that's the one you'd use to find a saved page again.
+  const visibleArticles = filterBooks(
+    inTab.filter((b) => b.type === "article"),
+    { ...defaultView(activeTab), query: view.query }
+  );
+
+  // The Queue keeps books and articles in one hand-ranked list, so it filters as
+  // one. A genre or rating filter drops articles, which is honest — they have
+  // neither — but a plain search still reaches them.
+  const visibleQueue = filterBooks(inTab, view);
+
   const pausedBooks = books.filter(
     (b) => b.status === "paused" && (b.type ?? "book") === "book"
+  );
+
+  const displayMenu = (
+    <ShelfDisplayMenu
+      view={view}
+      onChange={setView}
+      tab={activeTab}
+      genreCounts={genreCounts}
+      ratingCounts={ratingCounts}
+      // A hand-ranked queue has one order and it's yours. Offering to regroup it
+      // would bury the ranking the whole tab exists to let you set.
+      showGrouping={activeTab !== "queued"}
+    />
   );
 
   /* Which shelf you're on belongs in the chrome, next to the app's name — the
@@ -136,9 +186,14 @@ export function ReaderShelf({
           </button>
         ))}
       </nav>
-      {actions && (
-        <div className="ml-auto flex items-center gap-2">{actions}</div>
-      )}
+      <div className="ml-auto flex items-center gap-2">
+        {/* Travels with the tabs it belongs to, and only on the layout that has
+            them up here — the narrow shelf carries its own below. */}
+        {books.length > 0 && (
+          <span className="hidden sm:flex">{displayMenu}</span>
+        )}
+        {actions}
+      </div>
     </AppHeaderContent>
   );
 
@@ -154,11 +209,17 @@ export function ReaderShelf({
     );
   }
 
+  const nothingShown =
+    activeTab === "queued"
+      ? visibleQueue.length === 0
+      : visibleBooks.length === 0 && visibleArticles.length === 0;
+  const untouched = isDefaultView(view, activeTab);
+
   return (
     <div className="mt-5 sm:mt-0">
       {header}
 
-      <div className="flex flex-wrap gap-1.5 border-b border-border pb-3 sm:hidden">
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-border pb-3 sm:hidden">
         {tabs.map((t) => (
           <button
             key={t.value}
@@ -175,6 +236,7 @@ export function ReaderShelf({
             <span className="ml-1.5 tabular-nums opacity-70">{t.count}</span>
           </button>
         ))}
+        {displayMenu}
       </div>
 
       {activeTab === "queued" && (
@@ -185,10 +247,12 @@ export function ReaderShelf({
         />
       )}
 
-      {visible.length === 0 ? (
-        activeTab === "queued" ? null : (
+      {nothingShown ? (
+        activeTab === "queued" && untouched ? null : (
           <p className="mt-4 rounded-lg border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
-            {emptyMessage(activeTab)}
+            {untouched
+              ? emptyMessage(activeTab)
+              : "Nothing matches. Try clearing a filter."}
           </p>
         )
       ) : activeTab === "queued" ? (
@@ -196,14 +260,26 @@ export function ReaderShelf({
            drag rather than a grid of covers: each row argues for its book, and
            articles take their place in the same order instead of being exiled
            below the grid for want of cover art. */
-        <QueueList books={visible} />
+        <QueueList books={visibleQueue} />
       ) : (
         <>
           {visibleBooks.length > 0 &&
-            (activeTab === "archive" ? (
-              <ArchiveGroups books={visibleBooks} />
+            (groups.length === 1 && !groups[0].heading ? (
+              <BookGrid books={groups[0].books} className="mt-5" />
             ) : (
-              <BookGrid books={visibleBooks} className="mt-5" />
+              <div className="mt-5 flex flex-col gap-8">
+                {groups.map((group) => (
+                  <section key={group.key}>
+                    <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
+                      <span>{group.heading}</span>
+                      <span className="tabular-nums text-xs text-muted-foreground">
+                        {group.books.length}
+                      </span>
+                    </h2>
+                    <BookGrid books={group.books} />
+                  </section>
+                ))}
+              </div>
             ))}
           {visibleArticles.length > 0 && (
             <div className="mt-5 space-y-3">
@@ -240,36 +316,6 @@ export function ReaderShelf({
           {pausedOpen && <BookGrid books={pausedBooks} className="mt-4" />}
         </div>
       )}
-    </div>
-  );
-}
-
-/** The archive, still stacked by your verdict — it's how you find a book you
- * loved, and what "Copy books as markdown" pastes into a chatbot. */
-function ArchiveGroups({ books }: { books: ReadingBookWithProgress[] }) {
-  const byGroup = new Map<ReadingRating | "unrated", ReadingBookWithProgress[]>();
-  for (const book of books) {
-    const key = book.rating ?? "unrated";
-    (byGroup.get(key) ?? byGroup.set(key, []).get(key)!).push(book);
-  }
-
-  return (
-    <div className="mt-5 flex flex-col gap-8">
-      {RATING_GROUPS.map((group) => {
-        const groupBooks = byGroup.get(group);
-        if (!groupBooks || groupBooks.length === 0) return null;
-        return (
-          <section key={group}>
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
-              <span>{groupHeading(group)}</span>
-              <span className="tabular-nums text-xs text-muted-foreground">
-                {groupBooks.length}
-              </span>
-            </h2>
-            <BookGrid books={groupBooks} />
-          </section>
-        );
-      })}
     </div>
   );
 }

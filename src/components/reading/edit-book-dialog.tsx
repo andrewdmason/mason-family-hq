@@ -34,7 +34,24 @@ import {
 } from "@/components/reading/change-location-dialog";
 import { RatingPicker } from "@/components/reading/rating-picker";
 import { READING_STATUSES, readingStatusLabel } from "@/lib/reading/status";
+import {
+  READING_GENRES,
+  genreLabel,
+  type ReadingGenre,
+} from "@/lib/reading/book-genres";
+import { cn } from "@/lib/utils";
 import type { ReadingBook, ReadingBookStatus, ReadingRating } from "@/lib/types";
+
+/** The fiction switch, as three explicit states — "unclear" is a real answer. */
+const FICTION_CHOICES: { value: "fiction" | "nonfiction" | "unclear"; label: string }[] = [
+  { value: "fiction", label: "Fiction" },
+  { value: "nonfiction", label: "Nonfiction" },
+  { value: "unclear", label: "Unclear" },
+];
+
+function fictionChoice(fiction: boolean | null): "fiction" | "nonfiction" | "unclear" {
+  return fiction === true ? "fiction" : fiction === false ? "nonfiction" : "unclear";
+}
 
 export function EditBookDialog({
   book,
@@ -79,6 +96,8 @@ export function EditBookDialog({
   );
   const [status, setStatus] = useState<ReadingBookStatus>(book.status);
   const [rating, setRating] = useState<ReadingRating | null>(book.rating);
+  const [fiction, setFiction] = useState(fictionChoice(book.fiction));
+  const [genre, setGenre] = useState<ReadingGenre | "">(book.genre ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -90,6 +109,8 @@ export function EditBookDialog({
     setTargetPage(book.target_page != null ? String(book.target_page) : "");
     setStatus(book.status);
     setRating(book.rating);
+    setFiction(fictionChoice(book.fiction));
+    setGenre(book.genre ?? "");
     setError(null);
   }
 
@@ -126,6 +147,8 @@ export function EditBookDialog({
     // Chapter books: only send current_page when the picker actually moved — the
     // preselected chapter's end page can sit behind a reader who's mid-chapter, so
     // sending it on an unrelated edit would quietly rewind them.
+    const categoryChanged =
+      fiction !== fictionChoice(book.fiction) || genre !== (book.genre ?? "");
     const currentPagePatch = chapterOptions
       ? locationValue !== initialLocation
         ? { currentPage: locationToPage(chapterOptions, locationValue) }
@@ -143,6 +166,15 @@ export function EditBookDialog({
             : {}),
           status,
           rating: status === "archive" ? rating : null,
+          // Only sent when actually changed: sending them on an unrelated edit
+          // would stamp the book as hand-classified and freeze out the backfill.
+          ...(categoryChanged
+            ? {
+                fiction:
+                  fiction === "fiction" ? true : fiction === "nonfiction" ? false : null,
+                genre: genre || null,
+              }
+            : {}),
           memberEmail,
         });
         setOpen(false);
@@ -273,6 +305,50 @@ export function EditBookDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label>Kind</Label>
+              <div className="inline-flex h-9 items-center rounded-lg bg-muted/60 p-0.5">
+                {FICTION_CHOICES.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => setFiction(c.value)}
+                    aria-pressed={fiction === c.value}
+                    className={cn(
+                      "flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                      fiction === c.value
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="edit-book-genre">Genre</Label>
+              <Select
+                value={genre || "none"}
+                onValueChange={(v) => setGenre(v === "none" ? "" : (v as ReadingGenre))}
+              >
+                <SelectTrigger id="edit-book-genre" className="w-full">
+                  <SelectValue>
+                    {genre ? genreLabel(genre) : "Uncategorized"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Uncategorized</SelectItem>
+                  {READING_GENRES.map((g) => (
+                    <SelectItem key={g.value} value={g.value}>
+                      {g.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           {status === "archive" && (
             <div className="grid gap-1.5">

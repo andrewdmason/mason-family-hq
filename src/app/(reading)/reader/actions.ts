@@ -2,6 +2,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -10,6 +11,8 @@ import {
   lookupBookByTitle,
   type BookLookupResult,
 } from "@/lib/reading/book-lookup";
+import { categorizeBook, spoilerDefaultFor } from "@/lib/reading/categorize";
+import type { ReadingGenre } from "@/lib/reading/book-genres";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import type { ResumeCandidate } from "@/lib/reading/last-place";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
@@ -45,8 +48,11 @@ import type {
   ReadingTocEntry,
 } from "@/lib/types";
 
+// Every column ReadingBook declares. The two must stay in step: the rows are
+// cast straight to ReadingBook, so a field in the type but not in this list is a
+// silent `undefined` at runtime.
 const BOOK_COLUMNS =
-  "id, user_id, type, title, author, source_url, site_name, excerpt, word_count, total_pages, current_page, target_page, target_locked, target_due, target_chapter, status, cover_image_url, openlibrary_key, isbn, published_year, started_at, finished_at, rating, recommended_by_email, recommended_by_label, recommendation_note, sort_order, created_at, updated_at";
+  "id, user_id, type, title, author, source_url, site_name, excerpt, word_count, total_pages, current_page, target_page, target_locked, target_due, target_chapter, status, cover_image_url, openlibrary_key, isbn, published_year, fiction, genre, genre_source, genres, spoiler_free, started_at, finished_at, rating, rated_at, recommended_by_email, recommended_by_label, recommendation_note, sort_order, created_at, updated_at";
 
 function firstName(name: string | null | undefined, fallback: string): string {
   return name?.trim().split(/\s+/)[0] || fallback;
@@ -141,25 +147,38 @@ export async function recommendBook(input: {
   const totalPages =
     input.totalPages != null && input.totalPages > 0 ? input.totalPages : null;
 
-  const { error } = await admin.from("reading_books").insert({
-    user_id: recipient.user_id,
-    title,
-    author: input.author?.trim() || null,
-    total_pages: totalPages,
-    current_page: 0,
-    status: "queued",
-    cover_image_url: input.coverImageUrl ?? null,
-    openlibrary_key: input.openlibraryKey?.trim() || null,
-    isbn: input.isbn?.trim() || null,
-    published_year:
-      input.publishedYear != null && input.publishedYear > 0
-        ? input.publishedYear
-        : null,
-    recommended_by_email: fromEmail,
-    recommended_by_label: label,
-    recommendation_note: input.note?.trim() || null,
-  });
+  const recommendedAuthor = input.author?.trim() || null;
+  const { data: recommended, error } = await admin
+    .from("reading_books")
+    .insert({
+      user_id: recipient.user_id,
+      title,
+      author: recommendedAuthor,
+      total_pages: totalPages,
+      current_page: 0,
+      status: "queued",
+      cover_image_url: input.coverImageUrl ?? null,
+      openlibrary_key: input.openlibraryKey?.trim() || null,
+      isbn: input.isbn?.trim() || null,
+      published_year:
+        input.publishedYear != null && input.publishedYear > 0
+          ? input.publishedYear
+          : null,
+      recommended_by_email: fromEmail,
+      recommended_by_label: label,
+      recommendation_note: input.note?.trim() || null,
+    })
+    .select("id")
+    .single();
   if (error) throw new Error(error.message);
+
+  after(() =>
+    categorizeBook(admin, {
+      id: recommended.id,
+      title,
+      author: recommendedAuthor,
+    })
+  );
   revalidatePath("/reader");
 }
 
@@ -348,14 +367,15 @@ export async function addBook(input: {
   isbn?: string | null;
   publishedYear?: number | null;
   rating?: ReadingRating | null;
-  /** Genre labels from the AI lookup; informational. */
+  /** Free-text genre labels from the AI lookup; informational. */
   genres?: string[] | null;
   /**
-   * Whether this is fiction, from the AI lookup. Seeds spoiler_free for reader
-   * chat: a novel is worth protecting from spoilers, a reference book generally
-   * isn't. Unknown (null) means spoiler_free off — the reader can flip it.
+   * Whether this is fiction, when the AI lookup already resolved it. Null (the
+   * typeahead and manual paths) means the post-save classifier answers instead.
    */
   fiction?: boolean | null;
+  /** The taxonomy genre, when the AI lookup already resolved it. */
+  genre?: ReadingGenre | null;
   memberEmail?: string | null;
 }): Promise<void> {
   const { client, userId, email } = await resolveReadingScope(input.memberEmail);
@@ -416,11 +436,10 @@ export async function addBook(input: {
       isbn,
       published_year: publishedYear,
       genres: input.genres ?? null,
-      // Protected unless we positively know it's non-fiction. The typeahead add
-      // path carries no fiction signal at all, so `=== true` would leave most
-      // books unprotected; the harm is asymmetric (a spoiled novel can't be
-      // un-spoiled, an over-narrow non-fiction chat is one toggle away).
-      spoiler_free: input.fiction !== false,
+      fiction: input.fiction ?? null,
+      genre: input.genre ?? null,
+      genre_source: input.genre ? "ai" : null,
+      spoiler_free: spoilerDefaultFor(input.fiction ?? null),
       started_at: status === "in_progress" ? today : null,
       finished_at: finished ? today : null,
       rating,
@@ -429,6 +448,21 @@ export async function addBook(input: {
     .select("id")
     .single();
   if (error) throw new Error(error.message);
+
+  // Classify after the response, so the add returns as soon as the book is saved
+  // and every entry path gets categorised — five of the six never touch the AI
+  // lookup that would otherwise be the only source of these fields. Skipped when
+  // the lookup already answered both questions.
+  if (input.fiction == null || !input.genre) {
+    const bookId = book.id;
+    after(() =>
+      categorizeBook(
+        client,
+        { id: bookId, title, author },
+        { fiction: input.fiction, genre: input.genre }
+      )
+    );
+  }
 
   // Anchor weekly progress for active books: a baseline check-in at the start of
   // this week so the first real check-in counts from page 0, not from itself.
@@ -459,6 +493,9 @@ export async function updateBook(
     /** Why this book is in your queue. Starts as the recommender's rationale or
      * the note a family member sent it with, and is yours to rewrite from there. */
     recommendationNote?: string | null;
+    /** A hand correction to the classifier. Sending either stamps genre_source. */
+    fiction?: boolean | null;
+    genre?: ReadingGenre | null;
     memberEmail?: string | null;
   }
 ): Promise<void> {
@@ -497,6 +534,17 @@ export async function updateBook(
   }
   if (input.recommendationNote !== undefined) {
     update.recommendation_note = input.recommendationNote?.trim() || null;
+  }
+  // A hand-set category outranks the classifier for good: genre_source is what
+  // the backfill checks before overwriting, so stamping it here is what makes a
+  // correction survive the next re-run.
+  if (input.fiction !== undefined || input.genre !== undefined) {
+    if (input.fiction !== undefined) {
+      update.fiction = input.fiction;
+      update.spoiler_free = spoilerDefaultFor(input.fiction);
+    }
+    if (input.genre !== undefined) update.genre = input.genre;
+    update.genre_source = "manual";
   }
 
   let startedReading = false;

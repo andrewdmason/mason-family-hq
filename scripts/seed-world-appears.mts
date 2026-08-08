@@ -143,6 +143,13 @@ async function main() {
     target_page: targetPage,
     target_due: targetPage != null ? nextFriday() : null,
     started_at: weekStart(),
+    // Non-fiction, so the margin chat reads it as a case to test rather than a
+    // story to protect — this is the book a local reader session actually opens,
+    // which makes it the one that exercises that branch. spoiler_free agrees:
+    // it's the default a positively-non-fiction book gets (see categorize.ts).
+    fiction: false,
+    genre: "science",
+    genre_source: "ai",
     spoiler_free: false,
     cover_image_url: null,
   });

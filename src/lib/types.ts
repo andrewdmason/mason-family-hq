@@ -1,4 +1,5 @@
 import type { CategoryContextSpec } from "@/lib/journal/question-sources";
+import type { ReadingGenre } from "@/lib/reading/book-genres";
 
 // Enums matching database
 export type PieceStatus = "active" | "upcoming" | "archived";
@@ -928,10 +929,31 @@ export type ReadingBook = {
   isbn: string | null;
   /** First publication year, for display and sorting. */
   published_year: number | null;
+  /**
+   * Whether this is a work of fiction. Null means genuinely unclear (autofiction,
+   * a myth retold) — a real state, not "not yet classified". This is the signal
+   * the reader chat branches on; `spoiler_free` below is a separate, deliberately
+   * more cautious flag and is not interchangeable with it.
+   */
+  fiction: boolean | null;
+  /** One genre from the fixed taxonomy in lib/reading/book-genres.ts. */
+  genre: ReadingGenre | null;
+  /** Who set the genre: 'ai' from the classifier, 'manual' from a hand edit. */
+  genre_source: "ai" | "manual" | null;
+  /** Free-text genre labels from the AI lookup; informational, not filtered on. */
+  genres: string[] | null;
+  /**
+   * Seeds the frozen spoiler boundary of each NEW reader chat. Stays protective
+   * unless we positively know the book is non-fiction. Flipping it never rewrites
+   * existing chats.
+   */
+  spoiler_free: boolean;
   started_at: string | null;
   finished_at: string | null;
   /** The member's emoji rating, once they've read it. Null until rated. */
   rating: ReadingRating | null;
+  /** The day the rating was set. Null while unrated. */
+  rated_at: string | null;
   /** Set when another member added this book to your list as a recommendation. */
   recommended_by_email: string | null;
   /** How to show the recommender — "Dad", "Mom", or their first name. */

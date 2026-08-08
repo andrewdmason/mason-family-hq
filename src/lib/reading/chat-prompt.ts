@@ -353,6 +353,15 @@ export type ReaderChatPromptInput = {
    * like one. Spoiler-scoped chats get only the chapters inside their boundary.
    */
   chapters: ChapterIndexEntry[];
+  /**
+   * Whether this book is a story. Null when nothing has classified it yet, which
+   * is a real state and gets no branch at all — a companion that guesses wrong
+   * about what kind of book it's in is worse than one that stays neutral.
+   *
+   * Distinct from `spoilerFree` below, which is about this CHAT's boundary rather
+   * than the book's kind. The two used to be the same field and it went badly.
+   */
+  fiction: boolean | null;
   /** True when this chat is spoiler-scoped. */
   spoilerFree: boolean;
   /** The page the scope ends at, when known. */
@@ -571,6 +580,36 @@ export function buildReaderChatSystem(
       "Ground your answer in the book text provided below. Where the text " +
         "doesn't settle a question you can still say what you make of it — " +
         "just be brief and say which it is."
+    );
+  }
+
+  // What KIND of book this is. A good answer about a novel and a good answer
+  // about an argument are different objects, and until this landed the chat had
+  // no idea which it was in — so a question about a business book got answered
+  // in the vocabulary of craft, and a question about a novel got the treatment
+  // usually reserved for a claim.
+  //
+  // Only fiction/non-fiction, deliberately, and never the genre. Handing the
+  // model twenty genre labels invites it to perform the genre — to write about a
+  // thriller thrillingly — which is a worse failure than the one being fixed.
+  // An unclassified book gets neither branch: silence beats a wrong guess.
+  if (input.fiction === true) {
+    rules.push(
+      "This is a STORY. What's worth saying about it lives in the writing and " +
+        "the making: what a character wants and won't admit, what a scene is " +
+        "doing that its surface isn't, why it's built in this order, what the " +
+        "author is doing to you and how. Treat the book as something made, not " +
+        "as something asserting things — a novel has no thesis to agree with, " +
+        "and reading one for its message is how a good book becomes a dull one."
+    );
+  } else if (input.fiction === false) {
+    rules.push(
+      "This is NOT a story. It's making a case, so read it as one: what is " +
+        "actually being claimed here, what it rests on, whether the evidence " +
+        "bears the weight put on it, and where a careful reader would push " +
+        "back. Connect it to what else is known about the question — including " +
+        "who disagrees and why. Taking an argument seriously means being " +
+        "willing to find it unconvincing, so say when you do."
     );
   }
 
@@ -1153,7 +1192,7 @@ function webSearchRules(ctx: BookDocumentContext): string[] {
         "which, say nothing about it — a preface that quietly imports a " +
         "reviewer's account of the ending is the worst thing this can do."
     );
-    if (ctx.spoilerSensitive) {
+    if (ctx.isStory) {
       rules.push(
         "This one is a story, so almost nothing a search returns about it is " +
           "usable. Expect to find the plot and discard it. What survives is " +
@@ -1358,7 +1397,7 @@ export function buildBookDocumentSystem(
         "turns out to contain."
     );
 
-    if (ctx.spoilerSensitive) {
+    if (ctx.isStory) {
       rules.push(
         "This one is a story, so hold that line hard. Never reveal, hint at " +
           "or foreshadow anything that happens — not the plot, not a turn, " +
@@ -1482,7 +1521,7 @@ export function buildBookDocumentSystem(
           "what would make it worth the time, in their terms rather than " +
           "yours. Ground all of it in what they actually said — where they " +
           "said nothing, write less rather than inventing a motive for them." +
-          (ctx.spoilerSensitive
+          (ctx.isStory
             ? " Nothing about what happens in the book."
             : " One or two sentences on which of the questions this book takes " +
               "up bear on what they came for, and what it looks like it will " +
