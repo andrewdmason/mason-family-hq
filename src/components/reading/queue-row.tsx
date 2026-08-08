@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
@@ -20,6 +20,7 @@ import {
   useBookMenu,
 } from "@/components/reading/book-actions-menu";
 import { BookCover } from "@/components/reading/book-cover";
+import { InlineMarkdown } from "@/components/reading/inline-markdown";
 import { bookByline } from "@/lib/reading/byline";
 import { readerProgressPercent } from "@/components/reading/reader-book-tile";
 import { useShelfBooks } from "@/components/reading/shelf-books";
@@ -386,8 +387,11 @@ export function QueueRow({
  * the reason that until now only existed in your head and evaporated the moment
  * you closed the Add-a-book dialog.
  *
- * Never truncated. A queue of fifteen books is short enough to read, and the
- * argument for a book is the one thing on the row you came here for.
+ * Four lines at rest, and the rest a click away. The argument is the one thing
+ * on the row you came here for, so it isn't hidden behind a chevron — but a
+ * nine-line rationale pushes the next book off the screen, and a queue you have
+ * to scroll to compare stops being a list you can choose from. Four lines is
+ * enough for the verdict and the sentence that earns it.
  *
  * It's also where "Will I like this?" lands: the menu overwrites this line with
  * the AI's verdict, so a fresh read arrives in the place you were already
@@ -409,6 +413,12 @@ function QueueReason({
   const [note, setNote] = useState(book.recommendation_note ?? "");
   const [editing, setEditing] = useState(false);
   const [saving, startSave] = useTransition();
+  const [expanded, setExpanded] = useState(false);
+  // Whether the four-line clamp is actually cutting anything off. Measured
+  // rather than guessed from a character count: the same rationale is three
+  // lines on a desktop and seven on a phone.
+  const [clipped, setClipped] = useState(false);
+  const textRef = useRef<HTMLSpanElement>(null);
 
   // The server is the source of truth once a refresh brings something new back —
   // adopt it, unless the field is currently being typed into. Adjusted during
@@ -419,6 +429,20 @@ function QueueReason({
     setServerNote(book.recommendation_note);
     setNote(book.recommendation_note ?? "");
   }
+
+  // Only meaningful while clamped — expanded, the text always fits itself. So
+  // the measurement is skipped when open and the flag left standing, which is
+  // also what keeps "Less" on screen once you've clicked "More". Re-runs on
+  // width changes, since a window drag can turn six lines into three.
+  useEffect(() => {
+    const el = textRef.current;
+    if (!el || editing || expanded) return;
+    const measure = () => setClipped(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [note, editing, expanded]);
 
   function save() {
     setEditing(false);
@@ -475,23 +499,49 @@ function QueueReason({
   // The reason at rest. Hovering lifts a faint panel behind it — the hint that
   // this paragraph is a field, not a caption — and clicking puts the cursor in it.
   return (
-    <button
-      type="button"
-      onClick={() => setEditing(true)}
-      aria-label={note ? `Edit why ${book.title} is in your queue` : undefined}
-      className={cn(
-        "-mx-1 mt-1 block w-full rounded-md px-1 py-0.5 text-left text-xs leading-relaxed transition-colors hover:bg-accent/60",
-        note
-          ? "text-muted-foreground hover:text-foreground"
-          : // Nothing to say yet: present but almost silent, so a queue you never
-            // annotate doesn't look like a form you failed to fill in. It fades in
-            // on hover — but only where hovering exists, or on a phone it would be
-            // an invisible full-width tap target sitting in the middle of the row.
-            "text-muted-foreground/40 hover:text-muted-foreground focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        aria-label={note ? `Edit why ${book.title} is in your queue` : undefined}
+        className={cn(
+          "-mx-1 block w-full rounded-md px-1 py-0.5 text-left text-xs leading-relaxed transition-colors hover:bg-accent/60",
+          note
+            ? "text-muted-foreground hover:text-foreground"
+            : // Nothing to say yet: present but almost silent, so a queue you never
+              // annotate doesn't look like a form you failed to fill in. It fades in
+              // on hover — but only where hovering exists, or on a phone it would be
+              // an invisible full-width tap target sitting in the middle of the row.
+              "text-muted-foreground/40 hover:text-muted-foreground focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+        )}
+      >
+        {/* The clamp lives on the text itself rather than the button, so the
+            button keeps its own display and "Saving…" can't be what gets cut.
+            Line breaks are kept: a note typed as two paragraphs was written as
+            two paragraphs. */}
+        <span
+          ref={textRef}
+          className={cn(
+            "block whitespace-pre-line",
+            !expanded && "line-clamp-4"
+          )}
+        >
+          {note ? <InlineMarkdown text={note} /> : "Why this book?"}
+        </span>
+        {saving && <span className="text-muted-foreground/60">Saving…</span>}
+      </button>
+      {/* A sibling, not a child: a button inside a button is illegal, and this
+          one must not open the editor on its way to opening the paragraph. */}
+      {(clipped || expanded) && !!note && (
+        <button
+          type="button"
+          onClick={() => setExpanded((open) => !open)}
+          aria-expanded={expanded}
+          className="mt-0.5 text-[11px] font-medium text-muted-foreground/70 underline-offset-2 transition-colors hover:text-foreground hover:underline"
+        >
+          {expanded ? "Less" : "More"}
+        </button>
       )}
-    >
-      {note || "Why this book?"}
-      {saving && <span className="ml-1 text-muted-foreground/60">Saving…</span>}
-    </button>
+    </div>
   );
 }
