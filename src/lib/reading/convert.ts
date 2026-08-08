@@ -619,6 +619,26 @@ function stripLeadingTitle(blocks: Block[], title: string): Block[] {
   return blocks.slice(i);
 }
 
+/**
+ * Which of the nav entries landing on one block the book's own heading at that
+ * block is repeating — matched the way `stripLeadingTitle` matches, so "1" is
+ * recognised as the printed form of a nav entry called "Chapter 1".
+ *
+ * Falls back to the last entry, which is the innermost one and so the closest
+ * thing to a heading printed at that spot. Searches from the end for the same
+ * reason.
+ */
+function headingRepeats(entries: { title: string }[], text: string): number {
+  const printed = normalizeTitle(text);
+  if (printed) {
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const title = normalizeTitle(entries[i].title);
+      if (title && printed.length <= title.length && title.includes(printed)) return i;
+    }
+  }
+  return entries.length - 1;
+}
+
 /** A single table-of-contents entry: which spine file it lands in, the fragment
  *  id within that file (null = the file's start), its title, and how deeply the
  *  book's own contents nested it (1 = top level). */
@@ -935,6 +955,16 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
       wantedByFile.set(e.file, set);
     }
   }
+  // Files whose nav entry has entries nested inside it. These are the ones that
+  // must survive even when their page carries no text (see the spine walk): a
+  // missing leaf is a missing row, but a missing parent orphans everything it
+  // contained.
+  const parentNavFiles = new Set<string>();
+  for (let i = 0; i + 1 < navEntries.length; i++) {
+    if (navEntries[i + 1].depth > navEntries[i].depth) {
+      parentNavFiles.add(navEntries[i].file);
+    }
+  }
 
   const blocks: Block[] = [];
   const marks: EpubMark[] = [];
@@ -960,8 +990,19 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
     const kept = navTitle ? stripLeadingTitle(fileBlocks, navTitle) : fileBlocks;
 
     // Skip empty front matter (e.g. an image-only cover) so it doesn't litter
-    // the TOC with contentless sections.
-    if (!kept.some((b) => b.kind === "para")) continue;
+    // the TOC with contentless sections — but never let that swallow a part
+    // divider, whose page is legitimately nothing but the part's own name over
+    // an ornament. Dropping one of those doesn't just lose a row: the chapters
+    // inside it keep the nesting the nav gave them with no parent left to sit
+    // under, and slide inside whatever heading happens to precede them — which
+    // is how a book's twenty-three chapters end up filed under its prologue.
+    //
+    // The divider contributes no text; it just needs a place, and the start of
+    // the first chapter inside it is exactly where a reader expects to see it.
+    if (!kept.some((b) => b.kind === "para")) {
+      if (parentNavFiles.has(path)) fileFirstIndex.set(path, blocks.length);
+      continue;
+    }
 
     const dropped = fileBlocks.length - kept.length;
     const base = blocks.length;
@@ -1075,19 +1116,35 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
       openPage = { pageNumber: pageNum, charStart: charCursor };
     }
     const block = blocks[i];
-    // Inject chapter headings from the nav here — but not when this block is
-    // itself a real heading (a semantic <h*>), which becomes the entry instead,
-    // to avoid a doubled title.
+    // Inject chapter headings from the nav here — but not the one this block is
+    // itself a real heading (a semantic <h*>) for, which becomes the entry
+    // instead, to avoid a doubled title.
     const injected = navByBlock.get(i);
     if (injected && block.kind !== "heading") {
       for (const nv of injected) pushHeading(nv.title, nv.level, nv.depth);
     }
     if (block.kind === "heading") {
-      // The nav entry at this spot was suppressed in favour of the book's own
-      // heading, but it described the same place in the contents — so its depth
-      // still applies. Without this, a chapter whose file opens with a real <h*>
-      // would lose the nesting its siblings keep.
-      pushHeading(block.text, block.level, injected?.[0]?.depth);
+      // Only ONE of the entries landing here is the same place as the book's own
+      // heading; the rest — a part divider whose page carried no text of its
+      // own, a chapter whose fragment resolved to this same spot — are still
+      // rows in the contents, and are printed around it in nav order rather
+      // than dropped. Suppressing the lot is what made a part divider vanish a
+      // second time after the walk above went to the trouble of keeping it.
+      const own = injected ? headingRepeats(injected, block.text) : -1;
+      if (injected) {
+        for (let k = 0; k < own; k++) {
+          pushHeading(injected[k].title, injected[k].level, injected[k].depth);
+        }
+      }
+      // The suppressed entry described this place, so its depth still applies.
+      // Without it, a chapter whose file opens with a real <h*> would lose the
+      // nesting its siblings keep.
+      pushHeading(block.text, block.level, injected?.[own]?.depth);
+      if (injected) {
+        for (let k = own + 1; k < injected.length; k++) {
+          pushHeading(injected[k].title, injected[k].level, injected[k].depth);
+        }
+      }
     } else {
       htmlParts.push(`<p>${escapeHtml(block.text)}</p>`);
       advance(block.text);
