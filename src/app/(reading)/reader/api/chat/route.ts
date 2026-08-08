@@ -4,6 +4,8 @@ import { anthropic } from "@/lib/journal/anthropic";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { getTextForRange } from "@/lib/reading/extract-text";
 import { getBookPreface } from "@/lib/reading/book-document-context";
+import { gatherReaderProfile } from "@/lib/reading/reader-profile";
+import { todayLocal } from "@/lib/journal/today";
 import { resolveReaderPosition } from "@/lib/reading/reader-position";
 import {
   buildReaderChatSystem,
@@ -61,7 +63,7 @@ export async function POST(req: NextRequest) {
 
   // Member mode returns a service-role client that bypasses RLS, so every query
   // below filters by this userId explicitly.
-  const { client: db, userId } = await resolveReadingScope(body.memberEmail);
+  const { client: db, userId, email } = await resolveReadingScope(body.memberEmail);
 
   const { data: chatRaw } = await db
     .from("reading_annotations")
@@ -164,9 +166,17 @@ export async function POST(req: NextRequest) {
   // The one place the reader's stated intent travels to. An article can't have
   // a preface — there is no Contents to write one from — so this is a book-only
   // lookup, and null for the vast majority of books.
-  const readerIntent = isArticle
-    ? null
-    : await getBookPreface(db, userId, chat.book_id);
+  // Both of these are round trips that sit between the reader pressing send and
+  // the first token, so they go together rather than one after the other.
+  //
+  // The profile is who they are, so a name they drop mid-conversation resolves
+  // to somebody. Scoped to the book's OWNER, not the signed-in caller — in
+  // member mode those are different people, and the wrong one here is a parent's
+  // life turning up inside a kid's chat.
+  const [readerIntent, readerProfile] = await Promise.all([
+    isArticle ? null : getBookPreface(db, userId, chat.book_id),
+    todayLocal().then((today) => gatherReaderProfile(db, userId, email, today)),
+  ]);
 
   const system = buildReaderChatSystem({
     bookTitle: book.title as string,
@@ -181,6 +191,7 @@ export async function POST(req: NextRequest) {
     quotedText: chat.quoted_text,
     hasReaderNotes,
     readerIntent,
+    readerProfile,
   });
 
   const client = anthropic();
