@@ -190,7 +190,13 @@ export function useBookMenu({
         const result = await assessBookIntoNote(book.id, memberEmail);
         if (!result) {
           onError("Couldn't get a read on that one — try again.");
+          return;
         }
+        // The assessment has just overwritten the queue note on the server. If
+        // an edit of your own is still drawn over that line, let go of it — the
+        // answer you asked for would otherwise sit invisible behind a sentence
+        // you typed a second earlier, and the two would never agree.
+        shelf.releaseBook(book.id, ["recommendation_note"]);
       } catch (err) {
         onError(
           err instanceof Error ? err.message : "Couldn't assess that book."

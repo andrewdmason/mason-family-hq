@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import type { ReadingBookWithProgress } from "@/lib/types";
 
 /**
@@ -48,6 +48,11 @@ export type ShelfBooks = {
   patchBook: (id: string, patch: BookPatch) => UndoShelfChange;
   /** Take the book off the shelf now. */
   dropBook: (id: string) => UndoShelfChange;
+  /** Let go of what we drew for these fields, without putting anything in its
+   * place: something else has since written them, so the server's copy is the
+   * truth. Without this a change of your own would sit over the newer one and
+   * never settle, because the two will never agree. */
+  releaseBook: (id: string, fields: (keyof BookPatch)[]) => void;
   /** Say why a change didn't stick. The tile it belonged to may well be gone by
    * then (deleted, or moved to a shelf you're not looking at), so the message
    * belongs to the shelf rather than to any one book. */
@@ -60,6 +65,7 @@ const UNMANAGED: ShelfBooks = {
   managed: false,
   patchBook: () => () => {},
   dropBook: () => () => {},
+  releaseBook: () => {},
   fail: () => {},
 };
 
@@ -89,6 +95,18 @@ function landed(book: ReadingBookWithProgress, patch: BookPatch): boolean {
   return Object.entries(patch).every(
     ([field, value]) => book[field as keyof ReadingBookWithProgress] === value
   );
+}
+
+/** The same patch with these fields let go of — the book falls back to the
+ * server's copy of them. Returns null when nothing is left worth keeping. */
+function without(
+  patch: BookPatch | undefined,
+  fields: (keyof BookPatch)[]
+): BookPatch | null {
+  if (!patch) return null;
+  const kept = { ...patch };
+  for (const field of fields) delete kept[field];
+  return Object.keys(kept).length === 0 ? null : kept;
 }
 
 /**
@@ -139,6 +157,17 @@ export function useOptimisticShelf(books: ReadingBookWithProgress[]): {
       );
   }, [books, patches, dropped]);
 
+  const release = useCallback((id: string, fields: (keyof BookPatch)[]) => {
+    setPatches((prev) => {
+      if (!prev[id]) return prev;
+      const kept = without(prev[id], fields);
+      const next = { ...prev };
+      if (kept) next[id] = kept;
+      else delete next[id];
+      return next;
+    });
+  }, []);
+
   const optimistic = useMemo<ShelfBooks>(
     () => ({
       managed: true,
@@ -147,30 +176,19 @@ export function useOptimisticShelf(books: ReadingBookWithProgress[]): {
         setPatches((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
         // Undoing drops exactly the fields this write claimed, so the book falls
         // back to the server's copy of them rather than to a guess.
-        return () =>
-          setPatches((prev) => {
-            const current = prev[id];
-            if (!current) return prev;
-            const kept = { ...current };
-            for (const field of Object.keys(patch)) {
-              delete kept[field as keyof BookPatch];
-            }
-            const next = { ...prev };
-            if (Object.keys(kept).length === 0) delete next[id];
-            else next[id] = kept;
-            return next;
-          });
+        return () => release(id, Object.keys(patch) as (keyof BookPatch)[]);
       },
       dropBook(id) {
         setError(null);
         setDropped((prev) => (prev.includes(id) ? prev : [...prev, id]));
         return () => setDropped((prev) => prev.filter((gone) => gone !== id));
       },
+      releaseBook: release,
       fail(message) {
         setError(message);
       },
     }),
-    []
+    [release]
   );
 
   return { books: shelfBooks, optimistic, error };
