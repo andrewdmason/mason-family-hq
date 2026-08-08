@@ -75,11 +75,23 @@ type Row = {
   spoiler_free: boolean;
 };
 
-/** How a verdict reads in the log — the whole point of the dry run. */
-function describe(fiction: boolean | null, genre: string | null): string {
+/**
+ * How a verdict reads in the log — the whole point of the dry run. The year is
+ * in there because the classifier now reports one, and a classification write
+ * carries it: this pass re-dates the books it touches, and a dry run that didn't
+ * say so would be lying by omission.
+ */
+function describe(
+  fiction: boolean | null,
+  genre: string | null,
+  publishedYear: number | null
+): string {
   const side =
     fiction === true ? "fiction" : fiction === false ? "non-fiction" : "unclear";
-  return `${side}, ${genre ? genreLabel(genre) : "no genre"}`;
+  return (
+    `${side}, ${genre ? genreLabel(genre) : "no genre"}` +
+    (publishedYear ? `, ${publishedYear}` : "")
+  );
 }
 
 async function main() {
@@ -152,7 +164,8 @@ async function main() {
       if (spoilerChanges) spoilerFixed++;
 
       console.log(
-        `  ${WRITE ? "->" : "  "}   ${name} — ${describe(result.fiction, result.genre)}` +
+        `  ${WRITE ? "->" : "  "}   ${name} — ` +
+          describe(result.fiction, result.genre, result.publishedYear) +
           (spoilerChanges
             ? `  [spoiler switch ${row.spoiler_free} -> ${patch.spoiler_free}]`
             : "")
