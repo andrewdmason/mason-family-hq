@@ -68,12 +68,17 @@ export type BookDocumentContext = {
   bookAuthor: string | null;
   genres: string[];
   /**
-   * Whether to write as though the ending must be protected. Seeded from the
-   * book's own spoiler switch, which the add-book lookup sets true for fiction —
-   * so this is "the reader treats this as a story", which is exactly the
-   * question a preface needs answered.
+   * Whether this book is a story, which is what decides how much of it a preface
+   * may describe.
+   *
+   * Read from the book's own fiction flag. It used to be read off the spoiler
+   * switch, which was never a faithful answer: that flag ended up tracking how a
+   * book was ADDED — everything from the bulk import read as a story, everything
+   * added by hand read as not one — so most of the shelf was being interviewed
+   * through the wrong lens. The switch is still the fallback for a book nothing
+   * has classified yet, where staying protective is the safe way to be wrong.
    */
-  spoilerSensitive: boolean;
+  isStory: boolean;
   bookText: string;
   hasPageMarkers: boolean;
   hasChapterMarkers: boolean;
@@ -273,7 +278,7 @@ export async function gatherBookDocumentContext(
   const { data: book } = await client
     .from("reading_books")
     .select(
-      "title, author, genres, spoiler_free, status, rating, started_at, finished_at, recommended_by_label, recommended_by_email, recommendation_note"
+      "title, author, genres, fiction, spoiler_free, status, rating, started_at, finished_at, recommended_by_label, recommended_by_email, recommendation_note"
     )
     .eq("id", bookId)
     .eq("user_id", userId)
@@ -319,7 +324,7 @@ export async function gatherBookDocumentContext(
     bookTitle: book.title as string,
     bookAuthor: (book.author as string | null) ?? null,
     genres: ((book.genres as string[] | null) ?? []).filter(Boolean),
-    spoilerSensitive: book.spoiler_free === true,
+    isStory: (book.fiction as boolean | null) ?? book.spoiler_free === true,
     bookText: slice.text,
     hasPageMarkers: slice.hasPageMarkers,
     hasChapterMarkers: slice.hasChapterMarkers,

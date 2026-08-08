@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
 
   const { data: book } = await db
     .from("reading_books")
-    .select("title, author, type")
+    .select("title, author, type, fiction")
     .eq("id", chat.book_id)
     .eq("user_id", userId)
     .maybeSingle();
@@ -197,6 +197,9 @@ export async function POST(req: NextRequest) {
     hasPageMarkers: slice.hasPageMarkers,
     hasChapterMarkers: slice.hasChapterMarkers,
     chapters: slice.chapters,
+    // An article is never "a story" or "an argument" in the sense the branch
+    // means, so it gets neither — same as a book nothing has classified yet.
+    fiction: isArticle ? null : ((book.fiction as boolean | null) ?? null),
     spoilerFree: scoped,
     contextThroughPage: scoped ? chat.context_through_page : null,
     readerPosition,
