@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { Loader2, Plus, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BookCover } from "@/components/reading/book-cover";
+import type { ReadingGenre } from "@/lib/reading/book-genres";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -63,10 +64,11 @@ export function AddBookDialog({
   // ISBN the AI resolved, carried into the manual-confirm step so it's still
   // stored even when the user fills in the rest by hand.
   const [aiIsbn, setAiIsbn] = useState<string | null>(null);
-  // Genre/fiction the AI resolved, carried the same way. `fiction` seeds the
-  // book's spoiler_free default for reader chat.
+  // Genre/fiction the AI resolved, carried the same way. When both are present
+  // the add skips the post-save classifier, since this is the same question.
   const [aiGenres, setAiGenres] = useState<string[] | null>(null);
   const [aiFiction, setAiFiction] = useState<boolean | null>(null);
+  const [aiGenre, setAiGenre] = useState<ReadingGenre | null>(null);
   // Set when the user picks a typeahead suggestion: lets submit skip the AI
   // lookup and add the chosen book straight away. Cleared on any manual edit.
   const [picked, setPicked] = useState<BookSearchResult | null>(null);
@@ -97,6 +99,7 @@ export function AddBookDialog({
     setAiIsbn(null);
     setAiGenres(null);
     setAiFiction(null);
+    setAiGenre(null);
     setPicked(null);
     setStatus("queued");
     setRating(null);
@@ -122,6 +125,7 @@ export function AddBookDialog({
     publishedYear?: number | null;
     genres?: string[] | null;
     fiction?: boolean | null;
+    genre?: ReadingGenre | null;
   }) {
     if (isRecommendation) {
       await recommendBook({
@@ -147,6 +151,7 @@ export function AddBookDialog({
         publishedYear: meta.publishedYear ?? null,
         genres: meta.genres ?? null,
         fiction: meta.fiction ?? null,
+        genre: meta.genre ?? null,
         rating: status === "archive" ? rating : null,
         memberEmail,
       });
@@ -200,6 +205,7 @@ export function AddBookDialog({
             isbn: found.isbn,
             genres: found.genres,
             fiction: found.fiction,
+            genre: found.genre,
           });
           handleClose(false);
           return;
@@ -211,6 +217,7 @@ export function AddBookDialog({
         setAiIsbn(found.isbn);
         setAiGenres(found.genres);
         setAiFiction(found.fiction);
+        setAiGenre(found.genre);
         setStep("details");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Couldn't add the book.");
@@ -232,6 +239,7 @@ export function AddBookDialog({
           isbn: aiIsbn,
           genres: aiGenres,
           fiction: aiFiction,
+          genre: aiGenre,
         });
         handleClose(false);
       } catch (err) {

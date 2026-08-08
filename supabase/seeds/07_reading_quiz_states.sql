@@ -67,15 +67,25 @@ BEGIN
 
   -- Three more in-progress books for Sebastian to hang the remaining states and
   -- the owner generation flow on.
+  -- The Mapmaker's Lantern is invented, so its category columns stay null on
+  -- purpose: it's the local stand-in for a book the classifier doesn't recognise,
+  -- and it keeps the "Uncategorized" group and the "Unclear" fiction bucket
+  -- reachable in dev without anyone having to break a row by hand. Its
+  -- spoiler_free stays true for the same reason the classifier leaves it there —
+  -- unknown means protected.
   INSERT INTO reading_books
-    (id, user_id, title, author, total_pages, current_page, target_page, target_locked, target_due, status, cover_image_url, started_at)
+    (id, user_id, title, author, total_pages, current_page, target_page, target_locked, target_due, status, cover_image_url, started_at,
+     fiction, genre, genre_source, spoiler_free)
   VALUES
     (wonder_book, sebastian, 'Wonder', 'R.J. Palacio', 315, 95, 140, true, next_friday, 'in_progress',
-      'https://covers.openlibrary.org/b/isbn/9780375869020-L.jpg?default=false', baseline),
+      'https://covers.openlibrary.org/b/isbn/9780375869020-L.jpg?default=false', baseline,
+      true, 'middle_grade_ya', 'ai', true),
     (bridge_book, sebastian, 'Bridge to Terabithia', 'Katherine Paterson', 190, 120, 160, true, next_friday, 'in_progress',
-      'https://covers.openlibrary.org/b/isbn/9780064401845-L.jpg?default=false', baseline),
+      'https://covers.openlibrary.org/b/isbn/9780064401845-L.jpg?default=false', baseline,
+      true, 'middle_grade_ya', 'ai', true),
     (generate_book, sebastian, 'The Mapmaker''s Lantern', 'Mason Demo Library', 24, 1, 20, true, next_friday, 'in_progress',
-      NULL, baseline);
+      NULL, baseline,
+      NULL, NULL, NULL, true);
 
   -- Baseline check-ins so "pages read this week" anchors at 0 for each.
   INSERT INTO reading_checkins (user_id, book_id, checked_on, page) VALUES

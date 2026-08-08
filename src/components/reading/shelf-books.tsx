@@ -30,6 +30,8 @@ export type BookPatch = Partial<
     | "author"
     | "total_pages"
     | "recommendation_note"
+    | "fiction"
+    | "genre"
   >
 >;
 

@@ -305,6 +305,30 @@ const ASSESS_VERDICTS = new Set<BookAssessment["verdict"]>([
   "pass",
 ]);
 
+/**
+ * How each verdict is said out loud. Shared by the tinted panel and by the note
+ * the queue writes, so a book's row and its assessment never phrase the same
+ * verdict two different ways.
+ */
+export const ASSESSMENT_LABELS: Record<BookAssessment["verdict"], string> = {
+  love: "You'll probably love this",
+  like: "Looks like a good fit for you",
+  mixed: "Could go either way",
+  pass: "Probably not your thing",
+};
+
+/**
+ * An assessment as one paragraph, for the queue's "why this book" line.
+ *
+ * The panel carries its verdict in a colour and a label above the reasoning; a
+ * note is just text, so the verdict has to lead the sentence or it's lost — and
+ * a "pass" quietly filed as a rationale would read like an argument *for* the
+ * book, which is the opposite of the point.
+ */
+export function assessmentNote(assessment: BookAssessment): string {
+  return `${ASSESSMENT_LABELS[assessment.verdict]} — ${assessment.reason}`;
+}
+
 const ASSESS_TOOL = {
   name: "report_assessment",
   description:

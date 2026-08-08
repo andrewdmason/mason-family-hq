@@ -1,13 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { resolveReadingScope } from "@/lib/reading/scope";
+import { categorizeBook } from "@/lib/reading/categorize";
 import { genresForAge } from "@/lib/reading/genres";
 import { ratingImpliesFinished } from "@/lib/reading/status";
 import {
   assessBookFit,
+  assessmentNote,
   generateRecommendationCandidates,
   type BookAssessment,
   type RatedTitle,
@@ -227,6 +230,55 @@ export async function assessBook(input: {
   });
 }
 
+/**
+ * Assess a book that's already on the shelf, and write the verdict into its
+ * "why this book" note.
+ *
+ * The queue is a decision surface, and the row's argument for a book is the
+ * thing you read it for — but plenty of books arrive with no argument at all
+ * (typed in by hand, handed over by a friend, imported in bulk), and an
+ * argument written a year ago was made about a reader whose taste has moved on
+ * since. So this deliberately overwrites whatever's in the field rather than
+ * appending or opening a panel beside it: it's how you ask for a fresh read on
+ * a book you're still deciding about, and the answer belongs where you'll look
+ * for it. Anything worth keeping was always yours to type back in.
+ *
+ * Returns null when the AI couldn't form a verdict, leaving the old note alone.
+ */
+export async function assessBookIntoNote(
+  bookId: string,
+  memberEmail?: string | null
+): Promise<BookAssessment | null> {
+  const { client, userId, email } = await resolveReadingScope(memberEmail ?? null);
+
+  const { data: book, error: bookError } = await client
+    .from("reading_books")
+    .select("title, author")
+    .eq("id", bookId)
+    .eq("user_id", userId)
+    .single();
+  if (bookError) throw new Error(bookError.message);
+
+  const tz = await getUserTimezone();
+  const today = localDate(new Date(), tz);
+  const profile = await buildTasteProfile(client, userId, email, today);
+  const assessment = await assessBookFit(profile, {
+    title: book.title as string,
+    author: (book.author as string | null) ?? null,
+  });
+  if (!assessment) return null;
+
+  const { error } = await client
+    .from("reading_books")
+    .update({ recommendation_note: assessmentNote(assessment) })
+    .eq("id", bookId)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/reader");
+  return assessment;
+}
+
 /** Fetch a member's recommendation row, scoped to them. */
 async function getRec(
   client: Awaited<ReturnType<typeof resolveReadingScope>>["client"],
@@ -254,19 +306,31 @@ export async function queueRecommendation(
   // Stamp the provenance using the existing recommendation fields: there's no AI
   // "member" to reference, so leave the email null and record the AI label + the
   // rationale as the note, so the queued book shows where it came from and why.
-  const { error: bookError } = await client.from("reading_books").insert({
-    user_id: userId,
-    title: rec.title,
-    author: rec.author,
-    total_pages: rec.total_pages,
-    current_page: 0,
-    status: "queued",
-    cover_image_url: rec.cover_image_url,
-    recommended_by_email: null,
-    recommended_by_label: AI_RECOMMENDER_LABEL,
-    recommendation_note: rec.rationale,
-  });
+  const { data: queued, error: bookError } = await client
+    .from("reading_books")
+    .insert({
+      user_id: userId,
+      title: rec.title,
+      author: rec.author,
+      total_pages: rec.total_pages,
+      current_page: 0,
+      status: "queued",
+      cover_image_url: rec.cover_image_url,
+      recommended_by_email: null,
+      recommended_by_label: AI_RECOMMENDER_LABEL,
+      recommendation_note: rec.rationale,
+    })
+    .select("id")
+    .single();
   if (bookError) throw new Error(bookError.message);
+
+  after(() =>
+    categorizeBook(client, {
+      id: queued.id,
+      title: rec.title,
+      author: rec.author,
+    })
+  );
 
   const { error } = await client
     .from("reading_recommendations")
@@ -297,19 +361,31 @@ export async function rateRecommendation(
   const today = localDate(new Date(), tz);
 
   const finished = ratingImpliesFinished(rating);
-  const { error: bookError } = await client.from("reading_books").insert({
-    user_id: userId,
-    title: rec.title,
-    author: rec.author,
-    total_pages: rec.total_pages,
-    current_page: finished ? rec.total_pages ?? 0 : 0,
-    status: "archive",
-    cover_image_url: rec.cover_image_url,
-    finished_at: finished ? today : null,
-    rating,
-    rated_at: today,
-  });
+  const { data: archived, error: bookError } = await client
+    .from("reading_books")
+    .insert({
+      user_id: userId,
+      title: rec.title,
+      author: rec.author,
+      total_pages: rec.total_pages,
+      current_page: finished ? rec.total_pages ?? 0 : 0,
+      status: "archive",
+      cover_image_url: rec.cover_image_url,
+      finished_at: finished ? today : null,
+      rating,
+      rated_at: today,
+    })
+    .select("id")
+    .single();
   if (bookError) throw new Error(bookError.message);
+
+  after(() =>
+    categorizeBook(client, {
+      id: archived.id,
+      title: rec.title,
+      author: rec.author,
+    })
+  );
 
   const { error } = await client
     .from("reading_recommendations")

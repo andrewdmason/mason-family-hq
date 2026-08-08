@@ -69,7 +69,7 @@ function documentContext(
     bookTitle: "The Unconsoled",
     bookAuthor: "Kazuo Ishiguro",
     genres: ["fiction"],
-    spoilerSensitive: true,
+    isStory: true,
     bookText: "Once, a porter carried three suitcases across a lobby.",
     hasPageMarkers: true,
     hasChapterMarkers: true,
@@ -141,7 +141,7 @@ check(
 // is allowed to name what the book is about in the first place.
 const nonFictionPreface = flatten(
   buildBookDocumentSystem(
-    documentContext("preface", { spoilerSensitive: false }),
+    documentContext("preface", { isStory: false }),
     "converse"
   )
 );
@@ -194,6 +194,7 @@ const chatInput = {
   hasPageMarkers: true,
   hasChapterMarkers: true,
   chapters: [],
+  fiction: null,
   contextThroughPage: null,
   readerPosition: null,
   quotedText: null,

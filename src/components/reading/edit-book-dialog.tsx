@@ -35,7 +35,24 @@ import {
 import { RatingPicker } from "@/components/reading/rating-picker";
 import { useShelfBooks } from "@/components/reading/shelf-books";
 import { READING_STATUSES, readingStatusLabel } from "@/lib/reading/status";
+import {
+  READING_GENRES,
+  genreLabel,
+  type ReadingGenre,
+} from "@/lib/reading/book-genres";
+import { cn } from "@/lib/utils";
 import type { ReadingBook, ReadingBookStatus, ReadingRating } from "@/lib/types";
+
+/** The fiction switch, as three explicit states — "unclear" is a real answer. */
+const FICTION_CHOICES: { value: "fiction" | "nonfiction" | "unclear"; label: string }[] = [
+  { value: "fiction", label: "Fiction" },
+  { value: "nonfiction", label: "Nonfiction" },
+  { value: "unclear", label: "Unclear" },
+];
+
+function fictionChoice(fiction: boolean | null): "fiction" | "nonfiction" | "unclear" {
+  return fiction === true ? "fiction" : fiction === false ? "nonfiction" : "unclear";
+}
 
 export function EditBookDialog({
   book,
@@ -80,6 +97,8 @@ export function EditBookDialog({
   );
   const [status, setStatus] = useState<ReadingBookStatus>(book.status);
   const [rating, setRating] = useState<ReadingRating | null>(book.rating);
+  const [fiction, setFiction] = useState(fictionChoice(book.fiction));
+  const [genre, setGenre] = useState<ReadingGenre | "">(book.genre ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const shelf = useShelfBooks();
@@ -92,6 +111,8 @@ export function EditBookDialog({
     setTargetPage(book.target_page != null ? String(book.target_page) : "");
     setStatus(book.status);
     setRating(book.rating);
+    setFiction(fictionChoice(book.fiction));
+    setGenre(book.genre ?? "");
     setError(null);
   }
 
@@ -128,6 +149,8 @@ export function EditBookDialog({
     // Chapter books: only send current_page when the picker actually moved — the
     // preselected chapter's end page can sit behind a reader who's mid-chapter, so
     // sending it on an unrelated edit would quietly rewind them.
+    const categoryChanged =
+      fiction !== fictionChoice(book.fiction) || genre !== (book.genre ?? "");
     const currentPagePatch = chapterOptions
       ? locationValue !== initialLocation
         ? { currentPage: locationToPage(chapterOptions, locationValue) }
@@ -136,21 +159,30 @@ export function EditBookDialog({
     const resolvedRating = status === "archive" ? rating : null;
     const parsedTotal = totalPages ? Number(totalPages) : null;
     const resolvedTotal = parsedTotal && parsedTotal > 0 ? parsedTotal : null;
+    const resolvedCategory = {
+      fiction:
+        fiction === "fiction" ? true : fiction === "nonfiction" ? false : null,
+      genre: genre || null,
+    };
 
     // On the shelf the edits are already drawn behind this dialog, so it shuts
     // on the way out rather than holding you there while the save round-trips.
     // Elsewhere — the kids' program — the server's render is the only copy, so
     // the dialog still waits and reports its own failure.
     //
-    // Only the fields whose saved value is knowable from here: the page you're
-    // on isn't one of them, since archiving a book quietly moves it to the back
-    // cover, and a guess that never matches is a change that never settles.
+    // The category goes in the same breath as the rest, because the shelf can be
+    // grouped and filtered by genre: retagging a book and watching it sit in the
+    // old group would be the wait this was meant to remove, in the one place it
+    // now shows most. Only the fields whose saved value is knowable from here,
+    // though — the page you're on isn't one, since archiving a book quietly moves
+    // it to the back cover, and a guess that never matches never settles.
     const undo = shelf.patchBook(book.id, {
       title: title.trim(),
       author: author.trim() || null,
       total_pages: resolvedTotal,
       status,
       rating: resolvedRating,
+      ...(categoryChanged ? resolvedCategory : {}),
     });
     if (shelf.managed) setOpen(false);
 
@@ -166,6 +198,9 @@ export function EditBookDialog({
             : {}),
           status,
           rating: resolvedRating,
+          // Only sent when actually changed: sending them on an unrelated edit
+          // would stamp the book as hand-classified and freeze out the backfill.
+          ...(categoryChanged ? resolvedCategory : {}),
           memberEmail,
         });
         setOpen(false);
@@ -306,6 +341,50 @@ export function EditBookDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label>Kind</Label>
+              <div className="inline-flex h-9 items-center rounded-lg bg-muted/60 p-0.5">
+                {FICTION_CHOICES.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => setFiction(c.value)}
+                    aria-pressed={fiction === c.value}
+                    className={cn(
+                      "flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                      fiction === c.value
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="edit-book-genre">Genre</Label>
+              <Select
+                value={genre || "none"}
+                onValueChange={(v) => setGenre(v === "none" ? "" : (v as ReadingGenre))}
+              >
+                <SelectTrigger id="edit-book-genre" className="w-full">
+                  <SelectValue>
+                    {genre ? genreLabel(genre) : "Uncategorized"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Uncategorized</SelectItem>
+                  {READING_GENRES.map((g) => (
+                    <SelectItem key={g.value} value={g.value}>
+                      {g.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           {status === "archive" && (
             <div className="grid gap-1.5">

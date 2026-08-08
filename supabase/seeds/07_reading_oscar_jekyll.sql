@@ -39,12 +39,16 @@ BEGIN
 
   INSERT INTO reading_books
     (id, user_id, title, author, total_pages, current_page, target_page,
-     target_locked, target_due, status, cover_image_url, started_at)
+     target_locked, target_due, status, cover_image_url, started_at,
+     fiction, genre, genre_source, spoiler_free)
   VALUES
     (jekyll_book, oscar, 'The Strange Case of Dr. Jekyll and Mr. Hyde',
      'Robert Louis Stevenson', 148, 40, 90, false, next_friday, 'in_progress',
      'https://covers.openlibrary.org/b/isbn/9780553212778-L.jpg?default=false',
-     baseline);
+     baseline,
+     -- The one book on the shelf whose whole point is a turn you can spoil, so
+     -- it's also the one worth having a story's spoiler guard on in dev.
+     true, 'classics', 'ai', true);
 
   -- Baseline check-in (page at the start of the week) so "pages read this week"
   -- starts at 0.

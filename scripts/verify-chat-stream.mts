@@ -345,6 +345,7 @@ const chatInput = (depth: ReaderChatDepth) => ({
   hasPageMarkers: false,
   hasChapterMarkers: false,
   chapters: [],
+  fiction: null,
   spoilerFree: false,
   contextThroughPage: null,
   readerPosition: null,
@@ -413,6 +414,53 @@ check(
   "deep owns its own readings rather than hunting for a citation",
   deep.includes("own it as yours and make it anyway"),
   true
+);
+
+// What KIND of book it is, which until 00177 the margin chat had no idea about:
+// it got title, author and text, and nothing that distinguished a novel from an
+// argument. Fiction/non-fiction only — the genre is deliberately withheld, since
+// naming it invites the model to perform it.
+console.log("\nfiction vs non-fiction");
+
+const kindOf = (fiction: boolean | null) =>
+  buildReaderChatSystem({ ...chatInput("fast"), fiction })
+    .map((b) => b.text)
+    .join("\n");
+
+check(
+  "a novel is read as something made",
+  kindOf(true).includes("This is a STORY") &&
+    kindOf(true).includes("a novel has no thesis to agree with"),
+  true
+);
+check(
+  "an argument is read as a case to test",
+  kindOf(false).includes("This is NOT a story") &&
+    kindOf(false).includes("whether the evidence bears the weight put on it"),
+  true
+);
+check(
+  "the two are actually different prompts",
+  kindOf(true) !== kindOf(false),
+  true
+);
+// Silence beats a wrong guess: an unclassified book gets neither branch rather
+// than defaulting into one, because the classifier leaves nulls on the books it
+// genuinely doesn't recognise.
+check(
+  "an unclassified book is told neither thing",
+  kindOf(null).includes("This is a STORY") || kindOf(null).includes("This is NOT a story"),
+  false
+);
+// The branch must not be readable off the spoiler scope, which is what the old
+// conflation amounted to: an unscoped chat is not a claim about the book's kind.
+check(
+  "and the branch is not derived from the chat's spoiler scope",
+  buildReaderChatSystem({ ...chatInput("fast"), fiction: null, spoilerFree: true })
+    .map((b) => b.text)
+    .join("\n")
+    .includes("This is a STORY"),
+  false
 );
 
 // The one place the two halves of the feature pull against each other: the

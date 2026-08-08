@@ -64,7 +64,7 @@ function ctx(over: Partial<BookDocumentContext> = {}): BookDocumentContext {
     bookTitle: "Gravity and Grace",
     bookAuthor: "Simone Weil",
     genres: ["philosophy"],
-    spoilerSensitive: false,
+    isStory: false,
     bookText: "[p.1] The book itself, at length.",
     hasPageMarkers: true,
     hasChapterMarkers: true,
@@ -93,7 +93,7 @@ const flatten = (blocks: { text: string }[]) => blocks.map((b) => b.text).join("
 
 console.log("\nCache layout");
 {
-  const fiction = ctx({ spoilerSensitive: true });
+  const fiction = ctx({ isStory: true });
   const shapes = [
     buildBookDocumentSystem(fiction, "converse"),
     buildBookDocumentSystem(fiction, "document"),
@@ -145,7 +145,7 @@ console.log("\nWhat a preface may say about the book");
     const sensitive = kind === "fiction";
     for (const phase of ["converse", "document"] as const) {
       const text = flatten(
-        buildBookDocumentSystem(ctx({ spoilerSensitive: sensitive }), phase)
+        buildBookDocumentSystem(ctx({ isStory: sensitive }), phase)
       );
       check(
         `${kind}, ${phase}: bounded to what they could know without reading it`,
@@ -173,7 +173,7 @@ console.log("\nWhat a preface may say about the book");
     converse.includes("ends up doing Y")
   );
 
-  const novel = flatten(buildBookDocumentSystem(ctx({ spoilerSensitive: true }), "converse"));
+  const novel = flatten(buildBookDocumentSystem(ctx({ isStory: true }), "converse"));
   check("a story holds the line harder still", novel.includes("This one is a story"));
   check(
     "and is pointed at the reader rather than at the plot",
@@ -187,9 +187,27 @@ console.log("\nWhat a preface may say about the book");
     argument.includes("must still not do is report its findings")
   );
 
+  // Where this branch reads its answer FROM, which is the whole point of 00177.
+  // It used to read the book's spoiler switch, and that switch turned out to
+  // track how a book was added rather than what it is — so roughly a hundred
+  // books were being interviewed through the wrong lens, non-fiction held to a
+  // plot-protecting silence and novels offered a tour of their contents.
+  check(
+    "a non-fiction book still under a protective spoiler switch is treated as an argument",
+    flatten(buildBookDocumentSystem(ctx({ isStory: false }), "converse")).includes(
+      "jacket-"
+    )
+  );
+  check(
+    "and a novel whose switch was never set is still treated as a story",
+    flatten(buildBookDocumentSystem(ctx({ isStory: true }), "converse")).includes(
+      "This one is a story"
+    )
+  );
+
   const after = flatten(
     buildBookDocumentSystem(
-      ctx({ scope: "afterword", spoilerSensitive: true, marks: [] }),
+      ctx({ scope: "afterword", isStory: true, marks: [] }),
       "document"
     )
   );

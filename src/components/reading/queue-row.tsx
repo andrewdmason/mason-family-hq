@@ -305,6 +305,7 @@ export function QueueRow({
         <QueueReason
           book={book}
           memberEmail={memberEmail}
+          assessing={!isArticle && bookMenu.assessing}
           onError={setError}
         />
 
@@ -381,14 +382,21 @@ export function QueueRow({
  *
  * Never truncated. A queue of fifteen books is short enough to read, and the
  * argument for a book is the one thing on the row you came here for.
+ *
+ * It's also where "Will I like this?" lands: the menu overwrites this line with
+ * the AI's verdict, so a fresh read arrives in the place you were already
+ * reading, rather than in a panel beside it.
  */
 function QueueReason({
   book,
   memberEmail,
+  assessing = false,
   onError,
 }: {
   book: ReadingBookWithProgress;
   memberEmail: string | null;
+  /** The menu's taste check is running, and its answer will replace this line. */
+  assessing?: boolean;
   onError: (message: string | null) => void;
 }) {
   const shelf = useShelfBooks();
@@ -421,6 +429,17 @@ function QueueReason({
         onError(err instanceof Error ? err.message : "Couldn't save that note.");
       }
     });
+  }
+
+  // The taste check is about to replace this line, so say so where the answer
+  // will appear — not in a spinner at the far end of the row.
+  if (assessing && !editing) {
+    return (
+      <p className="mt-1 flex items-center gap-1.5 px-1 py-0.5 text-xs leading-relaxed text-muted-foreground">
+        <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+        Sizing up whether you&apos;ll like this…
+      </p>
+    );
   }
 
   if (editing) {

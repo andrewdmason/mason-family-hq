@@ -1,4 +1,10 @@
 import { anthropic, JOURNAL_MODEL } from "@/lib/journal/anthropic";
+import {
+  READING_GENRES,
+  READING_GENRE_VALUES,
+  isReadingGenre,
+  type ReadingGenre,
+} from "@/lib/reading/book-genres";
 
 // The typeahead search lives in a server-import-free module so the client can
 // call Open Library directly; re-exported here to keep existing importers working.
@@ -15,14 +21,18 @@ export type BookLookupResult = {
   /** ISBN-13 the AI resolved, used for re-fetch and links. Null if unknown. */
   isbn: string | null;
   coverImageUrl: string | null;
-  /** Genre labels, informational. Null when unknown. */
+  /** Free-text genre labels, informational. Null when unknown. */
   genres: string[] | null;
   /**
-   * True for fiction. Seeds the book's spoiler_free default: a novel is worth
-   * protecting from spoilers, a reference book generally isn't. Null = unknown,
-   * which the caller treats as non-fiction (spoiler_free off).
+   * True for fiction. Null = genuinely unclear, which the caller leaves for the
+   * post-save classifier to answer rather than treating as a verdict.
    */
   fiction: boolean | null;
+  /**
+   * The shelf's taxonomy genre. Asked for here so the one add path that already
+   * talks to Claude doesn't need a second call to classify what it just looked up.
+   */
+  genre: ReadingGenre | null;
 };
 
 const LOOKUP_TOOL = {
@@ -69,11 +79,24 @@ const LOOKUP_TOOL = {
           "verse). False for non-fiction (history, memoir, science, reference, " +
           "self-help). Omit only if genuinely unclear.",
       },
+      genre: {
+        type: "string",
+        enum: READING_GENRE_VALUES,
+        description:
+          "The single best-fitting shelf genre — the one a reader would look " +
+          "under to find this book again. Stay on the side that matches your " +
+          "`fiction` answer: the shelf groups fiction and non-fiction apart, so " +
+          "a novel filed under a non-fiction genre lands in the wrong half. " +
+          "The options:\n" +
+          READING_GENRES.map((g) => `- ${g.value} (${g.side}): ${g.hint}`).join(
+            "\n"
+          ),
+      },
       genres: {
         type: "array",
         items: { type: "string" },
         description:
-          "One to three short genre labels, e.g. [\"literary fiction\"], " +
+          "One to three short free-text genre labels, e.g. [\"literary fiction\"], " +
           "[\"fantasy\", \"young adult\"]. Omit if unsure.",
       },
     },
@@ -89,6 +112,7 @@ type LookupInput = {
   total_pages?: unknown;
   isbn?: unknown;
   fiction?: unknown;
+  genre?: unknown;
   genres?: unknown;
 };
 
@@ -163,6 +187,7 @@ export async function lookupBookByTitle(title: string): Promise<BookLookupResult
     coverImageUrl: null,
     genres: null,
     fiction: null,
+    genre: null,
   };
   if (!trimmed) return fallback;
 
@@ -227,6 +252,9 @@ export async function lookupBookByTitle(title: string): Promise<BookLookupResult
       coverImageUrl,
       genres: genres && genres.length > 0 ? genres : null,
       fiction,
+      // The schema's `enum` isn't a guarantee; the column has a CHECK constraint,
+      // so anything off-taxonomy has to become null here rather than fail a write.
+      genre: isReadingGenre(input.genre) ? input.genre : null,
     };
   } catch (err) {
     console.error(
