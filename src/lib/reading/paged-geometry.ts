@@ -7,6 +7,12 @@
  * "page" is one screenful of columns, and turning a page is a horizontal
  * translate — no relayout, no scrolling.
  *
+ * Which columns a page shows is the one thing here that isn't fixed: a chapter
+ * has to open a page rather than turn up beside the end of the last one, so a page
+ * gives up its outer column when the next chapter's is sitting in it. That makes
+ * the column-to-page mapping a measured list rather than a division — see Pages,
+ * which is where every function that used to divide by `cols` now lives.
+ *
  * Everything here is quantised to whole pixels on purpose. A 600-page book is
  * 600+ column strides wide; a third of a pixel of error per stride is 200px of
  * drift by the end, which is the difference between the right page and the
@@ -75,17 +81,152 @@ export type PageGeometry = {
   pageH: number;
 
   // — Viewing. Changing any of these is a repaint.
-  /** How many columns a page shows at once. */
+  /** How many columns a FULL page shows at once — see Pages for the exceptions. */
   cols: 1 | 2;
-  /** Width of the clip box: exactly `cols` columns and the gaps between them. */
+  /** Width of the clip box at its widest: `cols` columns and the gaps between them. */
   viewW: number;
   /** Distance from one column's left edge to the next. */
   colStride: number;
-  /** Distance from one page's left edge to the next. */
-  pageStride: number;
   /** Left offset of the clip box within the window. */
   offsetX: number;
 };
+
+/**
+ * Where the pages fall on the strip.
+ *
+ * Deliberately a measured list rather than the arithmetic it replaced, because a
+ * chapter is not allowed to open in the middle of a spread. A page that would
+ * have shown the end of one chapter on the left and the start of the next on the
+ * right is cut short instead: the reader sees the closing column with white space
+ * beside it, and the chapter begins the next page — which is what a printed book
+ * does, and what the page turn is for.
+ *
+ * The consequence worth knowing about is that the pairing PARITY flips at every
+ * such chapter. That is exactly why this can't be `col / cols`: after one
+ * odd-column chapter opening, every spread for the rest of the window is the
+ * other pairing, and arithmetic anchored at column zero would show the reader a
+ * heading halfway down their page for the rest of the book.
+ *
+ * On a single-column page nothing is ever cut short, so `starts` is 0, 1, 2, …
+ * and every function below reduces to the arithmetic it replaced.
+ *
+ * None of this reaches the text: it describes where the window onto the strip
+ * sits and how wide it is, both of which are repaints. The book's fragmentation
+ * stays independent of how many columns a page shows — see the note on
+ * PageGeometry, which is the invariant the reader's performance rests on.
+ */
+export type Pages = {
+  /** First column of each page, ascending. `starts[0]` is always 0. */
+  starts: number[];
+  /** Columns in the whole strip. */
+  columns: number;
+  /** Columns a page shows when nothing cuts it short — `cols` when it was built. */
+  perPage: 1 | 2;
+  /**
+   * Columns a chapter opens in. Kept rather than discarded so the rule can be
+   * checked against the result instead of assumed — see assertPagesMoveForward.
+   */
+  opens: number[];
+};
+
+/** How many whole columns a strip of this width holds. */
+export function columnsInWidth(scrollWidth: number, g: PageGeometry): number {
+  // scrollWidth omits the trailing gap after the final column, so add it back
+  // before dividing by the stride.
+  return Math.max(1, Math.round((scrollWidth + g.gap) / g.colStride));
+}
+
+/**
+ * Cut the strip into pages, breaking early wherever a chapter opens.
+ *
+ * `opens` is the columns chapters begin in, in any order; a chapter that already
+ * begins a page costs nothing, which is every chapter in a one-column layout.
+ */
+export function buildPages(columns: number, opens: Iterable<number>, g: PageGeometry): Pages {
+  const total = Math.max(1, columns);
+  const stops = new Set<number>();
+  const kept: number[] = [];
+  for (const col of opens) {
+    if (col <= 0 || col >= total || stops.has(col)) continue;
+    stops.add(col);
+    kept.push(col);
+  }
+
+  const starts: number[] = [];
+  let col = 0;
+  while (col < total) {
+    starts.push(col);
+    let next = col + g.cols;
+    // The first chapter opening strictly inside this page ends it early.
+    for (let c = col + 1; c < next; c++) {
+      if (stops.has(c)) {
+        next = c;
+        break;
+      }
+    }
+    col = next;
+  }
+  return { starts, columns: total, perPage: g.cols, opens: kept.sort((a, b) => a - b) };
+}
+
+/**
+ * What a strip looks like before it has been measured: one page, showing as much
+ * of itself as the page has room for.
+ *
+ * Deliberately generous rather than minimal. Every function below is capped by
+ * the geometry, so a page can't come out wider than the window allows — but one
+ * that came out NARROWER would clip half the text away and look like a layout
+ * with nothing in it, which is a worse thing to be wrong about for the frame
+ * before the measurement lands.
+ */
+export const UNMEASURED_PAGES: Pages = { starts: [0], columns: 2, perPage: 2, opens: [] };
+
+export function pageCount(pages: Pages): number {
+  return pages.starts.length;
+}
+
+export function firstColOfPage(page: number, pages: Pages): number {
+  if (page <= 0) return 0;
+  return pages.starts[Math.min(page, pages.starts.length - 1)] ?? 0;
+}
+
+/** How many columns this page actually shows — `perPage`, unless a chapter cut it short. */
+export function colsOnPage(page: number, pages: Pages): number {
+  const start = firstColOfPage(page, pages);
+  const end = pages.starts[page + 1] ?? pages.columns;
+  return Math.max(1, Math.min(pages.perPage, end - start));
+}
+
+/** The page a column is shown on: the last page starting at or before it. */
+export function pageForCol(col: number, pages: Pages): number {
+  const { starts } = pages;
+  let lo = 0;
+  let hi = starts.length - 1;
+  let best = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (starts[mid] <= col) {
+      best = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
+}
+
+/** How far the strip is translated to show a page. */
+export function pageOffset(page: number, pages: Pages, g: PageGeometry): number {
+  return firstColOfPage(page, pages) * g.colStride;
+}
+
+/**
+ * Width of the clip box for a page — narrower than `viewW` on a short page, and
+ * never wider than the window allows however out of date the map is.
+ */
+export function pageWidth(page: number, pages: Pages, g: PageGeometry): number {
+  return Math.min(colsOnPage(page, pages), g.cols) * g.colStride - g.gap;
+}
 
 /**
  * How the chat is being presented, which is the only thing about it the geometry
@@ -204,7 +345,6 @@ export function computeGeometry(
     pageH: Math.max(120, clipH - PAGE_PAD_TOP - PAGE_PAD_BOTTOM),
     cols,
     viewW,
-    pageStride: cols * frag.colStride,
     // Centred in what's left of the screen once a docked panel has taken its
     // share. A floating panel took nothing, so this is where the page already was.
     offsetX: Math.max(0, Math.round((usable - viewW) / 2)),
@@ -220,14 +360,6 @@ export function computeGeometry(
  */
 export function colIndexForX(x: number, flowLeft: number, g: PageGeometry): number {
   return Math.max(0, Math.floor((x - flowLeft + 2) / g.colStride));
-}
-
-export function pageForCol(col: number, g: PageGeometry): number {
-  return Math.floor(col / g.cols);
-}
-
-export function firstColOfPage(page: number, g: PageGeometry): number {
-  return page * g.cols;
 }
 
 /** Viewport x of the right-hand text edge of a column. */

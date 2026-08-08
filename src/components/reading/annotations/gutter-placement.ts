@@ -5,8 +5,11 @@ import { blockElements, blockTopWithin } from "@/lib/reading/annotation-anchors"
 import {
   colContentRight,
   colIndexForX,
+  colsOnPage,
+  firstColOfPage,
   pageForCol,
   type PageGeometry,
+  type Pages,
 } from "@/lib/reading/paged-geometry";
 import {
   annotationKind,
@@ -60,6 +63,8 @@ export type GutterRow = {
 
 export type PagedGutterContext = {
   geom: PageGeometry;
+  /** Where the pages fall on the strip — see Pages. */
+  pages: Pages;
   pageIndex: number;
   /** The fixed reading area the markers are positioned against. */
   viewport: HTMLDivElement | null;
@@ -106,7 +111,7 @@ export function useGutterPlacement(
     }
     const viewport = paged?.viewport ?? null;
     if (paged && viewport) {
-      const { geom, pageIndex } = paged;
+      const { geom, pages, pageIndex } = paged;
       const flowLeft = container.getBoundingClientRect().left;
       const view = viewport.getBoundingClientRect();
       const next: GutterRow[] = [];
@@ -116,12 +121,16 @@ export function useGutterPlacement(
         const el = els[blockIndex - base];
         if (!el) continue;
         const fragment = Array.from(el.getClientRects()).find(
-          (rect) => pageForCol(colIndexForX(rect.left, flowLeft, geom), geom) === pageIndex
+          (rect) => pageForCol(colIndexForX(rect.left, flowLeft, geom), pages) === pageIndex
         );
         if (!fragment) continue;
         const col = colIndexForX(fragment.left, flowLeft, geom);
         const textRight = colContentRight(col, flowLeft, geom);
-        const isOuterColumn = col % geom.cols === geom.cols - 1;
+        // The last column of THIS page, which isn't every other column any more:
+        // a page cut short by a chapter opening shows one column, and its outer
+        // margin is the whole rest of the spread.
+        const isOuterColumn =
+          col - firstColOfPage(pageIndex, pages) === colsOnPage(pageIndex, pages) - 1;
         next.push({
           blockIndex,
           top: Math.round(fragment.top - view.top),
@@ -197,8 +206,9 @@ function usePlacementSchedule(
   const pageIndex = paged?.pageIndex ?? null;
   const viewport = paged?.viewport ?? null;
   const geom = paged?.geom ?? null;
+  const pages = paged?.pages ?? null;
   useEffect(() => {
     const frame = requestAnimationFrame(place);
     return () => cancelAnimationFrame(frame);
-  }, [pageIndex, viewport, geom, place]);
+  }, [pageIndex, viewport, geom, pages, place]);
 }

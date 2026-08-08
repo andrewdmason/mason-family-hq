@@ -13,9 +13,14 @@ import type { BookBlock } from "@/lib/reading/block-stream";
 import { blockElements } from "@/lib/reading/annotation-anchors";
 import { withInlineChats, type InlineChatMark } from "@/lib/reading/inline-chat-blocks";
 import {
+  columnsInWidth,
   computeGeometry,
+  pageCount,
+  pageOffset,
+  UNMEASURED_PAGES,
   type ChatPanelPresentation,
   type PageGeometry,
+  type Pages,
 } from "@/lib/reading/paged-geometry";
 import {
   segmentsOf,
@@ -32,7 +37,7 @@ import {
 import {
   assertPagesMoveForward,
   charOffsetAtTopOfPage,
-  countPages,
+  measurePages,
   pageForCharOffset,
   textEnd,
   type MeasureCtx,
@@ -86,14 +91,18 @@ function fitFlowToStrip(flow: HTMLElement, geom: PageGeometry): number {
   // Narrow first: on a repagination the box is still as wide as the LAST book we
   // laid out, and scrollWidth reports whichever is wider, the text or the box.
   flow.style.width = `${geom.colW}px`;
-  const cols = Math.max(1, Math.round((flow.scrollWidth + geom.gap) / geom.colStride));
-  const stripWidth = cols * geom.colStride - geom.gap;
+  const stripWidth = columnsInWidth(flow.scrollWidth, geom) * geom.colStride - geom.gap;
   flow.style.width = `${stripWidth}px`;
   return stripWidth;
 }
 
 export type Pagination = {
   geometry: PageGeometry | null;
+  /**
+   * Where the pages fall on the strip: normally two columns each, cut short
+   * wherever a chapter opens. See Pages.
+   */
+  pages: Pages;
   /**
    * The markup to render: a few chapters of the book, not all of it. Null until
    * the book has loaded or while paging is off.
@@ -173,7 +182,12 @@ export function usePagination({
     getServerViewportSize
   );
   const [pageIndex, setPageIndex] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
+  /**
+   * Set in the same layout effect as pageIndex, and read during render to size
+   * the clip — so a page cut short by a chapter is never painted full width, not
+   * even for the frame before an effect could correct it.
+   */
+  const [pages, setPages] = useState<Pages>(UNMEASURED_PAGES);
   /**
    * The character the rendered window is chosen around.
    *
@@ -218,7 +232,7 @@ export function usePagination({
 
   const geometryRef = useRef<PageGeometry | null>(null);
   const charRef = useRef(externalCharOffset);
-  const totalRef = useRef(1);
+  const pagesRef = useRef<Pages>(UNMEASURED_PAGES);
   const pageRef = useRef(0);
   // Where the text ended as of the last repagination. Only read to decide
   // whether a late web font actually changed anything — see below.
@@ -256,7 +270,7 @@ export function usePagination({
     if (!flow || !geom) return null;
     const blockEls = blockElements(flow);
     if (blockEls.length === 0) return null;
-    return { flow, blocks: windowBlocks, blockEls, geom };
+    return { flow, blocks: windowBlocks, blockEls, geom, pages: pagesRef.current };
   }, [windowBlocks, flowRef]);
 
   const paint = useCallback(
@@ -264,7 +278,9 @@ export function usePagination({
       const flow = flowRef.current;
       const geom = geometryRef.current;
       if (!flow || !geom) return;
-      flow.style.transform = `translate3d(${-page * geom.pageStride}px, 0, 0)`;
+      // The page's own first column, not `page * cols`: a page cut short by a
+      // chapter opening shifts every page after it by one column.
+      flow.style.transform = `translate3d(${-pageOffset(page, pagesRef.current, geom)}px, 0, 0)`;
     },
     [flowRef]
   );
@@ -272,7 +288,7 @@ export function usePagination({
   const goToPage = useCallback(
     (page: number) => {
       const stopTurn = startTimer("turn");
-      const total = totalRef.current;
+      const total = pageCount(pagesRef.current);
       const next = Math.min(Math.max(0, page), Math.max(0, total - 1));
       pageRef.current = next;
       paint(next);
@@ -320,7 +336,11 @@ export function usePagination({
   // window's final page isn't knowable until it has been laid out, and it never
   // has to be. Solving for that character after fragmentation finds it.
   const next = useCallback(() => {
-    if (win && pageRef.current >= totalRef.current - 1 && win.endBlock < blocks.length) {
+    if (
+      win &&
+      pageRef.current >= pageCount(pagesRef.current) - 1 &&
+      win.endBlock < blocks.length
+    ) {
       goToChar(win.charEnd);
       return;
     }
@@ -439,15 +459,20 @@ export function usePagination({
     );
 
     const stopSolve = startTimer("solve");
-    const total = countPages(flow, geom);
-    totalRef.current = total;
-    setTotalPages(total);
+    // Before anything asks which page a character is on: every answer below is
+    // relative to where the pages fall, and where the pages fall depends on which
+    // columns the chapters opened in.
+    const mapped = measurePages(flow, geom);
+    pagesRef.current = mapped;
+    setPages(mapped);
+    const total = pageCount(mapped);
 
     const ctx: MeasureCtx = {
       flow,
       blocks: windowBlocks,
       blockEls: blockElements(flow),
       geom,
+      pages: mapped,
     };
     const page = Math.min(pageForCharOffset(charRef.current, ctx), total - 1);
     pageRef.current = page;
@@ -525,13 +550,14 @@ export function usePagination({
 
   return {
     geometry,
+    pages,
     html: enabled ? renderedHtml : null,
     windowBase: win?.startBlock ?? 0,
     pageIndex,
-    totalPages,
+    totalPages: pageCount(pages),
     charOffset,
     charEnd,
-    atEnd: (!win || win.endBlock >= blocks.length) && pageIndex >= totalPages - 1,
+    atEnd: (!win || win.endBlock >= blocks.length) && pageIndex >= pageCount(pages) - 1,
     atStart: (!win || win.startBlock === 0) && pageIndex <= 0,
     goToChar,
     goToPage,

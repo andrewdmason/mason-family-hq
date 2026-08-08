@@ -263,9 +263,16 @@ const bundle = await build({
   stdin: {
     contents: `
       import { blockElements } from "./src/lib/reading/annotation-anchors";
-      import { charOffsetAtTopOfPage } from "./src/lib/reading/paged-position";
+      import { charOffsetAtTopOfPage, measurePages } from "./src/lib/reading/paged-position";
+      import { pageForCol } from "./src/lib/reading/paged-geometry";
       import { pageBlocks } from "./src/lib/reading/inline-chat-blocks";
-      Object.assign(globalThis, { blockElements, charOffsetAtTopOfPage, pageBlocks });
+      Object.assign(globalThis, {
+        blockElements,
+        charOffsetAtTopOfPage,
+        measurePages,
+        pageForCol,
+        pageBlocks,
+      });
     `,
     resolveDir: process.cwd(),
     loader: "ts",
@@ -310,7 +317,6 @@ function geometryFor(colW: number, pageH: number, cols: 1 | 2, clipW: number): P
     cols,
     viewW,
     colStride,
-    pageStride: cols * colStride,
     offsetX: Math.max(0, Math.round((clipW - viewW) / 2)),
   };
 }
@@ -395,7 +401,11 @@ for (const [engineName, launcher] of [
           .map((el) => el.getAttribute(markAttr));
         const markIsBlock = marks.filter((el) => blockEls.includes(el)).length;
 
-        const ctx = { flow, blocks, blockEls, geom };
+        // Measured, because a chapter opening in the right-hand column of a
+        // spread cuts the page before it short — so which page a column is on is
+        // no longer col / cols. See Pages.
+        const pageMap = g.measurePages(flow, geom);
+        const ctx = { flow, blocks, blockEls, geom, pages: pageMap };
         const flowLeft = flow.getBoundingClientRect().left;
         const view = document.getElementById("viewport")!.getBoundingClientRect();
         const colOf = (x: number) =>
@@ -419,7 +429,7 @@ for (const [engineName, launcher] of [
           for (let i = 0; i < blockEls.length; i++) {
             const rect = blockEls[i].getClientRects()[0];
             if (!rect) continue;
-            if (Math.floor(colOf(rect.left) / geom.cols) !== pageIndex) continue;
+            if (g.pageForCol(colOf(rect.left), pageMap) !== pageIndex) continue;
             if (rect.top - view.top <= padTop + 2) continue;
             firstStarting = base + i;
             break;

@@ -16,9 +16,14 @@
 import type { BookBlock } from "@/lib/reading/block-stream";
 import { textPositionAt } from "@/lib/reading/annotation-anchors";
 import {
+  buildPages,
   colIndexForX,
+  columnsInWidth,
   firstColOfPage,
+  pageCount,
+  pageForCol,
   type PageGeometry,
+  type Pages,
 } from "@/lib/reading/paged-geometry";
 
 /**
@@ -35,6 +40,8 @@ export type MeasureCtx = {
   blocks: BookBlock[];
   blockEls: HTMLElement[];
   geom: PageGeometry;
+  /** Where the pages fall on this strip — measured, not arithmetic. See Pages. */
+  pages: Pages;
 };
 
 function flowLeft(ctx: MeasureCtx): number {
@@ -84,6 +91,30 @@ function endColOf(el: HTMLElement, left: number, geom: PageGeometry): number {
 }
 
 /**
+ * The class the chapter break rule is written against (reader-prose.ts): a
+ * heading with it starts a fresh column, at both levels, on every book. Asked of
+ * the class rather than the tag on purpose — the class is what the CSS breaks on,
+ * so measuring anything else would put a page boundary where there is no column
+ * boundary to hang it on.
+ */
+const CHAPTER_CLASS = "reader-heading";
+
+/**
+ * Where the pages fall, measured off a strip the browser has already fragmented.
+ *
+ * Costs one rect read per chapter in the window — a handful, not a book — and
+ * runs once per repagination, never on a page turn.
+ */
+export function measurePages(flow: HTMLElement, geom: PageGeometry): Pages {
+  const left = flow.getBoundingClientRect().left;
+  const opens: number[] = [];
+  for (const el of flow.querySelectorAll<HTMLElement>(`.${CHAPTER_CLASS}`)) {
+    opens.push(startColOf(el, left, geom));
+  }
+  return buildPages(columnsInWidth(flow.scrollWidth, geom), opens, geom);
+}
+
+/**
  * The page a character offset is displayed on.
  *
  * Defined as the inverse of charOffsetAtTopOfPage rather than measured
@@ -102,7 +133,7 @@ export function pageForCharOffset(charOffset: number, ctx: MeasureCtx): number {
   if (blocks.length === 0 || blockEls.length === 0) return 0;
 
   let lo = 0;
-  let hi = countPages(ctx.flow, ctx.geom) - 1;
+  let hi = pageCount(ctx.pages) - 1;
   let best = 0;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
@@ -127,7 +158,7 @@ export function pageForCharOffset(charOffset: number, ctx: MeasureCtx): number {
  * what makes it stable where a lone rect lookup isn't.
  */
 export function charOffsetAtTopOfPage(page: number, ctx: MeasureCtx): number {
-  const { blocks, blockEls, geom } = ctx;
+  const { blocks, blockEls, geom, pages } = ctx;
   if (blocks.length === 0 || blockEls.length === 0) return 0;
   // The first page starts at the first RENDERED block, which is the front of the
   // book only when the whole book is rendered. Returning 0 here instead would
@@ -137,7 +168,7 @@ export function charOffsetAtTopOfPage(page: number, ctx: MeasureCtx): number {
   if (page <= 0) return blocks[0].charStart;
 
   const left = flowLeft(ctx);
-  const targetCol = firstColOfPage(page, geom);
+  const targetCol = firstColOfPage(page, pages);
 
   // The FIRST block starting at or after this page's first column — not the
   // last one starting at or before it. A whole column's worth of blocks start
@@ -183,14 +214,6 @@ export function charOffsetAtTopOfPage(page: number, ctx: MeasureCtx): number {
   if (block) return block.charStart;
   const last = blocks[blocks.length - 1];
   return last.charStart + last.text.length;
-}
-
-/** How many pages the book currently occupies. */
-export function countPages(flow: HTMLElement, geom: PageGeometry): number {
-  // scrollWidth omits the trailing gap after the final column, so add it back
-  // before dividing by the stride.
-  const cols = Math.max(1, Math.round((flow.scrollWidth + geom.gap) / geom.colStride));
-  return Math.max(1, Math.ceil(cols / geom.cols));
 }
 
 /**
@@ -260,6 +283,21 @@ export function assertPagesMoveForward(ctx: MeasureCtx, totalPages: number): voi
         `(${ctx.flow.scrollWidth}px + ${ctx.geom.gap} / ${ctx.geom.colStride} = ${strideCount}) — ` +
         `page positions will drift toward the end of the book`
     );
+  }
+
+  // No chapter opens in the middle of a page. The whole point of the page map:
+  // if this ever fails, a reader on a two-column spread sees the last column of
+  // one chapter and the first of the next side by side, with no page turn between
+  // them — which is the thing it exists to prevent, and it would look deliberate.
+  for (const col of ctx.pages.opens) {
+    const page = pageForCol(col, ctx.pages);
+    if (col !== firstColOfPage(page, ctx.pages)) {
+      console.warn(
+        `[reader] a chapter opens in column ${col}, which is inside page ${page} ` +
+          `(starting at column ${firstColOfPage(page, ctx.pages)}) rather than opening it`
+      );
+      break;
+    }
   }
 
   // Sampled: walking every page of a 1,000-page book on every repagination

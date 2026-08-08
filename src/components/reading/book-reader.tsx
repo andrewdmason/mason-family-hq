@@ -925,13 +925,13 @@ export function BookReader({
   const layoutNonce = paged ? pagination.layoutNonce : scrollLayoutNonce;
   // Memoised: the chat gutter re-places whenever this changes, and a fresh
   // object every render would put it in a render loop.
-  const { geometry: pagedGeometry, pageIndex } = pagination;
+  const { geometry: pagedGeometry, pages: pagedPages, pageIndex } = pagination;
   const pagedChat = useMemo(
     () =>
       paged && pagedGeometry
-        ? { geom: pagedGeometry, pageIndex, viewport }
+        ? { geom: pagedGeometry, pages: pagedPages, pageIndex, viewport }
         : null,
-    [paged, pagedGeometry, pageIndex, viewport]
+    [paged, pagedGeometry, pagedPages, pageIndex, viewport]
   );
 
   // Stable, so PagedView's window keydown listener isn't torn down and re-added
@@ -1206,6 +1206,8 @@ export function BookReader({
             onViewportRef={setViewport}
             flowRef={flowRef}
             geometry={pagination.geometry}
+            pages={pagination.pages}
+            pageIndex={pageIndex}
             settings={settings}
             isFirstPage={pagination.atStart}
             isLastPage={pagination.atEnd}
