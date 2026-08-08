@@ -984,6 +984,8 @@ export type ReadingRecommendation = {
   total_pages: number | null;
   cover_image_url: string | null;
   isbn: string | null;
+  /** First publication year, when the lookup resolved one. */
+  published_year: number | null;
   /** Claude's one-line "why you'd like this". */
   rationale: string | null;
   status: ReadingRecStatus;

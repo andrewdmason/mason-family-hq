@@ -1,30 +1,9 @@
-import Link from "next/link";
-import { Settings } from "lucide-react";
 import { AddBookDialog } from "@/components/reading/add-book-dialog";
 import { ReaderShelf } from "@/components/reading/reader-shelf";
-import {
-  ReaderOverflowMenu,
-  type CopyableBook,
-} from "@/components/reading/reader-overflow-menu";
 import { getReadingHome, listRecommendRecipients } from "../actions";
 import { getDiscover } from "../discover/actions";
-import type { ReadingHome } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-
-/** The archived shelf, trimmed to what "Copy books as markdown" needs — the
- * header is a client component, so this is what crosses the wire. Articles are
- * left out: the copied list is about book taste. */
-function copyableArchive(home: ReadingHome): CopyableBook[] {
-  return home.books
-    .filter((b) => b.status === "archive" && (b.type ?? "book") === "book")
-    .map((b) => ({
-      title: b.title,
-      author: b.author,
-      rating: b.rating,
-      published_year: b.published_year,
-    }));
-}
 
 /**
  * Your shelf: your books as cover art, the way a Kindle opens. Reader drops you
@@ -43,31 +22,21 @@ export default async function ReaderLibraryPage() {
       {/* Reader settings + Add-a-book live in the global toolbar (right of the
           app switcher, left of the bell) rather than a page heading row. The
           shelf publishes them, because the shelf tabs sit in the same strip and
-          the header takes one node per app. */}
+          the header takes one node per app. Add-a-book comes from here because it
+          needs the list of people you can pass a book to; the settings link and
+          the markdown copy the shelf renders itself, the latter because what it
+          copies is the shelf's own live list. */}
       <ReaderShelf
         books={home.books}
         recommendations={discover.recommendations}
         recsHasSignal={discover.hasSignal}
         recsGenres={discover.genres}
         actions={
-          <>
-            <Link
-              href="/reader/settings"
-              aria-label="Reader settings"
-              className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <Settings className="h-4 w-4" />
-            </Link>
-            <ReaderOverflowMenu
-              books={copyableArchive(home)}
-              title="Books I've read"
-            />
-            <AddBookDialog
-              triggerVariant="default"
-              memberEmail={null}
-              recipients={recipients}
-            />
-          </>
+          <AddBookDialog
+            triggerVariant="default"
+            memberEmail={null}
+            recipients={recipients}
+          />
         }
       />
     </main>

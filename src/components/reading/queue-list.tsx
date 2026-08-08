@@ -54,19 +54,34 @@ export function QueueList({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Adopt the server's list whenever its membership genuinely changes — a book
-  // added, removed, or moved to another tab. Keyed on the id set rather than the
-  // sequence so the server's own ordering, which lags a drag we've already drawn,
-  // doesn't yank a row back. Adjusted during render rather than in an effect, so
-  // a new book never flashes as absent for a frame.
+  // Take the incoming list on whenever it genuinely changes, in one of two ways.
+  // A book joining or leaving is the server's call, so the whole list is adopted,
+  // order and all — a book you just added belongs where it was filed, not at the
+  // end. A book merely *edited* — retitled, renoted, or any of the changes the
+  // shelf draws ahead of their save (see shelf-books) — keeps the position you
+  // dropped it in, and only its contents are refreshed; the server's ordering
+  // lags a drag we've already drawn, and adopting it would yank the row back.
+  //
+  // Both are fingerprinted in id order for the same reason, and adjusted during
+  // render rather than in an effect, so a new book never flashes as absent.
   const membership = books
     .map((b) => b.id)
     .sort()
     .join(",");
-  const [lastMembership, setLastMembership] = useState(membership);
-  if (membership !== lastMembership) {
-    setLastMembership(membership);
+  const contents = books
+    .map((b) =>
+      [b.id, b.title, b.author, b.status, b.recommendation_note].join("~")
+    )
+    .sort()
+    .join(",");
+  const [last, setLast] = useState({ membership, contents });
+  if (membership !== last.membership) {
+    setLast({ membership, contents });
     setItems(books);
+  } else if (contents !== last.contents) {
+    setLast({ membership, contents });
+    const incoming = new Map(books.map((b) => [b.id, b]));
+    setItems((prev) => prev.map((b) => incoming.get(b.id) ?? b));
   }
 
   const sensors = useSensors(

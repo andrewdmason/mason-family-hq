@@ -1057,6 +1057,14 @@ const RATINGS: ReadingRating[] = ["loved", "liked", "neutral", "disliked"];
 /**
  * Set (or clear) a member's emoji rating on a book they've read. This is the
  * taste signal the Discover recommender leans on. Passing null clears it.
+ *
+ * Deliberately no revalidatePath, for the same reason setBookSortOrder has none:
+ * the shelf has already moved the book into its new rating group, and a rating is
+ * something you do to twenty books in a sitting. Re-rendering the whole library —
+ * every book, every cover — behind each one would queue up a minute of work
+ * nobody is waiting to see. Everything that reads a rating either reads it from
+ * the shelf's own live list (the markdown copy) or from the database at the
+ * moment it's asked (the recommender's taste profile).
  */
 export async function rateBook(
   bookId: string,
@@ -1077,7 +1085,6 @@ export async function rateBook(
     .eq("id", bookId)
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
-  revalidatePath("/reader");
 }
 
 // ============================================================

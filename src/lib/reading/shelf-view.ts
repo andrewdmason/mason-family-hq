@@ -1,6 +1,7 @@
 import {
   genreLabel,
   genreOrder,
+  isReadingGenre,
   type ReadingGenre,
 } from "@/lib/reading/book-genres";
 import type {
@@ -33,6 +34,18 @@ export type ShelfFiction = "all" | "fiction" | "nonfiction";
 /** A rating bucket, including books nobody has rated yet. */
 export type ShelfRating = ReadingRating | "unrated";
 
+/** The archive's verdict order: unrated first (a nudge to rate), then best to
+ * worst, with "didn't finish" at the bottom. Doubles as the list of ratings a
+ * URL is allowed to name. */
+const RATING_ORDER: ShelfRating[] = [
+  "unrated",
+  "loved",
+  "liked",
+  "neutral",
+  "disliked",
+  "didnt_finish",
+];
+
 export type ShelfView = {
   groupBy: ShelfGroupBy;
   fiction: ShelfFiction;
@@ -44,8 +57,10 @@ export type ShelfView = {
   query: string;
 };
 
-/** Preferences are kept per tab: the archive and a four-book queue want
- * different things, and carrying one tab's filters onto another reads as a bug. */
+/** Arrangements are kept per tab: the archive and a four-book queue want
+ * different things, and carrying one tab's filters onto another reads as a bug.
+ * Only the tab you're on is in the URL; the others are remembered for as long as
+ * you're on the page, so flipping across and back doesn't lose your place. */
 export type ShelfViews = Partial<Record<ReadingBookStatus, ShelfView>>;
 
 export const GROUP_BY_OPTIONS: { value: ShelfGroupBy; label: string }[] = [
@@ -100,74 +115,104 @@ export function activeFilterCount(view: ShelfView): number {
 }
 
 /**
- * Where display preferences live: this device, not the account, and not the URL.
+ * Where the shelf's state lives: the address bar.
  *
- * A view preference rather than a place — a link to the shelf should open the
- * shelf, not somebody's half-applied genre filter. Same store shape the reader's
- * layout settings use, so the server renders the defaults without a hydration
- * mismatch and a change in one tab reaches the others.
+ * Which shelf you're looking at and how you've narrowed it is *where you are*,
+ * not a device preference — so a refresh, a bookmark, or a link you hand to
+ * someone else all reopen the shelf you were actually looking at. Filters that
+ * survive a reload but vanish on one are the confusing half of both worlds.
  *
- * getSnapshot has to return a stable reference or React re-renders forever, so
- * the parsed value is cached against the raw string it came from.
+ * Only what you changed is written down: an untouched shelf keeps a clean
+ * /reader/library, and the tab is named only when it isn't the one you'd land on
+ * anyway. The slugs are the words on the tabs ("reading", "queue"), not the
+ * status values the database stores, because a URL is read by people.
+ *
+ * Anything unrecognised is dropped rather than honoured, so a mangled link opens
+ * the shelf instead of an empty one.
  */
-const STORAGE_KEY = "reader-shelf-view";
-const EMPTY: ShelfViews = {};
 
-let cachedRaw: string | null = null;
-let cachedValue: ShelfViews = EMPTY;
-const listeners = new Set<() => void>();
+/** Just enough of URLSearchParams to read a link — Next's read-only params fit. */
+export type ShelfSearchParams = { get(name: string): string | null };
 
-function currentRaw(): string | null {
-  try {
-    return window.localStorage.getItem(STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function parse(raw: string | null): ShelfViews {
-  if (!raw) return EMPTY;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return EMPTY;
-    return parsed as ShelfViews;
-  } catch {
-    return EMPTY;
-  }
-}
-
-export const shelfViewStore = {
-  subscribe(listener: () => void): () => void {
-    listeners.add(listener);
-    window.addEventListener("storage", listener);
-    return () => {
-      listeners.delete(listener);
-      window.removeEventListener("storage", listener);
-    };
-  },
-  getSnapshot(): ShelfViews {
-    const raw = currentRaw();
-    if (raw !== cachedRaw) {
-      cachedRaw = raw;
-      cachedValue = parse(raw);
-    }
-    return cachedValue;
-  },
-  getServerSnapshot(): ShelfViews {
-    return EMPTY;
-  },
-  set(views: ShelfViews): void {
-    const raw = JSON.stringify(views);
-    cachedRaw = raw;
-    cachedValue = views;
-    try {
-      window.localStorage.setItem(STORAGE_KEY, raw);
-    } catch {
-      // Private browsing / quota. The choice still applies for this session.
-    }
-    for (const listener of listeners) listener();
-  },
+const TAB_SLUGS: Record<ReadingBookStatus, string> = {
+  in_progress: "reading",
+  queued: "queue",
+  archive: "archive",
+  paused: "paused",
 };
+
+const TAB_BY_SLUG = new Map(
+  (Object.keys(TAB_SLUGS) as ReadingBookStatus[]).map((s) => [TAB_SLUGS[s], s])
+);
+
+function one(params: ShelfSearchParams, key: string): string | null {
+  const raw = params.get(key)?.trim();
+  return raw ? raw : null;
+}
+
+function many(params: ShelfSearchParams, key: string): string[] {
+  return (one(params, key) ?? "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+function isShelfRating(value: string): value is ShelfRating {
+  return (RATING_ORDER as string[]).includes(value);
+}
+
+/** The tab a link names, or null when it names none (or one we don't have). */
+export function parseShelfTab(
+  params: ShelfSearchParams
+): ReadingBookStatus | null {
+  return TAB_BY_SLUG.get(one(params, "tab") ?? "") ?? null;
+}
+
+/** How a link says this tab is arranged, falling back field by field to the
+ * tab's own defaults — so `?rating=loved` still arrives grouped as usual. */
+export function parseShelfView(
+  params: ShelfSearchParams,
+  tab: ReadingBookStatus
+): ShelfView {
+  const base = defaultView(tab);
+  const group = GROUP_BY_OPTIONS.find((o) => o.value === one(params, "group"));
+  const kind = FICTION_OPTIONS.find((o) => o.value === one(params, "kind"));
+  return {
+    groupBy: group?.value ?? base.groupBy,
+    fiction: kind?.value ?? base.fiction,
+    genres: many(params, "genre").filter(isReadingGenre),
+    ratings: many(params, "rating").filter(isShelfRating),
+    query: one(params, "q") ?? "",
+  };
+}
+
+/**
+ * The query string that reopens this shelf — "" when there's nothing to say.
+ *
+ * `landingTab` is the tab the shelf opens on by itself, so staying there costs
+ * the URL nothing; the moment anything else is set, the tab is written too, or a
+ * reload would apply your filters to whichever shelf happened to open.
+ */
+export function shelfQueryString(
+  tab: ReadingBookStatus,
+  view: ShelfView,
+  landingTab: ReadingBookStatus
+): string {
+  const filters: [string, string][] = [];
+  const base = defaultView(tab);
+  if (view.groupBy !== base.groupBy) filters.push(["group", view.groupBy]);
+  if (view.fiction !== "all") filters.push(["kind", view.fiction]);
+  if (view.genres.length > 0) filters.push(["genre", view.genres.join(",")]);
+  if (view.ratings.length > 0) filters.push(["rating", view.ratings.join(",")]);
+  if (view.query.trim()) filters.push(["q", view.query.trim()]);
+
+  const params = new URLSearchParams();
+  if (tab !== landingTab || filters.length > 0) params.set("tab", TAB_SLUGS[tab]);
+  for (const [key, value] of filters) params.set(key, value);
+
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
 
 const norm = (s: string) => s.toLowerCase().normalize("NFKD");
 
@@ -200,17 +245,6 @@ export type ShelfGroup = {
   heading: string;
   books: ReadingBookWithProgress[];
 };
-
-/** The archive's verdict order: unrated first (a nudge to rate), then best to
- * worst, with "didn't finish" at the bottom. */
-const RATING_ORDER: ShelfRating[] = [
-  "unrated",
-  "loved",
-  "liked",
-  "neutral",
-  "disliked",
-  "didnt_finish",
-];
 
 /** How a book's author sorts and reads as a heading. */
 function authorKey(book: ReadingBookWithProgress): string {

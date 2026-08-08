@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { startTransition, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -26,6 +26,7 @@ import {
   RATING_OPTIONS,
   ratingGlyph,
 } from "@/components/reading/rating-picker";
+import { useShelfBooks } from "@/components/reading/shelf-books";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -90,36 +91,41 @@ export function useBookMenu({
   onError: (message: string | null) => void;
 }) {
   const router = useRouter();
+  const shelf = useShelfBooks();
   const [editOpen, setEditOpen] = useState(false);
-  const [rating, setRating] = useState<ReadingRating | null>(book.rating);
-  const [moving, startMove] = useTransition();
-  const [deleting, startDelete] = useTransition();
   const [reflecting, startReflect] = useTransition();
-  const [savingRating, startRate] = useTransition();
   const [assessing, startAssess] = useTransition();
 
   const { busy, retrying, hasFile, isReady, isFailed, openFilePicker, retryConvert } =
     file;
-  const pending =
-    busy ||
-    deleting ||
-    moving ||
-    reflecting ||
-    retrying ||
-    savingRating ||
-    assessing;
+  // Only the things you genuinely have to wait for. Rating a book, moving it and
+  // deleting it all land on the shelf immediately (see shelf-books), so putting a
+  // spinner over the menu for the length of those saves would be inventing a wait
+  // that no longer exists. Asking whether you'll like a book is a real one — it's
+  // a model reading the book, and there's nothing to draw until it answers.
+  const pending = busy || reflecting || retrying || assessing;
+
+  const rating = book.rating;
+
+  /** A change that didn't stick. On the shelf the book may have moved out from
+   * under this menu by now — to another tab, or off the shelf entirely — so the
+   * shelf says so on its behalf. Elsewhere the caller's own slot still works. */
+  function report(message: string) {
+    if (shelf.managed) shelf.fail(message);
+    else onError(message);
+  }
 
   /** Tap the rating you already gave to clear it, mirroring the rating picker. */
   function handleRate(next: ReadingRating) {
     const resolved = rating === next ? null : next;
-    const previous = rating;
-    setRating(resolved);
     onError(null);
-    startRate(async () => {
+    const undo = shelf.patchBook(book.id, { rating: resolved });
+    startTransition(async () => {
       try {
         await rateBook(book.id, resolved, memberEmail);
       } catch {
-        setRating(previous);
+        undo();
+        report(`Couldn't save your rating for "${book.title}".`);
       }
     });
   }
@@ -127,11 +133,13 @@ export function useBookMenu({
   function handleMove(status: ReadingBookStatus) {
     if (status === book.status) return;
     onError(null);
-    startMove(async () => {
+    const undo = shelf.patchBook(book.id, { status });
+    startTransition(async () => {
       try {
         await updateBook(book.id, { status, memberEmail });
       } catch (err) {
-        onError(err instanceof Error ? err.message : "Couldn't move that book.");
+        undo();
+        report(err instanceof Error ? err.message : "Couldn't move that book.");
       }
     });
   }
@@ -139,15 +147,19 @@ export function useBookMenu({
   function handleDelete() {
     if (!window.confirm(`Delete "${book.title}" from your books?`)) return;
     onError(null);
-    startDelete(async () => {
+    const undo = shelf.dropBook(book.id);
+    startTransition(async () => {
       try {
         await removeBook(book.id, memberEmail);
-        // Only after the server agrees it's gone — a failed delete must not
-        // leave the book on the shelf but no longer readable offline.
-        await removeDownload(book.id);
       } catch (err) {
-        onError(err instanceof Error ? err.message : "Couldn't delete the book.");
+        undo();
+        report(err instanceof Error ? err.message : "Couldn't delete the book.");
+        return;
       }
+      // Only once the server agrees it's gone — a failed delete must not leave
+      // the book on the shelf but no longer readable offline. A cache that won't
+      // let go is nothing the reader needs to hear about: the book is deleted.
+      await removeDownload(book.id).catch(() => {});
     });
   }
 
@@ -178,7 +190,13 @@ export function useBookMenu({
         const result = await assessBookIntoNote(book.id, memberEmail);
         if (!result) {
           onError("Couldn't get a read on that one — try again.");
+          return;
         }
+        // The assessment has just overwritten the queue note on the server. If
+        // an edit of your own is still drawn over that line, let go of it — the
+        // answer you asked for would otherwise sit invisible behind a sentence
+        // you typed a second earlier, and the two would never agree.
+        shelf.releaseBook(book.id, ["recommendation_note"]);
       } catch (err) {
         onError(
           err instanceof Error ? err.message : "Couldn't assess that book."
@@ -234,7 +252,7 @@ export function useBookMenu({
               <DropdownMenuItem
                 key={option.value}
                 onClick={() => handleMove(option.value)}
-                disabled={moving || current}
+                disabled={current}
               >
                 <Icon />
                 {option.label}
@@ -259,7 +277,6 @@ export function useBookMenu({
               <DropdownMenuItem
                 key={option.value}
                 onClick={() => handleRate(option.value)}
-                disabled={savingRating}
               >
                 <span aria-hidden className="w-4 text-center">
                   {option.emoji ?? "—"}

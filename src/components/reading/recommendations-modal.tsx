@@ -12,6 +12,7 @@ import {
 import { BookCover } from "@/components/reading/book-cover";
 import { InlineMarkdown } from "@/components/reading/inline-markdown";
 import { RatingPicker } from "@/components/reading/rating-picker";
+import { bookByline } from "@/lib/reading/byline";
 import {
   dismissRecommendation,
   generateRecommendations,
@@ -55,6 +56,9 @@ export function RecommendationsModal({
 
   const total = items.length;
   const current = items[index];
+  const byline = current
+    ? bookByline(current.author, current.published_year)
+    : null;
 
   function act(action: () => Promise<void>) {
     startTransition(async () => {
@@ -143,8 +147,8 @@ export function RecommendationsModal({
                 <p className="font-serif text-lg leading-tight text-foreground">
                   {current.title}
                 </p>
-                {current.author && (
-                  <p className="text-sm text-muted-foreground">{current.author}</p>
+                {byline && (
+                  <p className="text-sm text-muted-foreground">{byline}</p>
                 )}
               </div>
 

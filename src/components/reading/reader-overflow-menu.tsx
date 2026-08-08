@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { RATING_OPTIONS } from "@/components/reading/rating-picker";
 import { Toast, ToastViewport } from "@/components/ui/toast";
-import type { ReadingRating } from "@/lib/types";
+import type { ReadingBookWithProgress, ReadingRating } from "@/lib/types";
 
 /**
  * The reader's toolbar overflow menu. Today it holds one thing: copy the whole
@@ -19,14 +19,30 @@ import type { ReadingRating } from "@/lib/types";
  * client, so the copy happens synchronously inside the click — no await between
  * the gesture and `writeText`, which browsers would treat as a lost user
  * activation.
+ *
+ * It's handed the shelf's own live list rather than a snapshot the page took on
+ * the server, so a verdict you gave a second ago is in what you paste.
  */
 
-export type CopyableBook = {
+type CopyableBook = {
   title: string;
   author: string | null;
   rating: ReadingRating | null;
   published_year: number | null;
 };
+
+/** What "Copy books as markdown" is about: books you've finished, and your
+ * verdict on them. Articles are left out — the list is about book taste. */
+function copyableArchive(books: ReadingBookWithProgress[]): CopyableBook[] {
+  return books
+    .filter((b) => b.status === "archive" && (b.type ?? "book") === "book")
+    .map((b) => ({
+      title: b.title,
+      author: b.author,
+      rating: b.rating,
+      published_year: b.published_year,
+    }));
+}
 
 // Best verdict first, unrated last — the opposite of the shelf, which floats
 // unrated to the top to nudge a rating. Here the strongest signal leads.
@@ -65,13 +81,15 @@ export function archiveMarkdown(books: CopyableBook[], title: string): string {
 }
 
 export function ReaderOverflowMenu({
-  books,
+  books: shelf,
   title,
 }: {
-  books: CopyableBook[];
+  /** The whole shelf; the archive is picked out of it here. */
+  books: ReadingBookWithProgress[];
   /** Heading for the copied markdown, e.g. "Books I've read". */
   title: string;
 }) {
+  const books = copyableArchive(shelf);
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {

@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { startTransition, useState } from "react";
 import {
   Archive,
   BookMarked,
   BookOpen,
   Check,
   ExternalLink,
-  Loader2,
   MoreHorizontal,
   PauseCircle,
   Trash2,
@@ -27,6 +26,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useShelfBooks } from "@/components/reading/shelf-books";
 import { removeBook, updateBook } from "@/app/(reading)/reader/actions";
 import { READING_STATUSES } from "@/lib/reading/status";
 import { cn } from "@/lib/utils";
@@ -54,16 +54,29 @@ export function useArticleMenu({
   memberEmail?: string | null;
   onError: (message: string | null) => void;
 }) {
-  const [busy, startTransition] = useTransition();
+  // Moving an article between shelves and deleting it both land on the list
+  // immediately, with the save behind them — same as a book's, and for the same
+  // reason: waiting on a full page re-render to watch a row move is the wait we
+  // set out to remove. See shelf-books.
+  const shelf = useShelfBooks();
+
+  /** Same as a book's: by the time a save fails the row is usually somewhere
+   * else, so the shelf carries the message when there is one. */
+  function report(message: string) {
+    if (shelf.managed) shelf.fail(message);
+    else onError(message);
+  }
 
   function setStatus(status: ReadingBookStatus) {
     if (status === article.status) return;
     onError(null);
+    const undo = shelf.patchBook(article.id, { status });
     startTransition(async () => {
       try {
         await updateBook(article.id, { status, memberEmail });
       } catch (err) {
-        onError(err instanceof Error ? err.message : "Couldn't update.");
+        undo();
+        report(err instanceof Error ? err.message : "Couldn't update.");
       }
     });
   }
@@ -71,11 +84,13 @@ export function useArticleMenu({
   function handleDelete() {
     if (!window.confirm(`Delete "${article.title}" from your reading?`)) return;
     onError(null);
+    const undo = shelf.dropBook(article.id);
     startTransition(async () => {
       try {
         await removeBook(article.id, memberEmail);
       } catch (err) {
-        onError(err instanceof Error ? err.message : "Couldn't delete.");
+        undo();
+        report(err instanceof Error ? err.message : "Couldn't delete.");
       }
     });
   }
@@ -112,7 +127,7 @@ export function useArticleMenu({
               <DropdownMenuItem
                 key={option.value}
                 onClick={() => setStatus(option.value)}
-                disabled={busy || current}
+                disabled={current}
               >
                 <Icon />
                 {option.label}
@@ -130,7 +145,7 @@ export function useArticleMenu({
     </>
   );
 
-  return { items, pending: busy, label: article.title };
+  return { items, label: article.title };
 }
 
 export type ArticleMenu = ReturnType<typeof useArticleMenu>;
@@ -148,16 +163,13 @@ export function ArticleActionsMenu({
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
+      {/* No busy state: everything in here is drawn on the list the moment you
+          pick it, so there's never a save to sit and watch. */}
       <DropdownMenuTrigger
-        className={cn(className, (open || menu.pending) && "opacity-100")}
+        className={cn(className, open && "opacity-100")}
         aria-label={`Actions for ${menu.label}`}
-        disabled={menu.pending}
       >
-        {menu.pending ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <MoreHorizontal className="h-4 w-4" />
-        )}
+        <MoreHorizontal className="h-4 w-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align} side="bottom" className="w-48">
         {menu.items}
