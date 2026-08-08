@@ -937,6 +937,10 @@ export type ReadingBook = {
   /** How to show the recommender — "Dad", "Mom", or their first name. */
   recommended_by_label: string | null;
   recommendation_note: string | null;
+  /** Manual shelf position (fractional index, ascending). New books get a large
+   * negative value so they land at the top; a drag writes the midpoint between
+   * neighbours. See src/lib/sort-order.ts. */
+  sort_order: number;
   created_at: string;
   updated_at: string;
 };
