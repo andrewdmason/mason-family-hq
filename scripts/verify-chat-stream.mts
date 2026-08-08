@@ -30,10 +30,15 @@
 
 import { statusFrame, streamReply } from "../src/lib/reading/chat-stream";
 import {
+  buildReaderChatSystem,
   READER_CHAT_DEEP_EFFORT,
   READER_CHAT_DEEP_MAX_TOKENS,
+  READER_CHAT_DEEP_MODEL,
+  READER_CHAT_FAST_MODEL,
   READER_CHAT_MAX_TOKENS,
+  READER_CHAT_PROMOTION_MODEL,
   THINKING_STATUS,
+  type ReaderChatDepth,
 } from "../src/lib/reading/chat-prompt";
 import { SEARCHING_STATUS } from "../src/lib/reading/web-sources";
 import { INLINE_RE } from "../src/components/reading/annotations/chat-message-text";
@@ -317,6 +322,142 @@ check(
   "at an effort that actually engages it",
   READER_CHAT_DEEP_EFFORT,
   "high"
+);
+
+// ============================================================
+// What the picker actually changes.
+// ============================================================
+//
+// The failure this section exists for: the picker changed the model and nothing
+// else. The system prompt was assembled before the model was chosen and took no
+// argument for the reader's choice, so Deep bought a stronger model and then
+// read Fast's instruction telling it to write "a remark in the margin, not an
+// essay". Every symptom followed from that one omission — Deep felt like Fast
+// with a delay, and a chat window running the same model with no instructions
+// at all produced a far better conversation about the same book.
+
+console.log("\nthe two registers");
+
+const chatInput = (depth: ReaderChatDepth) => ({
+  bookTitle: "The Unconsoled",
+  bookAuthor: "Kazuo Ishiguro",
+  bookText: "Once, a porter carried three suitcases across a lobby.",
+  hasPageMarkers: false,
+  hasChapterMarkers: false,
+  chapters: [],
+  spoilerFree: false,
+  contextThroughPage: null,
+  readerPosition: null,
+  quotedText: null,
+  hasReaderNotes: false,
+  readerIntent: null,
+  readerProfile: null,
+  depth,
+});
+
+const flat = (depth: ReaderChatDepth) =>
+  buildReaderChatSystem(chatInput(depth))
+    .map((b) => b.text)
+    .join("\n");
+
+const fast = flat("fast");
+const deep = flat("deep");
+
+check(
+  "the picker reaches the prompt at all",
+  fast !== deep,
+  true
+);
+check(
+  "fast is still marginalia",
+  fast.includes("a remark in the margin, not an essay"),
+  true
+);
+check(
+  "and deep is explicitly not",
+  deep.includes("a remark in the margin, not an essay"),
+  false
+);
+check(
+  "deep is asked for an argument, not a survey",
+  deep.includes("HAVE A POSITION AND COMMIT TO IT") &&
+    deep.includes("Being interestingly wrong is useful to them"),
+  true
+);
+// The rule that made interpretation impossible: a reading is never stated in
+// the text, so "say so rather than speculating" declined every question worth
+// asking.
+check(
+  "deep is told interpretation is the job, not an overreach",
+  deep.includes("Interpretation is the JOB here") &&
+    deep.includes("do not decline one for want of a sentence to point at"),
+  true
+);
+check(
+  "deep may leave the covers",
+  deep.includes("Reach outside the book when it helps"),
+  true
+);
+check(
+  "deep lets the question set the length, without inflating small ones",
+  deep.includes("Let the question set the length") &&
+    deep.includes("A factual aside still gets a sentence"),
+  true
+);
+check(
+  "and never turns into a study guide",
+  deep.includes("never a bulleted list of themes"),
+  true
+);
+check(
+  "deep owns its own readings rather than hunting for a citation",
+  deep.includes("own it as yours and make it anyway"),
+  true
+);
+
+// The one place the two halves of the feature pull against each other: the
+// natural way to argue what a book is doing is to reach for how it ends.
+const midBook = (depth: ReaderChatDepth) =>
+  buildReaderChatSystem({
+    ...chatInput(depth),
+    readerPosition: { page: null, percent: 60 },
+  })
+    .map((b) => b.text)
+    .join("\n");
+
+check(
+  "a mid-book deep argument is bounded to what they've read",
+  midBook("deep").includes("Make the case from what they have already read"),
+  true
+);
+check(
+  "and says so rather than arguing around the ending in hints",
+  midBook("deep").includes("say that much and stop"),
+  true
+);
+check(
+  "fast carries no such clause, having made no such promise",
+  midBook("fast").includes("Make the case from what they have already read"),
+  false
+);
+
+// Promotion is about FITTING, not depth. Sharing one constant meant a long book
+// silently upgraded the conversation: a reader who picked Fast and asked a
+// one-line question got Deep's model, budget and thinking because their novel
+// was long.
+// Compared as plain strings: these are `const` literal types, so TypeScript
+// proves the inequality at compile time and rejects the comparison as
+// pointless. The point is to fail if a later edit collapses them back into one.
+const promotionModel: string = READER_CHAT_PROMOTION_MODEL;
+check(
+  "promotion has its own model, distinct from Deep's",
+  promotionModel !== (READER_CHAT_DEEP_MODEL as string),
+  true
+);
+check(
+  "and is still an upgrade on Fast",
+  promotionModel !== (READER_CHAT_FAST_MODEL as string),
+  true
 );
 
 if (failures > 0) {
