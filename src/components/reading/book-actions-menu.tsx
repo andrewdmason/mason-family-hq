@@ -15,6 +15,7 @@ import {
   Pencil,
   RotateCcw,
   ShoppingBag,
+  Sparkles,
   Star,
   Trash2,
   Upload,
@@ -41,6 +42,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { rateBook, removeBook, updateBook } from "@/app/(reading)/reader/actions";
+import { assessBookIntoNote } from "@/app/(reading)/reader/discover/actions";
 import { startBookReflection } from "@/app/(journal)/journal/actions";
 import { bookReaderHref } from "@/lib/reading/links";
 import { amazonHref, koboHref } from "@/lib/reading/store-links";
@@ -94,11 +96,18 @@ export function useBookMenu({
   const [deleting, startDelete] = useTransition();
   const [reflecting, startReflect] = useTransition();
   const [savingRating, startRate] = useTransition();
+  const [assessing, startAssess] = useTransition();
 
   const { busy, retrying, hasFile, isReady, isFailed, openFilePicker, retryConvert } =
     file;
   const pending =
-    busy || deleting || moving || reflecting || retrying || savingRating;
+    busy ||
+    deleting ||
+    moving ||
+    reflecting ||
+    retrying ||
+    savingRating ||
+    assessing;
 
   /** Tap the rating you already gave to clear it, mirroring the rating picker. */
   function handleRate(next: ReadingRating) {
@@ -156,8 +165,42 @@ export function useBookMenu({
     });
   }
 
+  /**
+   * A fresh read on whether this book is for you, written straight into the
+   * row's "why this book" line — the one place on the queue you'd look for it.
+   * Overwrites what was there: a rationale you've outgrown, a friend's pitch you
+   * can't evaluate, or the nothing most hand-added books arrive with.
+   */
+  function handleAssess() {
+    onError(null);
+    startAssess(async () => {
+      try {
+        const result = await assessBookIntoNote(book.id, memberEmail);
+        if (!result) {
+          onError("Couldn't get a read on that one — try again.");
+        }
+      } catch (err) {
+        onError(
+          err instanceof Error ? err.message : "Couldn't assess that book."
+        );
+      }
+    });
+  }
+
   const items = (
     <>
+      {/* Only where the question is still live: a book you haven't started (or
+          have set down) is one you're still deciding about. Once you're reading
+          it, or it's on the archive shelf, you have your own answer. */}
+      {(book.status === "queued" || book.status === "paused") && (
+        <>
+          <DropdownMenuItem onClick={handleAssess} disabled={assessing}>
+            <Sparkles />
+            Will I like this?
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+        </>
+      )}
       {isReady && (
         <DropdownMenuItem
           render={<Link href={bookReaderHref(book.id, memberEmail)} />}
@@ -281,7 +324,7 @@ export function useBookMenu({
     />
   );
 
-  return { items, dialog, pending, label: book.title };
+  return { items, dialog, pending, assessing, label: book.title };
 }
 
 export type BookMenu = ReturnType<typeof useBookMenu>;
