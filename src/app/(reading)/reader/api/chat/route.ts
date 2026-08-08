@@ -10,12 +10,15 @@ import {
   FALLBACK_CHARS_PER_TOKEN,
   FAST_MODEL_CONTEXT_WINDOW,
   FAST_MODEL_HEADROOM,
+  READER_CHAT_DEEP_EFFORT,
+  READER_CHAT_DEEP_MAX_TOKENS,
   READER_CHAT_DEEP_MODEL,
   READER_CHAT_FAST_MODEL,
   READER_CHAT_MAX_CONTEXT_CHARS,
   READER_CHAT_MAX_TOKENS,
   readerWebSearchTools,
   SEARCH_TOOL_TOKEN_ALLOWANCE,
+  THINKING_STATUS,
 } from "@/lib/reading/chat-prompt";
 import { statusFrame } from "@/lib/reading/chat-stream";
 import {
@@ -252,38 +255,61 @@ export async function POST(req: NextRequest) {
         // body once and breaks out at the bottom.
         const conversation = [...turns];
 
+        // What the panel is showing right now, so a frame goes out only when it
+        // changes. Outside the round loop deliberately: a turn that pauses
+        // mid-search resumes straight into more of the same work, and clearing
+        // at the round boundary would blink the line off and back on.
+        let status: string | null = null;
+        const setStatus = (next: string | null) => {
+          if (next === status) return;
+          status = next;
+          controller.enqueue(encoder.encode(statusFrame(next)));
+        };
+
+        const deep = model === READER_CHAT_DEEP_MODEL;
+
         for (let round = 0; ; round++) {
           const claudeStream = client.messages.stream({
             model,
-            max_tokens: READER_CHAT_MAX_TOKENS,
+            max_tokens: deep ? READER_CHAT_DEEP_MAX_TOKENS : READER_CHAT_MAX_TOKENS,
             system,
             tools,
             messages: conversation,
-            // Sonnet 5 runs adaptive thinking when `thinking` is omitted, which
-            // costs tokens and delays the first visible character in a chat UI.
-            ...(model === READER_CHAT_DEEP_MODEL
-              ? { thinking: { type: "disabled" as const } }
+            // Deep thinks before it answers — how often, and how much that is
+            // worth, is measured in READER_CHAT_DEEP_EFFORT. Set explicitly
+            // rather than omitted: leaving `thinking` out runs Sonnet's own
+            // default, which is not the level these numbers were taken at.
+            //
+            // `display` is set rather than left alone because the reasoning is
+            // never shown: the panel says only THAT it is thinking. Nothing
+            // downstream reads a thinking block, so a server-side default that
+            // started returning summaries would be tokens spent on text no one
+            // ever sees.
+            ...(deep
+              ? {
+                  thinking: { type: "adaptive" as const, display: "omitted" as const },
+                  output_config: { effort: READER_CHAT_DEEP_EFFORT },
+                }
               : {}),
           });
 
-          let searching = false;
           for await (const event of claudeStream) {
-            // A search has started. Nothing will stream until it comes back, so
-            // say what's happening rather than leaving a spinner to imply it.
-            //
-            // Any server-side tool counts, not just the one named `web_search`:
-            // search is the only tool this chat has, and the newer version of it
-            // runs code of its own to filter results before they reach the
-            // model. That work is part of the wait the reader is sitting through.
-            if (
-              event.type === "content_block_start" &&
-              event.content_block.type === "server_tool_use"
-            ) {
-              if (!searching) {
-                controller.enqueue(encoder.encode(statusFrame(SEARCHING_STATUS)));
-                searching = true;
+            if (event.type === "content_block_start") {
+              if (event.content_block.type === "thinking") {
+                setStatus(THINKING_STATUS);
+                continue;
               }
-              continue;
+              // A search has started. Nothing will stream until it comes back, so
+              // say what's happening rather than leaving a spinner to imply it.
+              //
+              // Any server-side tool counts, not just the one named `web_search`:
+              // search is the only tool this chat has, and the newer version of it
+              // runs code of its own to filter results before they reach the
+              // model. That work is part of the wait the reader is sitting through.
+              if (event.content_block.type === "server_tool_use") {
+                setStatus(SEARCHING_STATUS);
+                continue;
+              }
             }
             if (
               event.type === "content_block_delta" &&
@@ -291,10 +317,7 @@ export async function POST(req: NextRequest) {
             ) {
               // The answer is arriving, which is a better answer to "what is it
               // doing" than any status line.
-              if (searching) {
-                controller.enqueue(encoder.encode(statusFrame(null)));
-                searching = false;
-              }
+              setStatus(null);
               const chunk = event.delta.text;
               full += chunk;
               controller.enqueue(encoder.encode(chunk));
@@ -302,9 +325,6 @@ export async function POST(req: NextRequest) {
           }
 
           const finished = await claudeStream.finalMessage();
-          if (searching) {
-            controller.enqueue(encoder.encode(statusFrame(null)));
-          }
 
           collectWebSources(finished.content, sources);
 
@@ -316,6 +336,10 @@ export async function POST(req: NextRequest) {
             content: finished.content as Anthropic.ContentBlockParam[],
           });
         }
+
+        // The turn is over however it ended — a status left standing here would
+        // sit under a finished answer forever.
+        setStatus(null);
 
         // Appended by the app rather than written by the model, so a searched
         // answer always says where it went and an unsearched one never grows a

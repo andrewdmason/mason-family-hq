@@ -55,7 +55,73 @@ export const SEARCH_TOOL_TOKEN_ALLOWANCE = 1_500;
  */
 export const FALLBACK_CHARS_PER_TOKEN = 3.5;
 
+/**
+ * The reply budget for a Fast turn, and the room reserved for a reply when
+ * deciding whether a book fits Fast at all. Prose only — Fast does not think.
+ */
 export const READER_CHAT_MAX_TOKENS = 1024;
+
+/**
+ * The same budget for Deep, which does.
+ *
+ * `max_tokens` caps thinking AND reply together, so a ceiling sized for the
+ * prose alone truncates the answer mid-sentence once reasoning is spending out
+ * of the same allowance — and the failure is invisible from the outside,
+ * because a cut-off remark still reads like a remark. Sized generously rather
+ * than snugly: nothing is billed for room it doesn't use, and the length of the
+ * answer is governed by the prompt anyway.
+ */
+export const READER_CHAT_DEEP_MAX_TOKENS = 3072;
+
+/**
+ * Deep reasons before it answers; Fast can't — Haiku has no effort dial and no
+ * adaptive thinking, so this is the whole of the difference the picker buys
+ * beyond the model itself.
+ *
+ * HIGH, THOUGH THE OBVIOUS CHOICE IS LOW — and the honest summary is that this
+ * setting buys less than it looks like it should. Adaptive thinking decides for
+ * itself whether to engage, and on this prompt it mostly decides not to.
+ * Measured rather than reasoned about:
+ *
+ *   effort   a lookup ("who is Judith again?")   an interpretive question
+ *   low      never thought,     ~0.9s            never thought,     ~1.0s
+ *   medium   thought,           ~2.8s            never thought,     ~1.9s
+ *   high     thought,           ~4.0s            thought 1 run in 6
+ *
+ * Two things follow. Low is not a cheap version of this feature, it is the
+ * absence of one: indistinguishable from thinking switched off. And medium is
+ * worse than either, engaging on the lookup that needs it least and skipping
+ * the interpretive question that is the whole reason to want it.
+ *
+ * High is the only level that ever engages on the questions worth engaging on,
+ * but it engages rarely — six runs of the same interpretive question thought
+ * once. The suspected cause is this file's own prompt: it tells the model
+ * repeatedly that this is marginalia, a remark in the margin, a short answer to
+ * a short question, and a model weighing whether to reason first reads all of
+ * that as permission not to. Untested against the real thing, though, because
+ * the measurements above carry no book — the live prompt puts an entire novel
+ * above this line, and a large context is exactly the condition under which
+ * triggering is said to change. Worth re-measuring in place before concluding
+ * anything from the numbers above.
+ *
+ * What it costs meanwhile is small and paid on every Deep turn: ~2.1s to the
+ * first character against ~1.0s with thinking off. What it buys, on the turn
+ * where it does engage, is the reasoning the picker implies. Lowering this to
+ * "low" is a one-word revert that turns the feature off while leaving every
+ * sign of it standing — see the check in verify-chat-stream.mts.
+ */
+export const READER_CHAT_DEEP_EFFORT = "high" as const;
+
+/**
+ * What the panel shows while Deep is reasoning. See chat-stream.ts.
+ *
+ * Reasoning is returned redacted, so there is nothing to show but the fact of
+ * it — which is the entire point of this line. Thinking happens BEFORE the
+ * first visible character, so without it the reader watches an empty bubble for
+ * several seconds with nothing to say why. The same problem searching has, and
+ * the same fix.
+ */
+export const THINKING_STATUS = "Thinking…";
 
 /**
  * Char cap on the book text. Not the real gate — token counting is — just a
