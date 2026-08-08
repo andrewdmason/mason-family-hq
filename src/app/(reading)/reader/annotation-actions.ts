@@ -11,8 +11,10 @@ import type {
   BookDocumentState,
   ReaderChatMessage,
   ReaderChatModelPreference,
+  ReaderChatTemplate,
   AnnotationSummary,
 } from "@/lib/reading/annotation-types";
+import { isReaderChatTemplate } from "@/lib/reading/annotation-types";
 
 /**
  * Reader chat: anchored conversations about a book.
@@ -33,7 +35,7 @@ import type {
 const CHAT_COLUMNS =
   "id, book_id, anchor, anchor_char_offset, anchor_page, spoiler_free, " +
   "context_through_page, quoted_text, chapter_anchor_id, book_scope, color, " +
-  "model_preference, created_at";
+  "model_preference, template, created_at";
 
 type AnnotationRow = {
   id: string;
@@ -48,6 +50,7 @@ type AnnotationRow = {
   book_scope: string | null;
   color: string;
   model_preference: string;
+  template: string | null;
   created_at: string;
 };
 
@@ -77,6 +80,7 @@ function toSummary(
     modelPreference: (row.model_preference === "deep"
       ? "deep"
       : "fast") as ReaderChatModelPreference,
+    template: isReaderChatTemplate(row.template) ? row.template : null,
     messageCount: counts?.messageCount ?? 0,
     lastMessageAt: counts?.lastMessageAt ?? null,
     firstQuestion: counts?.firstQuestion ?? null,
@@ -655,6 +659,52 @@ export async function setAnnotationModelPreference(
   const { error } = await client
     .from("reading_annotations")
     .update({ model_preference: preference })
+    .eq("id", chatId)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Turn a blank chat into one of the two mid-book conversations.
+ *
+ * The reader picks these from inside an empty thread rather than when starting
+ * one, so this converts a row that already exists instead of creating a
+ * configured one. It carries the settings with it because both templates need
+ * them to be what they are: the whole book, and the stronger model.
+ *
+ * WHY THE WHOLE BOOK. A key to how a novel is read cannot be written from the
+ * half the reader has got through, and honouring the boundary would refuse the
+ * question they just asked. What stops that being a spoiler machine is the
+ * prompt: it is told where they are, forbidden from volunteering anything past
+ * it, and lets the key over that line for METHOD only — never an event, a
+ * reveal or an ending.
+ *
+ * Deliberately does NOT touch the book's own spoiler default, which
+ * setAnnotationSpoilerFree does drag along on the reasoning that ticking that
+ * box by hand is a stance rather than a per-chat setting. Picking a template is
+ * not that stance, and silently changing it for every future chat in the book
+ * would be a side effect nobody asked for.
+ *
+ * Guarded by the same unasked check as the two settings above: once a thread has
+ * been answered, what it was answered under is settled.
+ */
+export async function setAnnotationTemplate(
+  chatId: string,
+  template: ReaderChatTemplate,
+  memberEmail?: string | null
+): Promise<void> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+  if (!(await annotationIsUnasked(client, userId, chatId))) return;
+
+  const { error } = await client
+    .from("reading_annotations")
+    .update({
+      template,
+      model_preference: "deep",
+      spoiler_free: false,
+      // Only meaningful alongside spoiler_free, and stale the moment it is off.
+      context_through_page: null,
+    })
     .eq("id", chatId)
     .eq("user_id", userId);
   if (error) throw new Error(error.message);

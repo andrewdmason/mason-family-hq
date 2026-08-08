@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ChevronLeft,
   CornerDownLeft,
+  CornerUpLeft,
   Loader2,
   RotateCcw,
   StickyNote,
@@ -15,12 +16,15 @@ import type {
   AnnotationDetail,
   ReaderChatMessage,
   ReaderChatModelPreference,
+  ReaderChatTemplate,
 } from "@/lib/reading/annotation-types";
+import { READER_CHAT_TEMPLATE_OPENERS } from "@/lib/reading/annotation-types";
 import { streamReply } from "@/lib/reading/chat-stream";
 import { chapterSummaryQuestion } from "@/lib/reading/chapter-summary";
 import { chapterName } from "@/lib/reading/chapter-target";
 import { useIsOnline } from "@/lib/reading/offline/use-is-online";
 import { ChatMessageText } from "./chat-message-text";
+import { PromptInspector } from "./prompt-inspector";
 import { useAutosizeTextarea } from "./use-autosize-textarea";
 
 /**
@@ -42,6 +46,18 @@ export type ComposeMode = "chat" | "note";
 let localSeq = 0;
 const localId = () => `local-${++localSeq}`;
 
+/**
+ * What the blank state offers, in the order it offers it.
+ *
+ * The wording matters more here than anywhere else in the feature — see the
+ * comment at the render site. "Interpretive check-in" would never be clicked by
+ * anybody; "Check in" is the thing you would actually say.
+ */
+const TEMPLATE_PILLS: { template: ReaderChatTemplate; label: string }[] = [
+  { template: "reading_key", label: "How should I read this?" },
+  { template: "check_in", label: "Check in" },
+];
+
 export function AnnotationThread({
   chat,
   chapterTitle = null,
@@ -52,6 +68,7 @@ export function AnnotationThread({
   hasRealPages,
   labelForPage,
   onJumpToPage,
+  onJumpToAnchor,
   onDelete,
   onBack,
   onClose,
@@ -59,6 +76,7 @@ export function AnnotationThread({
   onExchangeComplete,
   onSpoilerFreeChange,
   onModelChange,
+  onPickTemplate,
   resolveChatId,
   createError = null,
   dockToggle,
@@ -90,6 +108,15 @@ export function AnnotationThread({
   hasRealPages: boolean;
   labelForPage: (page: number) => string | null;
   onJumpToPage: (page: number) => void;
+  /**
+   * Scroll the book to where this conversation is anchored.
+   *
+   * Absent on an article, whose anchors are DOM-text offsets rather than
+   * positions in the conversion character space — the jump would land somewhere
+   * arbitrary, and a link that goes to the wrong place is worse than no link.
+   * Absent on the document threads too, which have no spot in the text at all.
+   */
+  onJumpToAnchor?: () => void;
   onDelete: () => void;
   /** Leave this chat for the index of everything marked in the book. */
   onBack: () => void;
@@ -106,6 +133,14 @@ export function AnnotationThread({
   onExchangeComplete: () => void;
   onSpoilerFreeChange: (next: boolean) => void;
   onModelChange: (next: ReaderChatModelPreference) => void;
+  /**
+   * Turn this blank chat into one of the two mid-book conversations.
+   *
+   * Must not resolve until the row actually carries the template, because the
+   * opening question is sent the moment it does — see pickTemplate. Absent on
+   * the document threads, which offer none of this.
+   */
+  onPickTemplate?: (template: ReaderChatTemplate) => Promise<void>;
   /**
    * The chat's real id, waiting for it if the annotation was opened before the
    * server had created it. Resolves immediately in every other case.
@@ -127,6 +162,8 @@ export function AnnotationThread({
    * however that reply ends, so a failed turn can't strand it on screen.
    */
   const [status, setStatus] = useState<string | null>(null);
+  /** The prompt inspector — see the "prompt" link in the header. */
+  const [promptOpen, setPromptOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // Same composer, same growth — a note written on a passage is as likely to
@@ -225,8 +262,15 @@ export function AnnotationThread({
     onExchangeComplete();
   }, [draft, onAddNote, onExchangeComplete, onTouched, sending]);
 
-  const send = useCallback(async () => {
-    const text = draft.trim();
+  /**
+   * Send a turn.
+   *
+   * Takes the text explicitly so a template can open its own conversation
+   * without the reader typing — see the effect below. The composer is the only
+   * other caller and passes nothing, which leaves the ordinary path untouched.
+   */
+  const send = useCallback(async (override?: string) => {
+    const text = (override ?? draft).trim();
     if (!text || sending) return;
     setDraft("");
     setError(null);
@@ -421,6 +465,68 @@ export function AnnotationThread({
   }, [needsSummary, summarize]);
 
   /**
+   * Take one of the two mid-book conversations offered in the blank state.
+   *
+   * The settings write has to LAND BEFORE the send, and that ordering is the
+   * whole of this function. The route rebuilds the system prompt from the row on
+   * every turn, so a question that overtakes the update gets answered with no
+   * register at all — and the failure is invisible, because a plain Deep answer
+   * about the book is perfectly plausible. It is just not the one asked for.
+   *
+   * What actually gets sent is the short human line. The long instruction it
+   * stands for lives in the prompt and is never shown, so the transcript reads
+   * like a conversation the reader had rather than one that was staged — which
+   * matters beyond taste, because these threads are part of what the afterword
+   * is built from at the end of the book.
+   */
+  const pickTemplate = useCallback(
+    async (template: ReaderChatTemplate) => {
+      if (sending || !onPickTemplate) return;
+      setError(null);
+      try {
+        await onPickTemplate(template);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Couldn't start that conversation."
+        );
+        return;
+      }
+      void send(READER_CHAT_TEMPLATE_OPENERS[template]);
+    },
+    [onPickTemplate, send, sending]
+  );
+
+  /**
+   * Whether to offer them at all.
+   *
+   * A genuinely blank thread only. Not a recap, which asks its own question the
+   * moment it opens; not a thread with anything in it; and not an article, which
+   * has no middle to be in the middle of.
+   *
+   * AND NOTHING ATTACHED TO A PASSAGE. A highlight and a note both open a thread
+   * with an empty transcript, so an emptiness check alone offered a book-wide
+   * conversation at the bottom of a sentence somebody had underlined weeks ago.
+   * These were briefly shown on passage chats on purpose, reasoning that
+   * selecting a sentence is not a commitment to asking about that sentence —
+   * true of a selection you just made, and plainly wrong for a highlight you are
+   * coming back to, which is a thing you already made rather than a blank page.
+   * The distinction is not worth chasing: whole-book conversations belong to
+   * chats about a place in the book, not to marks on a passage.
+   *
+   * The note check is belt and braces — a note is a message, so a thread holding
+   * one is not empty anyway — but it says the rule out loud rather than leaving
+   * it to be re-derived.
+   */
+  const offerTemplates =
+    !!onPickTemplate &&
+    !isArticle &&
+    !isSummary &&
+    !chat.template &&
+    !chat.quotedText &&
+    chat.noteCount === 0 &&
+    messages.length === 0;
+
+  /**
    * How much this chat can see and how hard it thinks are decisions you make
    * WITH the first question, and they stop being decisions once you've asked it.
    *
@@ -442,6 +548,17 @@ export function AnnotationThread({
   const settled = messages.some(
     (m) => m.role === "user" || m.role === "assistant"
   );
+
+  /** Where this conversation lives, in the reader's own terms. */
+  const locationLabel = isSummary
+    ? chapterTitle
+      ? chapterName(chapterTitle)
+      : "Chapter summary"
+    : chat.anchorPage != null && hasRealPages
+      ? `Page ${chat.anchorPage}`
+      : chat.quotedText
+        ? "On a passage"
+        : "In the text";
 
   const modelLabel = chat.modelPreference === "deep" ? "Deep" : "Fast";
   // What the chat can see, in the reader's terms. Doubles as live feedback while
@@ -475,24 +592,58 @@ export function AnnotationThread({
           <ChevronLeft className="h-4 w-4" />
         </button>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium text-foreground">
-            {isSummary
-              ? chapterTitle
-                ? chapterName(chapterTitle)
-                : "Chapter summary"
-              : chat.anchorPage != null && hasRealPages
-                ? `Page ${chat.anchorPage}`
-                : chat.quotedText
-                  ? "On a passage"
-                  : "In the text"}
-          </p>
+          {/* The title already names where this conversation lives, so it is
+              also the way back to it — a chat opened from the marks list is
+              otherwise stranded, since opening one deliberately does not move
+              the book out from under you.
+
+              Not a link on an article, whose anchors are measured in a different
+              space and would land somewhere arbitrary. */}
+          {onJumpToAnchor ? (
+            <button
+              type="button"
+              onClick={onJumpToAnchor}
+              title="Go to this spot in the book"
+              className="flex w-full min-w-0 items-center gap-1 text-left text-xs font-medium text-foreground transition-colors hover:text-foreground/70"
+            >
+              <span className="truncate">{locationLabel}</span>
+              <CornerUpLeft className="h-3 w-3 shrink-0 opacity-50" />
+            </button>
+          ) : (
+            <p className="truncate text-xs font-medium text-foreground">
+              {locationLabel}
+            </p>
+          )}
           {/* Once settled this line IS the chat's settings, stated rather than
               offered — which is why the picker and the checkbox that used to
               live in this header and under the composer are gone from a chat
               that has been asked something. Before then it describes only what
               the controls down by the composer are currently set to. */}
-          <p className="truncate text-[11px] text-muted-foreground">
-            {settled ? `${modelLabel} · ${scope}` : scope}
+          <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            <span className="truncate">
+              {settled ? `${modelLabel} · ${scope}` : scope}
+            </span>
+            {/* The way in to what the model was actually told. Hung off the line
+                that already describes this chat's settings, because that is the
+                same question asked in less detail — and kept to a small text
+                link rather than another icon, since it is a debugging affordance
+                rather than a reading one.
+
+                Hidden until the row exists: the id is a client-side stand-in
+                until the insert lands, and there is nothing on the server to
+                describe under that id. */}
+            {!chat.id.startsWith("pending:") && (
+              <>
+                <span aria-hidden>·</span>
+                <button
+                  type="button"
+                  onClick={() => setPromptOpen(true)}
+                  className="shrink-0 underline decoration-dotted underline-offset-2 transition-colors hover:text-foreground"
+                >
+                  prompt
+                </button>
+              </>
+            )}
           </p>
         </div>
         {isSummary && (
@@ -535,15 +686,15 @@ export function AnnotationThread({
           // when you're plainly sitting at it.
           pinnedToBottom.current = el.scrollHeight - el.clientHeight - el.scrollTop < 32;
         }}
-        className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-3"
       >
         {chat.quotedText && (
-          <blockquote className="mb-3 border-l-2 border-border pl-3 font-serif text-sm leading-6 text-muted-foreground italic">
+          <blockquote className="mb-3 shrink-0 border-l-2 border-border pl-3 font-serif text-sm leading-6 text-muted-foreground italic">
             {chat.quotedText}
           </blockquote>
         )}
 
-        <div className="flex flex-col gap-3">
+        <div className="flex shrink-0 flex-col gap-3">
           {messages.map((m) =>
             m.role === "note" ? (
               // Not a bubble. A note is the reader writing in the margin, not a
@@ -599,8 +750,45 @@ export function AnnotationThread({
           )}
         </div>
 
+        {/* The two mid-book conversations, offered where an empty thread has
+            nothing else in it.
+
+            Pushed to the BOTTOM of the empty space rather than sitting under the
+            header: they belong to the composer, as things you could say instead
+            of typing, and floating them at the top would read as a heading for a
+            conversation that hasn't started.
+
+            These are the whole recruiting surface for the feature. Nothing in
+            the app ever suggests them — no nudge on reopening a book, nothing
+            firing on a page count, nothing noticing a reader is struggling — so
+            whether they are ever used on the book that needs them comes down
+            entirely to whether these words look like the thing you want while
+            you are annoyed with a novel. */}
+        {offerTemplates && (
+          <div className="mt-auto flex flex-col items-start gap-1.5 pt-6">
+            <span className="text-[11px] text-muted-foreground">
+              Or talk about the book as a whole
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {TEMPLATE_PILLS.map(({ template, label }) => (
+                <button
+                  key={template}
+                  type="button"
+                  disabled={sending || !online}
+                  onClick={() => void pickTemplate(template)}
+                  className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {(error || createError) && (
-          <p className="mt-3 text-xs text-destructive">{error ?? createError}</p>
+          <p className="mt-3 shrink-0 text-xs text-destructive">
+            {error ?? createError}
+          </p>
         )}
       </div>
 
@@ -611,10 +799,17 @@ export function AnnotationThread({
             A summary never shows them — it asks itself the moment it opens, so
             there's no point at which they'd be anything but decorative.
 
+            Nor does a template, for that reason and one more. It asks itself
+            too, so `settled` would go true a frame later and these would flash
+            once and vanish. And the reader picked a CONVERSATION, not a set of
+            settings: both templates need the whole book and the stronger model
+            to be what they are, so offering to turn either off would be
+            offering to break the thing they just asked for.
+
             Shown while the box is set to write a note too, even though a note
             goes nowhere near a model: they describe the question you'll
             eventually ask, not the line you're typing now. */}
-        {!settled && !isSummary && (
+        {!settled && !isSummary && !chat.template && (
           <div className="mb-2 flex items-center gap-3">
             <ModelPicker value={chat.modelPreference} onChange={onModelChange} />
             {/* Stated as what it DOES rather than as what it protects you from.
@@ -706,6 +901,13 @@ export function AnnotationThread({
           </button>
         </div>
       </div>
+
+      <PromptInspector
+        chatId={chat.id}
+        memberEmail={memberEmail}
+        open={promptOpen}
+        onOpenChange={setPromptOpen}
+      />
     </div>
   );
 }

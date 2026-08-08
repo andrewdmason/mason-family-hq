@@ -2,6 +2,8 @@ import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ChapterIndexEntry } from "@/lib/reading/context-markup";
 import type { BookDocumentContext, ReaderMark } from "@/lib/reading/book-document-context";
+import type { ReaderChatTemplate } from "@/lib/reading/annotation-types";
+import { agentFor, AGENT_LABELS, agentPrompt } from "@/lib/reading/reading-agent";
 import { isReaderProfileEmpty, type ReaderProfile } from "@/lib/reading/reader-profile";
 
 /**
@@ -85,8 +87,16 @@ export const FALLBACK_CHARS_PER_TOKEN = 3.5;
 /**
  * The reply budget for a Fast turn, and the room reserved for a reply when
  * deciding whether a book fits Fast at all. Prose only — Fast does not think.
+ *
+ * Raised from 1024 when the picker stopped being a register. Fast used to be
+ * told it was writing marginalia, so a small ceiling and the instruction agreed
+ * with each other; now that the question sets the length on either model, a
+ * reader who picks the quick model and asks a real question can want more than
+ * a thousand tokens. Sized generously rather than snugly, because nothing is
+ * billed for room it doesn't use and the failure it prevents is the invisible
+ * kind: an answer cut off mid-sentence still reads like an answer.
  */
-export const READER_CHAT_MAX_TOKENS = 1024;
+export const READER_CHAT_MAX_TOKENS = 2048;
 
 /**
  * The same budget for Deep, which does.
@@ -402,6 +412,28 @@ export type ReaderChatPromptInput = {
    * writes it.
    */
   depth: ReaderChatDepth;
+  /**
+   * Which margin-menu conversation this is, or null for an ordinary chat the
+   * reader started by typing.
+   *
+   * Governs the register for the whole thread rather than just its first turn,
+   * which is the reason it is a column on the row rather than a well-written
+   * opening message: this prompt is rebuilt from scratch on every turn, so an
+   * instruction carried in the first message would govern the answer to it and
+   * evaporate immediately afterwards.
+   */
+  template: ReaderChatTemplate | null;
+  /**
+   * Earlier check-ins in this book, oldest first, excluding this one.
+   *
+   * Only ever set for the check-in template, and deliberately nothing else: not
+   * highlights, not notes, not questions asked in the margin. Ordinary marks
+   * were sent for a while and every version of using them went wrong — see
+   * chat-context.ts.
+   */
+  priorCheckIns: ReaderMark[] | null;
+  /** Whether the char budget dropped any of them. */
+  priorCheckInsTruncated: boolean;
 };
 
 /**
@@ -415,6 +447,56 @@ export type ReaderChatPromptInput = {
  * margin note is the whole of why Deep felt like Fast with a delay.
  */
 export type ReaderChatDepth = "fast" | "deep";
+
+/**
+ * THE FOUR LAYERS every reader prompt is assembled from.
+ *
+ * Naming them is not decoration — it is the fix for what went wrong here. Each
+ * of these used to be written per surface, so the same idea got restated in
+ * slightly different words in four places and then drifted apart: "make a claim,
+ * not a menu" was learned once by the afterword interview and again, separately,
+ * weeks later, by the check-in. Five families of rule were duplicated that way.
+ *
+ *   agent       — WHO is talking. Varies by the kind of book. See reading-agent.
+ *   brief       — WHAT THIS TURN IS. Varies by surface: a remark in the margin,
+ *                 a briefing, office hours, one interview question, a document
+ *                 that gets kept. Owns shape, length, and how the turn ends.
+ *   constraints — WHAT MAY BE SAID. Spoilers, where the reader is standing, what
+ *                 the web is for, how to cite. Orthogonal to both of the above.
+ *   context     — WHAT IS KNOWN. The book, the reader's marks, who they are,
+ *                 what they said they came for. Data rather than instruction.
+ *
+ * The agent and the brief being written together, over and over, is what
+ * produced the sprawl. They are independent and they are now assembled that way.
+ */
+export type PromptLayer = "agent" | "brief" | "constraints" | "context";
+
+/**
+ * One labelled piece of a prompt.
+ *
+ * Carried alongside the blocks purely so the panel's prompt inspector can show
+ * the seams. A layering nobody can see is a layering that quietly stops being
+ * true — and the inspector is how it stays honest.
+ */
+export type PromptSection = {
+  layer: PromptLayer;
+  /** A few words naming this piece, for the inspector. */
+  title: string;
+  text: string;
+  /** True when the API block this sits in carries a cache breakpoint. */
+  cached?: boolean;
+};
+
+/**
+ * Char budget for the reader's marks inside a CHAT, well under the afterword's.
+ *
+ * An afterword sends the book once. A chat sends it on every turn, so the marks
+ * ride alongside a novel rather than instead of one, and the two together have
+ * to leave room for a long book plus a Deep reply. ~50K tokens of marks is far
+ * more than any real book produces; the cap exists so a shelf imported with
+ * hundreds of Kindle highlights can't quietly double the size of every turn.
+ */
+export const READER_CHAT_MAX_MARK_CHARS = 200_000;
 
 /**
  * One <contents> line per chapter: the heading verbatim, then the pages it
@@ -493,125 +575,152 @@ export function readerProfileBlock(profile: ReaderProfile | null): string | null
 }
 
 /**
+ * LAYER 2 — THE BRIEFS for the two mid-book templates.
+ *
+ * Both are much shorter than they were, and the deletions are the point. Most of
+ * what was here was scar tissue from wounds this file inflicted on itself: the
+ * check-in fixated on the reader's highlights because another block told it
+ * marks were what every claim must rest on; it wrote essays because the Deep
+ * register demanded several hundred words; it invented a previous conversation
+ * because briefings and check-ins shared one section. Each was patched with a
+ * long prohibition. Removing the CAUSE lets the bandage come off too, and a
+ * prompt made mostly of prohibitions produces a companion that sounds like it is
+ * avoiding things.
+ *
+ * What is kept is the small amount that describes a genuine model tendency
+ * rather than a mistake of ours — the fork that draws "both", the pull toward
+ * summarising a book instead of reading it — plus the rules that ARE the
+ * feature, like the key's line between machinery and outcome.
+ */
+/** What the brief is called, for the inspector. */
+function briefTitle(template: ReaderChatTemplate | null): string {
+  if (template === "reading_key") return "The brief — how to read this book";
+  if (template === "check_in") return "The brief — a check-in";
+  return "The brief — an anchored chat";
+}
+
+function templateRules(
+  template: ReaderChatTemplate,
+  fiction: boolean | null
+): string[] {
+  if (template === "reading_key") {
+    const rules = [
+      "The reader has opened a conversation ABOUT THE BOOK — not about the " +
+        "passage they happen to be standing next to. They have an anchor in " +
+        "the text, and it tells you how far they have read and nothing else.",
+      "THIS TURN: they have asked how to read this book — how to approach it, " +
+        "what to attend to, what to stop waiting for. A briefing from someone " +
+        "who has read the whole thing to someone who has not. A few hundred " +
+        "words, then stop.",
+      // The rule that IS this feature, and the reason it is safe to hand a
+      // mid-book reader something drawn from the last chapter.
+      "A KEY DESCRIBES THE MACHINERY; A SPOILER DESCRIBES THE OUTPUT. How the " +
+        "book is built, what it is doing to its reader and by what means, what " +
+        "a first-timer reliably misreads — all yours to say, and saying it is " +
+        "the point. What happens, who turns out to be what, how it resolves — " +
+        "none of it, ever, however much it would help.",
+      // Without this the model reads the position block in the constraints and
+      // refuses the thing it was just asked for, which is the worse failure:
+      // the reader gets a shrug where the feature should be.
+      "Use the whole book to do it. A key cannot be written from the half they " +
+        "have read, so declining on those grounds would refuse the question " +
+        "they asked. \"The people he meets keep turning out to be versions of " +
+        "himself, so read each encounter as pressure on one man rather than as " +
+        "plot\" is exactly right — naming the scene where that becomes " +
+        "undeniable is not.",
+    ];
+
+    if (fiction === true) {
+      rules.push(
+        "Often the most useful thing you can give them is permission to stop " +
+          "reading it for the wrong thing — a plot that is not coming, a " +
+          "mystery that is not the point. That is what makes a book feel " +
+          "tedious when it isn't."
+      );
+    } else if (fiction === false) {
+      rules.push(
+        "For this one that means where the idea actually lives: which chapters " +
+          "carry the argument and which restate it, whether it repays reading " +
+          "straight through or can be stopped early, and where its method is " +
+          "weakest. Be honest about padding."
+      );
+    }
+
+    return rules;
+  }
+
+  return [
+    "The reader is partway through the book — there's an anchor in the text " +
+      "that will tell you how far they are — and they're taking a break to " +
+      "discuss the book with you. They're looking for the type of interaction " +
+      "they might get in a class where they've been asked to read up to that " +
+      "point and then there's a class discussion, or a weekly check-in for a " +
+      "book club. Your job is to kick things off with something interesting — " +
+      "helping guide the reader toward a meaningful interpretation.",
+    "If they've done earlier check-ins like this, keep those in mind. Read " +
+      "<earlier_check_ins> first. If that section reports none, this is the " +
+      "first time you have spoken about this book, and treat it as such.",
+    // A line stood here saying "you also have their marks, which may or may not
+    // be noteworthy — don't oversteer toward them". It went when the marks did:
+    // an instruction not to lean on something you were not given is one more
+    // thing to read and a small invitation to go looking for it.
+    "You have access to the whole book, but don't give away spoilers that go " +
+      "into parts they haven't read yet.",
+  ];
+}
+
+/**
  * Returns the system blocks. Order matters for prompt caching: everything up to
  * and including the cache breakpoint must be byte-stable for a given
  * (book, boundary, model), so the whole book bills at ~0.1x on every turn after
  * the first. Nothing volatile — no dates, no names — may appear before it.
  */
-export function buildReaderChatSystem(
-  input: ReaderChatPromptInput
-): Anthropic.TextBlockParam[] {
+function assembleReaderChatPrompt(input: ReaderChatPromptInput): {
+  blocks: Anthropic.TextBlockParam[];
+  sections: PromptSection[];
+} {
   const blocks: Anthropic.TextBlockParam[] = [];
 
-  const deep = input.depth === "deep";
+  // LAYER 1 — WHO IS TALKING. One block, the same person in every surface.
+  const agent = agentPrompt(input.fiction);
 
-  const rules: string[] = [
-    "You are a reading companion inside a family reading app. The reader is " +
-      "partway through a book and has opened a conversation anchored to a " +
-      "specific spot in the text.",
-  ];
-
-  // The two registers. This is the picker, and until it reached this prompt the
-  // picker did nothing a reader could feel.
-  if (deep) {
-    // What Deep is FOR, written from the thing it was losing to: the same book
-    // and the same question put to a chat window with no instructions at all,
-    // which answered with an essay that opened "The novel runs on dream grammar
-    // rather than plot", claimed "the city is one man", and argued it. Nothing
-    // about that needed a better model than this one has. It needed permission.
-    rules.push(
-      "The reader chose the DEEP conversation. They want an argument about " +
-        "this book, not a remark about a sentence — the conversation they " +
-        "would have with the friend who knows the book best. Give them that."
-    );
-    rules.push(
-      "HAVE A POSITION AND COMMIT TO IT. Say what you think the book is doing " +
-        "and why, in your own voice, as a claim rather than a survey of what " +
-        "could be said. \"This is a novel about the deferral of intimacy in " +
-        "the name of vocation\" is worth ten times \"there are several ways to " +
-        "read this.\" Being interestingly wrong is useful to them, because " +
-        "they can argue with it; being uselessly balanced is not, because " +
-        "there is nothing there to push against. Where a reading is genuinely " +
-        "contested, say so and then say which one you find more convincing."
-    );
-    rules.push(
-      "Interpretation is the JOB here, not an overreach. You will not find " +
-        "your reading stated in the text — a reading never is — so do not " +
-        "decline one for want of a sentence to point at, and do not retreat " +
-        "into what the book literally says when they asked what it means. " +
-        "What the text still governs is fact: what happens, who is who, what " +
-        "a passage contains. Read those off the page and argue from there."
-    );
-    rules.push(
-      "Reach outside the book when it helps: the author's other work and what " +
-        "this one repeats or reverses in it, the tradition it sits in, an idea " +
-        "or a thinker the book is working with, another book that does the " +
-        "same thing better or worse. A reading that never leaves the covers is " +
-        "a summary with opinions attached."
-    );
-    rules.push(
-      "Let the question set the length. A factual aside still gets a sentence " +
-        "— do not inflate a small question into an essay because the mode is " +
-        "called Deep. But when they ask what a book is about, what to make of " +
-        "it, or why it works, take the room that answer actually needs: " +
-        "several hundred words, in paragraphs, structured as an argument. Use " +
-        "a bold lead-in on a paragraph when you are naming a distinct claim, " +
-        "so the shape of the argument is visible at a glance. No headings, and " +
-        "never a bulleted list of themes — that is a study guide, which is the " +
-        "opposite of this."
-    );
-    rules.push(
-      "Be specific and concrete. Name the character, the scene, the detail — " +
-        "\"the ruined old genius conducting on a sawn-off ironing board\", not " +
-        "\"a minor character\". The specifics are the evidence and they are " +
-        "also the pleasure; an interpretation made of abstractions is " +
-        "unfalsifiable and boring at the same time. Where the book is funny, " +
-        "say so: people miss comedy in serious books and are glad to be told."
-    );
-  } else {
-    rules.push(
-      "The reader chose the FAST conversation. Be concise and conversational: " +
-        "this is marginalia — a remark in the margin, not an essay. Match " +
-        "their register; a short question deserves a short answer. If they " +
-        "want the long argument there is a Deep mode one tap away, so you do " +
-        "not have to fit one in here."
-    );
-    rules.push(
-      "Ground your answer in the book text provided below. Where the text " +
-        "doesn't settle a question you can still say what you make of it — " +
-        "just be brief and say which it is."
-    );
-  }
-
-  // What KIND of book this is. A good answer about a novel and a good answer
-  // about an argument are different objects, and until this landed the chat had
-  // no idea which it was in — so a question about a business book got answered
-  // in the vocabulary of craft, and a question about a novel got the treatment
-  // usually reserved for a claim.
+  // LAYER 2 — WHAT THIS TURN IS.
   //
-  // Only fiction/non-fiction, deliberately, and never the genre. Handing the
-  // model twenty genre labels invites it to perform the genre — to write about a
-  // thriller thrillingly — which is a worse failure than the one being fixed.
-  // An unclassified book gets neither branch: silence beats a wrong guess.
-  if (input.fiction === true) {
-    rules.push(
-      "This is a STORY. What's worth saying about it lives in the writing and " +
-        "the making: what a character wants and won't admit, what a scene is " +
-        "doing that its surface isn't, why it's built in this order, what the " +
-        "author is doing to you and how. Treat the book as something made, not " +
-        "as something asserting things — a novel has no thesis to agree with, " +
-        "and reading one for its message is how a good book becomes a dull one."
+  // The Fast/Deep REGISTER is gone from here, and that is the largest deletion
+  // in this file. The picker used to mean two things at once: which model
+  // answers, and what kind of answer it writes. The second was always the
+  // weaker idea — a reader picking a model has said nothing about whether their
+  // question deserves a paragraph or a page — and it was actively harmful,
+  // because a register that demanded an essay fought every brief that wanted a
+  // conversation. The picker is now a MODEL picker and nothing more. What the
+  // turn should look like is the brief's business, which is where it belongs:
+  // the question sets the length, on either model.
+  const brief: string[] = [];
+
+  if (input.template) {
+    brief.push(...templateRules(input.template, input.fiction));
+  } else {
+    brief.push(
+      "THIS TURN: they are partway through the book and have opened a " +
+        "conversation anchored to a spot in the text. Answer what they " +
+        "actually asked."
     );
-  } else if (input.fiction === false) {
-    rules.push(
-      "This is NOT a story. It's making a case, so read it as one: what is " +
-        "actually being claimed here, what it rests on, whether the evidence " +
-        "bears the weight put on it, and where a careful reader would push " +
-        "back. Connect it to what else is known about the question — including " +
-        "who disagrees and why. Taking an argument seriously means being " +
-        "willing to find it unconvincing, so say when you do."
+    brief.push(
+      "Let the question set the length. A short question gets a short answer — " +
+        "a remark in the margin, not an essay — and a real one gets the room " +
+        "it needs. No headings, and never a bulleted list of themes: that is a " +
+        "study guide, which is the opposite of this."
     );
+    // There was a third line here giving permission to reach outside the book —
+    // the author's other work, the tradition it sits in, another book that does
+    // the same thing better. Cut: a well-read companion does that unprompted,
+    // and nothing else in this prompt tells it to stay inside the covers. The
+    // rule below about the text outranking the web is about FACTS about this
+    // book, not about where an idea may come from.
   }
+
+  // LAYER 3 — WHAT MAY BE SAID.
+  const constraints: string[] = [];
 
   // Web search. The rule that governs it is about PRIMACY, not permission.
   //
@@ -625,7 +734,7 @@ export function buildReaderChatSystem(
   // What the text IS still authoritative for is itself. The failure to prevent
   // isn't searching about the book, it's outsourcing the book: answering "what
   // happens in chapter 21" from a summary when chapter 21 is sitting below.
-  rules.push(
+  constraints.push(
     "You can search the web. Two things it is for. First, the world outside " +
       "the book: a real event, person, place or date the text refers to; a " +
       "word, phrase or allusion the reader wouldn't be expected to know; " +
@@ -636,7 +745,7 @@ export function buildReaderChatSystem(
       "a good reason to search — a reader asking what to make of something " +
       "usually wants to know what has been made of it."
   );
-  rules.push(
+  constraints.push(
     "The book text below IS the book, and it outranks anything you find. Use " +
       "the web for what people have MADE of the book, never as a substitute " +
       "for reading it: what happens, what a passage contains, how a chapter " +
@@ -645,35 +754,27 @@ export function buildReaderChatSystem(
       "critic's reading and the page in front of you disagree, the page wins: " +
       "say what the text actually does, then what they make of it."
   );
-  rules.push(
-    "Don't search what you can already answer. A search is several seconds of " +
-      "silence for the reader, and most questions here are settled by the text."
-  );
-  // Attribution, not timidity. The point is that the reader can tell an
-  // argument from a fact — NOT that every argument has to belong to a third
-  // party. Said explicitly for Deep, where the reading it is being asked for is
-  // its own, and where the un-nuanced version of this rule reads as an
-  // instruction to go and find someone else to have the opinion.
-  rules.push(
-    deep
-      ? "Keep an argument distinguishable from a fact. When a reading is a " +
-        "known one, say whose — the author's, a named critic's, the common " +
-        "one. When it is yours, own it as yours and make it anyway; you do " +
-        "not need a citation to have a reading, and hunting for someone else " +
-        "to attribute it to is how a position becomes a survey."
-      : "An interpretation belongs to somebody. Say whose — the author, a " +
-        "named critic, a common reading — and keep it apart from what you are " +
-        "reading off the page yourself, so the reader can tell an argument " +
-        "from a fact."
-  );
-  rules.push(
-    "Work what you found into your own sentences the way you would anything " +
-      "else. Do not write out URLs or list your sources: the app puts the " +
-      "links underneath your answer."
+  // A line stood here telling it not to search what it could already answer, on
+  // the grounds that a search is several seconds of an empty bubble. Cut as one
+  // more thing the model does not need telling. If turns start feeling slow, a
+  // latency budget belongs in the tool's max_uses rather than in prose.
+  // An attribution rule stood here — say whose reading it is, keep an argument
+  // distinguishable from a fact. Cut for the same reason as the voice line in
+  // the agent: it describes something the model does anyway, and it had already
+  // cost more than it earned once, in a version that read as an instruction to
+  // go and find somebody else to have the opinion.
+  // KEPT DELIBERATELY, and the only line in this block that is not about the
+  // model's judgement. It is a fact about the app: the route collects the search
+  // results itself and appends a "Sources:" line under every answer (see
+  // web-sources.ts). Without this the model writes its own list too and the
+  // reader gets the same links twice.
+  constraints.push(
+    "Do not write out URLs or list your sources: the app puts the links " +
+      "underneath your answer."
   );
 
   if (input.hasPageMarkers) {
-    rules.push(
+    constraints.push(
       "The book text contains page markers like [p.212]. When you point at " +
         "something in the text, cite the nearest preceding marker in exactly " +
         "that bracketed form. Only cite markers that actually appear in the " +
@@ -684,7 +785,7 @@ export function buildReaderChatSystem(
   }
 
   if (input.hasChapterMarkers) {
-    rules.push(
+    constraints.push(
       "Chapter and section starts in the book text are marked as Markdown " +
         'headings ("## Chapter 21"). A chapter is everything from its heading ' +
         "down to the next one. When the reader names a chapter, locate that " +
@@ -700,7 +801,7 @@ export function buildReaderChatSystem(
     );
 
     if (hasChapterExtents(input.chapters)) {
-      rules.push(
+      constraints.push(
         "Each <contents> entry also gives the pages that chapter runs through. " +
           "Treat that range as authoritative about where the chapter ends, " +
           "because a chapter routinely contains scene breaks, partings and " +
@@ -718,7 +819,7 @@ export function buildReaderChatSystem(
       input.contextThroughPage != null
         ? `page ${input.contextThroughPage}`
         : "the point they have reached";
-    rules.push(
+    constraints.push(
       `SPOILERS: the reader has read up to ${limit}, and the text above ends ` +
         "there. Never reveal, hint at, or foreshadow anything beyond that " +
         "point — not from the text, and not from your own knowledge of this " +
@@ -741,7 +842,7 @@ export function buildReaderChatSystem(
     // The escape hatch is real and worth telling them about: an unscoped chat in
     // the same book can go and get exactly this, and the toggle that starts one
     // is right there in the panel.
-    rules.push(
+    constraints.push(
       "That extends to searching, and it is the only limit on it: while this " +
         "conversation is spoiler-scoped, do not search for this book, for its " +
         "author on the subject of it, or for anything written about it. " +
@@ -755,7 +856,25 @@ export function buildReaderChatSystem(
     );
   }
 
-  blocks.push({ type: "text", text: rules.join("\n\n") });
+  const sections: PromptSection[] = [
+    {
+      layer: "agent",
+      // Named rather than described. Which agent a book gets is the most
+      // consequential line in its prompt and the hardest to eyeball.
+      title: AGENT_LABELS[agentFor(input.fiction)],
+      text: agent,
+    },
+    { layer: "brief", title: briefTitle(input.template), text: brief.join("\n\n") },
+    { layer: "constraints", title: "What may be said", text: constraints.join("\n\n") },
+  ];
+
+  // One API block for the three instruction layers. They are split for reading
+  // and for reasoning about, not for the wire — and keeping them in one block
+  // keeps the cached prefix byte-identical to what it was.
+  blocks.push({
+    type: "text",
+    text: sections.map((s) => s.text).join("\n\n"),
+  });
 
   // The big stable prefix. Cached, so repeat turns skip re-reading the novel.
   // The contents index rides inside it: it is derived from the same (book,
@@ -766,11 +885,63 @@ export function buildReaderChatSystem(
     input.chapters.length > 0
       ? `<contents>\n${input.chapters.map(contentsLine).join("\n")}\n</contents>\n`
       : "";
+  const bookBlock = `<book title="${input.bookTitle}"${author}>\n${contents}${input.bookText}\n</book>`;
+  sections.push({
+    layer: "context",
+    title: "The book",
+    text: bookBlock,
+    cached: true,
+  });
   blocks.push({
     type: "text",
-    text: `<book title="${input.bookTitle}"${author}>\n${contents}${input.bookText}\n</book>`,
+    text: bookBlock,
     cache_control: { type: "ephemeral" },
   });
+
+  // The reader's marks, on their OWN breakpoint — the same arrangement the
+  // preface and afterword use, and for the same reason. These are large on a
+  // heavily-marked book and would be re-billed in full on every turn if they
+  // rode below the last breakpoint with the small per-chat tail. Their own block
+  // means marking something new mid-conversation invalidates this and nothing
+  // else: the novel above it still reads from cache.
+  //
+  // Only ever present for a template. An ordinary chat's prefix is byte-for-byte
+  // what it always was, so nothing here changes what an existing chat costs.
+  // Earlier check-ins, on their OWN breakpoint — the same arrangement the
+  // preface and afterword use. Sent for the check-in and nothing else.
+  //
+  // Emitted even when there are none, and that is the point of it. A silent
+  // absence left the model to infer whether it had been here before, and it
+  // guessed in the flattering direction: one transcript opened "Last time I said
+  // watch what happens to Ryder's promises to Boris" on a reader's first ever
+  // check-in. An explicit zero is what stops that.
+  if (input.priorCheckIns) {
+    const priorBlock =
+      input.priorCheckIns.length > 0
+        ? `<earlier_check_ins count="${input.priorCheckIns.length}">\n` +
+          "Check-ins this reader has already had with you in this book, oldest " +
+          "first, with everything that was actually said in them.\n" +
+          input.priorCheckIns.map(markBlock).join("\n") +
+          (input.priorCheckInsTruncated
+            ? "\n(Older ones omitted for length.)"
+            : "") +
+          "\n</earlier_check_ins>"
+        : '<earlier_check_ins count="0">\n' +
+          "This is the first check-in this reader has had in this book. You " +
+          "have never discussed it with them before. There is no last time.\n" +
+          "</earlier_check_ins>";
+    sections.push({
+      layer: "context",
+      title: "Earlier check-ins",
+      text: priorBlock,
+      cached: true,
+    });
+    blocks.push({
+      type: "text",
+      text: priorBlock,
+      cache_control: { type: "ephemeral" },
+    });
+  }
 
   // Everything below the breakpoint: per-chat, and small.
   const tail: string[] = [];
@@ -802,23 +973,25 @@ export function buildReaderChatSystem(
           "much as what you read below: criticism is written for someone who " +
           "has finished the book, so a review you fetch will hand you the " +
           "ending whether or not their question wanted it." +
-          // The one place the two halves of this feature pull against each
-          // other. Deep is told to have a position and argue it — and the
-          // natural way to argue what a novel is doing is to reach for how it
-          // resolves, which is the single worst thing to hand someone who is
-          // sixty percent through. So the license is bounded rather than
-          // withdrawn: a thesis is still wanted, it just has to be one they
-          // could weigh from where they are standing.
-          (deep
-            ? " This binds the argument you were asked for as tightly as " +
-              "anything else, and it is where that request is most dangerous: " +
-              "the natural way to argue what a book is doing is to reach for " +
-              "how it ends, and doing that here would cost them the book to " +
-              "win a point. Make the case from what they have already read. A " +
-              "thesis they can test against the pages behind them is a better " +
-              "answer anyway — and if the honest version of your reading " +
-              "genuinely depends on the ending, say that much and stop, " +
-              "rather than arguing around it in hints."
+          // Used to carry a second paragraph for Deep, binding "the argument
+          // you were asked for" — which went with the register that asked for
+          // one. The rule above already says the whole of it, and said once it
+          // reads as a rule rather than as an argument with itself.
+          //
+          // This block sits AFTER the rules and would otherwise be the last
+          // word — which for the key template means overriding the one thing it
+          // was built to do. The exemption is narrow and is stated here, at the
+          // point of collision, rather than left to whichever instruction the
+          // model happens to weight more heavily.
+          (input.template === "reading_key"
+            ? " ONE EXEMPTION, for the question they asked this time: a key to " +
+              "HOW the book is read may be drawn from the whole of it, " +
+              "including pages ahead of them. That exemption covers method and " +
+              "nothing else — how the book is built, what it is doing to a " +
+              "reader, what a first-timer misreads. Every word of the rule " +
+              "above still governs events, reveals, fates and endings, which " +
+              "remain off the table no matter how much they would sharpen the " +
+              "point."
             : "")
       );
     }
@@ -873,10 +1046,38 @@ export function buildReaderChatSystem(
   }
 
   if (tail.length > 0) {
-    blocks.push({ type: "text", text: tail.join("\n\n") });
+    const tailBlock = tail.join("\n\n");
+    sections.push({
+      layer: "context",
+      title: "This reader, and where they are",
+      text: tailBlock,
+    });
+    blocks.push({ type: "text", text: tailBlock });
   }
 
-  return blocks;
+  return { blocks, sections };
+}
+
+/**
+ * The system blocks, for sending. What almost everything wants.
+ */
+export function buildReaderChatSystem(
+  input: ReaderChatPromptInput
+): Anthropic.TextBlockParam[] {
+  return assembleReaderChatPrompt(input).blocks;
+}
+
+/**
+ * The same prompt, split into its four layers, for the panel's inspector.
+ *
+ * Built by the same pass as the blocks rather than reconstructed, so what the
+ * inspector shows cannot drift from what is sent — the same reason the whole
+ * context builder is shared with the chat route.
+ */
+export function buildReaderChatSections(
+  input: ReaderChatPromptInput
+): PromptSection[] {
+  return assembleReaderChatPrompt(input).sections;
 }
 
 // ============================================================
@@ -932,10 +1133,17 @@ export const BOOK_DOCUMENT_EFFORT: Record<BookDocumentPhase, "low" | "high"> = {
   document: "high",
 };
 
+/** How an earlier templated thread announces itself among the marks. */
+const TEMPLATE_MARK_LABEL: Record<ReaderChatTemplate, string> = {
+  reading_key: "(an earlier briefing on how to read this book)",
+  check_in: "(an earlier check-in — this same conversation, further back)",
+};
+
 /** One reader mark, rendered for the model. */
 function markBlock(mark: ReaderMark, index: number): string {
   const where = mark.page != null ? ` page="${mark.page}"` : "";
   const lines: string[] = [];
+  if (mark.template) lines.push(TEMPLATE_MARK_LABEL[mark.template]);
   if (mark.isChapterSummary) lines.push("(a chapter recap they asked for)");
   if (mark.quote) lines.push(`HIGHLIGHTED: "${mark.quote}"`);
   for (const note of mark.notes) lines.push(`THEIR NOTE: ${note}`);
@@ -1336,7 +1544,15 @@ export function buildBookDocumentSystem(
   const canSearch = bookDocumentCanSearch(ctx.scope, phase);
 
   // Volatile: the rules for this phase, and the ask.
+  //
+  // LAYER 1 first, and it is the same agent the chats get — a preface, an
+  // afterword and a mid-book conversation are the same person doing different
+  // jobs, and they read as one app only if that is literally true rather than
+  // separately drafted three times. `isStory` rather than a raw fiction flag
+  // because that is what this context carries; it falls back to the book's
+  // spoiler switch for anything unclassified.
   const rules: string[] = [
+    agentPrompt(ctx.isStory),
     "You are writing inside one person's private reading app. The book above " +
       "is the whole book, and everything below it is what is known about this " +
       "reader." +
