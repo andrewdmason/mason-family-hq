@@ -1,13 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import Link from "next/link";
+import { ChevronRight, Settings } from "lucide-react";
 import { AppHeaderContent } from "@/components/layout/app-header";
 import { ArticleCard } from "@/components/reading/article-card";
 import { QueueList } from "@/components/reading/queue-list";
 import { QueueRecommendations } from "@/components/reading/queue-recommendations";
 import { ReaderBookTile } from "@/components/reading/reader-book-tile";
+import { ReaderOverflowMenu } from "@/components/reading/reader-overflow-menu";
 import { RATING_OPTIONS } from "@/components/reading/rating-picker";
+import {
+  ShelfBooksProvider,
+  useOptimisticShelf,
+} from "@/components/reading/shelf-books";
 import { READING_STATUSES } from "@/lib/reading/status";
 import { cn } from "@/lib/utils";
 import type {
@@ -63,7 +69,7 @@ function emptyMessage(tab: ReadingBookStatus): string {
  * book; rows are for comparing them.
  */
 export function ReaderShelf({
-  books,
+  books: serverBooks,
   recommendations,
   recsHasSignal,
   recsGenres,
@@ -73,12 +79,19 @@ export function ReaderShelf({
   recommendations: ReadingRecommendation[];
   recsHasSignal: boolean;
   recsGenres: string[];
-  /** Reader settings, the overflow menu, Add a book — handed down from the page
-   * so the header slot has a single publisher. The slot holds one node, so the
-   * shelf (which owns which tab is showing) has to carry these up with it. */
+  /** Add a book — handed down from the page (it needs the recipient list) so the
+   * header slot keeps a single publisher. The slot holds one node, so the shelf,
+   * which owns which tab is showing, has to carry it up with the tabs. Reader
+   * settings and the markdown copy sit next to it and are rendered here. */
   actions?: React.ReactNode;
 }) {
   const [pausedOpen, setPausedOpen] = useState(false);
+
+  /* Rate a book, move it to another shelf, throw it away: all of it lands on
+     screen now, and the save catches up behind it. Everything below reads from
+     this list rather than from the server's, so the tabs, the counts and the
+     archive's rating groups all re-sort in the same frame as the click. */
+  const { books, optimistic, error } = useOptimisticShelf(serverBooks);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -136,9 +149,22 @@ export function ReaderShelf({
           </button>
         ))}
       </nav>
-      {actions && (
-        <div className="ml-auto flex items-center gap-2">{actions}</div>
-      )}
+      <div className="ml-auto flex items-center gap-2">
+        <Link
+          href="/reader/settings"
+          aria-label="Reader settings"
+          className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <Settings className="h-4 w-4" />
+        </Link>
+        {/* Rendered here rather than handed down with the rest of the toolbar,
+            because what it copies is the shelf as it stands — ratings included,
+            which no longer wait on a page re-render. The header slot publishes a
+            closure over this render, not a subtree, so the live list can only
+            reach it from in here. */}
+        <ReaderOverflowMenu books={books} title="Books I've read" />
+        {actions}
+      </div>
     </AppHeaderContent>
   );
 
@@ -155,92 +181,99 @@ export function ReaderShelf({
   }
 
   return (
-    <div className="mt-5 sm:mt-0">
-      {header}
+    <ShelfBooksProvider value={optimistic}>
+      <div className="mt-5 sm:mt-0">
+        {header}
 
-      <div className="flex flex-wrap gap-1.5 border-b border-border pb-3 sm:hidden">
-        {tabs.map((t) => (
-          <button
-            key={t.value}
-            type="button"
-            onClick={() => setActive(t.value)}
-            className={cn(
-              "rounded-full px-3 py-1 text-xs font-medium transition-colors",
-              activeTab === t.value
-                ? "bg-foreground text-background"
-                : "bg-muted/70 text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {t.label}
-            <span className="ml-1.5 tabular-nums opacity-70">{t.count}</span>
-          </button>
-        ))}
-      </div>
-
-      {activeTab === "queued" && (
-        <QueueRecommendations
-          recommendations={recommendations}
-          hasSignal={recsHasSignal}
-          genres={recsGenres}
-        />
-      )}
-
-      {visible.length === 0 ? (
-        activeTab === "queued" ? null : (
-          <p className="mt-4 rounded-lg border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
-            {emptyMessage(activeTab)}
-          </p>
-        )
-      ) : activeTab === "queued" ? (
-        /* The Queue is where you decide what's next, so it's a ranked list you
-           drag rather than a grid of covers: each row argues for its book, and
-           articles take their place in the same order instead of being exiled
-           below the grid for want of cover art. */
-        <QueueList books={visible} />
-      ) : (
-        <>
-          {visibleBooks.length > 0 &&
-            (activeTab === "archive" ? (
-              <ArchiveGroups books={visibleBooks} />
-            ) : (
-              <BookGrid books={visibleBooks} className="mt-5" />
-            ))}
-          {visibleArticles.length > 0 && (
-            <div className="mt-5 space-y-3">
-              {visibleArticles.map((article) => (
-                <ArticleCard key={article.id} article={article} canRead />
-              ))}
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Paused books aren't a tab — they're set aside, so they stay collapsed
-          at the bottom until you go looking for them. */}
-      {pausedBooks.length > 0 && (
-        <div className="mt-8 border-t border-border pt-4">
-          <button
-            type="button"
-            onClick={() => setPausedOpen((o) => !o)}
-            aria-expanded={pausedOpen}
-            className="flex w-full items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ChevronRight
+        <div className="flex flex-wrap gap-1.5 border-b border-border pb-3 sm:hidden">
+          {tabs.map((t) => (
+            <button
+              key={t.value}
+              type="button"
+              onClick={() => setActive(t.value)}
               className={cn(
-                "h-4 w-4 transition-transform",
-                pausedOpen && "rotate-90"
+                "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                activeTab === t.value
+                  ? "bg-foreground text-background"
+                  : "bg-muted/70 text-muted-foreground hover:text-foreground"
               )}
-            />
-            Paused
-            <span className="tabular-nums text-xs opacity-70">
-              {pausedBooks.length}
-            </span>
-          </button>
-
-          {pausedOpen && <BookGrid books={pausedBooks} className="mt-4" />}
+            >
+              {t.label}
+              <span className="ml-1.5 tabular-nums opacity-70">{t.count}</span>
+            </button>
+          ))}
         </div>
-      )}
-    </div>
+
+        {/* A change that didn't stick. It lives here rather than on a tile
+            because the tile is often gone by the time we know — deleted, or
+            moved to a shelf you're not looking at. */}
+        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+
+        {activeTab === "queued" && (
+          <QueueRecommendations
+            recommendations={recommendations}
+            hasSignal={recsHasSignal}
+            genres={recsGenres}
+          />
+        )}
+
+        {visible.length === 0 ? (
+          activeTab === "queued" ? null : (
+            <p className="mt-4 rounded-lg border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
+              {emptyMessage(activeTab)}
+            </p>
+          )
+        ) : activeTab === "queued" ? (
+          /* The Queue is where you decide what's next, so it's a ranked list you
+             drag rather than a grid of covers: each row argues for its book, and
+             articles take their place in the same order instead of being exiled
+             below the grid for want of cover art. */
+          <QueueList books={visible} />
+        ) : (
+          <>
+            {visibleBooks.length > 0 &&
+              (activeTab === "archive" ? (
+                <ArchiveGroups books={visibleBooks} />
+              ) : (
+                <BookGrid books={visibleBooks} className="mt-5" />
+              ))}
+            {visibleArticles.length > 0 && (
+              <div className="mt-5 space-y-3">
+                {visibleArticles.map((article) => (
+                  <ArticleCard key={article.id} article={article} canRead />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Paused books aren't a tab — they're set aside, so they stay collapsed
+            at the bottom until you go looking for them. */}
+        {pausedBooks.length > 0 && (
+          <div className="mt-8 border-t border-border pt-4">
+            <button
+              type="button"
+              onClick={() => setPausedOpen((o) => !o)}
+              aria-expanded={pausedOpen}
+              className="flex w-full items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ChevronRight
+                className={cn(
+                  "h-4 w-4 transition-transform",
+                  pausedOpen && "rotate-90"
+                )}
+              />
+              Paused
+              <span className="tabular-nums text-xs opacity-70">
+                {pausedBooks.length}
+              </span>
+            </button>
+
+            {pausedOpen && <BookGrid books={pausedBooks} className="mt-4" />}
+          </div>
+        )}
+      </div>
+    </ShelfBooksProvider>
   );
 }
 

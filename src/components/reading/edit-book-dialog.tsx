@@ -33,6 +33,7 @@ import {
   preselectLocation,
 } from "@/components/reading/change-location-dialog";
 import { RatingPicker } from "@/components/reading/rating-picker";
+import { useShelfBooks } from "@/components/reading/shelf-books";
 import { READING_STATUSES, readingStatusLabel } from "@/lib/reading/status";
 import type { ReadingBook, ReadingBookStatus, ReadingRating } from "@/lib/types";
 
@@ -81,6 +82,7 @@ export function EditBookDialog({
   const [rating, setRating] = useState<ReadingRating | null>(book.rating);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const shelf = useShelfBooks();
 
   function syncFromBook() {
     setTitle(book.title);
@@ -131,23 +133,48 @@ export function EditBookDialog({
         ? { currentPage: locationToPage(chapterOptions, locationValue) }
         : {}
       : { currentPage: currentPage ? Number(currentPage) : 0 };
+    const resolvedRating = status === "archive" ? rating : null;
+    const parsedTotal = totalPages ? Number(totalPages) : null;
+    const resolvedTotal = parsedTotal && parsedTotal > 0 ? parsedTotal : null;
+
+    // On the shelf the edits are already drawn behind this dialog, so it shuts
+    // on the way out rather than holding you there while the save round-trips.
+    // Elsewhere — the kids' program — the server's render is the only copy, so
+    // the dialog still waits and reports its own failure.
+    //
+    // Only the fields whose saved value is knowable from here: the page you're
+    // on isn't one of them, since archiving a book quietly moves it to the back
+    // cover, and a guess that never matches is a change that never settles.
+    const undo = shelf.patchBook(book.id, {
+      title: title.trim(),
+      author: author.trim() || null,
+      total_pages: resolvedTotal,
+      status,
+      rating: resolvedRating,
+    });
+    if (shelf.managed) setOpen(false);
+
     startTransition(async () => {
       try {
         await updateBook(book.id, {
           title,
           author,
-          totalPages: totalPages ? Number(totalPages) : null,
+          totalPages: resolvedTotal,
           ...currentPagePatch,
           ...(status === "in_progress" && targetChanged
             ? { targetPage: targetNum }
             : {}),
           status,
-          rating: status === "archive" ? rating : null,
+          rating: resolvedRating,
           memberEmail,
         });
         setOpen(false);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't save changes.");
+        undo();
+        const message =
+          err instanceof Error ? err.message : "Couldn't save changes.";
+        if (shelf.managed) shelf.fail(message);
+        else setError(message);
       }
     });
   }
@@ -159,12 +186,18 @@ export function EditBookDialog({
       return;
     }
     setError(null);
+    const undo = shelf.dropBook(book.id);
+    if (shelf.managed) setOpen(false);
     startTransition(async () => {
       try {
         await removeBook(book.id, memberEmail);
         setOpen(false);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't remove the book.");
+        undo();
+        const message =
+          err instanceof Error ? err.message : "Couldn't remove the book.";
+        if (shelf.managed) shelf.fail(message);
+        else setError(message);
       }
     });
   }
