@@ -22,6 +22,7 @@ import {
 import { BookCover } from "@/components/reading/book-cover";
 import { bookByline } from "@/lib/reading/byline";
 import { readerProgressPercent } from "@/components/reading/reader-book-tile";
+import { useShelfBooks } from "@/components/reading/shelf-books";
 import { useIsDownloaded } from "@/lib/reading/offline/use-is-downloaded";
 import { bookNotesHref, bookReaderHref } from "@/lib/reading/links";
 import { useBookFileActions } from "@/lib/reading/use-book-file-actions";
@@ -404,6 +405,7 @@ function QueueReason({
   assessing?: boolean;
   onError: (message: string | null) => void;
 }) {
+  const shelf = useShelfBooks();
   const [note, setNote] = useState(book.recommendation_note ?? "");
   const [editing, setEditing] = useState(false);
   const [saving, startSave] = useTransition();
@@ -423,10 +425,12 @@ function QueueReason({
     const next = note.trim();
     if (next === (book.recommendation_note ?? "")) return;
     onError(null);
+    const undo = shelf.patchBook(book.id, { recommendation_note: next || null });
     startSave(async () => {
       try {
         await updateBook(book.id, { recommendationNote: next, memberEmail });
       } catch (err) {
+        undo();
         setNote(book.recommendation_note ?? "");
         onError(err instanceof Error ? err.message : "Couldn't save that note.");
       }
