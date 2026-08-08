@@ -8,6 +8,11 @@
  *    some text; rendered by mistake it appears as an invisible glyph followed by
  *    the words "Searching the web…" wedged into the middle of the answer, and
  *    then persists in the message row forever.
+ *  - TWO STATUSES CAN REPLACE EACH OTHER WITH NO CLEAR IN BETWEEN. Deep thinks
+ *    and searches in the same turn, and the route only sends a frame when the
+ *    line changes — so "Thinking…" is followed directly by "Searching the web…"
+ *    rather than by a clear. Every earlier case here had at most one status in
+ *    flight, which is the assumption this breaks.
  *  - A FRAME SPLIT ACROSS CHUNKS IS THE NORMAL CASE, not the edge case. The
  *    network decides where the boundaries fall, and the separator, the status
  *    text and the terminating newline routinely land in different reads.
@@ -24,6 +29,13 @@
  */
 
 import { statusFrame, streamReply } from "../src/lib/reading/chat-stream";
+import {
+  READER_CHAT_DEEP_EFFORT,
+  READER_CHAT_DEEP_MAX_TOKENS,
+  READER_CHAT_MAX_TOKENS,
+  THINKING_STATUS,
+} from "../src/lib/reading/chat-prompt";
+import { SEARCHING_STATUS } from "../src/lib/reading/web-sources";
 import { INLINE_RE } from "../src/components/reading/annotations/chat-message-text";
 
 let failures = 0;
@@ -170,6 +182,49 @@ await forEverySplit(
   }
 );
 
+// Deep's ordinary turn. The thinking is never shown, so this line is the only
+// thing standing between the reader and an empty bubble.
+await forEverySplit(
+  "think, then answer",
+  statusFrame(THINKING_STATUS) +
+    statusFrame(null) +
+    "He's telling you what he wishes had happened.",
+  {
+    text: "He's telling you what he wishes had happened.",
+    statuses: [THINKING_STATUS, null],
+    error: null,
+  }
+);
+
+// The case the route's only-send-on-change rule creates: one status replacing
+// another with no clear between them, twice over. Nothing before this sent two
+// non-empty frames back to back.
+await forEverySplit(
+  "thinking and searching, swapping without a clear",
+  statusFrame(THINKING_STATUS) +
+    statusFrame(SEARCHING_STATUS) +
+    statusFrame(THINKING_STATUS) +
+    statusFrame(null) +
+    "Nabokov called it that in 1967 — “a shattering”.",
+  {
+    text: "Nabokov called it that in 1967 — “a shattering”.",
+    statuses: [THINKING_STATUS, SEARCHING_STATUS, THINKING_STATUS, null],
+    error: null,
+  }
+);
+
+// A turn that dies while thinking leaves the line standing unless the marker is
+// still found underneath it.
+await forEverySplit(
+  "a turn that dies while thinking",
+  statusFrame(THINKING_STATUS) + "\n\n[error: overloaded_error]",
+  {
+    text: "\n\n[error: overloaded_error]",
+    statuses: [THINKING_STATUS],
+    error: "overloaded_error",
+  }
+);
+
 // A status carrying a newline would end its own frame early and spill the rest
 // into the bubble. statusFrame flattens whitespace so it can't.
 check(
@@ -236,6 +291,33 @@ check(
 // A bare URL is left as plain text rather than half-matched into a link, which
 // is part of why the model is told not to write them.
 check("a bare URL is not a link", tokens("See https://example.com for more."), []);
+
+// ============================================================
+// What Deep is given to think with.
+// ============================================================
+//
+// Both of these fail silently. A shared reply budget doesn't error, it
+// truncates — and a remark cut off mid-sentence still reads like a remark, so
+// nothing downstream can tell.
+//
+// The effort level is pinned because lowering it looks like a free latency win
+// and is not: measured on this prompt shape, adaptive thinking does not engage
+// at all below high, so anything less quietly turns the feature off while
+// leaving every sign of it in place — the config, the status line, the picker
+// that promises it. See READER_CHAT_DEEP_EFFORT for the numbers.
+
+console.log("\ndeep settings");
+
+check(
+  "thinking gets its own room, on top of the reply",
+  READER_CHAT_DEEP_MAX_TOKENS > READER_CHAT_MAX_TOKENS,
+  true
+);
+check(
+  "at an effort that actually engages it",
+  READER_CHAT_DEEP_EFFORT,
+  "high"
+);
 
 if (failures > 0) {
   console.error(`\n${failures} failure(s)`);
