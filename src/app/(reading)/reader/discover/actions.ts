@@ -8,6 +8,7 @@ import { genresForAge } from "@/lib/reading/genres";
 import { ratingImpliesFinished } from "@/lib/reading/status";
 import {
   assessBookFit,
+  assessmentNote,
   generateRecommendationCandidates,
   type BookAssessment,
   type RatedTitle,
@@ -225,6 +226,55 @@ export async function assessBook(input: {
     title,
     author: input.author?.trim() || null,
   });
+}
+
+/**
+ * Assess a book that's already on the shelf, and write the verdict into its
+ * "why this book" note.
+ *
+ * The queue is a decision surface, and the row's argument for a book is the
+ * thing you read it for — but plenty of books arrive with no argument at all
+ * (typed in by hand, handed over by a friend, imported in bulk), and an
+ * argument written a year ago was made about a reader whose taste has moved on
+ * since. So this deliberately overwrites whatever's in the field rather than
+ * appending or opening a panel beside it: it's how you ask for a fresh read on
+ * a book you're still deciding about, and the answer belongs where you'll look
+ * for it. Anything worth keeping was always yours to type back in.
+ *
+ * Returns null when the AI couldn't form a verdict, leaving the old note alone.
+ */
+export async function assessBookIntoNote(
+  bookId: string,
+  memberEmail?: string | null
+): Promise<BookAssessment | null> {
+  const { client, userId, email } = await resolveReadingScope(memberEmail ?? null);
+
+  const { data: book, error: bookError } = await client
+    .from("reading_books")
+    .select("title, author")
+    .eq("id", bookId)
+    .eq("user_id", userId)
+    .single();
+  if (bookError) throw new Error(bookError.message);
+
+  const tz = await getUserTimezone();
+  const today = localDate(new Date(), tz);
+  const profile = await buildTasteProfile(client, userId, email, today);
+  const assessment = await assessBookFit(profile, {
+    title: book.title as string,
+    author: (book.author as string | null) ?? null,
+  });
+  if (!assessment) return null;
+
+  const { error } = await client
+    .from("reading_books")
+    .update({ recommendation_note: assessmentNote(assessment) })
+    .eq("id", bookId)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/reader");
+  return assessment;
 }
 
 /** Fetch a member's recommendation row, scoped to them. */

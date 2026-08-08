@@ -2,34 +2,31 @@
 
 import { useCallback, useState, useTransition } from "react";
 import { assessBook } from "@/app/(reading)/reader/discover/actions";
-import type { BookAssessment } from "@/lib/reading/recommend";
+import { ASSESSMENT_LABELS, type BookAssessment } from "@/lib/reading/recommend";
 import { cn } from "@/lib/utils";
 
-/** Verdict → the label, dot, and tint used to render the assessment panel. */
+/** Verdict → the dot and tint used to render the assessment panel. The wording
+ * is shared with the note the queue writes, so both say the same thing. */
 const VERDICTS: Record<
   BookAssessment["verdict"],
-  { label: string; text: string; dot: string; container: string }
+  { text: string; dot: string; container: string }
 > = {
   love: {
-    label: "You'll probably love this",
     text: "text-emerald-700 dark:text-emerald-400",
     dot: "bg-emerald-500",
     container: "border-emerald-600/30 bg-emerald-600/5",
   },
   like: {
-    label: "Looks like a good fit for you",
     text: "text-emerald-700 dark:text-emerald-400",
     dot: "bg-emerald-500",
     container: "border-emerald-600/30 bg-emerald-600/5",
   },
   mixed: {
-    label: "Could go either way",
     text: "text-amber-700 dark:text-amber-400",
     dot: "bg-amber-500",
     container: "border-amber-500/40 bg-amber-500/5",
   },
   pass: {
-    label: "Probably not your thing",
     text: "text-rose-700 dark:text-rose-400",
     dot: "bg-rose-500",
     container: "border-rose-600/30 bg-rose-600/5",
@@ -98,7 +95,7 @@ export function AssessmentPanel({
     <div className={cn("rounded-md border px-3 py-2", v.container, className)}>
       <p className={cn("flex items-center gap-1.5 text-xs font-medium", v.text)}>
         <span className={cn("h-2 w-2 shrink-0 rounded-full", v.dot)} />
-        {v.label}
+        {ASSESSMENT_LABELS[assessment.verdict]}
       </p>
       <p className="mt-1 text-xs text-muted-foreground">{assessment.reason}</p>
     </div>
