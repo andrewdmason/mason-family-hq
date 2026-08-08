@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState, useTransition } from "react";
+import { InlineMarkdown } from "@/components/reading/inline-markdown";
 import { assessBook } from "@/app/(reading)/reader/discover/actions";
 import { ASSESSMENT_LABELS, type BookAssessment } from "@/lib/reading/recommend";
 import { cn } from "@/lib/utils";
@@ -97,7 +98,9 @@ export function AssessmentPanel({
         <span className={cn("h-2 w-2 shrink-0 rounded-full", v.dot)} />
         {ASSESSMENT_LABELS[assessment.verdict]}
       </p>
-      <p className="mt-1 text-xs text-muted-foreground">{assessment.reason}</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        <InlineMarkdown text={assessment.reason} />
+      </p>
     </div>
   );
 }

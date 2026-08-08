@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { AssessmentPanel, useAssessBook } from "@/components/reading/assess-book";
 import { BookCover } from "@/components/reading/book-cover";
+import { InlineMarkdown } from "@/components/reading/inline-markdown";
 import { MarkReachedButton } from "@/components/reading/mark-reached-button";
 import { ChangeTargetButton } from "@/components/reading/change-target-button";
 import { EditBookDialog } from "@/components/reading/edit-book-dialog";
@@ -164,7 +165,7 @@ export function BookCard({
               )}
               {book.recommendation_note && (
                 <p className={`text-xs italic text-muted-foreground${fromPerson ? " mt-1" : ""}`}>
-                  &ldquo;{book.recommendation_note}&rdquo;
+                  &ldquo;<InlineMarkdown text={book.recommendation_note} />&rdquo;
                 </p>
               )}
             </div>

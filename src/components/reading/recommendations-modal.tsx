@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { BookCover } from "@/components/reading/book-cover";
+import { InlineMarkdown } from "@/components/reading/inline-markdown";
 import { RatingPicker } from "@/components/reading/rating-picker";
 import {
   dismissRecommendation,
@@ -149,7 +150,7 @@ export function RecommendationsModal({
 
               {current.rationale && (
                 <p className="text-sm italic leading-relaxed text-muted-foreground">
-                  {current.rationale}
+                  <InlineMarkdown text={current.rationale} />
                 </p>
               )}
 
