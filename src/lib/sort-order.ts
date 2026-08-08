@@ -1,6 +1,7 @@
 /**
- * Fractional indexing for manual ordering. A task's position is a float: new
- * items append at max+1, a drag drops the item at the midpoint of its new
+ * Fractional indexing for manual ordering, shared by every hand-sorted list in
+ * the app (to-dos, the Reader queue). An item's position is a float: new items
+ * take a spot past one end, a drag drops the item at the midpoint of its new
  * neighbors. One UPDATE per move — no shifting of sibling rows — which keeps
  * optimistic drag-and-drop trivially consistent.
  *

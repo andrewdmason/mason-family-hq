@@ -100,7 +100,7 @@ import {
   writeCollapsedSections,
 } from "@/lib/todos/section-collapse";
 import { snoozePresets } from "@/lib/todos/snooze";
-import { needsRenormalize, sortBetween } from "@/lib/todos/sort";
+import { needsRenormalize, sortBetween } from "@/lib/sort-order";
 import type {
   TodoBucket,
   TodoMember,

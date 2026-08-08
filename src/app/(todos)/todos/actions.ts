@@ -329,7 +329,7 @@ export async function restoreTask(taskId: string): Promise<void> {
 }
 
 // ============================================================
-// Ordering (fractional index; see src/lib/todos/sort.ts)
+// Ordering (fractional index; see src/lib/sort-order.ts)
 // ============================================================
 
 export async function setTaskSortOrder(taskId: string, sortOrder: number): Promise<void> {

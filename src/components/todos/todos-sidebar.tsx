@@ -54,7 +54,7 @@ import {
 } from "@/lib/todos/drop-targets";
 import { withAs } from "@/lib/todos/member-context";
 import { useReconciler } from "@/lib/todos/reconcile";
-import { sortBetween } from "@/lib/todos/sort";
+import { sortBetween } from "@/lib/sort-order";
 import { requestProjectSwitch, requestViewSwitch } from "@/lib/todos/view-switch";
 import type {
   SidebarCounts,
