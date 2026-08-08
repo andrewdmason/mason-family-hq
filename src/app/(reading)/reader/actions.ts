@@ -376,6 +376,12 @@ export async function addBook(input: {
   fiction?: boolean | null;
   /** The taxonomy genre, when the AI lookup already resolved it. */
   genre?: ReadingGenre | null;
+  /**
+   * Why this book is worth reading — set when the add ran a "will I like this?"
+   * assessment first, so the verdict lands on the row instead of dying with the
+   * dialog that produced it.
+   */
+  recommendationNote?: string | null;
   memberEmail?: string | null;
 }): Promise<void> {
   const { client, userId, email } = await resolveReadingScope(input.memberEmail);
@@ -439,6 +445,7 @@ export async function addBook(input: {
       fiction: input.fiction ?? null,
       genre: input.genre ?? null,
       genre_source: input.genre ? "ai" : null,
+      recommendation_note: input.recommendationNote?.trim() || null,
       spoiler_free: spoilerDefaultFor(input.fiction ?? null),
       started_at: status === "in_progress" ? today : null,
       finished_at: finished ? today : null,

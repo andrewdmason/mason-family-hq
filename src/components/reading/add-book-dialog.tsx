@@ -34,6 +34,7 @@ import {
 import { searchBooks, type BookSearchResult } from "@/lib/reading/book-search";
 import { RatingPicker } from "@/components/reading/rating-picker";
 import { AssessmentPanel, useAssessBook } from "@/components/reading/assess-book";
+import { assessmentNote } from "@/lib/reading/recommend";
 import { READING_STATUSES, readingStatusLabel } from "@/lib/reading/status";
 import { cn } from "@/lib/utils";
 import type { ReadingBookStatus, ReadingRating } from "@/lib/types";
@@ -158,6 +159,11 @@ export function AddBookDialog({
         fiction: meta.fiction ?? null,
         genre: meta.genre ?? null,
         rating: status === "archive" ? rating : null,
+        // If they asked "will I like this?" before adding, the verdict is the
+        // book's reason for being here — keep it on the row rather than losing
+        // it with the dialog. Cleared whenever the title changes, so it can only
+        // ever describe the book actually being added.
+        recommendationNote: assessment ? assessmentNote(assessment) : null,
         memberEmail,
       });
     }
