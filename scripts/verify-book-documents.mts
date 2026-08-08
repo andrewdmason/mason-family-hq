@@ -75,6 +75,7 @@ function ctx(over: Partial<BookDocumentContext> = {}): BookDocumentContext {
     history: [
       { title: "The Idiot", author: "Elif Batuman", rating: "loved", finishedAt: "2026-06-01" },
     ],
+    profile: { family: null, present: null, timeline: null },
     startedAt: "2026-01-04",
     finishedAt: "2026-01-19",
     rating: "loved",
@@ -201,23 +202,142 @@ console.log("\nWhat a preface may say about the book");
 
 console.log("\nThe interview");
 {
+  // The failure this section exists for: every turn of a real preface interview
+  // was a forced choice — "was it X, or Y?", "for yourself, or to say to your
+  // wife?" — and the reader answered "Both" and "Sure, I'm 45". An A-or-B is a
+  // guess that cannot be wrong, which is why a model reaches for it and why it
+  // is worthless. Then, handed those two-word answers, it changed the subject.
   const converse = flatten(buildBookDocumentSystem(ctx(), "converse"));
   check("asks exactly one question a turn", converse.includes("ONE question per turn"));
+  check("leads with a claim rather than a question", converse.includes("Lead with a CLAIM, not a menu"));
+  check(
+    "and is forbidden the A-or-B outright",
+    converse.includes("NEVER offer them a choice between two options") &&
+      converse.includes('the honest reply to it is "both"')
+  );
+  // Both of these were found by running the real interview, not by reading it.
+  // Told only "no A-or-B?", the model obeyed the interrogative form and kept the
+  // fork everywhere else: first as "what I'm less sure of is whether X or Y",
+  // then — once that was closed — as a clean claim followed by a menu at the end
+  // of the turn. What is banned is the fork, and where a turn may end is its own
+  // rule.
+  check(
+    "including the fork with a declarative hat on",
+    converse.includes("That ban is on the fork itself, however it is dressed") &&
+      converse.includes("sets two readings of them side by side and waits")
+  );
+  check(
+    "and a turn may only end by inviting a correction or asking something open",
+    converse.includes("The sentence that ENDS your turn") &&
+      converse.includes("Never a yes/no, and never a fork")
+  );
   check(
     "guesses only from evidence, never from reputation",
     converse.includes("NEVER") && converse.includes("reputation")
   );
+  check(
+    "presses on a thin answer instead of moving on",
+    converse.includes("A short answer is not an answer") &&
+      converse.includes("Do NOT change the subject")
+  );
+  check(
+    "never asks them to design the feature",
+    converse.includes("Never ask them about the app or about the mechanics of reading")
+  );
   check("offers to stop after four or five", converse.includes("four or five exchanges"));
   check(
-    "opens with the question rather than a greeting",
-    converse.includes("this turn is your opening")
+    "a preface opens with the claim rather than a greeting",
+    converse.includes("this turn is your opening question") &&
+      converse.includes("lead with the claim")
   );
+
+  // The afterword's interview has evidence a preface's never has, so it opens by
+  // putting a draft on the table: reacting to two wrong takeaways produces the
+  // right one, where "what did you take from this?" produces "not sure".
+  const after = flatten(
+    buildBookDocumentSystem(ctx({ scope: "afterword", marks: [mark()] }), "converse")
+  );
+  check(
+    "an afterword opens with a draft, not a question",
+    after.includes("this turn puts a draft on the table") &&
+      after.includes("which of them are wrong and what you have missed")
+  );
+  check(
+    "and that opening turn is the only one allowed more than one idea",
+    after.includes("every turn after it follows the one-question rule")
+  );
+  check(
+    "the interview is pointed at takeaways, not at feelings about the book",
+    after.includes("settle what they actually took from this book")
+  );
+  check(
+    "with no preface, it doesn't ask whether they got what they came for",
+    !after.includes("what they came for")
+  );
+  const afterPaired = flatten(
+    buildBookDocumentSystem(
+      ctx({ scope: "afterword", marks: [mark()], preface: "You came for the argument." }),
+      "converse"
+    )
+  );
+  check("with one, that becomes the sharpest question it has", afterPaired.includes("what they came for"));
 
   const withNotes = flatten(
     buildBookDocumentSystem(ctx(), "converse", { hasReaderNotes: true })
   );
   check("explains the reader's own notes when the thread has any", withNotes.includes("[Reader's note]"));
   check("and says nothing about them when it doesn't", !converse.includes("[Reader's note]"));
+}
+
+console.log("\nWho the reader is");
+{
+  // The reader used to know a person only by what they had finished. Asked "do
+  // you know who Jenny is?", the preface interview answered no — and with
+  // nothing real to guess from, it fell back on menus, which is the bug above.
+  const known = ctx({
+    profile: {
+      family: "Andrew is married to Jenny. Their kids are Elle and Wells.",
+      present: "Running a company; thinking a lot about what the next decade is for.",
+      timeline: "- 2005 — Married Jenny [milestone] (major)",
+    },
+  });
+  const text = flatten(buildBookDocumentSystem(known, "converse"));
+  check("the family doc is there, so a dropped name resolves", text.includes("Andrew is married to Jenny"));
+  check("as is their life now", text.includes("<their_life_now>"));
+  check("and their life so far", text.includes("<their_life_so_far>"));
+  check(
+    "framed as who is asking, not as a subject to steer onto",
+    text.includes("WHO YOU ARE TALKING TO") && text.includes("It is not a subject")
+  );
+  check(
+    "and explicitly not evidence about why they picked this book",
+    text.includes("never claim it explains why they are reading this")
+  );
+
+  const blocks = buildBookDocumentSystem(known, "converse");
+  check(
+    "it rides in the reader's cached block, not the book's",
+    blocks[1].text.includes("WHO YOU ARE TALKING TO") &&
+      blocks[1].cache_control?.type === "ephemeral" &&
+      !blocks[0].text.includes("WHO YOU ARE TALKING TO")
+  );
+
+  // An empty journal is the ordinary case for a kid. The block is absent rather
+  // than present and hollow.
+  check(
+    "an empty journal adds nothing at all",
+    !flatten(buildBookDocumentSystem(ctx(), "converse")).includes("WHO YOU ARE TALKING TO")
+  );
+  const partial = flatten(
+    buildBookDocumentSystem(
+      ctx({ profile: { family: "Andrew is married to Jenny.", present: null, timeline: null } }),
+      "converse"
+    )
+  );
+  check(
+    "and a half-filled one carries only what exists",
+    partial.includes("<their_family>") && !partial.includes("<their_life_now>")
+  );
 }
 
 console.log("\nThe documents");
@@ -247,15 +367,19 @@ console.log("\nThe documents");
   const bare = flatten(
     buildBookDocumentSystem(ctx({ scope: "afterword", marks: [] }), "document")
   );
-  check("an afterword is longer", bare.includes("500 to 800 words"));
   check(
-    "every claim has to point at something they marked",
+    "every takeaway has to point at something they marked",
     bare.includes("Their marks are the evidence")
   );
   check("and it must not open with the dateline we write", bare.includes("Do not open with a dateline"));
   check(
     "with no preface, it doesn't promise to answer one",
-    !bare.includes("did they get it?")
+    !bare.includes("They wrote a preface before starting")
+  );
+  check(
+    "an afterword may use headings; the no-headings rule is the preface's alone",
+    !bare.includes("No headings, no bullet lists, no bold labels") &&
+      bare.includes("each takeaway is prose under its own heading")
   );
 
   const paired = flatten(
@@ -264,46 +388,67 @@ console.log("\nThe documents");
       "document"
     )
   );
-  check("with one, it closes the loop", paired.includes("did they get it?"));
+  check("with one, it closes the loop", paired.includes("They wrote a preface before starting"));
   check("and the preface itself is in context", paired.includes("<their_preface>"));
 }
 
-console.log("\nWho the afterword is for");
+console.log("\nWhat an afterword is");
 {
-  // The failure this section exists for: an afterword that opened "You stopped
-  // at 79%, with Koch's doubts about physicalism fresh" and then ran a
-  // catalogue of highlights with a percentage after each. Written for someone
-  // who had just closed the book, when the whole point is to be readable by
-  // someone who has forgotten it.
+  // The afterword is the one thing a book leaves behind, so its shape is the
+  // feature. It used to open with a long recap written for the reader five years
+  // on, then say how the book landed, then what they took. The recap is the part
+  // they can regenerate on demand, and it was crowding out the part they can't:
+  // the specific things they now think. So the takeaways became the whole body.
   const after = flatten(
     buildBookDocumentSystem(ctx({ scope: "afterword", marks: [] }), "document")
   );
 
-  check("it is written for them years later", after.includes("FIVE YEARS FROM NOW"));
+  check("it is a set of takeaways", after.includes("It is a set of TAKEAWAYS"));
+  check(
+    "one sentence on what the book was, and no recap",
+    after.includes("One sentence first, naming what this book was") &&
+      after.includes("no recap")
+  );
+  check(
+    "and the old three-part essay is gone",
+    !after.includes("WHAT THIS BOOK WAS") && !after.includes("HOW IT LANDED ON THEM")
+  );
+  check("each takeaway is a heading and prose under it", after.includes('markdown heading ("## ")'));
+  check(
+    "stating the idea, what produced it, and what they made of it",
+    after.includes("state the idea plainly") && after.includes("what in the book produced it")
+  );
+
+  // The rule that makes these notes rather than sections — they are meant to be
+  // lifted out of here one at a time, and eventually they will be.
+  check(
+    "and every one has to survive the others being deleted",
+    after.includes("THE TEST EVERY TAKEAWAY MUST PASS") &&
+      after.includes("read correctly with all the others deleted")
+  );
+  check(
+    "no cross-references, which is what would break that",
+    after.includes('no "as above"') && after.includes("no pronoun pointing at something outside")
+  );
+  check(
+    "as many as the book earned, with no target to pad to",
+    after.includes("as many as the book earned") && after.includes("There is no target")
+  );
+  check(
+    "a takeaway is something they now think, not a fact about the book",
+    after.includes("WHAT COUNTS AS A TAKEAWAY") &&
+      after.includes('Not "the book argues X"')
+  );
+
+  check("it is still written for them years later", after.includes("FIVE YEARS FROM NOW"));
   check(
     "and assumes nothing is still familiar",
     after.includes("Introduce each person, term and idea the first time it appears")
   );
-  check(
-    "with a worked example of the failure",
-    after.includes("Christof Koch") && after.includes("not\n" + '"Koch"') === false
-  );
-  check(
-    "what the book was comes first, and at length",
-    after.includes("WHAT THIS BOOK WAS") && after.includes("does the remembering")
-  );
-  check(
-    "and it no longer refuses to recap",
-    !after.includes("Do not recap the plot")
-  );
-  check("then how it landed, then what they took", 
-    after.indexOf("WHAT THIS BOOK WAS") < after.indexOf("HOW IT LANDED ON THEM") &&
-      after.indexOf("HOW IT LANDED ON THEM") < after.indexOf("WHAT THEY TOOK FROM IT")
-  );
-  check("long enough to do all three", after.includes("500 to 800 words"));
+  check("with a worked example of the failure", after.includes("Christof Koch"));
   check(
     "quotations are rationed, because a list of them is an index",
-    after.includes("two or three of their highlights at most") &&
+    after.includes("at most one short highlight per takeaway") &&
       after.includes("is an index of their highlights")
   );
   check(

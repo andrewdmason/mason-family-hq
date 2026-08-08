@@ -2,6 +2,7 @@ import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ChapterIndexEntry } from "@/lib/reading/context-markup";
 import type { BookDocumentContext, ReaderMark } from "@/lib/reading/book-document-context";
+import { isReaderProfileEmpty, type ReaderProfile } from "@/lib/reading/reader-profile";
 
 /**
  * The ONE place the reader's system prompts are assembled — the anchored chat,
@@ -273,6 +274,11 @@ export type ReaderChatPromptInput = {
    * agenda, and deliberately nowhere that could interrupt them mid-book.
    */
   readerIntent: string | null;
+  /**
+   * Who the reader is, from the journal. Null when they have filled none of it
+   * in, which is the ordinary case for a kid.
+   */
+  readerProfile: ReaderProfile | null;
 };
 
 /**
@@ -289,6 +295,66 @@ function contentsLine(chapter: ChapterIndexEntry): string {
 /** Whether the index actually carries extents (it can't without a page map). */
 function hasChapterExtents(chapters: ChapterIndexEntry[]): boolean {
   return chapters.some((c) => c.fromPage != null && c.throughPage != null);
+}
+
+/**
+ * Who the reader is, from the journal — shared by the anchored chat and by both
+ * of the reader's own documents.
+ *
+ * The framing is the whole design here, and it is the same one the reader-intent
+ * block already uses: this is BACKGROUND, not an instruction. What it buys is
+ * that a guess can be about a real person — "you have a teenager about to leave
+ * home" rather than "was it X, or Y?" — and that the name someone drops mid-
+ * sentence resolves to somebody instead of stopping the conversation.
+ *
+ * What it must not become is a companion with a thesis about your life. Hence
+ * the explicit prohibitions: it can shape what is asked, never get recited back,
+ * and a chat about a book stays a chat about a book.
+ *
+ * Returns null when the journal is empty, which is the ordinary case for a kid —
+ * so the block is absent rather than present and hollow.
+ */
+export function readerProfileBlock(profile: ReaderProfile | null): string | null {
+  if (!profile || isReaderProfileEmpty(profile)) return null;
+
+  const parts: string[] = [
+    "WHO YOU ARE TALKING TO. What follows is what this app knows about the " +
+      "reader, written by them and their family elsewhere in it — not about " +
+      "this book.",
+  ];
+
+  if (profile.family) {
+    parts.push(
+      `<their_family>\nWho is around them. Use it to know who a name belongs ` +
+        `to when they drop one — a reader who says "my wife" or "Jenny" should ` +
+        `not have to explain who that is.\n\n${profile.family}\n</their_family>`
+    );
+  }
+  if (profile.present) {
+    parts.push(
+      `<their_life_now>\nTheir own account of where they are at the moment: ` +
+        `what they are doing, who is around them, what is on their ` +
+        `mind.\n\n${profile.present}\n</their_life_now>`
+    );
+  }
+  if (profile.timeline) {
+    parts.push(
+      `<their_life_so_far>\nTheir life as dated events.\n\n${profile.timeline}\n</their_life_so_far>`
+    );
+  }
+
+  parts.push(
+    "Use this to know who is asking, and to make what you say land on the " +
+      "person actually in front of you. Three things it is NOT. It is not " +
+      "something to quote, recite or show off knowing — nobody wants to be read " +
+      "their own biography. It is not a subject: they came to talk about a " +
+      "book, and steering the conversation onto their life is a worse " +
+      "conversation, not a more personal one. And it is not evidence about the " +
+      "book — never claim it explains why they are reading this unless they " +
+      "have said so themselves."
+  );
+
+  return parts.join("\n\n");
 }
 
 /**
@@ -493,6 +559,12 @@ export function buildReaderChatSystem(
     }
   }
 
+  // Below the breakpoint with everything else about the reader rather than the
+  // book. Editing a profile doc is rare, but it is not something the book's
+  // cache key should depend on.
+  const profile = readerProfileBlock(input.readerProfile);
+  if (profile) tail.push(profile);
+
   // Below the cache breakpoint with the reader's position, and for the same
   // reason: it is a property of the reader rather than of the book, and it can
   // change — rewriting their preface must not re-bill the novel on every chat in
@@ -640,26 +712,77 @@ function provenanceBlock(ctx: BookDocumentContext): string | null {
  * A guess assembled from the book's reputation is worse than no guess at all: it
  * sounds knowing, it is unfalsifiable, and agreeing with it is easier than
  * thinking, which is the one thing this is for.
+ *
+ * The no-menus rule is the one this feature got wrong first, and it took a real
+ * transcript to see. Every turn of it was a forced choice — "was it X, or Y?",
+ * "for yourself, or to say to your wife?" — and the reader answered "Both" and
+ * "Sure, I'm 45", because picking from a list is the cheapest thing in the world
+ * to do. An A-or-B is a guess that cannot be wrong, which is exactly why a model
+ * reaches for it and exactly why it is worthless here. The fix is not a better
+ * question; it is to stop asking one and make a claim instead.
  */
 function interviewRules(ctx: BookDocumentContext): string[] {
   const rules = [
     "Ask exactly ONE question per turn. Not two, not a question with parts, " +
       "not a list. A second question in the same turn splits their attention " +
       "and they answer neither well.",
-    "Carry an educated guess with the question, drawn from something real in " +
-      "the material below — a book they finished recently, who recommended " +
-      "this one and what they said about it, what they have already told you, " +
-      "or (for the afterword) what they actually marked. Make the guess " +
-      "specific enough to be wrong, so they can push back on it: that is what " +
-      "moves them somewhere rather than leaving them with a blank page. If " +
-      "nothing in the material supports a guess, ask plainly instead. NEVER " +
-      "invent one from this book's reputation, from its author, or from what " +
-      "readers generally want out of books like it — a guess that sounds " +
-      "knowing but rests on nothing is worse than no guess, because agreeing " +
-      "with it is easier than thinking.",
+    "Lead with a CLAIM, not a menu. State what you think is true about them — " +
+      "specific, falsifiable, in a sentence — and then ask them what is wrong " +
+      "with it. \"My guess is you are here because X\" is worth ten times " +
+      "\"is it X, or Y?\", because a wrong claim still moves them somewhere " +
+      "and a menu never does.",
+    "NEVER offer them a choice between two options. No \"is it A, or B?\", no " +
+      "\"would you say X, or more Y?\", no \"A — or is it closer to B?\". This " +
+      "is the single easiest sentence to write here and the single worst: it " +
+      "reads as thoughtful, it cannot be wrong, and the honest reply to it is " +
+      "\"both\", which tells you nothing. If you catch yourself building an " +
+      "or, throw away the weaker half and assert the stronger one.",
+    // The rule above, stated once, gets obeyed in its interrogative form and
+    // dodged in every other. The probe that caught this came back with "what
+    // I'm less sure of is whether you'd have picked this up on your own, or
+    // whether the appeal is that she said together" — no question mark, same
+    // menu, same shrug. What is banned is the FORK, not the punctuation.
+    "That ban is on the fork itself, however it is dressed. \"What I'm less " +
+      "sure of is whether X or Y\", \"the question is whether A or B\", \"I " +
+      "can't tell if it's X or Y\" — all of these are the same menu with a " +
+      "declarative hat on, and they draw the same useless \"both\". Any turn " +
+      "of yours that sets two readings of them side by side and waits is " +
+      "broken. Pick the one you actually believe, say it as flatly as you can, " +
+      "and let them tell you it is wrong. Being wrong out loud is the job.",
+    // Where the fork kept surviving: the claim would land, and then the turn
+    // would close on "is that the wariness, or is it that you think you're
+    // early?" — the menu smuggled back in as the question. So the closing move
+    // is specified, not just the opening one.
+    "The sentence that ENDS your turn is one of exactly two things: an " +
+      "invitation to correct the claim you just made (\"where's that wrong?\", " +
+      "\"what am I missing?\"), or one genuinely open question — one that " +
+      "starts with what, how, or why and has no options in it. Never a yes/no, " +
+      "and never a fork. Having made a good claim does not buy you a menu at " +
+      "the end of it.",
+    "Ground the claim in something real in the material below — who they are, " +
+      "where they are in their life, a book they finished recently, who " +
+      "recommended this one and what they said about it, what they have " +
+      "already told you, or (for the afterword) what they actually marked. If " +
+      "nothing supports a claim, ask plainly instead. NEVER invent one from " +
+      "this book's reputation, from its author, or from what readers generally " +
+      "want out of books like it — a guess that sounds knowing but rests on " +
+      "nothing is worse than no guess, because agreeing with it is easier than " +
+      "thinking.",
+    // The other half of what went wrong in that transcript: a two-word answer
+    // is the loudest signal in an interview, and the model treated it as a
+    // completed turn and moved on. Nothing here told it not to.
+    "A short answer is not an answer. If they reply in a few words, or agree " +
+      "without adding anything, stay on that subject — say what you think they " +
+      "actually mean and let them correct it. Do NOT change the subject: a new " +
+      "question after a thin answer wastes the one place they were about to " +
+      "say something.",
     "Two or three sentences per turn. This is a conversation, not an essay: " +
       "no preamble, no summarising back what they just said, no praise for " +
-      "their answer. Ask, and stop.",
+      "their answer. Say your piece, ask, and stop.",
+    "Never ask them about the app or about the mechanics of reading — how they " +
+      "like to take notes, what makes them highlight something, how they want " +
+      "this written. That asks them to design the feature instead of think " +
+      "about the book.",
     "After four or five exchanges, say you have enough and offer to write it. " +
       "Stop asking the moment they tell you to write it — and if they say so " +
       "on the first turn, that is a complete answer.",
@@ -673,6 +796,34 @@ function interviewRules(ctx: BookDocumentContext): string[] {
         "this book now, what they are bringing to it, what they want out of it, " +
         "what would make it worth the hours."
     );
+  } else {
+    // The afterword's interview has something a preface's never has: evidence.
+    // Every passage they stopped on is a fact about what caught them, which is
+    // why this one can open by putting a draft on the table rather than asking
+    // an open question. Reacting to a wrong takeaway is far easier than
+    // producing a right one cold — and unlike a menu, a wrong one is wrong,
+    // so correcting it produces the sentence the document needed.
+    rules.push(
+      "This interview has ONE job: to settle what they actually took from this " +
+        "book. Not how they feel about it, not whether they enjoyed it — the " +
+        "handful of things they now think, or think differently, because they " +
+        "read it. Everything you ask serves that."
+    );
+    rules.push(
+      "You have their marks, which is real evidence about where they stopped " +
+        "and what they wrote. Work from it. Name the thing you think they took " +
+        "from a run of marks and let them tell you it is wrong, rather than " +
+        "asking them what they took."
+    );
+    if (ctx.preface) {
+      rules.push(
+        "You also have the preface they wrote before starting, which says what " +
+          "they came for. Use it as the sharpest question you have: they " +
+          "wanted a specific thing, and what they marked either delivered it " +
+          "or did not. If it plainly did not, say so — that is more useful to " +
+          "them than a takeaway they will not recognise."
+      );
+    }
   }
   return rules;
 }
@@ -683,13 +834,19 @@ function writingRules(ctx: BookDocumentContext): string[] {
     "Address the reader as \"you\". This is written back to them about their " +
       "own reading — not in their voice, and not about the book in the " +
       "abstract.",
-    "Flowing prose. No headings, no bullet lists, no bold labels, no title at " +
-      "the top — the app supplies the title. Open with the first real " +
-      "sentence. The structure below is the order to write in, not a set of " +
-      "sections to label: each part should run into the next.",
+    // The preface is one short argument and reads as prose. The afterword is a
+    // set of takeaways meant to be lifted out one at a time, so it needs the
+    // headings the preface must not have — see its own brief below.
+    ctx.scope === "preface"
+      ? "Flowing prose. No headings, no bullet lists, no bold labels, no title " +
+        "at the top — the app supplies the title. Open with the first real " +
+        "sentence. The structure below is the order to write in, not a set of " +
+        "sections to label: each part should run into the next."
+      : "No title at the top and no bullet lists — the app supplies the title, " +
+        "and each takeaway is prose under its own heading, not a bulleted " +
+        "note. The only headings are the takeaway headings specified below.",
     // The document is read down a narrow column beside a book. A 150-word
-    // paragraph there is a wall, and the fix is paragraphing rather than
-    // headings — which would turn an argument into a form.
+    // paragraph there is a wall, and the fix is paragraphing.
     "Break paragraphs often: one turn of thought each, and never longer than " +
       "about six sentences. This is read down a narrow column, where a long " +
       "block of prose is a wall rather than a paragraph.",
@@ -862,6 +1019,8 @@ export function buildBookDocumentSystem(
 
   // Everything about this reader, as opposed to about this book.
   const reader: string[] = [];
+  const profile = readerProfileBlock(ctx.profile);
+  if (profile) reader.push(profile);
   const provenance = provenanceBlock(ctx);
   if (provenance) reader.push(provenance);
   const history = historyBlock(ctx);
@@ -995,11 +1154,14 @@ export function buildBookDocumentSystem(
     }
   } else {
     rules.push(
-      "This is the reader's AFTERWORD: their own back matter, about what this " +
-        "book was and what they took from it. Assume they read the whole " +
-        "thing — the app does not reliably know where anyone stopped, and " +
-        "hedging about it in a document meant to outlast the reading is worse " +
-        "than being wrong about it. Nothing in the book needs protecting."
+      "This is the reader's AFTERWORD: their own back matter, and the one " +
+        "thing this book leaves behind. It is a set of TAKEAWAYS — the handful " +
+        "of things they now think, or think differently, because they read " +
+        "this. Not a review, not a summary, and not an account of how the " +
+        "reading went. Assume they read the whole thing: the app does not " +
+        "reliably know where anyone stopped, and hedging about it in a " +
+        "document meant to outlast the reading is worse than being wrong about " +
+        "it. Nothing in the book needs protecting."
     );
 
     // The line the whole document is written to, and the one it was failing
@@ -1018,13 +1180,13 @@ export function buildBookDocumentSystem(
     );
 
     rules.push(
-      "Their marks are the evidence for the second half of this, and the only " +
-        "evidence. Every claim about what they made of the book must point at " +
-        "something they actually highlighted, wrote, or asked. If they marked " +
-        "almost nothing, say the record is thin and keep it short. What you " +
-        "must NOT do is turn those marks into a list: a run of quotations each " +
-        "followed by a page number is an index, and an index is the one thing " +
-        "they can already generate for themselves."
+      "Their marks are the evidence, and the only evidence. Every takeaway " +
+        "must trace to something they actually highlighted, wrote, or asked. " +
+        "If they marked almost nothing, say the record is thin and write the " +
+        "one or two takeaways it supports. What you must NOT do is turn the " +
+        "marks into a list: a run of quotations each followed by a page number " +
+        "is an index, and an index is the one thing they can already generate " +
+        "for themselves."
     );
     rules.push(
       "If this conversation contains answers they gave you, those outrank " +
@@ -1067,9 +1229,23 @@ export function buildBookDocumentSystem(
   if (phase === "converse") {
     rules.push(...interviewRules(ctx));
     rules.push(
-      "If there is nothing from the reader yet, this turn is your opening " +
-        "question. Do not greet them, explain yourself, or describe what you " +
-        "are about to do — open with the question."
+      ctx.scope === "preface"
+        ? "If there is nothing from the reader yet, this turn is your opening " +
+          "question. Do not greet them, explain yourself, or describe what you " +
+          "are about to do — lead with the claim, then the question."
+        : // The afterword opens with a draft rather than a question. It can,
+          // because by now it has evidence: the passages they stopped on are
+          // facts about what caught them, and naming what those add up to is a
+          // claim they can knock down. A reader who is handed two wrong
+          // takeaways will tell you the right one in a sentence; the same
+          // reader asked "what did you take from this?" says "not sure".
+          "If there is nothing from the reader yet, this turn puts a draft on " +
+          "the table. Name the two or three things you believe they took from " +
+          "this book, one short sentence each, drawn from what they actually " +
+          "marked — then ask which of them are wrong and what you have missed. " +
+          "Do not greet them or explain yourself. This is the one turn allowed " +
+          "more than one idea in it, because they are reacting rather than " +
+          "answering; every turn after it follows the one-question rule."
     );
   } else {
     rules.push(...writingRules(ctx));
@@ -1087,41 +1263,76 @@ export function buildBookDocumentSystem(
               "not cover despite its title — but not what it concludes.")
       );
     } else {
+      // The shape of this document, and the reason it is not an essay.
+      //
+      // It used to open with a long recap written for the reader five years on,
+      // then say how the book landed, then what they took. That recap is the
+      // part they can regenerate on demand any time they want it, and it was
+      // crowding out the part they cannot: the specific things they now think.
+      // So the takeaways became the whole body — and, because each one is meant
+      // to be lifted out of here and filed somewhere else eventually, each one
+      // has to carry the context that makes it legible on its own.
       rules.push(
-        "Write the afterword now, in 500 to 800 words. Do not open with a " +
-          "dateline or any statistics — the app puts those above your first " +
-          "line."
+        "Write the afterword now. Do not open with a dateline or any " +
+          "statistics — the app puts those above your first line."
       );
       rules.push(
-        "Three things, in this order, as flowing paragraphs rather than " +
-          "labelled sections.\n\n" +
-          "FIRST, and at the greatest length: WHAT THIS BOOK WAS. Enough to " +
-          "bring it back to someone who has forgotten it — what it set out to " +
-          "do, how it went about it, and where it ended up. This is the part " +
-          "that does the remembering, so do not rush it and do not assume any " +
-          "of it is still familiar. It used to say \"don't recap it, they read " +
-          "it\"; that was wrong, because by the time they open this they will " +
-          "not remember having read it.\n\n" +
-          "SECOND: HOW IT LANDED ON THEM. What they kept returning to, what " +
-          "they pushed back on, what they passed straight over. Say what that " +
-          "pattern was ABOUT, in plain words — not which passages it came " +
-          "from.\n\n" +
-          "THIRD: WHAT THEY TOOK FROM IT. What is likely to have stayed with " +
-          "them, what it changed or failed to change, and what it left them " +
-          "still wondering." +
-          (ctx.preface
-            ? " Close on their preface: they came to this wanting what it says " +
-              "they wanted — did they get it? Say plainly if they came for one " +
-              "thing and left with another, which is the more interesting " +
-              "answer and the one only you can see."
-            : "")
+        "SHAPE. One sentence first, naming what this book was — no more than " +
+          "one, and no recap: they can ask for a summary any time they want " +
+          "one, and it is not what this document is for. Then the takeaways, " +
+          "which are the whole of the rest of it."
       );
       rules.push(
-        "Quote sparingly: two or three of their highlights at most, short, " +
-          "worked into your own sentences. Cite a page only where the quote " +
-          "is worth going back to. A paragraph carrying six quotations and six " +
-          "citations is an index of their highlights, which is not what this " +
-          "is for."
+        "EACH TAKEAWAY is a markdown heading (\"## \") naming the idea, then " +
+          "100 to 200 words underneath it. The heading is the idea in a phrase, " +
+          "in plain words rather than the book's vocabulary — a sentence " +
+          "fragment they would recognise years later, not a label like " +
+          "\"On attention\". The paragraphs under it do three things, run " +
+          "together as prose: state the idea plainly, say what in the book " +
+          "produced it, and — where they actually said something — say what " +
+          "they made of it."
+      );
+      // The rule that makes these notes rather than sections. Written as a
+      // test, because "make it self-contained" is advice and "read it with the
+      // others deleted" is something the model can actually check.
+      rules.push(
+        "THE TEST EVERY TAKEAWAY MUST PASS: it has to read correctly with all " +
+          "the others deleted. Assume this one is the only thing they ever see " +
+          "again — no \"as above\", no \"this second point\", no term " +
+          "introduced in an earlier takeaway and used bare in this one, no " +
+          "pronoun pointing at something outside its own paragraphs. Each " +
+          "carries its own grounding, which is why there is no recap above " +
+          "them."
+      );
+      rules.push(
+        "HOW MANY: as many as the book earned, and no more. A heavily-marked " +
+          "book might give five or six; one they marked twice gives two, and " +
+          "you say the record is thin rather than padding to a respectable " +
+          "number. There is no target. A takeaway they will not recognise as " +
+          "theirs is worse than a short afterword."
+      );
+      rules.push(
+        "WHAT COUNTS AS A TAKEAWAY: something they now think. An idea they " +
+          "have taken on, a belief the book sharpened or broke, a distinction " +
+          "they did not have before, a question it left them holding. Not " +
+          "\"the book argues X\" — that is a fact about the book. If you " +
+          "cannot say why it matters to THIS reader, it is not one of theirs."
+      );
+      if (ctx.preface) {
+        rules.push(
+          "They wrote a preface before starting, saying what they came for. If " +
+            "what they marked answers it, one of the takeaways should be that " +
+            "answer. If they came for one thing and left with another, say so " +
+            "plainly in the takeaway it belongs to — that is the most useful " +
+            "thing in this document and the one only you can see."
+        );
+      }
+      rules.push(
+        "Quote sparingly: at most one short highlight per takeaway, worked " +
+          "into your own sentences, and only where their words say it better " +
+          "than yours would. Cite a page only where the quote is worth going " +
+          "back to. A takeaway carrying three quotations and three citations " +
+          "is an index of their highlights, which is not what this is for."
       );
     }
   }

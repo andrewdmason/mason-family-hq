@@ -78,6 +78,7 @@ function documentContext(
     recommendedBy: null,
     recommendationNote: null,
     history: [],
+    profile: { family: null, present: null, timeline: null },
     startedAt: null,
     finishedAt: null,
     rating: null,
@@ -198,6 +199,7 @@ const chatInput = {
   quotedText: null,
   hasReaderNotes: false,
   readerIntent: null,
+  readerProfile: null,
 };
 
 const openChat = flatten(buildReaderChatSystem({ ...chatInput, spoilerFree: false }));

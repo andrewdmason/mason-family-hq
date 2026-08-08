@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "@/lib/journal/anthropic";
 import { resolveReadingScope } from "@/lib/reading/scope";
+import { todayLocal } from "@/lib/journal/today";
 import {
   afterwordDateline,
   gatherBookDocumentContext,
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest) {
   const phase: BookDocumentPhase =
     body.phase === "document" ? "document" : "converse";
 
-  const { client: db, userId } = await resolveReadingScope(body.memberEmail);
+  const { client: db, userId, email } = await resolveReadingScope(body.memberEmail);
 
   const { data: raw } = await db
     .from("reading_annotations")
@@ -90,7 +91,12 @@ export async function POST(req: NextRequest) {
   }
   const scope = row.book_scope;
 
-  const ctx = await gatherBookDocumentContext(db, userId, row.book_id, scope);
+  // `email` rather than the session's: in member mode this document belongs to
+  // the member, and the journal context behind it has to be theirs too.
+  const ctx = await gatherBookDocumentContext(db, userId, row.book_id, scope, {
+    email,
+    today: await todayLocal(),
+  });
   if (!ctx) return new Response("book text unavailable", { status: 409 });
 
   // The thread so far. 'notice' rows are app-authored UI text and never go to

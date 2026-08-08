@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getTextForRange } from "@/lib/reading/extract-text";
 import type { ChapterIndexEntry } from "@/lib/reading/context-markup";
 import type { BookScope } from "@/lib/reading/book-documents";
+import { gatherReaderProfile, type ReaderProfile } from "@/lib/reading/reader-profile";
 
 /**
  * Everything the reader's preface and afterword are written from.
@@ -84,6 +85,12 @@ export type BookDocumentContext = {
   recommendationNote: string | null;
   /** What they've finished lately, newest first — the evidence a guess rests on. */
   history: FinishedBook[];
+  /**
+   * Who the reader is, from the journal. The other half of the evidence, and the
+   * more important half for a preface: what they have finished says what they
+   * read, this says who is asking.
+   */
+  profile: ReaderProfile;
   startedAt: string | null;
   finishedAt: string | null;
   rating: string | null;
@@ -252,7 +259,13 @@ export async function gatherBookDocumentContext(
   client: SupabaseClient,
   userId: string,
   bookId: string,
-  scope: BookScope
+  scope: BookScope,
+  /**
+   * The reader's own email and today's date, for the journal profile. Both come
+   * from the resolved reading scope rather than the session — in member mode the
+   * signed-in caller is not the person this document is about.
+   */
+  identity: { email: string | null; today: string }
 ): Promise<BookDocumentContext | null> {
   // One string literal, not a concatenation: PostgREST's column typing is
   // inferred from the literal, and a `+` between two halves of it silently
@@ -294,6 +307,13 @@ export async function gatherBookDocumentContext(
   const preface =
     scope === "afterword" ? await getBookPreface(client, userId, bookId) : null;
 
+  const profile = await gatherReaderProfile(
+    client,
+    userId,
+    identity.email,
+    identity.today
+  );
+
   return {
     scope,
     bookTitle: book.title as string,
@@ -323,6 +343,7 @@ export async function gatherBookDocumentContext(
       rating: h.rating,
       finishedAt: h.finished_at,
     })),
+    profile,
     startedAt: (book.started_at as string | null) ?? null,
     finishedAt: (book.finished_at as string | null) ?? null,
     rating: (book.rating as string | null) ?? null,
