@@ -64,6 +64,10 @@ export function AddBookDialog({
   // ISBN the AI resolved, carried into the manual-confirm step so it's still
   // stored even when the user fills in the rest by hand.
   const [aiIsbn, setAiIsbn] = useState<string | null>(null);
+  // The publication year the lookup resolved, carried the same way — the details
+  // step has no field for it, and a book that lands without one shows no year on
+  // the queue row it's headed for.
+  const [aiYear, setAiYear] = useState<number | null>(null);
   // Genre/fiction the AI resolved, carried the same way. When both are present
   // the add skips the post-save classifier, since this is the same question.
   const [aiGenres, setAiGenres] = useState<string[] | null>(null);
@@ -97,6 +101,7 @@ export function AddBookDialog({
     setTotalPages("");
     setCoverImageUrl(null);
     setAiIsbn(null);
+    setAiYear(null);
     setAiGenres(null);
     setAiFiction(null);
     setAiGenre(null);
@@ -203,6 +208,7 @@ export function AddBookDialog({
             totalPages: found.totalPages,
             coverImageUrl: found.coverImageUrl,
             isbn: found.isbn,
+            publishedYear: found.publishedYear,
             genres: found.genres,
             fiction: found.fiction,
             genre: found.genre,
@@ -215,6 +221,7 @@ export function AddBookDialog({
         setTotalPages(found.totalPages ? String(found.totalPages) : "");
         setCoverImageUrl(found.coverImageUrl);
         setAiIsbn(found.isbn);
+        setAiYear(found.publishedYear);
         setAiGenres(found.genres);
         setAiFiction(found.fiction);
         setAiGenre(found.genre);
@@ -237,6 +244,7 @@ export function AddBookDialog({
           totalPages: totalPages ? Number(totalPages) : null,
           coverImageUrl,
           isbn: aiIsbn,
+          publishedYear: aiYear,
           genres: aiGenres,
           fiction: aiFiction,
           genre: aiGenre,

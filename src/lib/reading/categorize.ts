@@ -17,6 +17,8 @@ export type CategoryWrite = {
   genre: ReadingGenre | null;
   genre_source: "ai";
   spoiler_free: boolean;
+  /** Only present when the classifier resolved a year worth writing. */
+  published_year?: number;
 };
 
 /**
@@ -35,12 +37,16 @@ export function spoilerDefaultFor(fiction: boolean | null): boolean {
 export function categoryWrite(result: {
   fiction: boolean | null;
   genre: ReadingGenre | null;
+  publishedYear?: number | null;
 }): CategoryWrite {
   return {
     fiction: result.fiction,
     genre: result.genre,
     genre_source: "ai",
     spoiler_free: spoilerDefaultFor(result.fiction),
+    // Left out of the patch entirely when there's no year, so a book the
+    // classifier doesn't recognise keeps whatever the add flow found for it.
+    ...(result.publishedYear ? { published_year: result.publishedYear } : {}),
   };
 }
 
@@ -52,6 +58,15 @@ export function categoryWrite(result: {
  * and the API call is skipped entirely when both hints are present, so we don't
  * pay twice for the same question. A partial hint still triggers the call, to
  * fill the gap, and is then merged back over the result.
+ *
+ * The publication year rides along for free, and this is where it gets settled
+ * for the four add paths that never talk to the AI. It deliberately overwrites
+ * the year the insert wrote: the typeahead's comes from Open Library's
+ * `first_publish_year`, which is the earliest edition record in the catalogue
+ * and disagrees with the truth about half the time (Klara and the Sun as 2019,
+ * The Alchemist as 2010, Kiki's Delivery Service as 2020). This runs seconds
+ * after the row is created, so there is no hand-set year to trample — and a book
+ * the classifier doesn't recognise keeps the catalogue's answer.
  */
 export async function categorizeBook(
   client: SupabaseClient,
@@ -63,20 +78,28 @@ export async function categorizeBook(
     const knownGenre = hints?.genre ?? null;
     const guess =
       knownFiction != null && knownGenre != null
-        ? { fiction: knownFiction, genre: knownGenre }
+        ? { fiction: knownFiction, genre: knownGenre, publishedYear: null }
         : await classifyBook(book.title, book.author);
     const result = {
       fiction: knownFiction ?? guess.fiction,
       genre: knownGenre ?? guess.genre,
+      publishedYear: guess.publishedYear,
     };
 
+    const categorized = result.fiction != null || result.genre != null;
     // Nothing learned — leave the row alone rather than stamping genre_source
     // and teaching the backfill to skip a book it could still classify later.
-    if (result.fiction == null && result.genre == null) return;
+    if (!categorized && result.publishedYear == null) return;
+
+    // A year on its own doesn't make the book classified, so it's written on its
+    // own too rather than stamping genre_source over a still-empty genre.
+    const patch: Record<string, unknown> = categorized
+      ? categoryWrite(result)
+      : { published_year: result.publishedYear };
 
     const { error } = await client
       .from("reading_books")
-      .update(categoryWrite(result))
+      .update(patch)
       .eq("id", book.id);
     if (error) throw new Error(error.message);
   } catch (err) {

@@ -37,6 +37,8 @@ export type RecommendationCandidate = {
   totalPages: number | null;
   coverImageUrl: string | null;
   isbn: string | null;
+  /** First publication year, when the lookup resolved one. */
+  publishedYear: number | null;
   /** The AI's one-line reason this fits the member's taste. */
   rationale: string | null;
 };
@@ -279,6 +281,7 @@ export async function generateRecommendationCandidates(
         totalPages: found.totalPages,
         coverImageUrl,
         isbn: isbnFromCoverUrl(coverImageUrl),
+        publishedYear: found.publishedYear,
         rationale: pick.reason,
       };
     })

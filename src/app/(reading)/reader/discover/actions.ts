@@ -19,7 +19,7 @@ import {
 import type { ReadingRating, ReadingRecommendation } from "@/lib/types";
 
 const REC_COLUMNS =
-  "id, user_id, title, author, total_pages, cover_image_url, isbn, rationale, status, suppressed_until, acted_at, created_at, updated_at";
+  "id, user_id, title, author, total_pages, cover_image_url, isbn, published_year, rationale, status, suppressed_until, acted_at, created_at, updated_at";
 
 /** How many suggestions a single "Get recommendations" pass keeps. */
 const BATCH_SIZE = 5;
@@ -196,6 +196,7 @@ export async function generateRecommendations(
         total_pages: c.totalPages,
         cover_image_url: c.coverImageUrl,
         isbn: c.isbn,
+        published_year: c.publishedYear,
         rationale: c.rationale,
         status: "pending",
       }))
@@ -316,6 +317,8 @@ export async function queueRecommendation(
       current_page: 0,
       status: "queued",
       cover_image_url: rec.cover_image_url,
+      isbn: rec.isbn,
+      published_year: rec.published_year,
       recommended_by_email: null,
       recommended_by_label: AI_RECOMMENDER_LABEL,
       recommendation_note: rec.rationale,
@@ -371,6 +374,8 @@ export async function rateRecommendation(
       current_page: finished ? rec.total_pages ?? 0 : 0,
       status: "archive",
       cover_image_url: rec.cover_image_url,
+      isbn: rec.isbn,
+      published_year: rec.published_year,
       finished_at: finished ? today : null,
       rating,
       rated_at: today,

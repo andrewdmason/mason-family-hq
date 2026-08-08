@@ -23,11 +23,18 @@ import {
   filterBooks,
   groupBooks,
   isDefaultView,
+  parseShelfTab,
+  parseShelfView,
+  shelfQueryString,
   type ShelfRating,
   type ShelfView,
 } from "../src/lib/reading/shelf-view";
 import { genreSide } from "../src/lib/reading/book-genres";
-import type { ReadingBookWithProgress, ReadingRating } from "../src/lib/types";
+import type {
+  ReadingBookStatus,
+  ReadingBookWithProgress,
+  ReadingRating,
+} from "../src/lib/types";
 
 let failures = 0;
 
@@ -259,6 +266,86 @@ console.log("\nGrouping");
           0
         ) === mixed.length
     )
+  );
+}
+
+console.log("\nThe URL");
+{
+  const url = (query: string) => new URLSearchParams(query);
+  const roundTrip = (tab: ReadingBookStatus, v: ShelfView) => {
+    const qs = shelfQueryString(tab, v, "in_progress");
+    const params = url(qs.replace(/^\?/, ""));
+    return {
+      qs,
+      tab: parseShelfTab(params) ?? "in_progress",
+      view: parseShelfView(params, tab),
+    };
+  };
+
+  // The whole point: what you were looking at survives a reload.
+  const narrowed: ShelfView = {
+    groupBy: "genre",
+    fiction: "nonfiction",
+    genres: ["science", "philosophy"],
+    ratings: ["loved", "unrated"],
+    query: "sapiens",
+  };
+  const back = roundTrip("archive", narrowed);
+  check(
+    "a narrowed archive comes back exactly as it was",
+    back.tab === "archive" &&
+      JSON.stringify(back.view) === JSON.stringify(narrowed),
+    back.qs
+  );
+
+  check(
+    "an untouched landing shelf leaves the URL clean",
+    shelfQueryString("in_progress", defaultView("in_progress"), "in_progress") ===
+      ""
+  );
+  check(
+    "but switching tabs is worth saying, even untouched",
+    shelfQueryString("archive", defaultView("archive"), "in_progress") ===
+      "?tab=archive"
+  );
+  // Without this, a reload would hand your filters to whichever shelf opens.
+  check(
+    "a filtered shelf always names its tab",
+    shelfQueryString(
+      "queued",
+      { ...defaultView("queued"), query: "kafka" },
+      "queued"
+    ) === "?tab=queue&q=kafka"
+  );
+  check(
+    "the archive's usual grouping isn't written down",
+    !shelfQueryString(
+      "archive",
+      { ...defaultView("archive"), query: "x" },
+      "in_progress"
+    ).includes("group=")
+  );
+  check(
+    "URLs use the words on the tabs, not the stored status",
+    shelfQueryString("in_progress", defaultView("in_progress"), "queued") ===
+      "?tab=reading"
+  );
+
+  // A mangled or hand-edited link opens the shelf, never an empty one.
+  const junk = url("tab=nonsense&group=colour&kind=maybe&genre=science,ska&rating=hated");
+  check("an unknown tab is ignored", parseShelfTab(junk) === null);
+  const salvaged = parseShelfView(junk, "archive");
+  check(
+    "unknown filters are dropped, known ones kept",
+    salvaged.groupBy === "rating" &&
+      salvaged.fiction === "all" &&
+      salvaged.genres.join() === "science" &&
+      salvaged.ratings.length === 0,
+    JSON.stringify(salvaged)
+  );
+  check(
+    "a bare /reader/library is just the defaults",
+    isDefaultView(parseShelfView(url(""), "archive"), "archive")
   );
 }
 

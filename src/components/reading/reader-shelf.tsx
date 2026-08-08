@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ChevronRight, Settings } from "lucide-react";
 import { AppHeaderContent } from "@/components/layout/app-header";
 import { ArticleCard } from "@/components/reading/article-card";
@@ -21,9 +22,12 @@ import {
   filterBooks,
   groupBooks,
   isDefaultView,
-  shelfViewStore,
+  parseShelfTab,
+  parseShelfView,
+  shelfQueryString,
   type ShelfRating,
   type ShelfView,
+  type ShelfViews,
 } from "@/lib/reading/shelf-view";
 import { cn } from "@/lib/utils";
 import type {
@@ -70,6 +74,9 @@ function emptyMessage(tab: ReadingBookStatus): string {
  * a hundred covers, and grouping it by verdict is one good answer rather than the
  * only one. Preferences are kept per tab — what you want from the archive is
  * rarely what you want from a four-book queue.
+ *
+ * Which tab and which filters are in the address bar, so a reload comes back to
+ * the shelf you were on rather than the one the app opens by itself.
  */
 export function ReaderShelf({
   books: serverBooks,
@@ -106,23 +113,41 @@ export function ReaderShelf({
       (ALWAYS_SHOWN.includes(s.value) || (counts[s.value] ?? 0) > 0)
   ).map((s) => ({ ...s, count: counts[s.value] ?? 0 }));
 
-  const [active, setActive] = useState<ReadingBookStatus>(
-    (counts["in_progress"] ?? 0) > 0 ? "in_progress" : "queued"
-  );
+  /* Where you were is read out of the address bar, and written back to it as you
+     move: reload the page, bookmark it, or send it to someone and the same shelf
+     comes back. The URL is read once, at mount — from there the component's own
+     state leads and the address bar follows, so a keystroke in the search box
+     never waits on the router. Replacing rather than pushing keeps the back
+     button pointed at wherever you came from instead of at your last six taps. */
+  const searchParams = useSearchParams();
+  const landingTab: ReadingBookStatus =
+    (counts["in_progress"] ?? 0) > 0 ? "in_progress" : "queued";
+  const openingTab = parseShelfTab(searchParams) ?? landingTab;
+
+  const [active, setActive] = useState<ReadingBookStatus>(openingTab);
+  const [views, setViews] = useState<ShelfViews>(() => ({
+    [openingTab]: parseShelfView(searchParams, openingTab),
+  }));
+
   const activeTab = tabs.some((t) => t.value === active)
     ? active
     : (tabs[0]?.value ?? "in_progress");
-
-  // Subscribed rather than copied into state on mount, so the server renders the
-  // defaults without a hydration mismatch and a second tab stays in step.
-  const views = useSyncExternalStore(
-    shelfViewStore.subscribe,
-    shelfViewStore.getSnapshot,
-    shelfViewStore.getServerSnapshot
-  );
   const view = views[activeTab] ?? defaultView(activeTab);
-  const setView = (next: ShelfView) =>
-    shelfViewStore.set({ ...views, [activeTab]: next });
+
+  const writeUrl = (tab: ReadingBookStatus, next: ShelfView) => {
+    const url = `${window.location.pathname}${shelfQueryString(tab, next, landingTab)}`;
+    window.history.replaceState(null, "", url);
+  };
+
+  const setView = (next: ShelfView) => {
+    setViews({ ...views, [activeTab]: next });
+    writeUrl(activeTab, next);
+  };
+
+  const selectTab = (next: ReadingBookStatus) => {
+    setActive(next);
+    writeUrl(next, views[next] ?? defaultView(next));
+  };
 
   const inTab = books.filter((b) => b.status === activeTab);
   const tabBooks = inTab.filter((b) => (b.type ?? "book") === "book");
@@ -186,7 +211,7 @@ export function ReaderShelf({
           <button
             key={t.value}
             type="button"
-            onClick={() => setActive(t.value)}
+            onClick={() => selectTab(t.value)}
             aria-current={activeTab === t.value ? "page" : undefined}
             className={cn(
               "relative flex h-14 items-center gap-1.5 text-sm font-medium transition-colors hover:text-foreground",
@@ -254,7 +279,7 @@ export function ReaderShelf({
             <button
               key={t.value}
               type="button"
-              onClick={() => setActive(t.value)}
+              onClick={() => selectTab(t.value)}
               className={cn(
                 "rounded-full px-3 py-1 text-xs font-medium transition-colors",
                 activeTab === t.value
