@@ -30,7 +30,10 @@
 
 import { statusFrame, streamReply } from "../src/lib/reading/chat-stream";
 import {
+  buildReaderChatSections,
   buildReaderChatSystem,
+  type PromptSection,
+  type ReaderChatPromptInput,
   READER_CHAT_DEEP_EFFORT,
   READER_CHAT_DEEP_MAX_TOKENS,
   READER_CHAT_DEEP_MODEL,
@@ -336,9 +339,10 @@ check(
 // with a delay, and a chat window running the same model with no instructions
 // at all produced a far better conversation about the same book.
 
-console.log("\nthe two registers");
+console.log("\nthe four layers");
 
-const chatInput = (depth: ReaderChatDepth) => ({
+/** A minimal prompt input; every check below varies one thing about it. */
+const chatInput = (depth: ReaderChatDepth): ReaderChatPromptInput => ({
   bookTitle: "The Unconsoled",
   bookAuthor: "Kazuo Ishiguro",
   bookText: "Once, a porter carried three suitcases across a lobby.",
@@ -354,138 +358,345 @@ const chatInput = (depth: ReaderChatDepth) => ({
   readerIntent: null,
   readerProfile: null,
   depth,
+  template: null,
+  priorCheckIns: null,
+  priorCheckInsTruncated: false,
 });
 
-const flat = (depth: ReaderChatDepth) =>
-  buildReaderChatSystem(chatInput(depth))
-    .map((b) => b.text)
-    .join("\n");
+/**
+ * The prompt is assembled from four layers — agent, brief, constraints, context
+ * — and they are checked as layers rather than as strings wherever possible.
+ * The old tests asserted exact sentences, which meant every rewording broke
+ * them without ever testing the thing that mattered.
+ */
+const sectionsFor = (over: Partial<ReaderChatPromptInput> = {}): PromptSection[] =>
+  buildReaderChatSections({ ...chatInput("deep"), ...over });
 
-const fast = flat("fast");
-const deep = flat("deep");
-
-check(
-  "the picker reaches the prompt at all",
-  fast !== deep,
-  true
-);
-check(
-  "fast is still marginalia",
-  fast.includes("a remark in the margin, not an essay"),
-  true
-);
-check(
-  "and deep is explicitly not",
-  deep.includes("a remark in the margin, not an essay"),
-  false
-);
-check(
-  "deep is asked for an argument, not a survey",
-  deep.includes("HAVE A POSITION AND COMMIT TO IT") &&
-    deep.includes("Being interestingly wrong is useful to them"),
-  true
-);
-// The rule that made interpretation impossible: a reading is never stated in
-// the text, so "say so rather than speculating" declined every question worth
-// asking.
-check(
-  "deep is told interpretation is the job, not an overreach",
-  deep.includes("Interpretation is the JOB here") &&
-    deep.includes("do not decline one for want of a sentence to point at"),
-  true
-);
-check(
-  "deep may leave the covers",
-  deep.includes("Reach outside the book when it helps"),
-  true
-);
-check(
-  "deep lets the question set the length, without inflating small ones",
-  deep.includes("Let the question set the length") &&
-    deep.includes("A factual aside still gets a sentence"),
-  true
-);
-check(
-  "and never turns into a study guide",
-  deep.includes("never a bulleted list of themes"),
-  true
-);
-check(
-  "deep owns its own readings rather than hunting for a citation",
-  deep.includes("own it as yours and make it anyway"),
-  true
-);
-
-// What KIND of book it is, which until 00177 the margin chat had no idea about:
-// it got title, author and text, and nothing that distinguished a novel from an
-// argument. Fiction/non-fiction only — the genre is deliberately withheld, since
-// naming it invites the model to perform it.
-console.log("\nfiction vs non-fiction");
-
-const kindOf = (fiction: boolean | null) =>
-  buildReaderChatSystem({ ...chatInput("fast"), fiction })
-    .map((b) => b.text)
+const layersOf = (over: Partial<ReaderChatPromptInput> = {}) =>
+  sectionsFor(over).map((s) => s.layer);
+const layerText = (layer: string, over: Partial<ReaderChatPromptInput> = {}) =>
+  sectionsFor(over)
+    .filter((s) => s.layer === layer)
+    .map((s) => s.text)
     .join("\n");
 
 check(
-  "a novel is read as something made",
-  kindOf(true).includes("This is a STORY") &&
-    kindOf(true).includes("a novel has no thesis to agree with"),
+  "every prompt opens agent, brief, constraints",
+  layersOf().slice(0, 3),
+  ["agent", "brief", "constraints"]
+);
+check(
+  "and everything after that is context",
+  layersOf().slice(3).every((l) => l === "context"),
+  true
+);
+// The layers exist to be looked at. A split nobody can see stops being true.
+check(
+  "the sections carry the same text the blocks do",
+  sectionsFor()
+    .map((s) => s.text)
+    .join("\n\n") ===
+    buildReaderChatSystem(chatInput("deep"))
+      .map((b) => b.text)
+      .join("\n\n"),
+  true
+);
+
+console.log("\nthe agent");
+
+check(
+  "a novel gets the literature teacher",
+  layerText("agent", { fiction: true }).includes(
+    "a great literature professor and teacher"
+  ),
   true
 );
 check(
-  "an argument is read as a case to test",
-  kindOf(false).includes("This is NOT a story") &&
-    kindOf(false).includes("whether the evidence bears the weight put on it"),
+  "an argument gets a teacher on its subject",
+  layerText("agent", { fiction: false }).includes(
+    "a great teacher on the subject this book is about"
+  ),
   true
 );
 check(
-  "the two are actually different prompts",
-  kindOf(true) !== kindOf(false),
+  "an unclassified book gets a plain teacher",
+  layerText("agent", { fiction: null }).includes("the role of a great teacher:"),
   true
 );
-// Silence beats a wrong guess: an unclassified book gets neither branch rather
-// than defaulting into one, because the classifier leaves nulls on the books it
-// genuinely doesn't recognise.
+// Named rather than described. Which agent a book gets is the most consequential
+// line in its prompt and the hardest to check by eye — the two personas are four
+// sentences each and read alike at a glance, so a wrong classification looks
+// like a subtly odd answer rather than like a mistake.
 check(
-  "an unclassified book is told neither thing",
-  kindOf(null).includes("This is a STORY") || kindOf(null).includes("This is NOT a story"),
+  "each agent says which one it is",
+  [true, false, null].map(
+    (f) => sectionsFor({ fiction: f }).find((s) => s.layer === "agent")?.title
+  ),
+  ["Literature professor", "Subject teacher", "Generalist"]
+);
+// Both are TEACHERS. The prompts had grown an adversarial streak nobody asked
+// for — demanding an argument, testing whether the evidence bore the weight put
+// on it, saying when it found a book unconvincing. It reads as rigour and is
+// the wrong relationship.
+// Both are TEACHERS, and the whole guard against the adversarial drift is now
+// that word rather than a sentence disclaiming the alternative. Judging a book
+// is easier to write than teaching it and sounds smarter, so it keeps coming
+// back — if it returns, this is where to look first.
+check(
+  "both agents are framed as teachers",
+  [true, false, null].every((f) => layerText("agent", { fiction: f }).includes("teacher")),
+  true
+);
+check(
+  "and the old examiner framing is gone for good",
+  layerText("agent", { fiction: false }).includes(
+    "whether the evidence bears the weight put on it"
+  ),
   false
 );
-// The branch must not be readable off the spoiler scope, which is what the old
-// conflation amounted to: an unscoped chat is not a claim about the book's kind.
+// The bar for anything in this layer: would an unprompted Claude get it wrong?
+// A model does not need telling to use contractions, so that line went — along
+// with everything else describing HOW to talk rather than who is talking.
 check(
-  "and the branch is not derived from the chat's spoiler scope",
-  buildReaderChatSystem({ ...chatInput("fast"), fiction: null, spoilerFree: true })
-    .map((b) => b.text)
+  "the agent says who is talking and nothing about how to talk",
+  layerText("agent", { fiction: true }).includes("Talk the way a person talks"),
+  false
+);
+// A bound rather than a sentence count: the point is that this layer stays
+// small enough to read at a glance, which is what stops it accreting.
+check(
+  "and every agent stays under 200 characters",
+  [true, false, null].every((f) => layerText("agent", { fiction: f }).length < 200),
+  true
+);
+// The agent is who is talking, not what this turn is. It must not move when the
+// surface or the model does.
+check(
+  "the agent is the same on every surface",
+  layerText("agent", { template: "check_in" }) === layerText("agent", { template: null }),
+  true
+);
+check(
+  "and does not change with the model picked",
+  layerText("agent", { depth: "fast" }) === layerText("agent", { depth: "deep" }),
+  true
+);
+
+console.log("\nthe brief");
+
+// The largest deletion in the rewrite. Fast/Deep used to mean two things at
+// once — which model answers, and what shape the answer takes — and the second
+// fought every brief that wanted a conversation. It is a model picker now.
+check(
+  "the model picker no longer changes the register",
+  layerText("brief", { depth: "fast" }) === layerText("brief", { depth: "deep" }),
+  true
+);
+check(
+  "and neither do the constraints",
+  layerText("constraints", { depth: "fast" }) ===
+    layerText("constraints", { depth: "deep" }),
+  true
+);
+check(
+  "the old Deep register is gone entirely",
+  layerText("brief").includes("HAVE A POSITION AND COMMIT TO IT") ||
+    layerText("brief").includes("Interpretation is the JOB here") ||
+    layerText("brief").includes("They want an argument about this book") ||
+    layerText("brief").includes("The reader chose the DEEP conversation"),
+  false
+);
+check(
+  "an anchored chat lets the question set the length",
+  layerText("brief").includes("Let the question set the length"),
+  true
+);
+
+// Each surface gets its own brief, and only its own.
+check(
+  "the key's brief is the machinery rule",
+  layerText("brief", { template: "reading_key" }).includes(
+    "A KEY DESCRIBES THE MACHINERY; A SPOILER DESCRIBES THE OUTPUT"
+  ),
+  true
+);
+check(
+  "and it is told to use the whole book rather than decline",
+  layerText("brief", { template: "reading_key" }).includes("Use the whole book to do it"),
+  true
+);
+check(
+  "the check-in's brief is a class discussion",
+  layerText("brief", { template: "check_in" }).includes(
+    "the type of interaction they might get in a class"
+  ),
+  true
+);
+check(
+  "and it opens the conversation rather than answering one",
+  layerText("brief", { template: "check_in" }).includes(
+    "kick things off with something interesting"
+  ),
+  true
+);
+// The reader's marks are gone from this conversation entirely — see the context
+// checks below — so the brief says nothing about them either. An instruction not
+// to lean on something you were never given is one more thing to read and a
+// small invitation to go looking for it.
+check(
+  "the brief carries no instruction about marks",
+  layerText("brief", { template: "check_in" }).includes("Don't oversteer toward them"),
+  false
+);
+check(
+  "and it holds the spoiler line while holding the whole book",
+  layerText("brief", { template: "check_in" }).includes(
+    "don't give away spoilers that go into parts they haven't read"
+  ),
+  true
+);
+check(
+  "and it remembers the earlier ones",
+  layerText("brief", { template: "check_in" }).includes("<earlier_check_ins>"),
+  true
+);
+check(
+  "the two templates are different briefs",
+  layerText("brief", { template: "check_in" }) !==
+    layerText("brief", { template: "reading_key" }),
+  true
+);
+// A template chat is about the book; an ordinary one is about the passage under
+// it. Getting this backwards pointed a six-hundred-page check-in at the last
+// three pages the reader had turned.
+check(
+  "a template is not framed as anchored to a spot",
+  layerText("brief", { template: "check_in" }).includes("anchored to a spot in the text"),
+  false
+);
+check(
+  "but an ordinary chat is",
+  layerText("brief").includes("anchored to a spot in the text"),
+  true
+);
+
+console.log("\nthe constraints");
+
+// These are orthogonal to who is talking and to what the turn is, which is why
+// they are their own layer. What matters is that each one fires on its own
+// condition and on nothing else.
+check(
+  "a scoped chat is told where the boundary is",
+  layerText("constraints", { spoilerFree: true, contextThroughPage: 90 }).includes(
+    "SPOILERS: the reader has read up to page 90"
+  ),
+  true
+);
+check(
+  "and an unscoped one is not",
+  layerText("constraints").includes("SPOILERS: the reader has read up to"),
+  false
+);
+check(
+  "the text outranks the web either way",
+  layerText("constraints").includes("outranks anything you find"),
+  true
+);
+check(
+  "page citations are asked for when there are page markers",
+  layerText("constraints", { hasPageMarkers: true }).includes("[p.212]"),
+  true
+);
+check(
+  "and not when there are none",
+  layerText("constraints", { hasPageMarkers: false }).includes("[p.212]"),
+  false
+);
+
+console.log("\nthe context");
+
+const withHistory = sectionsFor({
+  readerPosition: { page: null, percent: 40 },
+  template: "check_in",
+  priorCheckIns: [
+    {
+      page: 40,
+      quote: null,
+      notes: [],
+      exchanges: [
+        { question: "Let's check in on how this is going.", answer: "Watch Gustav." },
+      ],
+      isChapterSummary: false,
+      template: "check_in",
+    },
+  ],
+});
+const historyText = withHistory
+  .filter((s) => s.layer === "context")
+  .map((s) => s.text)
+  .join("\n");
+
+check(
+  "the book is context, and cached",
+  withHistory.some((s) => s.layer === "context" && s.title === "The book" && s.cached),
+  true
+);
+check(
+  "earlier check-ins are their own cached block",
+  withHistory.some(
+    (s) => s.layer === "context" && s.title === "Earlier check-ins" && s.cached
+  ),
+  true
+);
+check(
+  "and carry what was actually said",
+  historyText.includes("Watch Gustav"),
+  true
+);
+
+// A FIRST check-in must be told so out loud. Silence produced a transcript that
+// opened "Last time I said watch what happens to Ryder's promises to Boris" when
+// there had been no last time at all.
+check(
+  "a first check-in is told plainly that there is no last time",
+  sectionsFor({ template: "check_in", priorCheckIns: [] })
+    .map((s) => s.text)
     .join("\n")
-    .includes("This is a STORY"),
+    .includes('<earlier_check_ins count="0">'),
+  true
+);
+
+// THE READER'S MARKS ARE NO LONGER SENT AT ALL. Every version of using them went
+// wrong: a companion that theorised about his highlighting, then one that read
+// the absence of it as a diagnosis, then one that mistook an old briefing for a
+// conversation. Ordinary marks are ordinary.
+const marked = sectionsFor({
+  template: "check_in",
+  priorCheckIns: [],
+})
+  .map((s) => s.text)
+  .join("\n");
+check(
+  "a check-in is given no highlights, notes or margin questions",
+  marked.includes("their_marks") || marked.includes("earlier_briefings"),
   false
 );
-
-// The one place the two halves of the feature pull against each other: the
-// natural way to argue what a book is doing is to reach for how it ends.
-const midBook = (depth: ReaderChatDepth) =>
-  buildReaderChatSystem({
-    ...chatInput(depth),
-    readerPosition: { page: null, percent: 60 },
-  })
-    .map((b) => b.text)
-    .join("\n");
-
 check(
-  "a mid-book deep argument is bounded to what they've read",
-  midBook("deep").includes("Make the case from what they have already read"),
-  true
+  "and the brief no longer talks about marks",
+  layerText("brief", { template: "check_in" }).toLowerCase().includes("their marks"),
+  false
 );
 check(
-  "and says so rather than arguing around the ending in hints",
-  midBook("deep").includes("say that much and stop"),
-  true
+  "an ordinary chat gets no history block either",
+  layerText("context").includes("earlier_check_ins"),
+  false
 );
 check(
-  "fast carries no such clause, having made no such promise",
-  midBook("fast").includes("Make the case from what they have already read"),
+  "and neither does the key, which is a one-shot briefing",
+  sectionsFor({ template: "reading_key" })
+    .map((s) => s.text)
+    .join("\n")
+    .includes("earlier_check_ins"),
   false
 );
 

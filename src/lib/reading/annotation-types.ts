@@ -5,6 +5,54 @@ import type { BookScope } from "@/lib/reading/book-documents";
 export type ReaderChatModelPreference = "fast" | "deep";
 
 /**
+ * The two conversations the reader can start from the margin menu rather than by
+ * typing, and the middle of a trilogy that was missing one.
+ *
+ * The preface interview happens before the first page and the afterword
+ * interview after the last; between them there was nothing but an anchored chat
+ * you had to know what to ask. These are the two questions worth asking in the
+ * middle, and neither is one most readers would think to type:
+ *
+ *   reading_key — how this book wants to be read. A briefing.
+ *   check_in    — a book-club conversation about how it is actually going,
+ *                 grounded in what they have marked so far.
+ *
+ * Deliberately NOT an interview like the preface and afterword, which run a
+ * one-question-per-turn machine. These are the ordinary Deep chat with a
+ * designed opening move; after the first reply they go wherever the reader takes
+ * them. What is being protected is that it feels like a plain conversation, and
+ * the interview machinery would spend that to gain very little.
+ *
+ * Here rather than in chat-prompt.ts, where the rest of the register lives,
+ * because that module is server-only and the panel needs both of these.
+ */
+export type ReaderChatTemplate = "reading_key" | "check_in";
+
+/**
+ * The reader's opening message — the visible one, in the transcript.
+ *
+ * Short and human on purpose. The real instruction is a system block the reader
+ * never sees, so this can read like something a person typed rather than like a
+ * prompt fired at a machine. Two reasons that matters beyond taste: these chats
+ * become part of what the afterword is built from at the end of the book, and a
+ * transcript full of app-authored briefing text would poison it; and a reader
+ * looking at their own words is one keystroke from arguing with the answer,
+ * which is the entire point of the feature.
+ *
+ * One constant so the optimistic copy in the thread and the one the route
+ * persists cannot drift apart.
+ */
+export const READER_CHAT_TEMPLATE_OPENERS: Record<ReaderChatTemplate, string> = {
+  reading_key: "How should I be reading this?",
+  check_in: "Let's check in on how this is going.",
+};
+
+/** Whether a value off the wire is a template we know how to run. */
+export function isReaderChatTemplate(v: unknown): v is ReaderChatTemplate {
+  return v === "reading_key" || v === "check_in";
+}
+
+/**
  * What an annotation currently IS, derived from its contents rather than stored.
  *
  * The three states are one row at different stages of its life, which is the
@@ -69,6 +117,15 @@ export type AnnotationSummary = {
   color: string;
   /** Chosen with the first question and frozen by it, like `spoilerFree`. */
   modelPreference: ReaderChatModelPreference;
+  /**
+   * Which margin-menu conversation started this, or null for an ordinary chat.
+   *
+   * Reaches the client for two reasons: a thread that has one and no messages
+   * yet has to fire its own opening question (the way a chapter recap already
+   * does), and the panel suppresses the spoiler and model controls on these,
+   * since the reader picked a conversation rather than a set of settings.
+   */
+  template: ReaderChatTemplate | null;
   /** Questions and answers only — notes are counted separately, in `noteCount`. */
   messageCount: number;
   lastMessageAt: string | null;

@@ -202,6 +202,9 @@ const chatInput = {
   readerIntent: null,
   readerProfile: null,
   depth: "fast" as const,
+  template: null,
+  priorCheckIns: null,
+  priorCheckInsTruncated: false,
 };
 
 const openChat = flatten(buildReaderChatSystem({ ...chatInput, spoilerFree: false }));

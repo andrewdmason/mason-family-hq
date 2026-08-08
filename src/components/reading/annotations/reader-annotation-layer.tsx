@@ -12,6 +12,7 @@ import {
   addAnnotationNote,
   setAnnotationModelPreference,
   setAnnotationSpoilerFree,
+  setAnnotationTemplate,
 } from "@/app/(reading)/reader/annotation-actions";
 import type { BookScope } from "@/lib/reading/book-documents";
 import { blockIndexForCharOffset, type BookBlock } from "@/lib/reading/block-stream";
@@ -35,6 +36,7 @@ import type {
   ReaderAnnotationData,
   AnnotationDetail,
   ReaderChatModelPreference,
+  ReaderChatTemplate,
 } from "@/lib/reading/annotation-types";
 import {
   summarizableChapters,
@@ -607,6 +609,9 @@ export function ReaderAnnotationLayer({
         // The column's default, and its only permitted value today.
         color: "yellow",
         modelPreference: isSummary ? "deep" : "fast",
+        // Never at creation: a template is something the reader picks from
+        // inside the blank thread, which converts this row afterwards.
+        template: null,
         messageCount: 0,
         lastMessageAt: null,
         firstQuestion: null,
@@ -1122,6 +1127,29 @@ export function ReaderAnnotationLayer({
     [data, goToChar]
   );
 
+  /**
+   * Scroll the book to where the open chat is anchored.
+   *
+   * Opening a conversation does NOT move the book — deliberately, since most of
+   * them are opened from a marker you are already looking at, and yanking the
+   * page out from under someone would be worse than useless. But that leaves the
+   * one route in that arrives from somewhere else, the marks list, with no way
+   * back to the passage a conversation was about.
+   *
+   * Goes by character offset rather than by page, like every other jump here: it
+   * navigates identically whether the book is paged or scrolled, and it lands on
+   * the paragraph rather than the top of the page it happens to sit on.
+   *
+   * Books only. An article's anchors are DOM-text offsets rather than positions
+   * in the conversion character space, so the same call would land somewhere
+   * arbitrary — and an article is one scroll long, where the value of this is
+   * close to nil anyway.
+   */
+  const jumpToAnchor = useCallback(() => {
+    if (!detail || isArticle) return;
+    goToChar(detail.anchorCharOffset);
+  }, [detail, goToChar, isArticle]);
+
   /** Synthetic page numbers mean nothing on screen — show progress instead. */
   const labelForPage = useCallback(
     (page: number) => {
@@ -1237,6 +1265,48 @@ export function ReaderAnnotationLayer({
     [detail, memberEmail, onceCreated]
   );
 
+  /**
+   * Convert the open blank chat into one of the two mid-book conversations.
+   *
+   * MUST REJECT IF THE WRITE FAILS, which is why this goes through realIdFor and
+   * calls the action directly rather than using onceCreated like the two
+   * settings above. That helper swallows its errors — right for a note or a
+   * model preference, where a lost write costs a setting — and wrong here: the
+   * thread sends the opening question the moment this resolves, so a silent
+   * failure would produce a confident answer from a prompt that had never heard
+   * of the template. Nothing about that reads as broken from the outside, which
+   * is exactly what makes it worth the extra care.
+   *
+   * The local row is updated first so the model picker and the spoiler box go
+   * away on the click, and rolled back if the write doesn't land — a chat that
+   * looks templated and isn't would be the same lie one layer up.
+   */
+  const pickTemplate = useCallback(
+    async (template: ReaderChatTemplate) => {
+      if (!detail) return;
+      const before = detail;
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              template,
+              modelPreference: "deep",
+              spoilerFree: false,
+              contextThroughPage: null,
+            }
+          : d
+      );
+      try {
+        const id = await realIdFor(detail.id);
+        await setAnnotationTemplate(id, template, memberEmail);
+      } catch (err) {
+        setDetail((d) => (d && d.id === before.id ? before : d));
+        throw err;
+      }
+    },
+    [detail, memberEmail, realIdFor]
+  );
+
   return (
     <>
       <ReaderMarginControls
@@ -1291,6 +1361,7 @@ export function ReaderAnnotationLayer({
             hasRealPages={data?.hasRealPages ?? false}
             onOpen={(id) => void openExisting(id)}
             onClose={closePanel}
+            onAsk={askHere}
             dockToggle={dockToggle}
           />
         ) : (
@@ -1327,6 +1398,7 @@ export function ReaderAnnotationLayer({
             hasRealPages={data?.hasRealPages ?? false}
             labelForPage={labelForPage}
             onJumpToPage={jumpToPage}
+            onJumpToAnchor={isArticle ? undefined : jumpToAnchor}
             onDelete={() => void removeChat()}
             onBack={backToList}
             onClose={closePanel}
@@ -1337,6 +1409,7 @@ export function ReaderAnnotationLayer({
             onExchangeComplete={refreshList}
             onSpoilerFreeChange={(v) => void changeSpoilerFree(v)}
             onModelChange={(v) => void changeModel(v)}
+            onPickTemplate={pickTemplate}
             initialMode={threadMode}
             onAddNote={addNote}
             dockToggle={dockToggle}

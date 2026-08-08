@@ -4,6 +4,10 @@ import { getTextForRange } from "@/lib/reading/extract-text";
 import type { ChapterIndexEntry } from "@/lib/reading/context-markup";
 import type { BookScope } from "@/lib/reading/book-documents";
 import { gatherReaderProfile, type ReaderProfile } from "@/lib/reading/reader-profile";
+import {
+  isReaderChatTemplate,
+  type ReaderChatTemplate,
+} from "@/lib/reading/annotation-types";
 
 /**
  * Everything the reader's preface and afterword are written from.
@@ -53,6 +57,15 @@ export type ReaderMark = {
   exchanges: { question: string; answer: string | null }[];
   /** True when this was a chapter recap rather than something they marked. */
   isChapterSummary: boolean;
+  /**
+   * Which margin template started this thread, when one did.
+   *
+   * The reason it travels: a run of earlier check-ins is not a pile of marks, it
+   * is the same conversation on earlier days, and a companion that cannot tell
+   * the two apart re-opens ground it already covered. Null for a highlight, a
+   * note, or a chat the reader typed themselves.
+   */
+  template: ReaderChatTemplate | null;
 };
 
 export type FinishedBook = {
@@ -158,30 +171,71 @@ export async function getBookPreface(
  * Two queries rather than one per annotation, and the book's own preface and
  * afterword are excluded — an afterword that quoted an earlier afterword back at
  * itself would compound its own mistakes with every regeneration.
+ *
+ * Exported because the mid-book chat templates need exactly this and gathering
+ * it twice, two ways, is how the check-in and the afterword would end up
+ * disagreeing about what the reader marked.
  */
-async function getReaderMarks(
+export async function getReaderMarks(
   client: SupabaseClient,
   userId: string,
-  bookId: string
+  bookId: string,
+  options?: {
+    /**
+     * A chat to leave out — always the one currently asking.
+     *
+     * Without this a check-in feeds itself: its own question and its own
+     * several-hundred-word answer come back as a "mark" on the next turn, where
+     * they are already sitting in the conversation turns. The model would then
+     * be reading its own last reply as evidence about what caught the reader's
+     * attention, which is both false and expensive.
+     */
+    excludeAnnotationId?: string | null;
+    /**
+     * Char budget, when the caller can afford less than an afterword can. A chat
+     * sends the whole book on every turn and a document does not, so the two
+     * have genuinely different room.
+     */
+    maxChars?: number;
+    /**
+     * Narrow to threads started by one margin template.
+     *
+     * The check-in wants its own earlier check-ins and nothing else — not the
+     * reader's highlights, not their margin questions. Filtered in the query
+     * rather than after it: on a book imported with hundreds of Kindle
+     * highlights, fetching every annotation and every message attached to them
+     * to keep three is most of the cost of the feature for none of the value.
+     */
+    onlyTemplate?: ReaderChatTemplate;
+  }
 ): Promise<{
   marks: ReaderMark[];
   total: number;
   passages: number;
   truncated: boolean;
 }> {
-  const { data: rows } = await client
+  const budget = options?.maxChars ?? MAX_MARK_CHARS;
+  const query = client
     .from("reading_annotations")
-    .select("id, anchor_page, quoted_text, chapter_anchor_id")
+    .select("id, anchor_page, quoted_text, chapter_anchor_id, template")
     .eq("book_id", bookId)
     .eq("user_id", userId)
     .is("book_scope", null)
     .order("anchor_char_offset", { ascending: true });
+  if (options?.excludeAnnotationId) {
+    query.neq("id", options.excludeAnnotationId);
+  }
+  if (options?.onlyTemplate) {
+    query.eq("template", options.onlyTemplate);
+  }
+  const { data: rows } = await query;
 
   const annotations = (rows ?? []) as {
     id: string;
     anchor_page: number | null;
     quoted_text: string | null;
     chapter_anchor_id: string | null;
+    template: string | null;
   }[];
   if (annotations.length === 0) {
     return { marks: [], total: 0, passages: 0, truncated: false };
@@ -233,12 +287,13 @@ async function getReaderMarks(
       notes,
       exchanges,
       isChapterSummary: a.chapter_anchor_id != null,
+      template: isReaderChatTemplate(a.template) ? a.template : null,
     };
     const size =
       (mark.quote?.length ?? 0) +
       notes.reduce((n, t) => n + t.length, 0) +
       exchanges.reduce((n, e) => n + e.question.length + (e.answer?.length ?? 0), 0);
-    if (chars + size > MAX_MARK_CHARS) {
+    if (chars + size > budget) {
       truncated = true;
       break;
     }

@@ -54,6 +54,7 @@ function mark(over: Partial<ReaderMark> = {}): ReaderMark {
     notes: [],
     exchanges: [],
     isChapterSummary: false,
+    template: null,
     ...over,
   };
 }

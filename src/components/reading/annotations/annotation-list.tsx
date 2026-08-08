@@ -1,6 +1,12 @@
 "use client";
 
-import { Highlighter, MessageSquare, StickyNote, X } from "lucide-react";
+import {
+  Highlighter,
+  MessageSquare,
+  MessageSquarePlus,
+  StickyNote,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   annotationKind,
@@ -42,6 +48,7 @@ export function AnnotationList({
   hasRealPages,
   onOpen,
   onClose,
+  onAsk,
   dockToggle,
 }: {
   annotations: AnnotationSummary[];
@@ -55,6 +62,18 @@ export function AnnotationList({
   hasRealPages: boolean;
   onOpen: (id: string) => void;
   onClose: () => void;
+  /**
+   * Start a new conversation about where the reader is — the same thing the
+   * margin control does, offered here because that control is UNDERNEATH this
+   * panel whenever it's open.
+   *
+   * The margin buttons sit at a fixed top-right, which is exactly where a docked
+   * panel arrives, so opening the list took the only way of starting a chat off
+   * the screen. Reaching one meant closing the list first, which is backwards:
+   * reading back through what you've marked is one of the likelier moments to
+   * think of something new to ask.
+   */
+  onAsk: () => void;
   /** The float/dock control, when the panel is presented in a way that can dock. */
   dockToggle?: React.ReactNode;
 }) {
@@ -107,6 +126,19 @@ export function AnnotationList({
             ? "Nothing marked yet"
             : `${ordered.length} ${ordered.length === 1 ? "mark" : "marks"}`}
         </p>
+        {/* Ahead of the dock and close controls, and drawn the same way, so the
+            header reads as one set. Those two are about the PANEL; this one is
+            about the book, which is why it takes the leftmost slot rather than
+            sitting between them. */}
+        <button
+          type="button"
+          onClick={onAsk}
+          aria-label="Ask about this page"
+          title="Ask about this page"
+          className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <MessageSquarePlus className="h-4 w-4" />
+        </button>
         {dockToggle}
         <button
           type="button"

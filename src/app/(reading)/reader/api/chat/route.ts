@@ -2,13 +2,12 @@ import { NextRequest } from "next/server";
 import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "@/lib/journal/anthropic";
 import { resolveReadingScope } from "@/lib/reading/scope";
-import { getTextForRange } from "@/lib/reading/extract-text";
-import { getBookPreface } from "@/lib/reading/book-document-context";
-import { gatherReaderProfile } from "@/lib/reading/reader-profile";
-import { todayLocal } from "@/lib/journal/today";
-import { resolveReaderPosition } from "@/lib/reading/reader-position";
 import {
-  buildReaderChatSystem,
+  buildReaderChatContext,
+  CHAT_CONTEXT_COLUMNS,
+  type ChatContextRow,
+} from "@/lib/reading/chat-context";
+import {
   FALLBACK_CHARS_PER_TOKEN,
   FAST_MODEL_CONTEXT_WINDOW,
   FAST_MODEL_HEADROOM,
@@ -16,11 +15,9 @@ import {
   READER_CHAT_DEEP_MAX_TOKENS,
   READER_CHAT_DEEP_MODEL,
   READER_CHAT_FAST_MODEL,
-  READER_CHAT_MAX_CONTEXT_CHARS,
   READER_CHAT_MAX_TOKENS,
   READER_CHAT_PROMOTION_MODEL,
   readerWebSearchTools,
-  type ReaderChatDepth,
   SEARCH_TOOL_TOKEN_ALLOWANCE,
   THINKING_STATUS,
 } from "@/lib/reading/chat-prompt";
@@ -34,25 +31,11 @@ import {
 
 export const runtime = "nodejs";
 
-/** No page boundary — take the book to its end. */
-const NO_PAGE_LIMIT = 1_000_000_000;
-
 // Deliberately doesn't say "Deep": a promoted chat is still the Fast
 // conversation, answered by a bigger model only because the book doesn't fit.
 // Calling it Deep would promise the argument this answer isn't going to make.
 const PROMOTION_NOTE =
   "Answered with a larger model — this book is too long for the Fast model's context window.";
-
-type AnnotationRow = {
-  id: string;
-  book_id: string;
-  spoiler_free: boolean;
-  context_through_page: number | null;
-  anchor_char_offset: number;
-  anchor_page: number | null;
-  quoted_text: string | null;
-  model_preference: string;
-};
 
 export async function POST(req: NextRequest) {
   const body = (await req.json()) as {
@@ -72,15 +55,12 @@ export async function POST(req: NextRequest) {
 
   const { data: chatRaw } = await db
     .from("reading_annotations")
-    .select(
-      "id, book_id, spoiler_free, context_through_page, anchor_char_offset, " +
-        "anchor_page, quoted_text, model_preference"
-    )
+    .select(CHAT_CONTEXT_COLUMNS)
     .eq("id", chatId)
     .eq("user_id", userId)
     .maybeSingle();
   if (!chatRaw) return new Response("chat not found", { status: 404 });
-  const chat = chatRaw as unknown as AnnotationRow;
+  const chat = chatRaw as unknown as ChatContextRow;
 
   const { data: book } = await db
     .from("reading_books")
@@ -135,80 +115,26 @@ export async function POST(req: NextRequest) {
   });
   if (insertErr) return new Response(insertErr.message, { status: 500 });
 
-  // The spoiler boundary is frozen by the first question, and the insert above
-  // was that question if this is the first turn — so it can no longer move under
-  // this thread while the thread is being answered. `spoiler_free`
-  // with a null page means the book has no page map at all, so fall back to the
-  // anchor's character offset rather than silently taking the whole book.
-  const scoped = chat.spoiler_free;
-  const throughPage =
-    scoped && chat.context_through_page != null
-      ? chat.context_through_page
-      : NO_PAGE_LIMIT;
-  const throughCharOffset =
-    scoped && chat.context_through_page == null ? chat.anchor_char_offset : null;
-
-  const slice = await getTextForRange(db, userId, chat.book_id, null, throughPage, {
-    pageMarkers: true,
-    chapterMarkers: true,
-    maxChars: READER_CHAT_MAX_CONTEXT_CHARS,
-    throughCharOffset,
-  });
-  if (!slice) return new Response("book text unavailable", { status: 409 });
-
-  // An unscoped chat holds the whole book, so the model has to be told where the
-  // reader actually is — left to infer it from where the text runs out, it reads
-  // the last page as their position and starts explaining the ending. A scoped
-  // chat needs none of this: the text stops at the boundary. An article has no
-  // "further on" to protect, and its char_count is HTML length, so any
-  // percentage derived from it would be nonsense.
-  const isArticle = (book.type as string | null) === "article";
-  const readerPosition =
-    scoped || isArticle
-      ? null
-      : await resolveReaderPosition(db, userId, chat.book_id, chat.anchor_char_offset);
-
-  // The one place the reader's stated intent travels to. An article can't have
-  // a preface — there is no Contents to write one from — so this is a book-only
-  // lookup, and null for the vast majority of books.
-  // Both of these are round trips that sit between the reader pressing send and
-  // the first token, so they go together rather than one after the other.
-  //
-  // The profile is who they are, so a name they drop mid-conversation resolves
-  // to somebody. Scoped to the book's OWNER, not the signed-in caller — in
-  // member mode those are different people, and the wrong one here is a parent's
-  // life turning up inside a kid's chat.
-  const [readerIntent, readerProfile] = await Promise.all([
-    isArticle ? null : getBookPreface(db, userId, chat.book_id),
-    todayLocal().then((today) => gatherReaderProfile(db, userId, email, today)),
-  ]);
-
-  // Which conversation they asked for. Read once, here, and used for BOTH the
-  // register below and the model above — the two used to be derived from the
-  // resolved model instead, which is how a long book silently turned a quick
-  // question into a deep one.
-  const depth: ReaderChatDepth =
-    chat.model_preference === "deep" ? "deep" : "fast";
-
-  const system = buildReaderChatSystem({
-    bookTitle: book.title as string,
-    bookAuthor: (book.author as string | null) ?? null,
-    bookText: slice.text,
-    hasPageMarkers: slice.hasPageMarkers,
-    hasChapterMarkers: slice.hasChapterMarkers,
-    chapters: slice.chapters,
-    // An article is never "a story" or "an argument" in the sense the branch
-    // means, so it gets neither — same as a book nothing has classified yet.
-    fiction: isArticle ? null : ((book.fiction as boolean | null) ?? null),
-    spoilerFree: scoped,
-    contextThroughPage: scoped ? chat.context_through_page : null,
-    readerPosition,
-    quotedText: chat.quoted_text,
+  // Everything that decides what this turn is SENT — the book slice, the reader's
+  // position, their preface, their profile, their marks, the register — lives in
+  // one builder shared with the prompt inspector. See chat-context.ts for why
+  // that matters: a debugging view assembled by a second copy of this logic
+  // agrees with the real thing right until you need it to disagree.
+  const context = await buildReaderChatContext({
+    db,
+    userId,
+    email,
+    chat,
+    book: {
+      title: book.title as string,
+      author: (book.author as string | null) ?? null,
+      type: (book.type as string | null) ?? null,
+      fiction: (book.fiction as boolean | null) ?? null,
+    },
     hasReaderNotes,
-    readerIntent,
-    readerProfile,
-    depth,
   });
+  if (!context) return new Response("book text unavailable", { status: 409 });
+  const { system, depth } = context;
 
   const client = anthropic();
 
