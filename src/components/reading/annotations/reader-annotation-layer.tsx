@@ -35,6 +35,7 @@ import {
 import type {
   ReaderAnnotationData,
   AnnotationDetail,
+  AnnotationSummary,
   ReaderChatModelPreference,
   ReaderChatTemplate,
 } from "@/lib/reading/annotation-types";
@@ -107,6 +108,15 @@ const READING_LINE = 72;
  * is what keeps a note looking like a note.
  */
 type TouchKind = "question" | "note";
+
+/**
+ * Marks the ids of rows that exist only on this device. Everything real is a
+ * uuid, so nothing can collide with it, and anything holding one knows not to
+ * ask the server about it — see openExisting.
+ */
+const PENDING_PREFIX = "pending:";
+const newPendingId = () => `${PENDING_PREFIX}${crypto.randomUUID()}`;
+const isPendingId = (id: string) => id.startsWith(PENDING_PREFIX);
 
 type PendingCreate = {
   /** Also the optimistic row's id, until the real one arrives. */
@@ -251,6 +261,20 @@ export function ReaderAnnotationLayer({
   const [threadMode, setThreadMode] = useState<ComposeMode>("chat");
   /** The row the panel is showing, while it exists only on this device. */
   const pendingRef = useRef<PendingCreate | null>(null);
+  /**
+   * Passages highlighted here that the loaded list hasn't caught up with yet.
+   *
+   * A plain highlight opens nothing, so unlike a chat draft it has no panel to
+   * carry its optimistic state — and without this the yellow only appeared once
+   * the insert AND the refetch behind it had both returned, which is a visible
+   * second between the tap and the mark.
+   *
+   * Keyed separately from the row's id because the row's id changes underneath
+   * it: it starts as a stand-in and becomes the real one when the insert lands.
+   */
+  const [pendingHighlights, setPendingHighlights] = useState<
+    { key: string; row: AnnotationSummary }[]
+  >([]);
 
   // Articles never touch the conversion char space: their HTML was never run
   // through convert.ts, so the block stream would be describing a stream that
@@ -267,7 +291,22 @@ export function ReaderAnnotationLayer({
   );
   // Memoized, not `data?.chats ?? []`: a fresh array literal every render would
   // re-run the placement effect, which sets state, which renders again — a loop.
-  const loaded = useMemo(() => data?.chats ?? [], [data]);
+  const fetched = useMemo(() => data?.chats ?? [], [data]);
+
+  /**
+   * The server's list plus anything highlighted here that hasn't come back in
+   * it yet. Everything downstream — the marks in the text, the gutter, the
+   * index, what a tap lands on — reads this, so a fresh highlight behaves like
+   * a real one in all of them from the first frame.
+   */
+  const loaded = useMemo(() => {
+    if (pendingHighlights.length === 0) return fetched;
+    const known = new Set(fetched.map((c) => c.id));
+    const extra = pendingHighlights
+      .filter((h) => !known.has(h.row.id))
+      .map((h) => h.row);
+    return extra.length === 0 ? fetched : [...fetched, ...extra];
+  }, [fetched, pendingHighlights]);
 
   /**
    * The loaded list with the OPEN annotation's live state laid over it.
@@ -420,11 +459,15 @@ export function ReaderAnnotationLayer({
     };
   }, [bookId, memberEmail]);
 
-  const refreshList = useCallback(() => {
-    void getAnnotationData(bookId, memberEmail)
-      .then(setData)
-      .catch(() => {});
-  }, [bookId, memberEmail]);
+  // Returns when the list has been re-read, so a caller holding an optimistic
+  // copy of something knows when it's safe to let go of it. Never rejects.
+  const refreshList = useCallback(
+    () =>
+      getAnnotationData(bookId, memberEmail)
+        .then(setData)
+        .catch(() => {}),
+    [bookId, memberEmail]
+  );
 
   /**
    * Which page a character offset falls on, from the marks the book shipped
@@ -567,6 +610,53 @@ export function ReaderAnnotationLayer({
   );
 
   /**
+   * Everything createAnnotation would have told us about a row, predicted from
+   * what the client already holds — which is what lets a mark appear, and a
+   * panel open with the right header on it, before the server has been asked.
+   *
+   * The two exemptions the server applies to a chapter summary are mirrored
+   * here rather than waited for, so the panel doesn't visibly correct itself a
+   * moment later.
+   */
+  const optimisticRow = useCallback(
+    (
+      resolved: ResolvedAnchor,
+      clientId: string,
+      chapterAnchorId: string | null
+    ): AnnotationSummary => {
+      const isSummary = chapterAnchorId != null;
+      const anchorPage = pageForCharOffset(resolved.anchorCharOffset);
+      const spoilerFree = !isArticle && !isSummary && data?.spoilerFree === true;
+      return {
+        id: clientId,
+        anchor: resolved.anchor,
+        anchorCharOffset: resolved.anchorCharOffset,
+        anchorPage,
+        spoilerFree,
+        contextThroughPage: spoilerFree ? anchorPage : null,
+        quotedText: resolved.quotedText,
+        chapterAnchorId,
+        // Never a book document: those are reached from the Contents and read
+        // on their own page, never as a mark in the margin.
+        bookScope: null,
+        latestNote: null,
+        noteCount: 0,
+        // The column's default, and its only permitted value today.
+        color: "yellow",
+        modelPreference: isSummary ? "deep" : "fast",
+        // Never at creation: a template is something the reader picks from
+        // inside the blank thread, which converts this row afterwards.
+        template: null,
+        messageCount: 0,
+        lastMessageAt: null,
+        firstQuestion: null,
+        createdAt: new Date().toISOString(),
+      };
+    },
+    [data, isArticle, pageForCharOffset]
+  );
+
+  /**
    * Open the panel now; create the row alongside it.
    *
    * Shared by the selection toolbar and the between-paragraphs target, which
@@ -583,39 +673,9 @@ export function ReaderAnnotationLayer({
     ) => {
       setThreadMode(composeMode);
       const stopOpen = startTimer("annotate: click → panel");
-      const clientId = `pending:${crypto.randomUUID()}`;
-      const anchorPage = pageForCharOffset(resolved.anchorCharOffset);
-      // Everything createAnnotation would have told us, predicted from what the
-      // client already holds. The header reads from these, so getting them right
-      // is what stops the panel visibly correcting itself a moment later — which
-      // is why the two exemptions the server applies to a summary are mirrored
-      // here rather than waited for.
-      const isSummary = chapterAnchorId != null;
-      const spoilerFree = !isArticle && !isSummary && data?.spoilerFree === true;
+      const clientId = newPendingId();
       const optimistic: AnnotationDetail = {
-        id: clientId,
-        anchor: resolved.anchor,
-        anchorCharOffset: resolved.anchorCharOffset,
-        anchorPage,
-        spoilerFree,
-        contextThroughPage: spoilerFree ? anchorPage : null,
-        quotedText: resolved.quotedText,
-        chapterAnchorId,
-        // Never a book document: those are reached from the Contents and
-        // read on their own page, never as a mark in the margin.
-        bookScope: null,
-        latestNote: null,
-        noteCount: 0,
-        // The column's default, and its only permitted value today.
-        color: "yellow",
-        modelPreference: isSummary ? "deep" : "fast",
-        // Never at creation: a template is something the reader picks from
-        // inside the blank thread, which converts this row afterwards.
-        template: null,
-        messageCount: 0,
-        lastMessageAt: null,
-        firstQuestion: null,
-        createdAt: new Date().toISOString(),
+        ...optimisticRow(resolved, clientId, chapterAnchorId),
         messages: [],
       };
 
@@ -686,7 +746,7 @@ export function ReaderAnnotationLayer({
           .catch(() => {});
       });
     },
-    [bookId, data, isArticle, memberEmail, openPanelWith, pageForCharOffset, refreshList]
+    [bookId, memberEmail, openPanelWith, optimisticRow, refreshList]
   );
 
   /**
@@ -812,13 +872,22 @@ export function ReaderAnnotationLayer({
         return;
       }
 
-      // Highlighting is a one-gesture action: mark it and keep reading. Nothing
-      // opens, so there is nothing to be optimistic about — but it still holds
-      // `busy` so the toolbar can't fire it twice.
-      setBusy(true);
+      // Highlighting is a one-gesture action: mark it and keep reading. So the
+      // yellow is painted from a stand-in row on the tap, and the insert happens
+      // behind it — waiting for the insert and the refetch that follows it is a
+      // second of nothing, on the one action that should feel like a pen.
+      //
+      // Nothing here holds `busy`, unlike every other path: the reader is not
+      // waiting on anything, so marking three passages in a row must not be
+      // rationed to one at a time.
+      const key = newPendingId();
+      setPendingHighlights((p) => [
+        ...p,
+        { key, row: optimisticRow(resolved, key, null) },
+      ]);
       const stopCreate = startTimer("annotate: server create");
       try {
-        await createAnnotation({
+        const saved = await createAnnotation({
           bookId,
           anchor: resolved.anchor,
           anchorCharOffset: resolved.anchorCharOffset,
@@ -826,21 +895,45 @@ export function ReaderAnnotationLayer({
           memberEmail,
         });
         stopCreate(intent);
-        refreshList();
+        // Take on the real id, so a tap on the passage in the gap before the
+        // refetch opens the row that now exists rather than doing nothing.
+        setPendingHighlights((p) =>
+          p.map((h) => (h.key === key ? { ...h, row: { ...h.row, id: saved.id } } : h))
+        );
+        await refreshList();
       } catch (err) {
         // `void annotateSelection(...)` means a throw here becomes an unhandled
         // rejection nobody sees, and the reader just watches their selection
-        // vanish. Surface it.
+        // vanish. Surface it. The mark goes with it — below — because it stood
+        // for a row that was never written.
         console.error("[reader] couldn't save that annotation", err);
       } finally {
-        setBusy(false);
+        // Retired once the list has been read again, rather than once the row
+        // is spotted in it. Those differ if the highlight was deleted in the
+        // meantime, and only this one declines to repaint it from its ghost.
+        setPendingHighlights((p) => p.filter((h) => h.key !== key));
       }
     },
-    [bookId, busy, contentRef, isCreating, memberEmail, openDraft, refreshList, space]
+    [
+      bookId,
+      busy,
+      contentRef,
+      isCreating,
+      memberEmail,
+      openDraft,
+      optimisticRow,
+      refreshList,
+      space,
+    ]
   );
 
   const openExisting = useCallback(
     async (chatId: string) => {
+      // A highlight made a moment ago whose insert hasn't landed. There is
+      // nothing to fetch, and asking would be a round trip that can only fail —
+      // its id isn't a uuid. The tap does nothing for the short while that's
+      // true, and works from the moment the row exists.
+      if (isPendingId(chatId)) return;
       const chat = await getAnnotation(chatId, memberEmail);
       if (!chat) return;
       setThreadMode("chat");
