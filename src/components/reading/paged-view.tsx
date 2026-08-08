@@ -2,7 +2,12 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { PAGE_PAD_TOP, type PageGeometry } from "@/lib/reading/paged-geometry";
+import {
+  PAGE_PAD_TOP,
+  pageWidth,
+  type PageGeometry,
+  type Pages,
+} from "@/lib/reading/paged-geometry";
 import type { ReaderSettings } from "@/lib/reading/reader-settings";
 import { cn } from "@/lib/utils";
 import { BOOK_PROSE, BOOK_PROSE_PAGED, typographyStyle } from "./reader-prose";
@@ -50,6 +55,8 @@ export function PagedView({
   onViewportRef,
   flowRef,
   geometry,
+  pages,
+  pageIndex,
   settings,
   isFirstPage,
   isLastPage,
@@ -65,6 +72,9 @@ export function PagedView({
   onViewportRef: (el: HTMLDivElement | null) => void;
   flowRef: React.RefObject<HTMLDivElement | null>;
   geometry: PageGeometry | null;
+  /** Where the pages fall on the strip — see Pages. */
+  pages: Pages;
+  pageIndex: number;
   settings: ReaderSettings;
   isFirstPage: boolean;
   isLastPage: boolean;
@@ -223,7 +233,7 @@ export function PagedView({
   return (
     <div
       ref={onViewportRef}
-      className="group fixed inset-0 overflow-hidden"
+      className="fixed inset-0 overflow-hidden"
       // Vertical panning is meaningless here; letting the browser own horizontal
       // gestures is what keeps iOS's back-swipe working where we don't fight it.
       style={{ touchAction: "pan-y" }}
@@ -233,12 +243,19 @@ export function PagedView({
           ref={clipRef}
           className="absolute overflow-hidden"
           // The window onto the strip. This is the element that knows how many
-          // columns a page shows: it's `cols` columns wide, and everything past
-          // its right edge is the rest of the book, clipped.
+          // columns a page shows: it's as many columns wide as this page has, and
+          // everything past its right edge is the rest of the book, clipped.
+          //
+          // Usually that's `cols` columns. On the page where a chapter ends it's
+          // one, because the next chapter's opening column is sitting immediately
+          // to the right and the whole point is that you turn the page to reach
+          // it — see Pages. Narrowing the clip is what leaves the outer half of
+          // the spread white; the text itself hasn't moved, and no chapter has
+          // been re-fragmented to arrange it.
           style={{
             left: geometry.offsetX,
             top: PAGE_PAD_TOP,
-            width: geometry.viewW,
+            width: pageWidth(pageIndex, pages, geometry),
             height: geometry.pageH,
           }}
         >
@@ -278,6 +295,13 @@ export function PagedView({
           rather than under them. Pointer devices only: a touch device has no
           hover and would latch the arrows on after a tap.
 
+          The margin is also what reveals them, which is why each one is wrapped
+          in a band the width of its margin: an arrow that appeared whenever the
+          cursor was anywhere in the book put two controls on screen for the whole
+          time you were reading, which is two more than a page of a book should
+          have. Now they answer the cursor arriving in the margin — the place they
+          are, and the only place they can be clicked.
+
           Not at all in e-ink mode: there is no margin left to put them in, and
           nothing to point with. Tapping the page is the whole interface, which
           is what a Kindle does and what these arrows were always standing in
@@ -315,14 +339,22 @@ export function PagedView({
 const ARROW_SIZE = 48;
 
 /**
- * One margin's page-turn arrow: what you see is exactly what you can click.
+ * One margin's page-turn arrow: what you see is exactly what you can click, and
+ * you only see it while the cursor is in that margin.
  *
- * It used to be the whole margin, on the theory that a bigger target is a kinder
- * one. On a desktop it isn't — the margin is where the cursor sits while reading,
- * so every idle click in the white space turned a page, and the margin is also
- * where the chat markers and the "start a chat here" target live. A tap anywhere
- * still turns the page on touch, where there is no resting cursor and no hover to
- * reveal an arrow with; that rule is in the pointer handler above, not here.
+ * The hit area used to be the whole margin, on the theory that a bigger target is
+ * a kinder one. On a desktop it isn't — the margin is where the cursor sits while
+ * reading, so every idle click in the white space turned a page, and the margin is
+ * also where the chat markers and the "start a chat here" target live.
+ *
+ * The band around it is the hover region, and it is the whole margin: the arrow
+ * is a 48px target that shouldn't have to be found before it can be aimed at, so
+ * the cursor entering the margin at any height brings it up. Anywhere in the text
+ * does not, which is the point — reading a book should not keep two controls lit.
+ *
+ * A tap anywhere still turns the page on touch, where there is no resting cursor
+ * and no hover to reveal an arrow with; that rule is in the pointer handler
+ * above, not here. The band is invisible and does nothing there.
  */
 function PageTurnZone({
   side,
@@ -347,32 +379,40 @@ function PageTurnZone({
   // the first word of every line.
   const size = Math.max(0, Math.min(ARROW_SIZE, width));
   return (
-    <button
-      type="button"
-      onPointerDown={() => {
-        const selection = window.getSelection();
-        dismissedSelection.current = !!selection && !selection.isCollapsed;
-      }}
-      onClick={() => {
-        const dismissed = dismissedSelection.current;
-        dismissedSelection.current = false;
-        if (!dismissed) onClick();
-      }}
-      disabled={disabled}
-      aria-label={side === "left" ? "Previous page" : "Next page"}
-      style={{ left: x + Math.round((width - size) / 2), width: size, height: size }}
-      className={cn(
-        "absolute top-1/2 hidden -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-opacity duration-150",
-        "[@media(hover:hover)]:flex",
-        "disabled:pointer-events-none",
-        // Dim once the mouse is anywhere in the book, solid once it's on the
-        // arrow — so it says both "pages turn here" and "this click turns one".
-        disabled
-          ? "opacity-0"
-          : "opacity-0 group-hover:opacity-60 hover:bg-muted hover:opacity-100"
-      )}
+    <div
+      className="group/margin absolute inset-y-0"
+      style={{ left: x, width }}
+      // The band is a hover region, not a target. Presses in it still reach the
+      // reading area's own pointer handler by bubbling, which is what keeps a tap
+      // in the margin turning the page on a touch screen.
     >
-      <Icon className="h-6 w-6" />
-    </button>
+      <button
+        type="button"
+        onPointerDown={() => {
+          const selection = window.getSelection();
+          dismissedSelection.current = !!selection && !selection.isCollapsed;
+        }}
+        onClick={() => {
+          const dismissed = dismissedSelection.current;
+          dismissedSelection.current = false;
+          if (!dismissed) onClick();
+        }}
+        disabled={disabled}
+        aria-label={side === "left" ? "Previous page" : "Next page"}
+        style={{ left: Math.round((width - size) / 2), width: size, height: size }}
+        className={cn(
+          "absolute top-1/2 hidden -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-opacity duration-150",
+          "[@media(hover:hover)]:flex",
+          "disabled:pointer-events-none",
+          // Dim once the mouse is in this margin, solid once it's on the arrow —
+          // so it says both "pages turn here" and "this click turns one".
+          disabled
+            ? "opacity-0"
+            : "opacity-0 group-hover/margin:opacity-60 hover:bg-muted hover:opacity-100"
+        )}
+      >
+        <Icon className="h-6 w-6" />
+      </button>
+    </div>
   );
 }

@@ -17,7 +17,13 @@
 
 import {
   CHAT_PANEL_WIDTH,
+  buildPages,
+  colsOnPage,
   computeGeometry,
+  firstColOfPage,
+  pageCount,
+  pageForCol,
+  pageWidth,
   sameFragmentation,
   sameGeometry,
   sidePanelFits,
@@ -101,12 +107,11 @@ for (const device of DEVICES) {
     for (const panel of ["closed", "floating", "docked"] as const) {
       const settings = settingsFor(margins, "auto");
       const g = computeGeometry(device.w, device.h, settings, panel);
-      const integral = [g.colW, g.gap, g.pageH, g.viewW, g.colStride, g.pageStride, g.offsetX];
+      const integral = [g.colW, g.gap, g.pageH, g.viewW, g.colStride, g.offsetX];
       check(
         `${device.name} / ${margins} / panel ${panel}`,
         integral.every(Number.isInteger) &&
           g.colStride === g.colW + g.gap &&
-          g.pageStride === g.cols * g.colStride &&
           g.viewW === g.cols * g.colW + (g.cols - 1) * g.gap &&
           g.offsetX >= 0,
         label(g)
@@ -146,7 +151,7 @@ for (const device of DEVICES) {
         `${device.name} / ${margins} / cols ${columns}`,
         sameGeometry(closed, floating) &&
           closed.pageH === floating.pageH &&
-          closed.pageStride === floating.pageStride,
+          closed.colStride === floating.colStride,
         `${label(closed)} → ${label(floating)}`
       );
     }
@@ -289,6 +294,119 @@ for (const device of DEVICES) {
     `${device.name}: ${g.pageH}px of text in ${device.h}px`,
     g.pageH >= 120 && g.pageH >= device.h * 0.5,
     label(g)
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * A chapter opens a page, never the middle of one.
+ * ------------------------------------------------------------------ */
+
+const SPREAD = computeGeometry(1512, 982, settingsFor("normal", "auto"), "closed");
+const SINGLE = computeGeometry(390, 844, settingsFor("normal", "auto"), "closed");
+
+console.log("\na chapter always opens a page");
+{
+  // The reported case: a chapter opening in the right-hand column of a spread.
+  // What should happen is the left column keeps the end of the old chapter, the
+  // right goes white, and the chapter opens the page after.
+  const pages = buildPages(10, [7], SPREAD);
+  check(
+    "an odd chapter opening cuts the page before it short",
+    pages.starts.join(",") === "0,2,4,6,7,9",
+    pages.starts.join(",")
+  );
+  check("the page that ends the chapter shows one column", colsOnPage(3, pages) === 1);
+  check("the chapter's own page shows two", colsOnPage(4, pages) === 2);
+  check(
+    "the clip narrows to exactly one column",
+    pageWidth(3, pages, SPREAD) === SPREAD.colW &&
+      pageWidth(4, pages, SPREAD) === SPREAD.viewW,
+    `${pageWidth(3, pages, SPREAD)}px then ${pageWidth(4, pages, SPREAD)}px`
+  );
+
+  // The consequence that makes arithmetic impossible: after one odd opening,
+  // every spread for the rest of the window is the other pairing.
+  check(
+    "the pairing parity stays flipped after it",
+    pages.starts.slice(4).join(",") === "7,9",
+    pages.starts.join(",")
+  );
+
+  // Two chapters back to back — a part title, then chapter one under it — each
+  // get their own page. Print does the same, and for the same reason.
+  const backToBack = buildPages(10, [3, 4], SPREAD);
+  check(
+    "two chapters in a row take two pages",
+    backToBack.starts.join(",") === "0,2,3,4,6,8",
+    backToBack.starts.join(",")
+  );
+
+  // An opening that already begins a page costs nothing at all.
+  const aligned = buildPages(10, [4, 8], SPREAD);
+  check(
+    "a chapter already opening a spread changes nothing",
+    aligned.starts.join(",") === "0,2,4,6,8",
+    aligned.starts.join(",")
+  );
+}
+
+console.log("\nthe rule holds whatever the chapters do");
+// Exhaustive rather than sampled: the failure mode is a reader deep in a book
+// seeing a heading halfway down a page, and it depends on where every earlier
+// chapter fell.
+for (const columns of [1, 2, 3, 7, 12, 40]) {
+  for (const g of [SPREAD, SINGLE]) {
+    // Every subset of opening columns, up to a size worth enumerating.
+    const cases: number[][] = [[], [1], [columns - 1], [1, 2], [1, 2, 3], [2, 5, 6, 9]];
+    for (const opens of cases) {
+      const wanted = opens.filter((c) => c > 0 && c < columns);
+      const pages = buildPages(columns, opens, g);
+      const label = `${g.cols}col / ${columns} columns / opens ${opens.join("+") || "none"}`;
+
+      check(
+        `${label}: every chapter opens its page`,
+        wanted.every((col) => firstColOfPage(pageForCol(col, pages), pages) === col),
+        pages.starts.join(",")
+      );
+      check(
+        `${label}: pages run forward and cover the strip`,
+        pages.starts[0] === 0 &&
+          pages.starts.every((s, i) => i === 0 || s > pages.starts[i - 1]) &&
+          pages.starts[pages.starts.length - 1] < columns,
+        pages.starts.join(",")
+      );
+      check(
+        `${label}: every column is shown exactly once`,
+        Array.from({ length: columns }, (_, col) => col).every((col) => {
+          const page = pageForCol(col, pages);
+          const offset = col - firstColOfPage(page, pages);
+          return offset >= 0 && offset < colsOnPage(page, pages);
+        }),
+        pages.starts.join(",")
+      );
+      check(
+        `${label}: no page shows more than it has room for`,
+        pages.starts.every((_, page) => colsOnPage(page, pages) <= g.cols) &&
+          pageCount(pages) >= Math.ceil(columns / g.cols),
+        `${pageCount(pages)} pages of ${g.cols}`
+      );
+    }
+  }
+}
+
+console.log("\none column is the arithmetic it replaced");
+// The e-reader and the phone, where a chapter already starts a page by construction
+// and the page map must cost nothing and change nothing.
+for (const opens of [[], [1], [1, 2, 3], [5, 9]]) {
+  const pages = buildPages(12, opens, SINGLE);
+  check(
+    `one column / opens ${opens.join("+") || "none"}: pages are 0,1,2,…`,
+    pages.starts.every((s, i) => s === i) && pageCount(pages) === 12,
+    pages.starts.join(",")
+  );
+  check(
+    `one column / opens ${opens.join("+") || "none"}: every page is full width`,
+    pages.starts.every((_, page) => pageWidth(page, pages, SINGLE) === SINGLE.viewW)
   );
 }
 
