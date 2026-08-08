@@ -2,7 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { ChevronRight } from "lucide-react";
+import { AppHeaderContent } from "@/components/layout/app-header";
 import { ArticleCard } from "@/components/reading/article-card";
+import { QueueList } from "@/components/reading/queue-list";
 import { QueueRecommendations } from "@/components/reading/queue-recommendations";
 import { ReaderBookTile } from "@/components/reading/reader-book-tile";
 import { RATING_OPTIONS } from "@/components/reading/rating-picker";
@@ -51,21 +53,30 @@ function emptyMessage(tab: ReadingBookStatus): string {
 
 /**
  * The Reader shelf: your books as cover art, the way a Kindle opens. The status
- * tabs still sort the shelf — Reading, Queue, what you're done with — but each
- * one is now a grid of covers you click straight into, with paused books tucked
- * away at the bottom and saved articles listed after the grid, since they have
- * no cover to show.
+ * tabs still sort the shelf — Reading, Queue, what you're done with — with paused
+ * books tucked away at the bottom and saved articles listed after the grid, since
+ * they have no cover to show.
+ *
+ * The Queue is the exception, and deliberately so: it's the only tab you visit to
+ * make a decision rather than to find something you already know, so it's a ranked
+ * list carrying each book's reason for being there. Covers are for recognising a
+ * book; rows are for comparing them.
  */
 export function ReaderShelf({
   books,
   recommendations,
   recsHasSignal,
   recsGenres,
+  actions,
 }: {
   books: ReadingBookWithProgress[];
   recommendations: ReadingRecommendation[];
   recsHasSignal: boolean;
   recsGenres: string[];
+  /** Reader settings, the overflow menu, Add a book — handed down from the page
+   * so the header slot has a single publisher. The slot holds one node, so the
+   * shelf (which owns which tab is showing) has to carry these up with it. */
+  actions?: React.ReactNode;
 }) {
   const [pausedOpen, setPausedOpen] = useState(false);
 
@@ -95,18 +106,59 @@ export function ReaderShelf({
     (b) => b.status === "paused" && (b.type ?? "book") === "book"
   );
 
+  /* Which shelf you're on belongs in the chrome, next to the app's name — the
+     same place Practice keeps its sections. Below sm the header has no room, so
+     the tabs stay in the page as the pill row they've always been; they're a
+     segmented control rather than navigation, and folding them into the hamburger
+     would mean tapping one and watching the sheet stay open over the shelf you
+     just switched to.
+
+     Published even when the shelf is empty: an empty shelf is exactly when you
+     need Add a book, and it lives up here now. */
+  const header = (
+    <AppHeaderContent>
+      <nav className="hidden h-14 items-center gap-6 pl-4 sm:flex">
+        {tabs.map((t) => (
+          <button
+            key={t.value}
+            type="button"
+            onClick={() => setActive(t.value)}
+            aria-current={activeTab === t.value ? "page" : undefined}
+            className={cn(
+              "relative flex h-14 items-center gap-1.5 text-sm font-medium transition-colors hover:text-foreground",
+              activeTab === t.value
+                ? "text-foreground after:absolute after:inset-x-0 after:bottom-[-1px] after:h-[2px] after:bg-primary"
+                : "text-muted-foreground"
+            )}
+          >
+            {t.label}
+            <span className="tabular-nums text-xs opacity-60">{t.count}</span>
+          </button>
+        ))}
+      </nav>
+      {actions && (
+        <div className="ml-auto flex items-center gap-2">{actions}</div>
+      )}
+    </AppHeaderContent>
+  );
+
   if (books.length === 0) {
     return (
-      <p className="mt-8 rounded-lg border border-dashed border-border px-6 py-12 text-center text-sm text-muted-foreground">
-        No books yet. Add the one you&apos;re reading — or a few for your queue —
-        to start tracking.
-      </p>
+      <>
+        {header}
+        <p className="mt-8 rounded-lg border border-dashed border-border px-6 py-12 text-center text-sm text-muted-foreground">
+          No books yet. Add the one you&apos;re reading — or a few for your queue
+          — to start tracking.
+        </p>
+      </>
     );
   }
 
   return (
-    <div className="mt-5">
-      <div className="flex flex-wrap gap-1.5 border-b border-border pb-3">
+    <div className="mt-5 sm:mt-0">
+      {header}
+
+      <div className="flex flex-wrap gap-1.5 border-b border-border pb-3 sm:hidden">
         {tabs.map((t) => (
           <button
             key={t.value}
@@ -139,6 +191,12 @@ export function ReaderShelf({
             {emptyMessage(activeTab)}
           </p>
         )
+      ) : activeTab === "queued" ? (
+        /* The Queue is where you decide what's next, so it's a ranked list you
+           drag rather than a grid of covers: each row argues for its book, and
+           articles take their place in the same order instead of being exiled
+           below the grid for want of cover art. */
+        <QueueList books={visible} />
       ) : (
         <>
           {visibleBooks.length > 0 &&

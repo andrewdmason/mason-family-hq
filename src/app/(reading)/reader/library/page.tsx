@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Settings } from "lucide-react";
 import { AddBookDialog } from "@/components/reading/add-book-dialog";
-import { AppHeaderContent } from "@/components/layout/app-header";
 import { ReaderShelf } from "@/components/reading/reader-shelf";
 import {
   ReaderOverflowMenu,
@@ -42,33 +41,34 @@ export default async function ReaderLibraryPage() {
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
       {/* Reader settings + Add-a-book live in the global toolbar (right of the
-          app switcher, left of the bell) rather than a page heading row. */}
-      <AppHeaderContent>
-        <div className="ml-auto flex items-center gap-2">
-          <Link
-            href="/reader/settings"
-            aria-label="Reader settings"
-            className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <Settings className="h-4 w-4" />
-          </Link>
-          <ReaderOverflowMenu
-            books={copyableArchive(home)}
-            title="Books I've read"
-          />
-          <AddBookDialog
-            triggerVariant="default"
-            memberEmail={null}
-            recipients={recipients}
-          />
-        </div>
-      </AppHeaderContent>
-
+          app switcher, left of the bell) rather than a page heading row. The
+          shelf publishes them, because the shelf tabs sit in the same strip and
+          the header takes one node per app. */}
       <ReaderShelf
         books={home.books}
         recommendations={discover.recommendations}
         recsHasSignal={discover.hasSignal}
         recsGenres={discover.genres}
+        actions={
+          <>
+            <Link
+              href="/reader/settings"
+              aria-label="Reader settings"
+              className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Settings className="h-4 w-4" />
+            </Link>
+            <ReaderOverflowMenu
+              books={copyableArchive(home)}
+              title="Books I've read"
+            />
+            <AddBookDialog
+              triggerVariant="default"
+              memberEmail={null}
+              recipients={recipients}
+            />
+          </>
+        }
       />
     </main>
   );

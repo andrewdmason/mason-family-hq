@@ -1,24 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import Link from "next/link";
+import { BookOpen } from "lucide-react";
 import {
-  Archive,
-  BookOpen,
-  ExternalLink,
-  Loader2,
-  MoreHorizontal,
-  RotateCcw,
-  Trash2,
-} from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { removeBook, updateBook } from "@/app/(reading)/reader/actions";
+  ArticleActionsMenu,
+  ArticleContextMenu,
+  useArticleMenu,
+} from "@/components/reading/article-actions-menu";
 import { bookReaderHref } from "@/lib/reading/links";
 import type { ReadingBookWithProgress } from "@/lib/types";
 
@@ -84,8 +73,8 @@ export function ArticleCard({
   /** Reader only — Bookshelf has no e-reader. */
   canRead?: boolean;
 }) {
-  const [busy, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const menu = useArticleMenu({ article, memberEmail, onError: setError });
 
   const host = hostLabel(article.source_url);
   const site = article.site_name || host;
@@ -95,31 +84,11 @@ export function ArticleCard({
     ? `https://www.google.com/s2/favicons?domain=${host}&sz=64`
     : null;
 
-  function setStatus(status: "queued" | "archive") {
-    setError(null);
-    startTransition(async () => {
-      try {
-        await updateBook(article.id, { status, memberEmail });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't update.");
-      }
-    });
-  }
-
-  function handleDelete() {
-    if (!window.confirm(`Delete "${article.title}" from your reading?`)) return;
-    setError(null);
-    startTransition(async () => {
-      try {
-        await removeBook(article.id, memberEmail);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't delete.");
-      }
-    });
-  }
-
   return (
-    <div className="rounded-lg border border-border px-4 py-3">
+    <ArticleContextMenu
+      menu={menu}
+      className="rounded-lg border border-border px-4 py-3"
+    >
       <div className="flex items-start gap-3">
         {/* Outside Reader there's nowhere to open an article, so the summary
             stops being a link rather than pointing at a blocked route. */}
@@ -167,55 +136,14 @@ export function ArticleCard({
             </Link>
           )}
 
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              className="-mr-1 shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
-              aria-label={`Actions for ${article.title}`}
-              disabled={busy}
-            >
-              {busy ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <MoreHorizontal className="h-5 w-5" />
-              )}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side="bottom" className="w-48">
-              {article.source_url && (
-                <DropdownMenuItem
-                  render={
-                    <a
-                      href={article.source_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    />
-                  }
-                >
-                  <ExternalLink />
-                  Open original
-                </DropdownMenuItem>
-              )}
-              {article.status === "archive" ? (
-                <DropdownMenuItem onClick={() => setStatus("queued")}>
-                  <RotateCcw />
-                  Unarchive
-                </DropdownMenuItem>
-              ) : (
-                <DropdownMenuItem onClick={() => setStatus("archive")}>
-                  <Archive />
-                  Archive
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onClick={handleDelete}>
-                <Trash2 />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ArticleActionsMenu
+            menu={menu}
+            className="-mr-1 inline-flex shrink-0 items-center justify-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+          />
         </div>
       </div>
 
       {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
-    </div>
+    </ArticleContextMenu>
   );
 }

@@ -46,7 +46,7 @@ import type {
 } from "@/lib/types";
 
 const BOOK_COLUMNS =
-  "id, user_id, type, title, author, source_url, site_name, excerpt, word_count, total_pages, current_page, target_page, target_locked, target_due, target_chapter, status, cover_image_url, openlibrary_key, isbn, published_year, started_at, finished_at, rating, recommended_by_email, recommended_by_label, recommendation_note, created_at, updated_at";
+  "id, user_id, type, title, author, source_url, site_name, excerpt, word_count, total_pages, current_page, target_page, target_locked, target_due, target_chapter, status, cover_image_url, openlibrary_key, isbn, published_year, started_at, finished_at, rating, recommended_by_email, recommended_by_label, recommendation_note, sort_order, created_at, updated_at";
 
 function firstName(name: string | null | undefined, fallback: string): string {
   return name?.trim().split(/\s+/)[0] || fallback;
@@ -180,6 +180,10 @@ export async function getReadingHome(memberEmail?: string | null): Promise<Readi
       .from("reading_books")
       .select(BOOK_COLUMNS)
       .eq("user_id", userId)
+      // The shelf's own order: hand-sorted, with created_at only breaking ties.
+      // Backfilled positions reproduce creation order, so nothing moved when the
+      // column arrived — only what you drag, and what you add, changes it.
+      .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true }),
     email
       ? client
@@ -452,6 +456,9 @@ export async function updateBook(
     currentPage?: number | null;
     targetPage?: number | null;
     rating?: ReadingRating | null;
+    /** Why this book is in your queue. Starts as the recommender's rationale or
+     * the note a family member sent it with, and is yours to rewrite from there. */
+    recommendationNote?: string | null;
     memberEmail?: string | null;
   }
 ): Promise<void> {
@@ -487,6 +494,9 @@ export async function updateBook(
     update.rating = input.rating;
     // Re-stamp when the opinion was formed (or clear it), for recency weighting.
     update.rated_at = input.rating ? today : null;
+  }
+  if (input.recommendationNote !== undefined) {
+    update.recommendation_note = input.recommendationNote?.trim() || null;
   }
 
   let startedReading = false;
@@ -1020,6 +1030,53 @@ export async function rateBook(
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
   revalidatePath("/reader");
+}
+
+// ============================================================
+// Shelf order (fractional index; see src/lib/sort-order.ts)
+// ============================================================
+
+/**
+ * Drop a book at a new position on the shelf. One row, one number — the caller
+ * has already worked out the midpoint between its new neighbours, so no sibling
+ * moves and the optimistic list on screen stays in step.
+ *
+ * Deliberately no revalidatePath: the list is already showing the new order, and
+ * re-rendering the page under a drag that just landed is exactly the flicker
+ * we've fixed elsewhere.
+ */
+export async function setBookSortOrder(
+  bookId: string,
+  sortOrder: number,
+  memberEmail?: string | null
+): Promise<void> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+  const { error } = await client
+    .from("reading_books")
+    .update({ sort_order: sortOrder })
+    .eq("id", bookId)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+}
+
+/** Reset a shelf's positions to 1..n when midpoints run out of float precision. */
+export async function renormalizeBookOrder(
+  orderedIds: string[],
+  memberEmail?: string | null
+): Promise<void> {
+  if (orderedIds.length === 0) return;
+  const { client, userId } = await resolveReadingScope(memberEmail);
+  const results = await Promise.all(
+    orderedIds.map((id, index) =>
+      client
+        .from("reading_books")
+        .update({ sort_order: index + 1 })
+        .eq("id", id)
+        .eq("user_id", userId)
+    )
+  );
+  const failed = results.find((r) => r.error);
+  if (failed?.error) throw new Error(failed.error.message);
 }
 
 /** Stop tracking a book (and its check-ins, via ON DELETE CASCADE). */

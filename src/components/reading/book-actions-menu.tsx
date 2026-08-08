@@ -1,0 +1,341 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import {
+  Archive,
+  BookMarked,
+  BookOpen,
+  Check,
+  Loader2,
+  MoreHorizontal,
+  NotebookPen,
+  PauseCircle,
+  Pencil,
+  RotateCcw,
+  ShoppingBag,
+  Star,
+  Trash2,
+  Upload,
+} from "lucide-react";
+import { removeDownload } from "@/lib/reading/offline/content-cache";
+import { EditBookDialog } from "@/components/reading/edit-book-dialog";
+import {
+  RATING_OPTIONS,
+  ratingGlyph,
+} from "@/components/reading/rating-picker";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { rateBook, removeBook, updateBook } from "@/app/(reading)/reader/actions";
+import { startBookReflection } from "@/app/(journal)/journal/actions";
+import { bookReaderHref } from "@/lib/reading/links";
+import { amazonHref, koboHref } from "@/lib/reading/store-links";
+import { READING_STATUSES } from "@/lib/reading/status";
+import type { useBookFileActions } from "@/lib/reading/use-book-file-actions";
+import { cn } from "@/lib/utils";
+import type {
+  ReadingBookStatus,
+  ReadingBookWithProgress,
+  ReadingRating,
+} from "@/lib/types";
+
+/** Where a book can live, in shelf order, each with the icon the tabs imply. */
+const STATUS_ICONS: Record<ReadingBookStatus, typeof BookOpen> = {
+  in_progress: BookOpen,
+  queued: BookMarked,
+  archive: Archive,
+  paused: PauseCircle,
+};
+
+/**
+ * Everything you can do to a book that isn't "open it": move it around the shelf,
+ * attach its file, rate it, find it in a store, throw it away.
+ *
+ * One set of items, reachable two ways — the "…" button and a right-click on the
+ * book itself. They're the same Base UI menu parts underneath, so only the root
+ * and the trigger differ; the items are written once. Call the hook where the
+ * book lives, then render the trigger where it belongs and wrap whatever should
+ * answer a right-click.
+ */
+export function useBookMenu({
+  book,
+  memberEmail = null,
+  file,
+  onError,
+}: {
+  book: ReadingBookWithProgress;
+  memberEmail?: string | null;
+  /** The caller's own `useBookFileActions`. The cover reacts to the same state
+   * (upload badge, click behaviour), and a second hook would mean two hidden
+   * file inputs and two spinners disagreeing about whether an upload is live. */
+  file: ReturnType<typeof useBookFileActions>;
+  /** Where the caller wants failures shown — the row and the tile put them in
+   * different places, and neither wants the menu reflowing its own layout. */
+  onError: (message: string | null) => void;
+}) {
+  const router = useRouter();
+  const [editOpen, setEditOpen] = useState(false);
+  const [rating, setRating] = useState<ReadingRating | null>(book.rating);
+  const [moving, startMove] = useTransition();
+  const [deleting, startDelete] = useTransition();
+  const [reflecting, startReflect] = useTransition();
+  const [savingRating, startRate] = useTransition();
+
+  const { busy, retrying, hasFile, isReady, isFailed, openFilePicker, retryConvert } =
+    file;
+  const pending =
+    busy || deleting || moving || reflecting || retrying || savingRating;
+
+  /** Tap the rating you already gave to clear it, mirroring the rating picker. */
+  function handleRate(next: ReadingRating) {
+    const resolved = rating === next ? null : next;
+    const previous = rating;
+    setRating(resolved);
+    onError(null);
+    startRate(async () => {
+      try {
+        await rateBook(book.id, resolved, memberEmail);
+      } catch {
+        setRating(previous);
+      }
+    });
+  }
+
+  function handleMove(status: ReadingBookStatus) {
+    if (status === book.status) return;
+    onError(null);
+    startMove(async () => {
+      try {
+        await updateBook(book.id, { status, memberEmail });
+      } catch (err) {
+        onError(err instanceof Error ? err.message : "Couldn't move that book.");
+      }
+    });
+  }
+
+  function handleDelete() {
+    if (!window.confirm(`Delete "${book.title}" from your books?`)) return;
+    onError(null);
+    startDelete(async () => {
+      try {
+        await removeBook(book.id, memberEmail);
+        // Only after the server agrees it's gone — a failed delete must not
+        // leave the book on the shelf but no longer readable offline.
+        await removeDownload(book.id);
+      } catch (err) {
+        onError(err instanceof Error ? err.message : "Couldn't delete the book.");
+      }
+    });
+  }
+
+  function handleReflect() {
+    onError(null);
+    startReflect(async () => {
+      try {
+        const entryId = await startBookReflection(book.id);
+        router.push(`/journal/new?entry=${entryId}`);
+      } catch (err) {
+        onError(
+          err instanceof Error ? err.message : "Couldn't start a journal entry."
+        );
+      }
+    });
+  }
+
+  const items = (
+    <>
+      {isReady && (
+        <DropdownMenuItem
+          render={<Link href={bookReaderHref(book.id, memberEmail)} />}
+        >
+          <BookOpen />
+          {book.hasResumePoint ? "Continue reading" : "Read"}
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuItem onClick={handleReflect} disabled={reflecting}>
+        <NotebookPen />
+        Reflect in journal
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+
+      {/* Where the book lives. Every shelf in one submenu, rather than the single
+          "Mark as finished" this used to be — Paused and Queue had no way in at
+          all, so setting a book aside meant editing its details. */}
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger>
+          {(() => {
+            const Icon = STATUS_ICONS[book.status];
+            return <Icon />;
+          })()}
+          Status
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="w-40">
+          {READING_STATUSES.map((option) => {
+            const Icon = STATUS_ICONS[option.value];
+            const current = option.value === book.status;
+            return (
+              <DropdownMenuItem
+                key={option.value}
+                onClick={() => handleMove(option.value)}
+                disabled={moving || current}
+              >
+                <Icon />
+                {option.label}
+                {current && <Check className="ml-auto opacity-60" />}
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+
+      {/* Your verdict on a finished book: the thing the shelf groups by, and what
+          "Copy books as markdown" pastes into a chatbot. A submenu rather than a
+          row of emoji — a tile is too narrow to hold the picker. */}
+      {book.status === "archive" && (
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <Star />
+            {rating ? `Rated ${ratingGlyph(rating)}` : "Rate it"}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            {RATING_OPTIONS.map((option) => (
+              <DropdownMenuItem
+                key={option.value}
+                onClick={() => handleRate(option.value)}
+                disabled={savingRating}
+              >
+                <span aria-hidden className="w-4 text-center">
+                  {option.emoji ?? "—"}
+                </span>
+                {option.label}
+                {rating === option.value && (
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    Clear
+                  </span>
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      )}
+
+      <DropdownMenuSeparator />
+      {isFailed && (
+        <DropdownMenuItem onClick={retryConvert} disabled={retrying}>
+          <RotateCcw />
+          Try preparing again
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuItem disabled={busy} onClick={openFilePicker}>
+        <Upload />
+        {hasFile ? "Replace book file" : "Upload book file"}
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => setEditOpen(true)}>
+        <Pencil />
+        Edit details
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        render={
+          <a href={amazonHref(book)} target="_blank" rel="noopener noreferrer" />
+        }
+      >
+        <ShoppingBag />
+        Find on Amazon
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        render={
+          <a href={koboHref(book)} target="_blank" rel="noopener noreferrer" />
+        }
+      >
+        <ShoppingBag />
+        Find on Kobo
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem variant="destructive" onClick={handleDelete}>
+        <Trash2 />
+        Delete book
+      </DropdownMenuItem>
+    </>
+  );
+
+  const dialog = (
+    <EditBookDialog
+      book={book}
+      memberEmail={memberEmail}
+      open={editOpen}
+      onOpenChange={setEditOpen}
+    />
+  );
+
+  return { items, dialog, pending, label: book.title };
+}
+
+export type BookMenu = ReturnType<typeof useBookMenu>;
+
+/** The "…" button. Same items a right-click gives, for anyone not right-clicking. */
+export function BookActionsMenu({
+  menu,
+  className,
+  align = "end",
+}: {
+  menu: BookMenu;
+  className?: string;
+  align?: "start" | "end";
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger
+        aria-label={`Actions for ${menu.label}`}
+        disabled={menu.pending}
+        className={cn(className, (open || menu.pending) && "opacity-100")}
+      >
+        {menu.pending ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <MoreHorizontal className="h-4 w-4" />
+        )}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align={align} side="bottom" className="w-48">
+        {menu.items}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * Right-click anywhere on the book. The whole tile or row is the target, not just
+ * the little button in its corner — on a shelf, the book is the thing you're
+ * pointing at.
+ */
+export function BookContextMenu({
+  menu,
+  className,
+  children,
+}: {
+  menu: BookMenu;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger className={className}>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-48">{menu.items}</ContextMenuContent>
+    </ContextMenu>
+  );
+}
