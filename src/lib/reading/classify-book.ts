@@ -29,9 +29,30 @@ export type BookClassification = {
   /** Null when genuinely unclear — a real answer, not a failure. */
   fiction: boolean | null;
   genre: ReadingGenre | null;
+  /**
+   * Year the work was first published. Asked here rather than taken from Open
+   * Library because the catalogue's `first_publish_year` is the earliest edition
+   * record it holds, which is wrong often enough to notice — it dates Klara and
+   * the Sun to 2019 and The Alchemist to 2010.
+   */
+  publishedYear: number | null;
 };
 
-const UNKNOWN: BookClassification = { fiction: null, genre: null };
+const UNKNOWN: BookClassification = {
+  fiction: null,
+  genre: null,
+  publishedYear: null,
+};
+
+/**
+ * A publication year, or null for anything that can't be one. Books predate the
+ * lower bound but not on this shelf; the upper allows for next spring's galley.
+ */
+export function plausibleYear(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const year = Math.round(value);
+  return year >= 1000 && year <= new Date().getFullYear() + 1 ? year : null;
+}
 
 /** The taxonomy rendered for the tool description, so the model picks knowingly. */
 const GENRE_GUIDE = READING_GENRES.map(
@@ -71,6 +92,16 @@ const CLASSIFY_TOOL = {
           "its subject is spiritual or historical, because the shelf groups the " +
           "two sides apart and a novel filed under a non-fiction genre lands in " +
           "the wrong half.",
+      },
+      published_year: {
+        type: "integer",
+        description:
+          "The year this work was FIRST published, in its original language — " +
+          "not a later reissue, translation, anniversary edition, or the year " +
+          "of the copy the reader owns. Give it ONLY if you are confident of " +
+          "the actual year: this is printed beside the author, where a wrong " +
+          "year is worse than no year at all. If you'd be estimating from when " +
+          "the author was active or what the book feels like, omit it.",
       },
     },
     required: ["recognized"],
@@ -115,6 +146,7 @@ export async function classifyBook(
       recognized?: unknown;
       fiction?: unknown;
       genre?: unknown;
+      published_year?: unknown;
     };
 
     // An unrecognised book gets no genre: a guess from the title's words is the
@@ -126,6 +158,7 @@ export async function classifyBook(
       // `enum` in the schema isn't a guarantee, so re-check against the taxonomy
       // — the column's CHECK constraint would otherwise reject the whole write.
       genre: isReadingGenre(input.genre) ? input.genre : null,
+      publishedYear: plausibleYear(input.published_year),
     };
   } catch (err) {
     console.error(
