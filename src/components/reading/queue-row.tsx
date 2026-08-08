@@ -20,6 +20,7 @@ import {
   useBookMenu,
 } from "@/components/reading/book-actions-menu";
 import { BookCover } from "@/components/reading/book-cover";
+import { bookByline } from "@/lib/reading/byline";
 import { readerProgressPercent } from "@/components/reading/reader-book-tile";
 import { useIsDownloaded } from "@/lib/reading/offline/use-is-downloaded";
 import { bookNotesHref, bookReaderHref } from "@/lib/reading/links";
@@ -141,6 +142,11 @@ export function QueueRow({
   const canOpen = isArticle || isReady;
   const host = hostLabel(book.source_url);
   const site = book.site_name || host;
+  // A book's byline carries its publication year; an article's is where it came
+  // from, and "published" for a web page means the day it was posted, not an era.
+  const byline = isArticle
+    ? site
+    : bookByline(book.author, book.published_year) ?? site;
 
   // An article has no cover art, so its source stands in for one: a favicon in a
   // cover-shaped box. Enough to tell you at a glance that this row is 54 minutes
@@ -295,9 +301,9 @@ export function QueueRow({
             {book.title}
           </p>
         )}
-        {(book.author || site) && (
+        {byline && (
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            {book.author || site}
+            {byline}
           </p>
         )}
 

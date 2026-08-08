@@ -1,4 +1,5 @@
 import { anthropic, JOURNAL_MODEL } from "@/lib/journal/anthropic";
+import { plausibleYear } from "@/lib/reading/classify-book";
 import {
   READING_GENRES,
   READING_GENRE_VALUES,
@@ -21,6 +22,8 @@ export type BookLookupResult = {
   /** ISBN-13 the AI resolved, used for re-fetch and links. Null if unknown. */
   isbn: string | null;
   coverImageUrl: string | null;
+  /** Year the work was first published. Null when unknown. */
+  publishedYear: number | null;
   /** Free-text genre labels, informational. Null when unknown. */
   genres: string[] | null;
   /**
@@ -72,6 +75,12 @@ const LOOKUP_TOOL = {
           "ISBN-13 (digits only, no hyphens) of a common print edition, used to " +
           "fetch the cover. Omit if you don't know it confidently.",
       },
+      published_year: {
+        type: "integer",
+        description:
+          "The year the work was FIRST published, not the year of a later " +
+          "reissue or translation. Omit if you're unsure.",
+      },
       fiction: {
         type: "boolean",
         description:
@@ -111,6 +120,7 @@ type LookupInput = {
   author?: unknown;
   total_pages?: unknown;
   isbn?: unknown;
+  published_year?: unknown;
   fiction?: unknown;
   genre?: unknown;
   genres?: unknown;
@@ -128,29 +138,48 @@ function coverUrlFromIsbn(isbn: string | null): string | null {
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
+/** What an Open Library title+author search can tell us about a book. */
+export type SearchMatch = {
+  coverImageUrl: string | null;
+  publishedYear: number | null;
+};
+
+const NO_MATCH: SearchMatch = { coverImageUrl: null, publishedYear: null };
+
 /**
- * A cover resolved by Open Library title+author search. Far more reliable than a
- * guessed ISBN: it returns a `cover_i` only for editions that actually have art.
- * We accept the first hit whose title and author plausibly match, so we don't
- * pin the wrong book's cover. Resilient — returns null on any failure.
+ * Cover art and a publication year, resolved by Open Library title+author
+ * search. For a cover this is far more reliable than a guessed ISBN: the
+ * catalogue returns a `cover_i` only for editions that actually have art. We
+ * accept the first hit whose title and author plausibly match, so we don't pin
+ * the wrong book's cover. Resilient: returns an empty match on any failure.
+ *
+ * The year is a weaker signal — `first_publish_year` is the earliest edition
+ * record, which is often a reissue or a translation — so callers use it only
+ * where nothing better is available. Still worth having: it's the one source
+ * that knows about books no model has heard of.
  */
-async function coverFromSearch(
+export async function metaFromSearch(
   title: string,
   author: string | null
-): Promise<string | null> {
+): Promise<SearchMatch> {
   try {
     const params = new URLSearchParams({
       title,
-      fields: "title,author_name,cover_i",
+      fields: "title,author_name,cover_i,first_publish_year",
       limit: "5",
     });
     if (author) params.set("author", author);
     const res = await fetch(`https://openlibrary.org/search.json?${params}`, {
       signal: AbortSignal.timeout(8000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) return NO_MATCH;
     const data = (await res.json()) as {
-      docs?: { title?: string; author_name?: string[]; cover_i?: number }[];
+      docs?: {
+        title?: string;
+        author_name?: string[];
+        cover_i?: number;
+        first_publish_year?: number;
+      }[];
     };
     const qt = norm(title);
     const surname = author ? norm(author.split(/\s+/).pop() ?? "") : "";
@@ -161,12 +190,18 @@ async function coverFromSearch(
       const authorOk =
         !surname || (d.author_name ?? []).some((a) => norm(a).includes(surname));
       if (titleOk && authorOk) {
-        return `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg`;
+        return {
+          coverImageUrl: `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg`,
+          publishedYear:
+            typeof d.first_publish_year === "number" && d.first_publish_year > 0
+              ? d.first_publish_year
+              : null,
+        };
       }
     }
-    return null;
+    return NO_MATCH;
   } catch {
-    return null;
+    return NO_MATCH;
   }
 }
 
@@ -185,6 +220,7 @@ export async function lookupBookByTitle(title: string): Promise<BookLookupResult
     totalPages: null,
     isbn: null,
     coverImageUrl: null,
+    publishedYear: null,
     genres: null,
     fiction: null,
     genre: null,
@@ -232,8 +268,15 @@ export async function lookupBookByTitle(title: string): Promise<BookLookupResult
         : null;
 
     // Prefer a search-resolved cover (reliably present); fall back to the ISBN.
-    const coverImageUrl =
-      (await coverFromSearch(resolvedTitle, author)) ?? coverUrlFromIsbn(isbn);
+    const match = await metaFromSearch(resolvedTitle, author);
+    const coverImageUrl = match.coverImageUrl ?? coverUrlFromIsbn(isbn);
+    // The year goes the other way round. Open Library's `first_publish_year` is
+    // the earliest edition record it holds, not the year the book came out, and
+    // it disagrees with the truth about half the time — it dates Klara and the
+    // Sun to 2019 and The Alchemist to 2010. The model is right far more often,
+    // so the catalogue is only the fallback for a book it doesn't know.
+    const publishedYear =
+      plausibleYear(input.published_year) ?? match.publishedYear;
 
     const fiction = typeof input.fiction === "boolean" ? input.fiction : null;
     const genres = Array.isArray(input.genres)
@@ -250,6 +293,7 @@ export async function lookupBookByTitle(title: string): Promise<BookLookupResult
       totalPages,
       isbn: storedIsbn,
       coverImageUrl,
+      publishedYear,
       genres: genres && genres.length > 0 ? genres : null,
       fiction,
       // The schema's `enum` isn't a guarantee; the column has a CHECK constraint,
