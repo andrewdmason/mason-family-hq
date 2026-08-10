@@ -5,9 +5,9 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ChevronRight, Settings } from "lucide-react";
 import { AppHeaderContent } from "@/components/layout/app-header";
-import { ArticleCard } from "@/components/reading/article-card";
 import { QueueList } from "@/components/reading/queue-list";
 import { QueueRecommendations } from "@/components/reading/queue-recommendations";
+import { ReaderArticleTile } from "@/components/reading/reader-article-tile";
 import { ReaderBookTile } from "@/components/reading/reader-book-tile";
 import { ReaderOverflowMenu } from "@/components/reading/reader-overflow-menu";
 import { RATING_OPTIONS } from "@/components/reading/rating-picker";
@@ -62,8 +62,10 @@ function emptyMessage(tab: ReadingBookStatus): string {
 /**
  * The Reader shelf: your books as cover art, the way a Kindle opens. The status
  * tabs still sort the shelf — Reading, Queue, what you're done with — with paused
- * books tucked away at the bottom and saved articles listed after the grid, since
- * they have no cover to show.
+ * books tucked away at the bottom. Saved articles stand on the same shelf in the
+ * same grid, wearing a jacket built from their lead image; only a shelf you've
+ * asked to group by verdict or genre sends them to a section of their own, since
+ * those are things an article hasn't got.
  *
  * The Queue is the exception, and deliberately so: it's the only tab you visit to
  * make a decision rather than to find something you already know, so it's a ranked
@@ -165,13 +167,19 @@ export function ReaderShelf({
   const visibleBooks = filterBooks(tabBooks, view);
   const groups = groupBooks(visibleBooks, view.groupBy, groupHeading);
 
-  // Articles have no cover, no genre and no rating, so outside the Queue they sit
-  // apart from the grouping — the text search is the only display option that
-  // reaches them, since that's the one you'd use to find a saved page again.
+  // Articles have no genre and no rating, so outside the Queue they sit apart
+  // from the grouping — the text search is the only display option that reaches
+  // them, since that's the one you'd use to find a saved page again.
   const visibleArticles = filterBooks(
     inTab.filter((b) => b.type === "article"),
     { ...defaultView(activeTab), query: view.query }
   );
+
+  // Nothing to group by means nothing to keep articles out of: books and
+  // articles go into one grid, in the order the shelf itself is in.
+  const ungrouped = groups.length === 1 && !groups[0].heading;
+  const shown = new Set([...visibleBooks, ...visibleArticles].map((b) => b.id));
+  const shelfTiles = inTab.filter((b) => shown.has(b.id));
 
   // The Queue keeps books and articles in one hand-ranked list, so it filters as
   // one. A genre or rating filter drops articles, which is honest — they have
@@ -323,29 +331,40 @@ export function ReaderShelf({
           <QueueList books={visibleQueue} />
         ) : (
           <>
-            {visibleBooks.length > 0 &&
-              (groups.length === 1 && !groups[0].heading ? (
-                <BookGrid books={groups[0].books} className="mt-5" />
-              ) : (
-                <div className="mt-5 flex flex-col gap-8">
-                  {groups.map((group) => (
-                    <section key={group.key}>
-                      <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
-                        <span>{group.heading}</span>
-                        <span className="tabular-nums text-xs text-muted-foreground">
-                          {group.books.length}
-                        </span>
-                      </h2>
-                      <BookGrid books={group.books} />
-                    </section>
-                  ))}
-                </div>
-              ))}
-            {visibleArticles.length > 0 && (
-              <div className="mt-5 space-y-3">
-                {visibleArticles.map((article) => (
-                  <ArticleCard key={article.id} article={article} canRead />
+            {ungrouped ? (
+              /* One shelf. An article's jacket is the same size and shape as a
+                 cover, so it takes the next slot in the grid rather than opening
+                 a second section below — which is what an article you saved and
+                 mean to read actually is: the next thing on the shelf. Order is
+                 the shelf's own, not books-then-articles. */
+              <BookGrid books={shelfTiles} className="mt-5" />
+            ) : (
+              <div className="mt-5 flex flex-col gap-8">
+                {groups.map((group) => (
+                  <section key={group.key}>
+                    <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
+                      <span>{group.heading}</span>
+                      <span className="tabular-nums text-xs text-muted-foreground">
+                        {group.books.length}
+                      </span>
+                    </h2>
+                    <BookGrid books={group.books} />
+                  </section>
                 ))}
+                {/* Grouped shelves sort by things an article doesn't have — a
+                    verdict, a genre, an author — so it gets a heading of its own
+                    rather than a silent seat in the Unrated pile. */}
+                {visibleArticles.length > 0 && (
+                  <section>
+                    <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
+                      <span>Articles</span>
+                      <span className="tabular-nums text-xs text-muted-foreground">
+                        {visibleArticles.length}
+                      </span>
+                    </h2>
+                    <BookGrid books={visibleArticles} />
+                  </section>
+                )}
               </div>
             )}
           </>
@@ -381,7 +400,9 @@ export function ReaderShelf({
   );
 }
 
-/** The cover grid itself — same density wherever books are shown. */
+/** The cover grid itself — same density wherever books are shown. Articles wear
+ * a jacket built from their lead image, so they sit in the same grid at the same
+ * size rather than in a list of their own. */
 function BookGrid({
   books,
   className,
@@ -396,9 +417,13 @@ function BookGrid({
         className
       )}
     >
-      {books.map((book) => (
-        <ReaderBookTile key={book.id} book={book} />
-      ))}
+      {books.map((book) =>
+        book.type === "article" ? (
+          <ReaderArticleTile key={book.id} article={book} />
+        ) : (
+          <ReaderBookTile key={book.id} book={book} />
+        )
+      )}
     </div>
   );
 }
