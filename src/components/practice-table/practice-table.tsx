@@ -27,7 +27,9 @@ import {
 import { useTaskTimer } from "@/components/timer/task-timer-context";
 import { useMetronome } from "@/components/metronome/metronome-context";
 import { TaskRow } from "@/components/practice-table/task-row";
+import { PieceSectionsContext } from "@/components/practice-table/task-recordings";
 import { PieceSessionsDialog } from "@/components/practice-table/piece-sessions-dialog";
+import { usePendingRefresh } from "@/components/practice-table/use-pending-refresh";
 import {
   moveTasksToDate,
   reorderTasks,
@@ -48,6 +50,7 @@ import {
   type OptimisticTaskRollback,
   type OptimisticTaskUpdate,
   type OptimisticTaskDelete,
+  type OptimisticTaskRecordingUpsert,
 } from "@/lib/optimistic-task";
 import { localDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
@@ -62,7 +65,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { groupPiecesForMenu, type PieceMenuEntry } from "@/lib/piece-menu";
-import type { FeedDay, TaskWithDetails, PieceKind, Piece } from "@/lib/types";
+import type {
+  FeedDay,
+  TaskWithDetails,
+  PieceKind,
+  Piece,
+  PieceSectionWithChildren,
+} from "@/lib/types";
 
 type PieceGroup = {
   pieceId: string | null;
@@ -1113,6 +1122,10 @@ export function PracticeTable({
   const [loading, setLoading] = useState(false);
   const paginatedRef = useRef(false);
 
+  // Near-live enrichment (U9): while rendered segments are still processing,
+  // poll and router.refresh() on transitions so results land without a reload.
+  usePendingRefresh(days);
+
   // Sync server revalidation into the loaded days. If the user has paginated
   // past the first page, merge the fresh first page in by date so later pages
   // (and our advanced cursor) aren't dropped — otherwise they'd flicker out and
@@ -1196,6 +1209,7 @@ export function PracticeTable({
         session_id: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        recordings: [],
         piece_name: detail.pieceName,
         piece_composer: detail.pieceComposer,
         piece_kind: detail.pieceKind,
@@ -1252,6 +1266,32 @@ export function PracticeTable({
       );
     };
 
+    const recordingUpsertHandler = (e: Event) => {
+      const { taskId, recording } = (
+        e as CustomEvent<OptimisticTaskRecordingUpsert>
+      ).detail;
+      setDays((prev) =>
+        prev.map((d) => {
+          if (!d.tasks.some((t) => t.id === taskId)) return d;
+          return {
+            ...d,
+            tasks: d.tasks.map((t) => {
+              if (t.id !== taskId) return t;
+              const has = t.recordings.some((r) => r.id === recording.id);
+              return {
+                ...t,
+                recordings: has
+                  ? t.recordings.map((r) =>
+                      r.id === recording.id ? { ...r, ...recording } : r
+                    )
+                  : [...t.recordings, recording],
+              };
+            }),
+          };
+        })
+      );
+    };
+
     const deleteHandler = (e: Event) => {
       const { taskId } = (e as CustomEvent<OptimisticTaskDelete>).detail;
       setDays((prev) =>
@@ -1282,12 +1322,20 @@ export function PracticeTable({
     window.addEventListener("task-updated-optimistic", updateHandler);
     window.addEventListener("task-deleted-optimistic", deleteHandler);
     window.addEventListener("task-rename-optimistic", renameHandler);
+    window.addEventListener(
+      "task-recording-upsert-optimistic",
+      recordingUpsertHandler
+    );
     return () => {
       window.removeEventListener("task-created-optimistic", addHandler);
       window.removeEventListener("task-created-rollback", rollbackHandler);
       window.removeEventListener("task-updated-optimistic", updateHandler);
       window.removeEventListener("task-deleted-optimistic", deleteHandler);
       window.removeEventListener("task-rename-optimistic", renameHandler);
+      window.removeEventListener(
+        "task-recording-upsert-optimistic",
+        recordingUpsertHandler
+      );
     };
   }, []);
 
@@ -1504,7 +1552,19 @@ export function PracticeTable({
     return map;
   }, [days]);
 
+  // Section trees for span → section display in task recordings lists (U6).
+  // Merged across loaded days; pieces repeat across days so later days just
+  // overwrite with the same tree.
+  const sectionsByPiece = useMemo(() => {
+    const merged: Record<string, PieceSectionWithChildren[]> = {};
+    for (const d of days) {
+      if (d.sectionsByPiece) Object.assign(merged, d.sectionsByPiece);
+    }
+    return merged;
+  }, [days]);
+
   return (
+    <PieceSectionsContext.Provider value={sectionsByPiece}>
     <div className="pl-8" onClick={handleRootClick}>
       {visibleDays.map((day) => (
         <DayGroup
@@ -1531,5 +1591,6 @@ export function PracticeTable({
       )}
 
     </div>
+    </PieceSectionsContext.Provider>
   );
 }

@@ -110,6 +110,29 @@ export type PracticeSessionStatus =
   | "ready"
   | "failed";
 
+/**
+ * On-demand "link to pieces" state machine (00161, plan U8) — separate from
+ * the transcription `status` machine: none -> linking -> linked | failed, and
+ * back to linking on a re-link/retry.
+ */
+export type PracticeSessionLinkStatus = "none" | "linking" | "linked" | "failed";
+
+/**
+ * One accepted linking proposal (practice_sessions.accepted_segments jsonb):
+ * a snapshot of the recognition segment plus the ordinary completed
+ * practice_task it created. Re-links replace result.segments but never touch
+ * these or their tasks (KTD9). `key` is the proposal's content key
+ * (see proposalKey in src/lib/practice/autolog.ts).
+ */
+export type AcceptedLinkSegment = {
+  key: string;
+  pieceId: string;
+  startSec: number;
+  endSec: number;
+  taskId: string;
+  acceptedAt: string;
+};
+
 export type PracticeSession = {
   id: string;
   date: string;
@@ -121,6 +144,9 @@ export type PracticeSession = {
   audio_retained: boolean;
   result: PracticeAlignmentResult | null;
   transcription_path: string | null;
+  link_status: PracticeSessionLinkStatus;
+  link_error: string | null;
+  accepted_segments: AcceptedLinkSegment[];
   claimed_at: string | null;
   created_at: string;
   updated_at: string;
@@ -158,6 +184,70 @@ export type PracticeAlignmentResult = {
   segments: PracticeSegment[];
   confidence: number;
   windows: PracticeWindow[];
+};
+
+/**
+ * Unified recording model (00160). `auto` = timer-captured segment, `manual` =
+ * user-initiated take from a task row, `performance` = deliberate performance
+ * (the only kind the Recordings tab shows).
+ */
+export type PracticeRecordingKind = "auto" | "manual" | "performance";
+
+/**
+ * Per-segment lifecycle: recorded -> uploaded -> processing -> ready | failed,
+ * with `skipped` for segments too short to be worth a worker job. Audio is
+ * never deleted by the pipeline; failed/skipped rows are reprocessable.
+ */
+export type PracticeRecordingStatus =
+  | "recorded"
+  | "uploaded"
+  | "processing"
+  | "ready"
+  | "failed"
+  | "skipped";
+
+/**
+ * One coalesced alignment window: where in the segment's audio the performer
+ * was, expressed as reference-MIDI measures. Repeated passages show as
+ * repeated spans over the same measures.
+ */
+export type AlignmentSpan = {
+  startSec: number;
+  endSec: number;
+  measureStart: number;
+  measureEnd: number;
+  confidence: number;
+};
+
+/**
+ * Shape of practice_recordings.alignment (jsonb). `totalMeasures` is the
+ * reference MIDI's measure count, stored so section mapping needs no
+ * reference-MIDI parse at read time.
+ */
+export type PracticeRecordingAlignment = {
+  spans: AlignmentSpan[];
+  totalMeasures: number;
+};
+
+export type PracticeRecording = {
+  id: string;
+  kind: PracticeRecordingKind;
+  task_id: string | null;
+  session_id: string | null;
+  piece_id: string | null;
+  date: string;
+  audio_path: string | null;
+  duration_seconds: number | null;
+  trim_start: number | null;
+  trim_end: number | null;
+  title: string | null;
+  status: PracticeRecordingStatus;
+  error_message: string | null;
+  transcription_path: string | null;
+  alignment: PracticeRecordingAlignment | null;
+  claimed_at: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ReferenceMidiStatus = "uploaded" | "ready" | "failed";
@@ -320,12 +410,36 @@ export type RepertoireOverviewItem = {
 };
 
 // Feed types
+
+/**
+ * The slice of a practice_recordings row the day feed ships per task (U6).
+ * Alignment is included — it's small and the task row renders spans/sections
+ * from it. Heavier columns (claimed_at etc.) stay server-side.
+ */
+export type TaskRecordingDisplay = Pick<
+  PracticeRecording,
+  | "id"
+  | "kind"
+  | "status"
+  | "audio_path"
+  | "transcription_path"
+  | "duration_seconds"
+  | "trim_start"
+  | "trim_end"
+  | "title"
+  | "error_message"
+  | "created_at"
+  | "alignment"
+>;
+
 export type TaskWithDetails = PracticeTask & {
   piece_name: string | null;
   piece_composer: string | null;
   piece_kind: PieceKind | null;
   section_label: string | null;
   section_status: SectionStatus | null;
+  /** practice_recordings rows for this task, oldest first. */
+  recordings: TaskRecordingDisplay[];
 };
 
 export type FeedDay = {
@@ -334,6 +448,12 @@ export type FeedDay = {
   timeSummary: TimeSummaryEntry[];
   /** Status changes grouped by piece_id for this date */
   statusChangesByPiece?: Record<string, StatusChange[]>;
+  /**
+   * Section trees for pieces whose tasks (this day) carry recordings with
+   * alignment spans — lets the task row map spans → placed sections without a
+   * client fetch (KTD5).
+   */
+  sectionsByPiece?: Record<string, PieceSectionWithChildren[]>;
 };
 
 // Piece section types

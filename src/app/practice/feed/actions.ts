@@ -2,12 +2,15 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { localDate, getUserTimezone } from "@/lib/date-utils";
+import { getSections } from "@/app/practice/repertoire/section-actions";
 import type {
   TimeSummaryEntry,
   LessonTimeSummary,
   FeedDay,
   TaskWithDetails,
+  TaskRecordingDisplay,
   PieceKind,
+  PieceSectionWithChildren,
   SectionStatus,
   StatusChange,
 } from "@/lib/types";
@@ -196,14 +199,22 @@ async function getTasksWithDetailsForDates(
   const result = new Map<string, TaskWithDetails[]>();
   if (dates.length === 0) return result;
 
+  // practice_recordings embed: only the columns the task-row list renders
+  // (U6). Alignment is included — spans/totalMeasures are rendered and small.
   const { data: tasks } = await supabase
     .from("practice_tasks")
-    .select("*, pieces(name, composer, kind), piece_sections(label, status)")
+    .select(
+      "*, pieces(name, composer, kind), piece_sections(label, status), practice_recordings(id, kind, status, audio_path, transcription_path, duration_seconds, trim_start, trim_end, title, error_message, created_at, alignment)"
+    )
     .in("date", dates)
     .order("date", { ascending: false })
     .order("session_number", { ascending: true })
     .order("sort_order", { ascending: true })
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .order("created_at", {
+      referencedTable: "practice_recordings",
+      ascending: true,
+    });
 
   for (const date of dates) result.set(date, []);
 
@@ -217,6 +228,8 @@ async function getTasksWithDetailsForDates(
       label: string;
       status: number;
     } | null;
+    const recordings = (row.practice_recordings ??
+      []) as unknown as TaskRecordingDisplay[];
 
     const task: TaskWithDetails = {
       ...row,
@@ -225,14 +238,46 @@ async function getTasksWithDetailsForDates(
       piece_kind: (piece?.kind as PieceKind) ?? null,
       section_label: section?.label ?? null,
       section_status: (section?.status as SectionStatus) ?? null,
+      recordings,
       pieces: undefined,
       piece_sections: undefined,
+      practice_recordings: undefined,
     } as TaskWithDetails;
 
     result.get(row.date)!.push(task);
   }
 
   return result;
+}
+
+/**
+ * Section trees for the pieces whose tasks carry recordings with alignment
+ * spans — only those pieces need span → section mapping in the day view
+ * (KTD5). Deduped per piece across all tasks/dates in the page.
+ */
+async function getSectionsForAlignedPieces(
+  tasksByDate: Map<string, TaskWithDetails[]>
+): Promise<Record<string, PieceSectionWithChildren[]>> {
+  const pieceIds = new Set<string>();
+  for (const tasks of tasksByDate.values()) {
+    for (const task of tasks) {
+      if (!task.piece_id) continue;
+      if (
+        task.recordings.some((r) => (r.alignment?.spans.length ?? 0) > 0)
+      ) {
+        pieceIds.add(task.piece_id);
+      }
+    }
+  }
+  if (pieceIds.size === 0) return {};
+
+  const ids = [...pieceIds];
+  const trees = await Promise.all(ids.map((id) => getSections(id)));
+  const out: Record<string, PieceSectionWithChildren[]> = {};
+  ids.forEach((id, i) => {
+    out[id] = trees[i];
+  });
+  return out;
 }
 
 /**
@@ -334,17 +379,31 @@ export async function getFeedPage(
       statusChangesByDatePiece.delete(date);
   }
 
+  // Sections for pieces whose recordings carry alignment spans (U6/KTD5)
+  const sectionsByPiece = await getSectionsForAlignedPieces(tasksByDate);
+
   // Build feed days
   const items: FeedDay[] = allDates.map((date) => {
+    const dayTasks = tasksByDate.get(date) ?? [];
     const dayItem: FeedDay = {
       date,
-      tasks: tasksByDate.get(date) ?? [],
+      tasks: dayTasks,
       timeSummary: timeSummaryMap.get(date) ?? [],
     };
 
     const dayStatusChanges = statusChangesByDatePiece.get(date);
     if (dayStatusChanges) {
       dayItem.statusChangesByPiece = dayStatusChanges;
+    }
+
+    const daySections: Record<string, PieceSectionWithChildren[]> = {};
+    for (const t of dayTasks) {
+      if (t.piece_id && sectionsByPiece[t.piece_id]) {
+        daySections[t.piece_id] = sectionsByPiece[t.piece_id];
+      }
+    }
+    if (Object.keys(daySections).length > 0) {
+      dayItem.sectionsByPiece = daySections;
     }
 
     return dayItem;

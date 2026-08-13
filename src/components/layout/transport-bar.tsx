@@ -2,8 +2,12 @@
 
 import { useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { SquareIcon, PlayIcon } from "lucide-react";
+import { SquareIcon, PlayIcon, MicIcon, MicOffIcon } from "lucide-react";
 import { useTaskTimer } from "@/components/timer/task-timer-context";
+import {
+  useCaptureStatus,
+  setAutoRecordPreference,
+} from "@/components/practice/capture-controller";
 import { MetronomeControl } from "@/components/metronome/metronome-control";
 import { Popover, PopoverContent } from "@/components/ui/popover";
 import { formatElapsed } from "@/lib/timer-utils";
@@ -45,11 +49,15 @@ export function TransportBar() {
 
   const [piecePickerOpen, setPiecePickerOpen] = useState(false);
   const playButtonRef = useRef<HTMLButtonElement>(null);
-
-  if (pathname !== "/practice") return null;
+  const capture = useCaptureStatus();
 
   const isActive = activeTaskId !== null;
   const isLoaded = !isActive && loadedTaskId !== null;
+
+  // The bar lives on the practice home always, and follows the user to every
+  // route under the practice layout whenever a timer is active or loaded —
+  // so a running (possibly recording) task is never invisible.
+  if (pathname !== "/practice" && !isActive && !isLoaded) return null;
   const focusedPiece = focusedPieceId
     ? activePieces.find((p) => p.id === focusedPieceId) ?? null
     : null;
@@ -140,6 +148,36 @@ export function TransportBar() {
   const progressPct =
     goalSeconds > 0 ? Math.min(100, (elapsed / goalSeconds) * 100) : 0;
   const hasTask = isActive || isLoaded;
+
+  // Auto-record indicator (plan U4, R4): quiet states only, never blocking.
+  // "not-recording" = toggle on + timer running but this run isn't recording
+  // (restored timer / second tab); "mic-unavailable" = gUM failed or the
+  // track died mid-run — the timer keeps going either way.
+  const captureState:
+    | "off"
+    | "armed"
+    | "recording"
+    | "mic-unavailable"
+    | "not-recording" = !capture.enabled
+    ? "off"
+    : capture.recording
+      ? "recording"
+      : isActive && capture.micUnavailable
+        ? "mic-unavailable"
+        : isActive
+          ? "not-recording"
+          : "armed";
+  const captureTitle = {
+    off: "Auto-record off",
+    armed: "Auto-record on — timed tasks will record",
+    recording: capture.silent
+      ? "Recording — no input heard, check the microphone"
+      : "Recording",
+    "mic-unavailable":
+      "Microphone unavailable — the timer keeps running without recording",
+    "not-recording":
+      "Not recording — restored timers don't auto-record; press play to start a recorded run",
+  }[captureState];
 
   return (
     <>
@@ -304,7 +342,107 @@ export function TransportBar() {
             )}
           </div>
 
-          <div className="shrink-0">
+          <div className="flex shrink-0 items-center gap-1.5">
+            {captureState === "recording" && (
+              <div
+                className="flex items-center gap-1.5"
+                title={captureTitle}
+                aria-label={captureTitle}
+              >
+                <span
+                  className={cn(
+                    "size-2 shrink-0 animate-pulse rounded-full",
+                    capture.silent
+                      ? "bg-amber-300"
+                      : isActive
+                        ? "bg-white"
+                        : "bg-red-500"
+                  )}
+                />
+                <div
+                  className={cn(
+                    "h-1 w-10 overflow-hidden rounded-full",
+                    isActive ? "bg-white/25" : "bg-muted"
+                  )}
+                  aria-hidden
+                >
+                  <div
+                    className={cn(
+                      "h-full transition-[width] duration-75",
+                      capture.silent
+                        ? "bg-amber-300"
+                        : isActive
+                          ? "bg-white"
+                          : "bg-emerald-500"
+                    )}
+                    style={{ width: `${Math.round(capture.level * 100)}%` }}
+                  />
+                </div>
+                {capture.silent && (
+                  <span
+                    className={cn(
+                      "hidden text-[10px] font-medium sm:inline",
+                      isActive ? "text-amber-200" : "text-destructive"
+                    )}
+                  >
+                    No input
+                  </span>
+                )}
+              </div>
+            )}
+            {(captureState === "mic-unavailable" ||
+              captureState === "not-recording") && (
+              <span
+                className={cn(
+                  "hidden text-[10px] sm:inline",
+                  captureState === "mic-unavailable"
+                    ? isActive
+                      ? "text-amber-200"
+                      : "text-amber-600"
+                    : isActive
+                      ? "text-white/60"
+                      : "text-muted-foreground"
+                )}
+                title={captureTitle}
+              >
+                {captureState === "mic-unavailable"
+                  ? "Mic unavailable"
+                  : "Not recording"}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setAutoRecordPreference(!capture.enabled)}
+              title={captureTitle}
+              aria-label={
+                capture.enabled ? "Turn auto-record off" : "Turn auto-record on"
+              }
+              aria-pressed={capture.enabled}
+              className={cn(
+                "flex size-8 shrink-0 items-center justify-center rounded-full transition-colors",
+                isActive
+                  ? "hover:bg-white/15"
+                  : "hover:bg-muted",
+                captureState === "off" &&
+                  (isActive ? "text-white/40" : "text-muted-foreground/60"),
+                captureState === "armed" &&
+                  (isActive ? "text-white/80" : "text-muted-foreground"),
+                captureState === "recording" &&
+                  (isActive ? "text-white" : "text-foreground"),
+                captureState === "mic-unavailable" &&
+                  (isActive ? "text-amber-200" : "text-amber-600"),
+                captureState === "not-recording" &&
+                  (isActive ? "text-white/60" : "text-muted-foreground")
+              )}
+            >
+              {capture.enabled &&
+              captureState !== "mic-unavailable" &&
+              captureState !== "not-recording" ? (
+                <MicIcon className="size-4" />
+              ) : (
+                <MicOffIcon className="size-4" />
+              )}
+            </button>
             <MetronomeControl onAccent={isActive} />
           </div>
         </div>

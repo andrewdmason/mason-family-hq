@@ -2,8 +2,19 @@
 
 import { createClient } from "@/lib/supabase/server";
 
+/**
+ * A Recordings-tab row: one kind='performance' practice_recordings row (U7).
+ * Auto/manual practice recordings never appear here (R11/AE5); pre-merge
+ * single-slot task audio was backfilled as kind='performance' by 00160, so
+ * everything recorded before the merge is still listed.
+ *
+ * `taskId`/`sectionLabel`/`taskText` are nullable now — performances recorded
+ * straight from the tab have no task.
+ */
 export type Recording = {
-  taskId: string;
+  id: string;
+  taskId: string | null;
+  pieceId: string | null;
   audioPath: string;
   durationSeconds: number;
   trimStartSeconds: number | null;
@@ -15,17 +26,18 @@ export type Recording = {
   pieceComposer: string | null;
   workName: string | null;
   sectionLabel: string | null;
-  taskText: string;
+  taskText: string | null;
 };
 
 export async function getRecordings(pieceId?: string): Promise<Recording[]> {
   const supabase = await createClient();
 
   let query = supabase
-    .from("practice_tasks")
+    .from("practice_recordings")
     .select(
-      "id, date, text, audio_path, audio_duration_seconds, audio_trim_start_seconds, audio_trim_end_seconds, audio_title, created_at, pieces(name, composer, works(name)), piece_sections(label)"
+      "id, task_id, piece_id, date, audio_path, duration_seconds, trim_start, trim_end, title, created_at, pieces(name, composer, works(name)), practice_tasks(text, piece_sections(label))"
     )
+    .eq("kind", "performance")
     .not("audio_path", "is", null);
 
   if (pieceId) query = query.eq("piece_id", pieceId);
@@ -42,23 +54,26 @@ export async function getRecordings(pieceId?: string): Promise<Recording[]> {
       composer: string | null;
       works: { name: string } | null;
     } | null;
-    const section = row.piece_sections as unknown as {
-      label: string;
+    const task = row.practice_tasks as unknown as {
+      text: string;
+      piece_sections: { label: string } | null;
     } | null;
     return {
-      taskId: row.id,
+      id: row.id as string,
+      taskId: row.task_id,
+      pieceId: row.piece_id,
       audioPath: row.audio_path as string,
-      durationSeconds: row.audio_duration_seconds ?? 0,
-      trimStartSeconds: row.audio_trim_start_seconds,
-      trimEndSeconds: row.audio_trim_end_seconds,
-      audioTitle: row.audio_title,
+      durationSeconds: row.duration_seconds ?? 0,
+      trimStartSeconds: row.trim_start,
+      trimEndSeconds: row.trim_end,
+      audioTitle: row.title,
       date: row.date,
       createdAt: row.created_at,
       pieceName: piece?.name ?? null,
       pieceComposer: piece?.composer ?? null,
       workName: piece?.works?.name ?? null,
-      sectionLabel: section?.label ?? null,
-      taskText: row.text,
+      sectionLabel: task?.piece_sections?.label ?? null,
+      taskText: task?.text ?? null,
     };
   });
 }

@@ -1,214 +1,99 @@
 "use client";
 
 import { useRef, useState, useEffect, useMemo } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MicIcon, SquareIcon, Loader2Icon, CheckCircle2Icon, AlertCircleIcon } from "lucide-react";
+import { MicIcon, SquareIcon, Loader2Icon, AlertCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { createSession } from "@/app/practice/session/actions";
-
-function pickMimeType(): { mime: string; ext: "webm" | "m4a" } {
-  if (typeof MediaRecorder === "undefined") {
-    return { mime: "audio/mp4;codecs=mp4a.40.2", ext: "m4a" };
-  }
-  const candidates: Array<{ mime: string; ext: "webm" | "m4a" }> = [
-    { mime: "audio/mp4;codecs=mp4a.40.2", ext: "m4a" },
-    { mime: "audio/mp4", ext: "m4a" },
-    { mime: "audio/webm;codecs=opus", ext: "webm" },
-    { mime: "audio/webm", ext: "webm" },
-  ];
-  for (const c of candidates) {
-    if (MediaRecorder.isTypeSupported(c.mime)) return c;
-  }
-  return { mime: "", ext: "webm" };
-}
+import {
+  blobWithSupportedType,
+  effectiveInputDeviceId,
+  formatDeviceLabel,
+  pickMimeType,
+  resolveRecordingDeviceId,
+} from "@/lib/practice/capture";
+import {
+  useAudioInputs,
+  useInputDevicePreference,
+  useLevelMeter,
+} from "@/components/practice/use-capture";
 
 function fmt(s: number) {
   const m = Math.floor(s / 60);
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
-// The task-audio bucket only allows audio/mp4|webm|mpeg|ogg. Files can report
-// other types (e.g. audio/x-m4a), so map to a supported label — the worker
-// decodes by content (ffmpeg), so the label only needs to pass the bucket.
-function supportedContentType(type: string | undefined, ext: string): string {
-  const allowed = ["audio/webm", "audio/mp4", "audio/mpeg", "audio/ogg"];
-  if (type && allowed.some((a) => type.startsWith(a))) return type;
-  const e = ext.toLowerCase();
-  if (e === "webm") return "audio/webm";
-  if (e === "mp3") return "audio/mpeg";
-  if (e === "ogg" || e === "oga") return "audio/ogg";
-  return "audio/mp4"; // m4a / aac / wav / etc. — decoded by content regardless
+/**
+ * The longest audio the worker can finish inside Modal's 1800s job timeout
+ * (KTD4): ~2min fixed floor + ~10.5s per audio-minute leaves ~159 minutes of
+ * audio. The file escape hatch WARNS past this and proceeds anyway (the job
+ * may time out; the audio is kept and reprocessable either way).
+ */
+const WORKER_AUDIO_CEILING_SECONDS = Math.floor(((1800 - 130) / 10.5) * 60);
+
+/** Best-effort duration probe via an <audio> element's metadata; null when the
+ * browser can't parse the file (we then skip the too-long warning). */
+function probeDurationSeconds(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const el = document.createElement("audio");
+    let settled = false;
+    const done = (d: number | null) => {
+      if (settled) return;
+      settled = true;
+      URL.revokeObjectURL(url);
+      resolve(d);
+    };
+    el.addEventListener("loadedmetadata", () =>
+      done(Number.isFinite(el.duration) ? el.duration : null)
+    );
+    el.addEventListener("error", () => done(null));
+    setTimeout(() => done(null), 5000);
+    el.preload = "metadata";
+    el.src = url;
+  });
 }
 
-type StatusResult = {
-  status: string;
-  taskCount?: number;
-  error?: string | null;
-  audioRetained?: boolean;
-};
+type Phase = "idle" | "recording" | "uploading" | "error";
 
-async function pollStatus(sessionId: string): Promise<StatusResult> {
-  const deadline = Date.now() + 25 * 60 * 1000; // ceiling for very long sessions
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 3000));
-    try {
-      const r = await fetch(`/practice/session/api/status?sessionId=${sessionId}`);
-      if (r.ok) {
-        const s = (await r.json()) as StatusResult;
-        if (s.status === "ready" || s.status === "failed") return s;
-      }
-    } catch {
-      /* transient network blip — keep polling */
-    }
-  }
-  return { status: "failed", error: "Timed out waiting for processing" };
-}
-
-// Shared with the task-audio recorder so the chosen mic carries over. Picking an
-// explicit input avoids macOS Continuity hijacking the mic to a nearby iPhone.
-const INPUT_DEVICE_STORAGE_KEY = "task-audio-input-device-id";
-
-function formatDeviceLabel(raw: string): string {
-  if (!raw) return "Microphone";
-  let out = raw.replace(/^Default\s*[-:—]\s*/i, "");
-  out = out.replace(/\s*\(([^()]*)\)\s*$/, "").trim();
-  return out || raw;
-}
-
-type Phase = "idle" | "recording" | "working" | "done" | "error";
-
+/**
+ * Open-session recorder (plan U8): capture-only. Stop uploads the audio and
+ * kicks off a background transcription-only job, then returns to idle — the
+ * session appears in the sessions list as `processing` and nothing blocks
+ * (R14/R15/R17). Piece linking is a separate, explicit action on the session
+ * page. Also houses the "process an existing audio file" escape hatch.
+ */
 export function SessionRecorder() {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("idle");
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ taskCount: number; retain: boolean } | null>(null);
-
-  const [level, setLevel] = useState(0); // live input level 0..1
-  const [silent, setSilent] = useState(false); // no input heard after a few seconds
+  const [notice, setNotice] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const extRef = useRef<"webm" | "m4a">("webm");
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const levelRafRef = useRef<number | null>(null);
-  const heardRef = useRef(false);
-  const meterUpdatedRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
-  const [deviceId, setDeviceId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      return localStorage.getItem(INPUT_DEVICE_STORAGE_KEY);
-    } catch {
-      return null;
-    }
-  });
+  const { concreteInputs, refreshInputs } = useAudioInputs({ loadOnMount: true });
+  const { deviceId, chooseDevice } = useInputDevicePreference();
+  const { level, silent, heardRef, startMeter, stopMeter, resetMeter } =
+    useLevelMeter();
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      if (!navigator.mediaDevices?.enumerateDevices) return;
-      try {
-        let devices = await navigator.mediaDevices.enumerateDevices();
-        let audio = devices.filter((d) => d.kind === "audioinput");
-        // Labels are withheld until mic permission is granted once; a throwaway
-        // probe reveals the real device names (incl. the iPhone) so the picker works.
-        if (audio.length && audio.every((d) => !d.label)) {
-          try {
-            const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-            s.getTracks().forEach((t) => t.stop());
-            devices = await navigator.mediaDevices.enumerateDevices();
-            audio = devices.filter((d) => d.kind === "audioinput");
-          } catch {
-            /* permission denied — leave list as-is */
-          }
-        }
-        if (!cancelled) setInputs(audio);
-      } catch {
-        /* ignore */
-      }
-    }
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const concreteInputs = useMemo(
-    () => inputs.filter((d) => d.deviceId !== "default" && d.deviceId !== "communications"),
-    [inputs]
+  const effectiveDeviceId = useMemo(
+    () => effectiveInputDeviceId(deviceId, concreteInputs),
+    [deviceId, concreteInputs]
   );
-  const effectiveDeviceId = useMemo(() => {
-    if (!deviceId) return null;
-    return concreteInputs.some((d) => d.deviceId === deviceId) ? deviceId : null;
-  }, [deviceId, concreteInputs]);
 
-  // The device we'll actually record from. An explicit pick wins; otherwise pick
-  // a concrete NON-iPhone input (built-in preferred) so we never fall through to
-  // "default", which is what macOS Continuity hijacks to a nearby iPhone.
-  const resolvedDeviceId = useMemo(() => {
-    if (effectiveDeviceId) return effectiveDeviceId;
-    const notPhone = concreteInputs.filter(
-      (d) => !/iphone|ipad|continuity/i.test(d.label)
-    );
-    const builtin = notPhone.find((d) => /built.?in|macbook/i.test(d.label));
-    return (builtin ?? notPhone[0])?.deviceId ?? null;
-  }, [effectiveDeviceId, concreteInputs]);
-
-  function chooseDevice(id: string | null) {
-    setDeviceId(id);
-    try {
-      if (id) localStorage.setItem(INPUT_DEVICE_STORAGE_KEY, id);
-      else localStorage.removeItem(INPUT_DEVICE_STORAGE_KEY);
-    } catch {
-      /* ignore */
-    }
-  }
-
-  // Live input-level meter: taps the mic stream so a dead/muted/wrong device is
-  // visible while recording, instead of silently producing a useless session.
-  function startMeter(stream: MediaStream) {
-    try {
-      const ctx = new AudioContext();
-      audioCtxRef.current = ctx;
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 1024;
-      ctx.createMediaStreamSource(stream).connect(analyser);
-      const buf = new Float32Array(analyser.fftSize);
-      heardRef.current = false;
-      const startedAt = performance.now();
-      const tick = () => {
-        analyser.getFloatTimeDomainData(buf);
-        let sum = 0;
-        for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-        const rms = Math.sqrt(sum / buf.length);
-        if (rms > 0.008) heardRef.current = true;
-        const now = performance.now();
-        if (now - meterUpdatedRef.current > 60) {
-          meterUpdatedRef.current = now;
-          setLevel(Math.min(1, rms * 5));
-          setSilent(!heardRef.current && now - startedAt > 4000);
-        }
-        levelRafRef.current = requestAnimationFrame(tick);
-      };
-      levelRafRef.current = requestAnimationFrame(tick);
-    } catch {
-      /* meter is best-effort */
-    }
-  }
-
-  function stopMeter() {
-    if (levelRafRef.current) cancelAnimationFrame(levelRafRef.current);
-    levelRafRef.current = null;
-    void audioCtxRef.current?.close();
-    audioCtxRef.current = null;
-  }
+  // The device we'll actually record from (anti-Continuity resolution).
+  const resolvedDeviceId = useMemo(
+    () => resolveRecordingDeviceId(effectiveDeviceId, concreteInputs),
+    [effectiveDeviceId, concreteInputs]
+  );
 
   function cleanupStream() {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -220,9 +105,9 @@ export function SessionRecorder() {
 
   async function start() {
     setError(null);
-    setResult(null);
-    setLevel(0);
-    setSilent(false);
+    setNotice(null);
+    setWarning(null);
+    resetMeter();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -234,12 +119,7 @@ export function SessionRecorder() {
         },
       });
       // Refresh the labeled list now that permission is granted.
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        setInputs(devices.filter((d) => d.kind === "audioinput"));
-      } catch {
-        /* ignore */
-      }
+      await refreshInputs();
       streamRef.current = stream;
       startMeter(stream);
       const { mime, ext } = pickMimeType();
@@ -263,23 +143,20 @@ export function SessionRecorder() {
 
   function stop() {
     cleanupStream();
-    setPhase("working");
+    setPhase("uploading");
     recorderRef.current?.stop(); // triggers finish()
   }
 
-  // Upload a blob (recorded or picked) and run it through the pipeline, polling
-  // for the result. Shared by the mic recorder and the "process a file" path.
+  // Upload a blob (recorded or picked) and kick off background processing,
+  // then return to idle — the sessions list shows the new row as processing.
+  // Shared by the mic recorder and the "process a file" escape hatch.
   async function processBlob(blob: Blob, ext: string) {
     setError(null);
-    setPhase("working");
+    setPhase("uploading");
     try {
       const { sessionId, path, token } = await createSession(ext);
       const supabase = createClient();
-      // The SDK ignores the contentType option for Blob bodies and uses the
-      // blob's own .type, so re-wrap the blob with a bucket-supported type.
-      const contentType = supportedContentType(blob.type, ext);
-      const upload =
-        blob.type === contentType ? blob : new Blob([blob], { type: contentType });
+      const upload = blobWithSupportedType(blob, ext);
       const { error: upErr } = await supabase.storage
         .from("task-audio")
         .uploadToSignedUrl(path, token, upload, { upsert: true });
@@ -294,17 +171,11 @@ export function SessionRecorder() {
       if (!res.ok || data.status === "failed") {
         throw new Error(data.error ?? "Couldn't start processing");
       }
-      // Processing runs in the background (long recordings take minutes); poll
-      // the status route until it's ready or failed.
-      const final = await pollStatus(sessionId);
-      if (final.status !== "ready") {
-        throw new Error(final.error ?? "Processing failed");
-      }
-      setResult({ taskCount: final.taskCount ?? 0, retain: !!final.audioRetained });
-      setPhase("done");
+      setNotice("Session saved — transcribing in the background.");
+      setPhase("idle");
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong while processing.");
+      setError(e instanceof Error ? e.message : "Something went wrong while uploading.");
       setPhase("error");
     }
   }
@@ -324,22 +195,35 @@ export function SessionRecorder() {
     await processBlob(blob, extRef.current);
   }
 
-  function handleFilePick(file: File) {
-    setResult(null);
+  async function handleFilePick(file: File) {
+    setNotice(null);
+    setWarning(null);
     const ext = file.name.includes(".") ? file.name.split(".").pop()! : "m4a";
+    // Warn (never block — KTD4) when the audio is longer than the worker can
+    // finish in one job.
+    const duration = await probeDurationSeconds(file);
+    if (duration != null && duration > WORKER_AUDIO_CEILING_SECONDS) {
+      const h = Math.floor(duration / 3600);
+      const m = Math.round((duration % 3600) / 60);
+      setWarning(
+        `That file is ~${h}h ${m}m of audio — longer than the ~2h40m the processor can finish in one job, so it may time out. Uploading anyway; the audio is kept either way.`
+      );
+    }
     void processBlob(file, ext);
   }
 
   return (
-    <div className="flex flex-col items-center gap-5 rounded-xl border bg-card p-8 text-center">
+    <div className="flex flex-col items-center gap-4 rounded-xl border bg-card p-6 text-center">
       {phase === "idle" && (
         <>
           <p className="text-sm text-muted-foreground">
-            Tap start, play, then tap stop. Your session is matched to your
-            pieces and logged automatically.
+            Record an open practice session — kept with its audio and
+            transcribed MIDI. Link it to pieces later if you like.
           </p>
+          {notice && <p className="text-sm text-green-700 dark:text-green-500">{notice}</p>}
+          {warning && <p className="text-sm text-amber-600 dark:text-amber-500">{warning}</p>}
           <Button size="lg" onClick={start}>
-            <MicIcon /> Start listening
+            <MicIcon /> Start recording
           </Button>
           {concreteInputs.length > 1 && (
             <label className="text-xs text-muted-foreground">
@@ -376,7 +260,7 @@ export function SessionRecorder() {
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) handleFilePick(f);
+                if (f) void handleFilePick(f);
                 e.target.value = "";
               }}
             />
@@ -401,42 +285,27 @@ export function SessionRecorder() {
               We&apos;re not hearing anything — check your microphone selection.
             </p>
           ) : (
-            <p className="text-sm text-muted-foreground">Listening…</p>
+            <p className="text-sm text-muted-foreground">Recording…</p>
           )}
           <Button size="lg" variant="secondary" onClick={stop}>
-            <SquareIcon /> Stop &amp; log
+            <SquareIcon /> Stop
           </Button>
         </>
       )}
 
-      {phase === "working" && (
+      {phase === "uploading" && (
         <>
-          <Loader2Icon className="size-8 animate-spin text-muted-foreground" />
+          <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
-            Analyzing your practice and matching it to your pieces…
+            Uploading the session — transcription continues in the background.
           </p>
-        </>
-      )}
-
-      {phase === "done" && (
-        <>
-          <CheckCircle2Icon className="size-8 text-green-600 dark:text-green-500" />
-          <p className="text-sm">
-            {result?.taskCount
-              ? `Logged ${result.taskCount} ${result.taskCount === 1 ? "entry" : "entries"}.`
-              : "Nothing recognized this time."}
-            {result?.retain ? " (Kept the audio — I wasn't fully sure about part of it.)" : ""}
-          </p>
-          <div className="flex gap-2">
-            <Link href="/practice"><Button variant="default">View practice log</Button></Link>
-            <Button variant="outline" onClick={() => setPhase("idle")}>Record another</Button>
-          </div>
+          {warning && <p className="text-sm text-amber-600 dark:text-amber-500">{warning}</p>}
         </>
       )}
 
       {phase === "error" && (
         <>
-          <AlertCircleIcon className="size-8 text-destructive" />
+          <AlertCircleIcon className="size-6 text-destructive" />
           <p className="text-sm text-destructive">{error}</p>
           <Button variant="outline" onClick={() => setPhase("idle")}>Try again</Button>
         </>

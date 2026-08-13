@@ -22,7 +22,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from align import align
-from job import run_and_callback
+from job import _run_segment, run_and_callback
 from scales import classify_scales
 from transcribe import transcribe_to_midi_bytes
 
@@ -37,6 +37,11 @@ class ReferenceInput(BaseModel):
 class AlignRequest(BaseModel):
     recordingUrl: str
     references: list[ReferenceInput]
+    # Plan U2/KTD4: absent/"session" = multi-reference recognition (today's
+    # behavior); "segment" = known-piece alignment against references[0],
+    # returning spans + totalMeasures instead of segments.
+    mode: str | None = None
+    recordingId: str | None = None
 
 
 def _fetch(url: str) -> bytes:
@@ -68,11 +73,25 @@ def process(payload: dict, background_tasks: BackgroundTasks):
 @app.post("/align")
 def do_align(req: AlignRequest, x_worker_secret: str | None = Header(default=None)):
     _check_secret(x_worker_secret)
-    refs = [{"pieceId": r.pieceId, "midi": _fetch(r.midiUrl)} for r in req.references]
     audio = _fetch(req.recordingUrl)
     with tempfile.NamedTemporaryFile(suffix=".m4a") as f:
         f.write(audio)
         f.flush()
+        if req.mode == "segment":
+            # Known-piece recording job (plan U2): transcription + measure spans
+            # against the single supplied reference; no recognition, no scales.
+            # Delegates to job.py's _run_segment so the sync (here) and async
+            # (server.py /process, Modal) paths share one implementation.
+            job_payload = {
+                "references": [
+                    {"pieceId": r.pieceId, "midiUrl": r.midiUrl} for r in req.references
+                ]
+            }
+            result = _run_segment(job_payload, f.name)
+            if req.recordingId is not None:
+                result["recordingId"] = req.recordingId
+            return result
+        refs = [{"pieceId": r.pieceId, "midi": _fetch(r.midiUrl)} for r in req.references]
         result = align(f.name, refs)
         # Transcribe the playing to MIDI so the app can store it (and drop the
         # audio), and use the notes to flag scale runs. Failure here shouldn't

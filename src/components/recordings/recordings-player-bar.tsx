@@ -111,7 +111,7 @@ export function RecordingsPlayerBar({
     // We only want to react when the recording target changes, not on
     // isPlaying — that's handled by the play/pause effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recording?.taskId]);
+  }, [recording?.id]);
 
   // Respond to play/pause requests from the parent.
   useEffect(() => {

@@ -1,5 +1,10 @@
 import { createTask } from "@/app/practice/timer/task-actions";
-import type { PieceKind, SectionStatus, TaskWithDetails } from "@/lib/types";
+import type {
+  PieceKind,
+  SectionStatus,
+  TaskRecordingDisplay,
+  TaskWithDetails,
+} from "@/lib/types";
 
 export type OptimisticTaskDetail = {
   tempId: string;
@@ -133,6 +138,29 @@ export function emitOptimisticTaskUpdate(
     new CustomEvent<OptimisticTaskUpdate>("task-updated-optimistic", {
       detail: { taskId, updates },
     })
+  );
+}
+
+/**
+ * Insert-or-update a single recording on a task, client-side. Used by the
+ * capture controller to surface a pending segment ("uploading…" / "processing…")
+ * the instant it's created, without a server revalidation — the controller runs
+ * outside a React transition, where a bundled RSC revalidation would throw.
+ */
+export type OptimisticTaskRecordingUpsert = {
+  taskId: string;
+  recording: TaskRecordingDisplay;
+};
+
+export function emitOptimisticTaskRecordingUpsert(
+  taskId: string,
+  recording: TaskRecordingDisplay
+): void {
+  window.dispatchEvent(
+    new CustomEvent<OptimisticTaskRecordingUpsert>(
+      "task-recording-upsert-optimistic",
+      { detail: { taskId, recording } }
+    )
   );
 }
 

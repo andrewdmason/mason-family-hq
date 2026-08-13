@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import {
   PlayIcon,
   PauseIcon,
+  MicIcon,
   MoreVerticalIcon,
   Trash2Icon,
   DownloadIcon,
@@ -14,11 +15,13 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Recording } from "@/app/practice/recordings/actions";
+import { createSignedPlaybackUrl } from "@/app/practice/timer/audio-actions";
 import {
-  createSignedPlaybackUrl,
-  deleteTaskAudio,
-  updateTaskAudioTitle,
-} from "@/app/practice/timer/audio-actions";
+  deleteRecording,
+  updateRecordingTitle,
+  type SavedRecording,
+} from "@/app/practice/recordings/recording-actions";
+import { useTaskTimer } from "@/components/timer/task-timer-context";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -39,6 +42,14 @@ type SortKey = "piece" | "time" | "composer" | "group" | "notes" | "date";
 type SortDir = "asc" | "desc";
 
 const GENERAL_KEY = "__general__";
+
+/** Piece association picked before recording a performance from the tab. */
+type RecordTarget = {
+  pieceId: string | null;
+  pieceName: string | null;
+  pieceComposer: string | null;
+  workName: string | null;
+};
 
 function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) seconds = 0;
@@ -92,14 +103,28 @@ function buildDownloadFilename(rec: Recording): string {
   return raw.replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim();
 }
 
-export function RecordingsList({ initial }: { initial: Recording[] }) {
+export function RecordingsList({
+  initial,
+  showRecordButton = false,
+}: {
+  initial: Recording[];
+  /**
+   * Renders the "Record performance" entry point (Recordings tab). The piece
+   * page passes nothing and stays a pure list.
+   */
+  showRecordButton?: boolean;
+}) {
   const [recordings, setRecordings] = useState<Recording[]>(initial);
   const [filterKey, setFilterKey] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
+  const [currentId, setCurrentId] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [trimDialogTaskId, setTrimDialogTaskId] = useState<string | null>(null);
+  const [trimDialogId, setTrimDialogId] = useState<string | null>(null);
+  const [recordTarget, setRecordTarget] = useState<RecordTarget | null>(null);
+  // Active pieces (and their work names) power the pre-record piece picker
+  // and let a freshly saved performance render fully before any refresh.
+  const { activePieces, worksById } = useTaskTimer();
 
   type PieceOption = { key: string; label: string; workName: string | null };
   type MenuEntry =
@@ -163,60 +188,97 @@ export function RecordingsList({ initial }: { initial: Recording[] }) {
   }, [recordings, filterKey, sortKey, sortDir]);
 
   const currentRecording = useMemo(
-    () => recordings.find((r) => r.taskId === currentTaskId) ?? null,
-    [recordings, currentTaskId]
+    () => recordings.find((r) => r.id === currentId) ?? null,
+    [recordings, currentId]
   );
 
   const trimDialogRec = useMemo(
-    () => recordings.find((r) => r.taskId === trimDialogTaskId) ?? null,
-    [recordings, trimDialogTaskId]
+    () => recordings.find((r) => r.id === trimDialogId) ?? null,
+    [recordings, trimDialogId]
   );
 
   const handlePlayRow = useCallback(
     (rec: Recording) => {
-      if (currentTaskId === rec.taskId) {
+      if (currentId === rec.id) {
         setIsPlaying((p) => !p);
         return;
       }
-      setCurrentTaskId(rec.taskId);
+      setCurrentId(rec.id);
       setIsPlaying(true);
     },
-    [currentTaskId]
+    [currentId]
   );
 
   const handleTitleSaved = useCallback(
-    (taskId: string, nextTitle: string | null) => {
+    (id: string, nextTitle: string | null) => {
       setRecordings((prev) =>
-        prev.map((r) =>
-          r.taskId === taskId ? { ...r, audioTitle: nextTitle } : r
-        )
+        prev.map((r) => (r.id === id ? { ...r, audioTitle: nextTitle } : r))
       );
     },
     []
   );
 
   const handleDeleted = useCallback(
-    (taskId: string) => {
-      setRecordings((prev) => prev.filter((r) => r.taskId !== taskId));
-      if (currentTaskId === taskId) {
-        setCurrentTaskId(null);
+    (id: string) => {
+      setRecordings((prev) => prev.filter((r) => r.id !== id));
+      if (currentId === id) {
+        setCurrentId(null);
         setIsPlaying(false);
       }
     },
-    [currentTaskId]
+    [currentId]
   );
 
   const handleTrimUpdated = useCallback(
-    (taskId: string, start: number | null, end: number | null) => {
+    (id: string, start: number | null, end: number | null) => {
       setRecordings((prev) =>
         prev.map((r) =>
-          r.taskId === taskId
+          r.id === id
             ? { ...r, trimStartSeconds: start, trimEndSeconds: end }
             : r
         )
       );
     },
     []
+  );
+
+  /**
+   * A save from the dialog: either a brand-new performance (replacedId null)
+   * or a re-record that replaced an existing row. Piece metadata comes from
+   * the caller (picker or the replaced row) — the server row only carries ids.
+   */
+  const handleSaved = useCallback(
+    (
+      saved: SavedRecording,
+      replacedId: string | null,
+      meta: Pick<
+        Recording,
+        "pieceName" | "pieceComposer" | "workName" | "sectionLabel" | "taskText"
+      >
+    ) => {
+      const next: Recording = {
+        id: saved.id,
+        taskId: saved.task_id,
+        pieceId: saved.piece_id,
+        audioPath: saved.audio_path ?? "",
+        durationSeconds: saved.duration_seconds ?? 0,
+        trimStartSeconds: saved.trim_start,
+        trimEndSeconds: saved.trim_end,
+        audioTitle: saved.title,
+        date: saved.date,
+        createdAt: saved.created_at,
+        ...meta,
+      };
+      setRecordings((prev) => [
+        next,
+        ...prev.filter((r) => r.id !== replacedId),
+      ]);
+      if (replacedId && currentId === replacedId) {
+        setCurrentId(null);
+        setIsPlaying(false);
+      }
+    },
+    [currentId]
   );
 
   const toggleSort = useCallback(
@@ -231,79 +293,134 @@ export function RecordingsList({ initial }: { initial: Recording[] }) {
     [sortKey]
   );
 
-  if (recordings.length === 0) {
-    return (
-      <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-        No recordings yet. Record one from a task in the Practice Log.
-      </div>
-    );
-  }
+  const showFilters = pieceOptions.length > 1;
 
   return (
     <div className="space-y-4 pb-24">
-      {pieceOptions.length > 1 && (
-        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors",
-                filterKey
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-              )}
-            >
-              {pieceOptions.find((opt) => opt.key === filterKey)?.label ??
-                "Pieces"}
-              <ChevronDownIcon className="size-3" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="max-h-80">
-              {menuEntries.map((entry) =>
-                entry.kind === "piece" ? (
-                  <DropdownMenuItem
-                    key={entry.option.key}
-                    onClick={() =>
-                      setFilterKey((prev) =>
-                        prev === entry.option.key ? null : entry.option.key
-                      )
-                    }
-                    className={cn(filterKey === entry.option.key && "bg-accent")}
-                  >
-                    {entry.option.label}
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuSub key={`work:${entry.name}`}>
-                    <DropdownMenuSubTrigger
-                      className={cn(
-                        entry.options.some((opt) => opt.key === filterKey) &&
-                          "bg-accent"
-                      )}
-                    >
-                      {entry.name}
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      {entry.options.map((opt) => (
-                        <DropdownMenuItem
-                          key={opt.key}
-                          onClick={() =>
-                            setFilterKey((prev) =>
-                              prev === opt.key ? null : opt.key
-                            )
-                          }
-                          className={cn(filterKey === opt.key && "bg-accent")}
+      {(showFilters || showRecordButton) && (
+        <div className="flex items-center gap-1.5">
+          {showFilters && (
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap transition-colors",
+                    filterKey
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                  )}
+                >
+                  {pieceOptions.find((opt) => opt.key === filterKey)?.label ??
+                    "Pieces"}
+                  <ChevronDownIcon className="size-3" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="max-h-80">
+                  {menuEntries.map((entry) =>
+                    entry.kind === "piece" ? (
+                      <DropdownMenuItem
+                        key={entry.option.key}
+                        onClick={() =>
+                          setFilterKey((prev) =>
+                            prev === entry.option.key ? null : entry.option.key
+                          )
+                        }
+                        className={cn(filterKey === entry.option.key && "bg-accent")}
+                      >
+                        {entry.option.label}
+                      </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuSub key={`work:${entry.name}`}>
+                        <DropdownMenuSubTrigger
+                          className={cn(
+                            entry.options.some((opt) => opt.key === filterKey) &&
+                              "bg-accent"
+                          )}
                         >
-                          {opt.label}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                )
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                          {entry.name}
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent>
+                          {entry.options.map((opt) => (
+                            <DropdownMenuItem
+                              key={opt.key}
+                              onClick={() =>
+                                setFilterKey((prev) =>
+                                  prev === opt.key ? null : opt.key
+                                )
+                              }
+                              className={cn(filterKey === opt.key && "bg-accent")}
+                            >
+                              {opt.label}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                    )
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
+          {showRecordButton && (
+            <div className="ml-auto">
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className={cn(
+                    "inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-3 text-xs font-medium",
+                    "hover:bg-muted/60 transition-colors"
+                  )}
+                >
+                  <MicIcon className="size-3.5" />
+                  Record performance
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="max-h-80 w-56">
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                    What are you performing?
+                  </div>
+                  {activePieces.map((piece) => (
+                    <DropdownMenuItem
+                      key={piece.id}
+                      onClick={() =>
+                        setRecordTarget({
+                          pieceId: piece.id,
+                          pieceName: piece.name,
+                          pieceComposer: piece.composer,
+                          workName: piece.work_id
+                            ? worksById[piece.work_id] ?? null
+                            : null,
+                        })
+                      }
+                    >
+                      {piece.name}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuItem
+                    onClick={() =>
+                      setRecordTarget({
+                        pieceId: null,
+                        pieceName: null,
+                        pieceComposer: null,
+                        workName: null,
+                      })
+                    }
+                  >
+                    <span className="text-muted-foreground">
+                      General (no piece)
+                    </span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
         </div>
       )}
 
-      {visible.length === 0 ? (
+      {recordings.length === 0 ? (
+        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+          {showRecordButton
+            ? "No performances yet. Use “Record performance” to capture one."
+            : "No performance recordings for this piece yet."}
+        </div>
+      ) : visible.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
           No recordings for this piece.
         </div>
@@ -358,11 +475,11 @@ export function RecordingsList({ initial }: { initial: Recording[] }) {
               </thead>
               <tbody>
                 {visible.map((rec) => {
-                  const isCurrent = rec.taskId === currentTaskId;
+                  const isCurrent = rec.id === currentId;
                   const showPause = isCurrent && isPlaying;
                   return (
                     <tr
-                      key={rec.taskId}
+                      key={rec.id}
                       className={cn(
                         "border-t transition-colors",
                         isCurrent
@@ -398,7 +515,7 @@ export function RecordingsList({ initial }: { initial: Recording[] }) {
                       <td className="px-3 py-2 max-w-[16rem]">
                         <NotesCell
                           rec={rec}
-                          onSaved={(t) => handleTitleSaved(rec.taskId, t)}
+                          onSaved={(t) => handleTitleSaved(rec.id, t)}
                         />
                       </td>
                       <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
@@ -407,8 +524,8 @@ export function RecordingsList({ initial }: { initial: Recording[] }) {
                       <td className="px-2 py-2 text-right">
                         <RowMenu
                           rec={rec}
-                          onDeleted={() => handleDeleted(rec.taskId)}
-                          onEditTrim={() => setTrimDialogTaskId(rec.taskId)}
+                          onDeleted={() => handleDeleted(rec.id)}
+                          onEditTrim={() => setTrimDialogId(rec.id)}
                         />
                       </td>
                     </tr>
@@ -421,11 +538,11 @@ export function RecordingsList({ initial }: { initial: Recording[] }) {
           {/* Mobile card list */}
           <ul className="md:hidden space-y-2">
             {visible.map((rec) => {
-              const isCurrent = rec.taskId === currentTaskId;
+              const isCurrent = rec.id === currentId;
               const showPause = isCurrent && isPlaying;
               return (
                 <li
-                  key={rec.taskId}
+                  key={rec.id}
                   className={cn(
                     "rounded-lg border p-3 transition-colors",
                     isCurrent ? "border-primary/60 bg-primary/5" : "bg-card"
@@ -447,13 +564,13 @@ export function RecordingsList({ initial }: { initial: Recording[] }) {
                       </div>
                       <NotesCell
                         rec={rec}
-                        onSaved={(t) => handleTitleSaved(rec.taskId, t)}
+                        onSaved={(t) => handleTitleSaved(rec.id, t)}
                       />
                     </div>
                     <RowMenu
                       rec={rec}
-                      onDeleted={() => handleDeleted(rec.taskId)}
-                      onEditTrim={() => setTrimDialogTaskId(rec.taskId)}
+                      onDeleted={() => handleDeleted(rec.id)}
+                      onEditTrim={() => setTrimDialogId(rec.id)}
                     />
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
@@ -487,17 +604,52 @@ export function RecordingsList({ initial }: { initial: Recording[] }) {
         isPlaying={isPlaying}
         onPlayingChange={setIsPlaying}
         onClose={() => {
-          setCurrentTaskId(null);
+          setCurrentId(null);
           setIsPlaying(false);
         }}
       />
 
+      {/* Fresh performance from the tab: no task, piece from the picker. */}
+      {recordTarget && (
+        <TaskAudioDialog
+          kind="performance"
+          taskId={null}
+          pieceId={recordTarget.pieceId}
+          recordingId={null}
+          open
+          onOpenChange={(open) => {
+            if (!open) setRecordTarget(null);
+          }}
+          initialMode="record"
+          existingAudioPath={null}
+          existingDurationSeconds={null}
+          existingTrimStartSeconds={null}
+          existingTrimEndSeconds={null}
+          existingAudioTitle={null}
+          pieceName={recordTarget.pieceName}
+          sectionLabel={null}
+          taskText="Performance"
+          onSaved={(saved, replacedId) =>
+            handleSaved(saved, replacedId, {
+              pieceName: recordTarget.pieceName,
+              pieceComposer: recordTarget.pieceComposer,
+              workName: recordTarget.workName,
+              sectionLabel: null,
+              taskText: null,
+            })
+          }
+        />
+      )}
+
       {trimDialogRec && (
         <TaskAudioDialog
+          kind="performance"
           taskId={trimDialogRec.taskId}
-          open={trimDialogTaskId !== null}
+          pieceId={trimDialogRec.pieceId}
+          recordingId={trimDialogRec.id}
+          open={trimDialogId !== null}
           onOpenChange={(open) => {
-            if (!open) setTrimDialogTaskId(null);
+            if (!open) setTrimDialogId(null);
           }}
           initialMode="playback"
           existingAudioPath={trimDialogRec.audioPath}
@@ -508,13 +660,22 @@ export function RecordingsList({ initial }: { initial: Recording[] }) {
           pieceName={trimDialogRec.pieceName}
           sectionLabel={trimDialogRec.sectionLabel}
           taskText={trimDialogRec.taskText}
+          onSaved={(saved, replacedId) =>
+            handleSaved(saved, replacedId, {
+              pieceName: trimDialogRec.pieceName,
+              pieceComposer: trimDialogRec.pieceComposer,
+              workName: trimDialogRec.workName,
+              sectionLabel: trimDialogRec.sectionLabel,
+              taskText: trimDialogRec.taskText,
+            })
+          }
           onTrimUpdated={(start, end) =>
-            handleTrimUpdated(trimDialogRec.taskId, start, end)
+            handleTrimUpdated(trimDialogRec.id, start, end)
           }
           onTitleUpdated={(title) =>
-            handleTitleSaved(trimDialogRec.taskId, title)
+            handleTitleSaved(trimDialogRec.id, title)
           }
-          onDeleted={() => handleDeleted(trimDialogRec.taskId)}
+          onDeleted={() => handleDeleted(trimDialogRec.id)}
         />
       )}
     </div>
@@ -592,7 +753,7 @@ function NotesCell({
     if (next === (rec.audioTitle ?? null)) return;
     setSaving(true);
     try {
-      await updateTaskAudioTitle(rec.taskId, next);
+      await updateRecordingTitle(rec.id, next);
       onSaved(next);
     } catch {
       // Leave local state alone; user can retry.
@@ -684,8 +845,8 @@ function RowMenu({
   const onDelete = async () => {
     setOpen(false);
     try {
-      await deleteTaskAudio(rec.taskId);
-      onDeleted();
+      const result = await deleteRecording(rec.id);
+      if (result.ok) onDeleted();
     } catch {
       // No-op; UI stays as-is.
     }
@@ -731,4 +892,3 @@ function RowMenu({
     </>
   );
 }
-

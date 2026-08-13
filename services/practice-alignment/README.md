@@ -21,6 +21,26 @@ per-piece segments (piece, region, hands-separate, confidence).
   ] }
 ```
 
+### Segment mode (plan U2/KTD4)
+
+Recording jobs (known piece) send `mode: "segment"` with at most ONE reference and a
+`recordingId`. The worker transcribes, then aligns each audio window against that
+single reference and coalesces accepted windows into measure spans — no recognition,
+no scale classification. Async payloads go through `/process` (or Modal `process`)
+unchanged; the sync `/align` accepts the same `mode`/`recordingId` fields.
+
+```json
+{ "ok": true, "recordingId": "uuid", "spans": [
+    { "startSec": 0.0, "endSec": 24.0, "measureStart": 9, "measureEnd": 16, "confidence": 0.81 }
+  ],
+  "totalMeasures": 32, "transcriptionMidiB64": "…" }
+```
+
+Span keys match `AlignmentSpan` in `src/lib/types.ts`. Windows under `CONF_FLOOR`
+emit nothing (low confidence ⇒ absent section data, never a negative signal). With
+no reference supplied: transcription-only, `spans: []`, `totalMeasures: 0`. The
+callback envelope echoes `sessionId` and/or `recordingId` from the payload.
+
 ## How it works
 Windowed chroma + subsequence-DTW: the recording is cut into overlapping windows,
 each matched against every reference (both-hands + per-hand templates); per-window

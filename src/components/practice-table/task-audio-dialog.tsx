@@ -34,28 +34,28 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { createSignedPlaybackUrl } from "@/app/practice/timer/audio-actions";
 import {
-  attachTaskAudio,
-  createAudioUploadUrl,
-  createSignedPlaybackUrl,
-  deleteTaskAudio,
-  updateTaskAudioTitle,
-  updateTaskAudioTrim,
-} from "@/app/practice/timer/audio-actions";
+  attachRecording,
+  createRecordingUpload,
+  deleteRecording,
+  updateRecordingTitle,
+  updateRecordingTrim,
+  type SavedRecording,
+} from "@/app/practice/recordings/recording-actions";
+import {
+  effectiveInputDeviceId,
+  formatDeviceLabel,
+  pickMimeType,
+} from "@/lib/practice/capture";
+import {
+  useAudioInputs,
+  useInputDevicePreference,
+} from "@/components/practice/use-capture";
 
 const BUCKET = "task-audio";
 const MAX_RECORDING_SECONDS = 3600;
 const OPUS_BITRATE = 256_000;
-const INPUT_DEVICE_STORAGE_KEY = "task-audio-input-device-id";
-
-function formatDeviceLabel(raw: string): string {
-  if (!raw) return "Microphone";
-  // "Default - Built-in Mic" / "Default: Built-in Mic" → "Built-in Mic"
-  let out = raw.replace(/^Default\s*[-:—]\s*/i, "");
-  // Trailing parenthetical (e.g. "(14ed:1019)")
-  out = out.replace(/\s*\(([^()]*)\)\s*$/, "").trim();
-  return out || raw;
-}
 
 type Mode = "record" | "playback";
 
@@ -74,7 +74,23 @@ type State =
   | { kind: "deleting" };
 
 type Props = {
-  taskId: string;
+  /**
+   * What a fresh take saves as: task-row entry points pass "manual",
+   * the Recordings tab passes "performance" (R10/R11). When a save replaces
+   * an existing row (re-record while editing), the replaced row's kind wins
+   * server-side, so editing a backfilled performance keeps it a performance.
+   */
+  kind: "manual" | "performance";
+  /** Task association for new takes; null when recording from the Recordings tab. */
+  taskId: string | null;
+  /** Piece association for new takes (falls back to the task's piece server-side). */
+  pieceId: string | null;
+  /**
+   * Existing practice_recordings row being played/edited; null when the
+   * dialog opens purely to record. Trim/title/delete apply to this row, and
+   * a re-record + save replaces it (row + audio object).
+   */
+  recordingId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialMode: Mode;
@@ -86,12 +102,9 @@ type Props = {
   pieceName: string | null;
   sectionLabel: string | null;
   taskText: string | null;
-  onAttached?: (
-    path: string,
-    durationSeconds: number,
-    trimStartSeconds: number | null,
-    trimEndSeconds: number | null,
-    audioTitle: string | null
+  onSaved?: (
+    recording: SavedRecording,
+    replacedRecordingId: string | null
   ) => void;
   onTrimUpdated?: (
     trimStartSeconds: number | null,
@@ -100,25 +113,6 @@ type Props = {
   onTitleUpdated?: (audioTitle: string | null) => void;
   onDeleted?: () => void;
 };
-
-// Prefer MP4/AAC so the download opens natively in QuickTime/iTunes/Finder.
-// Safari supports mp4 out of the box; Chrome 110+ and Edge support it in
-// MediaRecorder. Firefox falls back to webm/opus.
-function pickMimeType(): { mime: string; ext: "webm" | "m4a" } {
-  if (typeof MediaRecorder === "undefined") {
-    return { mime: "audio/mp4;codecs=mp4a.40.2", ext: "m4a" };
-  }
-  const candidates: Array<{ mime: string; ext: "webm" | "m4a" }> = [
-    { mime: "audio/mp4;codecs=mp4a.40.2", ext: "m4a" },
-    { mime: "audio/mp4", ext: "m4a" },
-    { mime: "audio/webm;codecs=opus", ext: "webm" },
-    { mime: "audio/webm", ext: "webm" },
-  ];
-  for (const c of candidates) {
-    if (MediaRecorder.isTypeSupported(c.mime)) return c;
-  }
-  return { mime: "", ext: "webm" };
-}
 
 export function formatNotesDefault(
   sectionLabel: string | null,
@@ -137,7 +131,10 @@ function formatTime(seconds: number): string {
 }
 
 export function TaskAudioDialog({
+  kind,
   taskId,
+  pieceId,
+  recordingId,
   open,
   onOpenChange,
   initialMode,
@@ -149,7 +146,7 @@ export function TaskAudioDialog({
   pieceName,
   sectionLabel,
   taskText,
-  onAttached,
+  onSaved,
   onTrimUpdated,
   onTitleUpdated,
   onDeleted,
@@ -178,15 +175,14 @@ export function TaskAudioDialog({
   const [titleBaseline, setTitleBaseline] = useState<string>("");
   const titleInputRef = useRef<HTMLInputElement>(null);
   const titleAutoSelectRef = useRef(false);
-  const [availableInputs, setAvailableInputs] = useState<MediaDeviceInfo[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try {
-      return localStorage.getItem(INPUT_DEVICE_STORAGE_KEY);
-    } catch {
-      return null;
-    }
-  });
+  const {
+    inputs: availableInputs,
+    concreteInputs,
+    refreshInputs: refreshAvailableInputs,
+    probeAndRefreshInputs,
+  } = useAudioInputs();
+  const { deviceId: selectedDeviceId, chooseDevice: handleSelectDevice } =
+    useInputDevicePreference();
   const [monitorStream, setMonitorStream] = useState<MediaStream | null>(null);
   const monitorStreamRef = useRef<MediaStream | null>(null);
 
@@ -206,53 +202,11 @@ export function TaskAudioDialog({
     setMonitorStream(null);
   }, []);
 
-  const refreshAvailableInputs = useCallback(async () => {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) {
-      return;
-    }
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      setAvailableInputs(devices.filter((d) => d.kind === "audioinput"));
-    } catch {}
-  }, []);
-
-  // Browsers withhold device labels — and collapse the input list to a single
-  // generic placeholder — until getUserMedia has been granted at least once on
-  // the page. Without this probe, enumerateDevices on dialog open can't see or
-  // name external interfaces (e.g. a USB audio device), so the picker only
-  // offers "System default" + an unlabeled "Microphone". Acquire a throwaway
-  // stream to unlock permission, stop it immediately, then re-enumerate so the
-  // full, labeled device list (including external inputs) populates the picker.
-  const probeAndRefreshInputs = useCallback(async () => {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      await refreshAvailableInputs();
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((t) => t.stop());
-    } catch {
-      // Permission denied or unavailable — the Record button surfaces the
-      // error. Still enumerate so any already-permitted devices show up.
-    }
-    await refreshAvailableInputs();
-  }, [refreshAvailableInputs]);
-
-  // Concrete inputs for the picker — exclude pseudo "default"/"communications".
-  const concreteInputs = useMemo(
-    () =>
-      availableInputs.filter(
-        (d) => d.deviceId !== "default" && d.deviceId !== "communications"
-      ),
-    [availableInputs]
-  );
-
   // If the saved selection no longer exists, treat it as system default.
-  const effectiveDeviceId = useMemo(() => {
-    if (!selectedDeviceId) return null;
-    const found = availableInputs.some((d) => d.deviceId === selectedDeviceId);
-    return found ? selectedDeviceId : null;
-  }, [selectedDeviceId, availableInputs]);
+  const effectiveDeviceId = useMemo(
+    () => effectiveInputDeviceId(selectedDeviceId, availableInputs),
+    [selectedDeviceId, availableInputs]
+  );
 
   const displayLabel = useMemo(() => {
     if (!effectiveDeviceId) {
@@ -266,14 +220,6 @@ export function TaskAudioDialog({
     if (dev?.label) return formatDeviceLabel(dev.label);
     return "Microphone";
   }, [effectiveDeviceId, availableInputs, concreteInputs]);
-
-  const handleSelectDevice = useCallback((id: string | null) => {
-    setSelectedDeviceId(id);
-    try {
-      if (id) localStorage.setItem(INPUT_DEVICE_STORAGE_KEY, id);
-      else localStorage.removeItem(INPUT_DEVICE_STORAGE_KEY);
-    } catch {}
-  }, []);
 
   const teardownWavesurfer = useCallback(() => {
     try {
@@ -583,17 +529,17 @@ export function TaskAudioDialog({
   const titleDirty = state.kind === "playback" && title.trim() !== titleBaseline;
 
   const saveTitle = useCallback(async () => {
-    if (state.kind !== "playback") return;
+    if (state.kind !== "playback" || !recordingId) return;
     const trimmed = title.trim();
     const next = trimmed ? trimmed : null;
     try {
-      await updateTaskAudioTitle(taskId, next);
+      await updateRecordingTitle(recordingId, next);
       setTitleBaseline(trimmed);
       onTitleUpdated?.(next);
     } catch {
       // Leave local state; user can retry by editing again.
     }
-  }, [onTitleUpdated, state.kind, taskId, title]);
+  }, [onTitleUpdated, state.kind, recordingId, title]);
 
   const stopRecording = useCallback(() => {
     const plugin = recordPluginRef.current;
@@ -686,7 +632,10 @@ export function TaskAudioDialog({
     setState({ kind: "saving" });
     try {
       const ext: "webm" | "m4a" = mime.startsWith("audio/mp4") ? "m4a" : "webm";
-      const { path, token } = await createAudioUploadUrl(taskId, ext);
+      // Row is inserted only after the upload succeeds (see
+      // createRecordingUpload) — a failed/abandoned save leaves no row.
+      const { recordingId: newId, path, token } =
+        await createRecordingUpload(ext);
       const supabase = createClient();
       const { error } = await supabase.storage
         .from(BUCKET)
@@ -695,27 +644,37 @@ export function TaskAudioDialog({
           contentType: mime || undefined,
         });
       if (error) throw error;
-      await attachTaskAudio(
+      const saved = await attachRecording({
+        recordingId: newId,
+        kind,
         taskId,
-        path,
-        duration,
-        trimStartToSave,
-        trimEndToSave,
-        titleToSave
-      );
-      onAttached?.(
-        path,
-        Math.max(0, Math.round(duration)),
-        trimStartToSave,
-        trimEndToSave,
-        titleToSave
-      );
+        pieceId,
+        audioPath: path,
+        durationSeconds: duration,
+        trimStartSeconds: trimStartToSave,
+        trimEndSeconds: trimEndToSave,
+        title: titleToSave,
+        // Re-record while editing an existing row replaces it (row + object).
+        replaceRecordingId: recordingId,
+      });
+      onSaved?.(saved, recordingId);
       onOpenChange(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Upload failed";
       setState({ ...state, kind: "save-error", message });
     }
-  }, [onAttached, onOpenChange, state, taskId, trimStart, trimEnd, title]);
+  }, [
+    kind,
+    onSaved,
+    onOpenChange,
+    recordingId,
+    state,
+    taskId,
+    pieceId,
+    trimStart,
+    trimEnd,
+    title,
+  ]);
 
   const reRecordFromPlayback = useCallback(() => {
     teardownWavesurfer();
@@ -762,10 +721,10 @@ export function TaskAudioDialog({
     (trimEnd ?? null) !== (trimBaseline.end ?? null);
 
   const saveTrim = useCallback(async () => {
-    if (state.kind !== "playback") return;
+    if (state.kind !== "playback" || !recordingId) return;
     setSavingTrim(true);
     try {
-      await updateTaskAudioTrim(taskId, trimStart, trimEnd);
+      await updateRecordingTrim(recordingId, trimStart, trimEnd);
       setTrimBaseline({ start: trimStart, end: trimEnd });
       onTrimUpdated?.(trimStart, trimEnd);
     } catch {
@@ -773,20 +732,21 @@ export function TaskAudioDialog({
     } finally {
       setSavingTrim(false);
     }
-  }, [onTrimUpdated, state.kind, taskId, trimStart, trimEnd]);
+  }, [onTrimUpdated, state.kind, recordingId, trimStart, trimEnd]);
 
-  const deleteRecording = useCallback(async () => {
-    if (!existingAudioPath) return;
+  const deleteExisting = useCallback(async () => {
+    if (!recordingId) return;
     setState({ kind: "deleting" });
     try {
-      await deleteTaskAudio(taskId);
+      const result = await deleteRecording(recordingId);
+      if (!result.ok) throw new Error(result.error ?? "Delete failed");
       onDeleted?.();
       onOpenChange(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Delete failed";
       setState({ kind: "playback-error", message });
     }
-  }, [existingAudioPath, onDeleted, onOpenChange, taskId]);
+  }, [recordingId, onDeleted, onOpenChange]);
 
   const totalDuration = (() => {
     if (state.kind === "preview" || state.kind === "save-error") return state.duration;
@@ -865,7 +825,7 @@ export function TaskAudioDialog({
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   variant="destructive"
-                  onClick={deleteRecording}
+                  onClick={deleteExisting}
                 >
                   <Trash2Icon />
                   Delete
