@@ -379,6 +379,29 @@ export function TaskRow({
     }
   };
 
+  // The transport bar's "Done" button asks the owning row to finish itself so
+  // the follow-up dialog, auto-advance, and optimistic state all run in one
+  // place. The row acknowledges synchronously; if no row is mounted for that
+  // task the bar falls back to a plain completion.
+  const completeRequestRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    completeRequestRef.current = () => {
+      if (optimisticCompleted) return;
+      handleComplete();
+    };
+  });
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ taskId: string; handled: boolean }>)
+        .detail;
+      if (detail.taskId !== task.id) return;
+      detail.handled = true;
+      completeRequestRef.current();
+    };
+    window.addEventListener("task-request-complete", handler);
+    return () => window.removeEventListener("task-request-complete", handler);
+  }, [task.id]);
+
   const tomorrowDate = (() => {
     const d = new Date(task.date + "T12:00:00");
     d.setDate(d.getDate() + 1);
@@ -592,21 +615,11 @@ export function TaskRow({
       {/* Row content — Notion-style: bordered cells, no fill */}
       <div
         className={cn(
-          "flex-1 min-w-0 grid grid-cols-[32px_128px_72px_56px_1fr] items-stretch text-xs transition-colors",
+          "flex-1 min-w-0 grid grid-cols-[128px_72px_56px_1fr_32px] items-stretch text-xs transition-colors",
           isActive ? cn(activeRowBg, "text-white") : "text-foreground",
           optimisticCompleted && "opacity-50"
         )}
       >
-        {/* Complete checkbox — no frame borders, only a right divider */}
-        <div className="flex items-center justify-center px-2 py-1.5">
-          <input
-            type="checkbox"
-            checked={optimisticCompleted}
-            onChange={handleComplete}
-            className="size-3.5 rounded"
-          />
-        </div>
-
         {/* Timer + goal */}
         <div
           className={cn(
@@ -827,6 +840,19 @@ export function TaskRow({
               <AudioLinesIcon className="size-3.5" />
             </button>
           )}
+        </div>
+
+        {/* Complete checkbox — deliberately at the far end of the row, away
+            from the timer's start button, since starting and finishing happen
+            at opposite ends of an item's life. Sits outside the cell frame. */}
+        <div className="flex items-center justify-center px-2 py-1.5">
+          <input
+            type="checkbox"
+            checked={optimisticCompleted}
+            onChange={handleComplete}
+            aria-label="Mark complete"
+            className="size-3.5 rounded"
+          />
         </div>
       </div>
       <FollowUpDialog
