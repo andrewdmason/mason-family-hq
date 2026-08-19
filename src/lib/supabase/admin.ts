@@ -15,19 +15,29 @@ const isLocalSupabase =
  * stamping auth claims). Never expose to the browser.
  */
 export function createAdminClient() {
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceRoleKey) {
-    // Only fall back to the committed local key when we're genuinely pointed at
-    // a local Supabase instance. Against any remote DB, refuse loudly — handing
-    // the local key to a remote project yields a baffling "Invalid API key".
-    if (!isLocalSupabase) {
-      throw new Error(
-        "SUPABASE_SERVICE_ROLE_KEY is required when not targeting a local Supabase instance."
-      );
-    }
-    return createClient(supabaseUrl, LOCAL_SERVICE_ROLE_KEY, {
+  // Local wins over SUPABASE_SERVICE_ROLE_KEY on purpose. That variable holds a
+  // PRODUCTION secret — the one-off import/backfill scripts need it to write to
+  // prod — so it's present in .env.local even while the app is pointed at a
+  // local Supabase. Handing a prod secret to local GoTrue gets rejected, and the
+  // failure surfaces as a baffling "This endpoint requires a valid Bearer token"
+  // from routes that pass the upstream message through (e.g. dev-login).
+  // SUPABASE_LOCAL_SERVICE_ROLE_KEY is the escape hatch for a local instance
+  // that isn't using the well-known demo keys.
+  if (isLocalSupabase) {
+    const localKey =
+      process.env.SUPABASE_LOCAL_SERVICE_ROLE_KEY ?? LOCAL_SERVICE_ROLE_KEY;
+    return createClient(supabaseUrl, localKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
+  }
+
+  // Against any remote DB, refuse loudly rather than falling back to the local
+  // key — that yields a baffling "Invalid API key".
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceRoleKey) {
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY is required when not targeting a local Supabase instance."
+    );
   }
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
