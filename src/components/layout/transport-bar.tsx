@@ -2,18 +2,20 @@
 
 import { useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { SquareIcon, PlayIcon } from "lucide-react";
+import { CheckIcon, ClockIcon } from "lucide-react";
 import { useTaskTimer } from "@/components/timer/task-timer-context";
 import { MetronomeControl } from "@/components/metronome/metronome-control";
 import { Popover, PopoverContent } from "@/components/ui/popover";
 import { formatElapsed } from "@/lib/timer-utils";
 import {
+  completeTask,
   createTask,
   getNextTaskForToday,
 } from "@/app/practice/timer/task-actions";
 import { localDate } from "@/lib/date-utils";
 import {
   emitOptimisticTask,
+  emitOptimisticTaskUpdate,
   rollbackOptimisticTask,
 } from "@/lib/optimistic-task";
 import type { Piece } from "@/lib/types";
@@ -41,6 +43,7 @@ export function TransportBar() {
     loadedTaskId,
     loadedTaskMeta,
     loadedRemaining,
+    unloadLoadedTask,
   } = useTaskTimer();
 
   const [piecePickerOpen, setPiecePickerOpen] = useState(false);
@@ -124,6 +127,25 @@ export function TransportBar() {
     setPiecePickerOpen(true);
   };
 
+  // Finishing an item happens here, at the end of the work, rather than at a
+  // checkbox sitting next to the row's start button. Hand the completion to the
+  // task's own row so the follow-up dialog and auto-advance still run; only if
+  // that row isn't mounted (filtered out of the current view) do we complete it
+  // directly, so the bar is never a dead end.
+  const handleDone = () => {
+    const taskId = activeTaskId ?? loadedTaskId;
+    if (!taskId) return;
+
+    const detail = { taskId, handled: false };
+    window.dispatchEvent(new CustomEvent("task-request-complete", { detail }));
+    if (detail.handled) return;
+
+    if (isActive) pauseTaskTimer();
+    unloadLoadedTask();
+    emitOptimisticTaskUpdate(taskId, { completed: true });
+    void completeTask(taskId);
+  };
+
   const handlePickPiece = async (piece: Piece) => {
     setPiecePickerOpen(false);
     await startTimerForPiece(piece);
@@ -178,11 +200,7 @@ export function TransportBar() {
                   : "Start practice timer"
             }
           >
-            {isActive ? (
-              <SquareIcon className="size-5 fill-current" />
-            ) : (
-              <PlayIcon className="size-5 fill-current" />
-            )}
+            <ClockIcon className="size-5" />
           </button>
 
           <Popover open={piecePickerOpen} onOpenChange={setPiecePickerOpen}>
@@ -303,6 +321,24 @@ export function TransportBar() {
               </div>
             )}
           </div>
+
+          {hasTask && (
+            <button
+              type="button"
+              onClick={handleDone}
+              aria-label="Mark this item done"
+              title="Mark done"
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium transition-colors",
+                isActive
+                  ? "bg-white/20 text-white hover:bg-white/30"
+                  : "bg-muted text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
+              )}
+            >
+              <CheckIcon className="size-4" />
+              <span className="hidden sm:inline">Done</span>
+            </button>
+          )}
 
           <div className="shrink-0">
             <MetronomeControl onAccent={isActive} />
