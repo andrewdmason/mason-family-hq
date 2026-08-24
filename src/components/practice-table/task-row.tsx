@@ -14,6 +14,8 @@ import {
   ArrowRightIcon,
   AudioLinesIcon,
   CalendarArrowUpIcon,
+  ArchiveIcon,
+  RepeatIcon,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -41,6 +43,7 @@ import {
   uncompleteTask,
 } from "@/app/practice/timer/task-actions";
 import {
+  createTaskOptimistic,
   emitOptimisticTask,
   emitOptimisticTaskDelete,
   emitOptimisticTaskRename,
@@ -49,7 +52,7 @@ import {
   type FocusTaskNotesDetail,
 } from "@/lib/optimistic-task";
 import { TaskAudioDialog } from "@/components/practice-table/task-audio-dialog";
-import { FollowUpDialog } from "@/components/practice-table/follow-up-dialog";
+import { emitFollowUpScheduled } from "@/components/practice-table/follow-up-toast";
 import {
   getCachedSectionPickerData,
   loadSectionPickerData,
@@ -66,13 +69,11 @@ export function TaskRow({
   isFirst,
   onAddBelow,
   daySessionNumbers,
-  sessionNumbersByDate,
 }: {
   task: TaskWithDetails;
   isFirst: boolean;
   onAddBelow: (afterTaskId: string) => void;
   daySessionNumbers: number[];
-  sessionNumbersByDate: Record<string, number[]>;
 }) {
   const {
     activeTaskId,
@@ -145,7 +146,6 @@ export function TaskRow({
   const [audioDialogMode, setAudioDialogMode] = useState<"record" | "playback">(
     "record"
   );
-  const [followUpOpen, setFollowUpOpen] = useState(false);
   const hasAudio = !!task.audio_path;
   const openAudioDialog = useCallback(
     (mode: "record" | "playback") => {
@@ -347,42 +347,91 @@ export function TaskRow({
     requestAnimationFrame(() => metronomeRef.current?.focus());
   };
 
-  const handleComplete = () => {
-    const nextValue = !optimisticCompleted;
-    setOptimisticCompleted(nextValue);
-    if (nextValue) {
-      const wasActive = isActive;
-      if (wasActive) pauseTaskTimer();
-      // If this task is the one the transport bar has loaded (either the
-      // running task we just paused, or a previously-paused task), clear
-      // it so the bar doesn't offer to resume a completed task.
-      if (loadedTaskId === task.id || wasActive) unloadLoadedTask();
-      void completeTask(task.id);
-      if (wasActive) {
-        window.dispatchEvent(
-          new CustomEvent("task-auto-advance", {
-            detail: { completedTaskId: task.id, dayDate: task.date },
-          })
-        );
-      }
-      // Kick off section data fetch in parallel with dialog open so the
-      // picker is warm by the time the user reaches for it.
-      if (task.piece_id) void loadSectionPickerData(task.piece_id);
-      setFollowUpOpen(true);
+  const tomorrowDate = (() => {
+    const d = new Date(task.date + "T12:00:00");
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  })();
+  const dayAfterDate = (() => {
+    const d = new Date(task.date + "T12:00:00");
+    d.setDate(d.getDate() + 2);
+    return d.toISOString().slice(0, 10);
+  })();
+
+  // Put tomorrow's copy on the board right away rather than stopping to ask.
+  // The toast that follows is the escape hatch for anyone who wanted to change
+  // something about it.
+  const scheduleFollowUp = async () => {
+    // Warm the section picker so the sheet is ready if the toast is taken up on.
+    if (task.piece_id) void loadSectionPickerData(task.piece_id);
+    const created = await createTaskOptimistic({
+      pieceId: task.piece_id,
+      sectionId: optimisticSection.sectionId,
+      date: tomorrowDate,
+      text,
+      metronomeSpeed: optimisticMetronomeSpeed,
+      timerSeconds: optimisticGoalSeconds,
+      pieceName: task.piece_name,
+      pieceComposer: task.piece_composer,
+      pieceKind: task.piece_kind,
+      sectionLabel: optimisticSection.label,
+      sectionStatus: optimisticSection.status,
+      sessionNumber: task.session_number,
+    });
+    emitFollowUpScheduled({
+      taskId: created.id,
+      pieceName: task.piece_name,
+      targetDate: tomorrowDate,
+      tomorrowDate,
+      dayAfterDate,
+      sessionNumber: task.session_number,
+      defaults: {
+        pieceId: task.piece_id,
+        pieceName: task.piece_name,
+        pieceComposer: task.piece_composer,
+        pieceKind: task.piece_kind,
+        sectionId: optimisticSection.sectionId,
+        sectionLabel: optimisticSection.label,
+        sectionStatus: optimisticSection.status,
+        metronomeSpeed: optimisticMetronomeSpeed,
+        timerSeconds: optimisticGoalSeconds,
+        text,
+      },
+    });
+  };
+
+  const archive = (withFollowUp: boolean) => {
+    setOptimisticCompleted(true);
+    const wasActive = isActive;
+    if (wasActive) pauseTaskTimer();
+    // If this task is the one the transport bar has loaded (either the
+    // running task we just paused, or a previously-paused task), clear
+    // it so the bar doesn't offer to resume an archived task.
+    if (loadedTaskId === task.id || wasActive) unloadLoadedTask();
+    void completeTask(task.id);
+    if (wasActive) {
       window.dispatchEvent(
-        new CustomEvent("follow-up-dialog-opened", {
-          detail: { dayDate: task.date, taskId: task.id },
+        new CustomEvent("task-auto-advance", {
+          detail: { completedTaskId: task.id, dayDate: task.date },
         })
       );
-    } else {
-      void uncompleteTask(task.id);
     }
+    if (withFollowUp) void scheduleFollowUp();
+  };
+
+  const handleComplete = () => {
+    if (optimisticCompleted) {
+      setOptimisticCompleted(false);
+      void uncompleteTask(task.id);
+      return;
+    }
+    archive(false);
   };
 
   // The transport bar's "Done" button asks the owning row to finish itself so
-  // the follow-up dialog, auto-advance, and optimistic state all run in one
-  // place. The row acknowledges synchronously; if no row is mounted for that
-  // task the bar falls back to a plain completion.
+  // auto-advance and optimistic state run in one place. The row acknowledges
+  // synchronously; if no row is mounted for that task the bar falls back to a
+  // plain completion.
   const completeRequestRef = useRef<() => void>(() => {});
   useEffect(() => {
     completeRequestRef.current = () => {
@@ -401,17 +450,6 @@ export function TaskRow({
     window.addEventListener("task-request-complete", handler);
     return () => window.removeEventListener("task-request-complete", handler);
   }, [task.id]);
-
-  const tomorrowDate = (() => {
-    const d = new Date(task.date + "T12:00:00");
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10);
-  })();
-  const dayAfterDate = (() => {
-    const d = new Date(task.date + "T12:00:00");
-    d.setDate(d.getDate() + 2);
-    return d.toISOString().slice(0, 10);
-  })();
 
   const handleSectionPickerOpenChange = (open: boolean) => {
     setSectionPickerOpen(open);
@@ -615,7 +653,7 @@ export function TaskRow({
       {/* Row content — Notion-style: bordered cells, no fill */}
       <div
         className={cn(
-          "flex-1 min-w-0 grid grid-cols-[128px_72px_56px_1fr_32px] items-stretch text-xs transition-colors",
+          "flex-1 min-w-0 grid grid-cols-[128px_72px_56px_1fr_52px] items-stretch text-xs transition-colors",
           isActive ? cn(activeRowBg, "text-white") : "text-foreground",
           optimisticCompleted && "opacity-50"
         )}
@@ -842,49 +880,51 @@ export function TaskRow({
           )}
         </div>
 
-        {/* Complete checkbox — deliberately at the far end of the row, away
-            from the timer's start button, since starting and finishing happen
-            at opposite ends of an item's life. Sits outside the cell frame. */}
-        <div className="flex items-center justify-center px-2 py-1.5">
-          <input
-            type="checkbox"
-            checked={optimisticCompleted}
-            onChange={handleComplete}
-            aria-label="Mark complete"
-            className="size-3.5 rounded"
-          />
+        {/* Archive actions — deliberately at the far end of the row, away from
+            the timer's start button, since starting and finishing happen at
+            opposite ends of an item's life. Hidden until the row is hovered so
+            a day of practice reads as text, not as a column of controls; an
+            already-archived row keeps its button so it can be brought back. */}
+        <div
+          className={cn(
+            "flex items-center justify-end gap-0.5 px-1 py-1.5 transition-opacity",
+            optimisticCompleted
+              ? "opacity-100"
+              : "opacity-0 focus-within:opacity-100 group-hover/task:opacity-100"
+          )}
+        >
+          {!optimisticCompleted && (
+            <button
+              type="button"
+              onClick={() => archive(true)}
+              aria-label="Archive and repeat tomorrow"
+              title="Archive and repeat tomorrow"
+              className={cn(
+                "flex size-5 items-center justify-center rounded-sm transition-colors",
+                isActive
+                  ? "text-white/70 hover:bg-white/20 hover:text-white"
+                  : "text-muted-foreground/60 hover:bg-muted hover:text-foreground"
+              )}
+            >
+              <RepeatIcon className="size-3.5" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleComplete}
+            aria-label={optimisticCompleted ? "Un-archive" : "Archive"}
+            title={optimisticCompleted ? "Un-archive" : "Archive"}
+            className={cn(
+              "flex size-5 items-center justify-center rounded-sm transition-colors",
+              isActive
+                ? "text-white/70 hover:bg-white/20 hover:text-white"
+                : "text-muted-foreground/60 hover:bg-muted hover:text-foreground"
+            )}
+          >
+            <ArchiveIcon className="size-3.5" />
+          </button>
         </div>
       </div>
-      <FollowUpDialog
-        open={followUpOpen}
-        onOpenChange={(open) => {
-          setFollowUpOpen(open);
-          if (!open) {
-            window.dispatchEvent(
-              new CustomEvent("follow-up-dialog-closed", {
-                detail: { dayDate: task.date },
-              })
-            );
-          }
-        }}
-        tomorrowDate={tomorrowDate}
-        dayAfterDate={dayAfterDate}
-        tomorrowSessions={sessionNumbersByDate[tomorrowDate] ?? []}
-        dayAfterSessions={sessionNumbersByDate[dayAfterDate] ?? []}
-        defaultSessionNumber={task.session_number}
-        defaults={{
-          pieceId: task.piece_id,
-          pieceName: task.piece_name,
-          pieceComposer: task.piece_composer,
-          pieceKind: task.piece_kind,
-          sectionId: optimisticSection.sectionId,
-          sectionLabel: optimisticSection.label,
-          sectionStatus: optimisticSection.status,
-          metronomeSpeed: optimisticMetronomeSpeed,
-          timerSeconds: optimisticGoalSeconds,
-          text: text,
-        }}
-      />
       <TaskAudioDialog
         taskId={task.id}
         open={audioDialogOpen}

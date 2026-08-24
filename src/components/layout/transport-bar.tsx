@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { CheckIcon, ClockIcon } from "lucide-react";
+import { CheckIcon, ClockIcon, PauseIcon } from "lucide-react";
 import { useTaskTimer } from "@/components/timer/task-timer-context";
 import { MetronomeControl } from "@/components/metronome/metronome-control";
 import { Popover, PopoverContent } from "@/components/ui/popover";
@@ -127,11 +127,11 @@ export function TransportBar() {
     setPiecePickerOpen(true);
   };
 
-  // Finishing an item happens here, at the end of the work, rather than at a
-  // checkbox sitting next to the row's start button. Hand the completion to the
-  // task's own row so the follow-up dialog and auto-advance still run; only if
-  // that row isn't mounted (filtered out of the current view) do we complete it
-  // directly, so the bar is never a dead end.
+  // Finishing an item happens here, at the end of the work, rather than at an
+  // archive button sitting next to the row's start button. Hand the completion
+  // to the task's own row so auto-advance and its optimistic state still run;
+  // only if that row isn't mounted (filtered out of the current view) do we
+  // complete it directly, so the bar is never a dead end.
   const handleDone = () => {
     const taskId = activeTaskId ?? loadedTaskId;
     if (!taskId) return;
@@ -194,13 +194,19 @@ export function TransportBar() {
             )}
             aria-label={
               isActive
-                ? "Stop practice timer"
+                ? "Pause practice timer"
                 : isLoaded
                   ? "Resume practice timer"
                   : "Start practice timer"
             }
           >
-            <ClockIcon className="size-5" />
+            {/* Running, the button's job is to stop — say so. Paused or idle it
+                stays the clock, matching the rows it starts. */}
+            {isActive ? (
+              <PauseIcon className="size-5 fill-current" />
+            ) : (
+              <ClockIcon className="size-5" />
+            )}
           </button>
 
           <Popover open={piecePickerOpen} onOpenChange={setPiecePickerOpen}>

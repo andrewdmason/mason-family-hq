@@ -15,7 +15,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { createTaskOptimistic } from "@/lib/optimistic-task";
+import { updateFollowUpTask } from "@/app/practice/timer/task-actions";
+import {
+  emitOptimisticTask,
+  emitOptimisticTaskDelete,
+  emitOptimisticTaskRename,
+  emitOptimisticTaskUpdate,
+  rollbackOptimisticTask,
+} from "@/lib/optimistic-task";
 import {
   getCachedSectionPickerData,
   loadSectionPickerData,
@@ -46,10 +53,18 @@ export type FollowUpDefaults = {
 };
 
 
+/**
+ * Edits a follow-up item that already exists. Archiving with the repeat action
+ * creates tomorrow's copy outright and only offers this sheet through the
+ * confirmation toast, so the sheet's job is to amend that copy — never to
+ * create a second one.
+ */
 export function FollowUpDialog({
   open,
   onOpenChange,
+  taskId,
   defaults,
+  initialDate,
   tomorrowDate,
   dayAfterDate,
   tomorrowSessions,
@@ -58,7 +73,9 @@ export function FollowUpDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  taskId: string;
   defaults: FollowUpDefaults;
+  initialDate: string;
   tomorrowDate: string;
   dayAfterDate: string;
   tomorrowSessions: number[];
@@ -73,7 +90,7 @@ export function FollowUpDialog({
     defaults.metronomeSpeed?.toString() ?? ""
   );
   const [timerSeconds, setTimerSeconds] = useState(defaults.timerSeconds);
-  const [targetDate, setTargetDate] = useState<string>(tomorrowDate);
+  const [targetDate, setTargetDate] = useState<string>(initialDate);
   const [sessionNumber, setSessionNumber] = useState<number>(
     defaultSessionNumber
   );
@@ -111,7 +128,7 @@ export function FollowUpDialog({
       sectionStatus: d.sectionStatus,
     });
     setSectionPickerData(d.pieceId ? getCachedSectionPickerData(d.pieceId) : null);
-    setTargetDate(tomorrowDate);
+    setTargetDate(initialDate);
     setSessionNumber(defaultSessionNumber);
     // base-ui's focus trap initializes after the open transition; defer focus
     // until after that so our textarea wins over the dialog's default target.
@@ -124,7 +141,7 @@ export function FollowUpDialog({
       if (el.value.length > 0) el.select();
     }, 60);
     return () => clearTimeout(t);
-  }, [open, tomorrowDate, defaultSessionNumber]);
+  }, [open, initialDate, defaultSessionNumber]);
 
   // Lazy-load sections for the picker
   useEffect(() => {
@@ -180,9 +197,38 @@ export function FollowUpDialog({
     (_, i) => i + 1
   );
 
-  const handleAdd = () => {
+  const handleSave = () => {
     onOpenChange(false);
-    void createTaskOptimistic({
+
+    const edits = {
+      date: targetDate,
+      sessionNumber,
+      sectionId: section.sectionId,
+      metronomeSpeed,
+      timerSeconds,
+      text,
+    };
+
+    // Same day: patch the row in place. Different day: the feed keys rows by
+    // day, so lift the row out and drop a copy on the new one rather than
+    // leaving it stranded until revalidation.
+    if (targetDate === initialDate) {
+      emitOptimisticTaskUpdate(taskId, {
+        session_number: sessionNumber,
+        section_id: section.sectionId,
+        section_label: section.sectionLabel,
+        section_status: section.sectionStatus,
+        metronome_speed: metronomeSpeed,
+        timer_seconds: timerSeconds,
+        timer_remaining_seconds: timerSeconds,
+        text,
+      });
+      void updateFollowUpTask(taskId, edits);
+      return;
+    }
+
+    emitOptimisticTaskDelete(taskId);
+    const tempId = emitOptimisticTask({
       pieceId: defaults.pieceId,
       sectionId: section.sectionId,
       date: targetDate,
@@ -196,13 +242,19 @@ export function FollowUpDialog({
       sectionStatus: section.sectionStatus,
       sessionNumber,
     });
+    void updateFollowUpTask(taskId, edits)
+      .then(() => emitOptimisticTaskRename(tempId, taskId))
+      .catch((err) => {
+        rollbackOptimisticTask(tempId);
+        throw err;
+      });
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Plan a follow-up</DialogTitle>
+          <DialogTitle>Edit follow-up</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
@@ -360,10 +412,10 @@ export function FollowUpDialog({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault();
-                  handleAdd();
+                  handleSave();
                 }
               }}
-              placeholder="What to focus on tomorrow…"
+              placeholder="What to focus on next time…"
               rows={3}
               className="w-full rounded border border-input bg-transparent px-2 py-1.5 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
             />
@@ -372,11 +424,9 @@ export function FollowUpDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Skip
+            Cancel
           </Button>
-          <Button onClick={handleAdd}>
-            {targetDate === dayAfterDate ? "Add to day after" : "Add to tomorrow"}
-          </Button>
+          <Button onClick={handleSave}>Save</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

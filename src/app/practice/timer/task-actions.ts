@@ -402,6 +402,65 @@ export async function duplicateTask(
   return { id: newTask.id, date: targetDate };
 }
 
+/**
+ * Save edits to a follow-up item that was already created by the row's
+ * "archive and repeat tomorrow" action. Everything the follow-up sheet can
+ * change moves in one write; the timer hasn't run yet, so remaining tracks
+ * the goal. Moving the item to a different day re-appends it there, matching
+ * moveTaskToDate's placement.
+ */
+export async function updateFollowUpTask(
+  taskId: string,
+  input: {
+    date: string;
+    sessionNumber: number;
+    sectionId: string | null;
+    metronomeSpeed: number | null;
+    timerSeconds: number;
+    text: string;
+  }
+): Promise<void> {
+  const supabase = await createClient();
+
+  const { data: source } = await supabase
+    .from("practice_tasks")
+    .select("piece_id, date")
+    .eq("id", taskId)
+    .single();
+
+  if (!source) throw new Error("Task not found");
+
+  const update: Record<string, unknown> = {
+    date: input.date,
+    session_number: input.sessionNumber,
+    section_id: input.sectionId,
+    metronome_speed: input.metronomeSpeed,
+    timer_seconds: input.timerSeconds,
+    timer_remaining_seconds: input.timerSeconds,
+    text: input.text,
+  };
+
+  if (source.date !== input.date) {
+    let sortQuery = supabase
+      .from("practice_tasks")
+      .select("sort_order")
+      .eq("date", input.date)
+      .order("sort_order", { ascending: false })
+      .limit(1);
+
+    sortQuery = source.piece_id
+      ? sortQuery.eq("piece_id", source.piece_id)
+      : sortQuery.is("piece_id", null);
+
+    const { data: maxRow } = await sortQuery.maybeSingle();
+    update.sort_order = (maxRow?.sort_order ?? -1) + 1;
+  }
+
+  await supabase.from("practice_tasks").update(update).eq("id", taskId);
+
+  revalidatePath("/practice");
+}
+
 export async function moveTaskToDate(
   taskId: string,
   targetDate: string
