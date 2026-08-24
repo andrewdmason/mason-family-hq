@@ -49,6 +49,7 @@ import {
   type OptimisticTaskUpdate,
   type OptimisticTaskDelete,
 } from "@/lib/optimistic-task";
+import { FollowUpToastHost } from "@/components/practice-table/follow-up-toast";
 import { localDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 import {
@@ -281,14 +282,12 @@ function SortablePieceGroup({
   onAddTask,
   daySessionNumbers,
   currentSessionNumber,
-  sessionNumbersByDate,
 }: {
   group: PieceGroup;
   dayDate: string;
   onAddTask: (afterTaskId: string | null) => void;
   daySessionNumbers: number[];
   currentSessionNumber: number;
-  sessionNumbersByDate: Record<string, number[]>;
 }) {
   const { activePieceInstance } = useTaskTimer();
   const sortableId = `piece:${group.pieceId ?? "__general__"}`;
@@ -518,7 +517,6 @@ function SortablePieceGroup({
             isFirst={index === 0}
             onAddBelow={(afterTaskId) => onAddTask(afterTaskId)}
             daySessionNumbers={daySessionNumbers}
-            sessionNumbersByDate={sessionNumbersByDate}
           />
         ))}
       </SortableContext>
@@ -548,7 +546,6 @@ function SessionBlock({
   onReorder,
   onAddTask,
   onAddPiece,
-  sessionNumbersByDate,
 }: {
   sessionNumber: number;
   pieces: PieceGroup[];
@@ -567,7 +564,6 @@ function SessionBlock({
     afterTaskId?: string | null
   ) => void;
   onAddPiece: (piece: Piece, sessionNumber: number) => void;
-  sessionNumbersByDate: Record<string, number[]>;
 }) {
   const dndId = useId();
   const sensors = useSensors(
@@ -701,7 +697,6 @@ function SessionBlock({
               }
               daySessionNumbers={daySessionNumbers}
               currentSessionNumber={sessionNumber}
-              sessionNumbersByDate={sessionNumbersByDate}
             />
           ))}
         </SortableContext>
@@ -720,7 +715,6 @@ function DayGroup({
   hasUnfinishedBefore,
   isNextSessionView,
   onReorder,
-  sessionNumbersByDate,
 }: {
   day: FeedDay;
   focusedPieceId: string | null;
@@ -731,7 +725,6 @@ function DayGroup({
   hasUnfinishedBefore: boolean;
   isNextSessionView: boolean;
   onReorder: (dayDate: string, orderedIds: string[]) => void;
-  sessionNumbersByDate: Record<string, number[]>;
 }) {
   const filteredTasks = focusedPieceId
     ? day.tasks.filter((t) => t.piece_id === focusedPieceId)
@@ -753,68 +746,24 @@ function DayGroup({
     pieceWorkNameById
   );
 
-  // Keep the currently-shown session visible while a follow-up dialog is open
-  // for this day. Without this, completing the last task in the session would
-  // filter the session out and unmount the TaskRow that owns the dialog,
-  // dismissing the modal before the user can interact with it. We also track
-  // the specific task so the Focus filter can keep just that completed task
-  // visible without revealing others.
-  const [pinnedSessionNumber, setPinnedSessionNumber] = useState<number | null>(
-    null
-  );
-  const [pinnedTaskId, setPinnedTaskId] = useState<string | null>(null);
-  const allSessionGroupsRef = useRef(allSessionGroups);
-  useEffect(() => {
-    allSessionGroupsRef.current = allSessionGroups;
-  });
-  useEffect(() => {
-    const onOpen = (e: Event) => {
-      const detail = (e as CustomEvent<{ dayDate: string; taskId?: string }>)
-        .detail;
-      if (detail?.dayDate !== day.date) return;
-      const current = allSessionGroupsRef.current.find((s) =>
-        s.pieces.some((p) => p.tasks.some((t) => !t.completed))
-      );
-      if (current) setPinnedSessionNumber(current.sessionNumber);
-      setPinnedTaskId(detail.taskId ?? null);
-    };
-    const onClose = (e: Event) => {
-      const detail = (e as CustomEvent<{ dayDate: string }>).detail;
-      if (detail?.dayDate !== day.date) return;
-      setPinnedSessionNumber(null);
-      setPinnedTaskId(null);
-    };
-    window.addEventListener("follow-up-dialog-opened", onOpen);
-    window.addEventListener("follow-up-dialog-closed", onClose);
-    return () => {
-      window.removeEventListener("follow-up-dialog-opened", onOpen);
-      window.removeEventListener("follow-up-dialog-closed", onClose);
-    };
-  }, [day.date]);
-
   const sessionGroups = isNextSessionView
     ? (() => {
         const firstIncomplete = allSessionGroups.find((s) =>
           s.pieces.some((p) => p.tasks.some((t) => !t.completed))
         );
-        const targetNumber =
-          pinnedSessionNumber ?? firstIncomplete?.sessionNumber ?? null;
+        const targetNumber = firstIncomplete?.sessionNumber ?? null;
         if (targetNumber == null) return [];
         const target = allSessionGroups.find(
           (s) => s.sessionNumber === targetNumber
         );
         if (!target) return [];
-        // Hide completed tasks, but keep the pinned task (the one that owns
-        // an open follow-up dialog) mounted so the modal stays interactive.
-        // Preserve the unfiltered tasks on each piece so aggregate timers in
-        // the session header still reflect the full session, including time
-        // spent on tasks that have been checked off and hidden.
+        // Hide completed tasks. Preserve the unfiltered tasks on each piece so
+        // aggregate timers in the session header still reflect the full
+        // session, including time spent on tasks that have been archived.
         const filteredPieces = target.pieces
           .map((p) => ({
             ...p,
-            tasks: p.tasks.filter(
-              (t) => !t.completed || t.id === pinnedTaskId
-            ),
+            tasks: p.tasks.filter((t) => !t.completed),
             aggregateTasks: p.tasks,
           }))
           .filter((p) => p.tasks.length > 0);
@@ -1031,7 +980,6 @@ function DayGroup({
           onReorder={onReorder}
           onAddTask={handleAddTask}
           onAddPiece={handleAddPiece}
-          sessionNumbersByDate={sessionNumbersByDate}
         />
       ))}
 
@@ -1518,9 +1466,10 @@ export function PracticeTable({
           hasUnfinishedBefore={hasUnfinishedBefore}
           isNextSessionView={isNextSessionView}
           onReorder={handleReorder}
-          sessionNumbersByDate={sessionNumbersByDate}
         />
       ))}
+
+      <FollowUpToastHost sessionNumbersByDate={sessionNumbersByDate} />
 
       {cursor && !isNextSessionView && (
         <div id="load-more-sentinel" className="py-4 text-center">
