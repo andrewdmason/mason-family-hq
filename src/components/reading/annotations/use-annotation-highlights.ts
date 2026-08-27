@@ -4,7 +4,9 @@ import { useEffect } from "react";
 import { rangeForAnchor, renderedBlocks } from "@/lib/reading/annotation-anchors";
 import {
   annotationKind,
+  annotationOrigin,
   type AnnotationKind,
+  type AnnotationOrigin,
   type AnnotationSummary,
 } from "@/lib/reading/annotation-types";
 
@@ -24,30 +26,39 @@ import {
  * does understand it — and ties the stylesheet's existence to the same feature
  * check as the highlights themselves.
  */
-const REGISTRY: Record<AnnotationKind, string> = {
-  highlight: "reader-annot-highlight",
-  note: "reader-annot-note",
-  chat: "reader-annot-chat",
+type Treatment = `${AnnotationOrigin}-${AnnotationKind}`;
+
+const REGISTRY: Record<Treatment, string> = {
+  "mine-highlight": "reader-annot-mine-highlight",
+  "mine-thread": "reader-annot-mine-thread",
+  "theirs-highlight": "reader-annot-theirs-highlight",
+  "theirs-thread": "reader-annot-theirs-thread",
 };
-const ACTIVE_REGISTRY: Record<AnnotationKind, string> = {
-  highlight: "reader-annot-highlight-active",
-  note: "reader-annot-note-active",
-  chat: "reader-annot-chat-active",
+const ACTIVE_REGISTRY: Record<Treatment, string> = {
+  "mine-highlight": "reader-annot-mine-highlight-active",
+  "mine-thread": "reader-annot-mine-thread-active",
+  "theirs-highlight": "reader-annot-theirs-highlight-active",
+  "theirs-thread": "reader-annot-theirs-thread-active",
 };
 const STYLE_ID = "reader-annotation-highlight-style";
 
 /**
- * Three treatments, one per state:
- *   highlight - yellow wash, the plain "I marked this"
- *   note      - yellow underline, so a passage you wrote on reads differently
- *               from one you merely marked
- *   chat      - purple underline, the same grammar in a different colour
+ * Four treatments: two colours, two weights.
  *
- * The purple is spelled out rather than reusing `var(--primary)`, which is what
- * the chat highlight used before. That token is oklch(0.45 0.08 35) — a warm
- * terracotta, not a purple — so chats have never actually been the colour they
- * were described as. Marks are their own vocabulary and shouldn't drift with
- * the app's accent anyway.
+ * COLOUR says whose mark it is — yellow for yours, teal for one somebody left
+ * you. WEIGHT says what is in it — a wash for a passage merely marked, an
+ * underline for one with words on it.
+ *
+ * Purple is retired. It existed only to tell a chat from a note, and that
+ * distinction is gone; reclaiming yellow for everything of yours is what lets
+ * somebody else's marks own a second colour without the page carrying three.
+ *
+ * ONE colour for "somebody else", not one per person. The API is keyed by name
+ * and its rules are static, so per-member tints would mean a registry entry and
+ * an injected rule per family member, re-injected whenever the family changed.
+ * More to the point: a page can carry two colour meanings — mine and not mine —
+ * and cannot carry six without becoming a chart. WHO it was lives in the gutter,
+ * where there is room for a face.
  *
  * Both underlined states also carry a faint wash of their own colour, and that
  * redundancy is deliberate: `::highlight()` accepts only a short list of
@@ -67,20 +78,25 @@ function ensureHighlightStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   const YELLOW = "oklch(0.86 0.13 92)";
-  const PURPLE = "oklch(0.55 0.19 300)";
+  const THEIRS = "oklch(0.68 0.11 195)";
   const underline = (color: string, thickness: string) =>
     `text-decoration:underline;text-decoration-color:${color};` +
     `text-decoration-thickness:${thickness};text-underline-offset:3px;` +
     `text-decoration-skip-ink:none;`;
   style.textContent = [
-    `::highlight(${REGISTRY.highlight}){background-color:color-mix(in oklab, ${YELLOW} 42%, transparent);}`,
-    `::highlight(${ACTIVE_REGISTRY.highlight}){background-color:color-mix(in oklab, ${YELLOW} 68%, transparent);}`,
+    `::highlight(${REGISTRY["mine-highlight"]}){background-color:color-mix(in oklab, ${YELLOW} 42%, transparent);}`,
+    `::highlight(${ACTIVE_REGISTRY["mine-highlight"]}){background-color:color-mix(in oklab, ${YELLOW} 68%, transparent);}`,
 
-    `::highlight(${REGISTRY.note}){background-color:color-mix(in oklab, ${YELLOW} 16%, transparent);${underline(YELLOW, "2px")}}`,
-    `::highlight(${ACTIVE_REGISTRY.note}){background-color:color-mix(in oklab, ${YELLOW} 34%, transparent);${underline(YELLOW, "3px")}}`,
+    `::highlight(${REGISTRY["mine-thread"]}){background-color:color-mix(in oklab, ${YELLOW} 16%, transparent);${underline(YELLOW, "2px")}}`,
+    `::highlight(${ACTIVE_REGISTRY["mine-thread"]}){background-color:color-mix(in oklab, ${YELLOW} 34%, transparent);${underline(YELLOW, "3px")}}`,
 
-    `::highlight(${REGISTRY.chat}){background-color:color-mix(in oklab, ${PURPLE} 10%, transparent);${underline(PURPLE, "2px")}}`,
-    `::highlight(${ACTIVE_REGISTRY.chat}){background-color:color-mix(in oklab, ${PURPLE} 22%, transparent);${underline(PURPLE, "3px")}}`,
+    // Dashed, and no wash at all, for a passage somebody pointed at without
+    // saying anything about it — the lightest mark the page can carry.
+    `::highlight(${REGISTRY["theirs-highlight"]}){${underline(THEIRS, "2px").replace("underline;", "underline;text-decoration-style:dashed;")}}`,
+    `::highlight(${ACTIVE_REGISTRY["theirs-highlight"]}){background-color:color-mix(in oklab, ${THEIRS} 20%, transparent);${underline(THEIRS, "3px")}}`,
+
+    `::highlight(${REGISTRY["theirs-thread"]}){background-color:color-mix(in oklab, ${THEIRS} 10%, transparent);${underline(THEIRS, "2px")}}`,
+    `::highlight(${ACTIVE_REGISTRY["theirs-thread"]}){background-color:color-mix(in oklab, ${THEIRS} 24%, transparent);${underline(THEIRS, "3px")}}`,
   ].join("\n");
   document.head.append(style);
 }
@@ -99,24 +115,26 @@ export function useAnnotationHighlights(
     if (!container) return;
     ensureHighlightStyles();
 
-    const buckets: Record<AnnotationKind, Range[]> = {
-      highlight: [],
-      note: [],
-      chat: [],
-    };
-    const activeBuckets: Record<AnnotationKind, Range[]> = {
-      highlight: [],
-      note: [],
-      chat: [],
-    };
+    const empty = (): Record<Treatment, Range[]> => ({
+      "mine-highlight": [],
+      "mine-thread": [],
+      "theirs-highlight": [],
+      "theirs-thread": [],
+    });
+    const buckets = empty();
+    const activeBuckets = empty();
     // Queried once for the whole pass, not once per annotation. Annotations
     // whose blocks aren't in this window resolve to null and simply don't paint.
     const view = renderedBlocks(container, base);
     for (const a of annotations) {
       const range = rangeForAnchor(a.anchor, container, view);
       if (!range) continue;
+      // An unplaced share has an anchor only as a formality — the passage was
+      // never found in this copy — so it must not paint over an arbitrary
+      // sentence. It is still in the index and still reachable by its link.
+      if (a.anchorStatus === "unplaced") continue;
       const target = a.id === openAnnotationId ? activeBuckets : buckets;
-      target[annotationKind(a)].push(range);
+      target[`${annotationOrigin(a)}-${annotationKind(a)}`].push(range);
     }
 
     // The one-annotation model removes the common overlap — a note and a chat on
@@ -129,12 +147,17 @@ export function useAnnotationHighlights(
       highlight.priority = priority;
       CSS.highlights.set(name, highlight);
     };
-    paint(REGISTRY.highlight, buckets.highlight, 1);
-    paint(REGISTRY.note, buckets.note, 2);
-    paint(REGISTRY.chat, buckets.chat, 3);
-    paint(ACTIVE_REGISTRY.highlight, activeBuckets.highlight, 4);
-    paint(ACTIVE_REGISTRY.note, activeBuckets.note, 5);
-    paint(ACTIVE_REGISTRY.chat, activeBuckets.chat, 6);
+    // Priority: more content wins over less, somebody else's wins over your own
+    // — a passage you both marked should show that it came from them — and
+    // whatever is open wins outright.
+    paint(REGISTRY["mine-highlight"], buckets["mine-highlight"], 1);
+    paint(REGISTRY["theirs-highlight"], buckets["theirs-highlight"], 2);
+    paint(REGISTRY["mine-thread"], buckets["mine-thread"], 3);
+    paint(REGISTRY["theirs-thread"], buckets["theirs-thread"], 4);
+    paint(ACTIVE_REGISTRY["mine-highlight"], activeBuckets["mine-highlight"], 5);
+    paint(ACTIVE_REGISTRY["theirs-highlight"], activeBuckets["theirs-highlight"], 6);
+    paint(ACTIVE_REGISTRY["mine-thread"], activeBuckets["mine-thread"], 7);
+    paint(ACTIVE_REGISTRY["theirs-thread"], activeBuckets["theirs-thread"], 8);
 
     return () => {
       for (const name of Object.values(REGISTRY)) CSS.highlights.delete(name);

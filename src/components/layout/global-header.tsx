@@ -7,6 +7,7 @@ import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { getIsAdult, getIsOwner, requireUserId } from "@/lib/members/auth";
 import { getJournalNotifications } from "@/lib/journal/notifications";
 import { getTodoNotifications } from "@/lib/todos/notifications";
+import { getAnnotationNotifications } from "@/lib/reading/annotation-notifications";
 import {
   getBucksClaimNotifications,
   getBucksRedemptionNotifications,
@@ -61,6 +62,7 @@ async function GlobalHeaderData() {
     todoItems,
     bucksClaimItems,
     bucksRedemptionItems,
+    readingItems,
     isOwner,
     isAdult,
     ledger,
@@ -70,6 +72,7 @@ async function GlobalHeaderData() {
     getTodoNotifications(supabase, userId).catch(() => []),
     getBucksClaimNotifications(supabase).catch(() => []),
     getBucksRedemptionNotifications(supabase).catch(() => []),
+    getAnnotationNotifications(supabase, userId).catch(() => []),
     getIsOwner(supabase),
     getIsAdult(supabase),
     loadLedger(supabase, userId).catch(() => []),
@@ -82,8 +85,17 @@ async function GlobalHeaderData() {
   // milestones were retired in favor of Mason Bucks prizes.)
   const bucksItems = [...bucksClaimItems, ...bucksRedemptionItems];
   const notifications = {
-    count: journalNotifications.count + todoItems.length + bucksItems.length,
-    items: [...bucksItems, ...todoItems, ...journalNotifications.items],
+    count:
+      journalNotifications.count +
+      todoItems.length +
+      bucksItems.length +
+      readingItems.length,
+    items: [
+      ...readingItems,
+      ...bucksItems,
+      ...todoItems,
+      ...journalNotifications.items,
+    ],
   };
 
   return (

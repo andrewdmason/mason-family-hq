@@ -43,6 +43,30 @@ export function bookNotesHref(
   return `${base}${sep}notes=1`;
 }
 
+/**
+ * A shared mark, addressed by its CONVERSATION rather than by anyone's copy of
+ * the book.
+ *
+ * Thread-addressed for three reasons. An email can be forwarded, and each
+ * recipient has to land in their own copy. The mark in your copy may not exist
+ * yet when the link is written — the book gets copied to your shelf afterwards —
+ * so there is no id to point at. And this is the one place that knows you have
+ * now seen it.
+ *
+ * The route resolves it and redirects to the mark in your own book. Never carry
+ * a character offset in the URL: offsets belong to a particular conversion of a
+ * particular file, and the sender's is not yours.
+ */
+export function sharedMarkHref(threadId: string): string {
+  return `/reader/thread/${threadId}`;
+}
+
+/** A mark in a book you have, opened and jumped to. The resolved form of the
+ *  link above; not something to send anybody. */
+export function bookMarkHref(bookId: string, annotationId: string): string {
+  return `/reader/${bookId}/read?mark=${encodeURIComponent(annotationId)}`;
+}
+
 /** The Bookshelf home: a kid's own shelf, or the parent view of that kid's. */
 export function bookshelfHref(memberEmail?: string | null): string {
   return withMember("/books", memberEmail);

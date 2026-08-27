@@ -41,12 +41,19 @@ const NO_PAGE_LIMIT = 1_000_000_000;
 
 /** The annotation columns a chat turn is built from. */
 export const CHAT_CONTEXT_COLUMNS =
-  "id, book_id, spoiler_free, context_through_page, anchor_char_offset, " +
+  "id, book_id, thread_id, spoiler_free, context_through_page, anchor_char_offset, " +
   "anchor_page, quoted_text, model_preference, template";
 
 export type ChatContextRow = {
   id: string;
   book_id: string;
+  /**
+   * The conversation. Everything else on this row is per-copy — the boundary,
+   * the position, the page — which is exactly why the transcript is addressed
+   * separately: a turn is built from the SPEAKER's mark and appended to the
+   * conversation both of them can see.
+   */
+  thread_id: string;
   spoiler_free: boolean;
   context_through_page: number | null;
   anchor_char_offset: number;

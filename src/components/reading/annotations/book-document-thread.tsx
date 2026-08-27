@@ -143,6 +143,8 @@ export function BookDocumentThread({
           ? [
               {
                 id: userId,
+                authorUserId: null,
+                mentions: [],
                 role: "user" as const,
                 content: text,
                 model: null,
@@ -152,6 +154,8 @@ export function BookDocumentThread({
           : []),
         {
           id: replyId,
+          authorUserId: null,
+          mentions: [],
           role: phase === "document" ? ("document" as const) : ("assistant" as const),
           content: "",
           model: null,

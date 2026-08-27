@@ -9,7 +9,7 @@ import {
   getAnnotationData,
   openBookDocument,
   setBookSpoilerFree,
-  addAnnotationNote,
+  postAnnotationMessage,
   setAnnotationModelPreference,
   setAnnotationSpoilerFree,
   setAnnotationTemplate,
@@ -47,7 +47,8 @@ import { CHAPTER_TAP_CLASS } from "../reader-prose";
 import { AnnotationPanel } from "./annotation-panel";
 import { AnnotationList } from "./annotation-list";
 import { ReaderMarginControls } from "./annotations-button";
-import { AnnotationThread, type ComposeMode } from "./annotation-thread";
+import { AnnotationThread, type ComposeIntent } from "./annotation-thread";
+import type { MentionTarget } from "@/lib/reading/mentions";
 import { BookDocumentThread } from "./book-document-thread";
 import { ChapterMenu } from "./chapter-menu";
 import { GutterMarkers } from "./gutter-markers";
@@ -135,6 +136,37 @@ type PendingCreate = {
   settled: boolean;
 };
 
+/**
+ * Whether two loads of a book's marks would draw the same thing.
+ *
+ * Compares only what the page and the margin actually render from. Deliberately
+ * not a deep equality: the anchor is a nested object that never changes without
+ * the id changing, and message content never reaches this list at all.
+ */
+function sameMarks(
+  prev: ReaderAnnotationData | null,
+  next: ReaderAnnotationData
+): boolean {
+  if (!prev) return false;
+  if (prev.chats.length !== next.chats.length) return false;
+  if (prev.spoilerFree !== next.spoilerFree) return false;
+  if (prev.hasRealPages !== next.hasRealPages) return false;
+  if (prev.pageMarks.length !== next.pageMarks.length) return false;
+  return prev.chats.every((a, i) => {
+    const b = next.chats[i];
+    return (
+      a.id === b.id &&
+      a.messageCount === b.messageCount &&
+      a.noteCount === b.noteCount &&
+      a.unreadCount === b.unreadCount &&
+      a.lastMessageAt === b.lastMessageAt &&
+      a.anchorCharOffset === b.anchorCharOffset &&
+      a.anchorStatus === b.anchorStatus &&
+      a.sharedFromUserId === b.sharedFromUserId
+    );
+  });
+}
+
 export function ReaderAnnotationLayer({
   bookId,
   memberEmail,
@@ -158,9 +190,26 @@ export function ReaderAnnotationLayer({
   canFloat,
   windowBase,
   layoutNonce,
+  mentionTargets,
+  openMarkId,
+  onVisitAnchor,
 }: {
   bookId: string;
   memberEmail: string | null;
+  /**
+   * Everyone who can be named in a mark, Nor first. Resolved on the server and
+   * handed down rather than fetched here, so the handle the composer offers and
+   * the handle the server grants on are the same string.
+   */
+  mentionTargets: MentionTarget[];
+  /** One mark to open on arrival, from a mention's permalink. */
+  openMarkId?: string | null;
+  /**
+   * Take the reader to a passage they were SENT to, rather than one they chose.
+   * The book holds its saved position for as long as that visit lasts — see
+   * ReaderReturnPill.
+   */
+  onVisitAnchor?: (charOffset: number) => void;
   /** The book's block stream, mapped once by the reader and shared from there. */
   blocks: BookBlock[];
   /**
@@ -258,7 +307,7 @@ export function ReaderAnnotationLayer({
    * anything from the margin or the list starts on Chat, because by then the
    * gesture that carried an intent is long over.
    */
-  const [threadMode, setThreadMode] = useState<ComposeMode>("chat");
+  const [threadIntent, setThreadIntent] = useState<ComposeIntent>("write");
   /** The row the panel is showing, while it exists only on this device. */
   const pendingRef = useRef<PendingCreate | null>(null);
   /**
@@ -461,10 +510,22 @@ export function ReaderAnnotationLayer({
 
   // Returns when the list has been re-read, so a caller holding an optimistic
   // copy of something knows when it's safe to let go of it. Never rejects.
+  /**
+   * Reload the marks, and keep the OLD array when nothing about them changed.
+   *
+   * This gate is not an optimisation. `chats` is memoized off `data`, so an
+   * identical refetch still produces a fresh array identity, which re-runs the
+   * highlight painter and the gutter placer — both of which recompute ranges and
+   * reset the CSS highlight registry. On an e-ink reader that is a full-screen
+   * repaint, and once a shared thread is polling on a timer it would be a
+   * full-screen repaint every few seconds for as long as the book is open.
+   */
   const refreshList = useCallback(
     () =>
       getAnnotationData(bookId, memberEmail)
-        .then(setData)
+        .then((next) =>
+          setData((prev) => (sameMarks(prev, next) ? prev : next))
+        )
         .catch(() => {}),
     [bookId, memberEmail]
   );
@@ -513,11 +574,15 @@ export function ReaderAnnotationLayer({
    */
   const openedFromLink = useRef(false);
   useEffect(() => {
-    if (!openListOnMount || openedFromLink.current) return;
+    // A link to one MARK beats a link to the list. Both firing would open the
+    // panel twice and remount the thread mid-arrival, which is the exact failure
+    // the document-opening ref below was written to prevent.
+    if (openMarkId || !openListOnMount || openedFromLink.current) return;
     openedFromLink.current = true;
     setMode("list");
     onPanelOpenChange(true);
-  }, [openListOnMount, onPanelOpenChange]);
+  }, [openListOnMount, onPanelOpenChange, openMarkId]);
+
 
   const openPanelWith = useCallback(
     (annotation: AnnotationDetail, asDraft = false) => {
@@ -636,6 +701,15 @@ export function ReaderAnnotationLayer({
         contextThroughPage: spoilerFree ? anchorPage : null,
         quotedText: resolved.quotedText,
         chapterAnchorId,
+        // A brand-new mark has never named him, is nobody else's, is exactly
+        // where the reader just put it, and has an audience of one.
+        aiParticipant: false,
+        // Not known until the row exists; nothing reads it on a pending mark.
+        threadId: "",
+        sharedFromUserId: null,
+        anchorStatus: "exact",
+        participants: [],
+        unreadCount: 0,
         // Never a book document: those are reached from the Contents and read
         // on their own page, never as a mark in the margin.
         bookScope: null,
@@ -668,10 +742,10 @@ export function ReaderAnnotationLayer({
       asDraft: boolean,
       /** Set when this is a chapter's summary — see createAnnotation. */
       chapterAnchorId: string | null = null,
-      /** Which way the composer opens — see AnnotationThread's initialMode. */
-      composeMode: ComposeMode = "chat"
+      /** How the composer opens — see AnnotationThread's initialIntent. */
+      composeIntent: ComposeIntent = "write"
     ) => {
-      setThreadMode(composeMode);
+      setThreadIntent(composeIntent);
       const stopOpen = startTimer("annotate: click → panel");
       const clientId = newPendingId();
       const optimistic: AnnotationDetail = {
@@ -868,7 +942,10 @@ export function ReaderAnnotationLayer({
       // already asked, so making the reader answer again inside the panel would
       // be asking twice.
       if (intent !== "highlight") {
-        openDraft(resolved, intent === "ask", null, intent === "note" ? "note" : "chat");
+        // Neither Comment nor Share pre-writes anything. The row starts as a
+        // highlight and becomes a conversation the moment you type, so changing
+        // your mind leaves a highlight rather than a blank entry in the index.
+        openDraft(resolved, false, null, intent === "share" ? "mention" : "write");
         return;
       }
 
@@ -927,20 +1004,51 @@ export function ReaderAnnotationLayer({
     ]
   );
 
+  /**
+   * Open one mark's thread.
+   *
+   * Returns what it opened, which the arrival-from-a-link path needs: `detail`
+   * in this component's state will not have updated inside that effect's
+   * closure, and threading the jump through a state read would be a timing dance
+   * with nothing to gain. Opening still deliberately does NOT move the book —
+   * the caller decides that.
+   */
   const openExisting = useCallback(
-    async (chatId: string) => {
+    async (chatId: string): Promise<AnnotationDetail | null> => {
       // A highlight made a moment ago whose insert hasn't landed. There is
       // nothing to fetch, and asking would be a round trip that can only fail —
       // its id isn't a uuid. The tap does nothing for the short while that's
       // true, and works from the moment the row exists.
-      if (isPendingId(chatId)) return;
+      if (isPendingId(chatId)) return null;
       const chat = await getAnnotation(chatId, memberEmail);
-      if (!chat) return;
-      setThreadMode("chat");
+      if (!chat) return null;
+      setThreadIntent("write");
       openPanelWith(chat);
+      return chat;
     },
     [memberEmail, openPanelWith]
   );
+
+  /**
+   * Arriving from a mention.
+   *
+   * The ref is set BEFORE the await, not after — React double-invokes effects in
+   * development, the clearing setState has not flushed between the two calls,
+   * and the second call's closure holds a stale `detail`. Same reasoning, and
+   * same shape, as opening a book document.
+   */
+  const arrivedAtMark = useRef(false);
+  useEffect(() => {
+    if (!openMarkId || arrivedAtMark.current) return;
+    arrivedAtMark.current = true;
+    void (async () => {
+      const chat = await openExisting(openMarkId);
+      // An unplaced mark — the passage could not be found in this copy — still
+      // opens its conversation. It just has nowhere to jump to, and offering a
+      // way back from a place you never went would be nonsense.
+      if (chat && !isArticle) onVisitAnchor?.(chat.anchorCharOffset);
+    })();
+  }, [isArticle, onVisitAnchor, openExisting, openMarkId]);
 
   /**
    * The reader's preface or afterword, opened from the Contents.
@@ -969,7 +1077,7 @@ export function ReaderAnnotationLayer({
       setBusy(true);
       try {
         const document = await openBookDocument({ bookId, scope, memberEmail });
-        setThreadMode("chat");
+        setThreadIntent("write");
         openPanelWith(document);
       } catch (err) {
         // `void openDocument(...)` would otherwise make this an unhandled
@@ -1126,7 +1234,7 @@ export function ReaderAnnotationLayer({
       if (onPassage && live) {
         const range = live.cloneRange();
         selection?.removeAllRanges();
-        void annotateSelection(range, "ask");
+        void annotateSelection(range, "comment");
         return;
       }
       askHere();
@@ -1324,7 +1432,9 @@ export function ReaderAnnotationLayer({
       // drawn the note optimistically and rolls its own copy back if this
       // throws; these fields only feed the marks list, so writing them up front
       // would leave a note in the sidebar that no longer exists in the panel.
-      await onceCreated(detail.id, (id) => addAnnotationNote(id, text, memberEmail));
+      await onceCreated(detail.id, (id) =>
+        postAnnotationMessage(id, text, memberEmail)
+      );
       setDetail((d) =>
         d
           ? {
@@ -1503,7 +1613,8 @@ export function ReaderAnnotationLayer({
             onSpoilerFreeChange={(v) => void changeSpoilerFree(v)}
             onModelChange={(v) => void changeModel(v)}
             onPickTemplate={pickTemplate}
-            initialMode={threadMode}
+            initialIntent={threadIntent}
+            mentionTargets={mentionTargets}
             onAddNote={addNote}
             dockToggle={dockToggle}
           />

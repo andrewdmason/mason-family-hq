@@ -21,10 +21,18 @@ import { createSign } from "node:crypto";
 // Inlined (not imported from ./google) so the credential layer has no import
 // cycle with the client that consumes it.
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
+export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
+/** Sending a mention's email AS the person who wrote it. See lib/mail/gmail-dwd. */
+export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
-// Per-subject token cache for the life of the server process. Tokens are valid
-// ~1h; refresh within a 5-minute buffer (mirrors getValidGoogleToken).
+// Per-subject-AND-SCOPE token cache for the life of the server process. Tokens
+// are valid ~1h; refresh within a 5-minute buffer (mirrors getValidGoogleToken).
+//
+// The scope is in the key and that is load-bearing. A token minted for the
+// calendar is not a token for anything else, so keying on the subject alone
+// would hand the first Gmail call for a user who had already synced a calendar a
+// calendar-only token — and Google's answer to that is a 403 that reads exactly
+// like a misconfiguration, days after the change that caused it.
 const cache = new Map<string, { token: string; expiresAt: number }>();
 
 function base64url(input: Buffer | string): string {
@@ -55,11 +63,21 @@ export function isDwdConfigured(): boolean {
   return !!(process.env.GOOGLE_SA_CLIENT_EMAIL && process.env.GOOGLE_SA_PRIVATE_KEY);
 }
 
-/** A valid calendar access token that acts AS `subjectEmail` (an @mason.io user),
- * via the service account's domain-wide delegation. Cached per subject. */
-export async function mintDelegatedToken(subjectEmail: string): Promise<string> {
+/**
+ * A valid access token that acts AS `subjectEmail` (an @mason.io user), via the
+ * service account's domain-wide delegation. Cached per subject and scope.
+ *
+ * Every scope passed here must ALSO be listed against the service account's
+ * client ID in Google Admin → Security → API controls → Domain-wide delegation.
+ * Adding one in code alone yields `unauthorized_client` on every call.
+ */
+export async function mintDelegatedToken(
+  subjectEmail: string,
+  scope: string = CALENDAR_SCOPE,
+): Promise<string> {
   const bufferMs = 5 * 60 * 1000;
-  const cached = cache.get(subjectEmail);
+  const cacheKey = `${subjectEmail}|${scope}`;
+  const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt - bufferMs > Date.now()) {
     return cached.token;
   }
@@ -71,7 +89,7 @@ export async function mintDelegatedToken(subjectEmail: string): Promise<string> 
     JSON.stringify({
       iss: clientEmail,
       sub: subjectEmail,
-      scope: CALENDAR_SCOPE,
+      scope,
       aud: GOOGLE_TOKEN_URL,
       iat: now,
       exp: now + 3600,
@@ -113,7 +131,7 @@ export async function mintDelegatedToken(subjectEmail: string): Promise<string> 
   }
 
   const json = (await res.json()) as { access_token: string; expires_in: number };
-  cache.set(subjectEmail, {
+  cache.set(cacheKey, {
     token: json.access_token,
     expiresAt: Date.now() + json.expires_in * 1000,
   });

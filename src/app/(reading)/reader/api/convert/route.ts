@@ -11,6 +11,7 @@ import {
 } from "@/lib/reading/chapter-target";
 import { readingTargetDueDateKey } from "@/lib/reading/target-due";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
+import { createHash } from "node:crypto";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
 
 export const runtime = "nodejs";
@@ -96,6 +97,10 @@ export async function POST(req: NextRequest) {
     });
 
     const contentPath = `${userId}/${bookId}/content.html`;
+    // Recorded now, while the bytes are in hand. Two books with the same hash
+    // have the same character space, which is what lets a shared mark's position
+    // move between copies untouched — see migration 00182.
+    const contentHash = createHash("sha256").update(result.html).digest("hex");
     const upload = await client.storage
       .from(READING_BOOKS_BUCKET)
       .upload(contentPath, new Blob([result.html], { type: "text/html" }), {
@@ -130,6 +135,7 @@ export async function POST(req: NextRequest) {
       .update({
         status: "ready",
         content_path: contentPath,
+        content_hash: contentHash,
         page_count: result.pageCount,
         has_real_pages: result.hasRealPages,
         char_count: result.charCount,

@@ -56,6 +56,7 @@ export const runtime = "nodejs";
 type AnnotationRow = {
   id: string;
   book_id: string;
+  thread_id: string;
   book_scope: string | null;
 };
 
@@ -77,7 +78,7 @@ export async function POST(req: NextRequest) {
 
   const { data: raw } = await db
     .from("reading_annotations")
-    .select("id, book_id, book_scope")
+    .select("id, book_id, thread_id, book_scope")
     .eq("id", body.annotationId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -105,8 +106,7 @@ export async function POST(req: NextRequest) {
   const { data: priorMsgs, error: msgsErr } = await db
     .from("reading_annotation_messages")
     .select("role, content")
-    .eq("annotation_id", row.id)
-    .eq("user_id", userId)
+    .eq("thread_id", row.thread_id)
     .in("role", ["user", "assistant", "note", "document"])
     .order("created_at", { ascending: true });
   if (msgsErr) return new Response(msgsErr.message, { status: 500 });
@@ -141,7 +141,7 @@ export async function POST(req: NextRequest) {
   // that were never said.
   if (userMessage) {
     const { error } = await db.from("reading_annotation_messages").insert({
-      annotation_id: row.id,
+      thread_id: row.thread_id,
       user_id: userId,
       role: "user",
       content: userMessage,
@@ -257,7 +257,7 @@ export async function POST(req: NextRequest) {
         const trimmed = full.trim();
         if (trimmed.length > 0) {
           await db.from("reading_annotation_messages").insert({
-            annotation_id: row.id,
+            thread_id: row.thread_id,
             user_id: userId,
             role: phase === "document" ? "document" : "assistant",
             content: trimmed,

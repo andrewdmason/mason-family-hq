@@ -1,5 +1,10 @@
 /**
- * Finding a Kindle highlight's exact position inside a converted book.
+ * Finding a passage's exact position inside a converted book, from its text.
+ *
+ * Written for the Kindle importer and now shared with sharing, which has the
+ * same problem from the other end: when the person you mentioned already owns
+ * the book from a different file, their block boundaries are not yours, and the
+ * only thing the two copies certainly have in common is the words.
  *
  * A Reader highlight is anchored by a character range in the conversion char
  * space plus the block index and in-block offsets the DOM needs. A Kindle
