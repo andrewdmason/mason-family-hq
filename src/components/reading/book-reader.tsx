@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ReaderAnnotationLayer } from "@/components/reading/annotations/reader-annotation-layer";
+import type { MentionTarget } from "@/lib/reading/mentions";
 import { blockIndexForCharOffset, blockMap } from "@/lib/reading/block-stream";
 import { blockElements } from "@/lib/reading/annotation-anchors";
 import { withInlineChats, type InlineChatMark } from "@/lib/reading/inline-chat-blocks";
@@ -66,6 +67,7 @@ import { cn } from "@/lib/utils";
 import type { ReadingTocEntry } from "@/lib/types";
 import { PagedView } from "./paged-view";
 import { ReaderElsewhereBar } from "./reader-elsewhere-bar";
+import { ReaderReturnPill } from "./reader-return-pill";
 import { ReaderFooter } from "./reader-footer";
 import { ReaderLayoutDialog } from "./reader-layout-dialog";
 import { ContentsDialog } from "./contents-dialog";
@@ -119,6 +121,8 @@ export function BookReader({
   resumeCharOffset,
   resumeSavedAt = null,
   openNotes = false,
+  mentionTargets,
+  openMarkId = null,
   backHref,
   canListen = false,
 }: {
@@ -148,6 +152,10 @@ export function BookReader({
    * the notes and would otherwise land you in the text with the panel shut.
    */
   openNotes?: boolean;
+  /** Everyone who can be named in a mark — resolved on the server, see the layer. */
+  mentionTargets: MentionTarget[];
+  /** A mark to open and jump to on arrival, from a mention's permalink. */
+  openMarkId?: string | null;
   backHref: string;
   /**
    * Whether this account may have a book read aloud. Adults only, on purpose —
@@ -341,7 +349,41 @@ export function BookReader({
    * from the device, or one accepted from another device. Applied through the
    * jump both reading modes already share, once there's a book to jump in.
    */
-  const [pendingJump, setPendingJump] = useState<number | null>(null);
+  /**
+   * How far past a visited passage counts as having carried on reading.
+   *
+   * Roughly two screens. Far enough that a stray scroll doesn't end the visit,
+   * close enough that following a link and simply reading on gives you your
+   * position back without having to notice a pill and dismiss it.
+   */
+  const VISIT_RELEASE_CHARS = 4000;
+
+  const [pendingJump, setPendingJump] = useState<{
+    charOffset: number;
+    /**
+     * Whether arriving here counts as reading.
+     *
+     * True for the two moves the reader made themselves — a position restored
+     * from this device, or one accepted from another. False for a jump they were
+     * SENT: visiting somebody else's passage must not become the place this book
+     * opens at, nor the reason it becomes the book /reader resumes into.
+     */
+    record: boolean;
+  } | null>(null);
+
+  /**
+   * While set, the reader's position is not written down at all.
+   *
+   * Held at flush() rather than at report(): report also feeds scrollPosition,
+   * which the progress bar, the running foot and the whole annotation layer are
+   * built on, so holding there would freeze the page's idea of where it is.
+   * And held at flush rather than at the server call, because flush is also the
+   * record that this book was read just now — suppress only the network write
+   * and the local one syncs later and clobbers the position anyway, hours after
+   * the visit.
+   */
+  const positionHoldRef = useRef(false);
+  const [returnTo, setReturnTo] = useState<number | null>(null);
 
   // A position the server never received usually outranks the one the page was
   // rendered with — either we read offline since, or this page itself came from
@@ -357,7 +399,7 @@ export function BookReader({
       // down — it's still owed to the server, but replayPending carries that up
       // with its own timestamp rather than needing a save from this reader.
       recordedRef.current = stored.charOffset;
-      setPendingJump(stored.charOffset);
+      setPendingJump({ charOffset: stored.charOffset, record: true });
     });
     return () => {
       cancelled = true;
@@ -368,6 +410,7 @@ export function BookReader({
   // reading three chapters offline and having the book reopen at the start is
   // the only offline failure that would actually be felt.
   const flush = useCallback(() => {
+    if (positionHoldRef.current) return;
     const charOffset = positionRef.current;
     // Nothing has moved, so there's nothing to say — and saying it anyway would
     // record a book that was merely opened as the one most recently read.
@@ -866,8 +909,10 @@ export function BookReader({
   useEffect(() => {
     if (pendingJump == null || html == null) return;
     setPendingJump(null);
-    report(pendingJump, false);
-    if (paged || restoredRef.current) goToChar(pendingJump);
+    // A visit reports nothing. report() would schedule a flush, and a jump is
+    // almost always further than the threshold that counts as reading.
+    if (pendingJump.record) report(pendingJump.charOffset, false);
+    if (paged || restoredRef.current) goToChar(pendingJump.charOffset);
   }, [goToChar, html, paged, pendingJump, report]);
 
   const goToChapter = useCallback(
@@ -981,7 +1026,7 @@ export function BookReader({
     (go: boolean) => {
       if (elsewhere == null) return;
       answeredRef.current = elsewhere;
-      if (go) setPendingJump(elsewhere);
+      if (go) setPendingJump({ charOffset: elsewhere, record: true });
       setElsewhere(null);
     },
     [elsewhere]
@@ -994,7 +1039,64 @@ export function BookReader({
    * mode (where the bottom edge is where the text keeps going), and clear of the
    * player bar whenever it's showing.
    */
-  const showElsewhere = loaded && elsewhereProgress != null;
+  /**
+   * Go to a passage somebody sent you, without letting it become your place.
+   *
+   * The hold goes on BEFORE the jump, and the place to come back to is captured
+   * before anything moves. Both matter: the scroll handler fires within a frame
+   * of the jump landing, and by then positionRef is already the shared passage.
+   */
+  const visitAnchor = useCallback((charOffset: number) => {
+    positionHoldRef.current = true;
+    setReturnTo(recordedRef.current);
+    setPendingJump({ charOffset, record: false });
+  }, []);
+
+  /** Let go, and let where you are now be where you are. */
+  const releaseHold = useCallback(() => {
+    positionHoldRef.current = false;
+    setReturnTo(null);
+  }, []);
+
+  const goBackFromVisit = useCallback(() => {
+    if (returnTo == null) return;
+    positionHoldRef.current = false;
+    setPendingJump({ charOffset: returnTo, record: true });
+    setReturnTo(null);
+  }, [returnTo]);
+
+  /**
+   * Read on and the visit is over.
+   *
+   * Two page-turns' worth of characters from where you landed: far enough that
+   * an accidental nudge doesn't end it, near enough that somebody who followed a
+   * link and simply carried on reading gets their position back without having
+   * to notice a pill.
+   */
+  useEffect(() => {
+    if (returnTo == null) return;
+    const landed = pendingJump?.charOffset ?? null;
+    if (landed == null) return;
+    const moved = Math.abs(scrollPosition.charOffset - landed);
+    if (moved > VISIT_RELEASE_CHARS) releaseHold();
+  }, [pendingJump, releaseHold, returnTo, scrollPosition.charOffset]);
+
+  const returnLabel = useMemo(() => {
+    if (returnTo == null) return null;
+    // Named the way the other-device bar names a place, for the same reason: a
+    // chapter is what a reader recognises, and a percentage is what is always
+    // true. Pages are deliberately not used — most books here have synthetic
+    // ones, and "p. 212" that means nothing is worse than a number that does.
+    const p = progressAt(returnTo, totalChars, wordCount, chapters, false);
+    return p.chapter?.title ?? `${p.percent}%`;
+  }, [chapters, returnTo, totalChars, wordCount]);
+
+  const showReturn = loaded && returnTo != null && returnLabel != null;
+  // Suppressed while the return pill is up. They occupy the same coordinate and
+  // both say "go somewhere else" — and worse, the elsewhere check compares
+  // against positionRef, which during a visit is the passage you were sent to
+  // rather than anywhere you chose.
+  const showElsewhere = loaded && elsewhereProgress != null && !showReturn;
   const floatingBottom = listenInset + (paged ? PAGE_PAD_BOTTOM + 8 : 24);
 
   // Loaded once, and again whenever the document page writes or deletes
@@ -1041,6 +1143,9 @@ export function BookReader({
       canFloat={chatCanFloat}
       windowBase={paged ? pagination.windowBase : 0}
       layoutNonce={layoutNonce}
+      mentionTargets={mentionTargets}
+      openMarkId={openMarkId}
+      onVisitAnchor={visitAnchor}
     />
   );
 
@@ -1300,6 +1405,15 @@ export function BookReader({
           it's there. Neither ever moves the page by itself: a page that
           rearranges itself mid-sentence is worse than a page showing the wrong
           place, whichever of the two put it there. */}
+      {showReturn && (
+        <ReaderReturnPill
+          label={returnLabel}
+          bottom={floatingBottom}
+          onBack={goBackFromVisit}
+          onDismiss={releaseHold}
+        />
+      )}
+
       {showElsewhere && (
         <ReaderElsewhereBar
           chapterTitle={elsewhereProgress.chapter?.title ?? null}

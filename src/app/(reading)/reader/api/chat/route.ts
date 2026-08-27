@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "@/lib/journal/anthropic";
 import { resolveReadingScope } from "@/lib/reading/scope";
+import { recordMentions } from "@/lib/reading/thread-mentions";
 import {
   buildReaderChatContext,
   CHAT_CONTEXT_COLUMNS,
@@ -51,7 +52,8 @@ export async function POST(req: NextRequest) {
 
   // Member mode returns a service-role client that bypasses RLS, so every query
   // below filters by this userId explicitly.
-  const { client: db, userId, email } = await resolveReadingScope(body.memberEmail);
+  const { client: db, userId, email, isMemberMode } =
+    await resolveReadingScope(body.memberEmail);
 
   const { data: chatRaw } = await db
     .from("reading_annotations")
@@ -73,11 +75,12 @@ export async function POST(req: NextRequest) {
   // Thread so far. 'notice' rows are app-authored UI text and never go to the
   // model; 'note' rows are the reader's own writing and do — see the marker
   // below and the explanation of it in chat-prompt.ts.
+  // Read by thread and not by author: the transcript is the conversation's, and
+  // a filter on who wrote each line would hand the model half of one.
   const { data: priorMsgs, error: msgsErr } = await db
     .from("reading_annotation_messages")
     .select("role, content")
-    .eq("annotation_id", chatId)
-    .eq("user_id", userId)
+    .eq("thread_id", chat.thread_id)
     .in("role", ["user", "assistant", "note"])
     .order("created_at", { ascending: true });
   if (msgsErr) return new Response(msgsErr.message, { status: 500 });
@@ -107,13 +110,25 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const mentions = await recordMentions(db, {
+    threadId: chat.thread_id,
+    text: userMessage.trim(),
+    authorId: userId,
+    isMemberMode,
+  });
+
   const { error: insertErr } = await db.from("reading_annotation_messages").insert({
-    annotation_id: chatId,
+    thread_id: chat.thread_id,
     user_id: userId,
     role: "user",
     content: userMessage.trim(),
+    mentions,
   });
   if (insertErr) return new Response(insertErr.message, { status: 500 });
+  await db
+    .from("reading_annotation_threads")
+    .update({ last_message_at: new Date().toISOString() })
+    .eq("id", chat.thread_id);
 
   // Everything that decides what this turn is SENT — the book slice, the reader's
   // position, their preface, their profile, their marks, the register — lives in
@@ -182,16 +197,18 @@ export async function POST(req: NextRequest) {
   }
 
   if (promoted) {
+    // Once per conversation, not once per reader in it — the notice explains
+    // something about the thread, so a second participant asking a question
+    // shouldn't make it appear again underneath the first one.
     const { data: existingNote } = await db
       .from("reading_annotation_messages")
       .select("id")
-      .eq("annotation_id", chatId)
-      .eq("user_id", userId)
+      .eq("thread_id", chat.thread_id)
       .eq("role", "notice")
       .limit(1);
     if (!existingNote || existingNote.length === 0) {
       await db.from("reading_annotation_messages").insert({
-        annotation_id: chatId,
+        thread_id: chat.thread_id,
         user_id: userId,
         role: "notice",
         content: PROMOTION_NOTE,
@@ -315,12 +332,16 @@ export async function POST(req: NextRequest) {
         const trimmed = full.trim();
         if (trimmed.length > 0) {
           await db.from("reading_annotation_messages").insert({
-            annotation_id: chatId,
+            thread_id: chat.thread_id,
             user_id: userId,
             role: "assistant",
             content: trimmed,
             model,
           });
+          await db
+            .from("reading_annotation_threads")
+            .update({ last_message_at: new Date().toISOString() })
+            .eq("id", chat.thread_id);
         }
         controller.close();
       } catch (err) {

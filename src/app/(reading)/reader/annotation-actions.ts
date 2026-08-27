@@ -15,6 +15,10 @@ import type {
   AnnotationSummary,
 } from "@/lib/reading/annotation-types";
 import { isReaderChatTemplate } from "@/lib/reading/annotation-types";
+import { recordMentions } from "@/lib/reading/thread-mentions";
+import type { StoredMention } from "@/lib/reading/mentions";
+import { listRoster } from "@/lib/members/roster";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
  * Reader chat: anchored conversations about a book.
@@ -33,13 +37,24 @@ import { isReaderChatTemplate } from "@/lib/reading/annotation-types";
 // Both are left in the database — reading them costs nothing to skip, and
 // migrations to drop them would buy nothing back.
 const CHAT_COLUMNS =
-  "id, book_id, anchor, anchor_char_offset, anchor_page, spoiler_free, " +
+  "id, book_id, thread_id, anchor, anchor_char_offset, anchor_page, spoiler_free, " +
   "context_through_page, quoted_text, chapter_anchor_id, book_scope, color, " +
-  "model_preference, template, created_at";
+  "model_preference, template, created_at, shared_from_user_id, anchor_status, " +
+  // Embedded rather than fetched separately: the composer needs to know whether
+  // Nor is listening before the reader types their first character, and a second
+  // round trip would leave the chip guessing for as long as it took.
+  "reading_annotation_threads(ai_participant)";
 
 type AnnotationRow = {
   id: string;
   book_id: string;
+  /**
+   * The conversation this mark points at. Its own row before anything is shared,
+   * and the same row on both people's marks once something is — which is the
+   * whole reason messages hang off it rather than off the mark. See migration
+   * 00180.
+   */
+  thread_id: string;
   anchor: unknown;
   anchor_char_offset: number;
   anchor_page: number | null;
@@ -52,7 +67,159 @@ type AnnotationRow = {
   model_preference: string;
   template: string | null;
   created_at: string;
+  shared_from_user_id: string | null;
+  anchor_status: string;
+  reading_annotation_threads: { ai_participant: boolean } | null;
 };
+
+type ReadingClient = Awaited<ReturnType<typeof resolveReadingScope>>["client"];
+
+/**
+ * Open the conversation a new mark will point at.
+ *
+ * Every mark gets one, whether or not it is ever shared — a thread of one costs
+ * a row and means there is no second creation path to get wrong on the day
+ * somebody is mentioned. If the mark's own insert then fails, this leaves a
+ * thread with no placement and no messages behind it: unreachable, unbilled, and
+ * not worth a transaction to avoid.
+ */
+async function createThread(client: ReadingClient, userId: string): Promise<string> {
+  const { data, error } = await client
+    .from("reading_annotation_threads")
+    .insert({ created_by: userId })
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
+  return (data as { id: string }).id;
+}
+
+/**
+ * Put someone in a conversation, pointed at their own copy's mark.
+ *
+ * Only ever the caller putting themselves into a thread they just started —
+ * bringing somebody ELSE in is a privileged act and goes through the admin
+ * client, which is also what the access rules say (see migration 00186).
+ */
+async function joinThread(
+  client: ReadingClient,
+  input: {
+    threadId: string;
+    userId: string;
+    annotationId: string;
+    role: "owner" | "participant";
+    invitedBy?: string | null;
+  }
+): Promise<void> {
+  const { error } = await client
+    .from("reading_annotation_thread_participants")
+    .insert({
+      thread_id: input.threadId,
+      user_id: input.userId,
+      annotation_id: input.annotationId,
+      role: input.role,
+      invited_by: input.invitedBy ?? null,
+    });
+  // 23505 is two devices opening the same thing at once, which the unique key
+  // exists to make harmless. A plain insert rather than an upsert because an
+  // upsert would need UPDATE rights on a row that may not be the caller's, and
+  // this path only ever puts somebody into a thread they just made.
+  if (error && error.code !== "23505") throw new Error(error.message);
+}
+
+/**
+ * Stamp when a conversation last had something said in it.
+ *
+ * Denormalized onto the thread so the notification bell can ask "anything new
+ * for me?" without reading messages. Best-effort: a missed stamp costs a late
+ * notification, and failing the write that the reader actually made would cost
+ * their words.
+ */
+async function touchThread(client: ReadingClient, threadId: string): Promise<void> {
+  await client
+    .from("reading_annotation_threads")
+    .update({ last_message_at: new Date().toISOString() })
+    .eq("id", threadId);
+}
+
+type SharedState = {
+  participants: { userId: string; email: string | null; name: string }[];
+  unreadCount: number;
+};
+
+/**
+ * Who is in these conversations, and what this reader has not read yet.
+ *
+ * Unread counts only what SOMEBODY ELSE wrote: your own messages arriving in
+ * your own bell would be the app telling you about yourself. Notices are
+ * excluded for the same reason — they are the app talking, not a person.
+ */
+async function sharedState(
+  client: ReadingClient,
+  userId: string,
+  threadIds: string[]
+): Promise<Map<string, SharedState>> {
+  const out = new Map<string, SharedState>();
+  if (threadIds.length === 0) return out;
+
+  const { data: rows } = await client
+    .from("reading_annotation_thread_participants")
+    .select("thread_id, user_id, last_read_at")
+    .in("thread_id", threadIds);
+
+  const parts = (rows ?? []) as {
+    thread_id: string;
+    user_id: string;
+    last_read_at: string | null;
+  }[];
+
+  // A thread of one is the overwhelming majority and has nothing to say here.
+  const byThread = new Map<string, typeof parts>();
+  for (const p of parts) {
+    byThread.set(p.thread_id, [...(byThread.get(p.thread_id) ?? []), p]);
+  }
+  const sharedThreads = [...byThread.entries()]
+    .filter(([, ps]) => ps.length > 1)
+    .map(([id]) => id);
+  if (sharedThreads.length === 0) return out;
+
+  const roster = await listRoster();
+  const byUserId = new Map(
+    roster.filter((m) => m.userId).map((m) => [m.userId as string, m])
+  );
+
+  const { data: msgRows } = await client
+    .from("reading_annotation_messages")
+    .select("thread_id, user_id, role, created_at")
+    .in("thread_id", sharedThreads)
+    .neq("user_id", userId)
+    .neq("role", "notice");
+
+  for (const threadId of sharedThreads) {
+    const ps = byThread.get(threadId) ?? [];
+    const mine = ps.find((p) => p.user_id === userId);
+    const since = mine?.last_read_at ?? null;
+    const unread = ((msgRows ?? []) as {
+      thread_id: string;
+      created_at: string;
+    }[]).filter(
+      (m) => m.thread_id === threadId && (!since || m.created_at > since)
+    ).length;
+
+    out.set(threadId, {
+      participants: ps.map((p) => {
+        const m = byUserId.get(p.user_id);
+        return {
+          userId: p.user_id,
+          email: m?.email ?? null,
+          name: (m?.name ?? "").trim() || (m?.email ?? "").split("@")[0] || "Someone",
+        };
+      }),
+      unreadCount: unread,
+    });
+  }
+
+  return out;
+}
 
 function toSummary(
   row: AnnotationRow,
@@ -62,6 +229,10 @@ function toSummary(
     latestNote: string | null;
     lastMessageAt: string | null;
     firstQuestion?: string | null;
+  },
+  shared?: {
+    participants: { userId: string; email: string | null; name: string }[];
+    unreadCount: number;
   }
 ): AnnotationSummary {
   return {
@@ -81,6 +252,15 @@ function toSummary(
       ? "deep"
       : "fast") as ReaderChatModelPreference,
     template: isReaderChatTemplate(row.template) ? row.template : null,
+    aiParticipant: row.reading_annotation_threads?.ai_participant === true,
+    threadId: row.thread_id,
+    sharedFromUserId: row.shared_from_user_id,
+    anchorStatus:
+      row.anchor_status === "relocated" || row.anchor_status === "unplaced"
+        ? row.anchor_status
+        : "exact",
+    participants: shared?.participants ?? [],
+    unreadCount: shared?.unreadCount ?? 0,
     messageCount: counts?.messageCount ?? 0,
     lastMessageAt: counts?.lastMessageAt ?? null,
     firstQuestion: counts?.firstQuestion ?? null,
@@ -126,14 +306,19 @@ export async function getAnnotationData(
   // than in a query per annotation. Only the reader's own first line survives
   // this function — a truncated one at that — so no transcript is ever shipped
   // to a client that only wanted to draw margin marks.
+  // By thread, and deliberately WITHOUT a user_id filter. On a shared mark the
+  // messages belong to the conversation rather than to whoever wrote each one,
+  // so filtering by the reader would show them their own half of a two-person
+  // thread and nothing else — a wrong count and a wrong preview line, with no
+  // error to notice. Access is decided by whether they hold a placement on the
+  // thread at all, which the query above has already established.
   const { data: msgRows } = rows.length
     ? await client
         .from("reading_annotation_messages")
-        .select("annotation_id, created_at, role, content")
-        .eq("user_id", userId)
+        .select("thread_id, created_at, role, content")
         .in(
-          "annotation_id",
-          rows.map((r) => r.id)
+          "thread_id",
+          rows.map((r) => r.thread_id)
         )
     : { data: [] };
 
@@ -148,14 +333,16 @@ export async function getAnnotationData(
     firstNote: string | null;
     firstNoteAt: string | null;
   };
+  // Keyed by thread, so a shared mark's stats are the conversation's, not one
+  // participant's share of it.
   const stats = new Map<string, Stat>();
   for (const m of (msgRows ?? []) as {
-    annotation_id: string;
+    thread_id: string;
     created_at: string;
     role: string;
     content: string;
   }[]) {
-    const cur = stats.get(m.annotation_id) ?? {
+    const cur = stats.get(m.thread_id) ?? {
       messageCount: 0,
       noteCount: 0,
       latestNote: null,
@@ -192,13 +379,22 @@ export async function getAnnotationData(
         cur.firstNoteAt = m.created_at;
       }
     }
-    stats.set(m.annotation_id, cur);
+    stats.set(m.thread_id, cur);
   }
   // A note-only annotation still deserves a line in the page and a legible entry
   // in the list, so what it opened with is its first note rather than nothing.
   for (const stat of stats.values()) {
     stat.firstQuestion = stat.firstQuestion ?? stat.firstNote;
   }
+
+  // Who else is in each conversation, and how much of it this reader hasn't
+  // seen. One query for the book rather than one per mark — the shelf already
+  // learned that lesson with annotation counts.
+  const shared = await sharedState(
+    client,
+    userId,
+    rows.map((r) => r.thread_id)
+  );
 
   const { data: pageRows } = await client
     .from("reading_book_pages")
@@ -216,7 +412,9 @@ export async function getAnnotationData(
   const marks = rows.filter((r) => !isBookScope(r.book_scope));
 
   return {
-    chats: marks.map((r) => toSummary(r, stats.get(r.id))),
+    chats: marks.map((r) =>
+      toSummary(r, stats.get(r.thread_id), shared.get(r.thread_id))
+    ),
     spoilerFree: book?.spoiler_free === true,
     hasRealPages: content?.has_real_pages === true,
     pageMarks: (
@@ -303,11 +501,14 @@ export async function createAnnotation(input: {
   const spoilerFree =
     !isArticle && chapterAnchorId == null && book.spoiler_free === true;
 
+  const threadId = await createThread(client, userId);
+
   const { data: inserted, error } = await client
     .from("reading_annotations")
     .insert({
       book_id: input.bookId,
       user_id: userId,
+      thread_id: threadId,
       anchor: input.anchor,
       anchor_char_offset: charOffset,
       anchor_page: anchorPage,
@@ -326,7 +527,15 @@ export async function createAnnotation(input: {
     .single();
   if (error) throw new Error(error.message);
 
-  return { ...toSummary(inserted as unknown as AnnotationRow), messages: [] };
+  const row = inserted as unknown as AnnotationRow;
+  await joinThread(client, {
+    threadId,
+    userId,
+    annotationId: row.id,
+    role: "owner",
+  });
+
+  return { ...toSummary(row), messages: [] };
 }
 
 /**
@@ -346,14 +555,14 @@ export async function getBookDocumentStates(
 
   const { data: rows } = await client
     .from("reading_annotations")
-    .select("id, book_scope")
+    .select("id, thread_id, book_scope")
     .eq("book_id", bookId)
     .eq("user_id", userId)
     .not("book_scope", "is", null);
 
-  const found = ((rows ?? []) as { id: string; book_scope: string | null }[]).filter(
-    (r) => isBookScope(r.book_scope)
-  );
+  const found = (
+    (rows ?? []) as { id: string; thread_id: string; book_scope: string | null }[]
+  ).filter((r) => isBookScope(r.book_scope));
   if (found.length === 0) {
     return BOOK_SCOPES.map((scope) => ({
       scope,
@@ -368,23 +577,22 @@ export async function getBookDocumentStates(
   // opened it now, not whichever row came back first.
   const { data: msgs } = await client
     .from("reading_annotation_messages")
-    .select("annotation_id, created_at")
-    .eq("user_id", userId)
+    .select("thread_id, created_at")
     .eq("role", "document")
     .in(
-      "annotation_id",
-      found.map((r) => r.id)
+      "thread_id",
+      found.map((r) => r.thread_id)
     )
     .order("created_at", { ascending: false });
 
   const latest = new Map<string, string>();
-  for (const m of (msgs ?? []) as { annotation_id: string; created_at: string }[]) {
-    if (!latest.has(m.annotation_id)) latest.set(m.annotation_id, m.created_at);
+  for (const m of (msgs ?? []) as { thread_id: string; created_at: string }[]) {
+    if (!latest.has(m.thread_id)) latest.set(m.thread_id, m.created_at);
   }
 
   return BOOK_SCOPES.map((scope) => {
     const row = found.find((r) => r.book_scope === scope);
-    const writtenAt = row ? (latest.get(row.id) ?? null) : null;
+    const writtenAt = row ? (latest.get(row.thread_id) ?? null) : null;
     return {
       scope,
       annotationId: row?.id ?? null,
@@ -450,11 +658,13 @@ export async function openBookDocument(input: {
 
   let row = await find();
   if (!row) {
+    const threadId = await createThread(client, userId);
     const { data: inserted, error } = await client
       .from("reading_annotations")
       .insert({
         book_id: input.bookId,
         user_id: userId,
+        thread_id: threadId,
         anchor: {
           v: ANCHOR_VERSION,
           kind: "between",
@@ -480,11 +690,19 @@ export async function openBookDocument(input: {
       .select(CHAT_COLUMNS)
       .single();
     if (error) {
-      // 23505: another device created it between the select and the insert.
+      // 23505: another device created it between the select and the insert. The
+      // thread opened a few lines up is orphaned by that — no placement, no
+      // messages, nothing that can reach it.
       row = error.code === "23505" ? await find() : null;
       if (!row) throw new Error(error.message);
     } else {
       row = inserted as unknown as AnnotationRow;
+      await joinThread(client, {
+        threadId,
+        userId,
+        annotationId: row.id,
+        role: "owner",
+      });
     }
   }
 
@@ -507,32 +725,39 @@ export async function getAnnotation(
     .eq("user_id", userId)
     .maybeSingle();
   if (!row) return null;
+  const chatRow = row as unknown as AnnotationRow;
+  const shared = await sharedState(client, userId, [chatRow.thread_id]);
 
+  // The transcript belongs to the conversation, so it is read by thread and not
+  // filtered by who wrote each turn. Holding a placement on the thread — which
+  // the query above just proved — is what grants the read.
   const { data: msgs, error } = await client
     .from("reading_annotation_messages")
-    .select("id, role, content, model, created_at")
-    .eq("annotation_id", chatId)
-    .eq("user_id", userId)
+    .select("id, user_id, role, content, model, mentions, created_at")
+    .eq("thread_id", chatRow.thread_id)
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
 
   const messages: ReaderChatMessage[] = (
     (msgs ?? []) as {
       id: string;
+      user_id: string;
       role: string;
       content: string;
       model: string | null;
+      mentions: unknown;
       created_at: string;
     }[]
   ).map((m) => ({
     id: m.id,
+    authorUserId: m.user_id,
     role: m.role as ReaderChatMessage["role"],
     content: m.content,
     model: m.model,
+    mentions: Array.isArray(m.mentions) ? (m.mentions as StoredMention[]) : [],
     createdAt: m.created_at,
   }));
 
-  const chatRow = row as unknown as AnnotationRow;
   const notes = messages.filter((m) => m.role === "note");
   return {
     ...toSummary(chatRow, {
@@ -546,7 +771,8 @@ export async function getAnnotation(
         const opened = messages.find((m) => m.role === "user" || m.role === "note");
         return opened ? markText(opened.content) : null;
       })(),
-    }),
+    },
+    shared.get(chatRow.thread_id)),
     messages,
   };
 }
@@ -581,15 +807,25 @@ export async function setBookSpoilerFree(
  * as asked, and only the server reliably knows that.
  */
 async function annotationIsUnasked(
-  client: Awaited<ReturnType<typeof resolveReadingScope>>["client"],
+  client: ReadingClient,
   userId: string,
   annotationId: string
 ): Promise<boolean> {
+  // Counted across the whole conversation rather than this reader's share of it.
+  // On a shared mark that means the other person's question freezes the settings
+  // too — which is right: the transcript above them was produced under them.
+  const { data: row } = await client
+    .from("reading_annotations")
+    .select("thread_id")
+    .eq("id", annotationId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!row) return false;
+
   const { count } = await client
     .from("reading_annotation_messages")
     .select("id", { count: "exact", head: true })
-    .eq("annotation_id", annotationId)
-    .eq("user_id", userId)
+    .eq("thread_id", (row as { thread_id: string }).thread_id)
     .in("role", ["user", "assistant"]);
   return (count ?? 0) === 0;
 }
@@ -725,14 +961,26 @@ export async function discardAnnotationIfEmpty(
 ): Promise<boolean> {
   const { client, userId } = await resolveReadingScope(memberEmail);
 
+  const { data: row } = await client
+    .from("reading_annotations")
+    .select("thread_id")
+    .eq("id", annotationId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!row) return false;
+
   // Notes are messages now, so this one check covers both things that make an
   // annotation the reader's rather than an abandoned draft: something asked, or
   // something written.
+  //
+  // Counted by thread, which matters more than it looks: a mark placed in your
+  // copy because somebody mentioned you has no messages OF ITS OWN, and counting
+  // by the mark would delete it out of your margin the moment you closed the
+  // panel on the conversation you were just reading.
   const { count } = await client
     .from("reading_annotation_messages")
     .select("id", { count: "exact", head: true })
-    .eq("annotation_id", annotationId)
-    .eq("user_id", userId);
+    .eq("thread_id", (row as { thread_id: string }).thread_id);
   if ((count ?? 0) > 0) return false;
 
   const { error } = await client
@@ -745,51 +993,120 @@ export async function discardAnnotationIfEmpty(
 }
 
 /**
- * Add a note to the thread — the reader's own words, which get no reply.
+ * Put a message in the thread — the reader's own words, which get no reply here.
  *
- * An append rather than an edit, which is the whole point of moving notes out of
- * a column and into the transcript: the thought you have on a second reading
+ * An append rather than an edit, which is the whole point of moving writing out
+ * of a column and into the transcript: the thought you have on a second reading
  * lands under the one you had on the first instead of erasing it. There is
- * deliberately no update or delete for a single note; the way to get rid of your
- * writing on a passage is the delete control, same as before.
+ * deliberately no update or delete for a single message; the way to get rid of
+ * your writing on a passage is the delete control, same as before.
+ *
+ * WHO DECIDES WHAT. The rule about whether Nor answers is a rule about the
+ * composer, and it lives on the client, where the chip can show it before you
+ * commit to it — sending here means "just save this", and the chat route means
+ * "answer this". Nothing about that needs defending, because the worst a wrong
+ * guess produces is a reply nobody wanted.
+ *
+ * What DOES get re-derived here, from the text and never from what the client
+ * sent, is who was named — because that is a grant, and a grant somebody else
+ * hands you is not a grant.
  */
-export async function addAnnotationNote(
+export async function postAnnotationMessage(
   annotationId: string,
   content: string,
   memberEmail?: string | null
 ): Promise<void> {
   const text = content.trim();
   if (!text) return;
-  const { client, userId } = await resolveReadingScope(memberEmail);
+  const { client, userId, isMemberMode } = await resolveReadingScope(memberEmail);
 
   // Scoped like every other write in this file: an annotation id alone is not
   // proof the caller owns it.
   const { data: row } = await client
     .from("reading_annotations")
-    .select("id")
+    .select("id, thread_id")
     .eq("id", annotationId)
     .eq("user_id", userId)
     .maybeSingle();
   if (!row) throw new Error("Annotation not found.");
+  const threadId = (row as { thread_id: string }).thread_id;
+
+  const mentions = await recordMentions(client, {
+    threadId,
+    text,
+    authorId: userId,
+    isMemberMode,
+  });
 
   const { error } = await client.from("reading_annotation_messages").insert({
-    annotation_id: annotationId,
+    thread_id: threadId,
     user_id: userId,
     role: "note",
     content: text,
+    mentions,
   });
   if (error) throw new Error(error.message);
+
+  await touchThread(client, threadId);
 }
 
+/**
+ * Take a mark out of your book.
+ *
+ * Deletes the PLACEMENT, not the conversation. On your own mark those are the
+ * same act and it behaves exactly as it always has: you leave, nobody else is
+ * in it, and the thread goes with you, taking the transcript. On a mark you were
+ * brought into, it means you stop seeing it in your margin and the other person
+ * keeps what you both wrote — which is the only defensible reading of a delete
+ * control on somebody else's passage.
+ *
+ * The last-one-out sweep is in application code rather than a trigger: at family
+ * scale the extra round trip is nothing, and losing a race here just leaves an
+ * unreachable thread that the next delete will collect.
+ */
 export async function deleteAnnotation(
   chatId: string,
   memberEmail?: string | null
 ): Promise<void> {
   const { client, userId } = await resolveReadingScope(memberEmail);
+
+  const { data: row } = await client
+    .from("reading_annotations")
+    .select("thread_id")
+    .eq("id", chatId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!row) return;
+  const threadId = (row as { thread_id: string }).thread_id;
+
+  await client
+    .from("reading_annotation_thread_participants")
+    .delete()
+    .eq("thread_id", threadId)
+    .eq("user_id", userId);
+
   const { error } = await client
     .from("reading_annotations")
     .delete()
     .eq("id", chatId)
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
+
+  const { count } = await client
+    .from("reading_annotation_thread_participants")
+    .select("user_id", { count: "exact", head: true })
+    .eq("thread_id", threadId);
+  if ((count ?? 0) === 0) {
+    // Cascades the messages, which is what makes deleting your own mark still
+    // delete your own writing.
+    //
+    // On the admin client because the last person out is not necessarily the one
+    // who started it — a thread whose creator left first can only be cleaned up
+    // by somebody the access rules would refuse. Nothing is exposed by this: the
+    // row being removed is one that, by the line above, nobody is in.
+    await createAdminClient()
+      .from("reading_annotation_threads")
+      .delete()
+      .eq("id", threadId);
+  }
 }

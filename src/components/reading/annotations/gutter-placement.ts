@@ -13,6 +13,7 @@ import {
 } from "@/lib/reading/paged-geometry";
 import {
   annotationKind,
+  annotationOrigin,
   type AnnotationSummary,
 } from "@/lib/reading/annotation-types";
 
@@ -103,7 +104,10 @@ export function useGutterPlacement(
     // the same paragraph share an anchor even if a reflow moves them.
     const byBlock = new Map<number, AnnotationSummary[]>();
     for (const a of annotations) {
-      if (annotationKind(a) === "highlight") continue;
+      // A highlight of your own advertises nothing the page isn't already showing.
+    // One somebody LEFT you does: it is a person pointing at a sentence, and that
+    // is exactly the kind of hidden content this margin exists to announce.
+    if (annotationKind(a) === "highlight" && annotationOrigin(a) === "mine") continue;
       const index = a.anchor?.blockIndex ?? -1;
       // Not on the page — another chapter's window. No marker, no measurement.
       if (!els[index - base]) continue;

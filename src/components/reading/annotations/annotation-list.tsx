@@ -4,12 +4,14 @@ import {
   Highlighter,
   MessageSquare,
   MessageSquarePlus,
-  StickyNote,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MemberAvatar } from "@/components/journal/member-avatar";
+import { memberPhotoUrl } from "@/lib/media/member-photo-url";
 import {
   annotationKind,
+  annotationOrigin,
   type AnnotationSummary,
 } from "@/lib/reading/annotation-types";
 import { chapterIndexAt, type ChapterBound } from "@/lib/reading/reading-progress";
@@ -175,12 +177,12 @@ export function AnnotationList({
               <ul>
                 {group.items.map((a) => {
                   const kind = annotationKind(a);
-                  const Icon =
-                    kind === "chat"
-                      ? MessageSquare
-                      : kind === "note"
-                        ? StickyNote
-                        : Highlighter;
+                  const theirs = annotationOrigin(a) === "theirs";
+                  const who = theirs
+                    ? (a.participants.find((p) => p.userId === a.sharedFromUserId) ??
+                      null)
+                    : null;
+                  const Icon = kind === "thread" ? MessageSquare : Highlighter;
                   return (
                     <li key={a.id}>
                       <button
@@ -191,14 +193,23 @@ export function AnnotationList({
                           a.id === openAnnotationId && "bg-muted"
                         )}
                       >
-                        <Icon
-                          className={cn(
-                            "mt-0.5 h-3.5 w-3.5 shrink-0",
-                            kind === "highlight"
-                              ? "text-muted-foreground/60"
-                              : "text-muted-foreground"
-                          )}
-                        />
+                        {who ? (
+                          <MemberAvatar
+                            name={who.name}
+                            url={who.email ? memberPhotoUrl(who.email) : null}
+                            size="xs"
+                            className="mt-0.5"
+                          />
+                        ) : (
+                          <Icon
+                            className={cn(
+                              "mt-0.5 h-3.5 w-3.5 shrink-0",
+                              kind === "highlight"
+                                ? "text-muted-foreground/60"
+                                : "text-muted-foreground"
+                            )}
+                          />
+                        )}
                         <div className="min-w-0 flex-1">
                           {a.quotedText ? (
                             <p
@@ -241,13 +252,40 @@ export function AnnotationList({
                               {a.latestNote}
                             </p>
                           )}
-                          {a.messageCount > 0 && (
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              {a.messageCount}{" "}
-                              {a.messageCount === 1 ? "message" : "messages"}
-                              {a.anchorPage != null && hasRealPages
-                                ? ` · p.${a.anchorPage}`
-                                : ""}
+                          {/* A share whose passage couldn't be found in this
+                              copy. It is still here, still openable, still
+                              linked — it just has nowhere to sit in the text,
+                              and saying so is the difference between a mark
+                              that is quiet and one that looks broken. */}
+                          {a.anchorStatus === "unplaced" && (
+                            <p className="mt-1 text-[11px] italic text-muted-foreground">
+                              Couldn&rsquo;t find this passage in your copy
+                            </p>
+                          )}
+                          {/* One line for everything about the mark rather than
+                              about the passage: whose it is, how much of it
+                              there is, and where it sits. */}
+                          {(a.messageCount > 0 || who || a.unreadCount > 0) && (
+                            <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                              {a.unreadCount > 0 && (
+                                <span
+                                  aria-label={`${a.unreadCount} new`}
+                                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
+                                />
+                              )}
+                              <span className="truncate">
+                                {[
+                                  who?.name,
+                                  a.messageCount > 0
+                                    ? `${a.messageCount} ${a.messageCount === 1 ? "message" : "messages"}`
+                                    : null,
+                                  a.anchorPage != null && hasRealPages
+                                    ? `p.${a.anchorPage}`
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </span>
                             </p>
                           )}
                         </div>

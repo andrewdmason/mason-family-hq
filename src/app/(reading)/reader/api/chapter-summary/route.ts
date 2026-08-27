@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
 
   const { data: row } = await db
     .from("reading_annotations")
-    .select("id, book_id, chapter_anchor_id")
+    .select("id, book_id, thread_id, chapter_anchor_id")
     .eq("id", body.annotationId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -69,8 +69,7 @@ export async function POST(req: NextRequest) {
   const { error: clearErr } = await db
     .from("reading_annotation_messages")
     .delete()
-    .eq("annotation_id", row.id)
-    .eq("user_id", userId);
+    .eq("thread_id", row.thread_id);
   if (clearErr) return new Response(clearErr.message, { status: 500 });
 
   // Written as the reader's own turn, and written FIRST — same contract as the
@@ -82,7 +81,7 @@ export async function POST(req: NextRequest) {
   const { error: insertErr } = await db
     .from("reading_annotation_messages")
     .insert({
-      annotation_id: row.id,
+      thread_id: row.thread_id,
       user_id: userId,
       role: "user",
       content: question,
@@ -127,7 +126,7 @@ export async function POST(req: NextRequest) {
         const trimmed = full.trim();
         if (trimmed.length > 0) {
           await db.from("reading_annotation_messages").insert({
-            annotation_id: row.id,
+            thread_id: row.thread_id,
             user_id: userId,
             role: "assistant",
             content: trimmed,

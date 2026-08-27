@@ -4,7 +4,7 @@
  * Two joins have to happen. Readwise book -> library book, which is exact when
  * both sides know the Amazon ID (Readwise records it; the Calibre files carried
  * one too) and falls back to title+author otherwise. Then highlight text ->
- * character range inside the converted book, which is the matcher in locate.ts.
+ * character range inside the converted book, which is the matcher in lib/reading/locate-quote.ts.
  *
  * Writes a plan and a report; touches nothing. Also answers the separate
  * question of which heavily-highlighted books aren't in the library at all.
@@ -17,7 +17,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
-import { buildIndex, locate, buildAnchor } from "./locate";
+import { buildIndex, locate, buildAnchor } from "@/lib/reading/locate-quote";
 import type { ReadwiseBook, ReadwiseHighlight } from "./fetch.mts";
 import type { ScannedBook } from "../import-ebooks/types";
 

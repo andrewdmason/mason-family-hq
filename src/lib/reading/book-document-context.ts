@@ -142,7 +142,7 @@ export async function getBookPreface(
 ): Promise<string | null> {
   const { data: row } = await client
     .from("reading_annotations")
-    .select("id")
+    .select("id, thread_id")
     .eq("book_id", bookId)
     .eq("user_id", userId)
     .eq("book_scope", "preface")
@@ -154,8 +154,7 @@ export async function getBookPreface(
   const { data: msg } = await client
     .from("reading_annotation_messages")
     .select("content")
-    .eq("annotation_id", row.id as string)
-    .eq("user_id", userId)
+    .eq("thread_id", row.thread_id as string)
     .eq("role", "document")
     .order("created_at", { ascending: false })
     .limit(1)
@@ -217,9 +216,13 @@ export async function getReaderMarks(
   const budget = options?.maxChars ?? MAX_MARK_CHARS;
   const query = client
     .from("reading_annotations")
-    .select("id, anchor_page, quoted_text, chapter_anchor_id, template")
+    .select("id, thread_id, anchor_page, quoted_text, chapter_anchor_id, template")
     .eq("book_id", bookId)
     .eq("user_id", userId)
+    // Marks somebody else placed in this book by mentioning the reader are
+    // theirs, not the reader's. Quoting them back in a conversation about "what
+    // you have marked" would put another person's words in the reader's mouth.
+    .is("shared_from_user_id", null)
     .is("book_scope", null)
     .order("anchor_char_offset", { ascending: true });
   if (options?.excludeAnnotationId) {
@@ -232,6 +235,7 @@ export async function getReaderMarks(
 
   const annotations = (rows ?? []) as {
     id: string;
+    thread_id: string;
     anchor_page: number | null;
     quoted_text: string | null;
     chapter_anchor_id: string | null;
@@ -245,31 +249,30 @@ export async function getReaderMarks(
   // return above isn't just an optimisation.
   const { data: msgRows } = await client
     .from("reading_annotation_messages")
-    .select("annotation_id, role, content, created_at")
-    .eq("user_id", userId)
+    .select("thread_id, role, content, created_at")
     .in(
-      "annotation_id",
-      annotations.map((a) => a.id)
+      "thread_id",
+      annotations.map((a) => a.thread_id)
     )
     .in("role", ["user", "assistant", "note"])
     .order("created_at", { ascending: true });
 
-  const byAnnotation = new Map<string, { role: string; content: string }[]>();
+  const byThread = new Map<string, { role: string; content: string }[]>();
   for (const m of (msgRows ?? []) as {
-    annotation_id: string;
+    thread_id: string;
     role: string;
     content: string;
   }[]) {
-    const list = byAnnotation.get(m.annotation_id) ?? [];
+    const list = byThread.get(m.thread_id) ?? [];
     list.push({ role: m.role, content: m.content });
-    byAnnotation.set(m.annotation_id, list);
+    byThread.set(m.thread_id, list);
   }
 
   const marks: ReaderMark[] = [];
   let chars = 0;
   let truncated = false;
   for (const a of annotations) {
-    const msgs = byAnnotation.get(a.id) ?? [];
+    const msgs = byThread.get(a.thread_id) ?? [];
     const notes = msgs.filter((m) => m.role === "note").map((m) => m.content);
     const exchanges: ReaderMark["exchanges"] = [];
     for (const m of msgs) {

@@ -1,4 +1,5 @@
 import type { AnnotationAnchor } from "@/lib/reading/annotation-anchors";
+import type { StoredMention } from "@/lib/reading/mentions";
 import type { BookScope } from "@/lib/reading/book-documents";
 
 /** "fast" = claude-haiku-4-5, "deep" = claude-sonnet-5. */
@@ -55,22 +56,36 @@ export function isReaderChatTemplate(v: unknown): v is ReaderChatTemplate {
 /**
  * What an annotation currently IS, derived from its contents rather than stored.
  *
- * The three states are one row at different stages of its life, which is the
- * whole point of the model: highlight a passage now, write on it tonight, ask
- * about it next week — all without ever producing a second thing in the margin
- * painting over the first.
+ * Two states, one row at different stages of its life: highlight a passage now,
+ * write on it tonight, ask about it next week — all without ever producing a
+ * second thing in the margin painting over the first.
  *
- * A chat wins over a note when an annotation has both. The text can only carry
- * one treatment, and the conversation is the richer content.
+ * It used to be three. "Note" and "chat" were separate because the composer had
+ * two modes and they were genuinely different acts; there is one composer now
+ * and who a message is for is said in the text, so a passage either has words on
+ * it or it doesn't. Collapsing them also reclaims a colour — see
+ * use-annotation-highlights, where the page needed to stop carrying three.
  */
-export type AnnotationKind = "highlight" | "note" | "chat";
+export type AnnotationKind = "highlight" | "thread";
 
 export function annotationKind(a: {
   noteCount: number;
   messageCount: number;
 }): AnnotationKind {
-  if (a.messageCount > 0) return "chat";
-  return a.noteCount > 0 ? "note" : "highlight";
+  return a.messageCount > 0 || a.noteCount > 0 ? "thread" : "highlight";
+}
+
+/**
+ * Whose mark this is, which is orthogonal to what it contains.
+ *
+ * Kind and origin are separate dimensions on purpose. What a mark holds decides
+ * how strongly it paints; whose it is decides what colour. Multiplying them into
+ * one enum would give six treatments and a page that reads as a chart.
+ */
+export type AnnotationOrigin = "mine" | "theirs";
+
+export function annotationOrigin(a: { sharedFromUserId: string | null }): AnnotationOrigin {
+  return a.sharedFromUserId ? "theirs" : "mine";
 }
 
 export type AnnotationSummary = {
@@ -126,6 +141,35 @@ export type AnnotationSummary = {
    * since the reader picked a conversation rather than a set of settings.
    */
   template: ReaderChatTemplate | null;
+  /**
+   * Whether Nor has been named in this thread and so answers what gets written
+   * here without being called again.
+   *
+   * On the summary rather than only on the detail because the composer needs it
+   * the moment the panel opens, and a thread you have to fetch before you can
+   * tell whether the assistant is listening is one the chip cannot be honest
+   * about while it loads.
+   */
+  aiParticipant: boolean;
+  /** The conversation this mark points at — what a permalink names and what
+   *  marking-as-read is addressed to. */
+  threadId: string;
+  /**
+   * Set when this mark is in your book because somebody named you in it. Null on
+   * your own. What the margin reads to paint it as somebody else's.
+   */
+  sharedFromUserId: string | null;
+  /**
+   * Whether the passage was actually found in YOUR copy of the book. An
+   * "unplaced" mark is listed and linkable but never painted — a share that
+   * produces nothing visible is the worst failure available here, so it is made
+   * visible somewhere even when the text could not be found.
+   */
+  anchorStatus: "exact" | "relocated" | "unplaced";
+  /** Everyone in the conversation, for the gutter's face and the panel's header. */
+  participants: { userId: string; email: string | null; name: string }[];
+  /** Messages since this reader last looked. */
+  unreadCount: number;
   /** Questions and answers only — notes are counted separately, in `noteCount`. */
   messageCount: number;
   lastMessageAt: string | null;
@@ -143,6 +187,22 @@ export type AnnotationSummary = {
 export type ReaderChatMessage = {
   id: string;
   /**
+   * Who wrote this turn — or, for the machine roles, whose turn produced it.
+   *
+   * Present on every message rather than only on shared ones, because a thread
+   * does not know in advance that it will become one: a mark you wrote alone in
+   * March and showed someone in August has to be able to say which lines were
+   * yours, and the only place that could have been recorded is when they were
+   * written. Unused while a thread has one participant, which is most of them.
+   *
+   * Null on a message the client has only just made and not yet heard back
+   * about. That is not a missing value: an optimistic row is by definition the
+   * reader's own, so "no author yet" and "me" are the same fact, and the client
+   * knowing which is which without being told its own id is worth more than the
+   * uniformity.
+   */
+  authorUserId: string | null;
+  /**
    * "notice" is app-authored UI text (e.g. a model promotion); never sent to
    * the model. "note" is the reader's own writing — it gets no reply, but it IS
    * sent to the model, because a thread where your own words are invisible to
@@ -154,6 +214,12 @@ export type ReaderChatMessage = {
   role: "user" | "assistant" | "notice" | "note" | "document";
   content: string;
   model: string | null;
+  /**
+   * Who this message named, with offsets, as the SERVER read it. Rendering from
+   * this rather than re-parsing on the client is what stops a chip disagreeing
+   * with the grant it stands for.
+   */
+  mentions: StoredMention[];
   createdAt: string;
 };
 

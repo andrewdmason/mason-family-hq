@@ -7,7 +7,9 @@ import {
   CornerUpLeft,
   Loader2,
   RotateCcw,
-  StickyNote,
+  Check,
+  Link2,
+  LogOut,
   Trash2,
   X,
 } from "lucide-react";
@@ -19,6 +21,19 @@ import type {
   ReaderChatTemplate,
 } from "@/lib/reading/annotation-types";
 import { READER_CHAT_TEMPLATE_OPENERS } from "@/lib/reading/annotation-types";
+import {
+  norWillReply,
+  type MentionTarget,
+} from "@/lib/reading/mentions";
+import { getAnnotation } from "@/app/(reading)/reader/annotation-actions";
+import { markThreadRead } from "@/app/(reading)/reader/thread-actions";
+import { MentionText } from "./mention-text";
+import { sharedMarkHref } from "@/lib/reading/links";
+import {
+  MentionTypeahead,
+  matchTargets,
+  mentionQueryAt,
+} from "./mention-typeahead";
 import { streamReply } from "@/lib/reading/chat-stream";
 import { chapterSummaryQuestion } from "@/lib/reading/chapter-summary";
 import { chapterName } from "@/lib/reading/chapter-target";
@@ -28,20 +43,15 @@ import { PromptInspector } from "./prompt-inspector";
 import { useAutosizeTextarea } from "./use-autosize-textarea";
 
 /**
- * What the one composer does with what you type: ask Claude, or keep it.
+ * How the composer opens, when the reader arrived by choosing something.
  *
- * Two intents, one text field. They were two fields — a note box wedged above
- * the transcript and a question box below it — which read as two identical
- * inputs with nothing on screen to say that one is private and the other is not.
- *
- * There is deliberately no control for this. Notes are a small fraction of what
- * gets written here, and a permanent switch in the composer cost more attention
- * every day than the feature is worth: ⌘↵ writes one from the keyboard, and the
- * toolbar's "Note" opens the box already set to write one. The placeholder is
- * the only thing that ever says which mode you're in, and after the first line
- * lands the box goes back to asking.
+ * There used to be two of these — chat or note — and a modal Enter to go with
+ * them. That split is gone: writing and asking are the same act now, and who a
+ * message is for is said in the text. What survives is the smaller question of
+ * what the box should be primed with, which the selection toolbar answers by
+ * offering Comment and Share as separate doors into the same room.
  */
-export type ComposeMode = "chat" | "note";
+export type ComposeIntent = "write" | "mention";
 
 let localSeq = 0;
 const localId = () => `local-${++localSeq}`;
@@ -63,7 +73,8 @@ export function AnnotationThread({
   chapterTitle = null,
   memberEmail,
   isArticle,
-  initialMode = "chat",
+  initialIntent = "write",
+  mentionTargets,
   onAddNote,
   hasRealPages,
   labelForPage,
@@ -93,12 +104,17 @@ export function AnnotationThread({
   /** Articles have no pages, so nothing spoiler-scoped applies to them. */
   isArticle: boolean;
   /**
-   * Which way the composer starts. "note" when the reader chose Note in the
-   * selection toolbar — that choice is the whole reason the toolbar asks, so
-   * arriving in a panel set to Chat would throw it away and make them say it
-   * twice.
+   * How the box opens. "mention" when the reader chose Share in the selection
+   * toolbar — that choice is the whole reason the toolbar asks, so arriving at a
+   * blank composer would throw it away and make them say it twice.
    */
-  initialMode?: ComposeMode;
+  initialIntent?: ComposeIntent;
+  /**
+   * Everyone who can be named here, Nor included. Passed in rather than fetched:
+   * the same list has to reach the server that decides what a name grants, and
+   * two lists is two answers to who @jenny is.
+   */
+  mentionTargets: MentionTarget[];
   /**
    * Append a note to the thread. Gets no reply, but does have to reach the
    * server — it rejects if the write fails so the thread can hand the words back
@@ -178,8 +194,68 @@ export function AnnotationThread({
   // Captured at mount (the panel remounts per chat via key): an empty transcript
   // means this chat was just started, so the reader's next move is to type.
   const [startedEmpty] = useState(() => chat.messages.length === 0);
-  const [mode, setMode] = useState<ComposeMode>(initialMode);
+  /**
+   * True from the moment a question is sent until its answer has finished
+   * arriving. `sending` goes false as soon as the request is in flight, so it is
+   * not enough on its own to keep a poll off the placeholder being streamed into.
+   */
+  const streamingRef = useRef(false);
+  const [copied, setCopied] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState<{
+    query: string;
+    start: number;
+  } | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const isSummary = chat.chapterAnchorId != null;
+  const isShared = chat.participants.length > 1;
+  const sharedBy = chat.participants.find((p) => p.userId === chat.sharedFromUserId);
+  const confirmLeave = sharedBy
+    ? `Take this out of your margin? ${sharedBy.name} keeps the conversation.`
+    : "Take this out of your margin? The conversation stays with the others in it.";
+
+  /**
+   * Whether this message goes to Nor.
+   *
+   * Recomputed on every keystroke, and now shown only in the placeholder — the
+   * chip that used to announce it was more furniture than the rule was worth.
+   * Naming him puts him in the room and he stays; leading with a person's name
+   * addresses them instead.
+   */
+  const willAskNor = norWillReply({
+    text: draft,
+    targets: mentionTargets,
+    aiParticipant: chat.aiParticipant,
+  });
+  // Asking needs a model, so it is the one thing here that genuinely cannot work
+  // without a connection. Writing to the other person does not, so offline never
+  // disables the composer — it just holds Nor back.
+  const norOn = willAskNor && online;
+
+  const mentionCandidates = mentionQuery
+    ? matchTargets(mentionTargets, mentionQuery.query)
+    : [];
+
+  /** Replace the half-typed handle with the real one, and keep the caret. */
+  const pickMention = useCallback(
+    (target: MentionTarget) => {
+      if (!mentionQuery) return;
+      const el = inputRef.current;
+      const caret = el?.selectionStart ?? draft.length;
+      const next =
+        draft.slice(0, mentionQuery.start) +
+        `@${target.handle} ` +
+        draft.slice(caret);
+      setDraft(next);
+      setMentionQuery(null);
+      setMentionIndex(0);
+      const at = mentionQuery.start + target.handle.length + 2;
+      requestAnimationFrame(() => {
+        el?.focus();
+        el?.setSelectionRange(at, at);
+      });
+    },
+    [draft, mentionQuery]
+  );
   /**
    * Captured at mount, like startedEmpty. Keyed on there being no ANSWER rather
    * than no messages: the route commits the question before it streams, so a
@@ -195,9 +271,82 @@ export function AnnotationThread({
   // which on a phone would throw up the keyboard over the thread. A summary is
   // excluded even when it's new: the reader tapped a title to READ something,
   // and a keyboard over the recap as it arrives is the opposite of that.
+  // Opening a shared conversation is reading it — the badge clears here rather
+  // than on the next fetch, so the dot goes away when you look at the thing it
+  // was pointing at. Fire-and-forget: a missed stamp costs one stale dot.
   useEffect(() => {
-    if (startedEmpty && !isSummary) inputRef.current?.focus();
-  }, [isSummary, startedEmpty]);
+    if (!isShared) return;
+    void markThreadRead(chat.threadId).catch(() => {});
+  }, [chat.threadId, isShared]);
+
+  /**
+   * Pick up what the other person said, without ever stepping on a reply that
+   * is still arriving.
+   *
+   * Polling rather than a live socket: this app has no realtime anywhere, and
+   * the reader — offline-capable, sometimes on an e-ink screen — is the wrong
+   * route on which to open the first one. Only while the panel is open, only
+   * while the tab is visible, and only when somebody else is actually in the
+   * conversation.
+   *
+   * The pause while sending or streaming is the important part. A poll landing
+   * mid-stream would replace the placeholder the answer is being written into,
+   * and the reader would watch a reply disappear as it was being typed.
+   *
+   * The merge keeps anything local that the server has not confirmed yet, and
+   * appends whatever is new. The thread deliberately does NOT sync from props
+   * for the same reason this is careful — see the note on `messages` above.
+   */
+  useEffect(() => {
+    if (!isShared) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      if (cancelled || sending || streamingRef.current) return;
+      if (document.visibilityState !== "visible") return;
+      try {
+        const fresh = await getAnnotation(chat.id, memberEmail);
+        if (cancelled || !fresh || sending || streamingRef.current) return;
+        setMessages((prev) => {
+          const local = prev.filter((m) => m.id.startsWith("local-"));
+          const serverIds = new Set(fresh.messages.map((m) => m.id));
+          const kept = local.filter((m) => !serverIds.has(m.id));
+          if (
+            kept.length === 0 &&
+            prev.length === fresh.messages.length &&
+            prev.every((m, i) => m.id === fresh.messages[i]?.id)
+          ) {
+            return prev;
+          }
+          return [...fresh.messages, ...kept];
+        });
+      } catch {
+        // A failed poll is a poll that didn't happen. The next one is in 8s.
+      }
+    };
+
+    const timer = setInterval(poll, 8000);
+    const onVisible = () => void poll();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [chat.id, isShared, memberEmail, sending]);
+
+  useEffect(() => {
+    if (!startedEmpty || isSummary) return;
+    inputRef.current?.focus();
+    // Arriving via Share means the reader has already said who this is for, so
+    // the box opens with the menu up rather than making them say it twice.
+    if (initialIntent === "mention") {
+      setDraft("@");
+      setMentionQuery({ query: "", start: 0 });
+    }
+  }, [initialIntent, isSummary, startedEmpty]);
 
   // No effect syncing `messages` back to props: the panel remounts this
   // component with key={chat.id}, so switching chats resets everything. Syncing
@@ -212,22 +361,8 @@ export function AnnotationThread({
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
-  /**
-   * Keep what's in the box as a note.
-   *
-   * Optimistic: a note is short, it is the reader's own words, and there is
-   * nothing to stream back, so it appears the instant they commit it rather than
-   * after a round trip. The write is queued behind the annotation's insert by
-   * the layer (see onceCreated), so this is safe on a passage the server has not
-   * heard about yet.
-   *
-   * A failure takes the line back out and returns the text to the box, the same
-   * way a failed question does. Silently leaving it on screen would be the worst
-   * outcome available here — this is the one part of the panel that is the
-   * reader's own writing, and showing it as kept when it wasn't is how you lose
-   * a thought without ever being told.
-   */
-  const keepNote = useCallback(async () => {
+
+  const keepMessage = useCallback(async () => {
     const text = draft.trim();
     if (!text || sending) return;
     setDraft("");
@@ -241,16 +376,19 @@ export function AnnotationThread({
     const noteId = localId();
     setMessages((prev) => [
       ...prev,
-      { id: noteId, role: "note", content: text, model: null, createdAt: "" },
+      {
+        id: noteId,
+        authorUserId: null,
+        mentions: [],
+        role: "note",
+        content: text,
+        model: null,
+        createdAt: "",
+      },
     ]);
 
     try {
       await onAddNote(text);
-      // Back to asking. Arriving via the toolbar's "Note" sets the box up to
-      // write one, but it is a starting position rather than a state the thread
-      // is stuck in — the next thing you type in a passage you've written on is
-      // usually a question about it.
-      setMode("chat");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't save that note.");
       setMessages((prev) => prev.filter((m) => m.id !== noteId));
@@ -263,11 +401,11 @@ export function AnnotationThread({
   }, [draft, onAddNote, onExchangeComplete, onTouched, sending]);
 
   /**
-   * Send a turn.
+   * Ask, and stream the answer back.
    *
    * Takes the text explicitly so a template can open its own conversation
-   * without the reader typing — see the effect below. The composer is the only
-   * other caller and passes nothing, which leaves the ordinary path untouched.
+   * without the reader typing — see the effect below. The composer reaches this
+   * through submit(), which decides between the two paths.
    */
   const send = useCallback(async (override?: string) => {
     const text = (override ?? draft).trim();
@@ -282,13 +420,32 @@ export function AnnotationThread({
     // Asking something is asking to see the answer, so a send re-pins even if you
     // were reading back through the thread when you typed it.
     pinnedToBottom.current = true;
+    // Held for the whole life of the answer, so a poll can't replace the bubble
+    // it is being written into.
+    streamingRef.current = true;
 
     const userId = localId();
     const assistantId = localId();
     setMessages((prev) => [
       ...prev,
-      { id: userId, role: "user", content: text, model: null, createdAt: "" },
-      { id: assistantId, role: "assistant", content: "", model: null, createdAt: "" },
+      {
+        id: userId,
+        authorUserId: null,
+        mentions: [],
+        role: "user",
+        content: text,
+        model: null,
+        createdAt: "",
+      },
+      {
+        id: assistantId,
+        authorUserId: null,
+        mentions: [],
+        role: "assistant",
+        content: "",
+        model: null,
+        createdAt: "",
+      },
     ]);
 
     // The panel can open before the annotation row exists, so the id it was
@@ -325,6 +482,8 @@ export function AnnotationThread({
           if (prev.some((m) => m.role === "notice")) return prev;
           const note: ReaderChatMessage = {
             id: localId(),
+            authorUserId: null,
+            mentions: [],
             role: "notice",
             content:
               "Answered with the Deep model — this book is too long for the Fast model's context window.",
@@ -355,12 +514,43 @@ export function AnnotationThread({
     } finally {
       setStatus(null);
       setSending(false);
+      streamingRef.current = false;
       // Whatever happened to the reply, the route persisted the user's turn
       // before streaming — so this annotation is a chat now, and the list that
       // decides its colour and its margin icon needs to hear about it.
       onExchangeComplete();
     }
   }, [draft, sending, chat.id, memberEmail, onTouched, onExchangeComplete, resolveChatId]);
+
+  /**
+   * Keep what's in the box as a note.
+   *
+   * Optimistic: a note is short, it is the reader's own words, and there is
+   * nothing to stream back, so it appears the instant they commit it rather than
+   * after a round trip. The write is queued behind the annotation's insert by
+   * the layer (see onceCreated), so this is safe on a passage the server has not
+   * heard about yet.
+   *
+   * A failure takes the line back out and returns the text to the box, the same
+   * way a failed question does. Silently leaving it on screen would be the worst
+   * outcome available here — this is the one part of the panel that is the
+   * reader's own writing, and showing it as kept when it wasn't is how you lose
+   * a thought without ever being told.
+   */
+  /**
+   * The one thing the composer does.
+   *
+   * Two paths still exist underneath, and deliberately so: asking commits the
+   * question server-side before it streams, so a reply that dies leaves a thread
+   * you can carry on from, while writing has to be able to hand the words back
+   * if the write fails. Those are genuinely different failure stories and
+   * flattening them would lose the better half of each. What went away is the
+   * reader having to choose between them.
+   */
+  const submit = useCallback(async () => {
+    if (willAskNor && online) await send();
+    else await keepMessage();
+  }, [keepMessage, online, send, willAskNor]);
 
   /**
    * Write the recap — on opening a summary that doesn't have one yet, and again
@@ -388,8 +578,24 @@ export function AnnotationThread({
     const userId = localId();
     const assistantId = localId();
     setMessages([
-      { id: userId, role: "user", content: question, model: null, createdAt: "" },
-      { id: assistantId, role: "assistant", content: "", model: null, createdAt: "" },
+      {
+        id: userId,
+        authorUserId: null,
+        mentions: [],
+        role: "user",
+        content: question,
+        model: null,
+        createdAt: "",
+      },
+      {
+        id: assistantId,
+        authorUserId: null,
+        mentions: [],
+        role: "assistant",
+        content: "",
+        model: null,
+        createdAt: "",
+      },
     ]);
 
     // The panel can open before the annotation row exists — the reader tapped a
@@ -549,6 +755,39 @@ export function AnnotationThread({
     (m) => m.role === "user" || m.role === "assistant"
   );
 
+  /**
+   * Copy a link to this mark.
+   *
+   * Addressed by the CONVERSATION rather than by this book, because the person
+   * you send it to opens their own copy — see sharedMarkHref. It does not grant
+   * anything: someone who was never mentioned here lands on their shelf instead.
+   * Sharing is still an act of saying somebody's name.
+   */
+  const copyLink = useCallback(async () => {
+    const url = `${window.location.origin}${sharedMarkHref(chat.threadId)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // The clipboard API is refused outside a secure context — which includes
+      // reading over the LAN from another device, exactly when you are most
+      // likely to want to send somebody a link. The old selection trick still
+      // works there.
+      const el = document.createElement("textarea");
+      el.value = url;
+      el.style.position = "fixed";
+      el.style.opacity = "0";
+      document.body.append(el);
+      el.select();
+      try {
+        document.execCommand("copy");
+      } finally {
+        el.remove();
+      }
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }, [chat.threadId]);
+
   /** Where this conversation lives, in the reader's own terms. */
   const locationLabel = isSummary
     ? chapterTitle
@@ -658,13 +897,48 @@ export function AnnotationThread({
             <RotateCcw className="h-3.5 w-3.5" />
           </button>
         )}
+        {/* Hidden until the row exists: a mark created a moment ago has no
+            conversation id yet, and a link to nothing is worse than no link. */}
+        {chat.threadId ? (
+          <button
+            type="button"
+            onClick={() => void copyLink()}
+            aria-label="Copy link to this mark"
+            title={
+              copied
+                ? "Copied"
+                : "Copy link — opens this passage in their own copy"
+            }
+            className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-foreground" />
+            ) : (
+              <Link2 className="h-3.5 w-3.5" />
+            )}
+          </button>
+        ) : null}
+        {/* On your own mark this is a delete and always has been. On one
+            somebody left you it is a LEAVE — it takes the mark out of your
+            margin and leaves them everything the two of you wrote, which is the
+            only defensible reading of a bin on another person's passage. And it
+            asks first, because once there is a second person in a thread an
+            unconfirmed tap can destroy something that was not only yours. */}
         <button
           type="button"
-          onClick={onDelete}
-          aria-label="Delete chat"
+          onClick={() => {
+            if (isShared && !window.confirm(confirmLeave)) return;
+            onDelete();
+          }}
+          aria-label={isShared ? "Leave this conversation" : "Delete chat"}
+          title={isShared ? "Leave — the conversation stays with them" : undefined}
           className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
         >
-          <Trash2 className="h-3.5 w-3.5" />
+          {isShared ? (
+            <LogOut className="h-3.5 w-3.5" />
+          ) : (
+            <Trash2 className="h-3.5 w-3.5" />
+          )}
         </button>
         {dockToggle}
         <button
@@ -704,8 +978,8 @@ export function AnnotationThread({
                 key={m.id}
                 className="border-l-2 border-foreground/25 py-0.5 pl-3"
               >
-                <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">
-                  {m.content}
+                <p className="text-sm leading-6 text-foreground">
+                  <MentionText content={m.content} mentions={m.mentions} />
                 </p>
               </div>
             ) : m.role === "notice" ? (
@@ -742,8 +1016,9 @@ export function AnnotationThread({
                   />
                 ) : (
                   // The reader's own words, kept as typed — a question written
-                  // over two lines shouldn't come back as one.
-                  <span className="whitespace-pre-wrap">{m.content}</span>
+                  // over two lines shouldn't come back as one — with the names
+                  // in it picked out and nothing else touched.
+                  <MentionText content={m.content} mentions={m.mentions} />
                 )}
               </div>
             )
@@ -836,65 +1111,82 @@ export function AnnotationThread({
             )}
           </div>
         )}
-        <div className="flex items-end gap-2">
+        <div className="relative flex items-end gap-2">
+          {mentionQuery ? (
+            <MentionTypeahead
+              candidates={mentionCandidates}
+              activeIndex={mentionIndex}
+              onPick={pickMention}
+            />
+          ) : null}
           <textarea
             ref={inputRef}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              const q = mentionQueryAt(
+                e.target.value,
+                e.target.selectionStart ?? e.target.value.length
+              );
+              setMentionQuery(q);
+              setMentionIndex(0);
+            }}
             onKeyDown={(e) => {
+              // While the menu is open it owns the arrows and Enter, but only
+              // then — the textarea keeps focus throughout, so there is nothing
+              // to hand back and nothing for iOS to close the keyboard over.
+              if (mentionQuery && mentionCandidates.length > 0) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setMentionIndex((i) => (i + 1) % mentionCandidates.length);
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setMentionIndex(
+                    (i) =>
+                      (i - 1 + mentionCandidates.length) % mentionCandidates.length
+                  );
+                  return;
+                }
+                if (e.key === "Enter" || e.key === "Tab") {
+                  e.preventDefault();
+                  pickMention(mentionCandidates[mentionIndex]);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setMentionQuery(null);
+                  return;
+                }
+              }
               if (e.key !== "Enter" || e.shiftKey) return;
               e.preventDefault();
-              // The note path is a keyboard shortcut rather than a control,
-              // because writing one is rare enough that a permanent switch in
-              // the composer was more noise than the feature is worth. ⌘↵ works
-              // whatever the box is currently set to do, so it's one thing to
-              // remember rather than a thing you have to check first.
-              if (e.metaKey || e.ctrlKey || mode === "note") void keepNote();
-              else void send();
+              void submit();
             }}
             rows={2}
-            // A note needs the server, not a model — so it survives a flaky
-            // connection the way any other write does, and only the asking is
-            // blocked. Said up front rather than after a failed send: the answer
-            // has to come from a model, so that is the one part of the reader
-            // that genuinely cannot work offline. Queuing it would be worse — a
-            // question answered hours later is one you've stopped wondering about.
-            disabled={!online && mode === "chat"}
-            // The only thing on screen that says what Enter will do. That is the
-            // whole visible surface of note mode now: no toggle, no second
-            // button, just the box telling you what it is.
+            // Never disabled. Losing the connection stops Nor answering, which
+            // the chip says; it does not stop you writing to the person you are
+            // reading with, and it never stopped you writing to yourself.
             placeholder={
-              mode === "note"
-                ? "Write a note…"
-                : !online
-                  ? "AI chat needs a connection"
-                  : isSummary
-                    ? "Ask about this chapter…"
-                    : "Ask about this part…"
+              norOn
+                ? isSummary
+                  ? "Ask Nor about this chapter…"
+                  : "Ask Nor about this part…"
+                : "Write, or @nor to ask about this…"
             }
             className="min-h-[3.375rem] flex-1 resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
           />
           <button
             type="button"
-            onClick={() => void (mode === "note" ? keepNote() : send())}
-            disabled={
-              (!online && mode === "chat") || sending || draft.trim().length === 0
-            }
-            aria-label={mode === "note" ? "Keep note" : "Send"}
-            // Where the shortcut is advertised. A tooltip is the right weight
-            // for it: findable by anyone wondering how to write a note, invisible
-            // to everyone else.
-            title={
-              mode === "note"
-                ? "Keep note (↵)"
-                : "Send (↵) · hold ⌘ to keep as a note"
-            }
+            onClick={() => void submit()}
+            disabled={sending || draft.trim().length === 0}
+            aria-label="Send"
+            title="Send (↵)"
             className="rounded-md border border-border p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
           >
             {sending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
-            ) : mode === "note" ? (
-              <StickyNote className="h-4 w-4" />
             ) : (
               <CornerDownLeft className="h-4 w-4" />
             )}

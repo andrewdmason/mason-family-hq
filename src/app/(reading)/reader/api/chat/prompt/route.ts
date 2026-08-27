@@ -109,8 +109,7 @@ export async function POST(req: NextRequest) {
   const { data: noteRows } = await db
     .from("reading_annotation_messages")
     .select("role")
-    .eq("annotation_id", chatId)
-    .eq("user_id", userId)
+    .eq("thread_id", chat.thread_id)
     .eq("role", "note")
     .limit(1);
 

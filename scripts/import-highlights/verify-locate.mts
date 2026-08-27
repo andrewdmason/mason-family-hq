@@ -14,7 +14,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
-import { buildIndex, locate, buildAnchor } from "./locate";
+import { buildIndex, locate, buildAnchor } from "@/lib/reading/locate-quote";
 
 const SAMPLES_PER_BOOK = 60;
 

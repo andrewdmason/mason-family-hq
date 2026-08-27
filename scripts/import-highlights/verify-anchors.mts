@@ -15,7 +15,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
-import { buildIndex, normalizeQuery, type BookIndex } from "./locate";
+import { buildIndex, normalizeQuery, type BookIndex } from "@/lib/reading/locate-quote";
 
 /** Local Supabase's well-known service key — only valid against localhost. */
 const LOCAL_SERVICE_KEY =

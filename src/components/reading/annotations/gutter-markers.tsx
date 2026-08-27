@@ -1,8 +1,10 @@
 "use client";
 
-import { MessageSquare, StickyNote } from "lucide-react";
+import { MessageSquare } from "lucide-react";
+import { MemberAvatar } from "@/components/journal/member-avatar";
+import { memberPhotoUrl } from "@/lib/media/member-photo-url";
 import { cn } from "@/lib/utils";
-import { annotationKind } from "@/lib/reading/annotation-types";
+import { annotationKind, annotationOrigin } from "@/lib/reading/annotation-types";
 import { GUTTER_X_CLASS, MARKER_PITCH, type GutterRow } from "./gutter-placement";
 
 /**
@@ -33,12 +35,22 @@ export function GutterMarkers({
     <div className="pointer-events-none absolute inset-0">
       {rows.map((row) =>
         row.annotations.map((annotation, i) => {
-          // Chat wins when an annotation has both a note and a conversation —
-          // the same rule the text treatment uses, so the margin and the passage
-          // never disagree about what something is.
+          // A mark somebody else left you gets their face rather than an icon.
+          // It is the strongest "this came from a person" signal available and
+          // it costs nothing structurally — the button is already a 24px circle.
           const kind = annotationKind(annotation);
-          const Icon = kind === "chat" ? MessageSquare : StickyNote;
-          const label = kind === "chat" ? "chat" : "note";
+          const theirs = annotationOrigin(annotation) === "theirs";
+          const who = theirs
+            ? (annotation.participants.find(
+                (p) => p.userId === annotation.sharedFromUserId
+              ) ?? null)
+            : null;
+          const Icon = MessageSquare;
+          const label = theirs
+            ? `${who?.name ?? "shared"} note`
+            : kind === "thread"
+              ? "note"
+              : "highlight";
           return (
             <button
               key={annotation.id}
@@ -64,7 +76,22 @@ export function GutterMarkers({
                   : "border-border bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground"
               )}
             >
-              <Icon className="h-3 w-3" />
+              {who ? (
+                <MemberAvatar
+                  name={who.name}
+                  url={who.email ? memberPhotoUrl(who.email) : null}
+                  size="xs"
+                  className="h-full w-full"
+                />
+              ) : (
+                <Icon className="h-3 w-3" />
+              )}
+              {annotation.unreadCount > 0 && (
+                <span
+                  aria-hidden
+                  className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary ring-2 ring-background"
+                />
+              )}
             </button>
           );
         })

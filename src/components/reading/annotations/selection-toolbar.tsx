@@ -1,11 +1,24 @@
 "use client";
 
-import { Highlighter, MessageSquareQuote, StickyNote } from "lucide-react";
+import { AtSign, Highlighter, MessageSquareQuote } from "lucide-react";
 import { PAGE_PAD_BOTTOM } from "@/lib/reading/paged-geometry";
 import { cn } from "@/lib/utils";
 import { useFinePointer, useSelectionRange } from "./use-selection-range";
 
-export type SelectionIntent = "highlight" | "note" | "ask";
+/**
+ * Three doors into one thing.
+ *
+ * "Comment" replaces the old Note-and-Ask pair, which existed only because the
+ * composer had two modes; there is one composer now and who a message is for is
+ * said in the text. "Share" is the same door with somebody's name already in the
+ * box — a highlight has no text of its own, so pointing at a passage for
+ * somebody still has to be an act of saying something, and this is where that
+ * starts.
+ *
+ * Deliberately still three. The touch bar lays these out flex-1 and reserves its
+ * height in PAGE_PAD_BOTTOM; a fourth action would change both.
+ */
+export type SelectionIntent = "highlight" | "comment" | "share";
 
 const ACTIONS: {
   intent: SelectionIntent;
@@ -13,8 +26,8 @@ const ACTIONS: {
   Icon: typeof Highlighter;
 }[] = [
   { intent: "highlight", label: "Highlight", Icon: Highlighter },
-  { intent: "note", label: "Note", Icon: StickyNote },
-  { intent: "ask", label: "Ask", Icon: MessageSquareQuote },
+  { intent: "comment", label: "Comment", Icon: MessageSquareQuote },
+  { intent: "share", label: "Share", Icon: AtSign },
 ];
 
 /**
