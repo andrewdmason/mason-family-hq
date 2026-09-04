@@ -10,6 +10,7 @@ import {
   Check,
   Link2,
   LogOut,
+  Star,
   Trash2,
   X,
 } from "lucide-react";
@@ -75,6 +76,7 @@ export function AnnotationThread({
   isArticle,
   mentionTargets,
   onAddNote,
+  onToggleStar,
   hasRealPages,
   labelForPage,
   onJumpToPage,
@@ -114,6 +116,8 @@ export function AnnotationThread({
    * rather than showing them saved when they aren't.
    */
   onAddNote: (text: string) => Promise<void>;
+  /** Keep this passage, or stop keeping it. Private to this reader. */
+  onToggleStar: (next: boolean) => void;
   hasRealPages: boolean;
   labelForPage: (page: number) => string | null;
   onJumpToPage: (page: number) => void;
@@ -912,6 +916,24 @@ export function AnnotationThread({
             )}
           </button>
         ) : null}
+        {/* Not gated on the row existing, unlike the copy-link above: a link to
+            a mark with no id is a link to nothing, but a star can wait — the
+            layer's toggle resolves the real id first and queues behind the
+            insert. Starring a passage the moment you highlight it is a real
+            gesture, and making it wait for a round trip would break it. */}
+        <button
+          type="button"
+          onClick={() => onToggleStar(!chat.starred)}
+          aria-pressed={chat.starred}
+          aria-label={chat.starred ? "Unstar this mark" : "Star this mark"}
+          title={chat.starred ? "Starred — tap to unstar" : "Star this mark"}
+          className={cn(
+            "rounded p-1.5 transition-colors hover:bg-muted",
+            chat.starred ? "text-star" : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Star className={cn("h-3.5 w-3.5", chat.starred && "fill-current")} />
+        </button>
         {/* On your own mark this is a delete and always has been. On one
             somebody left you it is a LEAVE — it takes the mark out of your
             margin and leaves them everything the two of you wrote, which is the

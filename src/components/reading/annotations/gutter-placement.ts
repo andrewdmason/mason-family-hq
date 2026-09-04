@@ -11,18 +11,16 @@ import {
   type PageGeometry,
   type Pages,
 } from "@/lib/reading/paged-geometry";
-import {
-  annotationKind,
-  annotationOrigin,
-  type AnnotationSummary,
-} from "@/lib/reading/annotation-types";
+import { marksGutter, type AnnotationSummary } from "@/lib/reading/annotation-types";
 
 /**
  * Where the margin icons go: the marks that say "there is something here you
  * can't see" — a note's text, a conversation on a passage.
  *
  * Plain highlights are left out on purpose: the yellow IS the whole annotation,
- * and an icon beside every one turns a clean margin into a picket fence.
+ * and an icon beside every one turns a clean margin into a picket fence. The
+ * exceptions are one somebody left you and one you starred — see marksGutter,
+ * which is where that rule lives now so it can be checked without a DOM.
  *
  * Everything that does qualify gets its own icon, stacked downward from its
  * block's top — several on one paragraph read as a short column rather than a
@@ -104,10 +102,7 @@ export function useGutterPlacement(
     // the same paragraph share an anchor even if a reflow moves them.
     const byBlock = new Map<number, AnnotationSummary[]>();
     for (const a of annotations) {
-      // A highlight of your own advertises nothing the page isn't already showing.
-    // One somebody LEFT you does: it is a person pointing at a sentence, and that
-    // is exactly the kind of hidden content this margin exists to announce.
-    if (annotationKind(a) === "highlight" && annotationOrigin(a) === "mine") continue;
+      if (!marksGutter(a)) continue;
       const index = a.anchor?.blockIndex ?? -1;
       // Not on the page — another chapter's window. No marker, no measurement.
       if (!els[index - base]) continue;

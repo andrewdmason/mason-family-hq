@@ -12,6 +12,7 @@ import {
   postAnnotationMessage,
   setAnnotationModelPreference,
   setAnnotationSpoilerFree,
+  setAnnotationStarred,
   setAnnotationTemplate,
 } from "@/app/(reading)/reader/annotation-actions";
 import type { BookScope } from "@/lib/reading/book-documents";
@@ -43,6 +44,7 @@ import {
   summarizableChapters,
   type ChapterBound,
 } from "@/lib/reading/reading-progress";
+import { loadStarredOnly, saveStarredOnly } from "@/lib/reading/starred-filter";
 import { CHAPTER_TAP_CLASS } from "../reader-prose";
 import { AnnotationPanel } from "./annotation-panel";
 import { AnnotationList } from "./annotation-list";
@@ -162,7 +164,12 @@ function sameMarks(
       a.lastMessageAt === b.lastMessageAt &&
       a.anchorCharOffset === b.anchorCharOffset &&
       a.anchorStatus === b.anchorStatus &&
-      a.sharedFromUserId === b.sharedFromUserId
+      a.sharedFromUserId === b.sharedFromUserId &&
+      // Drawn from, like the rest: a star decides whether a plain highlight gets
+      // a margin marker at all. Leave it out and a star set on another device
+      // would land in the database and never reach this screen, because the
+      // gate below would decide the refetch drew the same thing.
+      a.starred === b.starred
     );
   });
 }
@@ -291,6 +298,16 @@ export function ReaderAnnotationLayer({
   const [draftId, setDraftId] = useState<string | null>(null);
   /** The panel shows one annotation, or the index of all of them. */
   const [mode, setMode] = useState<"thread" | "list">("thread");
+  /**
+   * Whether the index is collapsed to starred marks only. Remembered per book —
+   * see starred-filter.ts for why it is per book and not per device.
+   *
+   * Read after mount rather than in a lazy initializer: this component renders
+   * on the server too, and an initializer reaching for localStorage would hydrate
+   * to a different value than it rendered. Nothing is ever seen unfiltered by
+   * mistake, because the panel starts closed.
+   */
+  const [starredOnly, setStarredOnly] = useState(false);
   /**
    * The chapter heading whose menu is open, held as the element itself: the menu
    * positions against it and re-measures, which a copied rectangle couldn't
@@ -529,6 +546,17 @@ export function ReaderAnnotationLayer({
     [bookId, memberEmail]
   );
 
+  // Keyed on the book, so opening a second one in the same tab re-reads rather
+  // than carrying the first book's filter into it.
+  useEffect(() => setStarredOnly(loadStarredOnly(bookId)), [bookId]);
+  const changeStarredOnly = useCallback(
+    (on: boolean) => {
+      setStarredOnly(on);
+      saveStarredOnly(bookId, on);
+    },
+    [bookId]
+  );
+
   /**
    * Which page a character offset falls on, from the marks the book shipped
    * with. The server works this out too when it creates an annotation; doing it
@@ -718,6 +746,9 @@ export function ReaderAnnotationLayer({
         noteCount: 0,
         // The column's default, and its only permitted value today.
         color: "yellow",
+        // Nothing is starred at the moment it is made. Starring is a second
+        // thought about a passage, never the first one.
+        starred: false,
         modelPreference: isSummary ? "deep" : "fast",
         // Never at creation: a template is something the reader picks from
         // inside the blank thread, which converts this row afterwards.
@@ -1466,6 +1497,52 @@ export function ReaderAnnotationLayer({
   );
 
   /**
+   * Keep this passage, or stop keeping it.
+   *
+   * Patches BOTH the open thread and the loaded list, which none of the settings
+   * above have to. A star is set from two places — the thread's header and the
+   * row in the marks list — and both are on screen at once when the panel is
+   * docked; waiting for a refetch would leave one of them a round trip behind
+   * the tap that asked for it.
+   *
+   * It also changes what the MARGIN draws: a starred highlight gets a marker
+   * that an unstarred one never does. So a star necessarily churns the `chats`
+   * identity and re-runs the highlight painter and the gutter placer — a
+   * full-screen flash on e-ink. That is the very thing sameMarks exists to
+   * avoid, and here it is correct: something visible did change. Don't "fix" it.
+   *
+   * Rolls back on failure, like pickTemplate and unlike changeModel: a star that
+   * silently didn't save is a passage the reader believes they can find again
+   * and can't, which is the one failure this feature exists to prevent. Hence
+   * realIdFor rather than onceCreated, which swallows its errors.
+   */
+  const toggleStar = useCallback(
+    async (annotationId: string, next: boolean) => {
+      const patch = (value: boolean) => {
+        setDetail((d) => (d && d.id === annotationId ? { ...d, starred: value } : d));
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                chats: prev.chats.map((c) =>
+                  c.id === annotationId ? { ...c, starred: value } : c
+                ),
+              }
+            : prev
+        );
+      };
+      patch(next);
+      try {
+        const id = await realIdFor(annotationId);
+        await setAnnotationStarred(id, next, memberEmail);
+      } catch {
+        patch(!next);
+      }
+    },
+    [memberEmail, realIdFor]
+  );
+
+  /**
    * Convert the open blank chat into one of the two mid-book conversations.
    *
    * MUST REJECT IF THE WRITE FAILS, which is why this goes through realIdFor and
@@ -1562,6 +1639,9 @@ export function ReaderAnnotationLayer({
             onOpen={(id) => void openExisting(id)}
             onClose={closePanel}
             onAsk={askHere}
+            starredOnly={starredOnly}
+            onStarredOnlyChange={changeStarredOnly}
+            onToggleStar={(id, next) => void toggleStar(id, next)}
             dockToggle={dockToggle}
           />
         ) : (
@@ -1612,6 +1692,7 @@ export function ReaderAnnotationLayer({
             onPickTemplate={pickTemplate}
             mentionTargets={mentionTargets}
             onAddNote={addNote}
+            onToggleStar={(next) => void toggleStar(detail.id, next)}
             dockToggle={dockToggle}
           />
           ))

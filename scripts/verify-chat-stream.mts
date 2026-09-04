@@ -628,6 +628,7 @@ const withHistory = sectionsFor({
       ],
       isChapterSummary: false,
       template: "check_in",
+      starred: false,
     },
   ],
 });

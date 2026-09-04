@@ -1510,8 +1510,13 @@ export function buildBookDocumentSystem(
         ? `<their_marks count="${ctx.markCount}">\n` +
             `Everything they marked in this book, in reading order.\n` +
             ctx.marks.map(markBlock).join("\n") +
+            // Not "later marks" any more: what survives the budget is no longer
+            // a prefix of the list, because anything they starred is held back
+            // from the trim. Which ones those are is deliberately not said —
+            // see ReaderMark.starred.
             (ctx.marksTruncated
-              ? `\n(Later marks omitted for length — there were ${ctx.markCount} in all.)`
+              ? `\n(Some marks omitted for length — there were ${ctx.markCount} in ` +
+                `all, and everything they starred is here.)`
               : "") +
             `\n</their_marks>`
         : `<their_marks count="0">\nThey marked nothing in this book.\n</their_marks>`
