@@ -83,10 +83,15 @@ type ReadingClient = Awaited<ReturnType<typeof resolveReadingScope>>["client"];
  * thread with no placement and no messages behind it: unreachable, unbilled, and
  * not worth a transaction to avoid.
  */
-async function createThread(client: ReadingClient, userId: string): Promise<string> {
+async function createThread(
+  client: ReadingClient,
+  userId: string,
+  /** Whether Nor answers in it. Set at birth so the composer opens knowing. */
+  aiParticipant: boolean
+): Promise<string> {
   const { data, error } = await client
     .from("reading_annotation_threads")
-    .insert({ created_by: userId })
+    .insert({ created_by: userId, ai_participant: aiParticipant })
     .select("id")
     .single();
   if (error) throw new Error(error.message);
@@ -449,6 +454,13 @@ export async function createAnnotation(input: {
    * this row that chapter's summary. See the migration for why it lives here.
    */
   chapterAnchorId?: string | null;
+  /**
+   * Whether this is a conversation with Nor (Ask) or a note without him. The
+   * toolbar's choice, recorded on the thread so the composer opens knowing what
+   * Enter will do. A chapter summary is always a conversation, whatever is
+   * passed. Defaults to true: every caller that doesn't say is asking.
+   */
+  askNor?: boolean;
   memberEmail?: string | null;
 }): Promise<AnnotationDetail> {
   const { client, userId } = await resolveReadingScope(input.memberEmail);
@@ -501,7 +513,11 @@ export async function createAnnotation(input: {
   const spoilerFree =
     !isArticle && chapterAnchorId == null && book.spoiler_free === true;
 
-  const threadId = await createThread(client, userId);
+  const threadId = await createThread(
+    client,
+    userId,
+    chapterAnchorId != null || input.askNor !== false
+  );
 
   const { data: inserted, error } = await client
     .from("reading_annotations")
@@ -658,7 +674,7 @@ export async function openBookDocument(input: {
 
   let row = await find();
   if (!row) {
-    const threadId = await createThread(client, userId);
+    const threadId = await createThread(client, userId, true);
     const { data: inserted, error } = await client
       .from("reading_annotations")
       .insert({

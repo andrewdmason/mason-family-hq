@@ -125,9 +125,14 @@ export async function POST(req: NextRequest) {
     mentions,
   });
   if (insertErr) return new Response(insertErr.message, { status: 500 });
+  // Answering puts Nor in the thread, and he stays: from here on Enter asks him
+  // without anybody having to say so. Written on every turn rather than only
+  // the first, because a thread can reach this route without having been
+  // started as an Ask — a template, a recap, the `c` key — and one idempotent
+  // update is cheaper than remembering which paths already set it.
   await db
     .from("reading_annotation_threads")
-    .update({ last_message_at: new Date().toISOString() })
+    .update({ last_message_at: new Date().toISOString(), ai_participant: true })
     .eq("id", chat.thread_id);
 
   // Everything that decides what this turn is SENT — the book slice, the reader's
