@@ -206,6 +206,7 @@ export function ReaderAnnotationLayer({
   shownFace = "original",
   faceTextOf,
   plainBlocks,
+  hideGutter = false,
 }: {
   bookId: string;
   memberEmail: string | null;
@@ -229,6 +230,11 @@ export function ReaderAnnotationLayer({
   faceTextOf?: FaceTextOf;
   /** Plain paragraphs already held, for the counterpart panel. */
   plainBlocks?: ReadonlyMap<number, PlainBlock>;
+  /**
+   * Leave the margin markers out. The parallel spread has no column margins
+   * for them to sit in; the marks list and the highlights still work.
+   */
+  hideGutter?: boolean;
   /** The book's block stream, mapped once by the reader and shared from there. */
   blocks: BookBlock[];
   /**
@@ -1639,11 +1645,13 @@ export function ReaderAnnotationLayer({
         onOpenList={openList}
         listActive={panelOpen && mode === "list"}
       />
-      <GutterMarkers
-        rows={gutterRows}
-        openAnnotationId={detail?.id ?? null}
-        onOpen={(id) => void openExisting(id)}
-      />
+      {!hideGutter && (
+        <GutterMarkers
+          rows={gutterRows}
+          openAnnotationId={detail?.id ?? null}
+          onOpen={(id) => void openExisting(id)}
+        />
+      )}
       <SelectionToolbar
         contentRef={contentRef}
         onAct={(range, intent) => void annotateSelection(range, intent)}

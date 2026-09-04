@@ -236,6 +236,99 @@ export function plainWindowHtml(
   return out;
 }
 
+/** Class on a translation cell in the parallel spread. Not a block: an <aside>. */
+export const PLAIN_CELL_CLASS = "reader-plain-cell";
+/** Attribute on a cell naming the block it translates. */
+export const PLAIN_CELL_ATTR = "data-plain-block";
+
+/**
+ * The window as a parallel text: every original block, each paragraph followed
+ * by an <aside> carrying its translation, so a two-column grid lays them level.
+ *
+ * The left cells ARE the book's block elements — same tags, ids and text as the
+ * original, in order — so the block map still counts exactly them. The right
+ * cells are asides, which the block selector never sees. Headings, chat marks
+ * and page anchors are emitted alone and the stylesheet spans them across both
+ * columns (reader-prose.ts, PARALLEL_PROSE).
+ *
+ * A translation that isn't applied yet leaves its cell empty and puts the
+ * chapter's marker under the heading, exactly as the plain face does. `state`
+ * may be null when nothing at all is translated: every right cell is empty.
+ */
+export function parallelWindowHtml(
+  html: string,
+  blocks: BookBlock[],
+  win: BookWindow,
+  marks: InlineChatMark[],
+  state: PlainRenderState | null
+): string {
+  if (win.endBlock <= win.startBlock) return "";
+
+  const marksByBlock = new Map<number, InlineChatMark[]>();
+  for (const mark of marks) {
+    if (mark.blockIndex < win.startBlock || mark.blockIndex >= win.endBlock) continue;
+    const list = marksByBlock.get(mark.blockIndex) ?? [];
+    list.push(mark);
+    marksByBlock.set(mark.blockIndex, list);
+  }
+
+  const chapterAtBlock = new Map<number, PlainChapter>();
+  const chapterOf = new Array<number | undefined>(win.endBlock - win.startBlock);
+  for (const chapter of state?.chapters ?? []) {
+    chapterAtBlock.set(chapter.blockStart, chapter);
+    const from = Math.max(chapter.blockStart, win.startBlock);
+    const to = Math.min(chapter.blockEnd, win.endBlock);
+    for (let i = from; i < to; i++) chapterOf[i - win.startBlock] = chapter.index;
+  }
+  const patterns = (state?.terms ?? [])
+    .map((t) => ({ term: t.term, firstChapterIndex: t.firstChapterIndex, pattern: termPattern(t.term) }))
+    .filter((t): t is { term: string; firstChapterIndex: number; pattern: RegExp } => t.pattern != null);
+  const seenByChapter = new Map<number, Set<string>>();
+
+  let out = "";
+  for (let i = win.startBlock; i < win.endBlock; i++) {
+    const block = blocks[i];
+    if (i > win.startBlock) out += html.slice(blocks[i - 1].htmlEnd, block.htmlStart);
+    for (const mark of marksByBlock.get(i) ?? []) out += markHtml(mark);
+
+    // The original, always — the left column is the book.
+    out += html.slice(block.htmlStart, block.htmlEnd);
+
+    if (block.tag === "p") {
+      const plain = state ? plainTextOf({ ...state, face: "plain" }, block) : null;
+      const stored = state?.blocks.get(i);
+      let inner = "";
+      let extra = "";
+      if (plain != null) {
+        const chapterIndex = chapterOf[i - win.startBlock];
+        let seen = seenByChapter.get(chapterIndex ?? -1);
+        if (!seen) {
+          seen = new Set();
+          seenByChapter.set(chapterIndex ?? -1, seen);
+        }
+        const eligible =
+          chapterIndex == null ? [] : patterns.filter((t) => t.firstChapterIndex <= chapterIndex);
+        inner = termsHtml(plain, eligible, seen);
+      } else if (stored?.kept && state && state.applied.has(stored.chapterIndex)) {
+        // Kept on purpose: the author's words, shown quieter on the right so the
+        // row still reads as a pair.
+        inner = escapeHtml(block.text);
+        extra = " reader-plain-kept";
+      }
+      out += `<aside class="${PLAIN_CELL_CLASS}${extra}" ${PLAIN_CELL_ATTR}="${i}">${inner}</aside>`;
+    }
+
+    if (state) {
+      const chapter = chapterAtBlock.get(i);
+      if (chapter && !state.applied.has(chapter.index)) {
+        const marker = markerHtml(chapter);
+        if (marker) out += marker;
+      }
+    }
+  }
+  return out;
+}
+
 /** The whole document in the plain face — the scrolling reader. */
 export function plainDocumentHtml(
   html: string,

@@ -101,6 +101,22 @@ const CHAPTER_TAP_PROSE = [
 ];
 
 /**
+ * The parallel spread: a two-column grid in which a paragraph and its
+ * translation share a row. Headings, chat marks and page anchors run across
+ * both columns; the translation cell keeps the paragraph's own rhythm so the
+ * pair stays level. Applied to the flow element, whose display and template
+ * are set inline from the geometry (parallel-view.tsx).
+ */
+export const PARALLEL_PROSE = [
+  "[&>.reader-heading]:[grid-column:1/-1]",
+  "[&>.reader-chat-mark]:[grid-column:1/-1]",
+  "[&>.page-anchor]:[grid-column:1/-1]",
+  "[&>.reader-plain-cell]:mb-5 [&>.reader-plain-cell]:min-h-[1em]",
+  "[&>.reader-plain-kept]:opacity-70",
+  "[&>.reader-heading]:[break-inside:avoid]",
+].join(" ");
+
+/**
  * Converted books are plain text: <p>, <h1>, <h2>, <blockquote>, and zero-height
  * page-anchor marks. Nothing else survives conversion, so this is the whole
  * stylesheet for a book.

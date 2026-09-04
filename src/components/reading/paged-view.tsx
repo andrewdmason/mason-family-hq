@@ -356,7 +356,7 @@ const ARROW_SIZE = 48;
  * and no hover to reveal an arrow with; that rule is in the pointer handler
  * above, not here. The band is invisible and does nothing there.
  */
-function PageTurnZone({
+export function PageTurnZone({
   side,
   x,
   width,

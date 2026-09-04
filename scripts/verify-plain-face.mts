@@ -18,7 +18,9 @@ import { segmentsOf, windowFor } from "../src/lib/reading/paged-window";
 import {
   markerLabel,
   PLAIN_MARK_ATTR,
+  PLAIN_CELL_ATTR,
   PLAIN_TERM_ATTR,
+  parallelWindowHtml,
   plainDocumentHtml,
   plainWindowHtml,
   termsHtml,
@@ -168,6 +170,33 @@ console.log("terms");
   check("a chapter-2 term is not underlined in chapter 1", !rendered.includes(`${PLAIN_TERM_ATTR}="gunas"`));
   const stripped = blockMap(rendered);
   check("term spans do not change block text", stripped.every((b) => !b.text.includes("<span")));
+}
+
+console.log("parallel spread");
+{
+  const segments = segmentsOf(blocks);
+  const win = windowFor(segments, blocks[chapters[0].blockStart].charStart, 0);
+  const marks: InlineChatMark[] = [{ chatId: "c1", blockIndex: chapters[0].blockStart + 2, text: "why?" }];
+  const rendered = parallelWindowHtml(html, blocks, win, marks, state);
+  const before = blockMap(html.slice(blocks[win.startBlock].htmlStart, blocks[win.endBlock - 1].htmlEnd));
+  const after = blockMap(rendered);
+  check("same blocks as the original window", before.length === after.length && before.every((b, i) => b.tag === after[i].tag && b.id === after[i].id));
+  check("the left column is the ORIGINAL text", after.every((b, i) => b.text === before[i].text));
+  const cells = (rendered.match(new RegExp(PLAIN_CELL_ATTR, "g")) ?? []).length;
+  check("one translation cell per paragraph", cells === before.filter((b) => b.tag === "p").length, `${cells}`);
+  const added = tagsOf(rendered).filter((t) => blockSelectorTags.includes(t));
+  check("cells are not blocks", added.length === before.length, `${added.length} vs ${before.length}`);
+  check("an applied paragraph's cell carries its plain text", rendered.includes("Plain &lt;b&gt;"));
+  const keptCell = /<aside class="reader-plain-cell reader-plain-kept"[^>]*>Original paragraph/.test(rendered);
+  check("a kept paragraph's cell shows the original, marked kept", keptCell);
+  check("the chat mark is present once", (rendered.match(/data-reader-chat="c1"/g) ?? []).length === 1);
+  const whole = parallelWindowHtml(html, blocks, { startBlock: 0, endBlock: blocks.length, charStart: 0, charEnd: 1e9 }, [], state);
+  const ch2 = chapters[1];
+  const ch2Cells = whole.split(`${PLAIN_CELL_ATTR}="`).slice(1).filter((s) => { const i = Number(s.split('"')[0]); return i >= ch2.blockStart && i < ch2.blockEnd; });
+  check("a not-applied chapter's cells are empty", ch2Cells.every((s) => s.startsWith(`${ch2Cells[0].split('"')[0]}">"</aside>`.slice(0, 0)) || /^\d+">(<\/aside>)/.test(s)));
+  check("its marker is present", whole.includes(`${PLAIN_MARK_ATTR}="1"`));
+  const none = parallelWindowHtml(html, blocks, win, [], null);
+  check("with no translation at all, cells are empty and blocks intact", blockMap(none).length === before.length && !none.includes("Plain &lt;b&gt;"));
 }
 
 if (failures > 0) {

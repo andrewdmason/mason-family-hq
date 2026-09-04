@@ -1,11 +1,77 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { PLAIN_TERM_ATTR, PLAIN_TERM_CLASS } from "@/lib/reading/plain/render";
 import type { PlainTerm } from "@/lib/reading/plain/types";
 
 /** Clear of the viewport edge, and of the word itself. */
 const MARGIN = 8;
 const GAP = 6;
+
+/**
+ * Owns the tap-to-define interaction for glossary terms.
+ *
+ * The state lives HERE and nowhere higher, and that is the whole point of this
+ * component. React re-applies a `dangerouslySetInnerHTML` element's markup on
+ * every re-render of the component that renders it — the book's own code notes
+ * this in several places — so a piece of state in the reader that changed when
+ * a term was tapped re-rendered the paged view, which rebuilt the page's DOM,
+ * which detached the very span the popover was about to measure against. It
+ * then measured nothing and landed in the corner. Kept down here, opening or
+ * closing the definition re-renders this component and nothing else.
+ *
+ * Listens on the content container itself, the way the annotation layer does
+ * for chat marks, because the term spans are the book's markup, not React's.
+ */
+export function TermPopoverController({
+  contentRef,
+  terms,
+  enabled,
+  layoutNonce,
+  positionKey,
+}: {
+  contentRef: React.RefObject<HTMLDivElement | null>;
+  terms: PlainTerm[];
+  enabled: boolean;
+  /** Bumped when the page is relaid — the word has moved. */
+  layoutNonce: number;
+  /** Changes when the reader turns a page — likewise. */
+  positionKey: number;
+}) {
+  // Remembered with the page it was opened on: a relaid or turned page has
+  // moved the word out from under the definition, so it simply stops showing.
+  const [open, setOpen] = useState<{
+    anchor: HTMLElement;
+    term: PlainTerm;
+    layoutNonce: number;
+    positionKey: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const container = contentRef.current;
+    if (!container || !enabled) return;
+    const onClick = (e: MouseEvent) => {
+      const span = (e.target as HTMLElement | null)?.closest<HTMLElement>(`.${PLAIN_TERM_CLASS}`);
+      if (!span) return;
+      const name = span.getAttribute(PLAIN_TERM_ATTR);
+      const term = terms.find((t) => t.term === name) ?? null;
+      if (term) setOpen({ anchor: span, term, layoutNonce, positionKey });
+    };
+    container.addEventListener("click", onClick);
+    return () => container.removeEventListener("click", onClick);
+  }, [contentRef, enabled, layoutNonce, positionKey, terms]);
+
+  const current =
+    open && open.layoutNonce === layoutNonce && open.positionKey === positionKey ? open : null;
+
+  return (
+    <TermPopover
+      anchor={current?.anchor ?? null}
+      term={current?.term ?? null}
+      onDismiss={() => setOpen(null)}
+    />
+  );
+}
 
 /**
  * A glossary term's definition, beside the word you tapped.

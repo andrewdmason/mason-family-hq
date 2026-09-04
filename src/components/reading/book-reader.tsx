@@ -83,15 +83,11 @@ import { usePagination } from "./use-pagination";
 import { useReaderSettings } from "./use-reader-settings";
 import { usePlainEnglish } from "./use-plain-english";
 import { PlainEnglishDialog } from "./plain-english-dialog";
-import { SideBySidePane } from "./side-by-side-pane";
-import { TermPopover } from "./term-popover";
-import {
-  PLAIN_MARK_ATTR,
-  PLAIN_TERM_ATTR,
-  PLAIN_TERM_CLASS,
-  plainDocumentHtml,
-} from "@/lib/reading/plain/render";
-import type { PlainTerm, ReadingFace } from "@/lib/reading/plain/types";
+import { ParallelView } from "./parallel-view";
+import { useParallelPagination } from "./use-parallel-pagination";
+import { TermPopoverController } from "./term-popover";
+import { PLAIN_MARK_ATTR, plainDocumentHtml } from "@/lib/reading/plain/render";
+import type { ReadingFace } from "@/lib/reading/plain/types";
 
 /**
  * Reading a book.
@@ -112,6 +108,9 @@ import type { PlainTerm, ReadingFace } from "@/lib/reading/plain/types";
 // Where "the top of the screen" is for the scrolling reader, allowing for the
 // space the header occupies.
 const READING_LINE_OFFSET = 72;
+
+/** Stable identity, so a book with no glossary doesn't re-subscribe the term listener. */
+const NO_TERMS: import("@/lib/reading/plain/types").PlainTerm[] = [];
 
 const READING_SETTLE_CAP_MS = 2000;
 const SAVE_DEBOUNCE_MS = 1500;
@@ -201,10 +200,6 @@ export function BookReader({
   const [inlineMarks, setInlineMarks] = useState<InlineChatMark[]>([]);
   const [layoutOpen, setLayoutOpen] = useState(false);
   const [plainDialogOpen, setPlainDialogOpen] = useState(false);
-  /** The glossary term whose definition is open, and the span it sits on. */
-  const [termPopover, setTermPopover] = useState<{ anchor: HTMLElement; term: PlainTerm } | null>(
-    null
-  );
   const [contentsOpen, setContentsOpen] = useState(false);
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
   /**
@@ -250,8 +245,8 @@ export function BookReader({
   // appears. A ref measured once against nothing and never tried again.
   const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
   const flowRef = useRef<HTMLDivElement>(null);
+  const parallelFlowRef = useRef<HTMLDivElement>(null);
   const scrollContentRef = useRef<HTMLDivElement>(null);
-  const contentRef = paged ? flowRef : scrollContentRef;
 
   const blocks = useMemo(
     () =>
@@ -623,7 +618,7 @@ export function BookReader({
     twoColumnsFit && plain.shownFace === "plain" && settings.sideBySide;
 
   const pagination = usePagination({
-    enabled: paged,
+    enabled: paged && !sideBySide,
     html,
     flowRef,
     blocks,
@@ -633,18 +628,39 @@ export function BookReader({
     bottomInset: listenInset,
     charOffset: scrollPosition.charOffset,
     onPositionChange: report,
-    plain: sideBySide ? null : plain.render,
-    faceTextOf: sideBySide ? undefined : plain.faceTextOf,
-    singleColumn: sideBySide,
+    plain: plain.render,
+    faceTextOf: plain.faceTextOf,
   });
+  // The parallel spread has its own paging: rows, not columns. Its left cells
+  // are the original blocks, so anchors and position are original-face there.
+  const parallel = useParallelPagination({
+    enabled: sideBySide,
+    html,
+    flowRef: parallelFlowRef,
+    blocks,
+    inlineMarks,
+    plain: plain.render,
+    settings,
+    chatPanel,
+    bottomInset: listenInset,
+    charOffset: scrollPosition.charOffset,
+    onPositionChange: report,
+  });
+  const contentRef = paged ? (sideBySide ? parallelFlowRef : flowRef) : scrollContentRef;
+  const pagedWindowBase = sideBySide ? parallel.windowBase : pagination.windowBase;
+  const pagedLayoutNonce = sideBySide ? parallel.layoutNonce : pagination.layoutNonce;
 
   // Where you are and how much is left are a pure function of the character
   // offset, so they're derived rather than pushed through state — which is what
   // lets a book opened halfway through show the right chapter and percentage on
   // its very first frame, in either mode.
-  const currentCharOffset = paged ? pagination.charOffset : scrollPosition.charOffset;
-  const atEnd = paged ? pagination.atEnd : scrollPosition.atEnd;
-  const charEnd = paged ? pagination.charEnd : undefined;
+  const currentCharOffset = paged
+    ? sideBySide
+      ? parallel.charOffset
+      : pagination.charOffset
+    : scrollPosition.charOffset;
+  const atEnd = paged ? (sideBySide ? parallel.atEnd : pagination.atEnd) : scrollPosition.atEnd;
+  const charEnd = paged ? (sideBySide ? parallel.charEnd : pagination.charEnd) : undefined;
   const progress: ReadingProgress = useMemo(
     () => progressAt(currentCharOffset, totalChars, wordCount, chapters, atEnd, charEnd),
     [atEnd, chapters, charEnd, currentCharOffset, totalChars, wordCount]
@@ -938,7 +954,7 @@ export function BookReader({
 
   // ---- Navigation ---------------------------------------------------------
 
-  const goToPagedChar = pagination.goToChar;
+  const goToPagedChar = sideBySide ? parallel.goToChar : pagination.goToChar;
   const goToChar = useCallback(
     (charOffset: number) => {
       if (paged) {
@@ -1002,7 +1018,7 @@ export function BookReader({
    * Articles don't listen: a page of prose off the web is short enough that
    * chaptering it means nothing, and listening is a books feature.
    */
-  const layoutNonce = paged ? pagination.layoutNonce : scrollLayoutNonce;
+  const layoutNonce = paged ? pagedLayoutNonce : scrollLayoutNonce;
 
   const { listen } = useAudiobookControls();
   const reportListening = useCallback(
@@ -1013,8 +1029,8 @@ export function BookReader({
     bookId,
     blocks,
     contentRef,
-    base: paged ? pagination.windowBase : 0,
-    layoutNonce: paged ? pagination.layoutNonce : scrollLayoutNonce,
+    base: paged ? pagedWindowBase : 0,
+    layoutNonce: paged ? pagedLayoutNonce : scrollLayoutNonce,
     eink: settings.eink,
     currentCharOffset,
     pageCharEnd: charEnd ?? null,
@@ -1068,40 +1084,27 @@ export function BookReader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollHtml]);
 
-  // The two things Plain English sets into the page — a chapter's marker and a
-  // glossary term — are the book's own markup, so they are opened from here.
+  // A chapter's translation marker is the book's own markup, so it is opened
+  // from here. (Glossary terms are handled by TermPopoverController, which owns
+  // its own state on purpose — see there for why that matters.)
   useEffect(() => {
     const container = contentRef.current;
     if (!container || isArticle) return;
     const onClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      const marker = target?.closest<HTMLElement>(`[${PLAIN_MARK_ATTR}]`);
-      if (marker) {
-        const index = Number(marker.getAttribute(PLAIN_MARK_ATTR));
-        const status = marker.getAttribute("data-reader-plain-status");
-        if (status === "ready") {
-          if (!paged) plainRestoreRef.current = positionRef.current;
-          plain.applyChapter(index);
-        } else if (status === "failed") {
-          void plain.retryChapter(index);
-        }
-        return;
-      }
-      const span = target?.closest<HTMLElement>(`.${PLAIN_TERM_CLASS}`);
-      if (span) {
-        const name = span.getAttribute(PLAIN_TERM_ATTR);
-        const term = plain.plan?.terms.find((t) => t.term === name) ?? null;
-        if (term) setTermPopover({ anchor: span, term });
+      const marker = (e.target as HTMLElement | null)?.closest<HTMLElement>(`[${PLAIN_MARK_ATTR}]`);
+      if (!marker) return;
+      const index = Number(marker.getAttribute(PLAIN_MARK_ATTR));
+      const status = marker.getAttribute("data-reader-plain-status");
+      if (status === "ready") {
+        if (!paged) plainRestoreRef.current = positionRef.current;
+        plain.applyChapter(index);
+      } else if (status === "failed") {
+        void plain.retryChapter(index);
       }
     };
     container.addEventListener("click", onClick);
     return () => container.removeEventListener("click", onClick);
   }, [contentRef, isArticle, paged, plain]);
-
-  // A relaid page has moved the term out from under its popover.
-  useEffect(() => {
-    setTermPopover(null);
-  }, [layoutNonce]);
 
   // Where the contents opens, and what it marks. Opening it on where you are —
   // rather than on the front matter — is the dialog's job now; this is the
@@ -1116,10 +1119,10 @@ export function BookReader({
   const { geometry: pagedGeometry, pages: pagedPages, pageIndex } = pagination;
   const pagedChat = useMemo(
     () =>
-      paged && pagedGeometry
+      paged && !sideBySide && pagedGeometry
         ? { geom: pagedGeometry, pages: pagedPages, pageIndex, viewport }
         : null,
-    [paged, pagedGeometry, pagedPages, pageIndex, viewport]
+    [paged, pagedGeometry, pagedPages, pageIndex, sideBySide, viewport]
   );
 
   // Stable, so PagedView's window keydown listener isn't torn down and re-added
@@ -1284,8 +1287,9 @@ export function BookReader({
       preferSheet={chatAsSheet}
       docked={!chatCanFloat || settings.chatDocked}
       canFloat={chatCanFloat}
-      windowBase={paged ? pagination.windowBase : 0}
+      windowBase={paged ? pagedWindowBase : 0}
       layoutNonce={layoutNonce}
+      hideGutter={sideBySide}
       mentionTargets={mentionTargets}
       openMarkId={openMarkId}
       onVisitAnchor={visitAnchor}
@@ -1488,6 +1492,36 @@ export function BookReader({
           <Loader2 className="h-5 w-5 animate-spin" />
           <span className="text-sm">Opening your book…</span>
         </div>
+      ) : paged && sideBySide ? (
+        <>
+          <ParallelView
+            html={parallel.html ?? ""}
+            viewport={viewport}
+            onViewportRef={setViewport}
+            flowRef={parallelFlowRef}
+            geometry={parallel.geometry}
+            pageHeight={parallel.pageHeight}
+            settings={settings}
+            isFirstPage={parallel.atStart}
+            isLastPage={parallel.atEnd}
+            onNext={parallel.next}
+            onPrev={parallel.prev}
+            onFirst={goToFirstPage}
+            onLast={goToLastPage}
+          >
+            {annotationLayer}
+          </ParallelView>
+          <ReaderFooter
+            chapterTitle={progress.chapter?.title ?? null}
+            chapterMinutesLeft={progress.chapter?.minutesLeft ?? null}
+            percent={progress.percent}
+            minutesLeft={progress.minutesLeft}
+            height={PAGE_PAD_BOTTOM}
+            bottom={listenInset}
+            left={parallel.geometry?.offsetX ?? null}
+            width={parallel.geometry?.width ?? null}
+          />
+        </>
       ) : paged ? (
         <>
           <PagedView
@@ -1509,20 +1543,6 @@ export function BookReader({
           >
             {annotationLayer}
           </PagedView>
-          {sideBySide && pagedGeometry && plain.plan && (
-            <SideBySidePane
-              blocks={blocks}
-              fromChar={currentCharOffset}
-              toChar={charEnd ?? null}
-              chapters={plain.chapters}
-              plainBlocks={plain.blocksByIndex}
-              terms={plain.plan.terms}
-              geometry={pagedGeometry}
-              settings={settings}
-              bottomInset={0}
-              onTermTap={(anchor, term) => setTermPopover({ anchor, term })}
-            />
-          )}
           <ReaderFooter
             chapterTitle={progress.chapter?.title ?? null}
             chapterMinutesLeft={progress.chapter?.minutesLeft ?? null}
@@ -1531,14 +1551,7 @@ export function BookReader({
             height={PAGE_PAD_BOTTOM}
             bottom={listenInset}
             left={pagedGeometry?.offsetX ?? null}
-            // Under both halves of a side-by-side spread, not just the book's.
-            width={
-              pagedGeometry
-                ? sideBySide
-                  ? pagedGeometry.colW * 2 + pagedGeometry.gap
-                  : pagedGeometry.viewW
-                : null
-            }
+            width={pagedGeometry?.viewW ?? null}
           />
         </>
       ) : (
@@ -1683,10 +1696,12 @@ export function BookReader({
         onConfirm={plain.enable}
       />
 
-      <TermPopover
-        anchor={termPopover?.anchor ?? null}
-        term={termPopover?.term ?? null}
-        onDismiss={() => setTermPopover(null)}
+      <TermPopoverController
+        contentRef={contentRef}
+        terms={plain.plan?.terms ?? NO_TERMS}
+        enabled={!isArticle && plain.shownFace === "plain"}
+        layoutNonce={layoutNonce}
+        positionKey={currentCharOffset}
       />
 
       <ContentsDialog

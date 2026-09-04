@@ -230,7 +230,41 @@ export function anchorFromRange(
   if (!quotedText) return null;
 
   const startEl = closestBlock(range.startContainer, container);
-  if (!startEl) return fail("selection starts outside any block");
+  if (!startEl) {
+    // The parallel spread: the translation sits in <aside> cells beside the
+    // book's blocks, each naming the block it translates. A selection there is
+    // a plain-face mark on that paragraph — the same anchor a selection in the
+    // plain face produces.
+    const cell = closestPlainCell(range.startContainer, container);
+    if (cell && space.kind === "book") {
+      const blockIndex = Number(cell.getAttribute("data-plain-block"));
+      const endCell = closestPlainCell(range.endContainer, container);
+      const endBlockIndex = endCell
+        ? Math.max(blockIndex, Number(endCell.getAttribute("data-plain-block")))
+        : blockIndex;
+      const block = space.blocks[blockIndex];
+      if (!block) return fail(`translation cell names block ${blockIndex}, which isn't in the stream`);
+      return {
+        anchor: {
+          v: ANCHOR_VERSION,
+          kind: "selection",
+          blockIndex,
+          endBlockIndex,
+          startOffset: null,
+          endOffset: null,
+          quote: null,
+          face: "plain",
+        },
+        anchorCharOffset: block.charStart,
+        quotedText: space.blocks
+          .slice(blockIndex, endBlockIndex + 1)
+          .map((b) => b.text)
+          .join("\n"),
+        plainQuotedText: quotedText,
+      };
+    }
+    return fail("selection starts outside any block");
+  }
 
   const end = endBoundary(range, container, startEl);
 
@@ -811,6 +845,17 @@ function textLengthOf(el: HTMLElement): number {
   const probe = el.ownerDocument.createRange();
   probe.selectNodeContents(el);
   return probe.toString().length;
+}
+
+/** The translation cell a node sits in, in the parallel spread. */
+function closestPlainCell(node: Node, container: HTMLElement): HTMLElement | null {
+  let el: HTMLElement | null =
+    node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
+  while (el && el !== container) {
+    if (el.hasAttribute("data-plain-block")) return el;
+    el = el.parentElement;
+  }
+  return null;
 }
 
 /** Nearest block element at or above `node`, stopping at the content container. */
