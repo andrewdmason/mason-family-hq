@@ -18,6 +18,8 @@ export function useBookFileActions(
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  /** Something worth saying that isn't an error — a re-converted translation. */
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const [retrying, startRetry] = useTransition();
 
   const content = book.content;
@@ -53,9 +55,15 @@ export function useBookFileActions(
 
   function retryConvert() {
     setUploadError(null);
+    setUploadNotice(null);
     startRetry(async () => {
       try {
-        await convertBook(book.id, memberEmail);
+        const { plainOrphaned } = await convertBook(book.id, memberEmail);
+        if (plainOrphaned) {
+          setUploadNotice(
+            "This book's Plain English translation was made from the old text and will be regenerated the next time it's turned on."
+          );
+        }
         router.refresh();
       } catch (err) {
         setUploadError(
@@ -76,6 +84,7 @@ export function useBookFileActions(
     retryConvert,
     busy,
     uploadError,
+    uploadNotice,
     retrying,
     hasFile,
     isReady,

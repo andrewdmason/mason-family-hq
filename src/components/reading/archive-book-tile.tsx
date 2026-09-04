@@ -58,6 +58,7 @@ export function ArchiveBookTile({
     handleFile,
     busy,
     uploadError,
+    uploadNotice,
     hasFile,
     isReady,
     isProcessing,
@@ -182,6 +183,9 @@ export function ArchiveBookTile({
       )}
       {uploadError && (
         <span className="text-[11px] text-destructive">{uploadError}</span>
+      )}
+      {uploadNotice && (
+        <span className="text-[11px] text-muted-foreground">{uploadNotice}</span>
       )}
       {deleteError && (
         <span className="text-[11px] text-destructive">{deleteError}</span>

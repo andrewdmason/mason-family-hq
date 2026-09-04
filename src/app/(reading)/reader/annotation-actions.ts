@@ -38,7 +38,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // migrations to drop them would buy nothing back.
 const CHAT_COLUMNS =
   "id, book_id, thread_id, anchor, anchor_char_offset, anchor_page, spoiler_free, " +
-  "context_through_page, quoted_text, chapter_anchor_id, book_scope, color, starred, " +
+  "context_through_page, quoted_text, plain_quoted_text, chapter_anchor_id, book_scope, color, starred, " +
   "model_preference, template, created_at, shared_from_user_id, anchor_status, " +
   // Embedded rather than fetched separately: the composer needs to know whether
   // Nor is listening before the reader types their first character, and a second
@@ -61,6 +61,7 @@ type AnnotationRow = {
   spoiler_free: boolean;
   context_through_page: number | null;
   quoted_text: string | null;
+  plain_quoted_text?: string | null;
   chapter_anchor_id: string | null;
   book_scope: string | null;
   color: string;
@@ -249,6 +250,7 @@ function toSummary(
     spoilerFree: row.spoiler_free,
     contextThroughPage: row.context_through_page,
     quotedText: row.quoted_text,
+    plainQuotedText: row.plain_quoted_text ?? null,
     chapterAnchorId: row.chapter_anchor_id,
     bookScope: isBookScope(row.book_scope) ? row.book_scope : null,
     latestNote: counts?.latestNote ?? null,
@@ -455,6 +457,8 @@ export async function createAnnotation(input: {
   anchor: AnnotationAnchor;
   anchorCharOffset: number;
   quotedText?: string | null;
+  /** The plain sentence selected, for a mark made in the plain face. */
+  plainQuotedText?: string | null;
   /**
    * Set when the reader tapped a chapter title: the heading's id, which makes
    * this row that chapter's summary. See the migration for why it lives here.
@@ -539,6 +543,7 @@ export async function createAnnotation(input: {
       // "no page map", and the route falls back to anchor_char_offset.
       context_through_page: spoilerFree ? anchorPage : null,
       quoted_text: input.quotedText?.trim() || null,
+      plain_quoted_text: input.plainQuotedText?.trim() || null,
       chapter_anchor_id: chapterAnchorId,
       // A recap is worth the stronger model — it is read once and remembered,
       // where a chat turn is one of many and can be asked again. Follow-ups

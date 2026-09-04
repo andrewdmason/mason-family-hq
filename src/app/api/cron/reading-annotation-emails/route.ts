@@ -123,11 +123,15 @@ async function handle(req: Request): Promise<Response> {
     const { data: mark } = p.annotation_id
       ? await admin
           .from("reading_annotations")
-          .select("quoted_text, book_id")
+          .select("quoted_text, plain_quoted_text, book_id")
           .eq("id", p.annotation_id)
           .maybeSingle()
       : { data: null };
-    const m = mark as { quoted_text: string | null; book_id: string } | null;
+    const m = mark as {
+      quoted_text: string | null;
+      plain_quoted_text: string | null;
+      book_id: string;
+    } | null;
 
     const { data: book } = m
       ? await admin
@@ -160,6 +164,9 @@ async function handle(req: Request): Promise<Response> {
 
     const url = `${APP_URL}${sharedMarkHref(threadId)}`;
     const quote = m?.quoted_text?.trim() ?? null;
+    // A mark made in Plain English carries the sentence the sender actually
+    // read; it goes beneath the author's words, never instead of them.
+    const plain = m?.plain_quoted_text?.trim() ?? null;
 
     // No spoiler gate, deliberately. If the passage is ahead of where they are,
     // they can leave the email alone and meet the mark when they get there —
@@ -171,6 +178,7 @@ async function handle(req: Request): Promise<Response> {
         : `${actorName} replied in ${bookTitle}.`,
       "",
       ...(quote ? [`“${quote}”`, ""] : []),
+      ...(quote && plain ? [`In plain English: ${plain}`, ""] : []),
       ...said.map((s) => s.content),
       "",
       `Open it in the book: ${url}`,
@@ -182,7 +190,11 @@ async function handle(req: Request): Promise<Response> {
       `<p>${escapeHtml(lines[0])}</p>`,
       ...(quote
         ? [
-            `<blockquote style="margin:16px 0;padding-left:12px;border-left:3px solid #ddd;color:#444;font-style:italic">${escapeHtml(quote)}</blockquote>`,
+            `<blockquote style="margin:16px 0;padding-left:12px;border-left:3px solid #ddd;color:#444;font-style:italic">${escapeHtml(quote)}` +
+              (plain
+                ? `<br><span style="display:block;margin-top:8px;font-style:normal;color:#666;font-size:13px">In plain English: ${escapeHtml(plain)}</span>`
+                : "") +
+              `</blockquote>`,
           ]
         : []),
       ...said.map(

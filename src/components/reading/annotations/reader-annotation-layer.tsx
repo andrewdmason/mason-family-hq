@@ -57,6 +57,9 @@ import { GutterMarkers } from "./gutter-markers";
 import { useGutterPlacement, type PagedGutterContext } from "./gutter-placement";
 import { PanelDockToggle } from "./panel-dock-toggle";
 import { SelectionToolbar, type SelectionIntent } from "./selection-toolbar";
+import { CounterpartPanel, type CounterpartRequest } from "./counterpart-panel";
+import type { FaceTextOf } from "@/lib/reading/face-map";
+import type { PlainBlock } from "@/lib/reading/plain/types";
 import { annotationAtPoint, useAnnotationHighlights } from "./use-annotation-highlights";
 import { useContentVersion } from "./use-content-version";
 
@@ -200,6 +203,9 @@ export function ReaderAnnotationLayer({
   mentionTargets,
   openMarkId,
   onVisitAnchor,
+  shownFace = "original",
+  faceTextOf,
+  plainBlocks,
 }: {
   bookId: string;
   memberEmail: string | null;
@@ -217,6 +223,12 @@ export function ReaderAnnotationLayer({
    * ReaderReturnPill.
    */
   onVisitAnchor?: (charOffset: number) => void;
+  /** Which face the page shows, for the toolbar's fourth action and the panel. */
+  shownFace?: "original" | "plain";
+  /** What the DOM shows per block in the plain face — see annotation-anchors.ts. */
+  faceTextOf?: FaceTextOf;
+  /** Plain paragraphs already held, for the counterpart panel. */
+  plainBlocks?: ReadonlyMap<number, PlainBlock>;
   /** The book's block stream, mapped once by the reader and shared from there. */
   blocks: BookBlock[];
   /**
@@ -296,8 +308,12 @@ export function ReaderAnnotationLayer({
    * and closing it without typing would silently delete the highlight.
    */
   const [draftId, setDraftId] = useState<string | null>(null);
-  /** The panel shows one annotation, or the index of all of them. */
-  const [mode, setMode] = useState<"thread" | "list">("thread");
+  /**
+   * The panel shows one annotation, the index of all of them, or — for a peek
+   * at the other face — a passage with no annotation behind it at all.
+   */
+  const [mode, setMode] = useState<"thread" | "list" | "counterpart">("thread");
+  const [counterpart, setCounterpart] = useState<CounterpartRequest | null>(null);
   /**
    * Whether the index is collapsed to starred marks only. Remembered per book —
    * see starred-filter.ts for why it is per book and not per device.
@@ -351,8 +367,11 @@ export function ReaderAnnotationLayer({
   // for one copy of the answer.
   const blocks = isArticle ? NO_BLOCKS : allBlocks;
   const space = useMemo<AnchorSpace>(
-    () => (isArticle ? { kind: "dom" } : { kind: "book", blocks, base: windowBase }),
-    [isArticle, blocks, windowBase]
+    () =>
+      isArticle
+        ? { kind: "dom" }
+        : { kind: "book", blocks, base: windowBase, faceTextOf },
+    [isArticle, blocks, windowBase, faceTextOf]
   );
   // Memoized, not `data?.chats ?? []`: a fresh array literal every render would
   // re-run the placement effect, which sets state, which renders again — a loop.
@@ -488,7 +507,8 @@ export function ReaderAnnotationLayer({
     contentRef,
     detail?.id ?? null,
     layoutNonce + contentVersion,
-    windowBase
+    windowBase,
+    faceTextOf
   );
   const totalChars = useMemo(() => {
     const last = blocks.at(-1);
@@ -728,6 +748,7 @@ export function ReaderAnnotationLayer({
         spoilerFree,
         contextThroughPage: spoilerFree ? anchorPage : null,
         quotedText: resolved.quotedText,
+        plainQuotedText: resolved.plainQuotedText,
         chapterAnchorId,
         // Whether Nor is in this thread is the toolbar's choice, and a recap
         // is always his. Nobody else's, exactly where the reader just put it,
@@ -789,6 +810,7 @@ export function ReaderAnnotationLayer({
         anchor: resolved.anchor,
         anchorCharOffset: resolved.anchorCharOffset,
         quotedText: resolved.quotedText,
+        plainQuotedText: resolved.plainQuotedText,
         chapterAnchorId,
         askNor,
         memberEmail,
@@ -961,6 +983,24 @@ export function ReaderAnnotationLayer({
       // anchorFromRange reports its own reason — see fail() there.
       if (!resolved) return;
 
+      // The other face of the passage: whole paragraphs, in the panel, and no
+      // mark anywhere. A peek, not an annotation — see CounterpartPanel.
+      if (intent === "face") {
+        const from = resolved.anchor.blockIndex;
+        const to = (resolved.anchor.endBlockIndex ?? resolved.anchor.blockIndex) + 1;
+        setCounterpart({
+          from,
+          to,
+          show: shownFace === "plain" ? "original" : "plain",
+          selected: range.toString().trim() || null,
+        });
+        setMode("counterpart");
+        setDetail(null);
+        setDraftId(null);
+        onPanelOpenChange(true);
+        return;
+      }
+
       // Ask and Note both need somewhere to write, so they open the panel — and
       // they open it now, against a row that doesn't exist yet, rather than
       // after the round trip that creates it. See PendingCreate.
@@ -998,6 +1038,7 @@ export function ReaderAnnotationLayer({
           anchor: resolved.anchor,
           anchorCharOffset: resolved.anchorCharOffset,
           quotedText: resolved.quotedText,
+          plainQuotedText: resolved.plainQuotedText,
           askNor: false,
           memberEmail,
         });
@@ -1027,9 +1068,11 @@ export function ReaderAnnotationLayer({
       contentRef,
       isCreating,
       memberEmail,
+      onPanelOpenChange,
       openDraft,
       optimisticRow,
       refreshList,
+      shownFace,
       space,
     ]
   );
@@ -1308,12 +1351,17 @@ export function ReaderAnnotationLayer({
       // Articles keep real links. A click inside one is meant for the link, and
       // opening a panel on top of a navigation is the wrong answer to both.
       if ((e.target as HTMLElement | null)?.closest("a")) return;
-      const hit = annotationAtPoint(chats, container, e.clientX, e.clientY, windowBase);
+      // A Plain English marker or glossary term belongs to the reader, which
+      // handles it on the same container; a click on one is not a passage.
+      if ((e.target as HTMLElement | null)?.closest("[data-reader-plain], .reader-term")) {
+        return;
+      }
+      const hit = annotationAtPoint(chats, container, e.clientX, e.clientY, windowBase, faceTextOf);
       if (hit) void openExisting(hit.id);
     };
     container.addEventListener("click", onClick);
     return () => container.removeEventListener("click", onClick);
-  }, [chapterIds, chats, contentRef, isArticle, openExisting, windowBase]);
+  }, [chapterIds, chats, contentRef, faceTextOf, isArticle, openExisting, windowBase]);
 
   /**
    * Mark the tappable titles as tappable.
@@ -1600,6 +1648,10 @@ export function ReaderAnnotationLayer({
         contentRef={contentRef}
         onAct={(range, intent) => void annotateSelection(range, intent)}
         disabled={busy}
+        // Books only: an article has no translation and no block map to peek
+        // through. Offered in every book, translated or not — the untranslated
+        // case is exactly when a paragraph in plain English is worth a look.
+        faceAction={isArticle ? null : shownFace === "plain" ? "original" : "plain"}
       />
       {chapterMenu && (
         <ChapterMenu
@@ -1624,10 +1676,19 @@ export function ReaderAnnotationLayer({
         // preface or afterword — you went to the Contents to get here, and it
         // starts asking the moment it opens.
         dismissOnOutsidePress={
-          mode === "thread" && !touched && detail?.bookScope == null
+          mode === "counterpart" || (mode === "thread" && !touched && detail?.bookScope == null)
         }
       >
-        {mode === "list" ? (
+        {mode === "counterpart" && counterpart ? (
+          <CounterpartPanel
+            bookId={bookId}
+            request={counterpart}
+            blocks={blocks}
+            known={plainBlocks ?? new Map()}
+            onClose={closePanel}
+            dockToggle={dockToggle}
+          />
+        ) : mode === "list" ? (
           <AnnotationList
             annotations={chats}
             // An article's anchors are DOM offsets, not the book character

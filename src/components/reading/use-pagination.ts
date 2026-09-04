@@ -44,6 +44,8 @@ import {
 } from "@/lib/reading/paged-position";
 import type { ReaderSettings } from "@/lib/reading/reader-settings";
 import { note, startTimer } from "@/lib/reading/perf";
+import { plainWindowHtml, type PlainRenderState } from "@/lib/reading/plain/render";
+import type { FaceTextOf } from "@/lib/reading/face-map";
 
 /**
  * The paging engine: owns the geometry, the repagination lifecycle, and which
@@ -139,9 +141,33 @@ export function usePagination({
   bottomInset = 0,
   charOffset: externalCharOffset,
   onPositionChange,
+  plain = null,
+  faceTextOf,
+  layoutKey = "",
+  singleColumn = false,
 }: {
   enabled: boolean;
   html: string | null;
+  /**
+   * The Plain English face to render, or null for the original. A different
+   * rendered string, so it repaginates through the ordinary lifecycle exactly
+   * as a chat mark does. See plain/render.ts.
+   */
+  plain?: PlainRenderState | null;
+  /** What the DOM shows per block in that face, for position mapping. */
+  faceTextOf?: FaceTextOf;
+  /**
+   * Anything else that changes the text's metrics without changing the markup
+   * — the typeface the face is set in. Folded into the fragmentation key so a
+   * face swap re-fragments even when no paragraph has changed yet.
+   */
+  layoutKey?: string;
+  /**
+   * Show one column even where two would fit, leaving the right column's place
+   * empty for something else (the Plain English pane). A viewing change only:
+   * the flow is untouched, so nothing re-fragments — see PageGeometry.
+   */
+  singleColumn?: boolean;
   flowRef: React.RefObject<HTMLDivElement | null>;
   blocks: BookBlock[];
   /**
@@ -220,14 +246,16 @@ export function usePagination({
   const renderedHtml = useMemo(
     () =>
       html != null && win
-        ? withInlineChats(
-            windowHtml(html, blocks, win),
-            blocks,
-            inlineMarks,
-            blocks[win.startBlock].htmlStart
-          )
+        ? plain
+          ? plainWindowHtml(html, blocks, win, inlineMarks, plain)
+          : withInlineChats(
+              windowHtml(html, blocks, win),
+              blocks,
+              inlineMarks,
+              blocks[win.startBlock].htmlStart
+            )
         : null,
-    [html, blocks, win, inlineMarks]
+    [html, blocks, win, inlineMarks, plain]
   );
 
   const geometryRef = useRef<PageGeometry | null>(null);
@@ -270,8 +298,8 @@ export function usePagination({
     if (!flow || !geom) return null;
     const blockEls = blockElements(flow);
     if (blockEls.length === 0) return null;
-    return { flow, blocks: windowBlocks, blockEls, geom, pages: pagesRef.current };
-  }, [windowBlocks, flowRef]);
+    return { flow, blocks: windowBlocks, blockEls, geom, pages: pagesRef.current, faceTextOf };
+  }, [windowBlocks, flowRef, faceTextOf]);
 
   const paint = useCallback(
     (page: number) => {
@@ -387,13 +415,21 @@ export function usePagination({
           ),
     [enabled, html, viewport, settings, chatPanel, bottomInset]
   );
-  const geometry = measured;
+  // Forcing one column keeps `offsetX`, so the page stays where the LEFT column
+  // of the spread would have been and the right column's place is free.
+  const geometry = useMemo<PageGeometry | null>(
+    () =>
+      measured && singleColumn && measured.cols === 2
+        ? { ...measured, cols: 1, viewW: measured.colW }
+        : measured,
+    [measured, singleColumn]
+  );
 
   // What the browser actually needs to re-fragment for: the size of a column box
   // and the gap between boxes. Notably not `cols` — the flow element is always
   // one column wide, so how many columns a page shows never reaches the text.
   const fragmentationKey = geometry
-    ? `${geometry.colW}:${geometry.gap}:${geometry.pageH}`
+    ? `${geometry.colW}:${geometry.gap}:${geometry.pageH}:${layoutKey}`
     : null;
 
   // What the position solve has to re-run for. `cols` is here because it changes
@@ -473,6 +509,7 @@ export function usePagination({
       blockEls: blockElements(flow),
       geom,
       pages: mapped,
+      faceTextOf,
     };
     const page = Math.min(pageForCharOffset(charRef.current, ctx), total - 1);
     pageRef.current = page;
@@ -505,6 +542,7 @@ export function usePagination({
     revision,
     flowRef,
     paint,
+    faceTextOf,
   ]);
 
   // Web fonts swapping in changes every line's metrics, which changes where the

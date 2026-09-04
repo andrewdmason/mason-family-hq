@@ -292,6 +292,11 @@ export function AnnotationList({
                               )}
                             >
                               {a.quotedText}
+                              {a.plainQuotedText && (
+                                <span className="mt-1 block text-[12px] not-italic leading-snug text-muted-foreground/80">
+                                  {a.plainQuotedText}
+                                </span>
+                              )}
                             </p>
                           ) : (
                             // A conversation about a place rather than a passage

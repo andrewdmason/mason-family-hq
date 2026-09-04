@@ -9,7 +9,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import Link from "next/link";
-import { ArrowLeft, Headphones, List, Loader2, Settings2 } from "lucide-react";
+import { ArrowLeft, Headphones, Languages, List, Loader2, Settings2 } from "lucide-react";
 import { getReadingPosition, saveReadingPosition } from "@/app/(reading)/reader/actions";
 import {
   useAudiobook,
@@ -38,6 +38,7 @@ import {
 import {
   PAGE_PAD_BOTTOM,
   bookAreaWidth,
+  computeGeometry,
   sidePanelFits,
   type ChatPanelPresentation,
 } from "@/lib/reading/paged-geometry";
@@ -80,6 +81,17 @@ import {
 } from "./reader-prose";
 import { usePagination } from "./use-pagination";
 import { useReaderSettings } from "./use-reader-settings";
+import { usePlainEnglish } from "./use-plain-english";
+import { PlainEnglishDialog } from "./plain-english-dialog";
+import { SideBySidePane } from "./side-by-side-pane";
+import { TermPopover } from "./term-popover";
+import {
+  PLAIN_MARK_ATTR,
+  PLAIN_TERM_ATTR,
+  PLAIN_TERM_CLASS,
+  plainDocumentHtml,
+} from "@/lib/reading/plain/render";
+import type { PlainTerm, ReadingFace } from "@/lib/reading/plain/types";
 
 /**
  * Reading a book.
@@ -125,9 +137,18 @@ export function BookReader({
   openMarkId = null,
   backHref,
   canListen = false,
+  readingFace = "original",
+  fiction = null,
+  charCount = null,
 }: {
   bookId: string;
   memberEmail: string | null;
+  /** Which face this reader last chose for this book — see plain/types.ts. */
+  readingFace?: ReadingFace;
+  /** The book's fiction flag, for the Plain English warning. */
+  fiction?: boolean | null;
+  /** Characters of converted text, for the Plain English cost estimate. */
+  charCount?: number | null;
   title: string;
   author: string | null;
   isArticle?: boolean;
@@ -179,6 +200,11 @@ export function BookReader({
    */
   const [inlineMarks, setInlineMarks] = useState<InlineChatMark[]>([]);
   const [layoutOpen, setLayoutOpen] = useState(false);
+  const [plainDialogOpen, setPlainDialogOpen] = useState(false);
+  /** The glossary term whose definition is open, and the span it sits on. */
+  const [termPopover, setTermPopover] = useState<{ anchor: HTMLElement; term: PlainTerm } | null>(
+    null
+  );
   const [contentsOpen, setContentsOpen] = useState(false);
   const [chatPanelOpen, setChatPanelOpen] = useState(false);
   /**
@@ -193,7 +219,7 @@ export function BookReader({
   // The same store the paging engine derives its geometry from, so the chat
   // panel's presentation and the book's layout can never disagree about how wide
   // the window is.
-  const { width: viewportWidth } = useSyncExternalStore(
+  const { width: viewportWidth, height: viewportHeight } = useSyncExternalStore(
     subscribeViewport,
     getViewportSize,
     getServerViewportSize
@@ -243,11 +269,6 @@ export function BookReader({
    * block stream above isn't the character space the anchors are stored in and
    * there is nothing safe to splice against — they keep the margin icon instead.
    */
-  const scrollHtml = useMemo(
-    () =>
-      html == null || isArticle ? html : withInlineChats(html, blocks, inlineMarks, 0),
-    [blocks, html, inlineMarks, isArticle]
-  );
   const chapters = useMemo(
     () => (blocks.length === 0 ? [] : chapterBounds(toc, title, blocks)),
     [blocks, title, toc]
@@ -294,6 +315,30 @@ export function BookReader({
     atEnd: false,
   });
   const positionRef = useRef(resumeCharOffset);
+
+  /**
+   * Plain English: which face is shown, what the translation holds, and what
+   * the renderer should swap. Sits before the pagination hook because the paged
+   * window is rendered from it; takes its position from the shared scroll state
+   * that both modes report into, so the two hooks don't depend on each other.
+   */
+  const plain = usePlainEnglish({
+    bookId,
+    enabled: !isArticle && html != null,
+    initialFace: isArticle ? "original" : readingFace,
+    currentCharOffset: scrollPosition.charOffset,
+    paged,
+    listening: listenInset > 0,
+  });
+  const scrollHtml = useMemo(
+    () =>
+      html == null || isArticle
+        ? html
+        : plain.render
+          ? plainDocumentHtml(html, blocks, inlineMarks, plain.render)
+          : withInlineChats(html, blocks, inlineMarks, 0),
+    [blocks, html, inlineMarks, isArticle, plain.render]
+  );
   /**
    * The position already written down — the one the book opened at, and then
    * every one saved since.
@@ -560,6 +605,23 @@ export function BookReader({
       ? "floating"
       : "docked";
 
+  /**
+   * Side by side: the book in the left column, its translation in the right.
+   *
+   * Only when the reader is in Plain English, in pages, on a screen where two
+   * columns fit — the same arithmetic the paging engine uses, run here so the
+   * decision is made before the engine is asked, not a render after it. When it
+   * is on, the page itself shows the ORIGINAL (the plain text moves to the
+   * pane), so every anchor and position on the page is original-face.
+   */
+  const twoColumnsFit =
+    paged &&
+    viewportWidth > 0 &&
+    computeGeometry(viewportWidth, Math.max(200, viewportHeight - listenInset), settings, chatPanel)
+      .cols === 2;
+  const sideBySide =
+    twoColumnsFit && plain.shownFace === "plain" && settings.sideBySide;
+
   const pagination = usePagination({
     enabled: paged,
     html,
@@ -571,6 +633,9 @@ export function BookReader({
     bottomInset: listenInset,
     charOffset: scrollPosition.charOffset,
     onPositionChange: report,
+    plain: sideBySide ? null : plain.render,
+    faceTextOf: sideBySide ? undefined : plain.faceTextOf,
+    singleColumn: sideBySide,
   });
 
   // Where you are and how much is left are a pure function of the character
@@ -937,6 +1002,8 @@ export function BookReader({
    * Articles don't listen: a page of prose off the web is short enough that
    * chaptering it means nothing, and listening is a books feature.
    */
+  const layoutNonce = paged ? pagination.layoutNonce : scrollLayoutNonce;
+
   const { listen } = useAudiobookControls();
   const reportListening = useCallback(
     (charOffset: number) => report(charOffset, false),
@@ -959,6 +1026,83 @@ export function BookReader({
     listen({ bookId, title, author }, currentCharOffset);
   }, [author, bookId, currentCharOffset, listen, title]);
 
+  // ---- Plain English -------------------------------------------------------
+
+  /** What the menu item says: the state of the translation, in one line. */
+  const plainLabel = (() => {
+    if (plain.face !== "plain") return "Plain English";
+    const { total, ready, failed, pending } = plain.counts;
+    if (total === 0 || pending > 0) return `Plain English · ${ready} of ${total || "…"} chapters`;
+    if (failed > 0) return `Plain English · ${failed} chapter${failed === 1 ? "" : "s"} failed`;
+    return "Plain English ✓";
+  })();
+
+  const onPlainMenu = useCallback(() => {
+    if (plain.face === "plain") return;
+    // A translation the family already has (or has under way) needs no
+    // confirmation: nothing is being paid for. Only a first run asks.
+    if (plain.exists) void plain.enable().catch(() => {});
+    else setPlainDialogOpen(true);
+  }, [plain]);
+
+  /**
+   * Where the reader was when a chapter's plain text was swapped in under a
+   * scrolling document, so the text can be put back under their eye once the
+   * document has re-laid. Paged mode needs none of this: it re-resolves the
+   * character it already has.
+   */
+  const plainRestoreRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (paged || html == null) return;
+    const target = plainRestoreRef.current;
+    if (target == null) return;
+    plainRestoreRef.current = null;
+    const frame = requestAnimationFrame(() => {
+      goToChar(target);
+      measureScroll();
+      onScroll();
+      setScrollLayoutNonce((n) => n + 1);
+    });
+    return () => cancelAnimationFrame(frame);
+    // Keyed on the rendered markup: that is what a swap changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollHtml]);
+
+  // The two things Plain English sets into the page — a chapter's marker and a
+  // glossary term — are the book's own markup, so they are opened from here.
+  useEffect(() => {
+    const container = contentRef.current;
+    if (!container || isArticle) return;
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      const marker = target?.closest<HTMLElement>(`[${PLAIN_MARK_ATTR}]`);
+      if (marker) {
+        const index = Number(marker.getAttribute(PLAIN_MARK_ATTR));
+        const status = marker.getAttribute("data-reader-plain-status");
+        if (status === "ready") {
+          if (!paged) plainRestoreRef.current = positionRef.current;
+          plain.applyChapter(index);
+        } else if (status === "failed") {
+          void plain.retryChapter(index);
+        }
+        return;
+      }
+      const span = target?.closest<HTMLElement>(`.${PLAIN_TERM_CLASS}`);
+      if (span) {
+        const name = span.getAttribute(PLAIN_TERM_ATTR);
+        const term = plain.plan?.terms.find((t) => t.term === name) ?? null;
+        if (term) setTermPopover({ anchor: span, term });
+      }
+    };
+    container.addEventListener("click", onClick);
+    return () => container.removeEventListener("click", onClick);
+  }, [contentRef, isArticle, paged, plain]);
+
+  // A relaid page has moved the term out from under its popover.
+  useEffect(() => {
+    setTermPopover(null);
+  }, [layoutNonce]);
+
   // Where the contents opens, and what it marks. Opening it on where you are —
   // rather than on the front matter — is the dialog's job now; this is the
   // reader's half of that, the only two facts it needs from the book.
@@ -967,7 +1111,6 @@ export function BookReader({
 
   // ---- Render -------------------------------------------------------------
 
-  const layoutNonce = paged ? pagination.layoutNonce : scrollLayoutNonce;
   // Memoised: the chat gutter re-places whenever this changes, and a fresh
   // object every render would put it in a render loop.
   const { geometry: pagedGeometry, pages: pagedPages, pageIndex } = pagination;
@@ -1146,6 +1289,9 @@ export function BookReader({
       mentionTargets={mentionTargets}
       openMarkId={openMarkId}
       onVisitAnchor={visitAnchor}
+      shownFace={plain.shownFace}
+      faceTextOf={plain.faceTextOf}
+      plainBlocks={plain.blocksByIndex}
     />
   );
 
@@ -1208,11 +1354,24 @@ export function BookReader({
                 <div className="min-w-0 text-center">
                   <p
                     className={cn(
-                      "reader-chrome-secondary truncate text-sm font-medium",
+                      "reader-chrome-secondary flex items-center justify-center gap-1.5 truncate text-sm font-medium",
                       paged ? "text-muted-foreground/80" : "text-foreground"
                     )}
                   >
-                    {title}
+                    {/* The one visible sign that the page is the translation
+                        rather than the author's words. The text itself is set
+                        the same either way — a book in a sans face read as an
+                        app, not a book — so this carries the whole distinction,
+                        alongside the menu's check and the toolbar's label. */}
+                    {plain.shownFace === "plain" && (
+                      <span title="Showing in plain English" className="flex shrink-0">
+                        <Languages
+                          aria-label="Showing in plain English"
+                          className="h-3.5 w-3.5 opacity-70"
+                        />
+                      </span>
+                    )}
+                    <span className="truncate">{title}</span>
                     {/* Scrolling has nowhere else to put this; a page has a footer. */}
                     {!paged && loaded && (
                       <span className="ml-1.5 text-xs font-normal tabular-nums text-muted-foreground">
@@ -1255,6 +1414,33 @@ export function BookReader({
                   <DropdownMenuItem onClick={startListening}>
                     <Headphones className="h-4 w-4" />
                     Listen
+                  </DropdownMenuItem>
+                )}
+                {/* Books only, anyone's account: a comprehension feature, not a
+                    listening one. Reads as the state of the translation once
+                    it's on; a second item turns it off, so the label can carry
+                    progress without also being a toggle. */}
+                {!isArticle && loaded && (
+                  <DropdownMenuItem onClick={onPlainMenu} disabled={plain.loading}>
+                    <Languages className="h-4 w-4" />
+                    {plainLabel}
+                  </DropdownMenuItem>
+                )}
+                {/* The translation beside the page rather than in its place.
+                    Offered only where it can happen: pages, two columns' worth
+                    of screen, and Plain English on. */}
+                {!isArticle && loaded && plain.face === "plain" && twoColumnsFit && (
+                  <DropdownMenuItem
+                    onClick={() => updateSetting("sideBySide", !settings.sideBySide)}
+                  >
+                    <span className="ml-6">
+                      Side by side{settings.sideBySide ? " ✓" : ""}
+                    </span>
+                  </DropdownMenuItem>
+                )}
+                {!isArticle && loaded && plain.face === "plain" && (
+                  <DropdownMenuItem onClick={() => void plain.disable()}>
+                    <span className="ml-6">Turn off Plain English</span>
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -1323,6 +1509,20 @@ export function BookReader({
           >
             {annotationLayer}
           </PagedView>
+          {sideBySide && pagedGeometry && plain.plan && (
+            <SideBySidePane
+              blocks={blocks}
+              fromChar={currentCharOffset}
+              toChar={charEnd ?? null}
+              chapters={plain.chapters}
+              plainBlocks={plain.blocksByIndex}
+              terms={plain.plan.terms}
+              geometry={pagedGeometry}
+              settings={settings}
+              bottomInset={0}
+              onTermTap={(anchor, term) => setTermPopover({ anchor, term })}
+            />
+          )}
           <ReaderFooter
             chapterTitle={progress.chapter?.title ?? null}
             chapterMinutesLeft={progress.chapter?.minutesLeft ?? null}
@@ -1331,7 +1531,14 @@ export function BookReader({
             height={PAGE_PAD_BOTTOM}
             bottom={listenInset}
             left={pagedGeometry?.offsetX ?? null}
-            width={pagedGeometry?.viewW ?? null}
+            // Under both halves of a side-by-side spread, not just the book's.
+            width={
+              pagedGeometry
+                ? sideBySide
+                  ? pagedGeometry.colW * 2 + pagedGeometry.gap
+                  : pagedGeometry.viewW
+                : null
+            }
           />
         </>
       ) : (
@@ -1466,6 +1673,20 @@ export function BookReader({
         // has to match what the book is doing behind the dialog. A floating panel
         // isn't counted, because the book genuinely still has that width.
         availableWidth={bookAreaWidth(viewportWidth, chatPanel === "docked")}
+      />
+
+      <PlainEnglishDialog
+        open={plainDialogOpen}
+        onOpenChange={setPlainDialogOpen}
+        charCount={charCount}
+        fiction={fiction}
+        onConfirm={plain.enable}
+      />
+
+      <TermPopover
+        anchor={termPopover?.anchor ?? null}
+        term={termPopover?.term ?? null}
+        onDismiss={() => setTermPopover(null)}
       />
 
       <ContentsDialog

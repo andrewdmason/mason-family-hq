@@ -55,7 +55,7 @@ export async function ensurePlacement(
   const { data: sourceRows } = await admin
     .from("reading_annotations")
     .select(
-      "id, user_id, book_id, anchor, anchor_char_offset, quoted_text, color, anchor_page, " +
+      "id, user_id, book_id, anchor, anchor_char_offset, quoted_text, plain_quoted_text, color, anchor_page, " +
         "reading_books(type)"
     )
     .eq("thread_id", input.threadId)
@@ -71,6 +71,7 @@ export async function ensurePlacement(
         anchor: AnnotationAnchor;
         anchor_char_offset: number;
         quoted_text: string | null;
+        plain_quoted_text: string | null;
         color: string;
         anchor_page: number | null;
         reading_books: { type: string | null } | null;
@@ -135,6 +136,9 @@ export async function ensurePlacement(
       anchor_char_offset: charOffset,
       anchor_page: anchorPage,
       quoted_text: source.quoted_text,
+      // The sender's plain sentence, shown beneath the author's words in the
+      // recipient's copy — the author's words are what relocation searched for.
+      plain_quoted_text: source.plain_quoted_text,
       color: source.color,
       anchor_status: status,
       // Their own boundary, not the sender's. Set to the passage they have been

@@ -125,7 +125,14 @@ export type AnnotationSummary = {
    */
   spoilerFree: boolean;
   contextThroughPage: number | null;
+  /** The author's words. For a plain-face mark, the whole original paragraph(s). */
   quotedText: string | null;
+  /**
+   * The plain-English sentence the reader selected, when the mark was made in
+   * the plain face. Shown beneath the author's words wherever the quote appears,
+   * so nobody receives a paraphrase presented as the author's; null otherwise.
+   */
+  plainQuotedText: string | null;
   /**
    * The heading this annotation recaps ("sec-42"), and null on every other kind
    * of annotation. Frozen at creation: it is what makes tapping the same chapter

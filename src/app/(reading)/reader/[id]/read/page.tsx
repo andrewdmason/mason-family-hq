@@ -71,6 +71,9 @@ export default async function ReadBookPage({
       toc={data.toc}
       resumeCharOffset={data.resume.charOffset}
       resumeSavedAt={data.resume.savedAt}
+      readingFace={data.readingFace}
+      fiction={data.fiction}
+      charCount={data.charCount}
       openNotes={query.notes === "1"}
       openMarkId={query.mark ?? null}
       mentionTargets={targets}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Highlighter, MessageSquareQuote, StickyNote } from "lucide-react";
+import { BookOpenText, Highlighter, Languages, MessageSquareQuote, StickyNote } from "lucide-react";
 import { PAGE_PAD_BOTTOM } from "@/lib/reading/paged-geometry";
 import { cn } from "@/lib/utils";
 import { useFinePointer, useSelectionRange } from "./use-selection-range";
@@ -14,10 +14,14 @@ import { useFinePointer, useSelectionRange } from "./use-selection-range";
  * somebody is done by typing their @handle inside either kind of thread, which
  * is the same gesture whether you decided to share before or after writing.
  *
- * Deliberately three. The touch bar lays these out flex-1 and reserves its
- * height in PAGE_PAD_BOTTOM; a fourth action would change both.
+ * Three for an article. A BOOK gets a fourth: "face" shows the passage in the
+ * other face — Plain English for a passage you're reading in the original, the
+ * author's words for one you're reading in plain. It opens the panel and makes
+ * no mark. The touch bar lays actions out flex-1 inside PAGE_PAD_BOTTOM, so the
+ * fourth is budgeted as an icon with a short label rather than by growing the
+ * bar.
  */
-export type SelectionIntent = "highlight" | "ask" | "note";
+export type SelectionIntent = "highlight" | "ask" | "note" | "face";
 
 const ACTIONS: {
   intent: SelectionIntent;
@@ -60,10 +64,16 @@ export function SelectionToolbar({
   contentRef,
   onAct,
   disabled,
+  faceAction = null,
 }: {
   contentRef: React.RefObject<HTMLDivElement | null>;
   onAct: (range: Range, intent: SelectionIntent) => void;
   disabled: boolean;
+  /**
+   * Which way the fourth action points, or null for none (articles). "plain"
+   * offers Plain English; "original" offers the author's words.
+   */
+  faceAction?: "plain" | "original" | null;
 }) {
   const { spot, clear } = useSelectionRange(contentRef, disabled);
   const finePointer = useFinePointer();
@@ -76,7 +86,16 @@ export function SelectionToolbar({
     clear();
   };
 
-  const buttons = ACTIONS.map(({ intent, label, Icon }) => (
+  const actions = faceAction
+    ? [
+        ...ACTIONS,
+        faceAction === "plain"
+          ? { intent: "face" as const, label: "Plain", Icon: Languages }
+          : { intent: "face" as const, label: "Original", Icon: BookOpenText },
+      ]
+    : ACTIONS;
+
+  const buttons = actions.map(({ intent, label, Icon }) => (
     <button
       key={intent}
       type="button"

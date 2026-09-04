@@ -52,6 +52,14 @@ export type ReaderSettings = {
    * which is the same cost as changing the Margins setting beside it.
    */
   eink: boolean;
+  /**
+   * Plain English beside the page: the book in the left column, its translation
+   * where the right column would be. Only means anything while a book is being
+   * read in Plain English on a screen wide enough for two columns; remembered
+   * regardless, so it comes back when both are true again. Per device, like
+   * everything else here — whether two columns fit is a fact about the screen.
+   */
+  sideBySide: boolean;
 };
 
 /** Body text sizes, in rem. The old fixed reader size (1.15rem) is the default. */
@@ -207,6 +215,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   // the book exactly as it was.
   chatDocked: false,
   eink: false,
+  sideBySide: false,
 };
 
 const STORAGE_KEY = "reader:layout";
@@ -247,6 +256,8 @@ export function loadSettings(): ReaderSettings {
     chatDocked:
       typeof s.chatDocked === "boolean" ? s.chatDocked : DEFAULT_SETTINGS.chatDocked,
     eink: typeof s.eink === "boolean" ? s.eink : DEFAULT_SETTINGS.eink,
+    sideBySide:
+      typeof s.sideBySide === "boolean" ? s.sideBySide : DEFAULT_SETTINGS.sideBySide,
   };
 }
 

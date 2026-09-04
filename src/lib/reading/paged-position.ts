@@ -15,6 +15,7 @@
 
 import type { BookBlock } from "@/lib/reading/block-stream";
 import { textPositionAt } from "@/lib/reading/annotation-anchors";
+import { shownLength, toOriginalOffset, type FaceTextOf } from "@/lib/reading/face-map";
 import {
   buildPages,
   colIndexForX,
@@ -42,6 +43,13 @@ export type MeasureCtx = {
   geom: PageGeometry;
   /** Where the pages fall on this strip — measured, not arithmetic. See Pages. */
   pages: Pages;
+  /**
+   * What the DOM shows for a block when it isn't the block's own text — the
+   * plain face. Every in-block offset measured here is measured against the
+   * shown text and carried into the original char space before it leaves. See
+   * face-map.ts. Absent means the DOM shows the original.
+   */
+  faceTextOf?: FaceTextOf;
 };
 
 function flowLeft(ctx: MeasureCtx): number {
@@ -195,8 +203,12 @@ export function charOffsetAtTopOfPage(page: number, ctx: MeasureCtx): number {
   const previous = first - 1;
   const previousEl = previous >= 0 ? blockEls[previous] : null;
   if (previousEl && endColOf(previousEl, left, geom) >= targetCol) {
+    // Searched over the text the DOM actually holds, which in the plain face is
+    // not the block's own; the answer is carried into the char space after.
+    const originalLength = blocks[previous].text.length;
+    const domLength = shownLength(ctx.faceTextOf, blocks[previous].index, originalLength);
     let clo = 0;
-    let chi = blocks[previous].text.length;
+    let chi = domLength;
     while (clo < chi) {
       const mid = (clo + chi) >> 1;
       const col = colOfCharInBlock(previousEl, mid, left, geom);
@@ -204,7 +216,7 @@ export function charOffsetAtTopOfPage(page: number, ctx: MeasureCtx): number {
       if (col < targetCol) clo = mid + 1;
       else chi = mid;
     }
-    return blocks[previous].charStart + clo;
+    return blocks[previous].charStart + toOriginalOffset(clo, originalLength, domLength);
   }
 
   // Otherwise the page opens with a whole block: either one that begins exactly

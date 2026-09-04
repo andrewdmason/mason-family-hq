@@ -117,6 +117,38 @@ export async function loadBookHtml(
   }
 }
 
+/**
+ * The book's Plain English translation, kept beside the book itself.
+ *
+ * The plan route is under /api, which the service worker never caches, so
+ * without this an offline book in plain mode would quietly fall back to the
+ * original. Stored as a JSON Response under a synthetic key per book; the
+ * newest fetch always overwrites, and a miss is simply "read the original".
+ */
+export async function storePlainPlan(bookId: string, plan: unknown): Promise<void> {
+  if (!cachesAvailable()) return;
+  const cache = await caches.open(CONTENT_CACHE).catch(() => null);
+  if (!cache) return;
+  await cache
+    .put(
+      `/reader/api/plain/${bookId}`,
+      new Response(JSON.stringify(plan), { headers: { "Content-Type": "application/json" } })
+    )
+    .catch(() => {});
+}
+
+export async function loadPlainPlan<T = unknown>(bookId: string): Promise<T | null> {
+  if (!cachesAvailable()) return null;
+  const cache = await caches.open(CONTENT_CACHE).catch(() => null);
+  const hit = cache ? await cache.match(`/reader/api/plain/${bookId}`).catch(() => null) : null;
+  if (!hit) return null;
+  try {
+    return (await hit.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
 /** Fill in what only the reader page knows, so the shelf can list this properly. */
 export async function describeDownload(
   bookId: string,
@@ -137,4 +169,5 @@ export async function removeDownload(bookId: string): Promise<void> {
   if (!cachesAvailable()) return;
   const cache = await caches.open(CONTENT_CACHE).catch(() => null);
   await cache?.delete(`/reader/api/content/${bookId}`).catch(() => {});
+  await cache?.delete(`/reader/api/plain/${bookId}`).catch(() => {});
 }
