@@ -74,10 +74,47 @@ const SUMMARY_MARK_PROSE = [
  */
 export const CHAPTER_TAP_CLASS = "reader-chapter-tap";
 
+/**
+ * Plain English's two additions to the page, both typographic.
+ *
+ * The marker under a chapter heading says what state its translation is in
+ * ("Translating…", "Plain English ready · tap to switch"). Same element and
+ * hairlines as a chat mark — it reuses that class — set as a centred label like
+ * a summary's, because it says the same thing under every chapter it applies to.
+ *
+ * A glossary term gets a dotted underline and nothing else. No colour: the
+ * Palma dithers a tint to grey, and a page of the book must not read as a page
+ * of links. The pointer says it is tappable; the underline says it is a term.
+ */
+const PLAIN_PROSE = [
+  "[&_.reader-plain-mark]:text-center [&_.reader-plain-mark]:uppercase",
+  "[&_.reader-plain-mark]:text-[0.62em] [&_.reader-plain-mark]:tracking-[0.14em]",
+  "[&_.reader-plain-mark]:[break-before:avoid] [&_.reader-plain-mark]:[-webkit-column-break-before:avoid]",
+  "[&_.reader-term]:cursor-pointer [&_.reader-term]:underline [&_.reader-term]:decoration-dotted",
+  "[&_.reader-term]:decoration-foreground/40 [&_.reader-term]:underline-offset-3",
+  "[&_.reader-term:hover]:decoration-foreground",
+];
+
 const CHAPTER_TAP_PROSE = [
   "[&_.reader-chapter-tap]:cursor-pointer",
   "[&_.reader-chapter-tap:hover]:underline [&_.reader-chapter-tap:hover]:decoration-1 [&_.reader-chapter-tap:hover]:underline-offset-4",
 ];
+
+/**
+ * The parallel spread: a two-column grid in which a paragraph and its
+ * translation share a row. Headings, chat marks and page anchors run across
+ * both columns; the translation cell keeps the paragraph's own rhythm so the
+ * pair stays level. Applied to the flow element, whose display and template
+ * are set inline from the geometry (parallel-view.tsx).
+ */
+export const PARALLEL_PROSE = [
+  "[&>.reader-heading]:[grid-column:1/-1]",
+  "[&>.reader-chat-mark]:[grid-column:1/-1]",
+  "[&>.page-anchor]:[grid-column:1/-1]",
+  "[&>.reader-plain-cell]:mb-5 [&>.reader-plain-cell]:min-h-[1em]",
+  "[&>.reader-plain-kept]:opacity-70",
+  "[&>.reader-heading]:[break-inside:avoid]",
+].join(" ");
 
 /**
  * Converted books are plain text: <p>, <h1>, <h2>, <blockquote>, and zero-height
@@ -94,6 +131,7 @@ export const BOOK_PROSE = [
   ...CHAT_MARK_PROSE,
   ...SUMMARY_MARK_PROSE,
   ...CHAPTER_TAP_PROSE,
+  ...PLAIN_PROSE,
 ].join(" ");
 
 /**

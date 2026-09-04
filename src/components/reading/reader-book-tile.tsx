@@ -45,6 +45,7 @@ export function ReaderBookTile({ book }: { book: ReadingBookWithProgress }) {
     retryConvert,
     busy,
     uploadError,
+    uploadNotice,
     retrying,
     hasFile,
     isReady,
@@ -189,6 +190,9 @@ export function ReaderBookTile({ book }: { book: ReadingBookWithProgress }) {
 
       {(error || uploadError) && (
         <span className="text-[11px] text-destructive">{error ?? uploadError}</span>
+      )}
+      {uploadNotice && (
+        <span className="text-[11px] text-muted-foreground">{uploadNotice}</span>
       )}
 
       <input

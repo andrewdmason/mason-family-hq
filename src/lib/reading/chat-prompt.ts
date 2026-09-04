@@ -384,6 +384,13 @@ export type ReaderChatPromptInput = {
   readerPosition: { page: number | null; percent: number | null } | null;
   /** Selection-initiated chats: the passage the reader highlighted. */
   quotedText: string | null;
+  /**
+   * When the reader was reading in Plain English: the plain rendering of the
+   * paragraph(s) the mark sits on, and the plain sentence they selected. The
+   * author's words are always in `quotedText`; these are what the reader saw.
+   */
+  plainFace?: string | null;
+  plainQuotedText?: string | null;
   /** True when the transcript carries notes the reader wrote to themselves. */
   hasReaderNotes: boolean;
   /**
@@ -1027,6 +1034,22 @@ function assembleReaderChatPrompt(input: ReaderChatPromptInput): {
     tail.push(
       "The reader highlighted this passage and started the conversation from " +
         `it:\n\n"""\n${input.quotedText}\n"""`
+    );
+  }
+
+  if (input.plainFace) {
+    tail.push(
+      "The reader was reading this book in PLAIN ENGLISH — a paragraph-for-" +
+        "paragraph plain-prose rendering the app made of the author's text. " +
+        "This is the rendering they saw for the passage above" +
+        (input.plainQuotedText
+          ? `, and the sentence they actually selected was: \"${input.plainQuotedText}\"`
+          : "") +
+        `:\n\n"""\n${input.plainFace}\n"""\n\n` +
+        "Answer against the author's own words (the passage above). Use the " +
+        "plain rendering only to understand what the reader has in front of " +
+        "them; if it has flattened or lost something the author's words carry, " +
+        "say so."
     );
   }
 

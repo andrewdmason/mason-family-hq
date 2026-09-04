@@ -44,16 +44,20 @@ export function formatBytes(bytes: number): string {
 export async function convertBook(
   bookId: string,
   memberEmail?: string | null
-): Promise<void> {
+): Promise<{ plainOrphaned: boolean }> {
   const res = await fetch("/reader/api/convert", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ bookId, memberEmail: memberEmail ?? null }),
   });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? "Couldn't process this book.");
-  }
+  const body = (await res.json().catch(() => null)) as {
+    error?: string;
+    plainOrphaned?: boolean;
+  } | null;
+  if (!res.ok) throw new Error(body?.error ?? "Couldn't process this book.");
+  // A re-conversion of a book with a Plain English translation: the old one is
+  // keyed to text that no longer exists on this copy. Surfaced, not fatal.
+  return { plainOrphaned: body?.plainOrphaned === true };
 }
 
 /**

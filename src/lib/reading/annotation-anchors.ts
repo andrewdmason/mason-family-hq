@@ -27,6 +27,7 @@
  */
 
 import type { BookBlock } from "@/lib/reading/block-stream";
+import type { FaceTextOf } from "@/lib/reading/face-map";
 import { time } from "@/lib/reading/perf";
 
 /**
@@ -48,8 +49,18 @@ export const BLOCK_SELECTOR =
  * Bumped to 2 for the article-capable scheme. v1 rows read as v2 with no quote:
  * the positional fields are unchanged, and the widened selector adds no elements
  * to a converted book's DOM, so a v1 book anchor resolves identically under v2.
+ *
+ * Bumped to 3 for Plain English. A v3 anchor carries the FACE it was made in.
+ * One made in the plain face is block-only — its in-block offsets are null,
+ * because they would be offsets into text that isn't the char space — and
+ * renders exactly on the plain face by finding its plain sentence again, or as
+ * the whole paragraph anywhere else. v1 and v2 anchors read as `face:
+ * "original"`, and nothing about how they resolve changes.
  */
-export const ANCHOR_VERSION = 2;
+export const ANCHOR_VERSION = 3;
+
+/** Which text a mark was made against. Absent on older anchors means original. */
+export type AnchorFace = "original" | "plain";
 
 /**
  * How to turn a block index + in-block offset into `anchorCharOffset`. Built by
@@ -62,6 +73,12 @@ export type AnchorSpace =
       blocks: BookBlock[];
       /** Global index of the first rendered block — see RenderedBlocks. */
       base: number;
+      /**
+       * What the DOM shows for a block when it is not the block's own text —
+       * the plain face. A selection inside such a block becomes a plain-face
+       * anchor. Absent means the original is on screen everywhere.
+       */
+      faceTextOf?: FaceTextOf;
     }
   | { kind: "dom" };
 
@@ -114,15 +131,28 @@ export type AnnotationAnchor = {
   endOffset: number | null;
   /** Selection anchors only; null for gaps, which have no text to match. */
   quote: AnchorQuote | null;
+  /** v3: the face the mark was made in. Absent (v1, v2) means original. */
+  face?: AnchorFace;
 };
 
 export type ResolvedAnchor = {
   anchor: AnnotationAnchor;
   /** Book: conversion char space. Article: DOM text offset. See the module comment. */
   anchorCharOffset: number;
-  /** Verbatim selected text, for selection anchors. */
+  /**
+   * The AUTHOR's words: the selection on the original face, or the whole
+   * original paragraph(s) for a plain-face mark. This is what relocation,
+   * read-back and shares search for and show.
+   */
   quotedText: string | null;
+  /** The plain sentence the reader selected, for a plain-face mark. Else null. */
+  plainQuotedText: string | null;
 };
+
+/** The face an anchor was made in, older schemes included. */
+export function anchorFace(anchor: AnnotationAnchor): AnchorFace {
+  return anchor.face === "plain" ? "plain" : "original";
+}
 
 /**
  * Every way anchoring can fail looks identical to the reader — the selection
@@ -160,12 +190,13 @@ export function anchorForGap(
     startOffset: null,
     endOffset: null,
     quote: null,
+    face: "original",
   };
 
   if (space.kind === "book") {
     const block = space.blocks[blockIndexBelow];
     if (!block) return null;
-    return { anchor, anchorCharOffset: block.charStart, quotedText: null };
+    return { anchor, anchorCharOffset: block.charStart, quotedText: null, plainQuotedText: null };
   }
 
   // Articles are never windowed, so their base is always 0 and a global index is
@@ -176,6 +207,7 @@ export function anchorForGap(
     anchor,
     anchorCharOffset: domOffsetOfNodeStart(container, el),
     quotedText: null,
+    plainQuotedText: null,
   };
 }
 
@@ -198,7 +230,41 @@ export function anchorFromRange(
   if (!quotedText) return null;
 
   const startEl = closestBlock(range.startContainer, container);
-  if (!startEl) return fail("selection starts outside any block");
+  if (!startEl) {
+    // The parallel spread: the translation sits in <aside> cells beside the
+    // book's blocks, each naming the block it translates. A selection there is
+    // a plain-face mark on that paragraph — the same anchor a selection in the
+    // plain face produces.
+    const cell = closestPlainCell(range.startContainer, container);
+    if (cell && space.kind === "book") {
+      const blockIndex = Number(cell.getAttribute("data-plain-block"));
+      const endCell = closestPlainCell(range.endContainer, container);
+      const endBlockIndex = endCell
+        ? Math.max(blockIndex, Number(endCell.getAttribute("data-plain-block")))
+        : blockIndex;
+      const block = space.blocks[blockIndex];
+      if (!block) return fail(`translation cell names block ${blockIndex}, which isn't in the stream`);
+      return {
+        anchor: {
+          v: ANCHOR_VERSION,
+          kind: "selection",
+          blockIndex,
+          endBlockIndex,
+          startOffset: null,
+          endOffset: null,
+          quote: null,
+          face: "plain",
+        },
+        anchorCharOffset: block.charStart,
+        quotedText: space.blocks
+          .slice(blockIndex, endBlockIndex + 1)
+          .map((b) => b.text)
+          .join("\n"),
+        plainQuotedText: quotedText,
+      };
+    }
+    return fail("selection starts outside any block");
+  }
 
   const end = endBoundary(range, container, startEl);
 
@@ -215,6 +281,44 @@ export function anchorFromRange(
   const blockIndex = base + found;
   const endBlockIndex = base + foundEnd;
 
+  // A selection that touches any paragraph shown in the plain face is a
+  // plain-face mark: its offsets would be into text the char space has never
+  // heard of, so it anchors to whole paragraphs and keeps the plain sentence to
+  // find itself again with. The author's words are recorded as the quote.
+  if (space.kind === "book" && space.faceTextOf) {
+    let onPlain = false;
+    for (let i = blockIndex; i <= endBlockIndex; i++) {
+      if (space.faceTextOf(i) != null) onPlain = true;
+    }
+    if (onPlain) {
+      const block = space.blocks[blockIndex];
+      if (!block) {
+        return fail(
+          `block ${blockIndex} missing from the converter stream (${space.blocks.length} blocks)`
+        );
+      }
+      const original = space.blocks
+        .slice(blockIndex, endBlockIndex + 1)
+        .map((b) => b.text)
+        .join("\n");
+      return {
+        anchor: {
+          v: ANCHOR_VERSION,
+          kind: "selection",
+          blockIndex,
+          endBlockIndex,
+          startOffset: null,
+          endOffset: null,
+          quote: null,
+          face: "plain",
+        },
+        anchorCharOffset: block.charStart,
+        quotedText: original,
+        plainQuotedText: quotedText,
+      };
+    }
+  }
+
   const startOffset = offsetWithinBlock(startEl, range.startContainer, range.startOffset);
   const endOffset = end.node
     ? offsetWithinBlock(end.el, end.node, end.offset)
@@ -228,6 +332,7 @@ export function anchorFromRange(
     startOffset,
     endOffset,
     quote: quoteForRange(range, container),
+    face: "original",
   };
 
   let anchorCharOffset: number;
@@ -250,7 +355,7 @@ export function anchorFromRange(
     );
   }
 
-  return { anchor, anchorCharOffset, quotedText };
+  return { anchor, anchorCharOffset, quotedText, plainQuotedText: null };
 }
 
 /**
@@ -304,10 +409,17 @@ export function rangeForAnchor(
    * points at detached elements which report no rects at all. See the note on
    * measureCtx in use-pagination.ts.
    */
-  view: RenderedBlocks
+  view: RenderedBlocks,
+  /**
+   * What the DOM shows per block when the plain face is on. Decides how a mark
+   * made in one face paints in the other: whole paragraph across faces, exact
+   * within its own. Absent means every block shows the original.
+   */
+  faceTextOf?: FaceTextOf,
+  /** The plain sentence a plain-face mark was made on, to find it again. */
+  plainQuotedText?: string | null
 ): Range | null {
   if (anchor.kind !== "selection") return null;
-  if (anchor.startOffset == null || anchor.endOffset == null) return null;
 
   // Not on the page at all — a different chapter. Answering "no" here is what
   // stops the quote fallback below from being consulted: the passage genuinely
@@ -315,6 +427,28 @@ export function rangeForAnchor(
   // lookalike, and painting a highlight over the wrong paragraph is far worse
   // than not painting one.
   if (!withinView(anchor, view)) return null;
+
+  const face = anchorFace(anchor);
+  const shownPlain = (i: number) => faceTextOf?.(i) != null;
+  const start = anchor.blockIndex;
+  const end = anchor.endBlockIndex ?? anchor.blockIndex;
+  let crossFace = false;
+  for (let i = start; i <= end; i++) {
+    if (shownPlain(i) !== (face === "plain")) crossFace = true;
+  }
+
+  // Across faces the offsets mean nothing — they index text that isn't on the
+  // page — so the mark is the paragraph(s) it sits on. Never the index-offset
+  // fallback below, which would paint an arbitrary span of a different text.
+  if (crossFace) return rangeOfWholeBlocks(anchor, view);
+
+  if (face === "plain") {
+    // Its own face: the plain sentence is there to be found. A miss (the chapter
+    // was re-translated) falls back to the paragraph.
+    return rangeOfPlainQuote(anchor, view, plainQuotedText ?? null) ?? rangeOfWholeBlocks(anchor, view);
+  }
+
+  if (anchor.startOffset == null || anchor.endOffset == null) return null;
 
   const byIndex = rangeFromIndices(anchor, view);
   if (byIndex && matchesQuote(byIndex, anchor.quote)) return byIndex;
@@ -325,6 +459,68 @@ export function rangeForAnchor(
   // resolve an anchor, it happens per annotation per pass, and nothing else
   // would tell you it was happening: one stale anchor quietly taxes every tap.
   return time("anchor: quote fallback", () => rangeFromQuote(anchor.quote, container)) ?? byIndex;
+}
+
+/** The whole of every block an anchor spans, as one range. */
+function rangeOfWholeBlocks(anchor: AnnotationAnchor, view: RenderedBlocks): Range | null {
+  const startEl = view.els[anchor.blockIndex - view.base];
+  const endEl = view.els[(anchor.endBlockIndex ?? anchor.blockIndex) - view.base];
+  if (!startEl || !endEl) return null;
+  const range = startEl.ownerDocument.createRange();
+  try {
+    range.setStartBefore(startEl.firstChild ?? startEl);
+    range.setEndAfter(endEl.lastChild ?? endEl);
+  } catch {
+    return null;
+  }
+  return range.collapsed ? null : range;
+}
+
+/** A plain-face mark's own sentence, found again inside its paragraph(s). */
+function rangeOfPlainQuote(
+  anchor: AnnotationAnchor,
+  view: RenderedBlocks,
+  plainQuote: string | null
+): Range | null {
+  const needle = plainQuote ? normalize(plainQuote) : "";
+  if (!needle) return null;
+  const startEl = view.els[anchor.blockIndex - view.base];
+  const endEl = view.els[(anchor.endBlockIndex ?? anchor.blockIndex) - view.base];
+  if (!startEl || !endEl) return null;
+  const scope = startEl.ownerDocument.createRange();
+  scope.setStartBefore(startEl);
+  scope.setEndAfter(endEl);
+  // Same idea as rangeFromQuote, scoped to the blocks rather than the window.
+  const walker = startEl.ownerDocument.createTreeWalker(
+    scope.commonAncestorContainer,
+    NodeFilter.SHOW_TEXT
+  );
+  const nodes: Text[] = [];
+  const starts: number[] = [];
+  let text = "";
+  let node = walker.nextNode() as Text | null;
+  while (node) {
+    if (scope.intersectsNode(node)) {
+      nodes.push(node);
+      starts.push(text.length);
+      text += node.data;
+    }
+    node = walker.nextNode() as Text | null;
+  }
+  const at = text.indexOf(plainQuote!);
+  if (at < 0) return null;
+  const index: TextIndex = { text, nodes, starts };
+  const from = positionInIndex(index, at);
+  const to = positionInIndex(index, at + plainQuote!.length);
+  if (!from || !to) return null;
+  const range = startEl.ownerDocument.createRange();
+  try {
+    range.setStart(from.node, from.offset);
+    range.setEnd(to.node, to.offset);
+  } catch {
+    return null;
+  }
+  return range.collapsed ? null : range;
 }
 
 function rangeFromIndices(anchor: AnnotationAnchor, view: RenderedBlocks): Range | null {
@@ -649,6 +845,17 @@ function textLengthOf(el: HTMLElement): number {
   const probe = el.ownerDocument.createRange();
   probe.selectNodeContents(el);
   return probe.toString().length;
+}
+
+/** The translation cell a node sits in, in the parallel spread. */
+function closestPlainCell(node: Node, container: HTMLElement): HTMLElement | null {
+  let el: HTMLElement | null =
+    node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
+  while (el && el !== container) {
+    if (el.hasAttribute("data-plain-block")) return el;
+    el = el.parentElement;
+  }
+  return null;
 }
 
 /** Nearest block element at or above `node`, stopping at the content container. */

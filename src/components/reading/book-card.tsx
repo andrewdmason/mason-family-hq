@@ -97,6 +97,7 @@ export function BookCard({
     retryConvert,
     busy,
     uploadError,
+    uploadNotice,
     retrying,
     hasFile,
     isReady,
@@ -413,6 +414,9 @@ export function BookCard({
 
       {uploadError && (
         <p className="mt-2 text-xs text-destructive">{uploadError}</p>
+      )}
+      {uploadNotice && (
+        <p className="mt-2 text-xs text-muted-foreground">{uploadNotice}</p>
       )}
 
       {deleteError && (

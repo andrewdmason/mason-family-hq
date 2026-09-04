@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { rangeForAnchor, renderedBlocks } from "@/lib/reading/annotation-anchors";
+import type { FaceTextOf } from "@/lib/reading/face-map";
 import {
   annotationKind,
   annotationOrigin,
@@ -107,7 +108,9 @@ export function useAnnotationHighlights(
   openAnnotationId: string | null,
   layoutNonce: number,
   /** Global index of the first rendered block — see RenderedBlocks. */
-  base: number
+  base: number,
+  /** What the DOM shows per block in the plain face — see rangeForAnchor. */
+  faceTextOf?: FaceTextOf
 ) {
   useEffect(() => {
     if (typeof CSS === "undefined" || !("highlights" in CSS)) return;
@@ -127,7 +130,7 @@ export function useAnnotationHighlights(
     // whose blocks aren't in this window resolve to null and simply don't paint.
     const view = renderedBlocks(container, base);
     for (const a of annotations) {
-      const range = rangeForAnchor(a.anchor, container, view);
+      const range = rangeForAnchor(a.anchor, container, view, faceTextOf, a.plainQuotedText);
       if (!range) continue;
       // An unplaced share has an anchor only as a formality — the passage was
       // never found in this copy — so it must not paint over an arbitrary
@@ -163,7 +166,7 @@ export function useAnnotationHighlights(
       for (const name of Object.values(REGISTRY)) CSS.highlights.delete(name);
       for (const name of Object.values(ACTIVE_REGISTRY)) CSS.highlights.delete(name);
     };
-  }, [annotations, base, contentRef, openAnnotationId, layoutNonce]);
+  }, [annotations, base, contentRef, openAnnotationId, layoutNonce, faceTextOf]);
 }
 
 /**
@@ -180,7 +183,8 @@ export function annotationAtPoint(
   x: number,
   y: number,
   /** Global index of the first rendered block — see RenderedBlocks. */
-  base: number
+  base: number,
+  faceTextOf?: FaceTextOf
 ): AnnotationSummary | null {
   // Every tap in the book comes through here, including the ones that are just
   // turning a page, so it has to be free when there's nothing to hit.
@@ -190,7 +194,7 @@ export function annotationAtPoint(
   let bestSize = Infinity;
   const view = renderedBlocks(container, base);
   for (const a of annotations) {
-    const range = rangeForAnchor(a.anchor, container, view);
+    const range = rangeForAnchor(a.anchor, container, view, faceTextOf, a.plainQuotedText);
     if (!range) continue;
     let hit = false;
     let size = 0;

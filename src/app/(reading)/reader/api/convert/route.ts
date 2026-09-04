@@ -13,6 +13,7 @@ import { readingTargetDueDateKey } from "@/lib/reading/target-due";
 import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { createHash } from "node:crypto";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   const { data: content, error: loadError } = await client
     .from("reading_book_content")
-    .select("source_path, source_format")
+    .select("source_path, source_format, content_hash")
     .eq("book_id", bookId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -69,6 +70,20 @@ export async function POST(req: NextRequest) {
       .eq("user_id", userId);
     return NextResponse.json({ error: message }, { status: 200 });
   };
+
+  // A Plain English translation is keyed to the conversion being replaced. It is
+  // not deleted — a sibling copy may still be reading it — but this copy will
+  // need a new one, and the reader should hear that rather than discover it.
+  let plainOrphaned = false;
+  const previousHash = (content.content_hash as string | null) ?? null;
+  if (previousHash) {
+    const { count } = await createAdminClient()
+      .from("reading_plain_chapters")
+      .select("chapter_index", { count: "exact", head: true })
+      .eq("content_hash", previousHash);
+    plainOrphaned = (count ?? 0) > 0;
+    if (plainOrphaned) log("re-converting a translated book; its Plain English will need regenerating");
+  }
 
   try {
     log("start");
@@ -228,7 +243,7 @@ export async function POST(req: NextRequest) {
     }
 
     log("ready");
-    return NextResponse.json({ status: "ready" });
+    return NextResponse.json({ status: "ready", plainOrphaned });
   } catch (err) {
     const message =
       err instanceof ConversionError

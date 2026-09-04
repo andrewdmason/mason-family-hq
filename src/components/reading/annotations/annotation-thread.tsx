@@ -981,6 +981,14 @@ export function AnnotationThread({
         {chat.quotedText && (
           <blockquote className="mb-3 shrink-0 border-l-2 border-border pl-3 font-serif text-sm leading-6 text-muted-foreground italic">
             {chat.quotedText}
+            {/* A mark made in the plain face: the author's words above, the
+                sentence the reader actually read beneath, never the other way
+                round — nobody is shown a paraphrase as the author's. */}
+            {chat.plainQuotedText && (
+              <span className="mt-2 block text-[13px] not-italic leading-snug text-muted-foreground/80">
+                In plain English: {chat.plainQuotedText}
+              </span>
+            )}
           </blockquote>
         )}
 

@@ -1156,6 +1156,10 @@ export type ReadingBookState = {
   last_scroll_ratio: number | null;
   last_page_number: number | null;
   last_read_at: string | null;
+  /** Resume point in the conversion char space; see migration 00168. */
+  last_char_offset?: number | null;
+  /** Which face this reader sees this book in; see migration 00188. */
+  reading_face?: "original" | "plain";
 };
 
 // ============================================================

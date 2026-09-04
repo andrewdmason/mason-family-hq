@@ -1260,6 +1260,12 @@ export type ReadingBookReaderData = {
   wordCount: number | null;
   toc: ReadingTocEntry[];
   resume: ReadingPosition;
+  /** Which face this reader last chose for this book. */
+  readingFace: "original" | "plain";
+  /** The book's fiction flag, for the Plain English warning. Null when unclear. */
+  fiction: boolean | null;
+  /** Characters of converted text, for the Plain English cost estimate. */
+  charCount: number | null;
 };
 
 /**
@@ -1343,7 +1349,7 @@ export async function getBookReaderData(
 
   const { data: book, error } = await client
     .from("reading_books")
-    .select("title, author, type, cover_image_url, excerpt")
+    .select("title, author, type, cover_image_url, excerpt, fiction")
     .eq("id", bookId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -1392,7 +1398,7 @@ export async function getBookReaderData(
 
   const { data: state } = await client
     .from("reading_book_state")
-    .select("last_char_offset, last_anchor_id, last_scroll_ratio, last_read_at")
+    .select("last_char_offset, last_anchor_id, last_scroll_ratio, last_read_at, reading_face")
     .eq("book_id", bookId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -1401,6 +1407,9 @@ export async function getBookReaderData(
     title: book.title as string,
     author: (book.author as string) ?? null,
     isArticle,
+    readingFace: !isArticle && state?.reading_face === "plain" ? "plain" : "original",
+    fiction: isArticle ? null : ((book.fiction as boolean | null) ?? null),
+    charCount: (content.char_count as number | null) ?? null,
     dek: isArticle ? ((book.excerpt as string) ?? null) : null,
     heroImageUrl: isArticle ? ((book.cover_image_url as string) ?? null) : null,
     contentUrl,

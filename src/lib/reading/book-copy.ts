@@ -49,7 +49,7 @@ export async function contentHashFor(
  * downloading a library's worth of HTML to answer a question nobody had asked
  * yet. This answers it when it is asked and writes the answer down.
  */
-async function hashOf(
+export async function hashOf(
   client: SupabaseClient,
   bookId: string,
   userId: string

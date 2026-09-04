@@ -19,6 +19,8 @@ import {
   type ReaderChatTemplate,
 } from "@/lib/reading/annotation-types";
 import { agentFor, type ReadingAgent } from "@/lib/reading/reading-agent";
+import type { AnnotationAnchor } from "@/lib/reading/annotation-anchors";
+import { hashOf } from "@/lib/reading/book-copy";
 
 /**
  * Everything that decides what a reader-chat turn is sent, gathered in ONE
@@ -42,7 +44,7 @@ const NO_PAGE_LIMIT = 1_000_000_000;
 /** The annotation columns a chat turn is built from. */
 export const CHAT_CONTEXT_COLUMNS =
   "id, book_id, thread_id, spoiler_free, context_through_page, anchor_char_offset, " +
-  "anchor_page, quoted_text, model_preference, template";
+  "anchor_page, quoted_text, plain_quoted_text, anchor, model_preference, template";
 
 export type ChatContextRow = {
   id: string;
@@ -59,9 +61,41 @@ export type ChatContextRow = {
   anchor_char_offset: number;
   anchor_page: number | null;
   quoted_text: string | null;
+  /** The plain sentence the reader selected, for a mark made in Plain English. */
+  plain_quoted_text?: string | null;
+  anchor?: AnnotationAnchor | null;
   model_preference: string;
   template: string | null;
 };
+
+/**
+ * The plain-English rendering of the paragraphs a mark sits on, when the reader
+ * was reading in that face — so the model can see what they saw while answering
+ * against the author's words. Null for an original-face mark, an article, or a
+ * book with no translation of those paragraphs.
+ */
+async function plainFaceFor(
+  db: SupabaseClient,
+  userId: string,
+  chat: ChatContextRow,
+  isArticle: boolean
+): Promise<string | null> {
+  if (isArticle || !chat.anchor || chat.anchor.face !== "plain") return null;
+  const hash = await hashOf(db, chat.book_id, userId);
+  if (!hash) return null;
+  const from = chat.anchor.blockIndex;
+  const to = (chat.anchor.endBlockIndex ?? chat.anchor.blockIndex) + 1;
+  const { data } = await db
+    .from("reading_plain_blocks")
+    .select("block_index, kept, text")
+    .eq("content_hash", hash)
+    .gte("block_index", from)
+    .lt("block_index", to)
+    .order("block_index", { ascending: true });
+  const rows = (data ?? []) as { block_index: number; kept: boolean; text: string | null }[];
+  const paragraphs = rows.filter((r) => !r.kept && r.text).map((r) => r.text as string);
+  return paragraphs.length > 0 ? paragraphs.join("\n\n") : null;
+}
 
 export type ChatContextBook = {
   title: string;
@@ -169,7 +203,7 @@ export async function buildReaderChatContext(input: {
   //
   // All of these sit between the reader pressing send and the first token, so
   // they go together rather than one after another.
-  const [readerIntent, readerProfile, marksResult] = await Promise.all([
+  const [readerIntent, readerProfile, marksResult, plainFace] = await Promise.all([
     isArticle ? null : getBookPreface(db, userId, chat.book_id),
     todayLocal().then((today) => gatherReaderProfile(db, userId, email, today)),
     template === "check_in" && !isArticle
@@ -179,6 +213,7 @@ export async function buildReaderChatContext(input: {
           onlyTemplate: "check_in",
         })
       : null,
+    plainFaceFor(db, userId, chat, isArticle),
   ]);
 
   // Which conversation they asked for. Read here and used for BOTH the register
@@ -201,6 +236,8 @@ export async function buildReaderChatContext(input: {
     contextThroughPage: scoped ? chat.context_through_page : null,
     readerPosition,
     quotedText: chat.quoted_text,
+    plainFace,
+    plainQuotedText: chat.plain_quoted_text ?? null,
     hasReaderNotes: input.hasReaderNotes,
     readerIntent,
     readerProfile,
