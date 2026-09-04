@@ -38,7 +38,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // migrations to drop them would buy nothing back.
 const CHAT_COLUMNS =
   "id, book_id, thread_id, anchor, anchor_char_offset, anchor_page, spoiler_free, " +
-  "context_through_page, quoted_text, chapter_anchor_id, book_scope, color, " +
+  "context_through_page, quoted_text, chapter_anchor_id, book_scope, color, starred, " +
   "model_preference, template, created_at, shared_from_user_id, anchor_status, " +
   // Embedded rather than fetched separately: the composer needs to know whether
   // Nor is listening before the reader types their first character, and a second
@@ -64,6 +64,7 @@ type AnnotationRow = {
   chapter_anchor_id: string | null;
   book_scope: string | null;
   color: string;
+  starred: boolean;
   model_preference: string;
   template: string | null;
   created_at: string;
@@ -248,6 +249,11 @@ function toSummary(
     latestNote: counts?.latestNote ?? null,
     noteCount: counts?.noteCount ?? 0,
     color: row.color,
+    // Coerced rather than passed through, like aiParticipant above: a row read
+    // through a stale PostgREST schema cache comes back without the column at
+    // all, and `undefined` where a boolean is declared would make every mark
+    // look starred-ish to `!==` comparisons downstream.
+    starred: row.starred === true,
     modelPreference: (row.model_preference === "deep"
       ? "deep"
       : "fast") as ReaderChatModelPreference,
@@ -942,6 +948,36 @@ export async function setAnnotationTemplate(
       context_through_page: null,
     })
     .eq("id", chatId)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Keep a passage, or stop keeping it.
+ *
+ * Unlike the three settings above, this one is NOT frozen by the first question.
+ * It says nothing about how the conversation was scoped or answered, only that
+ * the reader wants to find this again — and that judgement is likelier to arrive
+ * AFTER the conversation than before it. Hence no annotationIsUnasked guard.
+ *
+ * The .eq("user_id", userId) is doing real work here rather than merely obeying
+ * the file's rule. A shared mark is two rows on one thread, and this writes to
+ * the caller's. Without the filter — on the service-role client member mode
+ * hands back, which does not enforce row-level security — an id alone would let
+ * one reader set the OTHER participant's star, which is the single thing this
+ * feature promises never to do.
+ */
+export async function setAnnotationStarred(
+  annotationId: string,
+  starred: boolean,
+  memberEmail?: string | null
+): Promise<void> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+
+  const { error } = await client
+    .from("reading_annotations")
+    .update({ starred })
+    .eq("id", annotationId)
     .eq("user_id", userId);
   if (error) throw new Error(error.message);
 }

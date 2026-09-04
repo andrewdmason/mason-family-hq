@@ -4,6 +4,7 @@ import {
   Highlighter,
   MessageSquare,
   MessageSquarePlus,
+  Star,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -15,6 +16,7 @@ import {
   type AnnotationSummary,
 } from "@/lib/reading/annotation-types";
 import { chapterIndexAt, type ChapterBound } from "@/lib/reading/reading-progress";
+import { useFinePointer } from "./use-selection-range";
 
 /** A run of marks that fall in the same chapter. */
 type MarkGroup = {
@@ -51,6 +53,9 @@ export function AnnotationList({
   onOpen,
   onClose,
   onAsk,
+  starredOnly,
+  onStarredOnlyChange,
+  onToggleStar,
   dockToggle,
 }: {
   annotations: AnnotationSummary[];
@@ -76,17 +81,41 @@ export function AnnotationList({
    * think of something new to ask.
    */
   onAsk: () => void;
+  /** Collapse the list to starred marks only. Remembered per book by the caller. */
+  starredOnly: boolean;
+  onStarredOnlyChange: (on: boolean) => void;
+  onToggleStar: (id: string, next: boolean) => void;
   /** The float/dock control, when the panel is presented in a way that can dock. */
   dockToggle?: React.ReactNode;
 }) {
+  // Where the row's star can hide until you reach for it, and where it can't: a
+  // touch screen has no hover state to reveal anything with, and a control that
+  // never appears is a control that does not exist.
+  const finePointer = useFinePointer();
   // Reading order, not creation order: this is a companion to the text, so it
   // should run the way the text does. created_at breaks ties for two marks on
   // the same passage.
-  const ordered = [...annotations].sort(
+  const all = [...annotations].sort(
     (a, b) =>
       a.anchorCharOffset - b.anchorCharOffset ||
       a.createdAt.localeCompare(b.createdAt)
   );
+  const starredCount = all.filter((a) => a.starred).length;
+  // Filtered before grouping, which is what makes an empty chapter's heading
+  // disappear rather than sit there with nothing under it: the loop below builds
+  // a group only when it meets an item that belongs in one.
+  //
+  // Reading order still, in both modes. Hoisting starred marks to the top was
+  // the obvious alternative, and it breaks the one property that makes this list
+  // readable — it runs the way the book runs, so it never disagrees with the
+  // page you are on.
+  //
+  // Ignored in a book with nothing marked at all: a filter is a question about
+  // which of your marks to show, and there is no version of that question worth
+  // asking of none. It stays REMEMBERED though — mark something and the filter
+  // you left on is still on.
+  const filtering = starredOnly && all.length > 0;
+  const ordered = filtering ? all.filter((a) => a.starred) : all;
 
   const groups: MarkGroup[] = [];
   for (const a of ordered) {
@@ -124,9 +153,13 @@ export function AnnotationList({
     <div className="flex h-full flex-col">
       <header className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
         <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
-          {ordered.length === 0
-            ? "Nothing marked yet"
-            : `${ordered.length} ${ordered.length === 1 ? "mark" : "marks"}`}
+          {filtering
+            ? // Phrased as an adjective rather than "3 starred marks", so it
+              // reads correctly at 0 and 1 without a plural branch.
+              `${starredCount} starred`
+            : all.length === 0
+              ? "Nothing marked yet"
+              : `${all.length} ${all.length === 1 ? "mark" : "marks"}`}
         </p>
         {/* Ahead of the dock and close controls, and drawn the same way, so the
             header reads as one set. Those two are about the PANEL; this one is
@@ -141,6 +174,27 @@ export function AnnotationList({
         >
           <MessageSquarePlus className="h-4 w-4" />
         </button>
+        {/* Also about the book rather than the panel, so it sits with the ask
+            button and ahead of the two panel controls. What it hides, it hides
+            HERE and nowhere else: every highlight stays on the page and every
+            margin icon stays where it was. */}
+        {all.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onStarredOnlyChange(!starredOnly)}
+            aria-pressed={starredOnly}
+            aria-label={starredOnly ? "Show all marks" : "Show starred marks only"}
+            title={starredOnly ? "Showing starred only" : "Starred only"}
+            className={cn(
+              "rounded p-1 transition-colors",
+              starredOnly
+                ? "bg-muted text-star"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            )}
+          >
+            <Star className={cn("h-4 w-4", starredOnly && "fill-current")} />
+          </button>
+        )}
         {dockToggle}
         <button
           type="button"
@@ -153,9 +207,13 @@ export function AnnotationList({
       </header>
 
       {ordered.length === 0 ? (
+        // Two empty states saying different things. "Nothing here" under a
+        // filter is a question about the filter, not about the book, and a
+        // blank panel answers neither one.
         <p className="px-4 py-6 text-xs leading-relaxed text-muted-foreground">
-          Select a passage to highlight it, write a note on it, or ask about it.
-          Whatever you mark shows up here, in the order you&apos;ll read it.
+          {filtering
+            ? "Nothing starred in this book yet. Star a mark to keep it — starred passages get an icon in the margin, and they stay with you in whatever you ask about the book."
+            : "Select a passage to highlight it, write a note on it, or ask about it. Whatever you mark shows up here, in the order you'll read it."}
         </p>
       ) : (
         <ul className="min-h-0 flex-1 overflow-y-auto">
@@ -184,14 +242,24 @@ export function AnnotationList({
                     : null;
                   const Icon = kind === "thread" ? MessageSquare : Highlighter;
                   return (
-                    <li key={a.id}>
+                    // Two controls now, not one: opening the mark and starring
+                    // it. A button cannot nest inside a button, so the li takes
+                    // the border, the layout and the background, and the star
+                    // sits beside the opener rather than within it.
+                    <li
+                      key={a.id}
+                      className={cn(
+                        // The background is here rather than on the opener so
+                        // that moving the pointer onto the star doesn't make the
+                        // row flicker back to unhovered.
+                        "group/mark relative flex border-b border-border/60 transition-colors hover:bg-muted/60",
+                        a.id === openAnnotationId && "bg-muted"
+                      )}
+                    >
                       <button
                         type="button"
                         onClick={() => onOpen(a.id)}
-                        className={cn(
-                          "flex w-full gap-2.5 border-b border-border/60 px-4 py-3 text-left transition-colors hover:bg-muted/60",
-                          a.id === openAnnotationId && "bg-muted"
-                        )}
+                        className="flex min-w-0 flex-1 gap-2.5 py-3 pl-4 pr-9 text-left"
                       >
                         {who ? (
                           <MemberAvatar
@@ -289,6 +357,31 @@ export function AnnotationList({
                             </p>
                           )}
                         </div>
+                      </button>
+                      {/* Overlaid on the row's right padding rather than placed
+                          in the flex run: a star in the flow would reserve a
+                          column of empty space on every unstarred row, which is
+                          most of them. */}
+                      <button
+                        type="button"
+                        onClick={() => onToggleStar(a.id, !a.starred)}
+                        aria-pressed={a.starred}
+                        aria-label={a.starred ? "Unstar this mark" : "Star this mark"}
+                        title={a.starred ? "Starred" : "Star this mark"}
+                        className={cn(
+                          "absolute right-2 top-2.5 rounded p-1 transition-colors",
+                          a.starred
+                            ? "text-star"
+                            : finePointer
+                              ? // Faint until you reach for it. focus-visible is
+                                // not decoration here: without it the control is
+                                // unreachable by keyboard, because it otherwise
+                                // never appears at all.
+                                "text-muted-foreground opacity-0 focus-visible:opacity-100 group-hover/mark:opacity-60 hover:!opacity-100"
+                              : "text-muted-foreground opacity-40"
+                        )}
+                      >
+                        <Star className={cn("h-3.5 w-3.5", a.starred && "fill-current")} />
                       </button>
                     </li>
                   );

@@ -40,6 +40,7 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-star: var(--star);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -97,6 +98,11 @@
   --sidebar-accent-foreground: oklch(0.25 0.02 50);
   --sidebar-border: oklch(0.90 0.01 75);
   --sidebar-ring: oklch(0.45 0.08 35);
+  /* A starred mark, in the panel and in the book's margin. A shade deeper than
+     the highlight wash itself (oklch(0.86 0.13 92) — see
+     use-annotation-highlights.ts) so a gold icon sitting ON a yellow passage
+     still reads as an icon rather than dissolving into it. */
+  --star: oklch(0.72 0.15 78);
 }
 
 /**
@@ -145,6 +151,10 @@
   --sidebar-accent-foreground: #000000;
   --sidebar-border: #000000;
   --sidebar-ring: #000000;
+  /* Gold dithers to a mid-grey stipple here, so the star carries no colour at
+     all on this screen. It reads by shape and weight instead — a filled glyph
+     and a heavier ring; see gutter-markers.tsx. */
+  --star: #000000;
 }
 
 /**

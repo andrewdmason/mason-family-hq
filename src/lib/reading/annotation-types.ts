@@ -88,6 +88,29 @@ export function annotationOrigin(a: { sharedFromUserId: string | null }): Annota
   return a.sharedFromUserId ? "theirs" : "mine";
 }
 
+/**
+ * Whether this mark earns an icon in the right margin.
+ *
+ * A highlight of your own advertises nothing the page isn't already showing, and
+ * an icon beside every one turns a clean margin into a picket fence. Two things
+ * override that. One somebody LEFT you is a person pointing at a sentence. And
+ * one you STARRED is you pointing at it for later — a starred highlight with no
+ * marker would be invisible everywhere except the panel, which is the whole
+ * thing starring is supposed to fix.
+ *
+ * Here rather than inline in gutter-placement.ts so the rule can be checked
+ * without a DOM, which is what verify-starred-marks.mts does with it.
+ */
+export function marksGutter(a: {
+  starred: boolean;
+  noteCount: number;
+  messageCount: number;
+  sharedFromUserId: string | null;
+}): boolean {
+  if (a.starred) return true;
+  return !(annotationKind(a) === "highlight" && annotationOrigin(a) === "mine");
+}
+
 export type AnnotationSummary = {
   id: string;
   anchor: AnnotationAnchor;
@@ -130,6 +153,20 @@ export type AnnotationSummary = {
   /** How many notes are on this annotation; 0 makes it a highlight or a chat. */
   noteCount: number;
   color: string;
+  /**
+   * The reader kept this one.
+   *
+   * Per-PLACEMENT and so per-person: a shared thread has a row per participant
+   * (migration 00180), which means starring a passage somebody showed you is
+   * invisible to them. That is the only version of this worth having — a star is
+   * a private judgement about your own reading, not a vote.
+   *
+   * Three things read it. It is what puts a plain highlight of your own in the
+   * margin, which nothing else does (see marksGutter below); it is what the
+   * marks panel filters on; and it is what exempts a mark from the prompt's
+   * character budget when the reader has marked more than fits.
+   */
+  starred: boolean;
   /** Chosen with the first question and frozen by it, like `spoilerFree`. */
   modelPreference: ReaderChatModelPreference;
   /**

@@ -40,11 +40,70 @@ const MAX_BOOK_CHARS = 2_400_000;
  * something extraordinary. What's dropped is dropped from the END — the marks
  * are in reading order, and an afterword that has seen the first two thirds of
  * your attention is better than one that has seen a random sample of it.
+ *
+ * Starred marks are exempt; see packMarks.
  */
 const MAX_MARK_CHARS = 400_000;
 
 /** How many finished books stand in for the reader's taste. Newest first. */
 const HISTORY_LIMIT = 30;
+
+/** A mark and what it costs, so the budget can be spent without re-deriving it. */
+export type SizedMark = { mark: ReaderMark; size: number };
+
+/**
+ * Choose which marks fit, when the reader has marked more than fits.
+ *
+ * Two passes rather than one, and the second pass is the whole reason this is a
+ * function rather than a loop. Starred marks are exempt from the budget, so
+ * their room has to be RESERVED before anything else spends any: a single greedy
+ * walk in reading order would still let forty unstarred marks in chapter one
+ * crowd out a starred one in chapter thirty, which is precisely the case the
+ * exemption exists for. A reader who has marked more than fits is a reader whose
+ * stars are the only reliable signal about which passages they'd want kept.
+ *
+ * What is left over is filled in reading order and stops at the first mark that
+ * doesn't fit — the same "dropped from the end" rule as before, now applied to
+ * the remainder rather than to everything. The result comes back in reading
+ * order, which the kept-set does not preserve and the prompt depends on:
+ * <their_marks> says "in reading order" in so many words.
+ *
+ * With nothing starred this is byte-for-byte the old behaviour, which is the
+ * property verify-starred-marks.mts pins down.
+ *
+ * Note there is no ceiling on the starred pass. A reader who starred four
+ * hundred long passages could push past the budget — but the budget is already
+ * enormous next to any real book's marks, and a silent invisible cap on
+ * something the feature sells as "always included" is the worse failure.
+ *
+ * Exported so it can be tested without a database round trip.
+ */
+export function packMarks(
+  sized: SizedMark[],
+  budget: number
+): { marks: ReaderMark[]; truncated: boolean } {
+  const keep = new Set<ReaderMark>();
+  let chars = 0;
+  for (const { mark, size } of sized) {
+    if (!mark.starred) continue;
+    keep.add(mark);
+    chars += size;
+  }
+  let truncated = false;
+  for (const { mark, size } of sized) {
+    if (mark.starred) continue;
+    if (chars + size > budget) {
+      truncated = true;
+      break;
+    }
+    chars += size;
+    keep.add(mark);
+  }
+  return {
+    marks: sized.map((s) => s.mark).filter((m) => keep.has(m)),
+    truncated,
+  };
+}
 
 /** How the reader marked one passage, and everything they said about it. */
 export type ReaderMark = {
@@ -66,6 +125,17 @@ export type ReaderMark = {
    * note, or a chat the reader typed themselves.
    */
   template: ReaderChatTemplate | null;
+  /**
+   * The reader kept this one.
+   *
+   * Carried this far only so packMarks can spare it from the budget. Nothing in
+   * chat-prompt.ts renders it, and it deliberately does not become a label on
+   * the mark: a model told which passages the reader "really" cared about will
+   * weight them against the others, or theorise about why one was kept and the
+   * next wasn't, and that is a judgement about someone's reading nobody asked it
+   * to make. The star buys a passage a seat, not an argument.
+   */
+  starred: boolean;
 };
 
 export type FinishedBook = {
@@ -216,7 +286,7 @@ export async function getReaderMarks(
   const budget = options?.maxChars ?? MAX_MARK_CHARS;
   const query = client
     .from("reading_annotations")
-    .select("id, thread_id, anchor_page, quoted_text, chapter_anchor_id, template")
+    .select("id, thread_id, anchor_page, quoted_text, chapter_anchor_id, template, starred")
     .eq("book_id", bookId)
     .eq("user_id", userId)
     // Marks somebody else placed in this book by mentioning the reader are
@@ -240,6 +310,7 @@ export async function getReaderMarks(
     quoted_text: string | null;
     chapter_anchor_id: string | null;
     template: string | null;
+    starred: boolean;
   }[];
   if (annotations.length === 0) {
     return { marks: [], total: 0, passages: 0, truncated: false };
@@ -268,10 +339,7 @@ export async function getReaderMarks(
     byThread.set(m.thread_id, list);
   }
 
-  const marks: ReaderMark[] = [];
-  let chars = 0;
-  let truncated = false;
-  for (const a of annotations) {
+  const sized: SizedMark[] = annotations.map((a) => {
     const msgs = byThread.get(a.thread_id) ?? [];
     const notes = msgs.filter((m) => m.role === "note").map((m) => m.content);
     const exchanges: ReaderMark["exchanges"] = [];
@@ -291,18 +359,18 @@ export async function getReaderMarks(
       exchanges,
       isChapterSummary: a.chapter_anchor_id != null,
       template: isReaderChatTemplate(a.template) ? a.template : null,
+      starred: a.starred === true,
     };
-    const size =
-      (mark.quote?.length ?? 0) +
-      notes.reduce((n, t) => n + t.length, 0) +
-      exchanges.reduce((n, e) => n + e.question.length + (e.answer?.length ?? 0), 0);
-    if (chars + size > budget) {
-      truncated = true;
-      break;
-    }
-    chars += size;
-    marks.push(mark);
-  }
+    return {
+      mark,
+      size:
+        (mark.quote?.length ?? 0) +
+        notes.reduce((n, t) => n + t.length, 0) +
+        exchanges.reduce((n, e) => n + e.question.length + (e.answer?.length ?? 0), 0),
+    };
+  });
+
+  const { marks, truncated } = packMarks(sized, budget);
 
   return {
     marks,
