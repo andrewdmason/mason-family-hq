@@ -1,11 +1,11 @@
 /**
  * Who you can name in a mark, and what naming them does.
  *
- * The composer used to have two Enters: one asked the model, one kept a note.
- * That split existed because there were two audiences and only one box. There
- * are three audiences now — you, the other person, and the model — and a modal
- * key combination does not scale to three. So the text says who it is for:
- * `@jenny` brings her in, `@nor` gets an answer, both together do both.
+ * People only. `@jenny` brings her into the conversation; whether Nor answers is
+ * decided by the kind of thread you started — Ask or Note — not by anything you
+ * type. There was briefly an `@nor` handle that did that job, and it was a bad
+ * fit: a person is named once, but the assistant is addressed every turn, and
+ * paying a handle each time was the tax the thread kind now removes.
  *
  * Deliberately isomorphic. The typeahead in the composer and the server that
  * decides who gets notified must agree on what counts as a mention down to the
@@ -15,23 +15,16 @@
  * client-supplied recipient list is a grant somebody else wrote.
  */
 
-/**
- * The assistant's handle.
- *
- * Reserved: a family member called Nora does not get it. Two things named `@nor`
- * would make every message in the app ambiguous, and losing the handle is a
- * smaller cost to one person than ambiguity is to everyone.
- */
-export const NOR_HANDLE = "nor";
-
-/** The assistant's name, for anywhere it is shown rather than typed. */
-export const NOR_NAME = "Nor";
-
 export type MentionTarget = {
   /** What you type after the @. Lowercase, unique across the family. */
   handle: string;
+  /**
+   * Always "member" for anything produced today. "ai" survives in the type
+   * because messages written while `@nor` existed still carry it in their stored
+   * mentions, and they have to keep rendering.
+   */
   kind: "member" | "ai";
-  /** Null for Nor, who is not a person and has no inbox. */
+  /** Null only on the legacy "ai" kind. */
   email: string | null;
   /** Null until they have signed in at least once. */
   userId: string | null;
@@ -59,22 +52,13 @@ export type RosterMember = {
   hasPhoto: boolean;
 };
 
-/** Everything mentionable, Nor included, with handles already disambiguated. */
+/** Everyone mentionable, with handles already disambiguated. */
 export function mentionTargets(members: RosterMember[]): MentionTarget[] {
-  const nor: MentionTarget = {
-    handle: NOR_HANDLE,
-    kind: "ai",
-    email: null,
-    userId: null,
-    name: NOR_NAME,
-    hasPhoto: false,
-  };
-
   // First name, lowercased, falling back to the email's local part for a member
   // who has no name yet. Two Jennys get `jennyw` and `jennym`; if even that
   // collides the whole local part is the handle, which is ugly and unambiguous
   // — the right way round for something that decides who can read your writing.
-  const taken = new Set<string>([NOR_HANDLE]);
+  const taken = new Set<string>();
   const targets: MentionTarget[] = [];
 
   for (const m of members) {
@@ -102,7 +86,7 @@ export function mentionTargets(members: RosterMember[]): MentionTarget[] {
     });
   }
 
-  return [nor, ...targets];
+  return targets;
 }
 
 function normalizeHandle(raw: string): string {
@@ -151,11 +135,11 @@ export function parseMentions(
 /**
  * Whether this message opens by addressing a person.
  *
- * This is the escape hatch that keeps Nor out of a conversation he is already a
- * participant in. Once he has been mentioned he answers everything, which is
- * right until you and Jenny start talking to each other — so leading with her
- * name is how you say "this one is not for you", in the same grammar as the rest
- * of the feature rather than in a setting.
+ * This is how you talk past Nor in a thread he is in. An Ask thread answers
+ * everything, which is right until you and Jenny start talking to each other —
+ * so leading with her name says "this one is not for you", in the same grammar
+ * as the rest of the feature rather than in a mode. Naming somebody
+ * mid-sentence is talking ABOUT them, not to them, and does not count.
  */
 export function startsWithHumanMention(
   text: string,
@@ -163,38 +147,6 @@ export function startsWithHumanMention(
 ): boolean {
   const first = parseMentions(text, targets)[0];
   return first != null && first.start === 0 && first.target.kind === "member";
-}
-
-/**
- * Whether Nor answers this message.
- *
- * The composer uses this to word its placeholder, and the client alone decides
- * which of the two send paths a message takes. Nothing about that needs
- * defending server-side: the worst a wrong guess produces is a reply nobody
- * wanted, which is a different class of problem from who can read a thread.
- */
-export function norWillReply(input: {
-  text: string;
-  targets: MentionTarget[];
-  /** Whether Nor has been mentioned in this thread before. */
-  aiParticipant: boolean;
-}): boolean {
-  const mentions = parseMentions(input.text, input.targets);
-
-  // Naming him is unambiguous and beats everything else here — you cannot type
-  // @nor and mean "not you".
-  if (mentions.some((m) => m.target.kind === "ai")) return true;
-
-  // Leading with someone's name addresses them, and only them.
-  if (startsWithHumanMention(input.text, input.targets)) return false;
-
-  // Mentioning a person mid-sentence is talking ABOUT them, not to them, so it
-  // does not on its own send Nor away.
-  if (input.aiParticipant) return true;
-
-  // A thread nobody else can see, that has never involved him, is a note to
-  // self. Somewhere for a thought to go that isn't a question.
-  return false;
 }
 
 /** The message as stored, plus who was named in it. */

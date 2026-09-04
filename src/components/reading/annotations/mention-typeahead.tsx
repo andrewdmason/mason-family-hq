@@ -1,6 +1,5 @@
 "use client";
 
-import { Sparkles } from "lucide-react";
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import { memberPhotoUrl } from "@/lib/media/member-photo-url";
 import type { MentionTarget } from "@/lib/reading/mentions";
@@ -56,24 +55,13 @@ export function MentionTypeahead({
             i === activeIndex ? "bg-accent text-accent-foreground" : "",
           ].join(" ")}
         >
-          {t.kind === "ai" ? (
-            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <Sparkles className="h-2.5 w-2.5" />
-            </span>
-          ) : (
-            <MemberAvatar
-              name={t.name}
-              url={t.hasPhoto && t.email ? memberPhotoUrl(t.email) : null}
-              size="xs"
-            />
-          )}
+          <MemberAvatar
+            name={t.name}
+            url={t.hasPhoto && t.email ? memberPhotoUrl(t.email) : null}
+            size="xs"
+          />
           <span className="font-medium">{t.name}</span>
           <span className="text-xs text-muted-foreground">@{t.handle}</span>
-          {t.kind === "ai" ? (
-            <span className="ml-auto text-[11px] text-muted-foreground">
-              answers here
-            </span>
-          ) : null}
         </div>
       ))}
     </div>

@@ -22,7 +22,7 @@ import type {
 } from "@/lib/reading/annotation-types";
 import { READER_CHAT_TEMPLATE_OPENERS } from "@/lib/reading/annotation-types";
 import {
-  norWillReply,
+  startsWithHumanMention,
   type MentionTarget,
 } from "@/lib/reading/mentions";
 import { getAnnotation } from "@/app/(reading)/reader/annotation-actions";
@@ -43,15 +43,15 @@ import { PromptInspector } from "./prompt-inspector";
 import { useAutosizeTextarea } from "./use-autosize-textarea";
 
 /**
- * How the composer opens, when the reader arrived by choosing something.
+ * What Enter does here is a property of the THREAD, not of the line.
  *
- * There used to be two of these — chat or note — and a modal Enter to go with
- * them. That split is gone: writing and asking are the same act now, and who a
- * message is for is said in the text. What survives is the smaller question of
- * what the box should be primed with, which the selection toolbar answers by
- * offering Comment and Share as separate doors into the same room.
+ * An Ask thread has Nor in it and Enter asks him; a Note thread doesn't and
+ * Enter keeps the line. The toolbar decided which when the mark was made, and
+ * nothing typed changes it — briefly there was an `@nor` handle that did, and
+ * addressing the assistant by name every turn was worse than choosing once.
+ * Two escape hatches, both inside an Ask thread: ⌘↵ keeps a line without a
+ * reply, and opening with a person's name addresses them rather than him.
  */
-export type ComposeIntent = "write" | "mention";
 
 let localSeq = 0;
 const localId = () => `local-${++localSeq}`;
@@ -73,7 +73,6 @@ export function AnnotationThread({
   chapterTitle = null,
   memberEmail,
   isArticle,
-  initialIntent = "write",
   mentionTargets,
   onAddNote,
   hasRealPages,
@@ -104,15 +103,9 @@ export function AnnotationThread({
   /** Articles have no pages, so nothing spoiler-scoped applies to them. */
   isArticle: boolean;
   /**
-   * How the box opens. "mention" when the reader chose Share in the selection
-   * toolbar — that choice is the whole reason the toolbar asks, so arriving at a
-   * blank composer would throw it away and make them say it twice.
-   */
-  initialIntent?: ComposeIntent;
-  /**
-   * Everyone who can be named here, Nor included. Passed in rather than fetched:
-   * the same list has to reach the server that decides what a name grants, and
-   * two lists is two answers to who @jenny is.
+   * Everyone who can be named here. Passed in rather than fetched: the same
+   * list has to reach the server that decides what a name grants, and two
+   * lists is two answers to who @jenny is.
    */
   mentionTargets: MentionTarget[];
   /**
@@ -214,21 +207,17 @@ export function AnnotationThread({
     : "Take this out of your margin? The conversation stays with the others in it.";
 
   /**
-   * Whether this message goes to Nor.
+   * Whether Enter sends this line to Nor.
    *
-   * Recomputed on every keystroke, and now shown only in the placeholder — the
-   * chip that used to announce it was more furniture than the rule was worth.
-   * Naming him puts him in the room and he stays; leading with a person's name
-   * addresses them instead.
+   * The thread decides, and the one thing typed that overrides it is opening
+   * with a person's name — that addresses them, and he sits the turn out.
+   * Recomputed per keystroke only for the placeholder's sake.
    */
-  const willAskNor = norWillReply({
-    text: draft,
-    targets: mentionTargets,
-    aiParticipant: chat.aiParticipant,
-  });
+  const willAskNor =
+    chat.aiParticipant && !startsWithHumanMention(draft, mentionTargets);
   // Asking needs a model, so it is the one thing here that genuinely cannot work
   // without a connection. Writing to the other person does not, so offline never
-  // disables the composer — it just holds Nor back.
+  // disables the composer — it just holds Nor back and keeps the line instead.
   const norOn = willAskNor && online;
 
   const mentionCandidates = mentionQuery
@@ -340,13 +329,7 @@ export function AnnotationThread({
   useEffect(() => {
     if (!startedEmpty || isSummary) return;
     inputRef.current?.focus();
-    // Arriving via Share means the reader has already said who this is for, so
-    // the box opens with the menu up rather than making them say it twice.
-    if (initialIntent === "mention") {
-      setDraft("@");
-      setMentionQuery({ query: "", start: 0 });
-    }
-  }, [initialIntent, isSummary, startedEmpty]);
+  }, [isSummary, startedEmpty]);
 
   // No effect syncing `messages` back to props: the panel remounts this
   // component with key={chat.id}, so switching chats resets everything. Syncing
@@ -538,19 +521,24 @@ export function AnnotationThread({
    * a thought without ever being told.
    */
   /**
-   * The one thing the composer does.
+   * What Enter does.
    *
-   * Two paths still exist underneath, and deliberately so: asking commits the
-   * question server-side before it streams, so a reply that dies leaves a thread
-   * you can carry on from, while writing has to be able to hand the words back
+   * Two paths underneath, and deliberately so: asking commits the question
+   * server-side before it streams, so a reply that dies leaves a thread you can
+   * carry on from, while keeping a line has to be able to hand the words back
    * if the write fails. Those are genuinely different failure stories and
-   * flattening them would lose the better half of each. What went away is the
-   * reader having to choose between them.
+   * flattening them would lose the better half of each.
+   *
+   * `asNote` is ⌘↵: keep the line even in a thread Nor is in. A thought you
+   * want on the record next to the passage without an answer under it.
    */
-  const submit = useCallback(async () => {
-    if (willAskNor && online) await send();
-    else await keepMessage();
-  }, [keepMessage, online, send, willAskNor]);
+  const submit = useCallback(
+    async (asNote = false) => {
+      if (willAskNor && online && !asNote) await send();
+      else await keepMessage();
+    },
+    [keepMessage, online, send, willAskNor]
+  );
 
   /**
    * Write the recap — on opening a summary that doesn't have one yet, and again
@@ -725,6 +713,7 @@ export function AnnotationThread({
    */
   const offerTemplates =
     !!onPickTemplate &&
+    chat.aiParticipant &&
     !isArticle &&
     !isSummary &&
     !chat.template &&
@@ -802,8 +791,10 @@ export function AnnotationThread({
   const modelLabel = chat.modelPreference === "deep" ? "Deep" : "Fast";
   // What the chat can see, in the reader's terms. Doubles as live feedback while
   // the boundary is still a control: ticking the box rewrites this line.
-  const scope = isSummary
-    ? "A recap of this chapter alone"
+  const scope = !chat.aiParticipant
+    ? "Notes — Nor isn't in this one"
+    : isSummary
+      ? "A recap of this chapter alone"
     : isArticle
       ? "Claude has read the whole article"
       : chat.spoilerFree
@@ -860,7 +851,9 @@ export function AnnotationThread({
               the controls down by the composer are currently set to. */}
           <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
             <span className="truncate">
-              {settled ? `${modelLabel} · ${scope}` : scope}
+              {settled && chat.aiParticipant
+                ? `${modelLabel} · ${scope}`
+                : scope}
             </span>
             {/* The way in to what the model was actually told. Hung off the line
                 that already describes this chat's settings, because that is the
@@ -870,8 +863,9 @@ export function AnnotationThread({
 
                 Hidden until the row exists: the id is a client-side stand-in
                 until the insert lands, and there is nothing on the server to
-                describe under that id. */}
-            {!chat.id.startsWith("pending:") && (
+                describe under that id. And never on a Note thread, where no
+                prompt is ever built. */}
+            {chat.aiParticipant && !chat.id.startsWith("pending:") && (
               <>
                 <span aria-hidden>·</span>
                 <button
@@ -1081,10 +1075,10 @@ export function AnnotationThread({
             to be what they are, so offering to turn either off would be
             offering to break the thing they just asked for.
 
-            Shown while the box is set to write a note too, even though a note
-            goes nowhere near a model: they describe the question you'll
-            eventually ask, not the line you're typing now. */}
-        {!settled && !isSummary && !chat.template && (
+            Never on a Note thread. Nothing written there goes near a model,
+            and the two controls would be describing a question this thread
+            cannot ask. */}
+        {chat.aiParticipant && !settled && !isSummary && !chat.template && (
           <div className="mb-2 flex items-center gap-3">
             <ModelPicker value={chat.modelPreference} onChange={onModelChange} />
             {/* Stated as what it DOES rather than as what it protects you from.
@@ -1162,18 +1156,23 @@ export function AnnotationThread({
               }
               if (e.key !== "Enter" || e.shiftKey) return;
               e.preventDefault();
-              void submit();
+              // ⌘↵ keeps the line without a reply. A shortcut rather than a
+              // control because it is rare: the thread already knows what
+              // Enter does, and a permanent second button would be furniture.
+              void submit(e.metaKey || e.ctrlKey);
             }}
             rows={2}
             // Never disabled. Losing the connection stops Nor answering, which
-            // the chip says; it does not stop you writing to the person you are
-            // reading with, and it never stopped you writing to yourself.
+            // the placeholder says; it does not stop you writing to the person
+            // you are reading with, and it never stopped you writing to yourself.
             placeholder={
               norOn
                 ? isSummary
                   ? "Ask Nor about this chapter…"
                   : "Ask Nor about this part…"
-                : "Write, or @nor to ask about this…"
+                : chat.aiParticipant && !online
+                  ? "Offline — write a note…"
+                  : "Write a note…"
             }
             className="min-h-[3.375rem] flex-1 resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring disabled:opacity-60"
           />
@@ -1182,7 +1181,9 @@ export function AnnotationThread({
             onClick={() => void submit()}
             disabled={sending || draft.trim().length === 0}
             aria-label="Send"
-            title="Send (↵)"
+            title={
+              chat.aiParticipant ? "Send (↵) · Keep as a note (⌘↵)" : "Send (↵)"
+            }
             className="rounded-md border border-border p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
           >
             {sending ? (

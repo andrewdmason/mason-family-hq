@@ -47,7 +47,7 @@ import { CHAPTER_TAP_CLASS } from "../reader-prose";
 import { AnnotationPanel } from "./annotation-panel";
 import { AnnotationList } from "./annotation-list";
 import { ReaderMarginControls } from "./annotations-button";
-import { AnnotationThread, type ComposeIntent } from "./annotation-thread";
+import { AnnotationThread } from "./annotation-thread";
 import type { MentionTarget } from "@/lib/reading/mentions";
 import { BookDocumentThread } from "./book-document-thread";
 import { ChapterMenu } from "./chapter-menu";
@@ -307,7 +307,6 @@ export function ReaderAnnotationLayer({
    * anything from the margin or the list starts on Chat, because by then the
    * gesture that carried an intent is long over.
    */
-  const [threadIntent, setThreadIntent] = useState<ComposeIntent>("write");
   /** The row the panel is showing, while it exists only on this device. */
   const pendingRef = useRef<PendingCreate | null>(null);
   /**
@@ -687,7 +686,8 @@ export function ReaderAnnotationLayer({
     (
       resolved: ResolvedAnchor,
       clientId: string,
-      chapterAnchorId: string | null
+      chapterAnchorId: string | null,
+      askNor: boolean
     ): AnnotationSummary => {
       const isSummary = chapterAnchorId != null;
       const anchorPage = pageForCharOffset(resolved.anchorCharOffset);
@@ -701,9 +701,10 @@ export function ReaderAnnotationLayer({
         contextThroughPage: spoilerFree ? anchorPage : null,
         quotedText: resolved.quotedText,
         chapterAnchorId,
-        // A brand-new mark has never named him, is nobody else's, is exactly
-        // where the reader just put it, and has an audience of one.
-        aiParticipant: false,
+        // Whether Nor is in this thread is the toolbar's choice, and a recap
+        // is always his. Nobody else's, exactly where the reader just put it,
+        // and with an audience of one.
+        aiParticipant: askNor || isSummary,
         // Not known until the row exists; nothing reads it on a pending mark.
         threadId: "",
         sharedFromUserId: null,
@@ -742,14 +743,13 @@ export function ReaderAnnotationLayer({
       asDraft: boolean,
       /** Set when this is a chapter's summary — see createAnnotation. */
       chapterAnchorId: string | null = null,
-      /** How the composer opens — see AnnotationThread's initialIntent. */
-      composeIntent: ComposeIntent = "write"
+      /** Whether Nor answers in this thread — the toolbar's Ask/Note choice. */
+      askNor = true
     ) => {
-      setThreadIntent(composeIntent);
       const stopOpen = startTimer("annotate: click → panel");
       const clientId = newPendingId();
       const optimistic: AnnotationDetail = {
-        ...optimisticRow(resolved, clientId, chapterAnchorId),
+        ...optimisticRow(resolved, clientId, chapterAnchorId, askNor),
         messages: [],
       };
 
@@ -759,6 +759,7 @@ export function ReaderAnnotationLayer({
         anchorCharOffset: resolved.anchorCharOffset,
         quotedText: resolved.quotedText,
         chapterAnchorId,
+        askNor,
         memberEmail,
       }).then(
         (detail) => ({ ok: true, detail }) as const,
@@ -929,23 +930,19 @@ export function ReaderAnnotationLayer({
       // anchorFromRange reports its own reason — see fail() there.
       if (!resolved) return;
 
-      // Notes and chats need somewhere to write, so they open the panel — and
+      // Ask and Note both need somewhere to write, so they open the panel — and
       // they open it now, against a row that doesn't exist yet, rather than
       // after the round trip that creates it. See PendingCreate.
       //
-      // "Note" deliberately does NOT pre-write an empty note. The row starts as
-      // a highlight and becomes a note the moment you type something, so tapping
-      // Note and changing your mind leaves a highlight rather than a blank entry
-      // in the sidebar. Only "Ask" creates a discardable draft.
+      // Neither pre-writes anything. The row starts as a highlight and becomes
+      // a conversation the moment you type, so changing your mind leaves a
+      // highlight rather than a blank entry in the index.
       //
-      // The intent also decides which way the one composer opens — the toolbar
-      // already asked, so making the reader answer again inside the panel would
-      // be asking twice.
+      // The intent decides whether Nor is in the thread, and the thread keeps
+      // that — the toolbar already asked, so making the reader say it again
+      // inside the panel, every turn, would be asking twice.
       if (intent !== "highlight") {
-        // Neither Comment nor Share pre-writes anything. The row starts as a
-        // highlight and becomes a conversation the moment you type, so changing
-        // your mind leaves a highlight rather than a blank entry in the index.
-        openDraft(resolved, false, null, intent === "share" ? "mention" : "write");
+        openDraft(resolved, false, null, intent === "ask");
         return;
       }
 
@@ -960,7 +957,8 @@ export function ReaderAnnotationLayer({
       const key = newPendingId();
       setPendingHighlights((p) => [
         ...p,
-        { key, row: optimisticRow(resolved, key, null) },
+        // A highlight is a mark with nobody in it — opened later, it writes.
+        { key, row: optimisticRow(resolved, key, null, false) },
       ]);
       const stopCreate = startTimer("annotate: server create");
       try {
@@ -969,6 +967,7 @@ export function ReaderAnnotationLayer({
           anchor: resolved.anchor,
           anchorCharOffset: resolved.anchorCharOffset,
           quotedText: resolved.quotedText,
+          askNor: false,
           memberEmail,
         });
         stopCreate(intent);
@@ -1022,7 +1021,6 @@ export function ReaderAnnotationLayer({
       if (isPendingId(chatId)) return null;
       const chat = await getAnnotation(chatId, memberEmail);
       if (!chat) return null;
-      setThreadIntent("write");
       openPanelWith(chat);
       return chat;
     },
@@ -1077,7 +1075,6 @@ export function ReaderAnnotationLayer({
       setBusy(true);
       try {
         const document = await openBookDocument({ bookId, scope, memberEmail });
-        setThreadIntent("write");
         openPanelWith(document);
       } catch (err) {
         // `void openDocument(...)` would otherwise make this an unhandled
@@ -1234,7 +1231,7 @@ export function ReaderAnnotationLayer({
       if (onPassage && live) {
         const range = live.cloneRange();
         selection?.removeAllRanges();
-        void annotateSelection(range, "comment");
+        void annotateSelection(range, "ask");
         return;
       }
       askHere();
@@ -1613,7 +1610,6 @@ export function ReaderAnnotationLayer({
             onSpoilerFreeChange={(v) => void changeSpoilerFree(v)}
             onModelChange={(v) => void changeModel(v)}
             onPickTemplate={pickTemplate}
-            initialIntent={threadIntent}
             mentionTargets={mentionTargets}
             onAddNote={addNote}
             dockToggle={dockToggle}

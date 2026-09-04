@@ -1,24 +1,23 @@
 "use client";
 
-import { AtSign, Highlighter, MessageSquareQuote } from "lucide-react";
+import { Highlighter, MessageSquareQuote, StickyNote } from "lucide-react";
 import { PAGE_PAD_BOTTOM } from "@/lib/reading/paged-geometry";
 import { cn } from "@/lib/utils";
 import { useFinePointer, useSelectionRange } from "./use-selection-range";
 
 /**
- * Three doors into one thing.
+ * Three things a passage can become.
  *
- * "Comment" replaces the old Note-and-Ask pair, which existed only because the
- * composer had two modes; there is one composer now and who a message is for is
- * said in the text. "Share" is the same door with somebody's name already in the
- * box — a highlight has no text of its own, so pointing at a passage for
- * somebody still has to be an act of saying something, and this is where that
- * starts.
+ * "Ask" starts a conversation with Nor; "Note" starts one without him. The
+ * choice is made here, once, and the thread remembers it — so Enter in the
+ * panel never needs telling who a line is for. There is no "Share": naming
+ * somebody is done by typing their @handle inside either kind of thread, which
+ * is the same gesture whether you decided to share before or after writing.
  *
- * Deliberately still three. The touch bar lays these out flex-1 and reserves its
+ * Deliberately three. The touch bar lays these out flex-1 and reserves its
  * height in PAGE_PAD_BOTTOM; a fourth action would change both.
  */
-export type SelectionIntent = "highlight" | "comment" | "share";
+export type SelectionIntent = "highlight" | "ask" | "note";
 
 const ACTIONS: {
   intent: SelectionIntent;
@@ -26,8 +25,8 @@ const ACTIONS: {
   Icon: typeof Highlighter;
 }[] = [
   { intent: "highlight", label: "Highlight", Icon: Highlighter },
-  { intent: "comment", label: "Comment", Icon: MessageSquareQuote },
-  { intent: "share", label: "Share", Icon: AtSign },
+  { intent: "ask", label: "Ask", Icon: MessageSquareQuote },
+  { intent: "note", label: "Note", Icon: StickyNote },
 ];
 
 /**

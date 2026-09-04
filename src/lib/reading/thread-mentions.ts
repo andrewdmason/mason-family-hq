@@ -45,16 +45,9 @@ export async function recordMentions(
   const targets = mentionTargets(roster);
   const parsed = parseMentions(input.text, targets);
 
-  // Naming him is what puts him in the room, and he stays in it. Sticky rather
-  // than re-read from the message, because the whole complaint that started this
-  // was having to say his name every single turn.
-  if (parsed.some((p) => p.target.kind === "ai")) {
-    await client
-      .from("reading_annotation_threads")
-      .update({ ai_participant: true })
-      .eq("id", input.threadId);
-  }
-
+  // Nothing here puts Nor in the room. Whether he is in a thread is decided
+  // when it is started (Ask or Note) and recorded by the chat route the first
+  // time he answers — see createAnnotation and the route's thread update.
   const people = parsed
     .map((p) => p.target)
     .filter((t) => t.kind === "member" && t.userId != null);
