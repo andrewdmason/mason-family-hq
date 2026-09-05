@@ -690,6 +690,41 @@ function splitHref(base: string, href: string): { file: string; fragment: string
 }
 
 /**
+ * A parser that reports problems by throwing rather than by logging, so a parse
+ * attempt that we expect to sometimes fail doesn't print an error for a file we
+ * go on to read successfully a moment later.
+ */
+const quietParser = new DOMParser({ onError: () => {} });
+
+/**
+ * Parse one of an EPUB's content documents — a spine chapter, or the EPUB3 nav
+ * document. Returns null only if the file is unreadable both ways.
+ *
+ * These files are XHTML, and the two parse modes each choke on a different half
+ * of what publishers actually ship. HTML mode treats <meta>, <link> and <br> as
+ * void elements, so a file that closes them explicitly (`<meta ...></meta>` —
+ * valid XHTML, and what several common EPUB toolchains emit) dies on the stray
+ * end tag; because that error is fatal, one such file used to take the entire
+ * book down with it. Strict mode reads those perfectly but rejects the unclosed,
+ * sloppy markup other books ship. Neither mode wins outright, so try HTML and
+ * fall back to strict.
+ *
+ * The strict pass is XHTML rather than plain XML specifically so that `&nbsp;`
+ * and its kin still resolve. Plain XML knows only the five XML entities and
+ * would leave a literal "&nbsp;" sitting in the prose.
+ */
+function parseContentDoc(xml: string): XmlDocument | null {
+  for (const mimeType of ["text/html", "application/xhtml+xml"] as const) {
+    try {
+      return quietParser.parseFromString(xml, mimeType) as unknown as XmlDocument;
+    } catch {
+      // Wrong mode for this file; try the other one.
+    }
+  }
+  return null;
+}
+
+/**
  * Read an EPUB's table of contents (the EPUB3 nav doc, or the EPUB2 NCX) as an
  * *ordered, fragment-level* list of entries. Unlike a per-file map, this keeps
  * every chapter even when a whole Part shares one spine file (a very common
@@ -724,8 +759,10 @@ async function readEpubNav(
   if (navHref) {
     const navPath = resolvePath(opfDir, navHref);
     const navXml = await readText(navPath);
-    if (navXml) {
-      const navDoc = parser.parseFromString(navXml, "text/html") as unknown as XmlDocument;
+    // An unreadable nav document isn't fatal: entries stays empty and the NCX
+    // fallback below picks up the chapter list.
+    const navDoc = navXml ? parseContentDoc(navXml) : null;
+    if (navDoc) {
       const navDir = dirOf(navPath);
       const navs = navDoc.getElementsByTagName("nav");
       let tocNav: XmlElement | null = null;
@@ -977,7 +1014,14 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
   for (const path of spinePaths) {
     const xml = await readText(path);
     if (!xml) continue;
-    const dom = parser.parseFromString(xml, "text/html");
+    const dom = parseContentDoc(xml);
+    // Skipping a chapter we can't parse would leave a silent hole in a book the
+    // reader is annotating and being quizzed on, so say so instead.
+    if (!dom) {
+      throw new ConversionError(
+        `We couldn't read one of this EPUB's chapters (${path}). Try a different edition or export of this book.`
+      );
+    }
     const body = dom.getElementsByTagName("body")[0];
     if (!body) continue;
 
