@@ -9,7 +9,15 @@ import {
   useSyncExternalStore,
 } from "react";
 import Link from "next/link";
-import { ArrowLeft, Headphones, Languages, List, Loader2, Settings2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Bookmark,
+  Headphones,
+  Languages,
+  List,
+  Loader2,
+  Settings2,
+} from "lucide-react";
 import { getReadingPosition, saveReadingPosition } from "@/app/(reading)/reader/actions";
 import {
   useAudiobook,
@@ -71,7 +79,11 @@ import { ReaderElsewhereBar } from "./reader-elsewhere-bar";
 import { ReaderReturnPill } from "./reader-return-pill";
 import { ReaderFooter } from "./reader-footer";
 import { ReaderLayoutDialog } from "./reader-layout-dialog";
-import { ContentsDialog } from "./contents-dialog";
+import { ContentsDialog, type ContentsBookmark } from "./contents-dialog";
+import { BookmarkDialog } from "./bookmark-dialog";
+import { BookmarkRemovedPill } from "./bookmark-removed-pill";
+import { useBookmarks } from "./use-bookmarks";
+import { bookmarkLabel, bookmarkPlace } from "@/lib/reading/bookmarks";
 import { ReaderPerfOverlay } from "./reader-perf-overlay";
 import {
   ARTICLE_PROSE,
@@ -139,6 +151,7 @@ export function BookReader({
   readingFace = "original",
   fiction = null,
   charCount = null,
+  hasRealPages = false,
 }: {
   bookId: string;
   memberEmail: string | null;
@@ -148,6 +161,13 @@ export function BookReader({
   fiction?: boolean | null;
   /** Characters of converted text, for the Plain English cost estimate. */
   charCount?: number | null;
+  /**
+   * Whether this book's page numbers come from the file itself. False for the
+   * synthetic page map most books here carry, in which case a bookmark names
+   * its place by percentage — "p. 212" that matches no printed copy is worse
+   * than a number that is at least true.
+   */
+  hasRealPages?: boolean;
   title: string;
   author: string | null;
   isArticle?: boolean;
@@ -666,6 +686,36 @@ export function BookReader({
     [atEnd, chapters, charEnd, currentCharOffset, totalChars, wordCount]
   );
 
+  /**
+   * The places this reader has saved in this book.
+   *
+   * Fed the same character offset everything else here is: a bookmark is a spot
+   * in the conversion char space, so it survives a font change, a switch between
+   * pages and scrolling, and a swap into Plain English without knowing that any
+   * of those exist. `charEnd` is what lets a page ask about its whole window
+   * rather than just its first line — see the hook.
+   */
+  const {
+    bookmarks,
+    active: activeBookmark,
+    draft: bookmarkDraft,
+    removed: removedBookmark,
+    toggle: toggleBookmark,
+    rename: renameBookmark,
+    remove: removeBookmark,
+    save: saveBookmark,
+    closeDraft: closeBookmarkDraft,
+    undoRemove: undoRemoveBookmark,
+    dismissUndo: dismissBookmarkUndo,
+  } = useBookmarks({
+    bookId,
+    memberEmail,
+    enabled: !isArticle && html != null,
+    blocks,
+    currentCharOffset,
+    visibleThroughChar: charEnd ?? null,
+  });
+
   // A paged reader owns the whole window; letting the document scroll behind it
   // just produces rubber-banding with nothing underneath.
   useEffect(() => {
@@ -1004,6 +1054,64 @@ export function BookReader({
     [chapters, goToChar]
   );
 
+  /**
+   * Going to a bookmark is going somewhere, not visiting it.
+   *
+   * Deliberately the same call a chapter row makes, with no return pill and no
+   * held position: you saved the place in order to come back to it, so arriving
+   * IS the point. Offering a way back from somewhere you asked to be is the app
+   * second-guessing the tap.
+   */
+  const goToBookmark = useCallback(
+    (id: string) => {
+      const found = bookmarks.find((b) => b.id === id);
+      if (found) goToChar(found.charOffset);
+    },
+    [bookmarks, goToChar]
+  );
+
+  const removeBookmarkById = useCallback(
+    (id: string) => {
+      const found = bookmarks.find((b) => b.id === id);
+      if (found) removeBookmark(found);
+    },
+    [bookmarks, removeBookmark]
+  );
+
+  const renameBookmarkById = useCallback(
+    (id: string) => {
+      const found = bookmarks.find((b) => b.id === id);
+      if (found) renameBookmark(found);
+    },
+    [bookmarks, renameBookmark]
+  );
+
+  /**
+   * Bookmark from the keyboard.
+   *
+   * Same guards the paged reader uses for its own keys: no modifiers, and
+   * nothing while a field, a menu or a dialog has the focus — otherwise typing
+   * the letter b into the name field would save a second bookmark under the
+   * first.
+   */
+  useEffect(() => {
+    if (isArticle || html == null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key !== "b" && e.key !== "B") return;
+      const active = document.activeElement as HTMLElement | null;
+      if (
+        active?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')
+      ) {
+        return;
+      }
+      e.preventDefault();
+      toggleBookmark();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [html, isArticle, toggleBookmark]);
+
   // ---- Listening ----------------------------------------------------------
 
   /**
@@ -1166,6 +1274,32 @@ export function BookReader({
         ? null
         : progressAt(elsewhere, totalChars, wordCount, chapters, false),
     [chapters, elsewhere, totalChars, wordCount]
+  );
+
+  /**
+   * The bookmarks as the Contents needs them: named, placed, and in the book's
+   * own terms.
+   *
+   * Resolved here rather than in the dialog because the chapter a character
+   * offset falls in is something only the reader knows — it comes from the
+   * book's text, which the dialog has never had to read. Percentages are
+   * computed the same way the running head computes its own, so a bookmark's
+   * "14%" and the header's "14%" can't disagree.
+   */
+  const contentsBookmarks: ContentsBookmark[] = useMemo(
+    () =>
+      bookmarks.map((b) => {
+        const at = progressAt(b.charOffset, totalChars, wordCount, chapters, false);
+        return {
+          id: b.id,
+          label: bookmarkLabel(b),
+          excerpt: b.excerpt,
+          chapterTitle: at.chapter?.title ?? null,
+          place: bookmarkPlace(b, at.percent, hasRealPages),
+          current: b.id === activeBookmark?.id,
+        };
+      }),
+    [activeBookmark?.id, bookmarks, chapters, hasRealPages, totalChars, wordCount]
   );
 
   const answerElsewhere = useCallback(
@@ -1452,9 +1586,11 @@ export function BookReader({
 
             {/* A sibling of the title's menu rather than something inside it: a
                 button cannot be nested in a button, and the two open different
-                things anyway. Articles have no chapters to list, and a book
-                whose conversion found no headings has nothing to show. */}
-            {!isArticle && toc.length > 0 && (
+                things anyway. Articles have no chapters to list. A book whose
+                conversion found no headings has nothing of the AUTHOR's to
+                show — but it can still hold the reader's own bookmarks, and a
+                bookmark you can save and never reach would be a trap. */}
+            {!isArticle && (toc.length > 0 || bookmarks.length > 0) && (
               <button
                 type="button"
                 onClick={() => setContentsOpen(true)}
@@ -1463,6 +1599,29 @@ export function BookReader({
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
               >
                 <List className="h-4 w-4" />
+              </button>
+            )}
+
+            {/* Saving the place, beside the way back to it.
+
+                Solid when a bookmark is on the screen you're looking at, hollow
+                otherwise — which also says what the tap will do, because tapping
+                a solid one removes it. A ribbon rather than a star: the star is
+                spoken for by marks, and one glyph meaning two different kinds of
+                "kept this" would undo the distinction the feature is built on. */}
+            {!isArticle && loaded && (
+              <button
+                type="button"
+                onClick={toggleBookmark}
+                aria-label={activeBookmark ? "Remove bookmark" : "Add a bookmark"}
+                aria-pressed={activeBookmark != null}
+                title={activeBookmark ? "Remove bookmark (B)" : "Bookmark this page (B)"}
+                className={cn(
+                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground",
+                  activeBookmark ? "text-foreground" : "text-muted-foreground/70"
+                )}
+              >
+                <Bookmark className={cn("h-4 w-4", activeBookmark && "fill-current")} />
               </button>
             )}
           </div>
@@ -1674,6 +1833,37 @@ export function BookReader({
         </div>
       )}
 
+      {/* Above whatever else is down there, because it is the newest thing said
+          and the only one with a deadline on it. */}
+      {removedBookmark && (
+        <BookmarkRemovedPill
+          bottom={
+            floatingBottom +
+            ((showReturn || showElsewhere ? 1 : 0) +
+              (follow.listening && !follow.following ? 1 : 0)) *
+              FLOATING_PILL_STACK
+          }
+          onUndo={undoRemoveBookmark}
+          onDismiss={dismissBookmarkUndo}
+        />
+      )}
+
+      {/* Keyed on what it is naming, so the field is empty for a new bookmark
+          and holds the existing name for a rename — rather than keeping
+          whatever was typed into it last time. */}
+      {bookmarkDraft && (
+        <BookmarkDialog
+          key={
+            bookmarkDraft.mode === "rename"
+              ? bookmarkDraft.bookmark.id
+              : `new-${bookmarkDraft.charOffset}`
+          }
+          draft={bookmarkDraft}
+          onSave={saveBookmark}
+          onCancel={closeBookmarkDraft}
+        />
+      )}
+
       <ReaderPerfOverlay />
 
       <ReaderLayoutDialog
@@ -1718,6 +1908,10 @@ export function BookReader({
         // refuses one regardless.
         documents={isArticle ? null : bookDocuments}
         onOpenDocument={setDocumentRequest}
+        bookmarks={contentsBookmarks}
+        onGoToBookmark={goToBookmark}
+        onRenameBookmark={renameBookmarkById}
+        onDeleteBookmark={removeBookmarkById}
       />
     </div>
   );
