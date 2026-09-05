@@ -74,6 +74,7 @@ export default async function ReadBookPage({
       readingFace={data.readingFace}
       fiction={data.fiction}
       charCount={data.charCount}
+      hasRealPages={data.hasRealPages}
       openNotes={query.notes === "1"}
       openMarkId={query.mark ?? null}
       mentionTargets={targets}

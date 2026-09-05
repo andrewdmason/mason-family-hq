@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, PenLine } from "lucide-react";
+import { Bookmark, ChevronRight, MoreHorizontal, PenLine } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,6 +9,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   buildContents,
   pathToAnchor,
@@ -41,7 +47,32 @@ import type { ReadingTocEntry } from "@/lib/types";
  * Plenty of books ship with a preface or an afterword of their own; those stay
  * where the author put them, in the tree, and yours are the ones with your name
  * on them at either end of it.
+ *
+ * Bookmarks sit above even those. They are the only rows here that are entirely
+ * the reader's — places they chose rather than places the book has — and they
+ * are also the rows most likely to be what the dialog was opened for, since
+ * saving one is a promise to come back. In reading order, like everything else
+ * in this list.
  */
+
+/**
+ * A bookmark as this list needs it: already named, already placed.
+ *
+ * Presentation only. The reader resolves the chapter and the page, because both
+ * come from the book's text and this dialog has never had to read it.
+ */
+export type ContentsBookmark = {
+  id: string;
+  /** The reader's name for it, or the line's own opening when they gave none. */
+  label: string;
+  /** The line, shown under a NAMED bookmark — under an unnamed one it is the label. */
+  excerpt: string | null;
+  chapterTitle: string | null;
+  /** "p. 212" where the book has real pages, "14%" everywhere else. */
+  place: string;
+  /** The reader is standing on this one right now. */
+  current: boolean;
+};
 export function ContentsDialog({
   open,
   onOpenChange,
@@ -53,6 +84,10 @@ export function ContentsDialog({
   onGoToChapter,
   documents,
   onOpenDocument,
+  bookmarks,
+  onGoToBookmark,
+  onRenameBookmark,
+  onDeleteBookmark,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -74,6 +109,12 @@ export function ContentsDialog({
    */
   documents: BookDocumentState[] | null;
   onOpenDocument: (scope: BookScope) => void;
+  /** In reading order. Empty is the common case and renders nothing. */
+  bookmarks: ContentsBookmark[];
+  onGoToBookmark: (id: string) => void;
+  /** Renaming and removing happen from the row — the ribbon only ever toggles. */
+  onRenameBookmark: (id: string) => void;
+  onDeleteBookmark: (id: string) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -104,6 +145,20 @@ export function ContentsDialog({
               onOpenDocument(scope);
               onOpenChange(false);
             }}
+            bookmarks={bookmarks}
+            onGoToBookmark={(id) => {
+              onGoToBookmark(id);
+              onOpenChange(false);
+            }}
+            // Renaming closes this one first: the name field is a dialog of its
+            // own, and two stacked dialogs fight over the focus trap and the
+            // Escape key. Removing leaves it open — that is a row vanishing
+            // from a list you are probably still reading.
+            onRenameBookmark={(id) => {
+              onOpenChange(false);
+              onRenameBookmark(id);
+            }}
+            onDeleteBookmark={onDeleteBookmark}
           />
         )}
       </DialogContent>
@@ -120,6 +175,10 @@ function ContentsBody({
   onGoToChapter,
   documents,
   onOpenDocument,
+  bookmarks,
+  onGoToBookmark,
+  onRenameBookmark,
+  onDeleteBookmark,
 }: {
   toc: ReadingTocEntry[];
   bookTitle: string;
@@ -129,6 +188,10 @@ function ContentsBody({
   onGoToChapter: (anchorId: string) => void;
   documents: BookDocumentState[] | null;
   onOpenDocument: (scope: BookScope) => void;
+  bookmarks: ContentsBookmark[];
+  onGoToBookmark: (id: string) => void;
+  onRenameBookmark: (id: string) => void;
+  onDeleteBookmark: (id: string) => void;
 }) {
   const contents = useMemo(
     () => buildContents(toc, bookTitle, wordCount),
@@ -150,6 +213,9 @@ function ContentsBody({
   const [groupsOpen, setGroupsOpen] = useState<{ front: boolean; back: boolean }>(
     () => ({ front: where.front.length > 0, back: where.back.length > 0 })
   );
+  // Open, unlike the matter groups. Front matter is collapsed because nobody
+  // wants it; bookmarks exist only because somebody asked for them.
+  const [bookmarksOpen, setBookmarksOpen] = useState(true);
 
   // Bring the current chapter into view once the dialog has been laid out. Two
   // frames: one to mount, one to lay out.
@@ -209,6 +275,27 @@ function ContentsBody({
 
   return (
     <div ref={scrollerRef} className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
+      {bookmarks.length > 0 && (
+        <div className="mb-2 border-b border-border pb-2">
+          <MatterGroup
+            label="Bookmarks"
+            count={bookmarks.length}
+            open={bookmarksOpen}
+            onToggle={() => setBookmarksOpen((v) => !v)}
+          >
+            {bookmarks.map((b) => (
+              <BookmarkRow
+                key={b.id}
+                bookmark={b}
+                onGo={() => onGoToBookmark(b.id)}
+                onRename={() => onRenameBookmark(b.id)}
+                onDelete={() => onDeleteBookmark(b.id)}
+              />
+            ))}
+          </MatterGroup>
+        </div>
+      )}
+
       {preface && (
         <DocumentRow state={preface} onOpen={() => onOpenDocument("preface")} />
       )}
@@ -251,6 +338,93 @@ function ContentsBody({
           onOpen={() => onOpenDocument("afterword")}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * One saved place.
+ *
+ * Three things, in the order a reader needs them: what they called it, where it
+ * is in the book, and — under a NAMED one — the line itself, which is what
+ * settles "is this the bit I meant" when four bookmarks share a chapter. An
+ * unnamed bookmark is already labelled by that line, so it isn't repeated.
+ *
+ * The overflow menu is where renaming and removing live. The ribbon in the
+ * header only ever toggles, so this is the only place a bookmark can be edited
+ * — which is the trade that lets the ribbon stay a one-tap control.
+ */
+function BookmarkRow({
+  bookmark,
+  onGo,
+  onRename,
+  onDelete,
+}: {
+  bookmark: ContentsBookmark;
+  onGo: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  const named = bookmark.excerpt != null && bookmark.label !== bookmark.excerpt;
+  const where = [bookmark.chapterTitle, bookmark.place].filter(Boolean).join(" · ");
+
+  return (
+    <div
+      className={cn(
+        "relative flex items-start gap-1 rounded-md",
+        bookmark.current && "bg-muted/50"
+      )}
+    >
+      {bookmark.current && (
+        <span
+          aria-hidden
+          className="absolute inset-y-1 left-0 w-[3px] rounded-full bg-primary"
+        />
+      )}
+
+      <button
+        type="button"
+        onClick={onGo}
+        className="flex min-w-0 flex-1 items-start gap-2.5 rounded-md py-1.5 pr-1 pl-2 text-left transition-colors hover:bg-muted"
+      >
+        <Bookmark
+          className={cn(
+            "mt-0.5 h-3.5 w-3.5 shrink-0",
+            bookmark.current ? "fill-current text-primary" : "text-muted-foreground"
+          )}
+        />
+        <span className="min-w-0 flex-1">
+          <span
+            className={cn(
+              "block truncate text-sm text-foreground",
+              bookmark.current && "font-semibold"
+            )}
+          >
+            {bookmark.label}
+          </span>
+          {where && (
+            <span className="block truncate text-xs text-muted-foreground">{where}</span>
+          )}
+          {named && (
+            <span className="block truncate font-serif text-xs text-muted-foreground/70">
+              {bookmark.excerpt}
+            </span>
+          )}
+        </span>
+      </button>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label={`Edit ${bookmark.label}`}
+          className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-40">
+          <DropdownMenuItem onClick={onRename}>Rename</DropdownMenuItem>
+          <DropdownMenuItem onClick={onDelete}>Remove</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
