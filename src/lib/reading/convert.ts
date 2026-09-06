@@ -4,6 +4,8 @@ import { DOMParser } from "@xmldom/xmldom";
 import sanitizeHtml from "sanitize-html";
 import { chapterSpans } from "@/lib/reading/chapter-target";
 import { layoutSyntheticPages } from "@/lib/reading/synthetic-pages";
+import { EpubImageStore, type PreparedImage } from "@/lib/reading/epub-images";
+import { CAPTION_CLASS, FIGURE_CLASS } from "@/lib/reading/block-stream";
 
 /**
  * Turning an uploaded PDF/EPUB into the reading experience: reflowable HTML with
@@ -77,14 +79,35 @@ export type ConversionResult = {
    * stable, directly-renderable URL) without a signed-URL expiry.
    */
   coverImageDataUrl: string | null;
+  /** Pictures carried into the book, and pictures left out because the book's
+   *  size budget was spent. PDFs report zero for both — their pictures aren't
+   *  extracted at all. */
+  imagesInlined: number;
+  imagesDropped: number;
 };
 
 export class ConversionError extends Error {}
 
-/** A unit of converted content: a paragraph or a heading. */
+/**
+ * A unit of converted content.
+ *
+ * A picture is a block of its own, carrying no text. That keeps it inside the
+ * one rule the whole reader rests on — one block element per block, in order —
+ * so annotation anchors, page scoping, Plain English and the audiobook all see
+ * the same stream they always did, with an empty entry where the picture is.
+ * The pieces that work in text simply have nothing to say about it: narration
+ * skips a block with no words, and so does translation.
+ */
 type Block =
   | { kind: "para"; text: string }
-  | { kind: "heading"; text: string; level: number };
+  | { kind: "heading"; text: string; level: number }
+  | { kind: "caption"; text: string }
+  | { kind: "image"; image: PreparedImage; alt: string };
+
+/** A block's contribution to the text stream — nothing, for a picture. */
+function blockText(block: Block): string {
+  return block.kind === "image" ? "" : block.text;
+}
 
 const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: [
@@ -102,10 +125,20 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     "h6",
     "blockquote",
     "span",
+    "img",
   ],
   // id/class on any allowed tag carry our page + heading anchors.
-  allowedAttributes: { "*": ["id", "class"] },
-  // Drop everything else (scripts, styles, images, links, etc.) entirely.
+  allowedAttributes: {
+    "*": ["id", "class"],
+    // width/height are what let the page reserve a picture's space before it
+    // decodes, which is the difference between a paged layout that measures
+    // right the first time and one that reflows under the reader.
+    img: ["src", "alt", "width", "height"],
+  },
+  // Pictures are inlined by the converter itself (see epub-images.ts); a remote
+  // URL in a book file is someone else's server, and is not followed.
+  allowedSchemesByTag: { img: ["data"] },
+  // Drop everything else (scripts, styles, links, etc.) entirely.
   disallowedTagsMode: "discard",
 };
 
@@ -118,6 +151,28 @@ function escapeHtml(text: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+/** As above, plus the quote, for text going inside an attribute. */
+function escapeAttr(text: string): string {
+  return escapeHtml(text).replace(/"/g, "&quot;");
+}
+
+/**
+ * A picture, as its own block.
+ *
+ * A <p> rather than a <figure> on purpose: the block stream's contract is that
+ * every block is one of a small, known set of tags, and every consumer — the
+ * anchor code, the Plain English renderer, the window slicer — counts them the
+ * same way. A picture that arrived as a new kind of element would be a picture
+ * that every one of them had to learn about. As a paragraph with no text it is
+ * already understood everywhere, and carries its own class for the typography.
+ */
+function imageHtml(image: PreparedImage, alt: string): string {
+  return (
+    `<p class="${FIGURE_CLASS}"><img src="${image.dataUrl}" alt="${escapeAttr(alt)}" ` +
+    `width="${image.width}" height="${image.height}"></p>`
+  );
 }
 
 /** Words in a run of text: whitespace-delimited tokens. The substrate for page
@@ -203,12 +258,14 @@ function buildPagedHtml(
           `<${tag} id="${anchorId}" class="reader-heading reader-h${block.level <= 1 ? 1 : 2}">${escapeHtml(block.text)}</${tag}>`
         );
         toc.push({ title: block.text, anchorId, level: block.level <= 1 ? 1 : 2, page: pageNumber, startWord: wordCursor });
+      } else if (block.kind === "image") {
+        htmlParts.push(imageHtml(block.image, block.alt));
       } else {
         htmlParts.push(`<p>${escapeHtml(block.text)}</p>`);
       }
       // +1 approximates the whitespace separating blocks in the text flow.
-      charCursor += block.text.length + 1;
-      wordCursor += countWords(block.text);
+      charCursor += blockText(block).length + 1;
+      wordCursor += countWords(blockText(block));
     }
     if (pageNumber != null) {
       pages.push({
@@ -440,7 +497,7 @@ async function convertPdf(buffer: ArrayBuffer): Promise<ConversionResult> {
   for (let n = 0; n < pageLines.length; n++) {
     const kept = stripMargins(pageLines[n], running);
     const blocks = blocksFromLines(kept, bodySize);
-    totalChars += blocks.reduce((sum, b) => sum + b.text.length, 0);
+    totalChars += blocks.reduce((sum, b) => sum + blockText(b).length, 0);
     pageBlocks.push({ pageNumber: n + 1, blocks });
   }
 
@@ -463,6 +520,8 @@ async function convertPdf(buffer: ArrayBuffer): Promise<ConversionResult> {
     charCount,
     wordCount,
     coverImageDataUrl: null,
+    imagesInlined: 0,
+    imagesDropped: 0,
   };
 }
 
@@ -480,6 +539,9 @@ const BLOCK_TAGS = new Set([
   "h6",
   "blockquote",
   "li",
+  // The line under a plate. Not previously read at all, so a book that used the
+  // semantic element rather than a styled paragraph simply lost its captions.
+  "figcaption",
 ]);
 
 // xmldom's Node/Element types differ structurally from lib.dom's, so the EPUB
@@ -535,6 +597,77 @@ function resolvePath(base: string, rel: string): string {
 type EpubMark = { pageNumber: number; beforeBlock: number };
 
 /**
+ * The src of a picture, whether it is an <img> or the <image> inside an SVG
+ * wrapper — the other half of what publishers ship, and the usual form for a
+ * full-page plate.
+ */
+function imageSrc(el: XmlElement): string | null {
+  const tag = el.tagName.toLowerCase();
+  if (tag === "img") return attr(el, "src");
+  if (tag === "image") return attr(el, "xlink:href") ?? attr(el, "href");
+  return null;
+}
+
+/**
+ * Whether a block is the line under a plate rather than prose.
+ *
+ * The element's own name settles it when the publisher used one; otherwise it
+ * is the class, which is where this information actually lives in the corpus —
+ * `caption`, `figcaption`, `illus-caption`, `caption1` all say the same thing,
+ * and all contain the word.
+ */
+function isCaption(el: XmlElement, tag: string): boolean {
+  if (tag === "figcaption") return true;
+  return /caption/i.test(attr(el, "class") ?? "");
+}
+
+/**
+ * Every picture a spine document references, in document order, read straight
+ * off the source text.
+ *
+ * A crude scan on purpose. Decoding pictures is asynchronous and the walk that
+ * decides where they go is not, so the two are separated: this says what to
+ * fetch, the walk says where it lands, and anything this over-reports is simply
+ * never asked for. Reading order is what matters — it is the order the size
+ * budget is spent in, so an illustrated book keeps the pictures nearest the
+ * front rather than an arbitrary handful.
+ */
+function imageSrcsIn(xml: string): string[] {
+  const re = /<(?:img|image)\b[^>]*?\s(?:src|xlink:href|href)\s*=\s*["']([^"']+)["']/gi;
+  const out: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(xml)) !== null) out.push(match[1]);
+  return out;
+}
+
+/**
+ * A src as written in the markup, turned back into a name in the zip: entities
+ * undone, percent-escapes undone (a picture called "plate 1.jpg" is written
+ * "plate%201.jpg"), any fragment or query dropped.
+ */
+function zipPathFromSrc(src: string): string {
+  const bare = src.replace(/[#?].*$/, "").replace(/&amp;/g, "&");
+  try {
+    return decodeURIComponent(bare);
+  } catch {
+    return bare;
+  }
+}
+
+/** Every picture inside an element, in document order. */
+function descendantImages(el: XmlElement): XmlElement[] {
+  const out: XmlElement[] = [];
+  const visit = (node: XmlNode) => {
+    if (node.nodeType !== 1) return;
+    const child = node as XmlElement;
+    if (imageSrc(child) != null) out.push(child);
+    for (let i = 0; i < child.childNodes.length; i++) visit(child.childNodes[i]);
+  };
+  for (let i = 0; i < el.childNodes.length; i++) visit(el.childNodes[i]);
+  return out;
+}
+
+/**
  * Walk a spine document collecting blocks (paragraphs + headings from h1-h6) and
  * any page-break marks. Also records, for each id in `wantedIds` (the fragment
  * targets a nav/NCX entry points at), the block index where it falls — including
@@ -546,8 +679,23 @@ function walkEpubDoc(
   blocks: Block[],
   marks: EpubMark[],
   wantedIds: Set<string>,
-  anchors: Map<string, number>
+  anchors: Map<string, number>,
+  /** A picture's prepared form, by its src as written in this document. Absent
+   *  means it couldn't be read or wasn't wanted, and the picture is left out. */
+  images: (src: string) => PreparedImage | null
 ): void {
+  const pushImage = (el: XmlElement) => {
+    const src = imageSrc(el);
+    if (!src) return;
+    const prepared = images(zipPathFromSrc(src));
+    if (!prepared) return;
+    const alt = (attr(el, "alt") ?? "").replace(/\s+/g, " ").trim();
+    // "image", "cover-image" and their kin are what publishers put in alt when
+    // they had nothing to say; an empty alt is the honest version of that, and
+    // the caption underneath is doing the describing anyway.
+    blocks.push({ kind: "image", image: prepared, alt: /^(cover-?)?image$/i.test(alt) ? "" : alt });
+  };
+
   const visit = (node: XmlNode) => {
     if (node.nodeType !== 1) return; // elements only
     const el = node as XmlElement;
@@ -562,8 +710,15 @@ function walkEpubDoc(
       if (!Number.isNaN(num)) marks.push({ pageNumber: num, beforeBlock: blocks.length });
       return;
     }
+    if (imageSrc(el) != null) {
+      pushImage(el);
+      return;
+    }
     const tag = el.tagName.toLowerCase();
     if (BLOCK_TAGS.has(tag)) {
+      // A picture wrapped in a paragraph — which is how most books set a plate —
+      // comes out before that paragraph's text, which is where it was.
+      for (const img of descendantImages(el)) pushImage(img);
       const text = el.textContent?.replace(/\s+/g, " ").trim() ?? "";
       if (text) {
         const headingMatch = /^h([1-6])$/.exec(tag);
@@ -571,6 +726,8 @@ function walkEpubDoc(
           // h1 → major section, h2+ → chapter-level in the TOC.
           const level = Number(headingMatch[1]) <= 1 ? 1 : 2;
           blocks.push({ kind: "heading", text, level });
+        } else if (isCaption(el, tag)) {
+          blocks.push({ kind: "caption", text });
         } else {
           blocks.push({ kind: "para", text });
         }
@@ -612,7 +769,11 @@ function stripLeadingTitle(blocks: Block[], title: string): Block[] {
   if (!target) return blocks;
   let i = 0;
   while (i < blocks.length) {
-    const n = normalizeTitle(blocks[i].text);
+    // A picture at the top of a chapter file — the ornament above the title, or
+    // the image the title itself is set as — is not a repeated title line and
+    // must not stop the scan; it just isn't one of the lines being dropped.
+    if (blocks[i].kind === "image") break;
+    const n = normalizeTitle(blockText(blocks[i]));
     if (n && n.length <= target.length && target.includes(n)) i++;
     else break;
   }
@@ -855,7 +1016,7 @@ async function extractEpubCover(
   zip: JSZip,
   opf: XmlDocument,
   opfDir: string
-): Promise<string | null> {
+): Promise<{ dataUrl: string | null; path: string | null }> {
   const items = opf.getElementsByTagName("item");
 
   let coverHref: string | null = null;
@@ -907,18 +1068,23 @@ async function extractEpubCover(
     }
   }
 
-  if (!coverHref) return null;
+  if (!coverHref) return { dataUrl: null, path: null };
 
+  // The path comes back even when the art itself doesn't: it is also what tells
+  // the body of the book which picture is the cover, and a cover too big to
+  // inline on the shelf is still a cover the first page shouldn't repeat.
   const coverPath = resolvePath(opfDir, coverHref);
   const mime = coverImageMime(coverPath, declaredType);
-  if (!mime || mime === "image/svg+xml") return null; // raster covers only
+  if (!mime || mime === "image/svg+xml") return { dataUrl: null, path: coverPath }; // raster covers only
 
   const file = zip.file(coverPath);
-  if (!file) return null;
+  if (!file) return { dataUrl: null, path: coverPath };
   const base64 = await file.async("base64");
-  if (!base64 || base64.length > EPUB_COVER_MAX_BASE64) return null;
+  if (!base64 || base64.length > EPUB_COVER_MAX_BASE64) {
+    return { dataUrl: null, path: coverPath };
+  }
 
-  return `data:${mime};base64,${base64}`;
+  return { dataUrl: `data:${mime};base64,${base64}`, path: coverPath };
 }
 
 async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
@@ -955,8 +1121,11 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
 
   // The publisher's cover art, inlined as a data URL — best-effort, never fatal.
   let coverImageDataUrl: string | null = null;
+  let coverImagePath: string | null = null;
   try {
-    coverImageDataUrl = await extractEpubCover(zip, opf as unknown as XmlDocument, opfDir);
+    const cover = await extractEpubCover(zip, opf as unknown as XmlDocument, opfDir);
+    coverImageDataUrl = cover.dataUrl;
+    coverImagePath = cover.path;
   } catch {
     coverImageDataUrl = null;
   }
@@ -1003,6 +1172,14 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
     }
   }
 
+  // Pictures, prepared once each against one budget. The cover is excluded:
+  // the shelf already shows it, and a book whose first page is its own jacket
+  // reads as a mistake.
+  const imageStore = new EpubImageStore(
+    zip,
+    new Set(coverImagePath ? [coverImagePath] : [])
+  );
+
   const blocks: Block[] = [];
   const marks: EpubMark[] = [];
   // Resolved location of each wanted fragment: "file#frag" -> global block index.
@@ -1011,7 +1188,7 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
   // file-level nav entries, and as a fallback when a fragment can't be found).
   const fileFirstIndex = new Map<string, number>();
 
-  for (const path of spinePaths) {
+  for (const [spineIndex, path] of spinePaths.entries()) {
     const xml = await readText(path);
     if (!xml) continue;
     const dom = parseContentDoc(xml);
@@ -1025,10 +1202,34 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
     const body = dom.getElementsByTagName("body")[0];
     if (!body) continue;
 
+    // Decode this document's pictures before walking it, so the walk itself can
+    // stay synchronous and every picture is either ready or known to be a
+    // non-starter by the time its place in the stream is decided. The first
+    // spine document is the cover slot by long convention — a jacket, sometimes
+    // wrapped in SVG and so not the manifest's declared cover image — and is
+    // never a picture the book should open with.
+    const docDir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    const prepared = new Map<string, PreparedImage>();
+    if (spineIndex > 0) {
+      for (const src of imageSrcsIn(xml)) {
+        const key = zipPathFromSrc(src);
+        if (prepared.has(key)) continue;
+        const image = await imageStore.get(resolvePath(docDir, key));
+        if (image) prepared.set(key, image);
+      }
+    }
+
     const fileBlocks: Block[] = [];
     const fileMarks: EpubMark[] = [];
     const fileAnchors = new Map<string, number>();
-    walkEpubDoc(body, fileBlocks, fileMarks, wantedByFile.get(path) ?? new Set(), fileAnchors);
+    walkEpubDoc(
+      body,
+      fileBlocks,
+      fileMarks,
+      wantedByFile.get(path) ?? new Set(),
+      fileAnchors,
+      (src) => prepared.get(src) ?? null
+    );
 
     const navTitle = firstTitleByFile.get(path);
     const kept = navTitle ? stripLeadingTitle(fileBlocks, navTitle) : fileBlocks;
@@ -1043,7 +1244,13 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
     //
     // The divider contributes no text; it just needs a place, and the start of
     // the first chapter inside it is exactly where a reader expects to see it.
-    if (!kept.some((b) => b.kind === "para")) {
+    //
+    // A page that is a picture and nothing else is not empty — a full-page
+    // plate on its own leaf is exactly that, and dropping it was how those went
+    // missing. The cover is the one such page that should still go, and it
+    // already has: the first spine document's pictures are never prepared, so
+    // there is nothing here for this to keep.
+    if (!kept.some((b) => b.kind === "para" || b.kind === "image")) {
       if (parentNavFiles.has(path)) fileFirstIndex.set(path, blocks.length);
       continue;
     }
@@ -1189,8 +1396,16 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
           pushHeading(injected[k].title, injected[k].level, injected[k].depth);
         }
       }
+    } else if (block.kind === "image") {
+      htmlParts.push(imageHtml(block.image, block.alt));
+      // A picture still takes its turn in the char space — one separator, no
+      // words — because the block map rebuilt in the browser counts every <p>,
+      // and a picture the two sides counted differently would move every
+      // highlight after it.
+      advance("");
     } else {
-      htmlParts.push(`<p>${escapeHtml(block.text)}</p>`);
+      const cls = block.kind === "caption" ? ` class="${CAPTION_CLASS}"` : "";
+      htmlParts.push(`<p${cls}>${escapeHtml(block.text)}</p>`);
       advance(block.text);
     }
     blockMarks.push({ char: charCursor, word: wordCursor });
@@ -1218,6 +1433,8 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
     charCount: charCursor,
     wordCount: wordCursor,
     coverImageDataUrl,
+    imagesInlined: imageStore.inlined,
+    imagesDropped: imageStore.droppedForBudget,
   };
 }
 

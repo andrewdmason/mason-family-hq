@@ -17,7 +17,18 @@
  * <h2 id="sec-N"> — plus zero-height <span class="page-anchor"> marks, which
  * contribute no characters. Block text is escapeHtml'd with no inline tags, so
  * a block element's DOM textContent equals its decoded text here.
+ *
+ * A picture is a <p> too: one holding an <img> and no text. That is what keeps
+ * it inside the rule above — every consumer counts it as a block and finds
+ * nothing to say about it — and the class below is the only thing that
+ * distinguishes it, for the handful of places that lay a picture out rather
+ * than read it.
  */
+
+/** Class on the paragraph that holds a picture. */
+export const FIGURE_CLASS = "reader-figure";
+/** Class on the line under a picture. */
+export const CAPTION_CLASS = "reader-caption";
 
 /** Inverse of convert.ts escapeHtml — undone in reverse order to be exact. */
 function decodeEntities(text: string): string {
@@ -46,6 +57,9 @@ export type BookBlock = {
   id: string | null;
   /** Which tag this is, lowercased — `p`, `h1`, `h2`. Headings are chapter starts. */
   tag: string;
+  /** The block's class attribute, when it has one — how a picture and its
+   *  caption are told apart from prose without re-parsing the markup. */
+  className: string | null;
   /**
    * Half-open span of this block's markup in the source HTML, so a range of
    * blocks can be handed to the DOM as an exact `html.slice(…)`.
@@ -60,6 +74,7 @@ export type BookBlock = {
 };
 
 const ID_ATTR = /\bid\s*=\s*"([^"]*)"/i;
+const CLASS_ATTR = /\bclass\s*=\s*"([^"]*)"/i;
 
 /**
  * Rebuild the block stream from converted content HTML. Each block contributes
@@ -81,6 +96,7 @@ export function blockMap(html: string): BookBlock[] {
       charStart,
       text,
       id: ID_ATTR.exec(match[2])?.[1] ?? null,
+      className: CLASS_ATTR.exec(match[2])?.[1] ?? null,
       tag: match[1].toLowerCase(),
       htmlStart: match.index,
       htmlEnd: blockRe.lastIndex,
@@ -132,4 +148,14 @@ export function blockIndexForCharOffset(
     }
   }
   return best;
+}
+
+/** Whether a block is a picture rather than prose. */
+export function isFigureBlock(block: BookBlock): boolean {
+  return block.className?.split(/\s+/).includes(FIGURE_CLASS) ?? false;
+}
+
+/** Whether a block is the line under a picture. */
+export function isCaptionBlock(block: BookBlock): boolean {
+  return block.className?.split(/\s+/).includes(CAPTION_CLASS) ?? false;
 }

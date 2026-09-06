@@ -283,6 +283,11 @@ export function PagedView({
               // Without this, engines balance the columns and the whole
               // fragmentation model falls apart.
               columnFill: "auto",
+              // What a picture has to fit inside. A plate is the one thing in a
+              // book that can be taller than the page it is on, and a column
+              // has no way to shrink it — it just cuts it off — so the height
+              // is handed to the stylesheet here, where it is known.
+              ["--reader-page-h" as string]: `${geometry.pageH}px`,
               ...typographyStyle(settings),
             }}
             dangerouslySetInnerHTML={{ __html: html }}
