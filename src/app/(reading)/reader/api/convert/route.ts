@@ -109,6 +109,9 @@ export async function POST(req: NextRequest) {
       hasRealPages: result.hasRealPages,
       charCount: result.charCount,
       pages: result.pages.length,
+      imagesInlined: result.imagesInlined,
+      imagesDropped: result.imagesDropped,
+      htmlBytes: result.html.length,
     });
 
     const contentPath = `${userId}/${bookId}/content.html`;

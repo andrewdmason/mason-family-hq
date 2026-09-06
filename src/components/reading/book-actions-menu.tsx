@@ -294,10 +294,14 @@ export function useBookMenu({
       )}
 
       <DropdownMenuSeparator />
-      {isFailed && (
+      {/* Offered for a book that prepared fine, too, not only one that failed.
+          What conversion produces changes over time — pictures are the reason
+          this is here — and a book already on the shelf has no other way to
+          pick that up short of uploading its file a second time. */}
+      {(isFailed || (hasFile && isReady)) && (
         <DropdownMenuItem onClick={retryConvert} disabled={retrying}>
           <RotateCcw />
-          Try preparing again
+          {isFailed ? "Try preparing again" : "Prepare again"}
         </DropdownMenuItem>
       )}
       <DropdownMenuItem disabled={busy} onClick={openFilePicker}>

@@ -65,6 +65,7 @@ function buildBook(
       charStart,
       text,
       id,
+      className: null,
       tag,
       htmlStart: 0,
       htmlEnd: 0,

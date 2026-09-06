@@ -28,7 +28,7 @@
  * Client-safe and pure. Verified by scripts/verify-plain-face.mts.
  */
 
-import type { BookBlock } from "@/lib/reading/block-stream";
+import { isFigureBlock, type BookBlock } from "@/lib/reading/block-stream";
 import { markHtml, type InlineChatMark } from "@/lib/reading/inline-chat-blocks";
 import type { BookWindow } from "@/lib/reading/paged-window";
 import type { PlainBlock, PlainChapter, PlainChapterStatus, PlainTerm } from "./types";
@@ -294,7 +294,12 @@ export function parallelWindowHtml(
     // The original, always — the left column is the book.
     out += html.slice(block.htmlStart, block.htmlEnd);
 
-    if (block.tag === "p") {
+    // A picture gets no cell of its own. It is a block, and every block on the
+    // left is normally answered by one on the right — but a plate has nothing
+    // to translate, and the stylesheet runs it across both columns so it is a
+    // plate rather than a half-width one. A cell it doesn't fill would push the
+    // whole spread out of step by one from there on.
+    if (block.tag === "p" && !isFigureBlock(block)) {
       const plain = state ? plainTextOf({ ...state, face: "plain" }, block) : null;
       const stored = state?.blocks.get(i);
       let inner = "";

@@ -187,6 +187,9 @@ export function ParallelView({
               rowGap: 0,
               alignItems: "start",
               width: geometry.width,
+              // See paged-view: a plate has to fit the page, and this is the
+              // only place the page's height is known.
+              ["--reader-page-h" as string]: `${geometry.pageH}px`,
               ...typographyStyle(settings),
             }}
             dangerouslySetInnerHTML={{ __html: html }}

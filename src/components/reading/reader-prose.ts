@@ -111,18 +111,58 @@ export const PARALLEL_PROSE = [
   "[&>.reader-heading]:[grid-column:1/-1]",
   "[&>.reader-chat-mark]:[grid-column:1/-1]",
   "[&>.page-anchor]:[grid-column:1/-1]",
+  // A plate is the book, not one of the two texts, so it runs across the pair.
+  // Its caption stays in the left column and is answered on the right like any
+  // other line of prose.
+  "[&>.reader-figure]:[grid-column:1/-1]",
   "[&>.reader-plain-cell]:mb-5 [&>.reader-plain-cell]:min-h-[1em]",
   "[&>.reader-plain-kept]:opacity-70",
   "[&>.reader-heading]:[break-inside:avoid]",
 ].join(" ");
 
 /**
+ * A plate and the line under it.
+ *
+ * Both are paragraphs — the converter emits pictures as blocks so the rest of
+ * the reader never has to know they exist — so everything that makes them read
+ * as a figure rather than as prose is here.
+ *
+ * The caption is the part that was actually wrong before this: set as body
+ * text, a caption is a full-measure justified paragraph that reads as the
+ * opening of the next thought instead of as a label for the picture above it.
+ * Centred, a size down, muted, and pulled up tight under the plate says what it
+ * is without a rule or a box — which matters, because the Palma renders this in
+ * black and white.
+ *
+ * `[text-indent:0]` and `[hyphens:none]` take both out of the book's own
+ * justification; a short caption stretched across the measure is the giveaway
+ * that nobody looked at it.
+ */
+const FIGURE_PROSE = [
+  "[&_.reader-figure]:my-6 [&_.reader-figure]:text-center [&_.reader-figure]:[text-indent:0]",
+  "[&_.reader-figure_img]:mx-auto [&_.reader-figure_img]:block",
+  "[&_.reader-figure_img]:max-w-full [&_.reader-figure_img]:h-auto",
+  // A picture must fit the page it lands in, or a paged column simply cuts the
+  // bottom off it. The page's height is handed down as a variable by whichever
+  // view knows it; the fraction leaves room for the caption to sit under the
+  // plate rather than open the next page. Scrolling sets no variable and gets
+  // the viewport fallback, which is the same intent — a plate you take in at
+  // once instead of a screenful you scroll past.
+  "[&_.reader-figure_img]:max-h-[calc(var(--reader-page-h,78vh)*0.82)]",
+  "[&_.reader-caption]:mt-[-1rem] [&_.reader-caption]:mb-6",
+  "[&_.reader-caption]:text-center [&_.reader-caption]:text-[0.8em] [&_.reader-caption]:leading-snug",
+  "[&_.reader-caption]:text-muted-foreground",
+  "[&_.reader-caption]:[text-indent:0] [&_.reader-caption]:[hyphens:none]",
+];
+
+/**
  * Converted books are plain text: <p>, <h1>, <h2>, <blockquote>, and zero-height
- * page-anchor marks. Nothing else survives conversion, so this is the whole
- * stylesheet for a book.
+ * page-anchor marks — plus the occasional picture, which is a <p> too. Nothing
+ * else survives conversion, so this is the whole stylesheet for a book.
  */
 export const BOOK_PROSE = [
   "[&_p]:mb-5",
+  ...FIGURE_PROSE,
   "[&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:italic",
   "[&_.page-anchor]:block [&_.page-anchor]:h-0",
   "[&_.reader-heading]:scroll-mt-28 [&_.reader-heading]:text-center [&_.reader-heading]:font-serif [&_.reader-heading]:text-balance",
@@ -163,6 +203,11 @@ export const BOOK_PROSE_PAGED = [
   // Headings and quotes look broken when split across a column boundary;
   // paragraphs are meant to flow.
   "[&_.reader-heading]:[break-inside:avoid] [&_blockquote]:[break-inside:avoid]",
+  // A plate and its caption are one thing. Neither survives being split, and
+  // the caption must not lead the next page as if it introduced it.
+  "[&_.reader-figure]:[break-inside:avoid] [&_.reader-caption]:[break-inside:avoid]",
+  "[&_.reader-figure]:[break-after:avoid] [&_.reader-figure]:[-webkit-column-break-after:avoid]",
+  "[&_.reader-caption]:[break-before:avoid] [&_.reader-caption]:[-webkit-column-break-before:avoid]",
 ].join(" ");
 
 /** Saved web articles keep their images, lists, tables and code. */
