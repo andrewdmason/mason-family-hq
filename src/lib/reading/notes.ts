@@ -13,8 +13,9 @@
  *
  *   [p. 41](place:12345)              a place in the book
  *   [p. 41](place:12345?mark=9f1c…)   the same, pulled in from one of your marks
- *   [Sep 7, 2026](date:2026-09-07)    a day
  *   [Ask](thread:9f1c…)               a conversation that branched off here
+ *   [Sep 7, 2026](date:2026-09-07)    a day — no longer written (a date is
+ *                                     plain text now), still read
  *
  * A link rather than a bespoke syntax because it degrades well. Anything that
  * reads the markdown without knowing about pills — a future export, a person

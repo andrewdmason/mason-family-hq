@@ -14,7 +14,7 @@ import { MemberAvatar } from "@/components/journal/member-avatar";
 import { memberPhotoUrl } from "@/lib/media/member-photo-url";
 import type { MentionTarget } from "@/lib/reading/mentions";
 import {
-  datePill,
+  dateLabel,
   noteWordCount,
   placesIn,
   todayIso,
@@ -54,8 +54,9 @@ export type ComposeRequest = Pick<ComposeScope, "kind" | "handle" | "name" | "te
  * the log's one good property kept: where you were when you wrote something.
  * That is a PILL in the text (see notepad-pill.ts), put there by the auto-stamp
  * (notepad-autostamp.ts), by the pin in the header, and after every passage
- * that lands here from a highlight. A date is a pill too — the calendar button
- * or ⌥D — but only ever on purpose.
+ * that lands here from a highlight. A date (the calendar button, or ⌥D) is
+ * plain text: something you put in on purpose and can edit, or put in a
+ * heading.
  *
  * It is also where conversations start. Type @ under a passage, pick Ask or a
  * person, press Enter: the paragraph goes off as the first message of a
@@ -417,11 +418,26 @@ export function Notepad({
     lastStampRef.current = place.char;
   }, [insertPill]);
 
-  /** The header's calendar: a pill for today, at the cursor. */
+  /**
+   * The header's calendar: today's date, at the cursor, as ordinary text.
+   *
+   * Not a pill, deliberately. A date pill was tried and there was nothing to
+   * it that words don't do: the AI reads either the same, and words can be
+   * edited — "Sep 7, evening" — and can sit inside a heading, which "## ⌥D"
+   * is the whole point of.
+   */
   const stampDate = useCallback(() => {
-    const iso = todayIso();
-    insertPill(pillJSON(datePill(iso)));
-  }, [insertPill]);
+    if (!editor) return;
+    editor
+      .chain()
+      .focus()
+      .command(({ tr }) => {
+        tr.setMeta(NOTEPAD_INSERT_META, true);
+        return true;
+      })
+      .insertContent(`${dateLabel(todayIso())} `)
+      .run();
+  }, [editor]);
 
   /**
    * Enter on a chip.
