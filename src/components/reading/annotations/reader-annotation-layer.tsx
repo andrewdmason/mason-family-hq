@@ -1030,6 +1030,34 @@ export function ReaderAnnotationLayer({
   }, [onNotesRequestHandled, openNotes, requestedNotes]);
 
   /**
+   * ⌥N — the notepad, straight there and straight back. ⌥B — the marks.
+   *
+   * Chords rather than bare letters, unlike `b` and `c`, and that is what
+   * makes them different in kind: a bare letter can never fire from a text
+   * field, but ⌥N is safe to press while typing in the notepad itself, so the
+   * same keystroke that opened it closes it. Matched on the physical key
+   * because on a Mac the Option layer produces dead keys and symbols — ⌥N is
+   * "˜", ⌥B is "∫" — and e.key would never say "n".
+   */
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.repeat) return;
+      if (e.code !== "KeyN" && e.code !== "KeyB") return;
+      if (inOpenOverlay(e.target)) return;
+      e.preventDefault();
+      if (e.code === "KeyB") {
+        openList();
+        return;
+      }
+      if (isArticle) return;
+      if (panelOpen && mode === "notes") onPanelOpenChange(false);
+      else openNotes();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isArticle, mode, onPanelOpenChange, openList, openNotes, panelOpen]);
+
+  /**
    * A place in the book as the notepad names it, for a pill.
    *
    * Chapter from the bounds the list groups by, page from the marks the book

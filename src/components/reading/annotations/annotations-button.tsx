@@ -97,7 +97,7 @@ export function ReaderMarginControls({
         type="button"
         onClick={onOpenList}
         aria-label="Show highlights and notes"
-        title={`Highlights and notes (${ANNOTATIONS_SHORTCUT_KEY})`}
+        title={`Highlights and notes (${ANNOTATIONS_SHORTCUT_KEY} or ⌥B)`}
         className={cn(
           BUTTON_CLASS,
           listActive

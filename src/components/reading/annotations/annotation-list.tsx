@@ -188,7 +188,7 @@ export function AnnotationList({
             type="button"
             onClick={onOpenNotes}
             aria-label="Your notes"
-            title="Your notes"
+            title="Your notes (⌥N)"
             className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <NotebookPen className="h-4 w-4" />
