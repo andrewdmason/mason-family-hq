@@ -1,22 +1,25 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey, TextSelection, type Transaction } from "@tiptap/pm/state";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { datePill, shouldStamp, type NotePlace } from "@/lib/reading/notes";
+import { shouldStamp, type NotePlace } from "@/lib/reading/notes";
 import { NOTEPAD_INSERT_META } from "./notepad-mentions";
-import { PILL_NODE, pillJSON } from "./notepad-pill";
+import { PILL_NODE } from "./notepad-pill";
 
 /**
- * Stamp a new paragraph with where — and when — the reader is.
+ * Stamp a new paragraph with where the reader is.
  *
  * The log behaviour, on top of a document. Every time a fresh top-level
  * paragraph is started — Enter at the end of a line, or the first keystroke in
- * an empty note — two things are checked. If the reader has moved in the book
- * since the last place stamp, a pill for where they are goes in. If the day
- * has changed since the last date pill, a pill for today goes in ahead of it.
- * Delete either and it's gone; nothing here puts it back. That is the whole
- * contract, and it is why this is an appendTransaction rather than an Enter
- * override: it never changes what a key does, it only adds to what just
- * happened.
+ * an empty note — and the reader has moved in the book since the last stamp, a
+ * pill for where they are goes in at the front of it. Delete it and it's gone;
+ * nothing here puts it back. That is the whole contract, and it is why this is
+ * an appendTransaction rather than an Enter override: it never changes what a
+ * key does, it only adds to what just happened.
+ *
+ * Places only. Dates were stamped here too for a day, on the first thing
+ * written each day, and Andrew didn't want them: a date is something you put
+ * in on purpose (⌥D, or the calendar button), not something the note does to
+ * itself.
  *
  * Top-level paragraphs only. Enter inside a list makes a new item, and inside a
  * blockquote continues the quote; neither is a new thought. Splitting a
@@ -36,14 +39,8 @@ export type AutostampOptions = {
   spot: () => NotePlace | null;
   /** The char of the most recent place stamp, or null before any. */
   lastStamp: () => number | null;
-  /** Today, YYYY-MM-DD. */
-  today: () => string;
-  /** The most recent date pill in the note, or null before any. */
-  lastDate: () => string | null;
-  /** A place stamp went in. */
+  /** A stamp went in. */
   onStamp: (place: NotePlace) => void;
-  /** A date stamp went in. */
-  onDateStamp: (iso: string) => void;
 };
 
 export const NotepadAutostamp = Extension.create<AutostampOptions>({
@@ -53,10 +50,7 @@ export const NotepadAutostamp = Extension.create<AutostampOptions>({
     return {
       spot: () => null,
       lastStamp: () => null,
-      today: () => "",
-      lastDate: () => null,
       onStamp: () => {},
-      onDateStamp: () => {},
     };
   },
 
@@ -117,32 +111,21 @@ export const NotepadAutostamp = Extension.create<AutostampOptions>({
           const type = newState.schema.nodes[PILL_NODE];
           if (!type) return null;
 
-          const nodes: PMNode[] = [];
-          const today = opts.today();
-          const dateDue = today !== "" && opts.lastDate() !== today;
-          if (dateDue) {
-            nodes.push(type.create(pillJSON(datePill(today)).attrs), newState.schema.text(" "));
-          }
           const spot = opts.spot();
-          const placeDue = spot != null && shouldStamp(opts.lastStamp(), spot.char);
-          if (placeDue && spot) {
-            nodes.push(
-              type.create({ kind: "place", char: spot.char, label: spot.label, mark: null }),
-              newState.schema.text(" ")
-            );
-          }
-          if (nodes.length === 0) return null;
+          if (!spot || !shouldStamp(opts.lastStamp(), spot.char)) return null;
 
           const tr: Transaction = newState.tr;
-          tr.insert(insertAt, nodes);
-          // The cursor lands after the pills and their spaces, where the words
-          // go. For an empty paragraph that is also where it was, mapped forward.
+          tr.insert(insertAt, [
+            type.create({ kind: "place", char: spot.char, label: spot.label, mark: null }),
+            newState.schema.text(" "),
+          ]);
+          // The cursor lands after the pill and its space, where the words go.
+          // For an empty paragraph that is also where it was, mapped forward.
           const after =
-            para.content.size === 0 ? insertAt + nodes.length : tr.mapping.map(sel.from);
+            para.content.size === 0 ? insertAt + 2 : tr.mapping.map(sel.from);
           tr.setSelection(TextSelection.create(tr.doc, after));
           tr.setMeta(AUTOSTAMP_META, true);
-          if (dateDue) opts.onDateStamp(today);
-          if (placeDue && spot) opts.onStamp(spot);
+          opts.onStamp(spot);
           return tr;
         },
       }),

@@ -15,7 +15,6 @@ import { memberPhotoUrl } from "@/lib/media/member-photo-url";
 import type { MentionTarget } from "@/lib/reading/mentions";
 import {
   datePill,
-  datesIn,
   noteWordCount,
   placesIn,
   todayIso,
@@ -52,10 +51,11 @@ export type ComposeRequest = Pick<ComposeScope, "kind" | "handle" | "name" | "te
  * The reader's notepad for this book, in the panel beside it.
  *
  * A document, not a log — you can go back into anything and rework it — with
- * the log's one good property kept: where and when you wrote something. Those
- * are PILLS in the text (see notepad-pill.ts), put there by the auto-stamp
- * (notepad-autostamp.ts), by the pin and calendar buttons in the header, and
- * after every passage that lands here from a highlight.
+ * the log's one good property kept: where you were when you wrote something.
+ * That is a PILL in the text (see notepad-pill.ts), put there by the auto-stamp
+ * (notepad-autostamp.ts), by the pin in the header, and after every passage
+ * that lands here from a highlight. A date is a pill too — the calendar button
+ * or ⌥D — but only ever on purpose.
  *
  * It is also where conversations start. Type @ under a passage, pick Ask or a
  * person, press Enter: the paragraph goes off as the first message of a
@@ -134,7 +134,6 @@ export function Notepad({
   const countsRef = useRef(replyCounts);
   countsRef.current = replyCounts;
   const lastStampRef = useRef<number | null>(placesIn(initial.markdown).at(-1)?.char ?? null);
-  const lastDateRef = useRef<string | null>(datesIn(initial.markdown).at(-1) ?? null);
   const activeIndexRef = useRef(0);
   const openPlaceRef = useRef(onOpenPlace);
   openPlaceRef.current = onOpenPlace;
@@ -254,13 +253,8 @@ export function Notepad({
       NotepadAutostamp.configure({
         spot: () => spotRef.current,
         lastStamp: () => lastStampRef.current,
-        today: () => todayIso(),
-        lastDate: () => lastDateRef.current,
         onStamp: (place) => {
           lastStampRef.current = place.char;
-        },
-        onDateStamp: (iso) => {
-          lastDateRef.current = iso;
         },
       }),
       NotepadMentions.configure({
@@ -427,7 +421,6 @@ export function Notepad({
   const stampDate = useCallback(() => {
     const iso = todayIso();
     insertPill(pillJSON(datePill(iso)));
-    lastDateRef.current = iso;
   }, [insertPill]);
 
   /**
