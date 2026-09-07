@@ -547,10 +547,19 @@
   font-style: normal;
 }
 
+/* A clear ladder, since a heading is the one thing the reader can't tell
+   apart from bold body text without one. */
 .notepad-editor h1 {
-  font-size: 1.15em;
+  font-size: 1.35em;
+  line-height: 1.3;
 }
 
 .notepad-editor h2 {
-  font-size: 1.05em;
+  font-size: 1.18em;
+  line-height: 1.35;
+}
+
+.notepad-editor h3 {
+  font-size: 1.04em;
+  line-height: 1.4;
 }
