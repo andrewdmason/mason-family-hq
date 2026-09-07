@@ -507,3 +507,50 @@
    Lightning CSS (Tailwind v4's parser) rejects `::highlight()` as an unknown
    pseudo-element and drops the rule, so it's injected at runtime instead, where
    the browser parses it. */
+
+/* The reader's notepad: a place in the book, as a pill in the text. */
+.notepad-editor {
+  min-height: 100%;
+}
+
+.notepad-editor .notepad-place {
+  display: inline-block;
+  vertical-align: baseline;
+  margin: 0 0.05em;
+  padding: 0 0.45em;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  font-size: 0.68em;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 1.7;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: color 120ms, background-color 120ms;
+}
+
+.notepad-editor .notepad-place:hover {
+  color: var(--foreground);
+  background: var(--accent);
+}
+
+.notepad-editor .notepad-place.ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.notepad-editor blockquote {
+  font-style: normal;
+}
+
+.notepad-editor h1 {
+  font-size: 1.15em;
+}
+
+.notepad-editor h2 {
+  font-size: 1.05em;
+}

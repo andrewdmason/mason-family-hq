@@ -15,7 +15,9 @@ import {
   setAnnotationStarred,
   setAnnotationTemplate,
 } from "@/app/(reading)/reader/annotation-actions";
+import { getBookNote, type BookNote } from "@/app/(reading)/reader/note-actions";
 import type { BookScope } from "@/lib/reading/book-documents";
+import { placeLabel, type NotePlace } from "@/lib/reading/notes";
 import { blockIndexForCharOffset, type BookBlock } from "@/lib/reading/block-stream";
 import { inOpenOverlay, isTypingTarget } from "@/lib/keyboard";
 import { note, startTimer, time } from "@/lib/reading/perf";
@@ -41,6 +43,7 @@ import type {
   ReaderChatTemplate,
 } from "@/lib/reading/annotation-types";
 import {
+  chapterIndexAt,
   summarizableChapters,
   type ChapterBound,
 } from "@/lib/reading/reading-progress";
@@ -55,6 +58,8 @@ import { BookDocumentThread } from "./book-document-thread";
 import { ChapterMenu } from "./chapter-menu";
 import { GutterMarkers } from "./gutter-markers";
 import { useGutterPlacement, type PagedGutterContext } from "./gutter-placement";
+import { Notepad, type NoteClip } from "./notepad";
+import type { MentionableMark } from "./notepad-mentions";
 import { PanelDockToggle } from "./panel-dock-toggle";
 import { SelectionToolbar, type SelectionIntent } from "./selection-toolbar";
 import { CounterpartPanel, type CounterpartRequest } from "./counterpart-panel";
@@ -190,6 +195,9 @@ export function ReaderAnnotationLayer({
   requestedDocument,
   onDocumentRequestHandled,
   onDocumentChanged,
+  requestedNotes,
+  onNotesRequestHandled,
+  onNoteChanged,
   goToChar,
   paged,
   panelOpen,
@@ -269,6 +277,17 @@ export function ReaderAnnotationLayer({
   onDocumentRequestHandled: () => void;
   /** One was written or deleted; the Contents dates what it offers. */
   onDocumentChanged: () => void;
+  /**
+   * The notepad, asked for from the Contents. A request, like the documents:
+   * cleared by onNotesRequestHandled once acted on.
+   */
+  requestedNotes: boolean;
+  onNotesRequestHandled: () => void;
+  /**
+   * The notepad loaded, or a save landed — what the Contents describes it by.
+   * Never called for an article, which has no notepad.
+   */
+  onNoteChanged: (note: BookNote) => void;
   goToChar: (charOffset: number) => void;
   /** Non-null in paged mode; drives marker placement. */
   paged: PagedGutterContext | null;
@@ -315,11 +334,28 @@ export function ReaderAnnotationLayer({
    */
   const [draftId, setDraftId] = useState<string | null>(null);
   /**
-   * The panel shows one annotation, the index of all of them, or — for a peek
-   * at the other face — a passage with no annotation behind it at all.
+   * The panel shows one annotation, the index of all of them, the reader's
+   * notepad, or — for a peek at the other face — a passage with no annotation
+   * behind it at all.
    */
-  const [mode, setMode] = useState<"thread" | "list" | "counterpart">("thread");
+  const [mode, setMode] = useState<"thread" | "list" | "notes" | "counterpart">("thread");
   const [counterpart, setCounterpart] = useState<CounterpartRequest | null>(null);
+  /**
+   * The notepad as last loaded or saved. The LIVE text while the reader types
+   * lives in the ref, not here: a state write per keystroke would re-render the
+   * whole layer — gutter, highlights, toolbar — for a change none of them can
+   * see. State catches up on each save, which is what the Contents reads.
+   */
+  const [noteDoc, setNoteDoc] = useState<BookNote | null>(null);
+  const noteRef = useRef<string>("");
+  /** A passage clipped from the page, waiting for the notepad to take it. */
+  const [clip, setClip] = useState<NoteClip | null>(null);
+  /**
+   * Which of the two destinations the margin button last showed, so reopening
+   * the panel lands where you left it. In-session only: it is a habit of this
+   * sitting, not a setting.
+   */
+  const lastViewRef = useRef<"list" | "notes">("list");
   /**
    * Whether the index is collapsed to starred marks only. Remembered per book —
    * see starred-filter.ts for why it is per book and not per device.
@@ -575,6 +611,28 @@ export function ReaderAnnotationLayer({
   // Keyed on the book, so opening a second one in the same tab re-reads rather
   // than carrying the first book's filter into it.
   useEffect(() => setStarredOnly(loadStarredOnly(bookId)), [bookId]);
+
+  // The notepad, read on arrival rather than when it's opened: the Contents
+  // says whether there's anything in it, and shouldn't have to wait to find out.
+  useEffect(() => {
+    if (isArticle) return;
+    let cancelled = false;
+    void getBookNote(bookId, memberEmail)
+      .then((n) => {
+        if (cancelled) return;
+        noteRef.current = n.markdown;
+        setNoteDoc(n);
+        onNoteChanged(n);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [bookId, isArticle, memberEmail, onNoteChanged]);
+
+  useEffect(() => {
+    if (mode === "list" || mode === "notes") lastViewRef.current = mode;
+  }, [mode]);
   const changeStarredOnly = useCallback(
     (on: boolean) => {
       setStarredOnly(on);
@@ -606,15 +664,17 @@ export function ReaderAnnotationLayer({
   );
 
   const openList = useCallback(() => {
-    // Toggle: the same control and the same key close it again.
-    if (panelOpen && mode === "list") {
+    // Toggle: the same control and the same key close it again. The notepad
+    // counts — it is the other thing this button shows.
+    if (panelOpen && (mode === "list" || mode === "notes")) {
       onPanelOpenChange(false);
       return;
     }
-    setMode("list");
+    // Wherever the button last left you: the marks, or your notes.
+    setMode(lastViewRef.current === "notes" && !isArticle ? "notes" : "list");
     setDraftId(null);
     onPanelOpenChange(true);
-  }, [mode, onPanelOpenChange, panelOpen]);
+  }, [isArticle, mode, onPanelOpenChange, panelOpen]);
 
   /**
    * Coming in from the shelf's annotation count, which promised the notes.
@@ -948,6 +1008,77 @@ export function ReaderAnnotationLayer({
     setMode("list");
   }, [releaseOpenChat]);
 
+  /**
+   * The notepad, in this panel.
+   *
+   * Leaves an untouched draft the same way going back to the list does — the
+   * notepad is the one place you'd go from a blank question to write the
+   * thought down instead, and that must not leave a phantom mark behind.
+   */
+  const openNotes = useCallback(() => {
+    if (isArticle) return;
+    if (releaseOpenChat()) setDetail(null);
+    setMode("notes");
+    setDraftId(null);
+    onPanelOpenChange(true);
+  }, [isArticle, onPanelOpenChange, releaseOpenChat]);
+
+  useEffect(() => {
+    if (!requestedNotes) return;
+    onNotesRequestHandled();
+    openNotes();
+  }, [onNotesRequestHandled, openNotes, requestedNotes]);
+
+  /**
+   * A place in the book as the notepad names it, for a pill.
+   *
+   * Chapter from the bounds the list groups by, page from the marks the book
+   * shipped with, percentage from the char space — the same three answers the
+   * bookmarks and the marks list give, so a pill never names a spot differently
+   * from the row beside it.
+   */
+  const placeAt = useCallback(
+    (char: number, mark: string | null): NotePlace => {
+      const ci = chapterIndexAt(char, chapters);
+      return {
+        char,
+        label: placeLabel({
+          chapterTitle: ci >= 0 ? chapters[ci].title : null,
+          page: pageForCharOffset(char),
+          percent: totalChars > 0 ? (char / totalChars) * 100 : 0,
+          hasRealPages: data?.hasRealPages ?? false,
+        }),
+        mark,
+      };
+    },
+    [chapters, data?.hasRealPages, pageForCharOffset, totalChars]
+  );
+
+  /** Where the reader is, for a stamp. Null for an article: no char space. */
+  const noteSpot = useMemo<NotePlace | null>(
+    () => (isArticle || totalChars <= 0 ? null : placeAt(currentCharOffset, null)),
+    [currentCharOffset, isArticle, placeAt, totalChars]
+  );
+
+  /**
+   * The marks the @ menu offers: passages only, in reading order. A chapter
+   * summary has no words of the reader's to pull in, and a mark that is still
+   * a stand-in has no id worth linking to.
+   */
+  const mentionableMarks = useMemo<MentionableMark[]>(
+    () =>
+      chats
+        .filter((c) => c.quotedText && !c.chapterAnchorId && !isPendingId(c.id))
+        .sort((a, b) => a.anchorCharOffset - b.anchorCharOffset)
+        .map((c) => ({
+          id: c.id,
+          quote: c.quotedText as string,
+          note: c.latestNote,
+          place: placeAt(c.anchorCharOffset, c.id),
+        })),
+    [chats, placeAt]
+  );
+
   // `blockIndex` is global, like every index that reaches an anchor. See
   // RenderedBlocks.
   const startAtGap = useCallback(
@@ -1004,6 +1135,19 @@ export function ReaderAnnotationLayer({
         setDetail(null);
         setDraftId(null);
         onPanelOpenChange(true);
+        return;
+      }
+
+      // Into the notepad, as a quote with a pill after it. No mark: this is
+      // copying the author's words somewhere, not marking them — the same
+      // passage can still be highlighted afterwards if it deserves it.
+      if (intent === "clip") {
+        setClip({
+          nonce: Date.now(),
+          quote: resolved.quotedText ?? range.toString().trim(),
+          place: placeAt(resolved.anchorCharOffset, null),
+        });
+        openNotes();
         return;
       }
 
@@ -1076,7 +1220,9 @@ export function ReaderAnnotationLayer({
       memberEmail,
       onPanelOpenChange,
       openDraft,
+      openNotes,
       optimisticRow,
+      placeAt,
       refreshList,
       shownFace,
       space,
@@ -1532,6 +1678,38 @@ export function ReaderAnnotationLayer({
     [detail, memberEmail, onceCreated, refreshList]
   );
 
+  // ---- The notepad's callbacks --------------------------------------------
+
+  const clearClip = useCallback(() => setClip(null), []);
+
+  /** Every keystroke, into the ref only — see `noteDoc`. */
+  const holdNote = useCallback((markdown: string) => {
+    noteRef.current = markdown;
+  }, []);
+
+  /** A save landed: now the state, and the Contents, catch up. */
+  const noteSaved = useCallback(
+    (updatedAt: string) => {
+      const next = { markdown: noteRef.current, updatedAt };
+      setNoteDoc(next);
+      onNoteChanged(next);
+    },
+    [onNoteChanged]
+  );
+
+  /**
+   * A pill was tapped. Go there — by character offset, like every other jump —
+   * and if the pill came from a mark, open that mark's thread too: the
+   * passage and the conversation about it are what the pill stands for.
+   */
+  const openPlace = useCallback(
+    (char: number, mark: string | null) => {
+      goToChar(char);
+      if (mark) void openExisting(mark);
+    },
+    [goToChar, openExisting]
+  );
+
   /** What the open thread is a summary OF, when it's a summary at all. */
   const openChapterTitle = useMemo(() => {
     const anchorId = detail?.chapterAnchorId;
@@ -1643,7 +1821,7 @@ export function ReaderAnnotationLayer({
       <ReaderMarginControls
         onAsk={askHere}
         onOpenList={openList}
-        listActive={panelOpen && mode === "list"}
+        listActive={panelOpen && (mode === "list" || mode === "notes")}
       />
       {!hideGutter && (
         <GutterMarkers
@@ -1696,6 +1874,28 @@ export function ReaderAnnotationLayer({
             onClose={closePanel}
             dockToggle={dockToggle}
           />
+        ) : mode === "notes" ? (
+          noteDoc ? (
+            <Notepad
+              // Remounted per open, and the text it opens with is whatever was
+              // last typed — held in the ref, not the state, see `noteDoc`.
+              bookId={bookId}
+              memberEmail={memberEmail}
+              initial={{ markdown: noteRef.current, updatedAt: noteDoc.updatedAt }}
+              marks={mentionableMarks}
+              spot={noteSpot}
+              clip={clip}
+              onClipHandled={clearClip}
+              onOpenPlace={openPlace}
+              onChange={holdNote}
+              onSaved={noteSaved}
+              onBack={backToList}
+              onClose={closePanel}
+              dockToggle={dockToggle}
+            />
+          ) : (
+            <p className="px-4 py-6 text-xs text-muted-foreground">Opening your notes…</p>
+          )
         ) : mode === "list" ? (
           <AnnotationList
             annotations={chats}
@@ -1708,6 +1908,7 @@ export function ReaderAnnotationLayer({
             onOpen={(id) => void openExisting(id)}
             onClose={closePanel}
             onAsk={askHere}
+            onOpenNotes={isArticle ? null : openNotes}
             starredOnly={starredOnly}
             onStarredOnlyChange={changeStarredOnly}
             onToggleStar={(id, next) => void toggleStar(id, next)}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bookmark, ChevronRight, MoreHorizontal, PenLine } from "lucide-react";
+import { Bookmark, ChevronRight, MoreHorizontal, NotebookPen, PenLine } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +27,7 @@ import {
   type BookScope,
 } from "@/lib/reading/book-documents";
 import type { BookDocumentState } from "@/lib/reading/annotation-types";
+import { noteBlurb } from "@/lib/reading/notes";
 import { cn } from "@/lib/utils";
 import type { ReadingTocEntry } from "@/lib/types";
 
@@ -73,6 +74,16 @@ export type ContentsBookmark = {
   /** The reader is standing on this one right now. */
   current: boolean;
 };
+
+/**
+ * The reader's notepad, as the Contents describes it: whether anything's
+ * written, and how much. Null while it hasn't loaded, and for an article.
+ */
+export type ContentsNote = {
+  markdown: string;
+  updatedAt: string | null;
+};
+
 export function ContentsDialog({
   open,
   onOpenChange,
@@ -84,6 +95,8 @@ export function ContentsDialog({
   onGoToChapter,
   documents,
   onOpenDocument,
+  note,
+  onOpenNote,
   bookmarks,
   onGoToBookmark,
   onRenameBookmark,
@@ -109,6 +122,9 @@ export function ContentsDialog({
    */
   documents: BookDocumentState[] | null;
   onOpenDocument: (scope: BookScope) => void;
+  /** The reader's notepad. Null until loaded, and never for an article. */
+  note: ContentsNote | null;
+  onOpenNote: () => void;
   /** In reading order. Empty is the common case and renders nothing. */
   bookmarks: ContentsBookmark[];
   onGoToBookmark: (id: string) => void;
@@ -145,6 +161,11 @@ export function ContentsDialog({
               onOpenDocument(scope);
               onOpenChange(false);
             }}
+            note={note}
+            onOpenNote={() => {
+              onOpenNote();
+              onOpenChange(false);
+            }}
             bookmarks={bookmarks}
             onGoToBookmark={(id) => {
               onGoToBookmark(id);
@@ -175,6 +196,8 @@ function ContentsBody({
   onGoToChapter,
   documents,
   onOpenDocument,
+  note,
+  onOpenNote,
   bookmarks,
   onGoToBookmark,
   onRenameBookmark,
@@ -188,6 +211,8 @@ function ContentsBody({
   onGoToChapter: (anchorId: string) => void;
   documents: BookDocumentState[] | null;
   onOpenDocument: (scope: BookScope) => void;
+  note: ContentsNote | null;
+  onOpenNote: () => void;
   bookmarks: ContentsBookmark[];
   onGoToBookmark: (id: string) => void;
   onRenameBookmark: (id: string) => void;
@@ -299,6 +324,10 @@ function ContentsBody({
       {preface && (
         <DocumentRow state={preface} onOpen={() => onOpenDocument("preface")} />
       )}
+
+      {/* With the preface, above the book's own contents: both are the
+          reader's, and the notepad is the one they'll open most. */}
+      {note && <NoteRow note={note} onOpen={onOpenNote} />}
 
       {noContents ? (
         <p className="py-3 text-sm text-muted-foreground">
@@ -470,6 +499,30 @@ function DocumentRow({
           </span>
           <span className="block truncate text-xs text-muted-foreground">
             {subtitle}
+          </span>
+        </span>
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The reader's notepad. Same shape as the two documents, because from here it
+ * is the same kind of thing: a page of theirs, outside the book's tree.
+ */
+function NoteRow({ note, onOpen }: { note: ContentsNote; onOpen: () => void }) {
+  return (
+    <div className="my-1 mb-2 border-b border-border pb-2">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex w-full items-center gap-2.5 rounded-md px-1 py-1.5 text-left transition-colors hover:bg-muted"
+      >
+        <NotebookPen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm text-foreground">Your notes</span>
+          <span className="block truncate text-xs text-muted-foreground">
+            {noteBlurb(note.markdown, note.updatedAt)}
           </span>
         </span>
       </button>

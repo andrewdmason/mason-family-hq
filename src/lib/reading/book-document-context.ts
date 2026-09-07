@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getTextForRange } from "@/lib/reading/extract-text";
 import type { ChapterIndexEntry } from "@/lib/reading/context-markup";
 import type { BookScope } from "@/lib/reading/book-documents";
+import { notesForPrompt } from "@/lib/reading/notes";
 import { gatherReaderProfile, type ReaderProfile } from "@/lib/reading/reader-profile";
 import {
   isReaderChatTemplate,
@@ -196,7 +197,37 @@ export type BookDocumentContext = {
   marksTruncated: boolean;
   /** Afterword only: the preface they wrote before reading, if they wrote one. */
   preface: string | null;
+  /**
+   * The notepad they kept beside the book, as the assistant reads it (see
+   * notesForPrompt). Both documents get it: an afterword is largely made of
+   * it, and a preface written by someone who has already started taking notes
+   * should know what they've been thinking. Null when nothing's written.
+   */
+  notes: { text: string; truncated: boolean } | null;
 };
+
+/**
+ * The reader's notepad for a book, ready for a prompt.
+ *
+ * Shared by the afterword, the preface and the mid-book chat, so every surface
+ * reads the same document the same way. Null when there is none or it is
+ * empty, which is the common case and not a failure.
+ */
+export async function getBookNotes(
+  client: SupabaseClient,
+  userId: string,
+  bookId: string
+): Promise<{ text: string; truncated: boolean } | null> {
+  const { data } = await client
+    .from("reading_notes")
+    .select("content")
+    .eq("book_id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const markdown = ((data?.content as string | null) ?? "").trim();
+  if (!markdown) return null;
+  return notesForPrompt(markdown);
+}
 
 /**
  * The reader's most recent preface for a book, as plain text.
@@ -438,6 +469,8 @@ export async function gatherBookDocumentContext(
   const preface =
     scope === "afterword" ? await getBookPreface(client, userId, bookId) : null;
 
+  const notes = await getBookNotes(client, userId, bookId);
+
   const profile = await gatherReaderProfile(
     client,
     userId,
@@ -483,6 +516,7 @@ export async function gatherBookDocumentContext(
     passageCount: marksResult?.passages ?? 0,
     marksTruncated: marksResult?.truncated ?? false,
     preface,
+    notes,
   };
 }
 
