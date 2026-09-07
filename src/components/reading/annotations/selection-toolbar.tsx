@@ -1,27 +1,28 @@
 "use client";
 
-import { BookOpenText, Highlighter, Languages, MessageSquareQuote, StickyNote } from "lucide-react";
+import { BookOpenText, Highlighter, Languages, MessageSquareQuote } from "lucide-react";
 import { PAGE_PAD_BOTTOM } from "@/lib/reading/paged-geometry";
 import { cn } from "@/lib/utils";
 import { useFinePointer, useSelectionRange } from "./use-selection-range";
 
 /**
- * Three things a passage can become.
+ * Two things a passage can become.
  *
- * "Ask" starts a conversation with Nor; "Note" starts one without him. The
- * choice is made here, once, and the thread remembers it — so Enter in the
- * panel never needs telling who a line is for. There is no "Share": naming
- * somebody is done by typing their @handle inside either kind of thread, which
- * is the same gesture whether you decided to share before or after writing.
+ * "Highlight" marks it on the page and lands it in your notes, where the
+ * thought about it goes — and where, by typing @, it can become a conversation
+ * with the AI or with somebody in the family. "Ask" is the fast path to the
+ * first of those: a conversation about the passage, now, without going through
+ * the notes. There used to be a "Note" here that started a conversation with
+ * nobody in it; the notepad is where that writing goes now.
  *
- * Three for an article. A BOOK gets a fourth: "face" shows the passage in the
+ * Two for an article. A BOOK gets a third: "face" shows the passage in the
  * other face — Plain English for a passage you're reading in the original, the
  * author's words for one you're reading in plain. It opens the panel and makes
  * no mark. The touch bar lays actions out flex-1 inside PAGE_PAD_BOTTOM, so the
- * fourth is budgeted as an icon with a short label rather than by growing the
+ * third is budgeted as an icon with a short label rather than by growing the
  * bar.
  */
-export type SelectionIntent = "highlight" | "ask" | "note" | "face";
+export type SelectionIntent = "highlight" | "ask" | "face";
 
 const ACTIONS: {
   intent: SelectionIntent;
@@ -30,11 +31,10 @@ const ACTIONS: {
 }[] = [
   { intent: "highlight", label: "Highlight", Icon: Highlighter },
   { intent: "ask", label: "Ask", Icon: MessageSquareQuote },
-  { intent: "note", label: "Note", Icon: StickyNote },
 ];
 
 /**
- * Select a passage, get three things to do with it.
+ * Select a passage, get a few things to do with it.
  *
  * Two shells, same actions:
  *

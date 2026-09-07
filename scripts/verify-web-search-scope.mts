@@ -87,6 +87,7 @@ function documentContext(
     passageCount: 0,
     marksTruncated: false,
     preface: null,
+    notes: null,
     ...overrides,
   };
 }
@@ -200,6 +201,7 @@ const chatInput = {
   quotedText: null,
   hasReaderNotes: false,
   readerIntent: null,
+  readerNotes: null,
   readerProfile: null,
   depth: "fast" as const,
   template: null,

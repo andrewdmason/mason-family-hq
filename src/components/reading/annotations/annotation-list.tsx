@@ -4,6 +4,7 @@ import {
   Highlighter,
   MessageSquare,
   MessageSquarePlus,
+  NotebookPen,
   Star,
   X,
 } from "lucide-react";
@@ -53,6 +54,7 @@ export function AnnotationList({
   onOpen,
   onClose,
   onAsk,
+  onOpenNotes,
   starredOnly,
   onStarredOnlyChange,
   onToggleStar,
@@ -81,6 +83,11 @@ export function AnnotationList({
    * think of something new to ask.
    */
   onAsk: () => void;
+  /**
+   * Open the reader's notepad in this panel. Null for an article, which has no
+   * character space for a pill to point into and so gets no notepad.
+   */
+  onOpenNotes: (() => void) | null;
   /** Collapse the list to starred marks only. Remembered per book by the caller. */
   starredOnly: boolean;
   onStarredOnlyChange: (on: boolean) => void;
@@ -174,6 +181,19 @@ export function AnnotationList({
         >
           <MessageSquarePlus className="h-4 w-4" />
         </button>
+        {/* The notepad: the reader's own page for this book, which takes over
+            this panel. With the ask button because it is about the book. */}
+        {onOpenNotes && (
+          <button
+            type="button"
+            onClick={onOpenNotes}
+            aria-label="Your notes"
+            title="Your notes (⌥N)"
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <NotebookPen className="h-4 w-4" />
+          </button>
+        )}
         {/* Also about the book rather than the panel, so it sits with the ask
             button and ahead of the two panel controls. What it hides, it hides
             HERE and nowhere else: every highlight stays on the page and every

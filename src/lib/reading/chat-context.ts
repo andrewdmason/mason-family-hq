@@ -2,7 +2,11 @@ import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getTextForRange } from "@/lib/reading/extract-text";
-import { getBookPreface, getReaderMarks } from "@/lib/reading/book-document-context";
+import {
+  getBookNotes,
+  getBookPreface,
+  getReaderMarks,
+} from "@/lib/reading/book-document-context";
 import { gatherReaderProfile } from "@/lib/reading/reader-profile";
 import { todayLocal } from "@/lib/journal/today";
 import { resolveReaderPosition } from "@/lib/reading/reader-position";
@@ -203,8 +207,11 @@ export async function buildReaderChatContext(input: {
   //
   // All of these sit between the reader pressing send and the first token, so
   // they go together rather than one after another.
-  const [readerIntent, readerProfile, marksResult, plainFace] = await Promise.all([
+  const [readerIntent, readerNotes, readerProfile, marksResult, plainFace] = await Promise.all([
     isArticle ? null : getBookPreface(db, userId, chat.book_id),
+    // The notepad, unlike the marks above, DOES come along — it is prose the
+    // reader wrote to think with, not a list of passages to theorise about.
+    isArticle ? null : getBookNotes(db, userId, chat.book_id),
     todayLocal().then((today) => gatherReaderProfile(db, userId, email, today)),
     template === "check_in" && !isArticle
       ? getReaderMarks(db, userId, chat.book_id, {
@@ -240,6 +247,7 @@ export async function buildReaderChatContext(input: {
     plainQuotedText: chat.plain_quoted_text ?? null,
     hasReaderNotes: input.hasReaderNotes,
     readerIntent,
+    readerNotes,
     readerProfile,
     depth,
     template,

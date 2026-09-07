@@ -86,6 +86,7 @@ function ctx(over: Partial<BookDocumentContext> = {}): BookDocumentContext {
     passageCount: 0,
     marksTruncated: false,
     preface: null,
+    notes: null,
     ...over,
   };
 }

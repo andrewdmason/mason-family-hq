@@ -15,7 +15,9 @@ import {
   setAnnotationStarred,
   setAnnotationTemplate,
 } from "@/app/(reading)/reader/annotation-actions";
+import { getBookNote, saveBookNote, type BookNote } from "@/app/(reading)/reader/note-actions";
 import type { BookScope } from "@/lib/reading/book-documents";
+import { appendClipMarkdown, placeLabel, type NotePlace } from "@/lib/reading/notes";
 import { blockIndexForCharOffset, type BookBlock } from "@/lib/reading/block-stream";
 import { inOpenOverlay, isTypingTarget } from "@/lib/keyboard";
 import { note, startTimer, time } from "@/lib/reading/perf";
@@ -41,11 +43,13 @@ import type {
   ReaderChatTemplate,
 } from "@/lib/reading/annotation-types";
 import {
+  chapterIndexAt,
   summarizableChapters,
   type ChapterBound,
 } from "@/lib/reading/reading-progress";
 import { loadStarredOnly, saveStarredOnly } from "@/lib/reading/starred-filter";
 import { CHAPTER_TAP_CLASS } from "../reader-prose";
+import { useReaderSettings } from "../use-reader-settings";
 import { AnnotationPanel } from "./annotation-panel";
 import { AnnotationList } from "./annotation-list";
 import { ReaderMarginControls } from "./annotations-button";
@@ -55,6 +59,7 @@ import { BookDocumentThread } from "./book-document-thread";
 import { ChapterMenu } from "./chapter-menu";
 import { GutterMarkers } from "./gutter-markers";
 import { useGutterPlacement, type PagedGutterContext } from "./gutter-placement";
+import { Notepad, type ComposeRequest, type NoteClip } from "./notepad";
 import { PanelDockToggle } from "./panel-dock-toggle";
 import { SelectionToolbar, type SelectionIntent } from "./selection-toolbar";
 import { CounterpartPanel, type CounterpartRequest } from "./counterpart-panel";
@@ -190,6 +195,9 @@ export function ReaderAnnotationLayer({
   requestedDocument,
   onDocumentRequestHandled,
   onDocumentChanged,
+  requestedNotes,
+  onNotesRequestHandled,
+  onNoteChanged,
   goToChar,
   paged,
   panelOpen,
@@ -269,6 +277,17 @@ export function ReaderAnnotationLayer({
   onDocumentRequestHandled: () => void;
   /** One was written or deleted; the Contents dates what it offers. */
   onDocumentChanged: () => void;
+  /**
+   * The notepad, asked for from the Contents. A request, like the documents:
+   * cleared by onNotesRequestHandled once acted on.
+   */
+  requestedNotes: boolean;
+  onNotesRequestHandled: () => void;
+  /**
+   * The notepad loaded, or a save landed — what the Contents describes it by.
+   * Never called for an article, which has no notepad.
+   */
+  onNoteChanged: (note: BookNote) => void;
   goToChar: (charOffset: number) => void;
   /** Non-null in paged mode; drives marker placement. */
   paged: PagedGutterContext | null;
@@ -315,11 +334,39 @@ export function ReaderAnnotationLayer({
    */
   const [draftId, setDraftId] = useState<string | null>(null);
   /**
-   * The panel shows one annotation, the index of all of them, or — for a peek
-   * at the other face — a passage with no annotation behind it at all.
+   * The panel shows one annotation, the index of all of them, the reader's
+   * notepad, or — for a peek at the other face — a passage with no annotation
+   * behind it at all.
    */
-  const [mode, setMode] = useState<"thread" | "list" | "counterpart">("thread");
+  const [mode, setMode] = useState<"thread" | "list" | "notes" | "counterpart">("thread");
   const [counterpart, setCounterpart] = useState<CounterpartRequest | null>(null);
+  /**
+   * The notepad as last loaded or saved. The LIVE text while the reader types
+   * lives in the ref, not here: a state write per keystroke would re-render the
+   * whole layer — gutter, highlights, toolbar — for a change none of them can
+   * see. State catches up on each save, which is what the Contents reads.
+   */
+  const [noteDoc, setNoteDoc] = useState<BookNote | null>(null);
+  const noteRef = useRef<string>("");
+  /** A passage clipped from the page, waiting for the notepad to take it. */
+  const [clip, setClip] = useState<NoteClip | null>(null);
+  /** Bumped by ⌥N while the notepad is already showing: cursor back to the end. */
+  const [noteFocusNonce, setNoteFocusNonce] = useState(0);
+  /**
+   * A first question for a thread just made from the notes, sent by the
+   * thread the moment it opens. Keyed by annotation so a stale one can never
+   * be asked of the wrong conversation.
+   */
+  const [openingQuestion, setOpeningQuestion] = useState<{ id: string; text: string } | null>(
+    null
+  );
+  const { settings, update: updateSettings } = useReaderSettings();
+  /**
+   * Which of the two destinations the margin button last showed, so reopening
+   * the panel lands where you left it. In-session only: it is a habit of this
+   * sitting, not a setting.
+   */
+  const lastViewRef = useRef<"list" | "notes">("list");
   /**
    * Whether the index is collapsed to starred marks only. Remembered per book —
    * see starred-filter.ts for why it is per book and not per device.
@@ -575,6 +622,28 @@ export function ReaderAnnotationLayer({
   // Keyed on the book, so opening a second one in the same tab re-reads rather
   // than carrying the first book's filter into it.
   useEffect(() => setStarredOnly(loadStarredOnly(bookId)), [bookId]);
+
+  // The notepad, read on arrival rather than when it's opened: the Contents
+  // says whether there's anything in it, and shouldn't have to wait to find out.
+  useEffect(() => {
+    if (isArticle) return;
+    let cancelled = false;
+    void getBookNote(bookId, memberEmail)
+      .then((n) => {
+        if (cancelled) return;
+        noteRef.current = n.markdown;
+        setNoteDoc(n);
+        onNoteChanged(n);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [bookId, isArticle, memberEmail, onNoteChanged]);
+
+  useEffect(() => {
+    if (mode === "list" || mode === "notes") lastViewRef.current = mode;
+  }, [mode]);
   const changeStarredOnly = useCallback(
     (on: boolean) => {
       setStarredOnly(on);
@@ -606,15 +675,17 @@ export function ReaderAnnotationLayer({
   );
 
   const openList = useCallback(() => {
-    // Toggle: the same control and the same key close it again.
-    if (panelOpen && mode === "list") {
+    // Toggle: the same control and the same key close it again. The notepad
+    // counts — it is the other thing this button shows.
+    if (panelOpen && (mode === "list" || mode === "notes")) {
       onPanelOpenChange(false);
       return;
     }
-    setMode("list");
+    // Wherever the button last left you: the marks, or your notes.
+    setMode(lastViewRef.current === "notes" && !isArticle ? "notes" : "list");
     setDraftId(null);
     onPanelOpenChange(true);
-  }, [mode, onPanelOpenChange, panelOpen]);
+  }, [isArticle, mode, onPanelOpenChange, panelOpen]);
 
   /**
    * Coming in from the shelf's annotation count, which promised the notes.
@@ -948,6 +1019,172 @@ export function ReaderAnnotationLayer({
     setMode("list");
   }, [releaseOpenChat]);
 
+  /**
+   * The notepad, in this panel.
+   *
+   * Leaves an untouched draft the same way going back to the list does — the
+   * notepad is the one place you'd go from a blank question to write the
+   * thought down instead, and that must not leave a phantom mark behind.
+   */
+  const openNotes = useCallback(() => {
+    if (isArticle) return;
+    if (releaseOpenChat()) setDetail(null);
+    setMode("notes");
+    setDraftId(null);
+    onPanelOpenChange(true);
+  }, [isArticle, onPanelOpenChange, releaseOpenChat]);
+
+  useEffect(() => {
+    if (!requestedNotes) return;
+    onNotesRequestHandled();
+    openNotes();
+  }, [onNotesRequestHandled, openNotes, requestedNotes]);
+
+  /**
+   * ⌥N — the notepad, and the cursor at the end of it. ⌥B — anchor the panel.
+   *
+   * Neither ever closes anything. The model is that a panel is either ANCHORED
+   * — part of the layout, there until you say otherwise — or floating, a
+   * temporary thing over the book. ⌥B is how you say which (and opens the
+   * panel anchored if it was shut). ⌥N always lands you typing: it opens the
+   * notepad if it isn't showing and puts the cursor back at the end if it is.
+   * Escape is the one key that steps OUT: from typing to the page, and from a
+   * floating panel to no panel — never from an anchored one.
+   *
+   * Chords rather than bare letters, unlike `b` and `c`, and that is what
+   * makes them different in kind: a bare letter can never fire from a text
+   * field, but ⌥N is safe to press while typing in the notepad itself.
+   * Matched on the physical key because on a Mac the Option layer produces
+   * dead keys and symbols — ⌥N is "˜", ⌥B is "∫" — and e.key would never
+   * say "n".
+   *
+   * Anchoring is only a choice where floating is on offer (see dockToggle).
+   * On a sheet or a scrolling book the panel is docked by necessity, and
+   * there ⌥B falls back to opening the panel.
+   */
+  const anchorable = canFloat && !asSheet;
+  const anchored = anchorable && settings.chatDocked;
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.repeat) return;
+      if (e.code !== "KeyN" && e.code !== "KeyB") return;
+      if (inOpenOverlay(e.target)) return;
+      e.preventDefault();
+      if (e.code === "KeyB") {
+        if (!anchorable) {
+          openList();
+          return;
+        }
+        if (!panelOpen) {
+          updateSettings("chatDocked", true);
+          openList();
+          return;
+        }
+        updateSettings("chatDocked", !settings.chatDocked);
+        return;
+      }
+      if (isArticle) return;
+      if (panelOpen && mode === "notes") setNoteFocusNonce((n) => n + 1);
+      else openNotes();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    anchorable,
+    isArticle,
+    mode,
+    openList,
+    openNotes,
+    panelOpen,
+    settings.chatDocked,
+    updateSettings,
+  ]);
+
+  // ---- The notepad's callbacks, first half ---------------------------------
+
+  const clearClip = useCallback(() => setClip(null), []);
+
+  /** Every keystroke, into the ref only — see `noteDoc`. */
+  const holdNote = useCallback((markdown: string) => {
+    noteRef.current = markdown;
+  }, []);
+
+  /** A save landed: now the state, and the Contents, catch up. */
+  const noteSaved = useCallback(
+    (updatedAt: string) => {
+      const next = { markdown: noteRef.current, updatedAt };
+      setNoteDoc(next);
+      onNoteChanged(next);
+    },
+    [onNoteChanged]
+  );
+
+  /** The question waiting for a thread, readable from inside a callback. */
+  const openingQuestionRef = useRef<{ id: string; text: string } | null>(null);
+
+  /**
+   * A place in the book as the notepad names it, for a pill.
+   *
+   * Chapter from the bounds the list groups by, page from the marks the book
+   * shipped with, percentage from the char space — the same three answers the
+   * bookmarks and the marks list give, so a pill never names a spot differently
+   * from the row beside it.
+   */
+  const placeAt = useCallback(
+    (char: number, mark: string | null): NotePlace => {
+      const ci = chapterIndexAt(char, chapters);
+      return {
+        char,
+        label: placeLabel({
+          chapterTitle: ci >= 0 ? chapters[ci].title : null,
+          page: pageForCharOffset(char),
+          percent: totalChars > 0 ? (char / totalChars) * 100 : 0,
+          hasRealPages: data?.hasRealPages ?? false,
+        }),
+        mark,
+      };
+    },
+    [chapters, data?.hasRealPages, pageForCharOffset, totalChars]
+  );
+
+  /** Where the reader is, for a stamp. Null for an article: no char space. */
+  const noteSpot = useMemo<NotePlace | null>(
+    () => (isArticle || totalChars <= 0 ? null : placeAt(currentCharOffset, null)),
+    [currentCharOffset, isArticle, placeAt, totalChars]
+  );
+
+  /** Replies per thread, for the notepad's conversation pills. */
+  const threadReplyCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of chats) counts.set(c.id, c.messageCount);
+    return counts;
+  }, [chats]);
+
+  /**
+   * A passage lands in the notes.
+   *
+   * With the notepad able to open beside the book, it opens, takes the
+   * passage, and puts the cursor on the line below — the highlight was the
+   * gesture and this is where the thought about it goes. On a sheet (a phone)
+   * the passage is written straight into the stored note instead: popping a
+   * panel over the page on every highlight would make highlighting a chore.
+   */
+  const landInNotes = useCallback(
+    (quote: string, place: NotePlace) => {
+      if (!asSheet) {
+        setClip({ nonce: Date.now(), quote, place });
+        openNotes();
+        return;
+      }
+      const next = appendClipMarkdown(noteRef.current, quote, place);
+      noteRef.current = next;
+      void saveBookNote({ bookId, markdown: next, memberEmail })
+        .then(({ updatedAt }) => noteSaved(updatedAt))
+        .catch((err) => console.error("[reader] couldn't add that to your notes", err));
+    },
+    [asSheet, bookId, memberEmail, noteSaved, openNotes]
+  );
+
   // `blockIndex` is global, like every index that reaches an anchor. See
   // RenderedBlocks.
   const startAtGap = useCallback(
@@ -973,6 +1210,22 @@ export function ReaderAnnotationLayer({
         : pageBlocks(blocks, currentCharOffset, visibleThroughChar ?? currentCharOffset),
     [blocks, currentCharOffset, isArticle, visibleThroughChar]
   );
+
+  /**
+   * An anchor for where the reader is — the spot "ask about this page" uses,
+   * resolved without opening anything. Books use the page's first paragraph
+   * break; articles measure the DOM, as askHere does.
+   */
+  const hereAnchor = useCallback((): ResolvedAnchor | null => {
+    const container = contentRef.current;
+    if (!container) return null;
+    if (onPage) return anchorForGap(onPage.breakIndex, space, container);
+    const els = blockElements(container);
+    const found = els.findIndex((el) => el.getBoundingClientRect().top > READING_LINE);
+    const blockIndex = found >= 0 ? found : els.length - 1;
+    if (blockIndex < 0) return null;
+    return anchorForGap(blockIndex, space, container);
+  }, [contentRef, onPage, space]);
 
   /**
    * The three things a selection can become. They differ only in what the row
@@ -1007,17 +1260,13 @@ export function ReaderAnnotationLayer({
         return;
       }
 
-      // Ask and Note both need somewhere to write, so they open the panel — and
-      // they open it now, against a row that doesn't exist yet, rather than
-      // after the round trip that creates it. See PendingCreate.
+      // Ask needs somewhere to write, so it opens the panel — and it opens it
+      // now, against a row that doesn't exist yet, rather than after the round
+      // trip that creates it. See PendingCreate.
       //
-      // Neither pre-writes anything. The row starts as a highlight and becomes
-      // a conversation the moment you type, so changing your mind leaves a
+      // It pre-writes nothing. The row starts as a highlight and becomes a
+      // conversation the moment you type, so changing your mind leaves a
       // highlight rather than a blank entry in the index.
-      //
-      // The intent decides whether Nor is in the thread, and the thread keeps
-      // that — the toolbar already asked, so making the reader say it again
-      // inside the panel, every turn, would be asking twice.
       if (intent !== "highlight") {
         openDraft(resolved, false, null, intent === "ask");
         return;
@@ -1054,6 +1303,11 @@ export function ReaderAnnotationLayer({
         setPendingHighlights((p) =>
           p.map((h) => (h.key === key ? { ...h, row: { ...h.row, id: saved.id } } : h))
         );
+        // And into the notes, with a pill that knows which mark it came from.
+        // What the reader SELECTED — in Plain English that's the plain
+        // sentence, not the whole original paragraph `quotedText` holds.
+        const quote = resolved.plainQuotedText || resolved.quotedText;
+        if (quote && !isArticle) landInNotes(quote, placeAt(saved.anchorCharOffset, saved.id));
         await refreshList();
       } catch (err) {
         // `void annotateSelection(...)` means a throw here becomes an unhandled
@@ -1072,11 +1326,14 @@ export function ReaderAnnotationLayer({
       bookId,
       busy,
       contentRef,
+      isArticle,
       isCreating,
+      landInNotes,
       memberEmail,
       onPanelOpenChange,
       openDraft,
       optimisticRow,
+      placeAt,
       refreshList,
       shownFace,
       space,
@@ -1532,6 +1789,104 @@ export function ReaderAnnotationLayer({
     [detail, memberEmail, onceCreated, refreshList]
   );
 
+  // ---- The notepad's callbacks, second half: the ones that open threads ----
+
+  /**
+   * A place pill was tapped. Go there — by character offset, like every other
+   * jump — and if the pill came from a mark, open that mark's thread too: the
+   * passage and the conversation about it are what the pill stands for.
+   */
+  const openPlace = useCallback(
+    (char: number, mark: string | null) => {
+      goToChar(char);
+      if (mark) void openExisting(mark);
+    },
+    [goToChar, openExisting]
+  );
+
+  /**
+   * A thread pill was tapped, or a chip just became one. Open the thread —
+   * and if a first question is waiting for it, mark the thread as one the AI
+   * is in, so the header says so before the refetch does.
+   */
+  const openThread = useCallback(
+    (annotationId: string) => {
+      void openExisting(annotationId).then((chat) => {
+        if (!chat) return;
+        setOpeningQuestion((q) => (q?.id === annotationId ? q : null));
+        if (openingQuestionRef.current?.id === annotationId) {
+          setDetail((d) => (d && d.id === annotationId ? { ...d, aiParticipant: true } : d));
+        }
+      });
+    },
+    [openExisting]
+  );
+
+  /**
+   * Enter on a chip: make the thread the paragraph promised.
+   *
+   * Where it's anchored depends on what the paragraph was about. Under a
+   * quote that came from a highlight, it IS that highlight's thread — the
+   * question is posted there, and the chat route promotes the thread to one
+   * the AI is in. Under a quote with no mark behind it (a passage clipped
+   * some other way), a fresh mark at the passage's paragraph. Under nothing —
+   * a blank line above — a mark at wherever the reader is, the same spot
+   * "ask about this page" would use.
+   *
+   * A person's thread gets its first message written here, with their handle
+   * in it, which is what the server keys sharing on. An Ask's first message
+   * goes out from the thread itself, so the reader watches the answer arrive.
+   */
+  const composeThread = useCallback(
+    async (req: ComposeRequest): Promise<string> => {
+      const container = contentRef.current;
+      if (!container) throw new Error("The book isn't on screen.");
+
+      let annotationId: string | null = null;
+      let resolved: ResolvedAnchor | null = null;
+
+      if (req.quote?.place.mark) {
+        const existing = await getAnnotation(req.quote.place.mark, memberEmail);
+        if (existing) annotationId = existing.id;
+      }
+      if (!annotationId && req.quote) {
+        const gap = anchorForGap(
+          blockIndexForCharOffset(blocks, req.quote.place.char),
+          space,
+          container
+        );
+        if (gap) resolved = { ...gap, quotedText: req.quote.text };
+      }
+      if (!annotationId && !req.quote) resolved = hereAnchor();
+      if (!annotationId && !resolved) throw new Error("Couldn't place that conversation.");
+
+      if (!annotationId && resolved) {
+        const created = await createAnnotation({
+          bookId,
+          anchor: resolved.anchor,
+          anchorCharOffset: resolved.anchorCharOffset,
+          quotedText: resolved.quotedText,
+          plainQuotedText: resolved.plainQuotedText,
+          askNor: req.kind === "ask",
+          memberEmail,
+        });
+        annotationId = created.id;
+      }
+      if (!annotationId) throw new Error("Couldn't place that conversation.");
+
+      if (req.kind === "member") {
+        await postAnnotationMessage(annotationId, `@${req.handle} ${req.text}`, memberEmail);
+      } else {
+        const q = { id: annotationId, text: req.text };
+        openingQuestionRef.current = q;
+        setOpeningQuestion(q);
+      }
+      void refreshList();
+      return annotationId;
+    },
+    [blocks, bookId, contentRef, hereAnchor, memberEmail, refreshList, space]
+  );
+
   /** What the open thread is a summary OF, when it's a summary at all. */
   const openChapterTitle = useMemo(() => {
     const anchorId = detail?.chapterAnchorId;
@@ -1643,7 +1998,7 @@ export function ReaderAnnotationLayer({
       <ReaderMarginControls
         onAsk={askHere}
         onOpenList={openList}
-        listActive={panelOpen && mode === "list"}
+        listActive={panelOpen && (mode === "list" || mode === "notes")}
       />
       {!hideGutter && (
         <GutterMarkers
@@ -1686,6 +2041,10 @@ export function ReaderAnnotationLayer({
         dismissOnOutsidePress={
           mode === "counterpart" || (mode === "thread" && !touched && detail?.bookScope == null)
         }
+        // An anchored panel is part of the layout and Escape leaves it alone;
+        // a floating one is a temporary thing and Escape dismisses it. Inside
+        // the notepad, Escape first steps out of the text (see Notepad).
+        closeOnEscape={!anchored}
       >
         {mode === "counterpart" && counterpart ? (
           <CounterpartPanel
@@ -1696,6 +2055,33 @@ export function ReaderAnnotationLayer({
             onClose={closePanel}
             dockToggle={dockToggle}
           />
+        ) : mode === "notes" ? (
+          noteDoc ? (
+            <Notepad
+              // Remounted per open, and the text it opens with is whatever was
+              // last typed — held in the ref, not the state, see `noteDoc`.
+              bookId={bookId}
+              memberEmail={memberEmail}
+              initial={{ markdown: noteRef.current, updatedAt: noteDoc.updatedAt }}
+              members={mentionTargets}
+              spot={noteSpot}
+              clip={clip}
+              onClipHandled={clearClip}
+              onOpenPlace={openPlace}
+              onOpenThread={openThread}
+              onCompose={composeThread}
+              replyCounts={threadReplyCounts}
+              onChange={holdNote}
+              onSaved={noteSaved}
+              onBack={backToList}
+              onClose={closePanel}
+              dockToggle={dockToggle}
+              autoFocus={!asSheet}
+              focusNonce={noteFocusNonce}
+            />
+          ) : (
+            <p className="px-4 py-6 text-xs text-muted-foreground">Opening your notes…</p>
+          )
         ) : mode === "list" ? (
           <AnnotationList
             annotations={chats}
@@ -1708,6 +2094,7 @@ export function ReaderAnnotationLayer({
             onOpen={(id) => void openExisting(id)}
             onClose={closePanel}
             onAsk={askHere}
+            onOpenNotes={isArticle ? null : openNotes}
             starredOnly={starredOnly}
             onStarredOnlyChange={changeStarredOnly}
             onToggleStar={(id, next) => void toggleStar(id, next)}
@@ -1763,6 +2150,7 @@ export function ReaderAnnotationLayer({
             onAddNote={addNote}
             onToggleStar={(next) => void toggleStar(detail.id, next)}
             dockToggle={dockToggle}
+            openingQuestion={openingQuestion?.id === detail.id ? openingQuestion.text : null}
           />
           ))
         )}

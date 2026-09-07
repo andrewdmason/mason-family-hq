@@ -507,3 +507,87 @@
    Lightning CSS (Tailwind v4's parser) rejects `::highlight()` as an unknown
    pseudo-element and drops the rule, so it's injected at runtime instead, where
    the browser parses it. */
+
+/* The reader's notepad: places, days and conversations, as pills in the text. */
+.notepad-editor {
+  min-height: 100%;
+}
+
+.notepad-editor .notepad-pill,
+.notepad-editor .notepad-compose {
+  display: inline-block;
+  vertical-align: baseline;
+  margin: 0 0.05em;
+  padding: 0 0.45em;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  font-size: 0.68em;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 1.7;
+  white-space: nowrap;
+  user-select: none;
+  transition: color 120ms, background-color 120ms;
+}
+
+.notepad-editor .notepad-pill-place,
+.notepad-editor .notepad-pill-thread {
+  cursor: pointer;
+}
+
+.notepad-editor .notepad-pill-place:hover,
+.notepad-editor .notepad-pill-thread:hover {
+  color: var(--foreground);
+  background: var(--accent);
+}
+
+/* A conversation reads as one: a little darker, and it says how long it is. */
+.notepad-editor .notepad-pill-thread {
+  color: var(--foreground);
+  border-color: var(--foreground);
+}
+
+.notepad-editor .notepad-pill-thread[data-replies]::after {
+  content: " · " attr(data-replies);
+  color: var(--muted-foreground);
+}
+
+/* The chip: a promise, drawn like a pill that hasn't happened yet. */
+.notepad-editor .notepad-compose {
+  border-style: dashed;
+  color: var(--foreground);
+}
+
+.notepad-editor .notepad-compose[data-state="sending"] {
+  opacity: 0.6;
+}
+
+.notepad-editor .notepad-pill.ProseMirror-selectednode,
+.notepad-editor .notepad-compose.ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.notepad-editor blockquote {
+  font-style: normal;
+}
+
+/* A clear ladder, since a heading is the one thing the reader can't tell
+   apart from bold body text without one. */
+.notepad-editor h1 {
+  font-size: 1.35em;
+  line-height: 1.3;
+}
+
+.notepad-editor h2 {
+  font-size: 1.18em;
+  line-height: 1.35;
+}
+
+.notepad-editor h3 {
+  font-size: 1.04em;
+  line-height: 1.4;
+}

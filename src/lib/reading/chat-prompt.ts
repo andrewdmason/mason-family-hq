@@ -404,6 +404,13 @@ export type ReaderChatPromptInput = {
    */
   readerIntent: string | null;
   /**
+   * The reader's notepad for this book — the free-form page they keep beside
+   * it (see notes.ts), as the assistant reads it. Null when they've written
+   * nothing, which is the common case. Background only, like the preface: what
+   * they think, so far, in their own words.
+   */
+  readerNotes: { text: string; truncated: boolean } | null;
+  /**
    * Who the reader is, from the journal. Null when they have filled none of it
    * in, which is the ordinary case for a kid.
    */
@@ -1030,6 +1037,26 @@ function assembleReaderChatPrompt(input: ReaderChatPromptInput): {
     );
   }
 
+  // Their notepad, framed the same way as the preface and for the same reason:
+  // it is what they think so far, and a companion that argued with it, graded
+  // it, or kept bringing it up would make the notepad a thing you write
+  // carefully. Its job is to let the answer assume what they've already worked
+  // out — and to know what "that idea I had about the bogey man" refers to.
+  if (input.readerNotes) {
+    tail.push(
+      "THEIR NOTES: the reader keeps a notepad beside this book — their own " +
+        "running thoughts, in their own words, written for themselves as they " +
+        "read. Places in the book are given in parentheses, like (at p. 41).\n\n" +
+        `"""\n${input.readerNotes.text}\n"""\n\n` +
+        (input.readerNotes.truncated ? "(Cut for length; there is more.)\n\n" : "") +
+        "Treat it as background on what they already think and have already " +
+        "noticed, so you can build on it rather than re-explain it. Don't " +
+        "quote it back, don't evaluate it, and don't raise anything from it " +
+        "they haven't brought up themselves — unless they ask about their " +
+        "notes directly, in which case use them freely."
+    );
+  }
+
   if (input.quotedText) {
     tail.push(
       "The reader highlighted this passage and started the conversation from " +
@@ -1525,6 +1552,19 @@ export function buildBookDocumentSystem(
     reader.push(
       `<their_preface>\nBefore reading, they wrote this about why they were ` +
         `reading it:\n\n${ctx.preface}\n</their_preface>`
+    );
+  }
+  // The notepad they kept while reading. For an afterword this is the richest
+  // thing here — the marks say what caught them, this says what they made of
+  // it — and it is theirs, so the document should sound like it was written by
+  // someone who had read it rather than someone summarising it.
+  if (ctx.notes) {
+    reader.push(
+      `<their_notes>\nThe notepad they kept beside this book while reading — ` +
+        `their own running thoughts, in their own words. Places in the book ` +
+        `are given in parentheses, like (at p. 41).\n\n${ctx.notes.text}\n` +
+        (ctx.notes.truncated ? `(Cut for length; there is more.)\n` : "") +
+        `</their_notes>`
     );
   }
   if (ctx.marks) {

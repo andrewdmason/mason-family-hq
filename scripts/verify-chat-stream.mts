@@ -356,6 +356,7 @@ const chatInput = (depth: ReaderChatDepth): ReaderChatPromptInput => ({
   quotedText: null,
   hasReaderNotes: false,
   readerIntent: null,
+  readerNotes: null,
   readerProfile: null,
   depth,
   template: null,

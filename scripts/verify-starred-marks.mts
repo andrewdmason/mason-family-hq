@@ -201,6 +201,7 @@ function context(over: Partial<BookDocumentContext> = {}): BookDocumentContext {
     passageCount: 12,
     marksTruncated: false,
     preface: null,
+    notes: null,
     ...over,
   };
 }

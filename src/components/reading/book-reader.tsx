@@ -80,6 +80,7 @@ import { ReaderReturnPill } from "./reader-return-pill";
 import { ReaderFooter } from "./reader-footer";
 import { ReaderLayoutDialog } from "./reader-layout-dialog";
 import { ContentsDialog, type ContentsBookmark } from "./contents-dialog";
+import type { BookNote } from "@/app/(reading)/reader/note-actions";
 import { BookmarkDialog } from "./bookmark-dialog";
 import { BookmarkRemovedPill } from "./bookmark-removed-pill";
 import { useBookmarks } from "./use-bookmarks";
@@ -231,6 +232,10 @@ export function BookReader({
   );
   /** Which one the Contents just asked for. Cleared once the layer has it. */
   const [documentRequest, setDocumentRequest] = useState<BookScope | null>(null);
+  /** The reader's notepad, as the Contents describes it. Loaded by the layer. */
+  const [noteState, setNoteState] = useState<BookNote | null>(null);
+  /** The Contents asked for the notepad. Cleared once the layer has it. */
+  const [noteRequest, setNoteRequest] = useState(false);
   // The same store the paging engine derives its geometry from, so the chat
   // panel's presentation and the book's layout can never disagree about how wide
   // the window is.
@@ -1395,6 +1400,8 @@ export function BookReader({
 
   // Stable, so the layer's request effect isn't re-run every render.
   const clearDocumentRequest = useCallback(() => setDocumentRequest(null), []);
+  const clearNoteRequest = useCallback(() => setNoteRequest(false), []);
+  const requestNotes = useCallback(() => setNoteRequest(true), []);
 
   // Books and articles both: the layer switches coordinate spaces on isArticle
   // rather than opting out. Articles never reach the paged branch, so the paged
@@ -1413,6 +1420,9 @@ export function BookReader({
       requestedDocument={documentRequest}
       onDocumentRequestHandled={clearDocumentRequest}
       onDocumentChanged={refreshBookDocuments}
+      requestedNotes={noteRequest}
+      onNotesRequestHandled={clearNoteRequest}
+      onNoteChanged={setNoteState}
       goToChar={goToChar}
       paged={pagedChat}
       panelOpen={chatPanelOpen}
@@ -1908,6 +1918,8 @@ export function BookReader({
         // refuses one regardless.
         documents={isArticle ? null : bookDocuments}
         onOpenDocument={setDocumentRequest}
+        note={isArticle ? null : noteState}
+        onOpenNote={requestNotes}
         bookmarks={contentsBookmarks}
         onGoToBookmark={goToBookmark}
         onRenameBookmark={renameBookmarkById}
