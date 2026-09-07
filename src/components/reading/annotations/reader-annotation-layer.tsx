@@ -1928,6 +1928,7 @@ export function ReaderAnnotationLayer({
               onBack={backToList}
               onClose={closePanel}
               dockToggle={dockToggle}
+              autoFocus={!asSheet}
             />
           ) : (
             <p className="px-4 py-6 text-xs text-muted-foreground">Opening your notes…</p>

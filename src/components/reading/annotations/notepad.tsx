@@ -67,6 +67,7 @@ export function Notepad({
   onBack,
   onClose,
   dockToggle,
+  autoFocus,
 }: {
   bookId: string;
   memberEmail: string | null;
@@ -87,6 +88,11 @@ export function Notepad({
   onBack: () => void;
   onClose: () => void;
   dockToggle: React.ReactNode;
+  /**
+   * Open with the cursor at the end, ready to type. Off on a sheet: opening
+   * the notepad on a phone to read it back shouldn't summon the keyboard.
+   */
+  autoFocus: boolean;
 }) {
   const [status, setStatus] = useState<"idle" | "dirty" | "saving" | "saved" | "error">(
     "idle"
@@ -226,6 +232,19 @@ export function Notepad({
       void flush();
     };
   }, [flush]);
+
+  /**
+   * Opening the notepad is opening it to write: the cursor lands at the end,
+   * where the next thought goes, and the column is scrolled to show it.
+   */
+  useEffect(() => {
+    if (!editor || !autoFocus) return;
+    editor.commands.focus("end");
+    requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  }, [autoFocus, editor]);
 
   /**
    * A passage sent from the page lands at the end, and the cursor goes with it.
