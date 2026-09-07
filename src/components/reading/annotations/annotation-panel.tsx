@@ -33,6 +33,7 @@ export function AnnotationPanel({
   docked,
   onClose,
   dismissOnOutsidePress = false,
+  closeOnEscape = true,
   children,
 }: {
   open: boolean;
@@ -40,6 +41,12 @@ export function AnnotationPanel({
   /** Take width from the book instead of floating over it — see PanelDockToggle. */
   docked: boolean;
   onClose: () => void;
+  /**
+   * Off for the notepad, where Escape means "stop typing" rather than "go
+   * away": it hands the keyboard back to the book — page turns and the letter
+   * shortcuts — with the notes still open beside it.
+   */
+  closeOnEscape?: boolean;
   /**
    * True only while the chat is untouched. An unused draft behaves like a
    * popover and gets out of the way when you click back into the book; a chat
@@ -51,13 +58,13 @@ export function AnnotationPanel({
 }) {
   const panelRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    if (!open) return;
+    if (!open || !closeOnEscape) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [closeOnEscape, open, onClose]);
 
   useEffect(() => {
     if (!open || !dismissOnOutsidePress || isMobile) return;

@@ -1900,6 +1900,8 @@ export function ReaderAnnotationLayer({
         dismissOnOutsidePress={
           mode === "counterpart" || (mode === "thread" && !touched && detail?.bookScope == null)
         }
+        // In the notepad Escape stops typing; it doesn't shut the notes.
+        closeOnEscape={mode !== "notes"}
       >
         {mode === "counterpart" && counterpart ? (
           <CounterpartPanel

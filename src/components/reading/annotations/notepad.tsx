@@ -204,6 +204,14 @@ export function Notepad({
         openPlaceRef.current(node.attrs.char as number, (node.attrs.mark as string | null) ?? null);
         return true;
       },
+      // Escape hands the keyboard back to the book — page turns, `b`, `c` —
+      // and leaves the notes open beside it. The @ menu, when it's up, takes
+      // the first Escape for itself (its plugin runs ahead of this one).
+      handleKeyDown: (view, event) => {
+        if (event.key !== "Escape") return false;
+        view.dom.blur();
+        return true;
+      },
     },
     onUpdate: ({ editor }) => {
       const markdown = getMarkdown(editor);
