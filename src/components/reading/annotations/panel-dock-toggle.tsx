@@ -19,7 +19,9 @@ export function PanelDockToggle() {
   const { settings, update } = useReaderSettings();
   const docked = settings.chatDocked;
   const Icon = docked ? PictureInPicture2 : PanelRightClose;
-  const label = docked ? "Float the panel over the book" : "Dock the panel beside the book";
+  const label = docked
+    ? "Float the panel over the book (⌥B)"
+    : "Anchor the panel beside the book (⌥B)";
   return (
     <button
       type="button"

@@ -49,6 +49,7 @@ import {
 } from "@/lib/reading/reading-progress";
 import { loadStarredOnly, saveStarredOnly } from "@/lib/reading/starred-filter";
 import { CHAPTER_TAP_CLASS } from "../reader-prose";
+import { useReaderSettings } from "../use-reader-settings";
 import { AnnotationPanel } from "./annotation-panel";
 import { AnnotationList } from "./annotation-list";
 import { ReaderMarginControls } from "./annotations-button";
@@ -350,6 +351,9 @@ export function ReaderAnnotationLayer({
   const noteRef = useRef<string>("");
   /** A passage clipped from the page, waiting for the notepad to take it. */
   const [clip, setClip] = useState<NoteClip | null>(null);
+  /** Bumped by ⌥N while the notepad is already showing: cursor back to the end. */
+  const [noteFocusNonce, setNoteFocusNonce] = useState(0);
+  const { settings, update: updateSettings } = useReaderSettings();
   /**
    * Which of the two destinations the margin button last showed, so reopening
    * the panel lands where you left it. In-session only: it is a habit of this
@@ -1030,15 +1034,29 @@ export function ReaderAnnotationLayer({
   }, [onNotesRequestHandled, openNotes, requestedNotes]);
 
   /**
-   * ⌥N — the notepad, straight there and straight back. ⌥B — the marks.
+   * ⌥N — the notepad, and the cursor at the end of it. ⌥B — anchor the panel.
+   *
+   * Neither ever closes anything. The model is that a panel is either ANCHORED
+   * — part of the layout, there until you say otherwise — or floating, a
+   * temporary thing over the book. ⌥B is how you say which (and opens the
+   * panel anchored if it was shut). ⌥N always lands you typing: it opens the
+   * notepad if it isn't showing and puts the cursor back at the end if it is.
+   * Escape is the one key that steps OUT: from typing to the page, and from a
+   * floating panel to no panel — never from an anchored one.
    *
    * Chords rather than bare letters, unlike `b` and `c`, and that is what
    * makes them different in kind: a bare letter can never fire from a text
-   * field, but ⌥N is safe to press while typing in the notepad itself, so the
-   * same keystroke that opened it closes it. Matched on the physical key
-   * because on a Mac the Option layer produces dead keys and symbols — ⌥N is
-   * "˜", ⌥B is "∫" — and e.key would never say "n".
+   * field, but ⌥N is safe to press while typing in the notepad itself.
+   * Matched on the physical key because on a Mac the Option layer produces
+   * dead keys and symbols — ⌥N is "˜", ⌥B is "∫" — and e.key would never
+   * say "n".
+   *
+   * Anchoring is only a choice where floating is on offer (see dockToggle).
+   * On a sheet or a scrolling book the panel is docked by necessity, and
+   * there ⌥B falls back to opening the panel.
    */
+  const anchorable = canFloat && !asSheet;
+  const anchored = anchorable && settings.chatDocked;
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.repeat) return;
@@ -1046,16 +1064,34 @@ export function ReaderAnnotationLayer({
       if (inOpenOverlay(e.target)) return;
       e.preventDefault();
       if (e.code === "KeyB") {
-        openList();
+        if (!anchorable) {
+          openList();
+          return;
+        }
+        if (!panelOpen) {
+          updateSettings("chatDocked", true);
+          openList();
+          return;
+        }
+        updateSettings("chatDocked", !settings.chatDocked);
         return;
       }
       if (isArticle) return;
-      if (panelOpen && mode === "notes") onPanelOpenChange(false);
+      if (panelOpen && mode === "notes") setNoteFocusNonce((n) => n + 1);
       else openNotes();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isArticle, mode, onPanelOpenChange, openList, openNotes, panelOpen]);
+  }, [
+    anchorable,
+    isArticle,
+    mode,
+    openList,
+    openNotes,
+    panelOpen,
+    settings.chatDocked,
+    updateSettings,
+  ]);
 
   /**
    * A place in the book as the notepad names it, for a pill.
@@ -1900,8 +1936,10 @@ export function ReaderAnnotationLayer({
         dismissOnOutsidePress={
           mode === "counterpart" || (mode === "thread" && !touched && detail?.bookScope == null)
         }
-        // In the notepad Escape stops typing; it doesn't shut the notes.
-        closeOnEscape={mode !== "notes"}
+        // An anchored panel is part of the layout and Escape leaves it alone;
+        // a floating one is a temporary thing and Escape dismisses it. Inside
+        // the notepad, Escape first steps out of the text (see Notepad).
+        closeOnEscape={!anchored}
       >
         {mode === "counterpart" && counterpart ? (
           <CounterpartPanel
@@ -1931,6 +1969,7 @@ export function ReaderAnnotationLayer({
               onClose={closePanel}
               dockToggle={dockToggle}
               autoFocus={!asSheet}
+              focusNonce={noteFocusNonce}
             />
           ) : (
             <p className="px-4 py-6 text-xs text-muted-foreground">Opening your notes…</p>

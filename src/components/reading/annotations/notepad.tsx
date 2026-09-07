@@ -68,6 +68,7 @@ export function Notepad({
   onClose,
   dockToggle,
   autoFocus,
+  focusNonce,
 }: {
   bookId: string;
   memberEmail: string | null;
@@ -93,6 +94,8 @@ export function Notepad({
    * the notepad on a phone to read it back shouldn't summon the keyboard.
    */
   autoFocus: boolean;
+  /** Bumped to put the cursor back at the end while already open — ⌥N. */
+  focusNonce: number;
 }) {
   const [status, setStatus] = useState<"idle" | "dirty" | "saving" | "saved" | "error">(
     "idle"
@@ -205,10 +208,13 @@ export function Notepad({
         return true;
       },
       // Escape hands the keyboard back to the book — page turns, `b`, `c` —
-      // and leaves the notes open beside it. The @ menu, when it's up, takes
-      // the first Escape for itself (its plugin runs ahead of this one).
+      // and leaves the notes open beside it. Stopped here so the panel's own
+      // Escape (which closes a floating panel) waits for the NEXT press: one
+      // step out at a time. The @ menu, when it's up, takes the first Escape
+      // for itself (its plugin runs ahead of this one).
       handleKeyDown: (view, event) => {
         if (event.key !== "Escape") return false;
+        event.stopPropagation();
         view.dom.blur();
         return true;
       },
@@ -246,13 +252,13 @@ export function Notepad({
    * where the next thought goes, and the column is scrolled to show it.
    */
   useEffect(() => {
-    if (!editor || !autoFocus) return;
+    if (!editor || (!autoFocus && focusNonce === 0)) return;
     editor.commands.focus("end");
     requestAnimationFrame(() => {
       const el = scrollRef.current;
       if (el) el.scrollTop = el.scrollHeight;
     });
-  }, [autoFocus, editor]);
+  }, [autoFocus, editor, focusNonce]);
 
   /**
    * A passage sent from the page lands at the end, and the cursor goes with it.
