@@ -1,23 +1,23 @@
 import { Extension, type Editor, type Range } from "@tiptap/core";
 import Suggestion, { type SuggestionProps } from "@tiptap/suggestion";
 import { PluginKey } from "@tiptap/pm/state";
+import type { MentionTarget } from "@/lib/reading/mentions";
 import type { NotePlace } from "@/lib/reading/notes";
-import { placeNodeJSON } from "./notepad-place";
+import { COMPOSE_NODE, quoteAbove } from "./notepad-compose";
+import { placeNodeJSON } from "./notepad-pill";
 
 /**
- * A mark as the @ menu offers it: the passage, and where it is.
+ * The @ menu: who a paragraph is for.
  *
- * Built by the notepad from the marks the layer already holds, so the menu
- * costs no fetch and opens on the keystroke.
+ * Two kinds of row and no more. "Ask" starts a conversation with the AI;
+ * a person's name starts one with them. There was briefly a third kind —
+ * every mark in the book, to pull its quote in — and it was the wrong
+ * tool: a highlight now lands in the notes by itself, so the menu is back
+ * to being about who reads what you wrote.
  */
-export type MentionableMark = {
-  id: string;
-  /** The author's words, verbatim — what gets pulled into the note. */
-  quote: string;
-  /** The reader's latest note on it, for finding the right one. */
-  note: string | null;
-  place: NotePlace;
-};
+export type MentionItem =
+  | { kind: "ask" }
+  | { kind: "member"; target: MentionTarget };
 
 /**
  * What the React side needs to draw the menu. Handed over through callbacks
@@ -27,11 +27,11 @@ export type MentionableMark = {
  * one thing in it that shut it.
  */
 export type MentionMenuState = {
-  items: MentionableMark[];
+  items: MentionItem[];
   activeIndex: number;
   /** Where the caret is, in viewport coordinates. */
   rect: DOMRect | null;
-  command: (item: MentionableMark) => void;
+  command: (item: MentionItem) => void;
 };
 
 export type MentionController = {
@@ -43,18 +43,18 @@ export type MentionController = {
 
 export const NOTEPAD_MENTION_KEY = new PluginKey("notepad-mention");
 
-/** Match a mark by anything you'd remember it by. */
-export function matchMarks(marks: MentionableMark[], query: string): MentionableMark[] {
+/** Ask first, then everyone, narrowed by what's typed. */
+export function matchItems(members: MentionTarget[], query: string): MentionItem[] {
   const q = query.trim().toLowerCase();
-  const hits = q
-    ? marks.filter(
-        (m) =>
-          m.quote.toLowerCase().includes(q) ||
-          (m.note?.toLowerCase().includes(q) ?? false) ||
-          m.place.label.toLowerCase().includes(q)
-      )
-    : marks;
-  return hits.slice(0, 8);
+  const items: MentionItem[] = [];
+  if (!q || "ask".startsWith(q)) items.push({ kind: "ask" });
+  for (const t of members) {
+    if (t.kind !== "member") continue;
+    if (!q || t.handle.startsWith(q) || t.name.toLowerCase().startsWith(q)) {
+      items.push({ kind: "member", target: t });
+    }
+  }
+  return items;
 }
 
 /**
@@ -80,24 +80,27 @@ export function clipContent(quote: string, place: NotePlace) {
   };
 }
 
+/** Set on transactions the notepad makes itself, so the auto-stamp stays out. */
+export const NOTEPAD_INSERT_META = "notepad-insert";
+
 export const NotepadMentions = Extension.create<{
-  marks: () => MentionableMark[];
+  members: () => MentionTarget[];
   controller: MentionController;
 }>({
   name: "notepadMentions",
 
   addOptions() {
     return {
-      marks: () => [],
+      members: () => [],
       controller: { onChange: () => {}, activeIndex: () => 0, setActiveIndex: () => {} },
     };
   },
 
   addProseMirrorPlugins() {
     const { controller } = this.options;
-    const marks = this.options.marks;
+    const members = this.options.members;
 
-    const publish = (props: SuggestionProps<MentionableMark, MentionableMark>) => {
+    const publish = (props: SuggestionProps<MentionItem, MentionItem>) => {
       controller.onChange({
         items: props.items,
         activeIndex: controller.activeIndex(),
@@ -107,17 +110,16 @@ export const NotepadMentions = Extension.create<{
     };
 
     return [
-      Suggestion<MentionableMark, MentionableMark>({
+      Suggestion<MentionItem, MentionItem>({
         pluginKey: NOTEPAD_MENTION_KEY,
         editor: this.editor,
         char: "@",
-        allowSpaces: true,
-        items: ({ query }) => matchMarks(marks(), query),
+        items: ({ query }) => matchItems(members(), query),
         command: ({ editor, range, props }) => {
-          insertClip(editor, range, props);
+          insertChip(editor, range, props);
         },
         render: () => {
-          let current: SuggestionProps<MentionableMark, MentionableMark> | null = null;
+          let current: SuggestionProps<MentionItem, MentionItem> | null = null;
           return {
             onStart: (props) => {
               current = props;
@@ -162,10 +164,16 @@ export const NotepadMentions = Extension.create<{
   },
 });
 
-/** Set on transactions the notepad makes itself, so the auto-stamp stays out. */
-export const NOTEPAD_INSERT_META = "notepad-insert";
+/**
+ * The chip goes where the @ was. One per paragraph: picking again with a chip
+ * already there replaces it rather than stacking two promises on one line.
+ */
+function insertChip(editor: Editor, range: Range, item: MentionItem) {
+  const attrs =
+    item.kind === "ask"
+      ? { kind: "ask", handle: "ask", name: "Ask" }
+      : { kind: "member", handle: item.target.handle, name: item.target.name.split(/\s+/)[0] };
 
-function insertClip(editor: Editor, range: Range, mark: MentionableMark) {
   editor
     .chain()
     .focus()
@@ -173,9 +181,25 @@ function insertClip(editor: Editor, range: Range, mark: MentionableMark) {
       tr.setMeta(NOTEPAD_INSERT_META, true);
       return true;
     })
+    .command(({ tr, state }) => {
+      // Any chip already in this paragraph goes first.
+      const $from = state.doc.resolve(range.from);
+      const para = $from.parent;
+      const start = $from.start();
+      let existing: number | null = null;
+      para.forEach((child, offset) => {
+        if (child.type.name === COMPOSE_NODE) existing = start + offset;
+      });
+      if (existing != null) tr.delete(existing, existing + 1);
+      return true;
+    })
     .deleteRange(range)
-    // A paragraph after the quote, so the cursor lands where the next words go
-    // rather than inside the quotation.
-    .insertContent([clipContent(mark.quote, mark.place), { type: "paragraph" }])
+    .command(({ tr, state }) => {
+      const quoted = quoteAbove(state.doc, tr.mapping.map(range.from));
+      const type = state.schema.nodes[COMPOSE_NODE];
+      const at = tr.mapping.map(range.from);
+      tr.insert(at, [type.create({ ...attrs, state: "idle", quoted }), state.schema.text(" ")]);
+      return true;
+    })
     .run();
 }

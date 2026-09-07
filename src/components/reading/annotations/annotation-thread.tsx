@@ -92,8 +92,16 @@ export function AnnotationThread({
   resolveChatId,
   createError = null,
   dockToggle,
+  openingQuestion = null,
 }: {
   chat: AnnotationDetail;
+  /**
+   * A first question to send the moment this opens — the paragraph the reader
+   * wrote in their notes and sent here with @Ask. The notepad has already
+   * committed to it, so the thread asks it rather than offering a composer
+   * with it pre-filled. Honoured only on an empty thread, and once.
+   */
+  openingQuestion?: string | null;
   /**
    * The chapter this thread recaps, from the book's contents. Null on every
    * annotation that isn't a chapter summary, and on a summary whose heading has
@@ -663,6 +671,18 @@ export function AnnotationThread({
   }, [needsSummary, summarize]);
 
   /**
+   * A question brought in from the notes asks itself, the way a summary does
+   * and for the same reason: pressing Enter in the notepad WAS the asking.
+   * Same ref guard, same once-per-opening rule.
+   */
+  const openedWithQuestionRef = useRef(false);
+  useEffect(() => {
+    if (!openingQuestion || !startedEmpty || openedWithQuestionRef.current) return;
+    openedWithQuestionRef.current = true;
+    void send(openingQuestion);
+  }, [openingQuestion, send, startedEmpty]);
+
+  /**
    * Take one of the two mid-book conversations offered in the blank state.
    *
    * The settings write has to LAND BEFORE the send, and that ordering is the
@@ -796,7 +816,7 @@ export function AnnotationThread({
   // What the chat can see, in the reader's terms. Doubles as live feedback while
   // the boundary is still a control: ticking the box rewrites this line.
   const scope = !chat.aiParticipant
-    ? "Notes — Nor isn't in this one"
+    ? "Notes — the AI isn't in this one"
     : isSummary
       ? "A recap of this chapter alone"
     : isArticle
@@ -1198,8 +1218,8 @@ export function AnnotationThread({
             placeholder={
               norOn
                 ? isSummary
-                  ? "Ask Nor about this chapter…"
-                  : "Ask Nor about this part…"
+                  ? "Ask about this chapter…"
+                  : "Ask about this part…"
                 : chat.aiParticipant && !online
                   ? "Offline — write a note…"
                   : "Write a note…"

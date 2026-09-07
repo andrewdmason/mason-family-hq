@@ -11,6 +11,9 @@
  */
 
 import {
+  appendClipMarkdown,
+  dateLabel,
+  datesIn,
   noteBlurb,
   notesForPrompt,
   noteWordCount,
@@ -19,6 +22,8 @@ import {
   placeHref,
   placeLabel,
   placeMarkdown,
+  pillMarkdown,
+  pillsIn,
   placesIn,
   shortChapter,
   shouldStamp,
@@ -66,12 +71,21 @@ check("a malformed place is not a place", parsePlaceHref("place:abc") === null);
 const doc = [
   "# Owning your own shadow",
   "",
-  "[Ch. 1 · p. 41](place:1200) The bogey man story is doing a lot of work.",
+  "[Sep 7, 2026](date:2026-09-07) [Ch. 1 · p. 41](place:1200) The bogey man story is doing a lot of work.",
   "",
   "> Projection is always easier than assimilation. [p. 40](place:1100?mark=m1)",
   "",
+  "I don't get what he's trying to say here. [Ask](thread:t-1)",
+  "",
   "See also [this](https://example.com) and [27%](place:9000).",
 ].join("\n");
+
+check("a date is a link with the date scheme", pillMarkdown({ kind: "date", date: "2026-09-07", label: "Sep 7, 2026" }) === "[Sep 7, 2026](date:2026-09-07)");
+check("a thread is a link with the thread scheme", pillMarkdown({ kind: "thread", thread: "t-1", label: "Ask" }) === "[Ask](thread:t-1)");
+check("every pill is found, in order", pillsIn(doc).map((p) => p.kind).join(",") === "date,place,place,thread,place");
+check("days are found", datesIn(doc).join(",") === "2026-09-07");
+check("a date reads with its year", dateLabel("2026-09-07") === "Sep 7, 2026");
+check("a bad date is left as it was", dateLabel("nope") === "nope");
 
 const places = placesIn(doc);
 check("every place is found, in order", places.map((p) => p.char).join(",") === "1200,1100,9000");
@@ -156,11 +170,19 @@ check(
 
 console.log("\nhow the assistant reads it");
 
+console.log("\nwhat a highlight looks like when it lands on its own");
+const landed = appendClipMarkdown("Some notes.\n", "First line.\nSecond line.", { char: 777, label: "p. 7", mark: "m-1" });
+check("a clip is a quote after the notes", landed === "Some notes.\n\n> First line.\n>\n> Second line. [p. 7](place:777?mark=m-1)\n", JSON.stringify(landed));
+check("an empty note starts with the quote", appendClipMarkdown("", "Words.", { char: 1, label: "1%", mark: null }) === "> Words. [1%](place:1)\n");
+check("the quote round-trips through placesIn", placesIn(landed).at(-1)?.mark === "m-1");
+
 const prompt = notesForPrompt(doc);
 check("an empty note is nothing", notesForPrompt("   \n") === null);
 check("places become asides", prompt?.text.includes("(at Ch. 1 · p. 41) The bogey man") === true);
 check("a mark's place is an aside too", prompt?.text.includes("assimilation. (at p. 40)") === true);
-check("no link syntax survives", !/place:\d+/.test(prompt?.text ?? ""));
+check("no link syntax survives", !/place:\d+|date:\d|thread:/.test(prompt?.text ?? ""));
+check("a day is an aside", prompt?.text.includes("(Sep 7, 2026) (at Ch. 1 · p. 41) The bogey") === true);
+check("a thread is named as one", prompt?.text.includes("say here. (a conversation branched off here)") === true);
 check("ordinary links are left alone", prompt?.text.includes("[this](https://example.com)") === true);
 check("a short note isn't truncated", prompt?.truncated === false);
 

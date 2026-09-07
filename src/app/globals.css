@@ -508,12 +508,13 @@
    pseudo-element and drops the rule, so it's injected at runtime instead, where
    the browser parses it. */
 
-/* The reader's notepad: a place in the book, as a pill in the text. */
+/* The reader's notepad: places, days and conversations, as pills in the text. */
 .notepad-editor {
   min-height: 100%;
 }
 
-.notepad-editor .notepad-place {
+.notepad-editor .notepad-pill,
+.notepad-editor .notepad-compose {
   display: inline-block;
   vertical-align: baseline;
   margin: 0 0.05em;
@@ -528,17 +529,44 @@
   font-weight: 500;
   line-height: 1.7;
   white-space: nowrap;
-  cursor: pointer;
   user-select: none;
   transition: color 120ms, background-color 120ms;
 }
 
-.notepad-editor .notepad-place:hover {
+.notepad-editor .notepad-pill-place,
+.notepad-editor .notepad-pill-thread {
+  cursor: pointer;
+}
+
+.notepad-editor .notepad-pill-place:hover,
+.notepad-editor .notepad-pill-thread:hover {
   color: var(--foreground);
   background: var(--accent);
 }
 
-.notepad-editor .notepad-place.ProseMirror-selectednode {
+/* A conversation reads as one: a little darker, and it says how long it is. */
+.notepad-editor .notepad-pill-thread {
+  color: var(--foreground);
+  border-color: var(--foreground);
+}
+
+.notepad-editor .notepad-pill-thread[data-replies]::after {
+  content: " · " attr(data-replies);
+  color: var(--muted-foreground);
+}
+
+/* The chip: a promise, drawn like a pill that hasn't happened yet. */
+.notepad-editor .notepad-compose {
+  border-style: dashed;
+  color: var(--foreground);
+}
+
+.notepad-editor .notepad-compose[data-state="sending"] {
+  opacity: 0.6;
+}
+
+.notepad-editor .notepad-pill.ProseMirror-selectednode,
+.notepad-editor .notepad-compose.ProseMirror-selectednode {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }

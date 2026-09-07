@@ -15,9 +15,9 @@ import {
   setAnnotationStarred,
   setAnnotationTemplate,
 } from "@/app/(reading)/reader/annotation-actions";
-import { getBookNote, type BookNote } from "@/app/(reading)/reader/note-actions";
+import { getBookNote, saveBookNote, type BookNote } from "@/app/(reading)/reader/note-actions";
 import type { BookScope } from "@/lib/reading/book-documents";
-import { placeLabel, type NotePlace } from "@/lib/reading/notes";
+import { appendClipMarkdown, placeLabel, type NotePlace } from "@/lib/reading/notes";
 import { blockIndexForCharOffset, type BookBlock } from "@/lib/reading/block-stream";
 import { inOpenOverlay, isTypingTarget } from "@/lib/keyboard";
 import { note, startTimer, time } from "@/lib/reading/perf";
@@ -59,8 +59,7 @@ import { BookDocumentThread } from "./book-document-thread";
 import { ChapterMenu } from "./chapter-menu";
 import { GutterMarkers } from "./gutter-markers";
 import { useGutterPlacement, type PagedGutterContext } from "./gutter-placement";
-import { Notepad, type NoteClip } from "./notepad";
-import type { MentionableMark } from "./notepad-mentions";
+import { Notepad, type ComposeRequest, type NoteClip } from "./notepad";
 import { PanelDockToggle } from "./panel-dock-toggle";
 import { SelectionToolbar, type SelectionIntent } from "./selection-toolbar";
 import { CounterpartPanel, type CounterpartRequest } from "./counterpart-panel";
@@ -353,6 +352,14 @@ export function ReaderAnnotationLayer({
   const [clip, setClip] = useState<NoteClip | null>(null);
   /** Bumped by ⌥N while the notepad is already showing: cursor back to the end. */
   const [noteFocusNonce, setNoteFocusNonce] = useState(0);
+  /**
+   * A first question for a thread just made from the notes, sent by the
+   * thread the moment it opens. Keyed by annotation so a stale one can never
+   * be asked of the wrong conversation.
+   */
+  const [openingQuestion, setOpeningQuestion] = useState<{ id: string; text: string } | null>(
+    null
+  );
   const { settings, update: updateSettings } = useReaderSettings();
   /**
    * Which of the two destinations the margin button last showed, so reopening
@@ -1093,6 +1100,28 @@ export function ReaderAnnotationLayer({
     updateSettings,
   ]);
 
+  // ---- The notepad's callbacks, first half ---------------------------------
+
+  const clearClip = useCallback(() => setClip(null), []);
+
+  /** Every keystroke, into the ref only — see `noteDoc`. */
+  const holdNote = useCallback((markdown: string) => {
+    noteRef.current = markdown;
+  }, []);
+
+  /** A save landed: now the state, and the Contents, catch up. */
+  const noteSaved = useCallback(
+    (updatedAt: string) => {
+      const next = { markdown: noteRef.current, updatedAt };
+      setNoteDoc(next);
+      onNoteChanged(next);
+    },
+    [onNoteChanged]
+  );
+
+  /** The question waiting for a thread, readable from inside a callback. */
+  const openingQuestionRef = useRef<{ id: string; text: string } | null>(null);
+
   /**
    * A place in the book as the notepad names it, for a pill.
    *
@@ -1124,29 +1153,36 @@ export function ReaderAnnotationLayer({
     [currentCharOffset, isArticle, placeAt, totalChars]
   );
 
+  /** Replies per thread, for the notepad's conversation pills. */
+  const threadReplyCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of chats) counts.set(c.id, c.messageCount);
+    return counts;
+  }, [chats]);
+
   /**
-   * The marks the @ menu offers: passages only, in reading order. A chapter
-   * summary has no words of the reader's to pull in, and a mark that is still
-   * a stand-in has no id worth linking to.
+   * A passage lands in the notes.
    *
-   * What gets pulled in is what the reader SELECTED. For a mark made in Plain
-   * English that is the plain sentence, not `quotedText` — which for those
-   * marks is the whole original paragraph, kept so the thread can show the
-   * author's words behind the paraphrase. A notepad is the reader quoting for
-   * themselves, and a sentence they chose beats a paragraph they didn't.
+   * With the notepad able to open beside the book, it opens, takes the
+   * passage, and puts the cursor on the line below — the highlight was the
+   * gesture and this is where the thought about it goes. On a sheet (a phone)
+   * the passage is written straight into the stored note instead: popping a
+   * panel over the page on every highlight would make highlighting a chore.
    */
-  const mentionableMarks = useMemo<MentionableMark[]>(
-    () =>
-      chats
-        .filter((c) => c.quotedText && !c.chapterAnchorId && !isPendingId(c.id))
-        .sort((a, b) => a.anchorCharOffset - b.anchorCharOffset)
-        .map((c) => ({
-          id: c.id,
-          quote: (c.plainQuotedText || c.quotedText) as string,
-          note: c.latestNote,
-          place: placeAt(c.anchorCharOffset, c.id),
-        })),
-    [chats, placeAt]
+  const landInNotes = useCallback(
+    (quote: string, place: NotePlace) => {
+      if (!asSheet) {
+        setClip({ nonce: Date.now(), quote, place });
+        openNotes();
+        return;
+      }
+      const next = appendClipMarkdown(noteRef.current, quote, place);
+      noteRef.current = next;
+      void saveBookNote({ bookId, markdown: next, memberEmail })
+        .then(({ updatedAt }) => noteSaved(updatedAt))
+        .catch((err) => console.error("[reader] couldn't add that to your notes", err));
+    },
+    [asSheet, bookId, memberEmail, noteSaved, openNotes]
   );
 
   // `blockIndex` is global, like every index that reaches an anchor. See
@@ -1174,6 +1210,22 @@ export function ReaderAnnotationLayer({
         : pageBlocks(blocks, currentCharOffset, visibleThroughChar ?? currentCharOffset),
     [blocks, currentCharOffset, isArticle, visibleThroughChar]
   );
+
+  /**
+   * An anchor for where the reader is — the spot "ask about this page" uses,
+   * resolved without opening anything. Books use the page's first paragraph
+   * break; articles measure the DOM, as askHere does.
+   */
+  const hereAnchor = useCallback((): ResolvedAnchor | null => {
+    const container = contentRef.current;
+    if (!container) return null;
+    if (onPage) return anchorForGap(onPage.breakIndex, space, container);
+    const els = blockElements(container);
+    const found = els.findIndex((el) => el.getBoundingClientRect().top > READING_LINE);
+    const blockIndex = found >= 0 ? found : els.length - 1;
+    if (blockIndex < 0) return null;
+    return anchorForGap(blockIndex, space, container);
+  }, [contentRef, onPage, space]);
 
   /**
    * The three things a selection can become. They differ only in what the row
@@ -1208,32 +1260,13 @@ export function ReaderAnnotationLayer({
         return;
       }
 
-      // Into the notepad, as a quote with a pill after it. No mark: this is
-      // copying the author's words somewhere, not marking them — the same
-      // passage can still be highlighted afterwards if it deserves it. What
-      // they selected, in the face they selected it: in Plain English the
-      // resolved quote is the whole original paragraph (see mentionableMarks).
-      if (intent === "clip") {
-        setClip({
-          nonce: Date.now(),
-          quote: resolved.plainQuotedText || resolved.quotedText || range.toString().trim(),
-          place: placeAt(resolved.anchorCharOffset, null),
-        });
-        openNotes();
-        return;
-      }
-
-      // Ask and Note both need somewhere to write, so they open the panel — and
-      // they open it now, against a row that doesn't exist yet, rather than
-      // after the round trip that creates it. See PendingCreate.
+      // Ask needs somewhere to write, so it opens the panel — and it opens it
+      // now, against a row that doesn't exist yet, rather than after the round
+      // trip that creates it. See PendingCreate.
       //
-      // Neither pre-writes anything. The row starts as a highlight and becomes
-      // a conversation the moment you type, so changing your mind leaves a
+      // It pre-writes nothing. The row starts as a highlight and becomes a
+      // conversation the moment you type, so changing your mind leaves a
       // highlight rather than a blank entry in the index.
-      //
-      // The intent decides whether Nor is in the thread, and the thread keeps
-      // that — the toolbar already asked, so making the reader say it again
-      // inside the panel, every turn, would be asking twice.
       if (intent !== "highlight") {
         openDraft(resolved, false, null, intent === "ask");
         return;
@@ -1270,6 +1303,11 @@ export function ReaderAnnotationLayer({
         setPendingHighlights((p) =>
           p.map((h) => (h.key === key ? { ...h, row: { ...h.row, id: saved.id } } : h))
         );
+        // And into the notes, with a pill that knows which mark it came from.
+        // What the reader SELECTED — in Plain English that's the plain
+        // sentence, not the whole original paragraph `quotedText` holds.
+        const quote = resolved.plainQuotedText || resolved.quotedText;
+        if (quote && !isArticle) landInNotes(quote, placeAt(saved.anchorCharOffset, saved.id));
         await refreshList();
       } catch (err) {
         // `void annotateSelection(...)` means a throw here becomes an unhandled
@@ -1288,11 +1326,12 @@ export function ReaderAnnotationLayer({
       bookId,
       busy,
       contentRef,
+      isArticle,
       isCreating,
+      landInNotes,
       memberEmail,
       onPanelOpenChange,
       openDraft,
-      openNotes,
       optimisticRow,
       placeAt,
       refreshList,
@@ -1750,28 +1789,11 @@ export function ReaderAnnotationLayer({
     [detail, memberEmail, onceCreated, refreshList]
   );
 
-  // ---- The notepad's callbacks --------------------------------------------
-
-  const clearClip = useCallback(() => setClip(null), []);
-
-  /** Every keystroke, into the ref only — see `noteDoc`. */
-  const holdNote = useCallback((markdown: string) => {
-    noteRef.current = markdown;
-  }, []);
-
-  /** A save landed: now the state, and the Contents, catch up. */
-  const noteSaved = useCallback(
-    (updatedAt: string) => {
-      const next = { markdown: noteRef.current, updatedAt };
-      setNoteDoc(next);
-      onNoteChanged(next);
-    },
-    [onNoteChanged]
-  );
+  // ---- The notepad's callbacks, second half: the ones that open threads ----
 
   /**
-   * A pill was tapped. Go there — by character offset, like every other jump —
-   * and if the pill came from a mark, open that mark's thread too: the
+   * A place pill was tapped. Go there — by character offset, like every other
+   * jump — and if the pill came from a mark, open that mark's thread too: the
    * passage and the conversation about it are what the pill stands for.
    */
   const openPlace = useCallback(
@@ -1780,6 +1802,89 @@ export function ReaderAnnotationLayer({
       if (mark) void openExisting(mark);
     },
     [goToChar, openExisting]
+  );
+
+  /**
+   * A thread pill was tapped, or a chip just became one. Open the thread —
+   * and if a first question is waiting for it, mark the thread as one the AI
+   * is in, so the header says so before the refetch does.
+   */
+  const openThread = useCallback(
+    (annotationId: string) => {
+      void openExisting(annotationId).then((chat) => {
+        if (!chat) return;
+        setOpeningQuestion((q) => (q?.id === annotationId ? q : null));
+        if (openingQuestionRef.current?.id === annotationId) {
+          setDetail((d) => (d && d.id === annotationId ? { ...d, aiParticipant: true } : d));
+        }
+      });
+    },
+    [openExisting]
+  );
+
+  /**
+   * Enter on a chip: make the thread the paragraph promised.
+   *
+   * Where it's anchored depends on what the paragraph was about. Under a
+   * quote that came from a highlight, it IS that highlight's thread — the
+   * question is posted there, and the chat route promotes the thread to one
+   * the AI is in. Under a quote with no mark behind it (a passage clipped
+   * some other way), a fresh mark at the passage's paragraph. Under nothing —
+   * a blank line above — a mark at wherever the reader is, the same spot
+   * "ask about this page" would use.
+   *
+   * A person's thread gets its first message written here, with their handle
+   * in it, which is what the server keys sharing on. An Ask's first message
+   * goes out from the thread itself, so the reader watches the answer arrive.
+   */
+  const composeThread = useCallback(
+    async (req: ComposeRequest): Promise<string> => {
+      const container = contentRef.current;
+      if (!container) throw new Error("The book isn't on screen.");
+
+      let annotationId: string | null = null;
+      let resolved: ResolvedAnchor | null = null;
+
+      if (req.quote?.place.mark) {
+        const existing = await getAnnotation(req.quote.place.mark, memberEmail);
+        if (existing) annotationId = existing.id;
+      }
+      if (!annotationId && req.quote) {
+        const gap = anchorForGap(
+          blockIndexForCharOffset(blocks, req.quote.place.char),
+          space,
+          container
+        );
+        if (gap) resolved = { ...gap, quotedText: req.quote.text };
+      }
+      if (!annotationId && !req.quote) resolved = hereAnchor();
+      if (!annotationId && !resolved) throw new Error("Couldn't place that conversation.");
+
+      if (!annotationId && resolved) {
+        const created = await createAnnotation({
+          bookId,
+          anchor: resolved.anchor,
+          anchorCharOffset: resolved.anchorCharOffset,
+          quotedText: resolved.quotedText,
+          plainQuotedText: resolved.plainQuotedText,
+          askNor: req.kind === "ask",
+          memberEmail,
+        });
+        annotationId = created.id;
+      }
+      if (!annotationId) throw new Error("Couldn't place that conversation.");
+
+      if (req.kind === "member") {
+        await postAnnotationMessage(annotationId, `@${req.handle} ${req.text}`, memberEmail);
+      } else {
+        const q = { id: annotationId, text: req.text };
+        openingQuestionRef.current = q;
+        setOpeningQuestion(q);
+      }
+      void refreshList();
+      return annotationId;
+    },
+    [blocks, bookId, contentRef, hereAnchor, memberEmail, refreshList, space]
   );
 
   /** What the open thread is a summary OF, when it's a summary at all. */
@@ -1958,11 +2063,14 @@ export function ReaderAnnotationLayer({
               bookId={bookId}
               memberEmail={memberEmail}
               initial={{ markdown: noteRef.current, updatedAt: noteDoc.updatedAt }}
-              marks={mentionableMarks}
+              members={mentionTargets}
               spot={noteSpot}
               clip={clip}
               onClipHandled={clearClip}
               onOpenPlace={openPlace}
+              onOpenThread={openThread}
+              onCompose={composeThread}
+              replyCounts={threadReplyCounts}
               onChange={holdNote}
               onSaved={noteSaved}
               onBack={backToList}
@@ -2042,6 +2150,7 @@ export function ReaderAnnotationLayer({
             onAddNote={addNote}
             onToggleStar={(next) => void toggleStar(detail.id, next)}
             dockToggle={dockToggle}
+            openingQuestion={openingQuestion?.id === detail.id ? openingQuestion.text : null}
           />
           ))
         )}
