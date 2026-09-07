@@ -1064,6 +1064,12 @@ export function ReaderAnnotationLayer({
    * The marks the @ menu offers: passages only, in reading order. A chapter
    * summary has no words of the reader's to pull in, and a mark that is still
    * a stand-in has no id worth linking to.
+   *
+   * What gets pulled in is what the reader SELECTED. For a mark made in Plain
+   * English that is the plain sentence, not `quotedText` — which for those
+   * marks is the whole original paragraph, kept so the thread can show the
+   * author's words behind the paraphrase. A notepad is the reader quoting for
+   * themselves, and a sentence they chose beats a paragraph they didn't.
    */
   const mentionableMarks = useMemo<MentionableMark[]>(
     () =>
@@ -1072,7 +1078,7 @@ export function ReaderAnnotationLayer({
         .sort((a, b) => a.anchorCharOffset - b.anchorCharOffset)
         .map((c) => ({
           id: c.id,
-          quote: c.quotedText as string,
+          quote: (c.plainQuotedText || c.quotedText) as string,
           note: c.latestNote,
           place: placeAt(c.anchorCharOffset, c.id),
         })),
@@ -1140,11 +1146,13 @@ export function ReaderAnnotationLayer({
 
       // Into the notepad, as a quote with a pill after it. No mark: this is
       // copying the author's words somewhere, not marking them — the same
-      // passage can still be highlighted afterwards if it deserves it.
+      // passage can still be highlighted afterwards if it deserves it. What
+      // they selected, in the face they selected it: in Plain English the
+      // resolved quote is the whole original paragraph (see mentionableMarks).
       if (intent === "clip") {
         setClip({
           nonce: Date.now(),
-          quote: resolved.quotedText ?? range.toString().trim(),
+          quote: resolved.plainQuotedText || resolved.quotedText || range.toString().trim(),
           place: placeAt(resolved.anchorCharOffset, null),
         });
         openNotes();
