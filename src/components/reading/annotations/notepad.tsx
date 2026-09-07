@@ -114,6 +114,8 @@ export function Notepad({
   const activeIndexRef = useRef(0);
   const openPlaceRef = useRef(onOpenPlace);
   openPlaceRef.current = onOpenPlace;
+  /** The header's pin, reachable from the editor's key handler (built once). */
+  const stampHereRef = useRef<() => void>(() => {});
 
   const latestRef = useRef(initial.markdown);
   const savedRef = useRef(initial.markdown);
@@ -213,6 +215,13 @@ export function Notepad({
       // step out at a time. The @ menu, when it's up, takes the first Escape
       // for itself (its plugin runs ahead of this one).
       handleKeyDown: (view, event) => {
+        // ⌥L — a pill for where you are, at the cursor. Physical key: on a
+        // Mac ⌥L types "¬", and that must not reach the document.
+        if (event.altKey && event.code === "KeyL" && !event.metaKey && !event.ctrlKey) {
+          event.preventDefault();
+          stampHereRef.current();
+          return true;
+        }
         if (event.key !== "Escape") return false;
         event.stopPropagation();
         view.dom.blur();
@@ -303,6 +312,25 @@ export function Notepad({
       .run();
     lastStampRef.current = place.char;
   }, [editor]);
+  stampHereRef.current = stampHere;
+
+  /**
+   * ⌥L from outside the text — the notes open but the cursor back in the book
+   * — lands at the end and stamps there. Inside the text the editor's own key
+   * handler has already taken it, and `isFocused` is what keeps the two from
+   * both firing.
+   */
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.repeat) return;
+      if (e.code !== "KeyL" || !editor || editor.isFocused) return;
+      e.preventDefault();
+      editor.commands.focus("end");
+      stampHere();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [editor, stampHere]);
 
   const subtitle =
     status === "saving"
@@ -345,7 +373,7 @@ export function Notepad({
           onClick={stampHere}
           disabled={!spot}
           aria-label="Mark where you are"
-          title={spot ? `Mark where you are (${spot.label})` : "Mark where you are"}
+          title={spot ? `Mark where you are · ${spot.label} (⌥L)` : "Mark where you are (⌥L)"}
           className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
         >
           <MapPin className="h-4 w-4" />
