@@ -2,7 +2,7 @@ import Blockquote from "@tiptap/extension-blockquote";
 import type { Node as PMNode } from "@tiptap/pm/model";
 
 /** Lines of a quote shown before it folds under a fade. Mirrored in globals.css. */
-export const QUOTE_CLAMP_LINES = 4;
+export const QUOTE_CLAMP_LINES = 3;
 
 /**
  * A quote in the notepad: the book's words, folded short by default.

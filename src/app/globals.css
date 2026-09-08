@@ -619,10 +619,10 @@
   background: color-mix(in srgb, var(--muted-foreground) 45%, var(--muted));
 }
 
-/* Four lines plus the first paragraph's top margin, so the fourth line is
-   whole and the fade sits on it rather than on a sliver of a fifth. */
+/* Three lines plus the first paragraph's top margin, so the third line is
+   whole and the fade sits on it rather than on a sliver of a fourth. */
 .notepad-editor .nq[data-long="true"][data-open="false"] > .nq-body {
-  max-height: calc(4 * 1.6em + 0.25em);
+  max-height: calc(3 * 1.6em + 0.25em);
   overflow: hidden;
 }
 
