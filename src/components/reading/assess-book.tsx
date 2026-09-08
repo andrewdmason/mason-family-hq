@@ -101,6 +101,14 @@ export function AssessmentPanel({
       <p className="mt-1 text-xs text-muted-foreground">
         <InlineMarkdown text={assessment.reason} />
       </p>
+      {assessment.basis ? (
+        // Which shelf the verdict was weighed against. A prediction is only as
+        // good as its peer set, and this is the one line that lets the reader
+        // catch it consulting the wrong one.
+        <p className="mt-1.5 text-[11px] italic text-muted-foreground/70">
+          {assessment.basis}
+        </p>
+      ) : null}
     </div>
   );
 }

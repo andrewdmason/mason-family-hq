@@ -8,11 +8,13 @@ import { resolveReadingScope } from "@/lib/reading/scope";
 import { categorizeBook } from "@/lib/reading/categorize";
 import { genresForAge } from "@/lib/reading/genres";
 import { ratingImpliesFinished } from "@/lib/reading/status";
+import { classifyBook } from "@/lib/reading/classify-book";
 import {
   assessBookFit,
   assessmentNote,
   generateRecommendationCandidates,
   type BookAssessment,
+  type CategoryEvidence,
   type RatedTitle,
   type TasteProfile,
 } from "@/lib/reading/recommend";
@@ -79,7 +81,7 @@ async function buildTasteProfile(
   const [{ data: bookRows }, { data: recRows }, birthdate] = await Promise.all([
     client
       .from("reading_books")
-      .select("title, author, rating, rated_at")
+      .select("title, author, rating, rated_at, fiction, genre, finished_at")
       .eq("user_id", userId),
     client
       .from("reading_recommendations")
@@ -93,17 +95,35 @@ async function buildTasteProfile(
   const disliked: RatedTitle[] = [];
   const didNotFinish: RatedTitle[] = [];
   const exclude = new Set<string>();
+  const evidence: CategoryEvidence = { fiction: 0, nonfiction: 0, byGenre: {} };
 
   for (const b of bookRows ?? []) {
     const ratedOn = (b.rated_at as string | null) ?? null;
+    const fiction = (b.fiction as boolean | null) ?? null;
+    const genre = (b.genre as string | null) ?? null;
     const entry: RatedTitle = {
       title: b.title as string,
       author: (b.author as string) ?? null,
       // When they formed the opinion — lets the engine weight taste drift by age.
       ageAtRating: ratedOn ? ageFromBirthdate(birthdate, ratedOn) : null,
       yearsAgo: ratedOn ? yearsBetween(ratedOn, today) : null,
+      fiction,
+      genre,
     };
     exclude.add(entry.title); // never recommend a book they're already tracking
+
+    // What counts as evidence is what they actually read. A book that's merely
+    // on the shelf — imported in bulk, bought and never opened — tells us
+    // nothing, and counting it would read an unread library as a wall of
+    // rejections.
+    const rating = (b.rating as ReadingRating | null) ?? null;
+    const read = b.finished_at != null || ratingImpliesFinished(rating);
+    if (read) {
+      if (fiction === true) evidence.fiction += 1;
+      else if (fiction === false) evidence.nonfiction += 1;
+      if (genre) evidence.byGenre[genre] = (evidence.byGenre[genre] ?? 0) + 1;
+    }
+
     if (b.rating === "didnt_finish") didNotFinish.push(entry);
     else if (b.rating === "loved") loved.push(entry);
     else if (b.rating === "liked") liked.push(entry);
@@ -120,6 +140,7 @@ async function buildTasteProfile(
     disliked,
     didNotFinish,
     exclude: [...exclude],
+    evidence,
   };
 }
 
@@ -224,10 +245,19 @@ export async function assessBook(input: {
   const { client, userId, email } = await resolveReadingScope(input.memberEmail ?? null);
   const tz = await getUserTimezone();
   const today = localDate(new Date(), tz);
-  const profile = await buildTasteProfile(client, userId, email, today);
+  const author = input.author?.trim() || null;
+  // Classify first: the prediction has no peer set to weigh against until it
+  // knows what kind of book this is, and the add dialog's own lookup doesn't
+  // resolve a category. Cheap (Haiku), and it degrades to nulls on failure.
+  const [profile, category] = await Promise.all([
+    buildTasteProfile(client, userId, email, today),
+    classifyBook(title, author),
+  ]);
   return assessBookFit(profile, {
     title,
-    author: input.author?.trim() || null,
+    author,
+    fiction: category.fiction,
+    genre: category.genre,
   });
 }
 
@@ -254,7 +284,7 @@ export async function assessBookIntoNote(
 
   const { data: book, error: bookError } = await client
     .from("reading_books")
-    .select("title, author")
+    .select("title, author, fiction, genre")
     .eq("id", bookId)
     .eq("user_id", userId)
     .single();
@@ -262,10 +292,23 @@ export async function assessBookIntoNote(
 
   const tz = await getUserTimezone();
   const today = localDate(new Date(), tz);
+  const title = book.title as string;
+  const author = (book.author as string | null) ?? null;
   const profile = await buildTasteProfile(client, userId, email, today);
+  // A shelved book usually knows its own category already; fall back to the
+  // classifier only for the ones that were never categorised.
+  let fiction = (book.fiction as boolean | null) ?? null;
+  let genre = (book.genre as string | null) ?? null;
+  if (fiction == null && genre == null) {
+    const category = await classifyBook(title, author);
+    fiction = category.fiction;
+    genre = category.genre;
+  }
   const assessment = await assessBookFit(profile, {
-    title: book.title as string,
-    author: (book.author as string | null) ?? null,
+    title,
+    author,
+    fiction,
+    genre,
   });
   if (!assessment) return null;
 
