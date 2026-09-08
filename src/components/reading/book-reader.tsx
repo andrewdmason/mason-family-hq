@@ -1238,6 +1238,18 @@ export function BookReader({
     [paged, pagedGeometry, pagedPages, pageIndex, sideBySide, viewport]
   );
 
+  // A page to turn to when a selection continues onto it. Memoised for the
+  // same reason as pagedChat: the layer keys an effect on it.
+  const pageTurn = useMemo(
+    () =>
+      paged
+        ? sideBySide
+          ? { next: parallel.next, hasNext: !parallel.atEnd }
+          : { next: pagination.next, hasNext: !pagination.atEnd }
+        : null,
+    [paged, sideBySide, parallel.next, parallel.atEnd, pagination.next, pagination.atEnd]
+  );
+
   // Stable, so PagedView's window keydown listener isn't torn down and re-added
   // on every render. Expressed in characters rather than pages because a page
   // number only means something within the chapter currently rendered — Home and
@@ -1425,6 +1437,7 @@ export function BookReader({
       onNoteChanged={setNoteState}
       goToChar={goToChar}
       paged={pagedChat}
+      pageTurn={pageTurn}
       panelOpen={chatPanelOpen}
       onPanelOpenChange={handleChatPanelOpenChange}
       openListOnMount={openNotes}

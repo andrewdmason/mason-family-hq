@@ -68,6 +68,13 @@ import { useGutterPlacement, type PagedGutterContext } from "./gutter-placement"
 import { Notepad, type ComposeRequest, type NoteClip, type NoteMarkFix } from "./notepad";
 import { PanelDockToggle } from "./panel-dock-toggle";
 import { SelectionToolbar, type SelectionIntent } from "./selection-toolbar";
+import { ContinuePill } from "./continue-pill";
+import {
+  extendFromHeld,
+  heldRange,
+  useHeldSelectionHighlight,
+  type HeldSelection,
+} from "./use-held-selection";
 import { CounterpartPanel, type CounterpartRequest } from "./counterpart-panel";
 import type { FaceTextOf } from "@/lib/reading/face-map";
 import type { PlainBlock } from "@/lib/reading/plain/types";
@@ -206,6 +213,7 @@ export function ReaderAnnotationLayer({
   onNoteChanged,
   goToChar,
   paged,
+  pageTurn = null,
   panelOpen,
   onPanelOpenChange,
   openListOnMount,
@@ -300,6 +308,11 @@ export function ReaderAnnotationLayer({
   goToChar: (charOffset: number) => void;
   /** Non-null in paged mode; drives marker placement. */
   paged: PagedGutterContext | null;
+  /**
+   * Turn the page, for a selection that continues onto the next one — see
+   * use-held-selection.ts. Null while scrolling, and for an article.
+   */
+  pageTurn?: { next: () => void; hasNext: boolean } | null;
   panelOpen: boolean;
   onPanelOpenChange: (open: boolean) => void;
   /**
@@ -1283,6 +1296,65 @@ export function ReaderAnnotationLayer({
   }, [contentRef, onPage, space]);
 
   /**
+   * A passage that runs off the page: the start the reader pinned with
+   * Continue, until they select its end on the next page and act on it. See
+   * use-held-selection.ts.
+   */
+  const [held, setHeld] = useState<HeldSelection | null>(null);
+  const [liveSelection, setLiveSelection] = useState<Range | null>(null);
+  useHeldSelectionHighlight(
+    held,
+    liveSelection,
+    contentRef,
+    layoutNonce + contentVersion,
+    windowBase,
+    faceTextOf
+  );
+  const continueSelection = useCallback(
+    (range: Range) => {
+      const container = contentRef.current;
+      if (!container || !pageTurn) return;
+      // A passage already being held keeps its start: continuing again from
+      // the page after is a three-page passage, not a new one.
+      const start = held ? heldRange(held, container, windowBase, faceTextOf) : null;
+      if (!start || start.compareBoundaryPoints(Range.START_TO_START, range) >= 0) {
+        const resolved = anchorFromRange(range, container, space);
+        if (!resolved) return;
+        setHeld(resolved);
+      }
+      pageTurn.next();
+    },
+    [contentRef, faceTextOf, held, pageTurn, space, windowBase]
+  );
+  /** The selection as the toolbar saw it, joined to the held start if there is one. */
+  const selectionToAct = useCallback(
+    (range: Range): Range => {
+      const container = contentRef.current;
+      if (!held || !container) return range;
+      setHeld(null);
+      return extendFromHeld(heldRange(held, container, windowBase, faceTextOf), range);
+    },
+    [contentRef, faceTextOf, held, windowBase]
+  );
+  // Escape lets go of the held start. Same guards as the page's own keys: not
+  // while typing somewhere, and not with a modifier down.
+  useEffect(() => {
+    if (!held) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const active = document.activeElement as HTMLElement | null;
+      if (
+        active?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')
+      ) {
+        return;
+      }
+      setHeld(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [held]);
+
+  /**
    * The three things a selection can become. They differ only in what the row
    * starts with and whether the panel opens — it is one annotation either way,
    * and any of them can grow into any other later.
@@ -2072,8 +2144,10 @@ export function ReaderAnnotationLayer({
       )}
       <SelectionToolbar
         contentRef={contentRef}
-        onAct={(range, intent) => void annotateSelection(range, intent)}
+        onAct={(range, intent) => void annotateSelection(selectionToAct(range), intent)}
         disabled={busy}
+        onContinue={pageTurn?.hasNext ? continueSelection : null}
+        onSelectionChange={setLiveSelection}
         // Books with a translation only: an article has no translation and no
         // block map to peek through, and in a book nobody has ever translated,
         // a fourth action nothing in the reader has mentioned yet is noise.
@@ -2081,6 +2155,7 @@ export function ReaderAnnotationLayer({
           isArticle || !plainExists ? null : shownFace === "plain" ? "original" : "plain"
         }
       />
+      {held && <ContinuePill onCancel={() => setHeld(null)} />}
       {chapterMenu && (
         <ChapterMenu
           anchor={chapterMenu}

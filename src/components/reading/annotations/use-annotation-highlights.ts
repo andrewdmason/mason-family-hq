@@ -42,6 +42,12 @@ const ACTIVE_REGISTRY: Record<Treatment, string> = {
   "theirs-thread": "reader-annot-theirs-thread-active",
 };
 const STYLE_ID = "reader-annotation-highlight-style";
+/**
+ * A passage the reader is still selecting: the start they pinned before turning
+ * the page — see use-held-selection.ts. Yours, so yellow, but dotted underneath
+ * because nothing has been written yet.
+ */
+export const HELD_HIGHLIGHT = "reader-annot-held";
 
 /**
  * Four treatments: two colours, two weights.
@@ -74,7 +80,7 @@ const STYLE_ID = "reader-annotation-highlight-style";
  * Text colour is left alone throughout, so the serif body reads exactly as it
  * does unmarked.
  */
-function ensureHighlightStyles() {
+export function ensureHighlightStyles() {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ID;
@@ -98,6 +104,8 @@ function ensureHighlightStyles() {
 
     `::highlight(${REGISTRY["theirs-thread"]}){background-color:color-mix(in oklab, ${THEIRS} 10%, transparent);${underline(THEIRS, "2px")}}`,
     `::highlight(${ACTIVE_REGISTRY["theirs-thread"]}){background-color:color-mix(in oklab, ${THEIRS} 24%, transparent);${underline(THEIRS, "3px")}}`,
+
+    `::highlight(${HELD_HIGHLIGHT}){background-color:color-mix(in oklab, ${YELLOW} 30%, transparent);${underline(YELLOW, "2px").replace("underline;", "underline;text-decoration-style:dotted;")}}`,
   ].join("\n");
   document.head.append(style);
 }
