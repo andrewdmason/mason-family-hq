@@ -1,13 +1,15 @@
 /**
  * The notepad: the rules that decide what a place looks like in the stored
- * text, what a pill says, when a new paragraph gets stamped, and how the
- * assistant reads the whole thing.
+ * text, what a pill says, when a new paragraph gets stamped, how the
+ * assistant reads the whole thing — and, since the notepad became an
+ * outline, what the tree looks like as markdown and what every key does to
+ * it.
  *
  * None of these throw when they break. They show up as a pill that renders as
- * its own syntax, a stamp on every line, or an assistant that quotes link
- * markup back at the reader.
+ * its own syntax, a stamp on every line, an assistant that quotes link markup
+ * back at the reader, or a Tab that eats a line.
  *
- *   npx tsx scripts/verify-reader-notes.mts
+ *   npx tsx --tsconfig scripts/tsconfig.json scripts/verify-reader-notes.mts
  */
 
 import {
@@ -29,6 +31,38 @@ import {
   shouldStamp,
   STAMP_MIN_MOVE,
 } from "../src/lib/reading/notes";
+import {
+  appendBlock,
+  childrenLines,
+  composeText,
+  emptyDoc,
+  newBlock,
+  normalizeDoc,
+  quoteBlock,
+  resolveMarkInDoc,
+  treeToMarkdown,
+  type NoteBlockJSON,
+  type NoteDoc,
+} from "../src/lib/reading/note-tree";
+import { getSchema } from "@tiptap/core";
+import StarterKit from "@tiptap/starter-kit";
+import { EditorState, TextSelection, type Command, type Transaction } from "@tiptap/pm/state";
+import { NoteBlock, NotepadDoc } from "../src/components/reading/annotations/notepad-block";
+import {
+  focusEndVisible,
+  indentBlock,
+  joinBlockBackward,
+  joinBlockForward,
+  liftHiddenSelection,
+  moveBlockDown,
+  moveBlockUp,
+  outdentBlock,
+  setCollapsed,
+  setCollapsedAt,
+  splitBlock,
+} from "../src/components/reading/annotations/notepad-block-commands";
+import { NotepadCompose, composeScope, quoteAbove } from "../src/components/reading/annotations/notepad-compose";
+import { NotepadPill } from "../src/components/reading/annotations/notepad-pill";
 
 let failures = 0;
 
@@ -194,6 +228,342 @@ check(
   (cut?.text.length ?? 0) <= NOTES_PROMPT_MAX_CHARS && !cut?.text.endsWith("\n") && /\.$/.test(cut?.text ?? "")
 );
 check("the front survives", cut?.text.startsWith("Line 0 of") === true);
+
+/* ------------------------------------------------------------------ */
+/* The tree                                                            */
+/* ------------------------------------------------------------------ */
+
+console.log("\nthe note as a tree, and as markdown");
+
+const p = (text: string, ...rest: object[]) => ({
+  type: "paragraph",
+  content: text ? [{ type: "text", text }, ...rest] : rest,
+});
+const pill = (char: number, label: string, mark: string | null = null) => ({
+  type: "pill",
+  attrs: { kind: "place", label, char, mark },
+});
+
+const tree: NoteDoc = {
+  type: "doc",
+  content: [
+    newBlock({ type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Owning your own shadow" }] }, [
+      newBlock(p("The bogey man story is doing a lot of work."), [
+        newBlock(p("", { type: "text", text: "Really ", marks: [{ type: "bold" }] }, { type: "text", text: "a lot" }), [], { id: "gc" }),
+      ], { id: "child" }),
+      newBlock(p("Second thought"), [], { id: "second", collapsed: true }),
+    ], { id: "top" }),
+    quoteBlock("First line.\nSecond line.", { char: 777, label: "p. 7", mark: "m-1" }),
+    newBlock(p("I don't get it. ", { type: "compose", attrs: { kind: "ask", handle: "ask", name: "Ask" } })),
+    newBlock(p("See "), [newBlock({ type: "blockquote", content: [p("Nested quote. ", pill(9, "27%"))] })]),
+  ],
+};
+
+const md = treeToMarkdown(tree);
+check(
+  "a nested note reads as bare lines with a tight list under each",
+  md ===
+    [
+      "# Owning your own shadow",
+      "- The bogey man story is doing a lot of work.",
+      "  - **Really **a lot",
+      "- Second thought",
+      "",
+      "> First line.",
+      ">",
+      "> Second line. [p. 7](place:777?mark=m-1)",
+      "",
+      "I don't get it. @ask",
+      "",
+      "See ",
+      "- > Nested quote. [27%](place:9000)".replace("9000", "9"),
+      "",
+    ].join("\n"),
+  JSON.stringify(md)
+);
+check("a flat note reads exactly as it did", treeToMarkdown({ type: "doc", content: [newBlock(p("One")), newBlock(p("Two")), newBlock(p("Three"))] }) === "One\n\nTwo\n\nThree\n");
+check(
+  "a landed quote reads the same whichever path wrote it",
+  treeToMarkdown(appendBlock(emptyDoc(), quoteBlock("Words.", { char: 1, label: "1%", mark: null }))) ===
+    appendClipMarkdown("", "Words.", { char: 1, label: "1%", mark: null })
+);
+check(
+  "a quote after notes reads the same whichever path wrote it",
+  treeToMarkdown(appendBlock({ type: "doc", content: [newBlock(p("Some notes."))] }, quoteBlock("First line.\nSecond line.", { char: 777, label: "p. 7", mark: "m-1" }))) ===
+    appendClipMarkdown("Some notes.\n", "First line.\nSecond line.", { char: 777, label: "p. 7", mark: "m-1" })
+);
+check("an empty note is empty markdown", treeToMarkdown(emptyDoc()) === "");
+check("every pill is found in the derived markdown", placesIn(md).map((x) => x.char).join(",") === "777,9");
+check("list markers aren't words", noteWordCount(treeToMarkdown({ type: "doc", content: [newBlock(p("a"), [newBlock(p("b"), [newBlock(p("c"))])])] })) === 3);
+check("the assistant reads a nested note with its indents", notesForPrompt(md)?.text.includes("  - **Really **a lot") === true);
+
+const raw = normalizeDoc({
+  type: "doc",
+  content: [
+    { type: "paragraph", content: [{ type: "text", text: "bare" }] },
+    { type: "noteBlock", attrs: { id: "dup" }, content: [{ type: "paragraph" }] },
+    { type: "noteBlock", attrs: { id: "dup", collapsed: true }, content: [{ type: "paragraph" }, { type: "paragraph", content: [{ type: "text", text: "loose" }] }] },
+    { type: "horizontalRule" },
+  ],
+});
+check("a bare paragraph is lifted into a block", raw.content[0].type === "noteBlock" && raw.content[0].content[0].type === "paragraph");
+check("every block has an id and duplicates are renamed", raw.content[1].attrs.id === "dup" && raw.content[2].attrs.id !== "dup" && raw.content[0].attrs.id.length > 0);
+check("collapsed is kept", raw.content[2].attrs.collapsed === true && raw.content[1].attrs.collapsed === false);
+check("a loose paragraph among children becomes a child block", raw.content[2].content[1].type === "noteBlock");
+check("what fits nowhere is dropped", raw.content.length === 3);
+check("nothing becomes one empty line", normalizeDoc(null).content.length === 1 && normalizeDoc({}).content[0].content[0].type === "paragraph");
+check("appending to an untouched note replaces the empty line", appendBlock(emptyDoc(), newBlock(p("x"))).content.length === 1);
+check("appending to a note adds at the end", appendBlock({ type: "doc", content: [newBlock(p("a"))] }, newBlock(p("b"))).content.length === 2);
+
+const askBlock = (tree.content[0].content[1] as NoteBlockJSON);
+check("children read as lines", childrenLines(askBlock).join("|") === "- Really a lot");
+check(
+  "what a chip sends: crumbs, the line, what's under it",
+  composeText([tree.content[0]], askBlock) === "Under: Owning your own shadow\n\nThe bogey man story is doing a lot of work.\n- Really a lot"
+);
+check("a top-level line sends no crumbs", composeText([], tree.content[2]) === "I don't get it.");
+
+const landedNow = appendBlock(emptyDoc(), quoteBlock("Now.", { char: 5, label: "p. 1", mark: "pending:abc" }));
+const fixed = resolveMarkInDoc(landedNow, "pending:abc", "real-id");
+check("a stand-in mark is swapped for the real one", fixed != null && treeToMarkdown(fixed).includes("?mark=real-id") && !treeToMarkdown(fixed).includes("pending"));
+check("nothing to swap is nothing", resolveMarkInDoc(landedNow, "other", "x") === null);
+check("the swap leaves the original alone", treeToMarkdown(landedNow).includes("pending:abc"));
+
+/* ------------------------------------------------------------------ */
+/* The keys                                                            */
+/* ------------------------------------------------------------------ */
+
+console.log("\nwhat the keys do to the outline");
+
+const schema = getSchema([
+  StarterKit.configure({
+    heading: { levels: [1, 2, 3] },
+    codeBlock: false,
+    document: false,
+    bulletList: false,
+    orderedList: false,
+    listItem: false,
+    listKeymap: false,
+    horizontalRule: false,
+    trailingNode: false,
+    dropcursor: false,
+  }),
+  NotepadDoc,
+  NoteBlock,
+  NotepadPill,
+  NotepadCompose,
+]);
+
+/** A state over a tree, with the caret at `caret` (an absolute position). */
+function stateOf(doc: NoteDoc, caret: number): EditorState {
+  const pm = schema.nodeFromJSON(doc);
+  return EditorState.create({ schema, doc: pm, selection: TextSelection.create(pm, caret) });
+}
+
+function run(state: EditorState, cmd: Command): { state: EditorState; handled: boolean; tr: Transaction | null } {
+  let tr: Transaction | null = null;
+  const handled = cmd(state, (t) => {
+    tr = t;
+  });
+  return { state: tr ? state.apply(tr) : state, handled, tr };
+}
+
+const shape = (state: EditorState) => treeToMarkdown(state.doc.toJSON() as NoteDoc);
+const caretText = (state: EditorState) => state.selection.$from.parent.textContent;
+const caretOffset = (state: EditorState) => state.selection.$from.parentOffset;
+
+/** a / b / c with c under b. Positions: a's text starts at 2. */
+const abc = (): NoteDoc => ({
+  type: "doc",
+  content: [
+    newBlock(p("a"), [], { id: "a" }),
+    newBlock(p("b"), [newBlock(p("c"), [], { id: "c" })], { id: "b" }),
+    newBlock(p("d"), [], { id: "d" }),
+  ],
+});
+// Layout of abc: [a: 0..5) [b: 5..15) with head 6..9, c: 9..14 [d: 15..20).
+// AT_X is the END of x's one-letter text; AT_X - 1 is its start.
+const AT_A = 3, AT_B = 8, AT_C = 12, AT_D = 18;
+
+{
+  const r = run(stateOf(abc(), AT_B), indentBlock);
+  check("Tab nests a line under the one above, with its children", r.handled && shape(r.state) === "a\n- b\n  - c\n\nd\n", JSON.stringify(shape(r.state)));
+  check("Tab keeps the caret in the moved line", caretText(r.state) === "b" && caretOffset(r.state) === 1);
+}
+{
+  const r = run(stateOf(abc(), AT_A), indentBlock);
+  check("Tab on the first line does nothing but is taken", r.handled && r.tr === null);
+}
+{
+  const r = run(stateOf(abc(), AT_C), indentBlock);
+  check("Tab on a first child does nothing", r.tr === null);
+}
+{
+  const r = run(stateOf(abc(), AT_C), outdentBlock);
+  check("Shift-Tab steps a line out after its parent", shape(r.state) === "a\n\nb\n\nc\n\nd\n", JSON.stringify(shape(r.state)));
+  check("Shift-Tab keeps the caret", caretText(r.state) === "c");
+}
+{
+  const nested: NoteDoc = { type: "doc", content: [newBlock(p("p"), [newBlock(p("x")), newBlock(p("y")), newBlock(p("z"))])] };
+  const r = run(stateOf(nested, 12), outdentBlock); // caret in y
+  check("Shift-Tab takes the lines after it along as children", shape(r.state) === "p\n- x\n\ny\n- z\n", JSON.stringify(shape(r.state)));
+}
+{
+  const r = run(stateOf(abc(), AT_A), outdentBlock);
+  check("Shift-Tab at the top level does nothing", r.handled && r.tr === null);
+}
+{
+  const r = run(stateOf(abc(), AT_D), moveBlockUp);
+  check("⌥↑ moves a line above its neighbour and everything under it", shape(r.state) === "a\n\nd\n\nb\n- c\n", JSON.stringify(shape(r.state)));
+  check("⌥↑ keeps the caret", caretText(r.state) === "d");
+}
+{
+  const r = run(stateOf(abc(), AT_A), moveBlockDown);
+  check("⌥↓ moves a line below its neighbour's whole subtree", shape(r.state) === "b\n- c\n\na\n\nd\n", JSON.stringify(shape(r.state)));
+  const r2 = run(stateOf(abc(), AT_D), moveBlockDown);
+  check("⌥↓ on the last line does nothing", r2.tr === null);
+}
+{
+  const r = run(stateOf(abc(), AT_B), setCollapsed(true));
+  const b = r.state.doc.child(1);
+  check("⌘↑ folds the line the caret is on", b.attrs.collapsed === true);
+  check("folding is not a history step", r.tr?.getMeta("addToHistory") === false);
+  const r2 = run(r.state, setCollapsed(true));
+  check("folding twice is nothing", r2.tr === null && r2.handled);
+  const r3 = run(stateOf(abc(), AT_A), setCollapsed(true));
+  check("⌘↑ on a childless line is taken and does nothing", r3.handled && r3.tr === null);
+  const r4 = run(stateOf(abc(), AT_C), setCollapsedAt(5, true));
+  check("folding over the caret brings it up to the head", r4.state.doc.child(1).attrs.collapsed === true && caretText(r4.state) === "b");
+  check("the folded line's markdown is unchanged", shape(r.state) === shape(stateOf(abc(), AT_B)));
+}
+{
+  const r = run(stateOf(abc(), AT_A), splitBlock); // end of "a"
+  check("Enter at the end makes the next line", shape(r.state) === "a\n\n\n\nb\n- c\n\nd\n".replace("\n\n\n\n", "\n\n") && r.state.doc.childCount === 4, JSON.stringify(shape(r.state)));
+  check("the caret is on the new, empty line", caretText(r.state) === "" && r.state.doc.child(1).firstChild?.content.size === 0);
+  check("Enter is not tagged as structural (the stamp watches it)", !r.tr?.getMeta("notepad-insert"));
+}
+{
+  const r = run(stateOf(abc(), AT_B), splitBlock); // end of "b", which has c showing
+  check("Enter at the end of an open parent makes its first child", r.state.doc.child(1).childCount === 3 && r.state.doc.child(1).child(1).firstChild?.content.size === 0);
+}
+{
+  const folded = abc();
+  folded.content[1].attrs.collapsed = true;
+  const r = run(stateOf(folded, AT_B), splitBlock);
+  check("Enter at the end of a folded parent makes the next line after everything under it", r.state.doc.childCount === 4 && r.state.doc.child(2).firstChild?.content.size === 0);
+}
+{
+  const doc: NoteDoc = { type: "doc", content: [newBlock(p("hello world"), [newBlock(p("kid"))])] };
+  const r = run(stateOf(doc, 7), splitBlock); // after "hello"
+  check("Enter mid-line moves the rest down and keeps the children", shape(r.state) === "hello\n- kid\n\n world\n", JSON.stringify(shape(r.state)));
+  check("the caret is at the start of the new line", caretText(r.state) === " world" && caretOffset(r.state) === 0);
+}
+{
+  const r = run(stateOf(abc(), AT_A - 1), splitBlock); // start of "a"
+  check("Enter at the start opens an empty line above", r.state.doc.child(0).firstChild?.content.size === 0 && caretText(r.state) === "a" && caretOffset(r.state) === 0);
+}
+{
+  const doc: NoteDoc = { type: "doc", content: [newBlock({ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Head" }] })] };
+  const r = run(stateOf(doc, 6), splitBlock);
+  check("Enter after a heading makes a plain line", r.state.doc.child(1).firstChild?.type.name === "paragraph");
+}
+{
+  const doc: NoteDoc = { type: "doc", content: [newBlock({ type: "blockquote", content: [p("Quoted."), p("")] })] };
+  const r = run(stateOf(doc, 12), splitBlock); // in the empty last paragraph
+  check("Enter on an empty last quote line steps out of the quote", r.state.doc.childCount === 2 && r.state.doc.child(0).firstChild?.childCount === 1 && caretText(r.state) === "");
+  const r2 = run(stateOf(doc, 5), splitBlock);
+  check("Enter inside a quote is the editor's own", !r2.handled);
+}
+{
+  const doc: NoteDoc = { type: "doc", content: [newBlock(p("a")), newBlock(p(""))] };
+  const r = run(stateOf(doc, 7), joinBlockBackward);
+  check("Backspace on an empty line removes it and lands at the end of the one above", r.state.doc.childCount === 1 && caretText(r.state) === "a" && caretOffset(r.state) === 1);
+}
+{
+  const doc: NoteDoc = { type: "doc", content: [newBlock(p("a")), newBlock(p(""), [newBlock(p("kid"))])] };
+  const r = run(stateOf(doc, 7), joinBlockBackward);
+  check("Backspace on an empty line with children lifts them into its place", shape(r.state) === "a\n\nkid\n", JSON.stringify(shape(r.state)));
+}
+{
+  const r = run(stateOf(abc(), AT_D - 1), joinBlockBackward); // start of "d"
+  check("Backspace at the start of a line joins it to the visible line above (c)", shape(r.state) === "a\n\nb\n- cd\n", JSON.stringify(shape(r.state)));
+  check("the caret sits at the join", caretText(r.state) === "cd" && caretOffset(r.state) === 1);
+}
+{
+  const folded = abc();
+  folded.content[1].attrs.collapsed = true;
+  const r = run(stateOf(folded, AT_D - 1), joinBlockBackward);
+  check("…but not to something folded away: it joins the folded line itself", shape(r.state) === "a\n\nbd\n- c\n", JSON.stringify(shape(r.state)));
+}
+{
+  const doc: NoteDoc = { type: "doc", content: [newBlock(p("a"), [newBlock(p("kid"), [newBlock(p("x"))])])] };
+  const r = run(stateOf(doc, 6), joinBlockBackward); // start of "kid"
+  check("Backspace at the start of a first child joins its parent and lifts its own children", shape(r.state) === "akid\n- x\n", JSON.stringify(shape(r.state)));
+}
+{
+  const r = run(stateOf(abc(), AT_A - 1), joinBlockBackward);
+  check("Backspace at the start of the note does nothing", r.handled && r.tr === null);
+  const r2 = run(stateOf(abc(), AT_A), joinBlockBackward);
+  check("Backspace mid-line is the editor's own", !r2.handled);
+}
+{
+  const doc: NoteDoc = { type: "doc", content: [newBlock({ type: "blockquote", content: [p("One."), p("Two.")] }, [newBlock(p("kid"))])] };
+  const r = run(stateOf(doc, 3), joinBlockBackward);
+  check("Backspace at the start of a quote unwraps it into lines", shape(r.state) === "One.\n- kid\n\nTwo.\n", JSON.stringify(shape(r.state)));
+}
+{
+  const r = run(stateOf(abc(), AT_A), joinBlockForward); // end of "a"
+  check("Delete at the end pulls the next line up, its children stepping in", shape(r.state) === "ab\n\nc\n\nd\n", JSON.stringify(shape(r.state)));
+}
+{
+  const r = run(stateOf(abc(), AT_D), joinBlockForward);
+  check("Delete at the end of the note does nothing", r.handled && r.tr === null);
+}
+{
+  const folded = abc();
+  folded.content[1].attrs.collapsed = true;
+  const r = run(stateOf(folded, AT_A), focusEndVisible);
+  check("the end of the note is the last visible line", caretText(r.state) === "d");
+  const folded2 = abc();
+  folded2.content[2] = newBlock(p("e"), [newBlock(p("f"))], { collapsed: true });
+  const r2 = run(stateOf(folded2, AT_A), focusEndVisible);
+  check("…even when that line is folded", caretText(r2.state) === "e");
+  const open = abc();
+  const r3 = run(stateOf(open, AT_A), focusEndVisible);
+  check("…and the deepest open child when not", caretText(r3.state) === "d");
+}
+{
+  const folded = abc();
+  folded.content[1].attrs.collapsed = true;
+  const lifted = liftHiddenSelection(stateOf(folded, AT_C));
+  check("a caret under a fold is brought up to the folded line", lifted != null && lifted.selection.$from.parent.textContent === "b");
+  check("a caret in the open is left alone", liftHiddenSelection(stateOf(abc(), AT_C)) === null);
+}
+{
+  const doc: NoteDoc = {
+    type: "doc",
+    content: [
+      newBlock({ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Ch. 3" }] }, [
+        quoteBlock("The passage.", { char: 40, label: "p. 4", mark: "m" }),
+        newBlock(p("Thought. ", { type: "compose", attrs: { kind: "ask", handle: "ask", name: "Ask" } }), [newBlock(p("under"))]),
+        newBlock(p("sibling")),
+      ]),
+    ],
+  };
+  const pm = schema.nodeFromJSON(doc);
+  let chipPos = -1;
+  pm.descendants((n, pos) => {
+    if (n.type.name === "compose") chipPos = pos;
+    return chipPos < 0;
+  });
+  const scope = composeScope(pm, chipPos);
+  check("what a chip sends names where it sits and what's under it, not what's beside it", scope?.text === "Under: Ch. 3\n\nThought.\n- under", JSON.stringify(scope?.text));
+  check("the quote above rides along", scope?.quote?.text === "The passage." && scope?.quote?.place.char === 40);
+  check("quoteAbove agrees", quoteAbove(pm, chipPos));
+  const under: NoteDoc = { type: "doc", content: [newBlock({ type: "blockquote", content: [p("Q. ", pill(1, "1%"))] }, [newBlock(p("about it"))])] };
+  const pmUnder = schema.nodeFromJSON(under);
+  check("a line nested under a quote is about that quote", quoteAbove(pmUnder, pmUnder.nodeSize - 6));
+}
 
 /* ------------------------------------------------------------------ */
 

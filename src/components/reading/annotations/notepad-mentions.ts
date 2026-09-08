@@ -2,9 +2,11 @@ import { Extension, type Editor, type Range } from "@tiptap/core";
 import Suggestion, { type SuggestionProps } from "@tiptap/suggestion";
 import { PluginKey } from "@tiptap/pm/state";
 import type { MentionTarget } from "@/lib/reading/mentions";
-import type { NotePlace } from "@/lib/reading/notes";
 import { COMPOSE_NODE, quoteAbove } from "./notepad-compose";
-import { placeNodeJSON } from "./notepad-pill";
+
+import { NOTEPAD_INSERT_META } from "@/lib/reading/note-tree";
+
+export { clipContent, NOTEPAD_INSERT_META } from "@/lib/reading/note-tree";
 
 /**
  * The @ menu: who a paragraph is for.
@@ -56,32 +58,6 @@ export function matchItems(members: MentionTarget[], query: string): MentionItem
   }
   return items;
 }
-
-/**
- * The passage as it lands in the note: a quote, with a pill after it saying
- * where it came from. A COPY — trim it, cut it, keep the one sentence that
- * mattered. The pill stays linked to the mark and the place either way.
- */
-export function clipContent(quote: string, place: NotePlace) {
-  const lines = quote
-    .split(/\n+/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  const paragraphs = lines.length > 0 ? lines : [quote.trim()];
-  return {
-    type: "blockquote",
-    content: paragraphs.map((text, i) => ({
-      type: "paragraph",
-      content:
-        i === paragraphs.length - 1
-          ? [{ type: "text", text }, { type: "text", text: " " }, placeNodeJSON(place)]
-          : [{ type: "text", text }],
-    })),
-  };
-}
-
-/** Set on transactions the notepad makes itself, so the auto-stamp stays out. */
-export const NOTEPAD_INSERT_META = "notepad-insert";
 
 export const NotepadMentions = Extension.create<{
   members: () => MentionTarget[];

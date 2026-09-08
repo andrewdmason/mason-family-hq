@@ -1,9 +1,15 @@
 import { mergeAttributes, Node } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { parsePillHref, pillMarkdown, type NotePill, type NotePlace } from "@/lib/reading/notes";
+import { parsePillHref, pillMarkdown, type NotePill } from "@/lib/reading/notes";
+import { PILL_NODE, pillOfAttrs } from "@/lib/reading/note-tree";
+
+export { PILL_NODE, pillJSON, placeNodeJSON } from "@/lib/reading/note-tree";
 
 /** The slice of tiptap-markdown's serializer state a leaf node needs. */
 type MarkdownSerializerState = { write: (text: string) => void };
+
+/** What the DOM pill is called, for the click handler and the stylesheet. */
+export const PILL_ATTR = "data-pill";
 
 /**
  * A pill in the notepad's text: a place in the book, a day, or a conversation.
@@ -18,11 +24,6 @@ type MarkdownSerializerState = { write: (text: string) => void };
  * the hook below just swaps every pill-scheme anchor for the span this node
  * reads, before Tiptap ever sees the HTML.
  */
-export const PILL_NODE = "pill";
-
-/** What the DOM pill is called, for the click handler and the stylesheet. */
-export const PILL_ATTR = "data-pill";
-
 export const NotepadPill = Node.create({
   name: PILL_NODE,
   group: "inline",
@@ -129,27 +130,5 @@ export const NotepadPill = Node.create({
 
 /** The pill a node stands for. */
 export function pillOf(node: PMNode): NotePill {
-  const a = node.attrs;
-  const label = (a.label as string) ?? "";
-  if (a.kind === "date") return { kind: "date", date: (a.date as string) ?? "", label };
-  if (a.kind === "thread") return { kind: "thread", thread: (a.thread as string) ?? "", label };
-  return { kind: "place", char: (a.char as number) ?? 0, mark: (a.mark as string | null) ?? null, label };
-}
-
-/** The node's JSON, for insertContent. */
-export function pillJSON(pill: NotePill) {
-  const attrs: Record<string, unknown> = { kind: pill.kind, label: pill.label };
-  if (pill.kind === "place") {
-    attrs.char = pill.char;
-    attrs.mark = pill.mark;
-  } else if (pill.kind === "date") {
-    attrs.date = pill.date;
-  } else {
-    attrs.thread = pill.thread;
-  }
-  return { type: PILL_NODE, attrs };
-}
-
-export function placeNodeJSON(place: NotePlace) {
-  return pillJSON({ kind: "place", ...place });
+  return pillOfAttrs(node.attrs);
 }

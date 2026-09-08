@@ -3,12 +3,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import { Extension } from "@tiptap/core";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import type { Node as PMNode } from "@tiptap/pm/model";
+import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { Markdown } from "tiptap-markdown";
-import { CalendarDays, ChevronLeft, MapPin, Sparkles, X } from "lucide-react";
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronsDownUp,
+  IndentDecrease,
+  IndentIncrease,
+  MapPin,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { saveBookNote, type BookNote } from "@/app/(reading)/reader/note-actions";
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import { memberPhotoUrl } from "@/lib/media/member-photo-url";
@@ -20,11 +30,28 @@ import {
   todayIso,
   type NotePlace,
 } from "@/lib/reading/notes";
+import {
+  emptyDoc,
+  emptyParagraph,
+  newBlock,
+  normalizeDoc,
+  quoteBlock,
+  treeToMarkdown,
+  type NoteDoc,
+} from "@/lib/reading/note-tree";
 import { cn } from "@/lib/utils";
 import { NotepadAutostamp } from "./notepad-autostamp";
+import { NoteBlock, NotepadDoc } from "./notepad-block";
+import {
+  blockAt,
+  focusEndVisible,
+  indentBlock,
+  inHead,
+  outdentBlock,
+  toggleCollapsedAt,
+} from "./notepad-block-commands";
 import { COMPOSE_NODE, composeScope, NotepadCompose, type ComposeScope } from "./notepad-compose";
 import {
-  clipContent,
   NOTEPAD_INSERT_META,
   NotepadMentions,
   type MentionController,
@@ -44,19 +71,34 @@ export type NoteClip = {
   place: NotePlace;
 };
 
+/**
+ * A clip's mark, now real. The passage landed the instant it was highlighted,
+ * pointing at a stand-in id; this swaps in the row's id once it exists.
+ */
+export type NoteMarkFix = {
+  nonce: number;
+  pending: string;
+  id: string;
+};
+
 /** What Enter on a chip hands the layer. Resolves to the new thread's annotation id. */
 export type ComposeRequest = Pick<ComposeScope, "kind" | "handle" | "name" | "text" | "quote">;
 
 /**
  * The reader's notepad for this book, in the panel beside it.
  *
- * A document, not a log — you can go back into anything and rework it — with
+ * An outline, not a log — every line is a block that can hold lines under
+ * it, be folded, and be moved with its children (notepad-block.ts) — with
  * the log's one good property kept: where you were when you wrote something.
  * That is a PILL in the text (see notepad-pill.ts), put there by the auto-stamp
  * (notepad-autostamp.ts), by the pin in the header, and after every passage
  * that lands here from a highlight. A date (the calendar button, or ⌥D) is
  * plain text: something you put in on purpose and can edit, or put in a
  * heading.
+ *
+ * Saved as a tree (note-tree.ts), with the markdown everything else reads
+ * derived from it on every save. A note from before the outline arrives as
+ * markdown, is lifted into blocks on the way in, and is saved back as both.
  *
  * It is also where conversations start. Type @ under a passage, pick Ask or a
  * person, press Enter: the paragraph goes off as the first message of a
@@ -74,6 +116,8 @@ export function Notepad({
   spot,
   clip,
   onClipHandled,
+  markFix,
+  onMarkFixHandled,
   onOpenPlace,
   onOpenThread,
   onCompose,
@@ -85,6 +129,7 @@ export function Notepad({
   dockToggle,
   autoFocus,
   focusNonce,
+  touch,
 }: {
   bookId: string;
   memberEmail: string | null;
@@ -96,6 +141,8 @@ export function Notepad({
   spot: NotePlace | null;
   clip: NoteClip | null;
   onClipHandled: () => void;
+  markFix: NoteMarkFix | null;
+  onMarkFixHandled: () => void;
   /** A place pill was tapped: go there, and open the mark if it names one. */
   onOpenPlace: (char: number, mark: string | null) => void;
   /** A thread pill was tapped, or a thread was just made from a chip. */
@@ -105,7 +152,7 @@ export function Notepad({
   /** Replies per thread, for the pills' counts. */
   replyCounts: ReadonlyMap<string, number>;
   /** Every change, so whoever reopens the panel gets the latest text. */
-  onChange: (markdown: string) => void;
+  onChange: (markdown: string, doc: NoteDoc) => void;
   /** A save landed. */
   onSaved: (updatedAt: string) => void;
   onBack: () => void;
@@ -118,12 +165,15 @@ export function Notepad({
   autoFocus: boolean;
   /** Bumped to put the cursor back at the end while already open — ⌥N. */
   focusNonce: number;
+  /** On a phone: no hover, no Tab, so a bar above the keyboard does what they do. */
+  touch: boolean;
 }) {
   const [status, setStatus] = useState<
     "idle" | "dirty" | "saving" | "saved" | "error" | "sending" | "sendFailed"
   >("idle");
   const [words, setWords] = useState(() => noteWordCount(initial.markdown));
   const [menu, setMenu] = useState<MentionMenuState | null>(null);
+  const [focused, setFocused] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Everything the extensions read is behind a ref: they are built once, with
@@ -149,8 +199,20 @@ export function Notepad({
     send: () => {},
   });
 
-  const latestRef = useRef(initial.markdown);
-  const savedRef = useRef(initial.markdown);
+  /**
+   * The note as it stands, and the note as last saved — told apart by the
+   * editor's own document object, which changes on every edit and every fold
+   * and on nothing else. Null for "saved" means never: a note that arrived as
+   * markdown is dirty from the start, so its first open writes the tree.
+   */
+  const latestRef = useRef<{ markdown: string; doc: NoteDoc; pm: PMNode | null }>({
+    markdown: initial.markdown,
+    doc: initial.doc ?? emptyDoc(),
+    pm: null,
+  });
+  const savedRef = useRef<PMNode | null>(null);
+  /** Whether the reader has put the caret somewhere themselves since the panel opened. */
+  const cursorSeenRef = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
@@ -160,16 +222,16 @@ export function Notepad({
       clearTimeout(debounceRef.current);
       debounceRef.current = null;
     }
-    const markdown = latestRef.current;
-    if (markdown === savedRef.current || savingRef.current) return;
+    const { markdown, doc, pm } = latestRef.current;
+    if (!pm || pm === savedRef.current || savingRef.current) return;
     savingRef.current = true;
     setStatus((s) => (s === "sending" ? s : "saving"));
     try {
-      const { updatedAt } = await saveBookNote({ bookId, markdown, memberEmail });
-      savedRef.current = markdown;
+      const { updatedAt } = await saveBookNote({ bookId, markdown, doc, memberEmail });
+      savedRef.current = pm;
       onSaved(updatedAt);
       // Something may have been typed while the save was in flight.
-      setStatus((s) => (s === "sending" ? s : latestRef.current === markdown ? "saved" : "dirty"));
+      setStatus((s) => (s === "sending" ? s : latestRef.current.pm === pm ? "saved" : "dirty"));
     } catch (err) {
       console.error("[reader] couldn't save your notes", err);
       setStatus("error");
@@ -177,11 +239,23 @@ export function Notepad({
       retryRef.current = setTimeout(() => void flush(), 5000);
     } finally {
       savingRef.current = false;
-      if (latestRef.current !== savedRef.current && !debounceRef.current) {
+      if (latestRef.current.pm !== savedRef.current && !debounceRef.current) {
         debounceRef.current = setTimeout(() => void flush(), 800);
       }
     }
   }, [bookId, memberEmail, onSaved]);
+
+  /** What the editor holds, for the refs and the header. */
+  const hold = useCallback(
+    (editor: Editor) => {
+      const doc = editor.getJSON() as unknown as NoteDoc;
+      const markdown = treeToMarkdown(doc);
+      latestRef.current = { markdown, doc, pm: editor.state.doc };
+      onChange(markdown, doc);
+      setWords(noteWordCount(markdown));
+    },
+    [onChange]
+  );
 
   const controller = useMemo<MentionController>(
     () => ({
@@ -237,9 +311,24 @@ export function Notepad({
         link: { openOnClick: false, autolink: true },
         // A notepad, not a code editor. Backticks still give inline code.
         codeBlock: false,
+        // The outline is the document: its own top node, its own blocks in
+        // place of lists, its own drop line, and no trailing paragraph
+        // appended where only a block can go.
+        document: false,
+        bulletList: false,
+        orderedList: false,
+        listItem: false,
+        listKeymap: false,
+        horizontalRule: false,
+        trailingNode: false,
+        dropcursor: false,
       }),
+      NotepadDoc,
+      NoteBlock,
       Placeholder.configure({
         placeholder: "Write as you read. @ starts a conversation.",
+        // The empty line is inside a block; look through to it.
+        includeChildren: true,
       }),
       Markdown.configure({
         html: false,
@@ -264,7 +353,10 @@ export function Notepad({
       }),
       replyDecorations,
     ],
-    content: initial.markdown,
+    // A tree goes straight in. Markdown — a note from before the outline —
+    // goes through the markdown parser, and every paragraph, heading, quote
+    // and list item it yields is lifted into a block by the schema.
+    content: initial.doc ?? (initial.markdown ? initial.markdown : emptyDoc()),
     immediatelyRender: false,
     editorProps: {
       attributes: {
@@ -303,9 +395,9 @@ export function Notepad({
           }
           return false;
         }
-        // Enter on a paragraph holding a chip sends it. Shift-Enter is still a
+        // Enter on a line holding a chip sends it. Shift-Enter is still a
         // line break, so a multi-line message is possible before sending.
-        if (event.key === "Enter" && !event.shiftKey && chipInParagraph(view.state)) {
+        if (event.key === "Enter" && !event.shiftKey && chipInHead(view.state)) {
           event.preventDefault();
           actionsRef.current.send();
           return true;
@@ -321,19 +413,42 @@ export function Notepad({
         return true;
       },
     },
+    onCreate: ({ editor }) => {
+      if (initial.doc) {
+        hold(editor);
+        savedRef.current = editor.state.doc;
+        return;
+      }
+      // Markdown on the way in: the schema lifted it into blocks, but blocks
+      // made that way have no ids yet. Settle it, then save the tree.
+      const settled = normalizeDoc(editor.getJSON());
+      editor.commands.setContent(settled, { emitUpdate: false });
+      hold(editor);
+      setStatus("dirty");
+      void flush();
+    },
     onUpdate: ({ editor }) => {
-      const markdown = getMarkdown(editor);
-      latestRef.current = markdown;
-      onChange(markdown);
-      setWords(noteWordCount(markdown));
+      hold(editor);
       setStatus((s) => (s === "sending" ? s : "dirty"));
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => void flush(), 800);
     },
+    onSelectionUpdate: ({ transaction }) => {
+      if (!transaction.getMeta(NOTEPAD_INSERT_META)) cursorSeenRef.current = true;
+    },
+    onFocus: () => setFocused(true),
     onBlur: () => {
+      setFocused(false);
       void flush();
     },
   });
+
+  /** The caret to the end of the last line the reader can see — our move, not theirs. */
+  const focusEnd = useCallback(() => {
+    if (!editor) return;
+    editor.view.focus();
+    focusEndVisible(editor.state, (tr) => editor.view.dispatch(tr.setMeta(NOTEPAD_INSERT_META, true)));
+  }, [editor]);
 
   // Reply counts changed: redraw the decorations over an unchanged document.
   useEffect(() => {
@@ -368,31 +483,64 @@ export function Notepad({
    */
   useEffect(() => {
     if (!editor || (!autoFocus && focusNonce === 0)) return;
-    editor.commands.focus("end");
+    focusEnd();
     scrollToEnd();
-  }, [autoFocus, editor, focusNonce, scrollToEnd]);
+  }, [autoFocus, editor, focusEnd, focusNonce, scrollToEnd]);
 
   /**
-   * A passage from the page lands at the end, with a fresh line under it and
-   * the cursor there — the highlight was the gesture, and this is where the
-   * thought about it goes.
+   * A passage from the page lands next to where the reader was writing — the
+   * line after the one the caret was on, at the same level — with a fresh
+   * line under it and the cursor there: the highlight was the gesture, and
+   * this is where the thought about it goes. If they hadn't put the caret
+   * anywhere yet, it lands at the end, at the top level.
    */
   useEffect(() => {
     if (!editor || !clip) return;
-    const end = editor.state.doc.content.size;
-    editor
-      .chain()
-      .command(({ tr }) => {
-        tr.setMeta(NOTEPAD_INSERT_META, true);
-        return true;
-      })
-      .insertContentAt(end, [clipContent(clip.quote, clip.place), { type: "paragraph" }])
-      .focus("end")
-      .run();
+    const { state, schema } = editor;
+    const here = cursorSeenRef.current ? blockAt(state.selection.$from) : null;
+    const at = here ? here.end : state.doc.content.size;
+    const quote = schema.nodeFromJSON(quoteBlock(clip.quote, clip.place));
+    const fresh = schema.nodeFromJSON(newBlock(emptyParagraph()));
+    const tr = state.tr.insert(at, [quote, fresh]).setMeta(NOTEPAD_INSERT_META, true);
+    tr.setSelection(TextSelection.create(tr.doc, at + quote.nodeSize + 2)).scrollIntoView();
+    editor.view.dispatch(tr);
+    editor.view.focus();
     lastStampRef.current = clip.place.char;
     onClipHandled();
-    scrollToEnd();
-  }, [clip, editor, onClipHandled, scrollToEnd]);
+  }, [clip, editor, onClipHandled]);
+
+  /** The clip's mark has a real id now: every pill that pointed at the stand-in points at it. */
+  useEffect(() => {
+    if (!editor || !markFix) return;
+    const { state } = editor;
+    const tr = state.tr;
+    state.doc.descendants((n, pos) => {
+      if (n.type.name === PILL_NODE && n.attrs.mark === markFix.pending) {
+        tr.setNodeMarkup(pos, undefined, { ...n.attrs, mark: markFix.id });
+      }
+      return true;
+    });
+    if (tr.docChanged) {
+      editor.view.dispatch(tr.setMeta(NOTEPAD_INSERT_META, true).setMeta("addToHistory", false));
+    }
+    onMarkFixHandled();
+  }, [editor, markFix, onMarkFixHandled]);
+
+  /** The phone's bar above the keyboard: what Tab and ⌘↑ do on a desk. */
+  const runCommand = useCallback(
+    (cmd: (state: Editor["state"], dispatch: Editor["view"]["dispatch"]) => boolean) => {
+      if (!editor) return;
+      cmd(editor.state, editor.view.dispatch);
+    },
+    [editor]
+  );
+  /** Fold or unfold the line the caret is on — read at the press, not the render. */
+  const toggleFold = useCallback(() => {
+    if (!editor) return;
+    const b = blockAt(editor.state.selection.$from);
+    if (!b) return;
+    toggleCollapsedAt(b.pos)(editor.state, editor.view.dispatch);
+  }, [editor]);
 
   const insertPill = useCallback(
     (json: ReturnType<typeof pillJSON>) => {
@@ -520,13 +668,13 @@ export function Notepad({
       if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.repeat) return;
       if ((e.code !== "KeyL" && e.code !== "KeyD") || !editor || editor.isFocused) return;
       e.preventDefault();
-      editor.commands.focus("end");
+      focusEnd();
       if (e.code === "KeyL") stampHere();
       else stampDate();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editor, stampDate, stampHere]);
+  }, [editor, focusEnd, stampDate, stampHere]);
 
   const subtitle =
     status === "sending"
@@ -602,40 +750,76 @@ export function Notepad({
         <EditorContent editor={editor} className="min-h-full" />
         {menu && <MentionMenu menu={menu} container={scrollRef.current} />}
       </div>
+
+      {touch && focused && editor && (
+        <div className="flex shrink-0 items-center gap-1 border-t border-border bg-background px-2 py-1">
+          <OutlineButton
+            label="Outdent"
+            onPress={() => runCommand(outdentBlock)}
+          >
+            <IndentDecrease className="h-4 w-4" />
+          </OutlineButton>
+          <OutlineButton label="Indent" onPress={() => runCommand(indentBlock)}>
+            <IndentIncrease className="h-4 w-4" />
+          </OutlineButton>
+          <OutlineButton label="Fold or unfold" onPress={toggleFold}>
+            <ChevronsDownUp className="h-4 w-4" />
+          </OutlineButton>
+        </div>
+      )}
     </div>
   );
 }
 
-function getMarkdown(editor: Editor): string {
-  const md = (editor.storage as { markdown?: { getMarkdown?: () => string } }).markdown;
-  return md?.getMarkdown?.() ?? "";
+/** A bar button that never takes the keyboard away from the text. */
+function OutlineButton({
+  label,
+  onPress,
+  children,
+}: {
+  label: string;
+  onPress: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onPointerDown={(e) => e.preventDefault()}
+      onClick={onPress}
+      className="rounded p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+    >
+      {children}
+    </button>
+  );
 }
 
-/** Whether the paragraph the cursor is in holds a chip. */
-function chipInParagraph(state: Editor["state"]): boolean {
+/** Whether the line the cursor is on holds a chip. */
+function chipInHead(state: Editor["state"]): boolean {
   const $from = state.selection.$from;
-  if ($from.depth < 1) return false;
+  const b = blockAt($from);
+  if (!b || !inHead($from)) return false;
   let found = false;
-  $from.node(1).descendants((n) => {
+  b.node.firstChild!.descendants((n) => {
     if (n.type.name === COMPOSE_NODE) found = true;
     return !found;
   });
   return found;
 }
 
-/** Where the chip in the cursor's top-level block is, or null. */
+/** Where the chip on the cursor's line is, or null. */
 function chipPosition(editor: Editor): number | null {
-  const { doc, selection } = editor.state;
-  const $from = selection.$from;
-  if ($from.depth < 1) return null;
-  const start = $from.start(1);
+  const $from = editor.state.selection.$from;
+  const b = blockAt($from);
+  if (!b || !inHead($from)) return null;
+  const start = b.pos + 2;
   let at: number | null = null;
-  $from.node(1).descendants((n, pos) => {
+  b.node.firstChild!.descendants((n, pos) => {
     if (at != null) return false;
     if (n.type.name === COMPOSE_NODE) at = start + pos;
     return at == null;
   });
-  void doc;
   return at;
 }
 

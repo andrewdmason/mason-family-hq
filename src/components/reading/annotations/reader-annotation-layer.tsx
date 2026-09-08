@@ -15,9 +15,15 @@ import {
   setAnnotationStarred,
   setAnnotationTemplate,
 } from "@/app/(reading)/reader/annotation-actions";
-import { getBookNote, saveBookNote, type BookNote } from "@/app/(reading)/reader/note-actions";
+import {
+  appendBookNoteClip,
+  getBookNote,
+  saveBookNote,
+  type BookNote,
+} from "@/app/(reading)/reader/note-actions";
 import type { BookScope } from "@/lib/reading/book-documents";
-import { appendClipMarkdown, placeLabel, type NotePlace } from "@/lib/reading/notes";
+import { placeLabel, type NotePlace } from "@/lib/reading/notes";
+import { resolveMarkInDoc, treeToMarkdown, type NoteDoc } from "@/lib/reading/note-tree";
 import { blockIndexForCharOffset, type BookBlock } from "@/lib/reading/block-stream";
 import { inOpenOverlay, isTypingTarget } from "@/lib/keyboard";
 import { note, startTimer, time } from "@/lib/reading/perf";
@@ -59,7 +65,7 @@ import { BookDocumentThread } from "./book-document-thread";
 import { ChapterMenu } from "./chapter-menu";
 import { GutterMarkers } from "./gutter-markers";
 import { useGutterPlacement, type PagedGutterContext } from "./gutter-placement";
-import { Notepad, type ComposeRequest, type NoteClip } from "./notepad";
+import { Notepad, type ComposeRequest, type NoteClip, type NoteMarkFix } from "./notepad";
 import { PanelDockToggle } from "./panel-dock-toggle";
 import { SelectionToolbar, type SelectionIntent } from "./selection-toolbar";
 import { CounterpartPanel, type CounterpartRequest } from "./counterpart-panel";
@@ -347,9 +353,11 @@ export function ReaderAnnotationLayer({
    * see. State catches up on each save, which is what the Contents reads.
    */
   const [noteDoc, setNoteDoc] = useState<BookNote | null>(null);
-  const noteRef = useRef<string>("");
+  const noteRef = useRef<BookNote>({ markdown: "", doc: null, updatedAt: null });
   /** A passage clipped from the page, waiting for the notepad to take it. */
   const [clip, setClip] = useState<NoteClip | null>(null);
+  /** A clip's stand-in mark id, waiting for the notepad to swap in the real one. */
+  const [markFix, setMarkFix] = useState<NoteMarkFix | null>(null);
   /** Bumped by ⌥N while the notepad is already showing: cursor back to the end. */
   const [noteFocusNonce, setNoteFocusNonce] = useState(0);
   /**
@@ -631,7 +639,7 @@ export function ReaderAnnotationLayer({
     void getBookNote(bookId, memberEmail)
       .then((n) => {
         if (cancelled) return;
-        noteRef.current = n.markdown;
+        noteRef.current = n;
         setNoteDoc(n);
         onNoteChanged(n);
       })
@@ -1103,16 +1111,18 @@ export function ReaderAnnotationLayer({
   // ---- The notepad's callbacks, first half ---------------------------------
 
   const clearClip = useCallback(() => setClip(null), []);
+  const clearMarkFix = useCallback(() => setMarkFix(null), []);
 
   /** Every keystroke, into the ref only — see `noteDoc`. */
-  const holdNote = useCallback((markdown: string) => {
-    noteRef.current = markdown;
+  const holdNote = useCallback((markdown: string, doc: NoteDoc) => {
+    noteRef.current = { ...noteRef.current, markdown, doc };
   }, []);
 
   /** A save landed: now the state, and the Contents, catch up. */
   const noteSaved = useCallback(
     (updatedAt: string) => {
-      const next = { markdown: noteRef.current, updatedAt };
+      const next = { ...noteRef.current, updatedAt };
+      noteRef.current = next;
       setNoteDoc(next);
       onNoteChanged(next);
     },
@@ -1160,29 +1170,71 @@ export function ReaderAnnotationLayer({
     return counts;
   }, [chats]);
 
+  /** Whether the notepad is on screen right now, readable from inside a callback. */
+  const notesShowingRef = useRef(false);
+  useEffect(() => {
+    notesShowingRef.current = panelOpen && mode === "notes" && noteDoc != null;
+  }, [mode, noteDoc, panelOpen]);
+
   /**
-   * A passage lands in the notes.
+   * A passage into the notes, NOW — on the tap, before the row it will be the
+   * mark of exists — with the notepad opening beside the book to take it and
+   * the cursor on the line below: the highlight was the gesture and this is
+   * where the thought about it goes. The pill points at the stand-in id until
+   * resolveNoteMark swaps in the real one.
    *
-   * With the notepad able to open beside the book, it opens, takes the
-   * passage, and puts the cursor on the line below — the highlight was the
-   * gesture and this is where the thought about it goes. On a sheet (a phone)
-   * the passage is written straight into the stored note instead: popping a
-   * panel over the page on every highlight would make highlighting a chore.
+   * On a phone with the sheet shut there is nothing to see, so nothing lands
+   * yet: appendToNotes writes it into the stored note once the row exists.
+   * Popping a sheet over the page on every highlight would make highlighting
+   * a chore.
    */
-  const landInNotes = useCallback(
+  const clipIntoNotes = useCallback(
     (quote: string, place: NotePlace) => {
-      if (!asSheet) {
-        setClip({ nonce: Date.now(), quote, place });
-        openNotes();
-        return;
-      }
-      const next = appendClipMarkdown(noteRef.current, quote, place);
-      noteRef.current = next;
-      void saveBookNote({ bookId, markdown: next, memberEmail })
-        .then(({ updatedAt }) => noteSaved(updatedAt))
+      setClip({ nonce: Date.now(), quote, place });
+      if (!asSheet) openNotes();
+    },
+    [asSheet, openNotes]
+  );
+
+  /** Whether a passage can land on screen right now (see clipIntoNotes). */
+  const canClipNow = useCallback(() => !asSheet || notesShowingRef.current, [asSheet]);
+
+  /** The phone path: the passage straight into the stored note, once its mark exists. */
+  const appendToNotes = useCallback(
+    (quote: string, place: NotePlace) => {
+      void appendBookNoteClip({ bookId, quote, place, memberEmail })
+        .then((next) => {
+          noteRef.current = next;
+          setNoteDoc(next);
+          onNoteChanged(next);
+        })
         .catch((err) => console.error("[reader] couldn't add that to your notes", err));
     },
-    [asSheet, bookId, memberEmail, noteSaved, openNotes]
+    [bookId, memberEmail, onNoteChanged]
+  );
+
+  /**
+   * The row exists: the pill that landed on the tap points at it now. The
+   * notepad does the swap in its own text when it's showing; otherwise the
+   * held note is patched and written, since the editor may already have
+   * saved the stand-in on its way out.
+   */
+  const resolveNoteMark = useCallback(
+    (pending: string, id: string) => {
+      if (notesShowingRef.current) {
+        setMarkFix({ nonce: Date.now(), pending, id });
+        return;
+      }
+      const held = noteRef.current;
+      const doc = held.doc ? resolveMarkInDoc(held.doc, pending, id) : null;
+      if (!doc) return;
+      const markdown = treeToMarkdown(doc);
+      noteRef.current = { ...held, doc, markdown };
+      void saveBookNote({ bookId, markdown, doc, memberEmail })
+        .then(({ updatedAt }) => noteSaved(updatedAt))
+        .catch((err) => console.error("[reader] couldn't finish adding that to your notes", err));
+    },
+    [bookId, memberEmail, noteSaved]
   );
 
   // `blockIndex` is global, like every index that reaches an anchor. See
@@ -1286,6 +1338,14 @@ export function ReaderAnnotationLayer({
         // A highlight is a mark with nobody in it — opened later, it writes.
         { key, row: optimisticRow(resolved, key, null, false) },
       ]);
+      // And into the notes, on the same tap, with a pill that knows which mark
+      // it came from — by its stand-in id until the row exists. What the
+      // reader SELECTED: in Plain English that's the plain sentence, not the
+      // whole original paragraph `quotedText` holds.
+      const quote = resolved.plainQuotedText || resolved.quotedText;
+      const lands = Boolean(quote) && !isArticle;
+      const landedNow = lands && canClipNow();
+      if (landedNow && quote) clipIntoNotes(quote, placeAt(resolved.anchorCharOffset, key));
       const stopCreate = startTimer("annotate: server create");
       try {
         const saved = await createAnnotation({
@@ -1303,11 +1363,8 @@ export function ReaderAnnotationLayer({
         setPendingHighlights((p) =>
           p.map((h) => (h.key === key ? { ...h, row: { ...h.row, id: saved.id } } : h))
         );
-        // And into the notes, with a pill that knows which mark it came from.
-        // What the reader SELECTED — in Plain English that's the plain
-        // sentence, not the whole original paragraph `quotedText` holds.
-        const quote = resolved.plainQuotedText || resolved.quotedText;
-        if (quote && !isArticle) landInNotes(quote, placeAt(saved.anchorCharOffset, saved.id));
+        if (landedNow) resolveNoteMark(key, saved.id);
+        else if (lands && quote) appendToNotes(quote, placeAt(saved.anchorCharOffset, saved.id));
         await refreshList();
       } catch (err) {
         // `void annotateSelection(...)` means a throw here becomes an unhandled
@@ -1328,8 +1385,11 @@ export function ReaderAnnotationLayer({
       contentRef,
       isArticle,
       isCreating,
-      landInNotes,
+      appendToNotes,
+      canClipNow,
+      clipIntoNotes,
       memberEmail,
+      resolveNoteMark,
       onPanelOpenChange,
       openDraft,
       optimisticRow,
@@ -2062,11 +2122,13 @@ export function ReaderAnnotationLayer({
               // last typed — held in the ref, not the state, see `noteDoc`.
               bookId={bookId}
               memberEmail={memberEmail}
-              initial={{ markdown: noteRef.current, updatedAt: noteDoc.updatedAt }}
+              initial={noteRef.current}
               members={mentionTargets}
               spot={noteSpot}
               clip={clip}
               onClipHandled={clearClip}
+              markFix={markFix}
+              onMarkFixHandled={clearMarkFix}
               onOpenPlace={openPlace}
               onOpenThread={openThread}
               onCompose={composeThread}
@@ -2078,6 +2140,7 @@ export function ReaderAnnotationLayer({
               dockToggle={dockToggle}
               autoFocus={!asSheet}
               focusNonce={noteFocusNonce}
+              touch={asSheet}
             />
           ) : (
             <p className="px-4 py-6 text-xs text-muted-foreground">Opening your notes…</p>

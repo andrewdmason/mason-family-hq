@@ -591,3 +591,193 @@
   font-size: 1.04em;
   line-height: 1.4;
 }
+
+/* The notepad as an outline: every line a block, nested lines under a guide
+   line, folded lines marked with a ring. Quiet on purpose — a top-level line
+   shows no bullet at all, so a note nobody has nested looks like paragraphs.
+   The gutter width (1.375rem = 22px) is mirrored in notepad-block.ts. */
+.notepad-editor [data-note-block] {
+  display: grid;
+  grid-template-columns: 1.375rem minmax(0, 1fr);
+  position: relative;
+}
+
+.notepad-editor .nb-gutter {
+  position: relative;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.notepad-editor .nb-body {
+  min-width: 0;
+  position: relative;
+}
+
+.notepad-editor .nb-body > p,
+.notepad-editor .nb-body > h1,
+.notepad-editor .nb-body > h2,
+.notepad-editor .nb-body > h3 {
+  margin-top: 0.125em;
+  margin-bottom: 0.125em;
+}
+
+.notepad-editor .nb-body > blockquote {
+  margin-top: 0.35em;
+  margin-bottom: 0.35em;
+}
+
+/* The dot: a 20px target with a 5px mark in it, on the first line's baseline. */
+.notepad-editor .nb-toggle {
+  position: absolute;
+  left: 0;
+  top: calc(0.5lh - 10px + 0.125em);
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--muted-foreground);
+}
+
+.notepad-editor .nb-toggle::after {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted-foreground) 55%, transparent);
+  transition: opacity 120ms, background-color 120ms;
+}
+
+/* A top-level line shows nothing. */
+.notepad-editor > [data-note-block] > .nb-gutter > .nb-toggle::after {
+  opacity: 0;
+}
+
+/* Something folded away: a ring around a solid dot, at any level. */
+.notepad-editor [data-note-block][data-collapsed="true"] > .nb-gutter > .nb-toggle::before {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.notepad-editor [data-note-block][data-collapsed="true"] > .nb-gutter > .nb-toggle::after {
+  position: relative;
+  opacity: 1;
+  background: var(--muted-foreground);
+}
+
+/* Hidden children stay in the document; they just aren't drawn. */
+.notepad-editor [data-note-block][data-collapsed="true"] > .nb-body > [data-note-block] {
+  display: none;
+}
+
+/* A thin line down from the parent's dot, spanning what's under it. */
+.notepad-editor [data-note-block][data-children="true"]:not([data-collapsed="true"]) > .nb-body::before {
+  content: "";
+  position: absolute;
+  left: -0.6875rem;
+  top: 1.5lh;
+  bottom: 0.25em;
+  width: 1px;
+  background: color-mix(in srgb, var(--border) 85%, transparent);
+  pointer-events: none;
+}
+
+/* The handle: just left of the dot, on hover, only for the line under the
+   pointer. A top-level line's handle sits in the column's own padding, so it
+   stays inside the scroll box. */
+.notepad-editor .nb-handle {
+  position: absolute;
+  left: -1.125rem;
+  top: calc(0.5lh - 8px + 0.125em);
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  color: var(--muted-foreground);
+  cursor: grab;
+  transition: opacity 100ms;
+}
+
+.notepad-editor > [data-note-block] > .nb-gutter > .nb-handle {
+  left: -1rem;
+}
+
+.notepad-editor .nb-handle:active {
+  cursor: grabbing;
+}
+
+@media (hover: hover) {
+  .notepad-editor [data-note-block]:hover > .nb-gutter > .nb-handle {
+    opacity: 1;
+  }
+
+  /* On hover, a line with children shows a chevron in place of its dot. */
+  .notepad-editor [data-note-block][data-children="true"]:hover > .nb-gutter > .nb-toggle::after {
+    opacity: 1;
+    width: 6px;
+    height: 6px;
+    border-radius: 0;
+    background: none;
+    border-right: 1.5px solid var(--muted-foreground);
+    border-bottom: 1.5px solid var(--muted-foreground);
+    transform: translateY(-2px) rotate(45deg);
+  }
+
+  .notepad-editor [data-note-block][data-children="true"][data-collapsed="true"]:hover > .nb-gutter > .nb-toggle::after {
+    transform: translateX(-1px) rotate(-45deg);
+  }
+}
+
+@media (hover: none) {
+  .notepad-editor .nb-handle {
+    display: none;
+  }
+
+  .notepad-editor .nb-toggle {
+    width: 28px;
+    height: 28px;
+    left: -4px;
+    top: calc(0.5lh - 14px + 0.125em);
+  }
+
+  /* No hover to reveal it, so a top-level line with children shows a chevron. */
+  .notepad-editor > [data-note-block][data-children="true"] > .nb-gutter > .nb-toggle::after {
+    opacity: 1;
+    width: 6px;
+    height: 6px;
+    border-radius: 0;
+    background: none;
+    border-right: 1.5px solid var(--muted-foreground);
+    border-bottom: 1.5px solid var(--muted-foreground);
+    transform: translateY(-2px) rotate(45deg);
+  }
+
+  .notepad-editor > [data-note-block][data-children="true"][data-collapsed="true"] > .nb-gutter > .nb-toggle::after {
+    transform: translateX(-1px) rotate(-45deg);
+  }
+}
+
+/* The block being dragged, or just dropped. */
+.notepad-editor [data-note-block].ProseMirror-selectednode > .nb-body {
+  background: var(--accent);
+  border-radius: 4px;
+  outline: none;
+}
+
+/* Where a drop would land. Fixed, so it can sit over the scrolling column. */
+.notepad-dropline {
+  position: fixed;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ring);
+  pointer-events: none;
+  z-index: 50;
+}
