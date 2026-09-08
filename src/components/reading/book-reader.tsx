@@ -1438,6 +1438,7 @@ export function BookReader({
       openMarkId={openMarkId}
       onVisitAnchor={visitAnchor}
       shownFace={plain.shownFace}
+      plainExists={plain.exists}
       faceTextOf={plain.faceTextOf}
       plainBlocks={plain.blocksByIndex}
     />

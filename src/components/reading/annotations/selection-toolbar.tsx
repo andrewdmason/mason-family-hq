@@ -15,12 +15,14 @@ import { useFinePointer, useSelectionRange } from "./use-selection-range";
  * the notes. There used to be a "Note" here that started a conversation with
  * nobody in it; the notepad is where that writing goes now.
  *
- * Two for an article. A BOOK gets a third: "face" shows the passage in the
- * other face — Plain English for a passage you're reading in the original, the
- * author's words for one you're reading in plain. It opens the panel and makes
- * no mark. The touch bar lays actions out flex-1 inside PAGE_PAD_BOTTOM, so the
- * third is budgeted as an icon with a short label rather than by growing the
- * bar.
+ * Two most of the time. A book that ALREADY has a Plain English translation
+ * gets a third: "face" shows the passage in the other face — plain for a
+ * passage you're reading in the original, the author's words for one you're
+ * reading in plain. It opens the panel and makes no mark. Books nobody has
+ * translated don't offer it: the peek would be the first the reader ever heard
+ * of the feature, out of a menu that should stay about the passage. The touch
+ * bar lays actions out flex-1 inside PAGE_PAD_BOTTOM, so the third is budgeted
+ * as an icon with a short label rather than by growing the bar.
  */
 export type SelectionIntent = "highlight" | "ask" | "face";
 
