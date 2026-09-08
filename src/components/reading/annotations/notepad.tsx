@@ -41,14 +41,13 @@ import {
 } from "@/lib/reading/note-tree";
 import { cn } from "@/lib/utils";
 import { NotepadAutostamp } from "./notepad-autostamp";
-import { NoteBlock, NotepadDoc } from "./notepad-block";
+import { NoteBlock, NotepadDoc, toggleFoldInPlace } from "./notepad-block";
 import {
   blockAt,
   focusEndVisible,
   indentBlock,
   inHead,
   outdentBlock,
-  toggleCollapsedAt,
 } from "./notepad-block-commands";
 import { COMPOSE_NODE, composeScope, NotepadCompose, type ComposeScope } from "./notepad-compose";
 import {
@@ -58,6 +57,7 @@ import {
   type MentionMenuState,
 } from "./notepad-mentions";
 import { NotepadPill, PILL_NODE, pillJSON, placeNodeJSON } from "./notepad-pill";
+import { NotepadQuote } from "./notepad-quote";
 
 /**
  * A passage sent here from the book — a highlight landing in the notes.
@@ -311,6 +311,8 @@ export function Notepad({
         link: { openOnClick: false, autolink: true },
         // A notepad, not a code editor. Backticks still give inline code.
         codeBlock: false,
+        // The quote is ours: the same node, folded short — see NotepadQuote.
+        blockquote: false,
         // The outline is the document: its own top node, its own blocks in
         // place of lists, its own drop line, and no trailing paragraph
         // appended where only a block can go.
@@ -325,6 +327,7 @@ export function Notepad({
       }),
       NotepadDoc,
       NoteBlock,
+      NotepadQuote,
       Placeholder.configure({
         placeholder: "Write as you read. @ starts a conversation.",
         // The empty line is inside a block; look through to it.
@@ -361,7 +364,7 @@ export function Notepad({
     editorProps: {
       attributes: {
         class:
-          "prose-editor notepad-editor font-serif text-[0.95rem] leading-7 text-foreground focus:outline-none",
+          "prose-editor notepad-editor font-sans text-[0.875rem] leading-6 text-foreground focus:outline-none",
         "aria-label": "Your notes",
       },
       // A pill is a link — into the book, or into a conversation. Handled here
@@ -539,7 +542,7 @@ export function Notepad({
     if (!editor) return;
     const b = blockAt(editor.state.selection.$from);
     if (!b) return;
-    toggleCollapsedAt(b.pos)(editor.state, editor.view.dispatch);
+    toggleFoldInPlace(editor.view, b.pos);
   }, [editor]);
 
   const insertPill = useCallback(
@@ -746,13 +749,21 @@ export function Notepad({
         </button>
       </header>
 
-      <div ref={scrollRef} className="relative min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      {/* Room below the last line: so folding the end of the note has
+          somewhere to scroll to instead of sliding the column down, and so
+          the line being written can sit at eye level rather than the bottom
+          edge. */}
+      <div
+        ref={scrollRef}
+        data-notepad-scroll=""
+        className="relative min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-[40vh]"
+      >
         <EditorContent editor={editor} className="min-h-full" />
         {menu && <MentionMenu menu={menu} container={scrollRef.current} />}
       </div>
 
       {touch && focused && editor && (
-        <div className="flex shrink-0 items-center gap-1 border-t border-border bg-background px-2 py-1">
+        <div className="flex shrink-0 items-center gap-1 border-t border-border bg-card px-2 py-1">
           <OutlineButton
             label="Outdent"
             onPress={() => runCommand(outdentBlock)}

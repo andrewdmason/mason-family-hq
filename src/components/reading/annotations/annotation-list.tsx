@@ -243,7 +243,7 @@ export function AnnotationList({
                 // Sticky, so the chapter you're reading about stays named while
                 // you scroll its marks — the same trick a long contacts list
                 // uses, and for the same reason.
-                <p className="sticky top-0 z-10 flex items-baseline justify-between gap-3 border-b border-border/60 bg-background/95 px-4 py-1.5 text-[11px] font-medium text-muted-foreground backdrop-blur">
+                <p className="sticky top-0 z-10 flex items-baseline justify-between gap-3 border-b border-border/60 bg-card/95 px-4 py-1.5 text-[11px] font-medium text-muted-foreground backdrop-blur">
                   <span className="truncate">{group.title}</span>
                   {group.percent != null && (
                     <span className="shrink-0 tabular-nums opacity-70">

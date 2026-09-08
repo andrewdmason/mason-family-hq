@@ -33,8 +33,15 @@ import {
 export const PAGE_PAD_TOP = 56;
 export const PAGE_PAD_BOTTOM = 52;
 
-/** Must match the chat panel's own width (chat-panel.tsx, w-[26rem]) plus gutter clearance. */
-export const CHAT_PANEL_WIDTH = 448;
+/**
+ * The chat panel as it opens: 26rem. Docked, it can be dragged wider or
+ * narrower for the session (annotation-panel.tsx); floating, it is always this.
+ */
+export const CHAT_PANEL_DEFAULT_WIDTH = 416;
+/** Clearance between the panel and the text — the gutter markers live here. */
+export const CHAT_PANEL_GUTTER = 32;
+/** What a docked panel costs the book at its opening width. */
+export const CHAT_PANEL_WIDTH = CHAT_PANEL_DEFAULT_WIDTH + CHAT_PANEL_GUTTER;
 
 /** Smallest column we'll render before giving up on the requested layout. */
 const MIN_COLUMN_WIDTH = 240;
@@ -245,8 +252,12 @@ export type ChatPanelPresentation = "closed" | "floating" | "docked";
  * The width the book itself has to work with: the window, less whatever a side
  * panel has taken. A panel presented over the book — a sheet — takes nothing.
  */
-export function bookAreaWidth(clipW: number, sidePanelOpen: boolean): number {
-  return Math.max(MIN_COLUMN_WIDTH, clipW - (sidePanelOpen ? CHAT_PANEL_WIDTH : 0));
+export function bookAreaWidth(
+  clipW: number,
+  sidePanelOpen: boolean,
+  panelWidth: number = CHAT_PANEL_DEFAULT_WIDTH
+): number {
+  return Math.max(MIN_COLUMN_WIDTH, clipW - (sidePanelOpen ? panelWidth + CHAT_PANEL_GUTTER : 0));
 }
 
 /**
@@ -311,7 +322,9 @@ export function computeGeometry(
   clipW: number,
   clipH: number,
   settings: ReaderSettings,
-  panel: ChatPanelPresentation
+  panel: ChatPanelPresentation,
+  /** The docked panel's width right now; ignored unless `panel` is docked. */
+  panelWidth: number = CHAT_PANEL_DEFAULT_WIDTH
 ): PageGeometry {
   const frag = fragmentationFor(clipW, settings);
   // Only a DOCKED panel is allowed to change anything here. A floating one is
@@ -321,7 +334,7 @@ export function computeGeometry(
   // disorienting re-layout the float exists to avoid: the reader's eye is in the
   // middle of a sentence and the sentence moves. A floating panel covers some of
   // the outer column and the book underneath it does not move at all.
-  const usable = bookAreaWidth(clipW, panel === "docked");
+  const usable = bookAreaWidth(clipW, panel === "docked", panelWidth);
 
   // Two columns are shown when two of this column plus the gap actually fit in
   // what's left of the screen. The insets are part of the question so the text

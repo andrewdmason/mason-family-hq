@@ -163,7 +163,7 @@ export const NoteBlock = Node.create({
         e.stopPropagation();
         const pos = getPos();
         if (pos == null) return;
-        toggleCollapsedAt(pos)(editor.state, editor.view.dispatch);
+        toggleFoldInPlace(editor.view, pos);
       });
 
       return {
@@ -364,6 +364,27 @@ function isBlockEl(el: Element): boolean {
  * nested as its items were; anything that is already a block is left as it
  * is. Inline odds and ends at the top level are gathered into a paragraph.
  */
+/**
+ * Fold or unfold the block at `pos` without moving it on screen.
+ *
+ * Folding takes height out of the pad. Mid-document the lines below simply
+ * close up. At the end, with nothing below to close up, the browser clamps
+ * the scroll instead and the whole column slides down — the ring you just
+ * pressed along with it, out from under the pointer. So: note where the
+ * block sits, fold, then scroll by however far it moved. The pad keeps room
+ * below its last line for exactly this (see the scroll box in notepad.tsx).
+ */
+export function toggleFoldInPlace(view: EditorView, pos: number): boolean {
+  const scroller = view.dom.closest<HTMLElement>("[data-notepad-scroll]");
+  const dom = view.nodeDOM(pos) as HTMLElement | null;
+  const before = dom?.getBoundingClientRect().top;
+  const done = toggleCollapsedAt(pos)(view.state, view.dispatch);
+  if (!done || !scroller || !dom || before == null) return done;
+  const after = dom.getBoundingClientRect().top;
+  if (after !== before) scroller.scrollTop += after - before;
+  return done;
+}
+
 export function liftIntoBlocks(root: Element) {
   const doc = root.ownerDocument;
   const blocks: Element[] = [];
