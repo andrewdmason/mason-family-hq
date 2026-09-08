@@ -218,6 +218,7 @@ export function ReaderAnnotationLayer({
   openMarkId,
   onVisitAnchor,
   shownFace = "original",
+  plainExists = false,
   faceTextOf,
   plainBlocks,
   hideGutter = false,
@@ -240,6 +241,8 @@ export function ReaderAnnotationLayer({
   onVisitAnchor?: (charOffset: number) => void;
   /** Which face the page shows, for the toolbar's fourth action and the panel. */
   shownFace?: "original" | "plain";
+  /** Whether this book has a Plain English translation at all. */
+  plainExists?: boolean;
   /** What the DOM shows per block in the plain face — see annotation-anchors.ts. */
   faceTextOf?: FaceTextOf;
   /** Plain paragraphs already held, for the counterpart panel. */
@@ -2071,10 +2074,12 @@ export function ReaderAnnotationLayer({
         contentRef={contentRef}
         onAct={(range, intent) => void annotateSelection(range, intent)}
         disabled={busy}
-        // Books only: an article has no translation and no block map to peek
-        // through. Offered in every book, translated or not — the untranslated
-        // case is exactly when a paragraph in plain English is worth a look.
-        faceAction={isArticle ? null : shownFace === "plain" ? "original" : "plain"}
+        // Books with a translation only: an article has no translation and no
+        // block map to peek through, and in a book nobody has ever translated,
+        // a fourth action nothing in the reader has mentioned yet is noise.
+        faceAction={
+          isArticle || !plainExists ? null : shownFace === "plain" ? "original" : "plain"
+        }
       />
       {chapterMenu && (
         <ChapterMenu
