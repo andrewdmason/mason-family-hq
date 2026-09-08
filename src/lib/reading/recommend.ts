@@ -1,4 +1,5 @@
 import { anthropic, JOURNAL_MODEL } from "@/lib/journal/anthropic";
+import { genreLabel } from "@/lib/reading/book-genres";
 import { lookupBookByTitle } from "@/lib/reading/book-lookup";
 
 /** A book the member has an opinion on, used to describe their taste to the AI. */
@@ -9,7 +10,41 @@ export type RatedTitle = {
   ageAtRating: number | null;
   /** Whole years since they rated it, if known. */
   yearsAgo: number | null;
+  /** Fiction or not, from the shelf. Null when the book was never classified. */
+  fiction: boolean | null;
+  /** The shelf's genre slug, when classified. Drives which books count as peers. */
+  genre: string | null;
 };
+
+/**
+ * How much the reader has actually read in each category — the denominator
+ * behind every prediction.
+ *
+ * Counted from books they finished or rated, never from books merely added: a
+ * shelf can hold a hundred imported titles nobody has opened, and reading
+ * "added but unfinished" as a negative would turn an unread library into
+ * evidence of dislike. The gap between what someone owns and what they've read
+ * says nothing about taste.
+ */
+export type CategoryEvidence = {
+  /** Books read on each side of the fiction line. */
+  fiction: number;
+  nonfiction: number;
+  /** Genre slug → books read in it. Only genres with at least one. */
+  byGenre: Record<string, number>;
+};
+
+/** A genre with enough read books behind it to compare against on its own. */
+const GENRE_EVIDENCE_FLOOR = 5;
+
+/** Whether a genre has enough behind it that a same-genre verdict is earned. */
+export function genreIsWellEvidenced(
+  evidence: CategoryEvidence,
+  genre: string | null
+): boolean {
+  if (!genre) return false;
+  return (evidence.byGenre[genre] ?? 0) >= GENRE_EVIDENCE_FLOOR;
+}
 
 /**
  * Everything the engine needs to suggest fresh books for one member. Assembled
@@ -28,6 +63,8 @@ export type TasteProfile = {
   didNotFinish: RatedTitle[];
   /** Titles never to suggest (already tracked, already rated, or already shown). */
   exclude: string[];
+  /** How many books they've actually read in each category. */
+  evidence: CategoryEvidence;
 };
 
 /** A fully-resolved suggestion, ready to insert as a pending recommendation. */
@@ -92,10 +129,51 @@ function whenText(b: RatedTitle): string {
   return bits.length ? ` (${bits.join(", ")})` : "";
 }
 
+/**
+ * How a book is named to the model: title, author, category, and when it was
+ * rated. The category tag is what makes peer-set weighting possible at all —
+ * without it every book on the shelf reads as interchangeable, and a work of
+ * criticism gets judged against novels.
+ */
 function titleList(books: RatedTitle[]): string {
   return books
-    .map((b) => `${b.author ? `${b.title} by ${b.author}` : b.title}${whenText(b)}`)
+    .map(
+      (b) =>
+        `${b.author ? `${b.title} by ${b.author}` : b.title}` +
+        `${categoryTag(b.fiction, b.genre)}${whenText(b)}`
+    )
     .join("; ");
+}
+
+/** " [Literary fiction]" / " [non-fiction]" / "" — as much as the shelf knows. */
+function categoryTag(fiction: boolean | null, genre: string | null): string {
+  if (genre) return ` [${genreLabel(genre)}]`;
+  if (fiction === true) return " [fiction]";
+  if (fiction === false) return " [non-fiction]";
+  return "";
+}
+
+/**
+ * The reader's evidence base, stated plainly so the model can calibrate rather
+ * than infer confidence from the length of a list.
+ */
+function describeEvidence(evidence: CategoryEvidence): string {
+  const genres = Object.entries(evidence.byGenre)
+    .sort((a, b) => b[1] - a[1])
+    .map(([genre, n]) => `${genreLabel(genre)} ${n}`)
+    .join(", ");
+  const parts = [
+    `How much you actually have to go on: ${evidence.fiction} fiction and ` +
+      `${evidence.nonfiction} non-fiction books read.`,
+  ];
+  if (genres) parts.push(`By genre: ${genres}.`);
+  parts.push(
+    `These counts are books the reader FINISHED or rated — not books sitting ` +
+      `on the shelf. Unrated, unstarted books are an unread library (imported ` +
+      `or bought, never opened) and are NOT evidence of dislike or abandonment. ` +
+      `Never argue from a book's absence from these lists.`
+  );
+  return parts.join(" ");
 }
 
 /** Pull the ISBN back out of an Open Library cover URL, if present. */
@@ -169,6 +247,7 @@ function describeReader(profile: TasteProfile): string[] {
         `accessible books as the safest bet.`
     );
   }
+  parts.push(describeEvidence(profile.evidence));
   return parts;
 }
 
@@ -299,6 +378,16 @@ export type BookAssessment = {
   verdict: "love" | "like" | "mixed" | "pass";
   /** A couple of warm, spoiler-free sentences explaining the verdict. */
   reason: string;
+  /**
+   * Which books the verdict was actually weighed against ("your literary
+   * fiction", "your non-fiction, which is thin").
+   *
+   * Shown under the verdict because a prediction is only as good as its peer
+   * set, and the reader is the one person who can tell at a glance that the
+   * wrong shelf was consulted. Naming it turns an unfalsifiable verdict into
+   * one you can discount.
+   */
+  basis: string | null;
 };
 
 const ASSESS_VERDICTS = new Set<BookAssessment["verdict"]>([
@@ -350,27 +439,130 @@ const ASSESS_TOOL = {
       reason: {
         type: "string",
         description:
-          "Two or three warm, specific, spoiler-free sentences explaining the " +
-          "verdict, grounded in the books they've loved and disliked and their " +
-          'age. Speak to the reader directly ("you").',
+          "TWO sentences. Three is the absolute maximum and only when the " +
+          "third earns its place; never four. Under 400 characters. This sits " +
+          "above the Add button in a dialog, so it has to be readable at a " +
+          "glance — a paragraph gets skipped and the feature wasted. Name one " +
+          "specific book of theirs as the comparison, and end on the condition " +
+          'under which the answer flips ("worth it if you want X; skip it if ' +
+          'you want Y"). Warm, spoiler-free, addressed to the reader as "you". ' +
+          "Do not summarise the book — they can read the blurb. Tell them " +
+          "something about the FIT they don't already know.",
+      },
+      basis: {
+        type: "string",
+        description:
+          "At most eight words naming the books you actually weighed this " +
+          'against, shown as a caption under the verdict — e.g. "compared ' +
+          'with your literary fiction" or "your non-fiction only; no ' +
+          'philosophy read". It is a label, not a sentence: no explanation, ' +
+          "no counts spelled out. Say plainly when the peer set is thin; do " +
+          "not dress up a guess.",
       },
     },
-    required: ["verdict", "reason"],
+    required: ["verdict", "reason", "basis"],
   },
 };
 
-function buildAssessPrompt(
+/**
+ * How the model is told to pick its comparisons.
+ *
+ * The rule that matters is the last one. Down-weighting distant books isn't
+ * enough on its own: a novel dragged into a verdict on an essay still produces
+ * "not as moving as X", just more quietly. So what crosses the fiction line is
+ * restricted by KIND, not only by weight — craft judgements travel between a
+ * novel and an essay, judgements about form do not. Faulting a book of ideas
+ * for lacking emotional resonance is the failure this exists to prevent.
+ */
+function peerSetRules(
+  candidate: { fiction: boolean | null; genre: string | null },
+  evidence: CategoryEvidence
+): string[] {
+  const parts: string[] = [];
+  const sameGenre = candidate.genre
+    ? (evidence.byGenre[candidate.genre] ?? 0)
+    : 0;
+  const sameSide =
+    candidate.fiction === true
+      ? evidence.fiction
+      : candidate.fiction === false
+        ? evidence.nonfiction
+        : 0;
+
+  parts.push(
+    `WEIGH THE EVIDENCE BY HOW CLOSE IT IS:\n` +
+      `1. Books in the SAME genre carry the most weight, and may speak to ` +
+      `anything — subject, form, feel, pacing, depth.\n` +
+      `2. Books on the same side of the fiction/non-fiction line carry less ` +
+      `weight, but are still broadly relevant.\n` +
+      `3. Books on the OTHER side of that line carry the least weight, AND are ` +
+      `admissible only on craft: prose quality, tolerance for density and ` +
+      `difficulty, appetite for length, patience with ambiguity, taste for ` +
+      `writing that refuses tidy conclusions.\n` +
+      `NEVER carry these across the fiction line: emotional resonance, ` +
+      `character, plot, pacing, what counts as "thin" or "slight", or pull ` +
+      `toward a subject. Judging a work of non-fiction for not moving the ` +
+      `reader like their favourite novels is a category error, not a finding.`
+  );
+
+  if (candidate.fiction === false) {
+    parts.push(
+      `This is non-fiction, so ask the non-fiction question: does its SUBJECT ` +
+        `pull them, and is the argument worth the pages? Do not ask whether it ` +
+        `will move them the way a novel does. Brevity and a light touch are ` +
+        `often virtues in non-fiction; treat "breezy" as a strike only if their ` +
+        `own non-fiction history says it is.`
+    );
+  } else if (candidate.fiction === true) {
+    parts.push(
+      `This is fiction, so ask the fiction question: will it hold them, and ` +
+        `will it land? Subject matter matters far less here than voice, ` +
+        `character and how it's written.`
+    );
+  }
+
+  const wellEvidenced = genreIsWellEvidenced(evidence, candidate.genre);
+  parts.push(
+    `CALIBRATE YOUR CONFIDENCE to the evidence that actually exists. You have ` +
+      `${sameGenre} book(s) read in this exact genre and ${sameSide} on this ` +
+      `side of the fiction line. ` +
+      (wellEvidenced
+        ? `That's a real same-genre history — lean on it, and name the ` +
+          `specific books you're comparing against.`
+        : `That is NOT enough for a same-genre verdict. Fall back to the ` +
+          `broader comparison, and say in your basis that the genre evidence ` +
+          `is thin — do not present a coarse comparison as a precise one.`) +
+      ` A firm verdict off two or three books is worse than an honest hedge — ` +
+      `but do not hedge to be safe either. "Could go either way" is for ` +
+      `genuinely thin or genuinely split evidence, NOT a default when you can ` +
+      `see a real answer. If the honest read is "no", give a "pass" and say ` +
+      `why; a weak match stated clearly is the most useful thing you can return.`
+  );
+  return parts;
+}
+
+/** Exported for the verification script, which asserts the peer-set rules. */
+export function buildAssessPrompt(
   profile: TasteProfile,
-  book: { title: string; author: string | null }
+  book: { title: string; author: string | null; fiction: boolean | null; genre: string | null }
 ): string {
   const parts = describeReader(profile);
   const label = book.author ? `"${book.title}" by ${book.author}` : `"${book.title}"`;
+  const side =
+    book.fiction === true
+      ? "fiction"
+      : book.fiction === false
+        ? "non-fiction"
+        : "uncertain which side of the fiction line";
   parts.push(
-    `Now assess one specific book: ${label}. Predict honestly whether THIS reader ` +
-      `would enjoy it, weighed against the taste and age above. If it's a weak ` +
-      `match, say so plainly and explain why. If you're unsure the book is real or ` +
-      `which edition is meant, use your best judgment from the title. Call ` +
-      `report_assessment exactly once.`
+    `Now assess one specific book: ${label}. The shelf classifies it as ` +
+      `${book.genre ? `${genreLabel(book.genre)} (${side})` : side}.`
+  );
+  parts.push(...peerSetRules(book, profile.evidence));
+  parts.push(
+    `Predict honestly whether THIS reader would enjoy it. If you're unsure the ` +
+      `book is real or which edition is meant, use your best judgment from the ` +
+      `title. Call report_assessment exactly once.`
   );
   return parts.join("\n\n");
 }
@@ -383,7 +575,13 @@ function buildAssessPrompt(
  */
 export async function assessBookFit(
   profile: TasteProfile,
-  book: { title: string; author: string | null }
+  book: {
+    title: string;
+    author: string | null;
+    /** The candidate's own category — without it there is no peer set to pick. */
+    fiction?: boolean | null;
+    genre?: string | null;
+  }
 ): Promise<BookAssessment | null> {
   try {
     const client = anthropic();
@@ -393,21 +591,42 @@ export async function assessBookFit(
       system:
         "You are a thoughtful librarian who honestly predicts whether a specific " +
         "reader will enjoy a given book, based on their reading history and age. " +
-        "Be candid: if it's a weak fit, say so and explain why. Match their age " +
-        "and taste, and never spoil the plot.",
+        "Be candid: if it's a weak fit, say so and explain why. Compare like " +
+        "with like — a book is judged against the reader's history in its own " +
+        "kind first. Match their age and taste, and never spoil the plot.",
       tools: [ASSESS_TOOL],
       tool_choice: { type: "tool", name: ASSESS_TOOL.name },
-      messages: [{ role: "user", content: buildAssessPrompt(profile, book) }],
+      messages: [
+        {
+          role: "user",
+          content: buildAssessPrompt(profile, {
+            title: book.title,
+            author: book.author,
+            fiction: book.fiction ?? null,
+            genre: book.genre ?? null,
+          }),
+        },
+      ],
     });
     const toolUse = message.content.find((b) => b.type === "tool_use");
     if (!toolUse || toolUse.type !== "tool_use") return null;
-    const input = toolUse.input as { verdict?: unknown; reason?: unknown };
+    const input = toolUse.input as {
+      verdict?: unknown;
+      reason?: unknown;
+      basis?: unknown;
+    };
     const verdict = typeof input.verdict === "string" ? input.verdict : "";
     const reason = typeof input.reason === "string" ? input.reason.trim() : "";
     if (!ASSESS_VERDICTS.has(verdict as BookAssessment["verdict"]) || !reason) {
       return null;
     }
-    return { verdict: verdict as BookAssessment["verdict"], reason };
+    return {
+      verdict: verdict as BookAssessment["verdict"],
+      reason,
+      basis: typeof input.basis === "string" && input.basis.trim()
+        ? input.basis.trim()
+        : null,
+    };
   } catch (err) {
     console.error(
       "[reading/recommend] assessment call failed:",
