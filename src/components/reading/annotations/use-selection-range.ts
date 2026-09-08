@@ -3,9 +3,28 @@
 import { useEffect, useState } from "react";
 
 export type SelectionSpot = {
-  /** Viewport coords of the selection's top-centre, for the desktop popover. */
+  /**
+   * The line the reader finished on, in viewport coords, for the desktop
+   * popover: `x` is that line's centre, `top` and `bottom` its edges.
+   *
+   * One line, not the selection's bounding box. The box of a passage that runs
+   * from the foot of the left column to the head of the right is the whole
+   * spread — its top is the first line of the page and its centre is the gutter,
+   * so a popover hung from it landed over the running head, nowhere near either
+   * end of the selection. The line the pointer was released on is where the
+   * reader is looking, whichever end of the passage that turns out to be.
+   */
   x: number;
-  y: number;
+  top: number;
+  bottom: number;
+  /**
+   * Whether the selection runs to the last text on the page — nothing but
+   * whitespace between its end and the page's. That is when a passage might
+   * carry on to the next page, and the only time Continue is offered: a
+   * selection that stops mid-page has plainly found its own end, and a fourth
+   * button on every selection was noise.
+   */
+  atPageEnd: boolean;
   /**
    * A CLONE of the live selection range, captured the moment the selection
    * settled.
@@ -67,6 +86,200 @@ function hasDisplaceableSelectionMenu(): boolean {
   return typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
 }
 
+/**
+ * The selection, trimmed to the text that is actually on the page.
+ *
+ * Letting go of the mouse in the margin — under the last line, out past the
+ * end of the column — puts the browser's end of the selection wherever the
+ * hit-test landed: the clip box, the running foot, a page-turn zone. The words
+ * that light up are the right ones, but the range behind them isn't: it runs
+ * from the text to that element, which in a paged book means through every
+ * column rendered after the visible page, all of it off-screen. Refusing the
+ * selection outright is what this used to do, which read as the toolbar
+ * failing to show up for no reason. Trimming it to the last text on the page
+ * is what the reader meant.
+ *
+ * Same in the other direction: a drag that starts in a margin, or is released
+ * in the header band, has its START outside. Either end outside is trimmed to
+ * the nearest text on the page; both ends outside is not a selection of the
+ * book at all (select-all, a drag across the chrome) and stays null.
+ *
+ * "On the page" is the clip box the text is viewed through, cut to the window.
+ * In a paged book that is the current spread; while scrolling it's the part of
+ * the article on screen. Columns later than the page sit to the right of it,
+ * earlier ones to the left, so the trim is a walk along the text in document
+ * order, and a text node that straddles the edge is cut at the character.
+ */
+function clampToVisible(range: Range, container: HTMLElement): Range | null {
+  const startIn = container.contains(range.startContainer);
+  const endIn = container.contains(range.endContainer);
+  if (startIn && endIn) return range;
+  if (!startIn && !endIn) return null;
+
+  const box = visibleBox(container);
+  const clamped = range.cloneRange();
+  if (!endIn) {
+    const end = lastVisibleText(container, range.startContainer, box);
+    if (!end) return null;
+    clamped.setEnd(end.node, end.offset);
+  } else {
+    const start = firstVisibleText(container, range.endContainer, box);
+    if (!start) return null;
+    clamped.setStart(start.node, start.offset);
+  }
+  return clamped.collapsed ? null : clamped;
+}
+
+/**
+ * Whether nothing but whitespace lies between the selection's end and the last
+ * text on the page. Walks forward from the end, so it costs a page's worth of
+ * nodes at most — the same walk the trim makes.
+ */
+function reachesPageEnd(range: Range, container: HTMLElement): boolean {
+  const pageEnd = lastVisibleText(container, range.endContainer, visibleBox(container));
+  if (!pageEnd) return false;
+  const tail = document.createRange();
+  tail.setStart(range.endContainer, range.endOffset);
+  // An end past the page's last text (setEnd would collapse the range) counts
+  // as reaching it; the trim above keeps that from happening in practice.
+  tail.setEnd(pageEnd.node, pageEnd.offset);
+  return !tail.toString().trim();
+}
+
+/** The part of the container's clip box that is on screen. */
+function visibleBox(container: HTMLElement): DOMRect {
+  const clip = (container.parentElement ?? container).getBoundingClientRect();
+  const left = Math.max(clip.left, 0);
+  const top = Math.max(clip.top, 0);
+  const right = Math.min(clip.right, window.innerWidth);
+  const bottom = Math.min(clip.bottom, window.innerHeight);
+  return new DOMRect(left, top, Math.max(0, right - left), Math.max(0, bottom - top));
+}
+
+/** A range over the whole of one text node. */
+function nodeRange(node: Text): Range {
+  const r = document.createRange();
+  r.selectNodeContents(node);
+  return r;
+}
+
+/** Rect of the single character at `offset`, or null when it paints nothing. */
+function charRect(node: Text, offset: number): DOMRect | null {
+  const r = document.createRange();
+  r.setStart(node, offset);
+  r.setEnd(node, offset + 1);
+  const rect = r.getBoundingClientRect();
+  return rect.width === 0 && rect.height === 0 ? null : rect;
+}
+
+/**
+ * The last character of the page, walking forward from `from`. A node whose
+ * text starts on the page and runs on past its right edge is cut at the last
+ * character that is still on it.
+ */
+function lastVisibleText(
+  container: HTMLElement,
+  from: Node,
+  box: DOMRect
+): { node: Text; offset: number } | null {
+  const onPage = (rect: DOMRect) => rect.left < box.right && rect.top < box.bottom;
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  walker.currentNode = from;
+  let last: { node: Text; offset: number } | null = null;
+  // Starting at `from` itself when it is a text node, since the walker's own
+  // first step is to the node after it.
+  let node: Node | null = from.nodeType === Node.TEXT_NODE ? from : walker.nextNode();
+  for (let steps = 0; node && steps < 5000; steps += 1, node = walker.nextNode()) {
+    const text = node as Text;
+    if (!text.data.trim()) continue;
+    const rects = Array.from(nodeRange(text).getClientRects());
+    if (rects.length === 0) continue;
+    // Everything from here on is past the page.
+    if (!onPage(rects[0])) break;
+    if (onPage(rects[rects.length - 1])) {
+      last = { node: text, offset: text.length };
+      continue;
+    }
+    // Straddles the edge: the last offset whose character is still on the page.
+    let lo = 1;
+    let hi = text.length;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      const rect = charRect(text, mid - 1);
+      if (!rect || onPage(rect)) lo = mid;
+      else hi = mid - 1;
+    }
+    last = { node: text, offset: lo };
+    break;
+  }
+  return last;
+}
+
+/**
+ * The first character of the page, walking backward from `from`. Mirror of
+ * lastVisibleText: earlier columns sit to the left of the page.
+ */
+function firstVisibleText(
+  container: HTMLElement,
+  from: Node,
+  box: DOMRect
+): { node: Text; offset: number } | null {
+  const onPage = (rect: DOMRect) => rect.right > box.left && rect.bottom > box.top;
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  walker.currentNode = from;
+  let first: { node: Text; offset: number } | null = null;
+  let node: Node | null = from.nodeType === Node.TEXT_NODE ? from : walker.previousNode();
+  for (let steps = 0; node && steps < 5000; steps += 1, node = walker.previousNode()) {
+    const text = node as Text;
+    if (!text.data.trim()) continue;
+    const rects = Array.from(nodeRange(text).getClientRects());
+    if (rects.length === 0) continue;
+    if (!onPage(rects[rects.length - 1])) break;
+    if (onPage(rects[0])) {
+      first = { node: text, offset: 0 };
+      continue;
+    }
+    // Straddles the edge: the first offset whose character is on the page.
+    let lo = 0;
+    let hi = text.length - 1;
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const rect = charRect(text, mid);
+      if (rect && onPage(rect)) hi = mid;
+      else lo = mid + 1;
+    }
+    first = { node: text, offset: lo };
+    break;
+  }
+  return first;
+}
+
+/**
+ * The line box at the end of the selection the reader let go of, or null when
+ * the selection paints nothing.
+ *
+ * A range reports one rect per line it touches, in document order, plus
+ * zero-sized ones wherever it crosses an element boundary. Which end the
+ * pointer was released on is the selection's direction — dragged upward, the
+ * focus is the FIRST line — and the browser knows it: the focus node is the
+ * moving end, the anchor the fixed one.
+ */
+function focusLine(sel: Selection, range: Range): DOMRect | null {
+  const lines = Array.from(range.getClientRects()).filter((r) => r.width > 0 && r.height > 0);
+  if (lines.length === 0) {
+    const box = range.getBoundingClientRect();
+    return box.width === 0 && box.height === 0 ? null : box;
+  }
+  const { anchorNode, anchorOffset, focusNode, focusOffset } = sel;
+  const backwards =
+    !!anchorNode &&
+    !!focusNode &&
+    (anchorNode === focusNode
+      ? focusOffset < anchorOffset
+      : Boolean(anchorNode.compareDocumentPosition(focusNode) & Node.DOCUMENT_POSITION_PRECEDING));
+  return backwards ? lines[0] : lines[lines.length - 1];
+}
+
 /** Whether two ranges cover exactly the same span. */
 function sameRange(a: Range | null, b: Range): boolean {
   if (!a) return false;
@@ -109,25 +322,22 @@ export function useSelectionRange(
         setSpot(null);
         return;
       }
-      const range = sel.getRangeAt(0);
       const container = contentRef.current;
-      if (
-        !container ||
-        !container.contains(range.startContainer) ||
-        !container.contains(range.endContainer) ||
-        !range.toString().trim()
-      ) {
+      const range = container && clampToVisible(sel.getRangeAt(0), container);
+      if (!container || !range || !range.toString().trim()) {
         setSpot(null);
         return;
       }
-      const rect = range.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) {
+      const line = focusLine(sel, range);
+      if (!line) {
         setSpot(null);
         return;
       }
       setSpot({
-        x: rect.left + rect.width / 2,
-        y: rect.top,
+        x: line.left + line.width / 2,
+        top: line.top,
+        bottom: line.bottom,
+        atPageEnd: reachesPageEnd(range, container),
         range: range.cloneRange(),
       });
     };
@@ -164,15 +374,11 @@ export function useSelectionRange(
     const displace = () => {
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) return;
-      const range = sel.getRangeAt(0);
       const container = contentRef.current;
-      if (
-        !container ||
-        !container.contains(range.startContainer) ||
-        !container.contains(range.endContainer)
-      ) {
-        return;
-      }
+      // Trimmed the same way the toolbar sees it, so a handle dragged into the
+      // margin puts back a selection that ends at the last word on the page.
+      const range = container ? clampToVisible(sel.getRangeAt(0), container) : null;
+      if (!range) return;
       if (sameRange(displaced, range)) return;
       // Two clones: one handed to the selection, one kept as the record of what
       // has already been displaced. Sharing a single Range would let the live
