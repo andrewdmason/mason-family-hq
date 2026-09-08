@@ -95,6 +95,7 @@ export function useParallelPagination({
   plain,
   settings,
   chatPanel,
+  panelWidth,
   bottomInset = 0,
   charOffset: externalCharOffset,
   onPositionChange,
@@ -108,6 +109,8 @@ export function useParallelPagination({
   plain: PlainRenderState | null;
   settings: ReaderSettings;
   chatPanel: ChatPanelPresentation;
+  /** How wide a docked panel is at the moment — see computeGeometry. */
+  panelWidth: number;
   bottomInset?: number;
   charOffset: number;
   onPositionChange: (charOffset: number, atEnd: boolean) => void;
@@ -150,7 +153,8 @@ export function useParallelPagination({
       viewport.width,
       Math.max(200, viewport.height - bottomInset),
       settings,
-      chatPanel
+      chatPanel,
+      panelWidth
     );
     return {
       offsetX: g.offsetX,
@@ -160,7 +164,7 @@ export function useParallelPagination({
       gap: g.gap,
       pageH: g.pageH,
     };
-  }, [bottomInset, chatPanel, enabled, html, settings, viewport]);
+  }, [bottomInset, chatPanel, enabled, html, panelWidth, settings, viewport]);
 
   const charRef = useRef(externalCharOffset);
   const pageRef = useRef(0);

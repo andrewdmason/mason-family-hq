@@ -211,6 +211,8 @@ export function ReaderAnnotationLayer({
   openListOnMount,
   preferSheet,
   docked,
+  panelWidth,
+  onPanelWidthChange,
   canFloat,
   windowBase,
   layoutNonce,
@@ -312,6 +314,9 @@ export function ReaderAnnotationLayer({
   preferSheet: boolean;
   /** The panel takes width from the book rather than sitting over it. */
   docked: boolean;
+  /** How wide the docked panel is, and where a drag on its edge reports. */
+  panelWidth: number;
+  onPanelWidthChange: (width: number) => void;
   /**
    * Whether floating is on offer at all. Only a paged book has a second column
    * worth protecting; a scrolling one is a single centred measure that simply
@@ -2098,6 +2103,8 @@ export function ReaderAnnotationLayer({
         open={panelOpen}
         isMobile={asSheet}
         docked={docked}
+        width={panelWidth}
+        onWidthChange={onPanelWidthChange}
         onClose={closePanel}
         // The list is a destination and stays put; only an untouched chat
         // draft behaves like a popover and gets out of your way. So is a

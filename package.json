@@ -27,6 +27,7 @@
     "@napi-rs/canvas": "^1.0.0",
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.99.2",
+    "@tiptap/extension-blockquote": "^3.20.4",
     "@tiptap/extension-placeholder": "^3.20.4",
     "@tiptap/extension-task-item": "^3.20.4",
     "@tiptap/extension-task-list": "^3.20.4",

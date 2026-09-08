@@ -138,6 +138,7 @@ export function usePagination({
   inlineMarks,
   settings,
   chatPanel,
+  panelWidth,
   bottomInset = 0,
   charOffset: externalCharOffset,
   onPositionChange,
@@ -181,6 +182,8 @@ export function usePagination({
   settings: ReaderSettings;
   /** How the chat is presented, which decides what it costs — see ChatPanelPresentation. */
   chatPanel: ChatPanelPresentation;
+  /** How wide a docked panel is at the moment — see computeGeometry. */
+  panelWidth: number;
   /**
    * Height at the foot of the window the page may not use — the audiobook
    * player bar, when something is playing.
@@ -411,9 +414,10 @@ export function usePagination({
             viewport.width,
             Math.max(200, viewport.height - bottomInset),
             settings,
-            chatPanel
+            chatPanel,
+            panelWidth
           ),
-    [enabled, html, viewport, settings, chatPanel, bottomInset]
+    [enabled, html, viewport, settings, chatPanel, panelWidth, bottomInset]
   );
   // Forcing one column keeps `offsetX`, so the page stays where the LEFT column
   // of the spread would have been and the right column's place is free.
