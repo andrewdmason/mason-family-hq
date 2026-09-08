@@ -1,6 +1,8 @@
 import { mergeAttributes, Node } from "@tiptap/core";
-import type { Node as PMNode } from "@tiptap/pm/model";
+import type { Node as PMNode, ResolvedPos } from "@tiptap/pm/model";
 import type { NotePlace } from "@/lib/reading/notes";
+import { composeText, type NoteBlockJSON } from "@/lib/reading/note-tree";
+import { blockAt, inHead, isBlock, type BlockInfo } from "./notepad-block-commands";
 import { PILL_NODE, pillOf } from "./notepad-pill";
 
 /** The slice of tiptap-markdown's serializer state a leaf node needs. */
@@ -85,15 +87,18 @@ export const NotepadCompose = Node.create({
 /**
  * What Enter on a chip sends.
  *
- * The paragraph the chip is in, plus every paragraph directly above it with
- * words in it, back until something that isn't one: a quote, a heading, a
- * blank line, the top of the note. If what stopped the walk was a quote, that
- * quote is attached — the passage this thought is about. If it was anything
- * else, the thought stands on its own and the conversation is anchored to
- * wherever the reader is.
+ * The line the chip is on, with where it sits in the outline in front of it
+ * — the heads of the lines it's nested under, as a breadcrumb — and whatever
+ * is nested under it after. Not the lines beside it: the whole note rides
+ * along as background anyway, and this is the part being asked about.
+ *
+ * If a quote sits just above — the nearest line up with words in it that is
+ * a quote, or the line this one is nested under — that quote is attached:
+ * the passage this thought is about. Otherwise the thought stands on its own
+ * and the conversation is anchored to wherever the reader is.
  *
  * A blank line is the reader's way of saying "not about that". It is a real
- * node here (an empty paragraph), which is what makes it a boundary the walk
+ * block here (an empty head), which is what makes it a boundary the walk
  * can see.
  */
 export type ComposeScope = {
@@ -110,26 +115,19 @@ export function composeScope(doc: PMNode, chipPos: number): ComposeScope | null 
   const chip = doc.nodeAt(chipPos);
   if (!chip || chip.type.name !== COMPOSE_NODE) return null;
   const $chip = doc.resolve(chipPos);
-  if ($chip.depth < 1) return null;
-  // The top-level block the chip is in, whatever it's nested inside.
-  const i = $chip.index(0);
-  const block = doc.child(i);
-  if (block.type.name !== "paragraph") return null;
+  const b = blockAt($chip);
+  if (!b || !inHead($chip)) return null;
 
-  let j = i;
-  while (j > 0) {
-    const prev = doc.child(j - 1);
-    if (prev.type.name === "paragraph" && hasWords(prev)) j -= 1;
-    else break;
+  const ancestors: NoteBlockJSON[] = [];
+  for (let d = 1; d < b.depth; d++) {
+    const n = $chip.node(d);
+    if (isBlock(n)) ancestors.push(n.toJSON() as NoteBlockJSON);
   }
-  const above = j > 0 ? doc.child(j - 1) : null;
-
-  const parts: string[] = [];
-  for (let k = j; k <= i; k++) parts.push(doc.child(k).textContent.trim());
-  const text = parts.filter(Boolean).join("\n\n");
+  const text = composeText(ancestors, b.node.toJSON() as NoteBlockJSON);
 
   let quote: ComposeScope["quote"] = null;
-  if (above && above.type.name === "blockquote") {
+  const above = quoteNear($chip, b);
+  if (above) {
     let place: NotePlace | null = null;
     above.descendants((n) => {
       if (n.type.name === PILL_NODE) {
@@ -151,17 +149,37 @@ export function composeScope(doc: PMNode, chipPos: number): ComposeScope | null 
   };
 }
 
-/** Whether a quote sits directly above the block at `pos` — for the chip's wording. */
+/** Whether a quote sits just above the block at `pos` — for the chip's wording. */
 export function quoteAbove(doc: PMNode, pos: number): boolean {
   const $pos = doc.resolve(pos);
-  if ($pos.depth < 1) return false;
-  let j = $pos.index(0);
-  while (j > 0) {
-    const prev = doc.child(j - 1);
-    if (prev.type.name === "paragraph" && hasWords(prev)) j -= 1;
-    else break;
+  const b = blockAt($pos);
+  return b != null && quoteNear($pos, b) != null;
+}
+
+/**
+ * The quote a block is about, if one sits just above it: back over the
+ * lines beside it that have words, to the first that is a quote; or, at the
+ * top of its group, the line it's nested under when that is a quote.
+ */
+function quoteNear($pos: ResolvedPos, b: BlockInfo): PMNode | null {
+  const first = isBlock(b.parent) ? 1 : 0;
+  let i = b.index;
+  while (i - 1 >= first) {
+    const prev = b.parent.child(i - 1);
+    const head = prev.firstChild;
+    if (!head) return null;
+    if (head.type.name === "blockquote") return head;
+    if (head.type.name === "paragraph" && hasWords(head)) {
+      i -= 1;
+      continue;
+    }
+    return null;
   }
-  return j > 0 && doc.child(j - 1).type.name === "blockquote";
+  if (isBlock(b.parent)) {
+    const head = b.parent.firstChild;
+    if (head?.type.name === "blockquote") return head;
+  }
+  return null;
 }
 
 /** Words, as opposed to a bare stamp or nothing at all. */

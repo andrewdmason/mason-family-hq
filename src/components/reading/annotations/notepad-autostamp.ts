@@ -1,8 +1,8 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey, TextSelection, type Transaction } from "@tiptap/pm/state";
-import type { Node as PMNode } from "@tiptap/pm/model";
+import type { Node as PMNode, ResolvedPos } from "@tiptap/pm/model";
 import { shouldStamp, type NotePlace } from "@/lib/reading/notes";
-import { NOTEPAD_INSERT_META } from "./notepad-mentions";
+import { NOTE_BLOCK, NOTEPAD_INSERT_META } from "@/lib/reading/note-tree";
 import { PILL_NODE } from "./notepad-pill";
 
 /**
@@ -21,10 +21,12 @@ import { PILL_NODE } from "./notepad-pill";
  * in on purpose (⌥D, or the calendar button), not something the note does to
  * itself.
  *
- * Top-level paragraphs only. Enter inside a list makes a new item, and inside a
- * blockquote continues the quote; neither is a new thought. Splitting a
- * paragraph in the middle leaves the new one non-empty, so that gets nothing
- * either — editing an old thought is not the moment to say where you are now.
+ * The head of a block only, at any depth — a new line of the outline, nested
+ * or not, is a new thought. Enter inside a quote continues the quote and is
+ * not one. Splitting a line in the middle leaves the new one non-empty, so
+ * that gets nothing either — editing an old thought is not the moment to say
+ * where you are now. Moving, nesting and folding lines are tagged by the
+ * block commands so they never stamp.
  *
  * Everything is read through the options fresh on every stamp, because the
  * reader's position changes every page and a plugin rebuilt per change would
@@ -74,13 +76,12 @@ export const NotepadAutostamp = Extension.create<AutostampOptions>({
           const sel = newState.selection;
           if (!sel.empty) return null;
           const $from = sel.$from;
-          if ($from.depth !== 1) return null;
           const para = $from.parent;
-          if (para.type.name !== "paragraph") return null;
+          if (para.type.name !== "paragraph" || !isHead($from)) return null;
 
           const oldSel = oldState.selection;
           const $old = oldSel.$from;
-          const oldPara = $old.depth >= 1 ? $old.parent : null;
+          const oldPara = $old.depth >= 1 && isHead($old) ? $old.parent : null;
 
           let insertAt: number | null = null;
 
@@ -88,7 +89,6 @@ export const NotepadAutostamp = Extension.create<AutostampOptions>({
             // A split: Enter at the end of something with words in it.
             if (
               !oldPara ||
-              $old.depth !== 1 ||
               oldPara.content.size === 0 ||
               $old.parentOffset !== oldPara.content.size ||
               onlyPills(oldPara)
@@ -98,7 +98,8 @@ export const NotepadAutostamp = Extension.create<AutostampOptions>({
             insertAt = $from.pos;
           } else if (
             oldState.doc.childCount === 1 &&
-            oldState.doc.firstChild?.content.size === 0 &&
+            oldState.doc.firstChild?.childCount === 1 &&
+            oldState.doc.firstChild.firstChild?.content.size === 0 &&
             newState.doc.childCount === 1 &&
             !startsWithPill(para)
           ) {
@@ -132,6 +133,12 @@ export const NotepadAutostamp = Extension.create<AutostampOptions>({
     ];
   },
 });
+
+/** Whether the textblock around a position is the head of a block (not a paragraph inside a quote). */
+function isHead($pos: ResolvedPos): boolean {
+  const d = $pos.depth;
+  return d >= 1 && $pos.node(d - 1).type.name === NOTE_BLOCK && $pos.index(d - 1) === 0;
+}
 
 /** A paragraph that is nothing but pills and whitespace: a stamp nobody wrote after. */
 function onlyPills(para: PMNode): boolean {
