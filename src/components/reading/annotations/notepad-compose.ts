@@ -1,7 +1,7 @@
 import { mergeAttributes, Node } from "@tiptap/core";
 import type { Node as PMNode, ResolvedPos } from "@tiptap/pm/model";
 import type { NotePlace } from "@/lib/reading/notes";
-import { composeText, type NoteBlockJSON } from "@/lib/reading/note-tree";
+import { composeText, provenanceOf, type NoteBlockJSON } from "@/lib/reading/note-tree";
 import { blockAt, inHead, isBlock, type BlockInfo } from "./notepad-block-commands";
 import { PILL_NODE, pillOf } from "./notepad-pill";
 
@@ -128,14 +128,20 @@ export function composeScope(doc: PMNode, chipPos: number): ComposeScope | null 
   let quote: ComposeScope["quote"] = null;
   const above = quoteNear($chip, b);
   if (above) {
-    let place: NotePlace | null = null;
-    above.descendants((n) => {
-      if (n.type.name === PILL_NODE) {
-        const p = pillOf(n);
-        if (p.kind === "place") place = { char: p.char, label: p.label, mark: p.mark };
-      }
-    });
-    const quoteText = quoteTextOf(above);
+    // Where a clipped passage came from is the LINE's, not the text's. A pill
+    // inside the quote is the older shape and is still read, for a note whose
+    // stamps haven't been lifted off it yet (absorbPlacePills).
+    let place: NotePlace | null = provenanceOf(above.attrs).place;
+    const head = above.firstChild!;
+    if (!place) {
+      head.descendants((n) => {
+        if (n.type.name === PILL_NODE) {
+          const p = pillOf(n);
+          if (p.kind === "place") place = { char: p.char, label: p.label, mark: p.mark };
+        }
+      });
+    }
+    const quoteText = quoteTextOf(head);
     if (place && quoteText) quote = { text: quoteText, place };
   }
 
@@ -157,9 +163,11 @@ export function quoteAbove(doc: PMNode, pos: number): boolean {
 }
 
 /**
- * The quote a block is about, if one sits just above it: back over the
- * lines beside it that have words, to the first that is a quote; or, at the
- * top of its group, the line it's nested under when that is a quote.
+ * The LINE holding the quote a block is about, if one sits just above it:
+ * back over the lines beside it that have words, to the first that is a
+ * quote; or, at the top of its group, the line it's nested under when that is
+ * a quote. The line rather than the quote itself, because the line is what
+ * knows where the passage came from.
  */
 function quoteNear($pos: ResolvedPos, b: BlockInfo): PMNode | null {
   const first = isBlock(b.parent) ? 1 : 0;
@@ -168,17 +176,14 @@ function quoteNear($pos: ResolvedPos, b: BlockInfo): PMNode | null {
     const prev = b.parent.child(i - 1);
     const head = prev.firstChild;
     if (!head) return null;
-    if (head.type.name === "blockquote") return head;
+    if (head.type.name === "blockquote") return prev;
     if (head.type.name === "paragraph" && hasWords(head)) {
       i -= 1;
       continue;
     }
     return null;
   }
-  if (isBlock(b.parent)) {
-    const head = b.parent.firstChild;
-    if (head?.type.name === "blockquote") return head;
-  }
+  if (isBlock(b.parent) && b.parent.firstChild?.type.name === "blockquote") return b.parent;
   return null;
 }
 

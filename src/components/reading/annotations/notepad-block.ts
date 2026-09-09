@@ -2,7 +2,8 @@ import { mergeAttributes, Node } from "@tiptap/core";
 import { DOMParser as PMDOMParser, Slice, type Node as PMNode } from "@tiptap/pm/model";
 import { NodeSelection, Plugin, PluginKey, type Command } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
-import { newId, NOTE_BLOCK, NOTEPAD_INSERT_META } from "@/lib/reading/note-tree";
+import { newId, NOTE_BLOCK, NOTEPAD_INSERT_META, provenanceOf } from "@/lib/reading/note-tree";
+import { parsePlaceHref, placeHref, type NotePlace } from "@/lib/reading/notes";
 import {
   blockAt,
   headEnd,
@@ -40,6 +41,13 @@ import {
  * puts you before it, below the bottom half after it (or under it, when it
  * has children showing, or when the pointer is pushed to the right).
  *
+ * Every line also carries its PROVENANCE — where the reader was in the book
+ * when it got its first words, and when that was (notepad-provenance.ts).
+ * None of it is in the text. Pressing the handle asks for it: the block hands
+ * what it knows to whoever configured `onShowMeta`, which is the notepad, and
+ * a small panel opens beside the line. On a phone, where the handle is never
+ * drawn, a long press on the dot does the same thing.
+ *
  * The keys — Tab, Shift-Tab, ⌥↑↓, ⌘↑↓, Enter, Backspace, Delete — are in
  * notepad-block-commands.ts, where they can be run without a browser.
  *
@@ -61,12 +69,29 @@ export const NotepadDoc = Node.create({
 /** How far a child sits in from its parent — the gutter's width. Mirrored in globals.css. */
 const GUTTER_PX = 22;
 
-export const NoteBlock = Node.create({
+/** What a line knows about itself, handed over when its handle is pressed. */
+export type BlockMeta = {
+  id: string;
+  place: NotePlace | null;
+  at: string | null;
+  /** The handle or dot that was pressed, for positioning. */
+  rect: DOMRect;
+};
+
+export type NoteBlockOptions = {
+  onShowMeta: (meta: BlockMeta) => void;
+};
+
+export const NoteBlock = Node.create<NoteBlockOptions>({
   name: NOTE_BLOCK,
   content: `(paragraph | heading | blockquote) ${NOTE_BLOCK}*`,
   defining: true,
   draggable: true,
   selectable: true,
+
+  addOptions() {
+    return { onShowMeta: () => {} };
+  },
 
   addAttributes() {
     return {
@@ -79,6 +104,28 @@ export const NoteBlock = Node.create({
         default: false,
         parseHTML: (el) => el.getAttribute("data-collapsed") === "true",
         renderHTML: (attrs) => ({ "data-collapsed": attrs.collapsed ? "true" : "false" }),
+      },
+      // Provenance rides on the HTML too, so a line copied to the clipboard
+      // and pasted back still knows where it came from. The place uses the
+      // same target form a pill's link does — one vocabulary, not two.
+      place: {
+        default: null,
+        parseHTML: (el) => {
+          const target = parsePlaceHref(el.getAttribute("data-place"));
+          return target
+            ? { char: target.char, mark: target.mark, label: el.getAttribute("data-place-label") ?? "" }
+            : null;
+        },
+        renderHTML: (attrs) => {
+          const place = attrs.place as NotePlace | null;
+          if (!place) return {};
+          return { "data-place": placeHref(place), "data-place-label": place.label };
+        },
+      },
+      at: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("data-at"),
+        renderHTML: (attrs) => (attrs.at ? { "data-at": attrs.at as string } : {}),
       },
     };
   },
@@ -120,6 +167,7 @@ export const NoteBlock = Node.create({
   },
 
   addNodeView() {
+    const options = this.options;
     return ({ node: initial, getPos, editor }) => {
       let node = initial;
       const dom = document.createElement("div");
@@ -133,8 +181,8 @@ export const NoteBlock = Node.create({
       handle.className = "nb-handle";
       handle.setAttribute("data-drag-handle", "");
       handle.setAttribute("role", "button");
-      handle.setAttribute("aria-label", "Drag to move this line");
-      handle.title = "Drag to move";
+      handle.setAttribute("aria-label", "Drag to move this line, or press for where it came from");
+      handle.title = "Drag to move · press for where you were";
       handle.innerHTML = GRIP_SVG;
 
       const toggle = document.createElement("span");
@@ -158,13 +206,55 @@ export const NoteBlock = Node.create({
       };
       apply(node);
 
+      /** What this line knows about itself, anchored to whatever was pressed. */
+      const meta = (from: HTMLElement): BlockMeta => ({
+        id: (node.attrs.id as string) ?? "",
+        ...provenanceOf(node.attrs),
+        rect: from.getBoundingClientRect(),
+      });
+
+      // A press on the handle that never became a drag asks the line where it
+      // came from. Click rather than pointerup: a drag ends in dragend and
+      // fires no click at all, so the two can't be confused.
+      handle.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        options.onShowMeta(meta(handle));
+      });
+
+      const fold = () => {
+        const pos = getPos();
+        if (pos != null) toggleFoldInPlace(editor.view, pos);
+      };
+
+      // The dot folds. On a phone, where there is no handle to press, holding
+      // it is how you ask the same question — so touch waits for the finger to
+      // come up, and a mouse doesn't wait at all.
+      let held: ReturnType<typeof setTimeout> | null = null;
+      const cancelHold = () => {
+        if (held) clearTimeout(held);
+        held = null;
+      };
       toggle.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        const pos = getPos();
-        if (pos == null) return;
-        toggleFoldInPlace(editor.view, pos);
+        if (e.pointerType === "mouse") {
+          fold();
+          return;
+        }
+        cancelHold();
+        held = setTimeout(() => {
+          held = null;
+          options.onShowMeta(meta(toggle));
+        }, 450);
       });
+      toggle.addEventListener("pointerup", (e) => {
+        if (e.pointerType === "mouse" || !held) return;
+        cancelHold();
+        fold();
+      });
+      toggle.addEventListener("pointercancel", cancelHold);
+      toggle.addEventListener("pointerleave", cancelHold);
 
       return {
         dom,
@@ -182,9 +272,14 @@ export const NoteBlock = Node.create({
           return !body.contains(m.target);
         },
         // The toggle handles its own press; the handle must stay visible to
-        // ProseMirror, whose mousedown is what starts the drag.
+        // ProseMirror, whose mousedown is what starts the drag — but its click
+        // is ours, and ProseMirror would answer it by selecting the block.
         stopEvent(e) {
-          return toggle.contains(e.target as globalThis.Node);
+          if (toggle.contains(e.target as globalThis.Node)) return true;
+          return e.type === "click" && handle.contains(e.target as globalThis.Node);
+        },
+        destroy() {
+          cancelHold();
         },
       };
     };

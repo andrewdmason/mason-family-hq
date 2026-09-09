@@ -16,6 +16,24 @@ function clampWidth(width: number): number {
   return Math.min(max, Math.max(MIN_PANEL_WIDTH, Math.round(width)));
 }
 
+/** Arriving, and leaving. Leaving is quicker: the decision is already made. */
+const ENTER_MS = 260;
+const EXIT_MS = 180;
+const ENTER_EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+const EXIT_EASE = "cubic-bezier(0.4, 0, 1, 1)";
+
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const apply = () => setReduced(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+  return reduced;
+}
+
 /**
  * Desktop: a non-modal panel. Deliberately NOT a dialog — no backdrop, no focus
  * trap, and clicking in the book does not dismiss it. The whole point is to keep
@@ -42,7 +60,29 @@ function clampWidth(width: number): number {
  * so it happens once, when the hand comes off. Double-click the edge to go
  * back to the width it opened at. Floating is not resizable: it covers
  * rather than takes, and a wider cover is just less book.
+ *
+ * It ARRIVES from the right edge rather than appearing there, and leaves the
+ * same way — which is what makes a highlight landing in the notes legible: you
+ * see the panel come in, and then the passage drop into it (notepad.tsx).
+ * Leaving is quicker than arriving, the usual rule: you have already decided.
+ *
+ * The floating card fades as it slides, because it is a thing laid over the
+ * page. The drawer only slides, because it is a thing the page made room for —
+ * and a drawer that faded would read as a ghost rather than a panel. The book
+ * gives up its width the instant the drawer opens, so for the length of the
+ * slide there is a bare strip at the right where the page used to be. That is
+ * the cost, and it is worth paying: a drawer that simply appears tells you
+ * nothing about where it came from, which is the whole reason for animating
+ * any of this.
+ *
+ * The panel stays mounted for the length of its exit, so what it holds keeps
+ * its state until it is actually gone — closing a THREAD clears the thread on
+ * the way out (that is what abandons an untouched draft), so for those 180ms
+ * it is empty. Nothing animates for a reader who has asked their system for
+ * less movement: they get it and lose it at once.
  */
+
+
 export function AnnotationPanel({
   open,
   isMobile,
@@ -78,6 +118,50 @@ export function AnnotationPanel({
   children: React.ReactNode;
 }) {
   const panelRef = useRef<HTMLElement>(null);
+  const reduced = usePrefersReducedMotion();
+  // The sheet has its own way in and out; everything else moves. See above.
+  const animated = !reduced && !isMobile;
+  /** Shut, but still on screen: the exit, playing out after `open` went false. */
+  const [closing, setClosing] = useState(false);
+  /** In its resting place, as opposed to off the edge. */
+  const [arrived, setArrived] = useState(false);
+
+  // Read `open` as it changes rather than in an effect: the frame that mounts
+  // the card has to be the frame that has it off the edge, and an effect would
+  // be a frame late — the card would appear where it belongs and then not move.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    if (open) setArrived(false);
+    else setClosing(animated);
+  }
+
+  /** On screen at all. */
+  const present = open || closing;
+  /** Where it belongs, as opposed to off the edge on the way in or out. */
+  const shown = open && (arrived || !animated);
+
+  // Two frames: the first draws it off the edge, the second sets it moving.
+  // One would be folded into the same style recalculation and it would simply
+  // be there.
+  useEffect(() => {
+    if (!open || !animated || arrived) return;
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => setArrived(true));
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
+  }, [animated, arrived, open]);
+
+  useEffect(() => {
+    if (!closing) return;
+    const t = setTimeout(() => setClosing(false), EXIT_MS);
+    return () => clearTimeout(t);
+  }, [closing]);
+
   /** The width under the pointer mid-drag; null when the edge is at rest. */
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -139,12 +223,15 @@ export function AnnotationPanel({
     );
   }
 
-  // No mounted-flag dance needed: the panel only ever opens from a client
-  // interaction, so there is nothing to portal during SSR.
-  if (!open || typeof document === "undefined") return null;
+  // The panel only ever opens from a client interaction, so there is nothing
+  // to portal during SSR; `present` outlasts `open` by the exit.
+  if (!present || typeof document === "undefined") return null;
 
   const resizable = docked && !!onWidthChange;
   const shownWidth = docked ? (dragWidth ?? width) : CHAT_PANEL_DEFAULT_WIDTH;
+  // Off the right edge — far enough that the floating card clears the 12px of
+  // page showing beside it, and the drawer clears its own border.
+  const away = docked ? "translateX(100%)" : "translateX(calc(100% + 0.75rem))";
 
   return createPortal(
     // z-50 clears the reader's hover header (z-40).
@@ -156,7 +243,18 @@ export function AnnotationPanel({
           ? "inset-y-0 border-l border-border shadow-lg"
           : "top-3 bottom-3 right-3 overflow-hidden rounded-xl border border-border shadow-2xl"
       )}
-      style={{ width: shownWidth }}
+      style={{
+        width: shownWidth,
+        transform: shown ? undefined : away,
+        // The card is laid over the page and fades with the move; the drawer
+        // is part of it and only slides.
+        opacity: shown || docked ? undefined : 0,
+        transition: !animated
+          ? undefined
+          : shown
+            ? `transform ${ENTER_MS}ms ${ENTER_EASE}, opacity ${ENTER_MS}ms ${ENTER_EASE}`
+            : `transform ${EXIT_MS}ms ${EXIT_EASE}, opacity ${EXIT_MS}ms ${EXIT_EASE}`,
+      }}
       aria-label="Chat about this book"
     >
       {resizable && (

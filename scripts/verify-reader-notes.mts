@@ -1,13 +1,14 @@
 /**
  * The notepad: the rules that decide what a place looks like in the stored
- * text, what a pill says, when a new paragraph gets stamped, how the
- * assistant reads the whole thing — and, since the notepad became an
- * outline, what the tree looks like as markdown and what every key does to
- * it.
+ * text, what a pill says, what each line records about where it was written
+ * and when, how the assistant reads the whole thing — and, since the notepad
+ * became an outline, what the tree looks like as markdown and what every key
+ * does to it.
  *
  * None of these throw when they break. They show up as a pill that renders as
- * its own syntax, a stamp on every line, an assistant that quotes link markup
- * back at the reader, or a Tab that eats a line.
+ * its own syntax, a line that says it was written today when it was written
+ * last year, an assistant that quotes link markup back at the reader, or a
+ * Tab that eats a line.
  *
  *   npx tsx --tsconfig scripts/tsconfig.json scripts/verify-reader-notes.mts
  */
@@ -29,15 +30,19 @@ import {
   placesIn,
   shortChapter,
   shouldStamp,
+  stampLabel,
   STAMP_MIN_MOVE,
 } from "../src/lib/reading/notes";
 import {
+  absorbPlacePills,
   appendBlock,
   childrenLines,
   composeText,
   emptyDoc,
   newBlock,
+  NOTEPAD_NO_STAMP_META,
   normalizeDoc,
+  provenanceOf,
   quoteBlock,
   resolveMarkInDoc,
   treeToMarkdown,
@@ -63,6 +68,7 @@ import {
 } from "../src/components/reading/annotations/notepad-block-commands";
 import { NotepadCompose, composeScope, quoteAbove } from "../src/components/reading/annotations/notepad-compose";
 import { NotepadPill } from "../src/components/reading/annotations/notepad-pill";
+import { provenancePlugin } from "../src/components/reading/annotations/notepad-provenance";
 
 let failures = 0;
 
@@ -564,6 +570,233 @@ const AT_A = 3, AT_B = 8, AT_C = 12, AT_D = 18;
   const pmUnder = schema.nodeFromJSON(under);
   check("a line nested under a quote is about that quote", quoteAbove(pmUnder, pmUnder.nodeSize - 6));
 }
+
+/** The end of a named block's head text, as an absolute position. */
+function endOfHead(doc: NoteDoc, id: string): number {
+  const pm = schema.nodeFromJSON(doc);
+  let at = -1;
+  pm.descendants((n, pos) => {
+    if (at < 0 && n.type.name === "noteBlock" && n.attrs.id === id) {
+      at = pos + 2 + n.firstChild!.content.size;
+    }
+    return at < 0;
+  });
+  return at;
+}
+
+{
+  // a / b, with a blank line nested under b. Enter on it steps it out.
+  const doc: NoteDoc = {
+    type: "doc",
+    content: [
+      newBlock(p("a"), [], { id: "a" }),
+      newBlock(p("b"), [newBlock(p(""), [], { id: "blank" })], { id: "b" }),
+    ],
+  };
+  const r = run(stateOf(doc, endOfHead(doc, "blank")), splitBlock);
+  check("Enter on a blank nested line steps it out instead of adding another", r.handled && shape(r.state) === "a\n\nb\n", JSON.stringify(shape(r.state)));
+  check("and the line is now at the top level", r.state.doc.childCount === 3 && r.state.doc.child(2).firstChild!.content.size === 0);
+  const again = run(r.state, splitBlock);
+  check("Enter again at the top level makes a line, as before", again.state.doc.childCount === 4);
+}
+{
+  // A blank line with something under it still steps out, children and all.
+  const doc: NoteDoc = {
+    type: "doc",
+    content: [
+      newBlock(p("top"), [newBlock(p(""), [newBlock(p("kept"), [], { id: "kept" })], { id: "blank" })], { id: "top" }),
+    ],
+  };
+  const r = run(stateOf(doc, endOfHead(doc, "blank")), splitBlock);
+  check("a blank line with children takes them with it", shape(r.state) === "top\n\n- kept\n", JSON.stringify(shape(r.state)));
+}
+{
+  // A line with words in it is not blank, however deep.
+  const doc: NoteDoc = {
+    type: "doc",
+    content: [newBlock(p("a"), [newBlock(p("words"), [], { id: "w" })], { id: "a" })],
+  };
+  const r = run(stateOf(doc, endOfHead(doc, "w")), splitBlock);
+  check("Enter at the end of a nested line with words still makes a line", shape(r.state) === "a\n- words\n- \n" || r.state.doc.child(0).childCount === 3, JSON.stringify(shape(r.state)));
+}
+
+/* ------------------------------------------------------------------ */
+/* Where a line came from                                              */
+/* ------------------------------------------------------------------ */
+
+console.log("\nwhat a line records about itself");
+
+const NOW = "2026-09-09T15:12:00.000Z";
+const HERE = { char: 4200, label: "Ch. 3 · p. 84", mark: null };
+
+/** A state that stamps new lines, standing at `spot`. */
+function stamping(doc: NoteDoc, caret: number, spot = HERE as typeof HERE | null): EditorState {
+  const pm = schema.nodeFromJSON(doc);
+  return EditorState.create({
+    schema,
+    doc: pm,
+    selection: TextSelection.create(pm, caret),
+    plugins: [provenancePlugin({ spot: () => spot, now: () => NOW })],
+  });
+}
+
+const blockAtIndex = (state: EditorState, i: number) => state.doc.child(i);
+const recordOf = (state: EditorState, i: number) => provenanceOf(blockAtIndex(state, i).attrs);
+
+{
+  // One empty line, one written line that knows nothing — an old note.
+  const doc: NoteDoc = {
+    type: "doc",
+    content: [newBlock(p(""), [], { id: "blank" }), newBlock(p("old words"), [], { id: "old" })],
+  };
+  const state = stamping(doc, 2);
+  check("an empty line records nothing until it is written in", recordOf(state, 0).at === null);
+
+  const typed = state.apply(state.tr.insertText("new", 2));
+  check("the first words stamp the line", recordOf(typed, 0).at === NOW && recordOf(typed, 0).place?.char === 4200);
+  check("a line that already had words is left alone", recordOf(typed, 1).at === null);
+
+  const again = typed.apply(typed.tr.insertText("!", 5));
+  check("writing more doesn't restamp", recordOf(again, 0).at === NOW);
+}
+{
+  // Nowhere to be — the book hasn't reported a position.
+  const state = stamping({ type: "doc", content: [newBlock(p(""))] }, 2, null);
+  const typed = state.apply(state.tr.insertText("x", 2));
+  check("a line written with no position still records the time", recordOf(typed, 0).at === NOW && recordOf(typed, 0).place === null);
+}
+{
+  // Words arriving from outside, as a whole line: born now.
+  const state = stamping({ type: "doc", content: [newBlock(p("here"))] }, 3);
+  const pasted = schema.nodeFromJSON(newBlock(p("from elsewhere")));
+  const typed = state.apply(state.tr.insert(state.doc.content.size, pasted));
+  check("a line pasted from outside is born now", recordOf(typed, 1).at === NOW);
+}
+{
+  // A copy of a line that already knew: its record comes with it.
+  const state = stamping({ type: "doc", content: [newBlock(p("here"))] }, 3);
+  const copy = schema.nodeFromJSON(
+    newBlock(p("a copy"), [], { place: { char: 10, label: "p. 1", mark: null }, at: "2020-01-01T00:00:00.000Z" })
+  );
+  const typed = state.apply(state.tr.insert(state.doc.content.size, copy));
+  check("a copied line keeps where it came from", recordOf(typed, 1).at === "2020-01-01T00:00:00.000Z" && recordOf(typed, 1).place?.char === 10);
+}
+{
+  // Enter in the middle of a line: the tail is old words.
+  const doc: NoteDoc = {
+    type: "doc",
+    content: [newBlock(p("one two"), [], { id: "x", place: { char: 10, label: "p. 1", mark: null }, at: "2020-01-01T00:00:00.000Z" })],
+  };
+  const r = run(stateOf(doc, 6), splitBlock);
+  const tail = r.state.doc.child(1);
+  check("splitting a line hands the new one the old one's record", provenanceOf(tail.attrs).at === "2020-01-01T00:00:00.000Z" && provenanceOf(tail.attrs).place?.char === 10);
+  check("and says so, so nothing stamps it as new", r.tr?.getMeta(NOTEPAD_NO_STAMP_META) === true);
+  check("but it is still a line of its own", tail.attrs.id !== "x");
+}
+{
+  // Enter at the end: a new empty line, which knows nothing yet.
+  const doc: NoteDoc = {
+    type: "doc",
+    content: [newBlock(p("one"), [], { id: "x", place: { char: 10, label: "p. 1", mark: null }, at: "2020-01-01T00:00:00.000Z" })],
+  };
+  const r = run(stateOf(doc, 5), splitBlock);
+  check("a line opened at the end starts blank", provenanceOf(r.state.doc.child(1).attrs).at === null);
+  check("and is not called old words", r.tr?.getMeta(NOTEPAD_NO_STAMP_META) !== true);
+}
+{
+  // Backspace at the start of a quote: its paragraphs are its own words.
+  const doc: NoteDoc = {
+    type: "doc",
+    content: [
+      newBlock(p("above")),
+      newBlock({ type: "blockquote", content: [p("One."), p("Two.")] }, [], { place: { char: 10, label: "p. 1", mark: "m" }, at: "2020-01-01T00:00:00.000Z" }),
+    ],
+  };
+  const start = 12; // the first character of the quote's first paragraph
+  const r = run(stateOf(doc, start), joinBlockBackward);
+  check("unwrapping a quote gives its lines the quote's record", provenanceOf(r.state.doc.child(2).attrs).place?.char === 10);
+  check("and never reads as new writing", r.tr?.getMeta(NOTEPAD_NO_STAMP_META) === true);
+}
+{
+  // Moving a line around never changes what it knows.
+  const doc: NoteDoc = {
+    type: "doc",
+    content: [
+      newBlock(p("a"), [], { id: "a" }),
+      newBlock(p("b"), [], { id: "b", place: { char: 99, label: "p. 9", mark: null }, at: NOW }),
+    ],
+  };
+  const moved = run(stateOf(doc, 8), moveBlockUp);
+  check("a line moved keeps its record", provenanceOf(moved.state.doc.child(0).attrs).place?.char === 99);
+  const nested = run(stateOf(doc, 8), indentBlock);
+  check("a line nested keeps its record", provenanceOf(nested.state.doc.child(0).child(1).attrs).place?.char === 99);
+}
+
+console.log("\nwhen a place is worth writing down");
+
+{
+  const near = (char: number, i: number) =>
+    newBlock(p(`line ${i}`), [], { place: { char, label: `p. ${i}`, mark: null }, at: NOW });
+  const md = treeToMarkdown({
+    type: "doc",
+    content: [near(1000, 1), near(1050, 2), near(1000 + STAMP_MIN_MOVE * 2, 3)],
+  });
+  check("the first place is written", md.startsWith("[p. 1](place:1000) line 1"));
+  check("a place the reader hasn't moved from is not written again", !md.includes("place:1050"));
+  check("a place they have moved to is", md.includes(`place:${1000 + STAMP_MIN_MOVE * 2}`));
+  check("a line without a place reads as itself", treeToMarkdown({ type: "doc", content: [newBlock(p("plain"))] }) === "plain\n");
+  check(
+    "a blank line that knows where it was still says nothing",
+    treeToMarkdown({ type: "doc", content: [newBlock(p(""), [], { place: { char: 5, label: "p. 1", mark: null }, at: NOW })] }) === ""
+  );
+  const heading = treeToMarkdown({
+    type: "doc",
+    content: [newBlock({ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Ch. 3" }] }, [], { place: { char: 7, label: "p. 1", mark: null }, at: NOW })],
+  });
+  check("a heading keeps its hashes in front", heading === "## [p. 1](place:7) Ch. 3\n", JSON.stringify(heading));
+  const nestedMd = treeToMarkdown({
+    type: "doc",
+    content: [newBlock(p("top"), [newBlock(p("under"), [], { place: { char: 8, label: "p. 1", mark: null }, at: NOW })])],
+  });
+  check("a nested line keeps its dash in front", nestedMd === "top\n- [p. 1](place:8) under\n", JSON.stringify(nestedMd));
+}
+
+console.log("\nan old note's stamps, lifted onto its lines");
+
+{
+  const old: NoteDoc = {
+    type: "doc",
+    content: [
+      newBlock(p("", pill(1200, "Ch. 1 · p. 41"), { type: "text", text: " The bogey man." }), [], { id: "one" }),
+      newBlock({ type: "blockquote", content: [p("Projection. ", pill(1100, "p. 40", "m1"))] }, [], { id: "two" }),
+      newBlock(p("A thought at ", pill(900, "p. 30"), { type: "text", text: " about this." }), [], { id: "three" }),
+      newBlock(p("Ask me. ", { type: "pill", attrs: { kind: "thread", thread: "t-1", label: "Ask" } }), [], { id: "four" }),
+    ],
+  };
+  const lifted = absorbPlacePills(old);
+  check("a note with stamps in it is changed", lifted !== null);
+  const [a, b, c, d] = lifted!.content;
+  check("a stamp at the front of a line moves onto the line", a.attrs.place?.char === 1200 && a.attrs.place?.label === "Ch. 1 · p. 41");
+  check("and takes the space after it with it", treeToMarkdown({ type: "doc", content: [a] }) === "[Ch. 1 · p. 41](place:1200) The bogey man.\n");
+  check("a stamp at the end of a quote moves onto the quote's line", b.attrs.place?.char === 1100 && b.attrs.place?.mark === "m1");
+  check("and the quote reads as the book's words alone", treeToMarkdown({ type: "doc", content: [b] }) === "> Projection. [p. 40](place:1100?mark=m1)\n");
+  check("a pill put in mid-sentence stays exactly where it is", c.attrs.place === null);
+  check("a conversation is never mistaken for a stamp", d.attrs.place === null);
+  check("nothing lifted claims to know when", a.attrs.at === null && b.attrs.at === null);
+  check("a note with nothing to lift is left alone", absorbPlacePills(lifted!) === null);
+  check("so is a note that never had a stamp", absorbPlacePills({ type: "doc", content: [newBlock(p("just words"))] }) === null);
+  check("a line already knowing where it was is not overwritten", absorbPlacePills({ type: "doc", content: [newBlock(p("", pill(1, "1%")), [], { place: { char: 9, label: "p. 9", mark: null }, at: NOW })] }) === null);
+}
+
+{
+  const pending: NoteDoc = { type: "doc", content: [quoteBlock("Words.", { char: 5, label: "1%", mark: "pending:abc" }, NOW)] };
+  const fixed = resolveMarkInDoc(pending, "pending:abc", "real-id");
+  check("a clip's mark becomes the real one on the line", fixed?.content[0].attrs.place?.mark === "real-id");
+  check("nothing to fix is null", resolveMarkInDoc(fixed!, "pending:abc", "real-id") === null);
+}
+
+check("a line says when it was written, to the minute", /^Sep 9, 2026 at /.test(stampLabel("2026-09-09T15:12:00.000Z") ?? ""));
+check("a time that isn't one says nothing", stampLabel("not a date") === null);
 
 /* ------------------------------------------------------------------ */
 

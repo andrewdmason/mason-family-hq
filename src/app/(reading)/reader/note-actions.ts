@@ -128,7 +128,7 @@ export async function appendBookNoteClip(input: {
   let doc: NoteDoc | null = null;
   let markdown: string;
   if (row?.doc) {
-    doc = appendBlock(normalizeDoc(row.doc), quoteBlock(input.quote, input.place));
+    doc = appendBlock(normalizeDoc(row.doc), quoteBlock(input.quote, input.place, new Date().toISOString()));
     markdown = treeToMarkdown(doc);
   } else {
     markdown = appendClipMarkdown((row?.content as string) ?? "", input.quote, input.place);

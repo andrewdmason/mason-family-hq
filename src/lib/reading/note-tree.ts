@@ -1,5 +1,5 @@
 import type { JSONContent } from "@tiptap/core";
-import { pillMarkdown, type NotePill, type NotePlace } from "./notes";
+import { pillMarkdown, placeMarkdown, shouldStamp, type NotePill, type NotePlace } from "./notes";
 
 /**
  * The notepad as a tree.
@@ -12,7 +12,13 @@ import { pillMarkdown, type NotePill, type NotePlace } from "./notes";
  *
  *   doc        := noteBlock+
  *   noteBlock  := (paragraph | heading | blockquote) noteBlock*
- *                 attrs { id, collapsed }
+ *                 attrs { id, collapsed, place, at }
+ *
+ * `place` and `at` are the line's PROVENANCE: where the reader was in the
+ * book when the line was written, and when. Recorded silently as each line
+ * gets its first words, kept out of the text entirely, and shown only when
+ * the reader asks for it by pressing the line's handle. Null on both counts
+ * for the lines of a note written before any of this existed.
  *
  * This is the ProseMirror JSON the editor holds, kept as-is in the `doc`
  * column of reading_notes. Pure and client-safe: the editor, the server
@@ -35,14 +41,27 @@ export const COMPOSE_NODE = "compose";
 
 /**
  * Set on transactions the notepad makes itself — a clip landing, a pill from
- * the header, a line moved or folded — so the auto-stamp stays out of them.
+ * the header, a line moved or folded — so they don't read as the reader
+ * moving the caret.
  */
 export const NOTEPAD_INSERT_META = "notepad-insert";
+
+/**
+ * Set on transactions that make a line out of words that already existed —
+ * splitting a line in two, unwrapping a quote, lifting an old note into the
+ * outline. The provenance stamp leaves these alone: the words are old words,
+ * and saying they were written now would be a lie.
+ */
+export const NOTEPAD_NO_STAMP_META = "notepad-no-stamp";
 
 export type NoteBlockAttrs = {
   /** Stable across edits; what a drop, a thread or a property will point at. */
   id: string;
   collapsed: boolean;
+  /** Where the reader was when this line got its first words. Null if unknown. */
+  place: NotePlace | null;
+  /** When it got them, as an ISO instant. Null if unknown. */
+  at: string | null;
 };
 
 export type NoteBlockJSON = {
@@ -77,7 +96,12 @@ export function newBlock(
 ): NoteBlockJSON {
   return {
     type: NOTE_BLOCK,
-    attrs: { id: attrs.id ?? newId(), collapsed: attrs.collapsed ?? false },
+    attrs: {
+      id: attrs.id ?? newId(),
+      collapsed: attrs.collapsed ?? false,
+      place: attrs.place ?? null,
+      at: attrs.at ?? null,
+    },
     content: [head, ...children],
   };
 }
@@ -149,9 +173,25 @@ function normalizeBlock(block: NoteBlockJSON, seen: Set<string>): NoteBlockJSON 
   }
   return {
     type: NOTE_BLOCK,
-    attrs: { id, collapsed: attrs.collapsed === true },
+    attrs: { id, collapsed: attrs.collapsed === true, place: cleanPlace(attrs.place), at: cleanAt(attrs.at) },
     content: [head, ...children],
   };
+}
+
+/** A place out of stored JSON, or null for anything that isn't one. */
+function cleanPlace(value: unknown): NotePlace | null {
+  if (!value || typeof value !== "object") return null;
+  const p = value as Partial<NotePlace>;
+  if (typeof p.char !== "number" || !Number.isFinite(p.char)) return null;
+  return {
+    char: p.char,
+    label: typeof p.label === "string" ? p.label : "",
+    mark: typeof p.mark === "string" ? p.mark : null,
+  };
+}
+
+function cleanAt(value: unknown): string | null {
+  return typeof value === "string" && !Number.isNaN(new Date(value).getTime()) ? value : null;
 }
 
 /** A block added at the end of the note, at the top level. */
@@ -206,11 +246,15 @@ export function pillOfAttrs(a: Record<string, unknown> | undefined): NotePill {
 }
 
 /**
- * The passage as it lands in the note: a quote, with a pill after it saying
- * where it came from. A COPY — trim it, cut it, keep the one sentence that
- * mattered. The pill stays linked to the mark and the place either way.
+ * The passage as it lands in the note: a quote and nothing else. A COPY —
+ * trim it, cut it, keep the one sentence that mattered.
+ *
+ * Where it came from is the BLOCK's, not the text's (quoteBlock below), so a
+ * clipped passage reads as the book's words alone. The place and the mark
+ * behind it are still there, under the line's handle, and still write
+ * themselves into the derived markdown.
  */
-export function clipContent(quote: string, place: NotePlace): JSONContent {
+export function clipContent(quote: string): JSONContent {
   const lines = quote
     .split(/\n+/)
     .map((l) => l.trim())
@@ -218,19 +262,118 @@ export function clipContent(quote: string, place: NotePlace): JSONContent {
   const paragraphs = lines.length > 0 ? lines : [quote.trim()];
   return {
     type: "blockquote",
-    content: paragraphs.map((text, i) => ({
+    content: paragraphs.map((text) => ({
       type: "paragraph",
-      content:
-        i === paragraphs.length - 1
-          ? [{ type: "text", text }, { type: "text", text: " " }, placeNodeJSON(place)]
-          : [{ type: "text", text }],
+      content: [{ type: "text", text }],
     })),
   };
 }
 
-/** The passage as a block of its own. */
-export function quoteBlock(quote: string, place: NotePlace): NoteBlockJSON {
-  return newBlock(clipContent(quote, place));
+/** The passage as a block of its own, standing where it came from. */
+export function quoteBlock(quote: string, place: NotePlace, at: string | null = null): NoteBlockJSON {
+  return newBlock(clipContent(quote), [], { place, at });
+}
+
+/* ------------------------------------------------------------------ */
+/* Provenance                                                          */
+/* ------------------------------------------------------------------ */
+
+/** What a block's attrs say about where and when it was written. */
+export function provenanceOf(attrs: Record<string, unknown> | undefined): {
+  place: NotePlace | null;
+  at: string | null;
+} {
+  return { place: cleanPlace(attrs?.place), at: cleanAt(attrs?.at) };
+}
+
+/**
+ * The place pills an older note wrote into its text, lifted onto the lines
+ * that hold them. Null when there is nothing to lift.
+ *
+ * Two shapes, and only two, because only two things ever wrote one: the
+ * auto-stamp put a pill and a space at the FRONT of a line, and a clipped
+ * passage got a space and a pill at the END of its last line. A pill anywhere
+ * else in a sentence was put there on purpose — by the pin, or by ⌥L — and
+ * stays exactly where it is. Dates and conversations never move: a thread
+ * pill is a link the reader follows, not a note about where they were.
+ *
+ * Runs once, the first time a note is opened after the change, and the note
+ * saves in the new shape straight after. Nothing is lost — the pill's place
+ * becomes the line's place — but the lines do get shorter, which is the
+ * point.
+ */
+export function absorbPlacePills(doc: NoteDoc): NoteDoc | null {
+  let changed = false;
+
+  const walk = (block: NoteBlockJSON): NoteBlockJSON => {
+    const children = childrenOf(block).map(walk);
+    const lifted = block.attrs.place ? null : liftFromHead(headOf(block));
+    if (!lifted && children.every((c, i) => c === childrenOf(block)[i])) return block;
+    if (lifted) changed = true;
+    return {
+      ...block,
+      attrs: lifted ? { ...block.attrs, place: lifted.place, at: null } : block.attrs,
+      content: [lifted ? lifted.head : headOf(block), ...children],
+    };
+  };
+
+  const next = { type: "doc" as const, content: doc.content.map(walk) };
+  return changed ? next : null;
+}
+
+/** A head with its stamp taken off, and the place it was carrying. */
+function liftFromHead(head: JSONContent): { head: JSONContent; place: NotePlace } | null {
+  if (head.type === "blockquote") {
+    const paragraphs = head.content ?? [];
+    const last = paragraphs.length - 1;
+    if (last < 0) return null;
+    const trimmed = dropTrailingPill(paragraphs[last].content ?? []);
+    if (!trimmed) return null;
+    return {
+      head: {
+        ...head,
+        content: paragraphs.map((p, i) => (i === last ? { ...p, content: trimmed.inline } : p)),
+      },
+      place: trimmed.place,
+    };
+  }
+  if (head.type !== "paragraph" && head.type !== "heading") return null;
+  const trimmed = dropLeadingPill(head.content ?? []);
+  return trimmed ? { head: { ...head, content: trimmed.inline }, place: trimmed.place } : null;
+}
+
+function placeOfNode(node: JSONContent | undefined): NotePlace | null {
+  if (!node || node.type !== PILL_NODE) return null;
+  const pill = pillOfAttrs(node.attrs);
+  return pill.kind === "place" ? { char: pill.char, label: pill.label, mark: pill.mark } : null;
+}
+
+/** A stamp at the front of a line, with the space the auto-stamp put after it. */
+function dropLeadingPill(inline: JSONContent[]): { inline: JSONContent[]; place: NotePlace } | null {
+  const place = placeOfNode(inline[0]);
+  if (!place) return null;
+  const rest = inline.slice(1);
+  const first = rest[0];
+  if (first?.type === "text" && typeof first.text === "string" && first.text.startsWith(" ")) {
+    const text = first.text.slice(1);
+    if (text) rest[0] = { ...first, text };
+    else rest.shift();
+  }
+  return { inline: rest, place };
+}
+
+/** A stamp at the end of a quote, with the space before it. */
+function dropTrailingPill(inline: JSONContent[]): { inline: JSONContent[]; place: NotePlace } | null {
+  const place = placeOfNode(inline[inline.length - 1]);
+  if (!place) return null;
+  const rest = inline.slice(0, -1);
+  const last = rest[rest.length - 1];
+  if (last?.type === "text" && typeof last.text === "string" && last.text.endsWith(" ")) {
+    const text = last.text.replace(/ $/, "");
+    if (text) rest[rest.length - 1] = { ...last, text };
+    else rest.pop();
+  }
+  return { inline: rest, place };
 }
 
 /**
@@ -245,8 +388,15 @@ export function resolveMarkInDoc(doc: NoteDoc, pending: string, id: string): Not
       changed = true;
       return { ...node, attrs: { ...node.attrs, mark: id } };
     }
-    if (!node.content) return node;
-    return { ...node, content: node.content.map(walk) };
+    let next = node;
+    // A clipped passage keeps its mark on the line, not in the text.
+    const place = node.type === NOTE_BLOCK ? cleanPlace(node.attrs?.place) : null;
+    if (place && place.mark === pending) {
+      changed = true;
+      next = { ...next, attrs: { ...next.attrs, place: { ...place, mark: id } } };
+    }
+    if (!next.content) return next;
+    return { ...next, content: next.content.map(walk) };
   };
   const next = walk(doc) as NoteDoc;
   return changed ? next : null;
@@ -265,40 +415,79 @@ export function resolveMarkInDoc(doc: NoteDoc, pending: string, id: string): Not
  * parent, two spaces deeper per level. Collapsed state is not written: this
  * is for reading, not for round-tripping, and nothing parses it back. For the
  * same reason there is no escaping of markdown characters in the text.
+ *
+ * WHERE the reader was is written, though, as the same place link the notepad
+ * used to keep in its text — at the front of a line, at the end of a quote.
+ * The pills are gone from what the reader sees; the assistant still needs to
+ * know which page a thought was had on, and everything that reads the note as
+ * text goes on finding places exactly where it always found them.
+ *
+ * Not on every line, even though every line knows: a note where each sentence
+ * opens with "(at p. 41)" is a note nobody can read. A place is written only
+ * when the reader had MOVED since the last one written — the rule the stamp
+ * itself used to follow (shouldStamp) — with a clipped passage always naming
+ * its own, because that one is a citation and carries the mark behind it.
+ *
+ * WHEN is not written at all. Nothing downstream reasons about the time of
+ * day a line was typed, and a timestamp on every line would be noise in every
+ * prompt. It is for the reader, under the line's handle.
  */
 export function treeToMarkdown(doc: NoteDoc): string {
   const out: string[] = [];
+  const said: Said = { char: null };
   for (const block of doc.content) {
-    const lines = topLevelLines(block);
+    const lines = topLevelLines(block, said);
     if (lines.length > 0) out.push(lines.join("\n"));
   }
   return out.length > 0 ? `${out.join("\n\n")}\n` : "";
 }
 
-function topLevelLines(block: NoteBlockJSON): string[] {
+/** The last place written down, so the next one is only written if it moved. */
+type Said = { char: number | null };
+
+/** The place to write on a block's head, or null to write none. */
+function placeToSay(block: NoteBlockJSON, said: Said): NotePlace | null {
+  const place = cleanPlace(block.attrs?.place);
+  if (!place) return null;
+  const always = headOf(block).type === "blockquote";
+  if (!always && !shouldStamp(said.char, place.char)) return null;
+  said.char = place.char;
+  return place;
+}
+
+function topLevelLines(block: NoteBlockJSON, said: Said): string[] {
   const lines: string[] = [];
-  const head = headLines(headOf(block), "");
+  const head = headLines(headOf(block), "", placeToSay(block, said));
   if (head.some((l) => l.trim() !== "")) lines.push(...head);
-  for (const child of childrenOf(block)) lines.push(...nestedLines(child, 0));
+  for (const child of childrenOf(block)) lines.push(...nestedLines(child, 0, said));
   return lines;
 }
 
-function nestedLines(block: NoteBlockJSON, depth: number): string[] {
+function nestedLines(block: NoteBlockJSON, depth: number, said: Said): string[] {
   const indent = "  ".repeat(depth);
-  const head = headLines(headOf(block), `${indent}  `);
+  const head = headLines(headOf(block), `${indent}  `, placeToSay(block, said));
   const first = head.length > 0 ? head[0].slice(indent.length + 2) : "";
   const lines = [`${indent}- ${first}`, ...head.slice(1)];
-  for (const child of childrenOf(block)) lines.push(...nestedLines(child, depth + 1));
+  for (const child of childrenOf(block)) lines.push(...nestedLines(child, depth + 1, said));
   return lines;
 }
 
-/** A head as lines of markdown, every line prefixed with `indent`. */
-function headLines(head: JSONContent, indent: string): string[] {
+/**
+ * A head as lines of markdown, every line prefixed with `indent`, with the
+ * line's place set into it where the notepad used to keep the pill.
+ *
+ * A blank line says nothing at all, place or no place: an empty line that
+ * knows where it was is still an empty line, and a document of bare place
+ * links would be worse than one with none.
+ */
+function headLines(head: JSONContent, indent: string, place: NotePlace | null): string[] {
+  const stamp = place ? placeMarkdown(place) : "";
   if (head.type === "heading") {
     const level = Math.max(1, Math.min(6, Number(head.attrs?.level ?? 1)));
-    return inlineLines(head.content ?? [], indent).map((l, i) =>
-      i === 0 ? `${indent}${"#".repeat(level)} ${l.slice(indent.length)}` : l
-    );
+    const body = inlineLines(head.content ?? [], indent);
+    if (!body.some((l) => l.trim() !== "")) return body;
+    const open = `${indent}${"#".repeat(level)} ${stamp ? `${stamp} ` : ""}`;
+    return body.map((l, i) => (i === 0 ? `${open}${l.slice(indent.length)}` : l));
   }
   if (head.type === "blockquote") {
     const paragraphs = (head.content ?? []).map((p) =>
@@ -309,9 +498,13 @@ function headLines(head: JSONContent, indent: string): string[] {
       if (i > 0) lines.push(`${indent}>`);
       lines.push(...p);
     });
-    return lines.length > 0 ? lines : [`${indent}>`];
+    if (lines.length === 0) return [`${indent}>`];
+    if (stamp) lines[lines.length - 1] += ` ${stamp}`;
+    return lines;
   }
-  return inlineLines(head.content ?? [], indent);
+  const body = inlineLines(head.content ?? [], indent);
+  if (!stamp || !body.some((l) => l.trim() !== "")) return body;
+  return body.map((l, i) => (i === 0 ? `${indent}${stamp} ${l.slice(indent.length)}` : l));
 }
 
 /** Inline content as lines (a hard break splits one), each prefixed with `indent`. */

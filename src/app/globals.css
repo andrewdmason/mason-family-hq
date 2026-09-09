@@ -706,6 +706,14 @@
   margin-bottom: 0.125em;
 }
 
+/* A top-level line is a paragraph; a nested one is an item in a list. So the
+   top level gets a paragraph's air between its lines and everything under it
+   stays tight — which is most of what makes an outline readable at a glance:
+   the gaps say where one thought ends, the indents say what belongs to what. */
+.notepad-editor > [data-note-block] + [data-note-block] {
+  margin-top: 0.55em;
+}
+
 .notepad-editor .nb-body > blockquote {
   margin-top: 0.5em;
   margin-bottom: 0.5em;
@@ -761,17 +769,24 @@
   display: none;
 }
 
-/* A thin line down from the parent's dot, spanning what's under it. */
-.notepad-editor [data-note-block][data-children="true"]:not([data-collapsed="true"]) > .nb-body::before {
-  content: "";
-  position: absolute;
-  left: -0.6875rem;
-  top: 1.5lh;
-  bottom: 0.25em;
-  width: 1px;
-  background: color-mix(in srgb, var(--border) 85%, transparent);
-  pointer-events: none;
-}
+/* No guide lines down from a parent. There were, at every level, and they were
+   the wrong borrowing.
+
+   A rail's one real job is to say where a branch ENDS — the indent tells you a
+   line has a parent, only the rail's length tells you how far the parent's
+   subtree runs without your scanning for the next line that steps back out.
+   Workflowy and Roam need that because there the outline IS the document: no
+   prose, no paragraphs, every line a bullet, indentation carrying all of the
+   structure, and five or ten levels ordinary. Their rails are also live — hover
+   to highlight a branch, click to collapse it, and zooming into a branch is the
+   main way you move around.
+
+   None of that holds here. This is prose and quotes with occasional nesting,
+   the top level shows no bullet at all, there is no zoom, and the space between
+   top-level lines already says where one thought ends. At the depth these notes
+   actually reach, a rail is answering a question nobody asked, and it competes
+   with the one vertical shape that is load-bearing: the edge between the notes
+   and the book. */
 
 /* The handle: just left of the dot, on hover, only for the line under the
    pointer. A top-level line's handle sits in the column's own padding, so it
@@ -847,6 +862,60 @@
 
   .notepad-editor > [data-note-block][data-children="true"][data-collapsed="true"] > .nb-gutter > .nb-toggle::after {
     transform: translateX(-1px) rotate(-45deg);
+  }
+}
+
+/* A passage landing from the page.
+   
+   It drops in wearing the highlighter — the same yellow the selection wore,
+   see use-annotation-highlights.ts — and the colour drains out over the second
+   after, leaving the scrap's ordinary paper. The move is small and downward,
+   as if it were set down. Both wait a beat: when the highlight opened the
+   panel as well, the panel's arrival should be over before the passage lands.
+
+   Only the outer animation ends the class (the wash is longer but silent on
+   the block), so `animationend` fires once and the class is off well before
+   the colour has finished draining — which is fine, the wash keeps its own
+   final state until then. Both are named so nothing else's animationend can
+   be mistaken for this one. */
+@keyframes notepad-clip-land {
+  from {
+    opacity: 0;
+    transform: translateY(-0.35rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes notepad-clip-wash {
+  from {
+    background-color: color-mix(in oklab, oklch(0.86 0.13 92) 42%, transparent);
+  }
+  to {
+    background-color: var(--nq-paper);
+  }
+}
+
+.notepad-editor [data-note-block].nb-landing {
+  animation: notepad-clip-land 320ms 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.notepad-editor [data-note-block].nb-landing > .nb-body > .nq {
+  animation: notepad-clip-wash 900ms 180ms ease-out both;
+}
+
+/* No fill survives an electrophoretic panel, so the wash would be a stipple
+   fading to nothing. The scrap still arrives; it just arrives uncoloured. */
+.eink .notepad-editor [data-note-block].nb-landing > .nb-body > .nq {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notepad-editor [data-note-block].nb-landing,
+  .notepad-editor [data-note-block].nb-landing > .nb-body > .nq {
+    animation: none;
   }
 }
 
