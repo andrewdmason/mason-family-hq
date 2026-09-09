@@ -511,6 +511,19 @@
 /* The reader's notepad: places, days and conversations, as pills in the text. */
 .notepad-editor {
   min-height: 100%;
+  /* The paper a quote is set on — a shade deeper and warmer than the pad it
+     sits in, close enough that it reads as texture rather than as a box. */
+  --nq-paper: color-mix(in oklab, var(--foreground) 4%, var(--card));
+}
+
+/* No fill survives an electrophoretic panel: a 4% tint is a stipple, not a
+   shade. The scrap keeps its shape as a hairline instead. */
+.eink .notepad-editor {
+  --nq-paper: var(--card);
+}
+
+.eink .notepad-editor .nq {
+  border-color: var(--border);
 }
 
 .notepad-editor .notepad-pill,
@@ -582,41 +595,36 @@
   font-style: normal;
 }
 
-/* A long quote folds short: its first few lines and a fade, no control of its
-   own. The rule down its left side is the toggle, and the fade opens it too.
-   Nothing of this is drawn for a quote that fits. The clamp is
-   QUOTE_CLAMP_LINES line-heights — mirrored in notepad-quote.ts. */
+/* A quote is a scrap of the page laid into the pad: its own paper, a shade
+   deeper than the pad's, and no rule down its side. Every vertical line in the
+   notepad belongs to the outline — a quote that drew one of its own read as
+   one more nested branch. Paper can't be confused with structure, and it says
+   the same thing better: this came off the page.
+
+   A long quote folds short — its first few lines and a fade, no control of its
+   own. The paper around the words is the toggle, so anywhere in the margin of
+   the scrap opens or folds it, and the fade opens it too. Nothing of this is
+   drawn for a quote that fits. The clamp is QUOTE_CLAMP_LINES line-heights —
+   mirrored in notepad-quote.ts. */
 .notepad-editor .nq {
   position: relative;
-  border-left: 0;
-  padding-left: 1rem;
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 0.375rem;
+  background: var(--nq-paper);
+  padding: 0.3rem 0.65rem 0.35rem;
+  margin: 0.5em 0;
 }
 
-.notepad-editor .nq-rule {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 0.75rem;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.notepad-editor .nq-rule::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 4px;
-  background: var(--muted);
-  transition: background-color 120ms;
-}
-
-.notepad-editor .nq[data-long="true"] > .nq-rule {
+.notepad-editor .nq[data-long="true"] {
   cursor: pointer;
 }
 
-.notepad-editor .nq[data-long="true"] > .nq-rule:hover::before {
-  background: color-mix(in srgb, var(--muted-foreground) 45%, var(--muted));
+.notepad-editor .nq-body {
+  cursor: text;
+}
+
+.notepad-editor .nq[data-long="true"]:hover {
+  border-color: color-mix(in srgb, var(--border) 95%, transparent);
 }
 
 /* Three lines plus the first paragraph's top margin, so the third line is
@@ -626,14 +634,15 @@
   overflow: hidden;
 }
 
+/* Ends in the scrap's paper, not the pad's, or the fold shows a seam. */
 .notepad-editor .nq-fade {
   display: none;
   position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 1rem;
+  right: 0.65rem;
+  bottom: 0.35rem;
+  left: 0.65rem;
   height: 1.6em;
-  background: linear-gradient(to bottom, transparent, var(--card));
+  background: linear-gradient(to bottom, transparent, var(--nq-paper));
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
@@ -698,8 +707,8 @@
 }
 
 .notepad-editor .nb-body > blockquote {
-  margin-top: 0.35em;
-  margin-bottom: 0.35em;
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
 }
 
 /* The dot: a 20px target with a 5px mark in it, on the first line's baseline. */

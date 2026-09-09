@@ -12,9 +12,9 @@ export const QUOTE_CLAMP_LINES = 3;
  * few lines shows its first few and fades. Three things open it:
  *
  *   - the caret being inside it, because nobody should type behind a fade;
- *   - a press on the fade, or on the rule down the quote's left side, which
- *     sticks until the rule is pressed again — no control of its own, so a
- *     folded quote costs not one line more than its text;
+ *   - a press on the fade, or anywhere on the scrap's paper outside the words
+ *     themselves, which sticks until that paper is pressed again — no control
+ *     of its own, so a folded quote costs not one line more than its text;
  *   - being short enough to fit, in which case nothing is drawn at all.
  *
  * "Shown" is a fact about this visit, not the note: it lives on the node view
@@ -36,20 +36,13 @@ export const NotepadQuote = Blockquote.extend({
       const body = document.createElement("div");
       body.className = "nq-body";
 
-      // The rule down the left, as an element rather than a border so it can
-      // be pressed. Sits outside the content, so the caret never lands in it.
-      const rule = document.createElement("span");
-      rule.className = "nq-rule";
-      rule.contentEditable = "false";
-      rule.setAttribute("aria-hidden", "true");
-
       // The fade over the last visible lines; the other thing to press.
       const fade = document.createElement("span");
       fade.className = "nq-fade";
       fade.contentEditable = "false";
       fade.setAttribute("aria-hidden", "true");
 
-      dom.append(rule, body, fade);
+      dom.append(body, fade);
 
       /** Pressed open, for this visit. */
       let shown = false;
@@ -61,7 +54,7 @@ export const NotepadQuote = Blockquote.extend({
       const apply = () => {
         dom.setAttribute("data-long", long ? "true" : "false");
         dom.setAttribute("data-open", shown || inside ? "true" : "false");
-        rule.title = !long ? "" : shown ? "Fold the quote" : "Show the whole quote";
+        dom.title = !long ? "" : shown ? "Fold the quote" : "Show the whole quote";
         fade.title = long && !shown && !inside ? "Show the whole quote" : "";
       };
 
@@ -94,14 +87,21 @@ export const NotepadQuote = Blockquote.extend({
         e.preventDefault();
         e.stopPropagation();
       };
-      rule.addEventListener("mousedown", swallow);
-      fade.addEventListener("mousedown", swallow);
-      rule.addEventListener("click", (e) => {
+      /** The scrap's paper: inside it, but not on the words. */
+      const onPaper = (t: EventTarget | null) =>
+        t instanceof globalThis.Node && dom.contains(t) && !body.contains(t) && !fade.contains(t);
+
+      dom.addEventListener("mousedown", (e) => {
+        if (!long || !onPaper(e.target)) return;
         swallow(e);
-        if (!long) return;
+      });
+      dom.addEventListener("click", (e) => {
+        if (!long || !onPaper(e.target)) return;
+        swallow(e);
         shown = !shown;
         apply();
       });
+      fade.addEventListener("mousedown", swallow);
       fade.addEventListener("click", (e) => {
         swallow(e);
         shown = true;
@@ -130,7 +130,7 @@ export const NotepadQuote = Blockquote.extend({
           requestAnimationFrame(measure);
           return true;
         },
-        // The rule, the fade and the attributes are the view's own business.
+        // The fade and the attributes are the view's own business.
         ignoreMutation(m) {
           if (m.type === "selection") return false;
           if (m.target === dom && m.type === "attributes") return true;
@@ -138,7 +138,9 @@ export const NotepadQuote = Blockquote.extend({
         },
         stopEvent(e) {
           const t = e.target as globalThis.Node;
-          return rule.contains(t) || fade.contains(t);
+          // A quote short enough to fit has no fold, so its margins are just
+          // margins and a press in them should place the caret as usual.
+          return fade.contains(t) || (long && onPaper(t));
         },
         destroy() {
           editor.off("selectionUpdate", checkCaret);
