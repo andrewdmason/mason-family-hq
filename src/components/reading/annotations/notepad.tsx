@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import { Extension } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -13,6 +13,8 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronsDownUp,
+  Clock3,
+  Highlighter,
   IndentDecrease,
   IndentIncrease,
   MapPin,
@@ -26,27 +28,31 @@ import type { MentionTarget } from "@/lib/reading/mentions";
 import {
   dateLabel,
   noteWordCount,
-  placesIn,
+  stampLabel,
   todayIso,
   type NotePlace,
 } from "@/lib/reading/notes";
 import {
+  absorbPlacePills,
   emptyDoc,
   emptyParagraph,
   newBlock,
+  NOTEPAD_NO_STAMP_META,
   normalizeDoc,
+
   quoteBlock,
   treeToMarkdown,
   type NoteDoc,
 } from "@/lib/reading/note-tree";
 import { cn } from "@/lib/utils";
-import { NotepadAutostamp } from "./notepad-autostamp";
-import { NoteBlock, NotepadDoc, toggleFoldInPlace } from "./notepad-block";
+import { NoteBlock, NotepadDoc, toggleFoldInPlace, type BlockMeta } from "./notepad-block";
 import {
   blockAt,
   focusEndVisible,
+  headEnd,
   indentBlock,
   inHead,
+  isBlock,
   outdentBlock,
 } from "./notepad-block-commands";
 import { COMPOSE_NODE, composeScope, NotepadCompose, type ComposeScope } from "./notepad-compose";
@@ -57,6 +63,7 @@ import {
   type MentionMenuState,
 } from "./notepad-mentions";
 import { NotepadPill, PILL_NODE, pillJSON, placeNodeJSON } from "./notepad-pill";
+import { NotepadProvenance } from "./notepad-provenance";
 import { NotepadQuote } from "./notepad-quote";
 
 /**
@@ -89,11 +96,15 @@ export type ComposeRequest = Pick<ComposeScope, "kind" | "handle" | "name" | "te
  *
  * An outline, not a log — every line is a block that can hold lines under
  * it, be folded, and be moved with its children (notepad-block.ts) — with
- * the log's one good property kept: where you were when you wrote something.
- * That is a PILL in the text (see notepad-pill.ts), put there by the auto-stamp
- * (notepad-autostamp.ts), by the pin in the header, and after every passage
- * that lands here from a highlight. A date (the calendar button, or ⌥D) is
- * plain text: something you put in on purpose and can edit, or put in a
+ * the log's one good property kept, and kept out of sight. Every line quietly
+ * records where you were in the book when you wrote it and when that was
+ * (notepad-provenance.ts); press the line's handle and it tells you, and
+ * offers to take you back. Nothing is written into the text.
+ *
+ * Things you put in on purpose still show. The pin in the header, or ⌥L,
+ * makes a place PILL (notepad-pill.ts) where the cursor is — and leaves the
+ * line's own record alone, because the two answer different questions. A date
+ * (the calendar button, or ⌥D) is plain text, so it can be edited or put in a
  * heading.
  *
  * Saved as a tree (note-tree.ts), with the markdown everything else reads
@@ -173,6 +184,8 @@ export function Notepad({
   >("idle");
   const [words, setWords] = useState(() => noteWordCount(initial.markdown));
   const [menu, setMenu] = useState<MentionMenuState | null>(null);
+  /** The line whose handle was pressed, and what it knows. */
+  const [meta, setMeta] = useState<BlockMeta | null>(null);
   const [focused, setFocused] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -184,7 +197,6 @@ export function Notepad({
   membersRef.current = members;
   const countsRef = useRef(replyCounts);
   countsRef.current = replyCounts;
-  const lastStampRef = useRef<number | null>(placesIn(initial.markdown).at(-1)?.char ?? null);
   const activeIndexRef = useRef(0);
   const openPlaceRef = useRef(onOpenPlace);
   openPlaceRef.current = onOpenPlace;
@@ -326,7 +338,7 @@ export function Notepad({
         dropcursor: false,
       }),
       NotepadDoc,
-      NoteBlock,
+      NoteBlock.configure({ onShowMeta: setMeta }),
       NotepadQuote,
       Placeholder.configure({
         placeholder: "Write as you read. @ starts a conversation.",
@@ -343,13 +355,7 @@ export function Notepad({
       }),
       NotepadPill,
       NotepadCompose,
-      NotepadAutostamp.configure({
-        spot: () => spotRef.current,
-        lastStamp: () => lastStampRef.current,
-        onStamp: (place) => {
-          lastStampRef.current = place.char;
-        },
-      }),
+      NotepadProvenance.configure({ spot: () => spotRef.current }),
       NotepadMentions.configure({
         members: () => membersRef.current,
         controller,
@@ -417,15 +423,24 @@ export function Notepad({
       },
     },
     onCreate: ({ editor }) => {
-      if (initial.doc) {
+      // Markdown on the way in: the schema lifted it into blocks, but blocks
+      // made that way have no ids yet. Settle it first.
+      const settled = initial.doc ?? normalizeDoc(editor.getJSON());
+      // Then the one-time change of shape: a note written when the stamp was
+      // a pill has its stamps lifted off the text and onto the lines that
+      // hold them, so old notes read like new ones. Nothing else touches it.
+      const absorbed = absorbPlacePills(settled);
+      if (initial.doc && !absorbed) {
         hold(editor);
         savedRef.current = editor.state.doc;
         return;
       }
-      // Markdown on the way in: the schema lifted it into blocks, but blocks
-      // made that way have no ids yet. Settle it, then save the tree.
-      const settled = normalizeDoc(editor.getJSON());
-      editor.commands.setContent(settled, { emitUpdate: false });
+      const next = absorbed ?? settled;
+      const tr = editor.state.tr;
+      tr.replaceWith(0, editor.state.doc.content.size, editor.schema.nodeFromJSON(next).content);
+      // Old words becoming lines: nothing here happened just now.
+      tr.setMeta(NOTEPAD_NO_STAMP_META, true).setMeta("addToHistory", false);
+      editor.view.dispatch(tr);
       hold(editor);
       setStatus("dirty");
       void flush();
@@ -496,23 +511,37 @@ export function Notepad({
    * line under it and the cursor there: the highlight was the gesture, and
    * this is where the thought about it goes. If they hadn't put the caret
    * anywhere yet, it lands at the end, at the top level.
+   *
+   * The book's words and nothing else. Where the passage came from, and the
+   * mark behind it, are the quote LINE's — under its handle, like every other
+   * line's — rather than a pill trailing the text.
+   *
+   * And it LANDS: the scrap drops in still wearing the highlighter, and the
+   * colour drains out of it over the next second, leaving the paper it will
+   * keep. Half of what that is for is orientation — a passage that simply
+   * exists somewhere in a column of notes is a passage you have to go and find
+   * — and half is that it is the same yellow you just dragged across the page,
+   * so the gesture and its result read as one thing. It waits a beat first, so
+   * that when the highlight opened the panel too you see the panel arrive and
+   * then the passage land, rather than both at once.
    */
   useEffect(() => {
     if (!editor || !clip) return;
     const { state, schema } = editor;
     const here = cursorSeenRef.current ? blockAt(state.selection.$from) : null;
     const at = here ? here.end : state.doc.content.size;
-    const quote = schema.nodeFromJSON(quoteBlock(clip.quote, clip.place));
+    const json = quoteBlock(clip.quote, clip.place, new Date().toISOString());
+    const quote = schema.nodeFromJSON(json);
     const fresh = schema.nodeFromJSON(newBlock(emptyParagraph()));
     const tr = state.tr.insert(at, [quote, fresh]).setMeta(NOTEPAD_INSERT_META, true);
     tr.setSelection(TextSelection.create(tr.doc, at + quote.nodeSize + 2)).scrollIntoView();
     editor.view.dispatch(tr);
     editor.view.focus();
-    lastStampRef.current = clip.place.char;
+    land(editor, json.attrs.id);
     onClipHandled();
   }, [clip, editor, onClipHandled]);
 
-  /** The clip's mark has a real id now: every pill that pointed at the stand-in points at it. */
+  /** The clip's mark has a real id now: everything pointing at the stand-in points at it. */
   useEffect(() => {
     if (!editor || !markFix) return;
     const { state } = editor;
@@ -520,6 +549,10 @@ export function Notepad({
     state.doc.descendants((n, pos) => {
       if (n.type.name === PILL_NODE && n.attrs.mark === markFix.pending) {
         tr.setNodeMarkup(pos, undefined, { ...n.attrs, mark: markFix.id });
+      }
+      const place = (n.attrs.place ?? null) as NotePlace | null;
+      if (place?.mark === markFix.pending) {
+        tr.setNodeMarkup(pos, undefined, { ...n.attrs, place: { ...place, mark: markFix.id } });
       }
       return true;
     });
@@ -545,6 +578,26 @@ export function Notepad({
     toggleFoldInPlace(editor.view, b.pos);
   }, [editor]);
 
+  /**
+   * Done with what the line had to say.
+   *
+   * Pressing a handle is how ProseMirror starts a drag, so it also picks the
+   * whole line up as the selection. Left that way, the next thing typed would
+   * replace the line — so closing puts the caret back in its words.
+   */
+  const closeMeta = useCallback(() => {
+    setMeta(null);
+    if (!editor) return;
+    const sel = editor.state.selection;
+    const node = sel instanceof NodeSelection ? sel.node : null;
+    if (!node || !isBlock(node)) return;
+    editor.view.dispatch(
+      editor.state.tr
+        .setSelection(headEnd(editor.state.doc, node, sel.from))
+        .setMeta(NOTEPAD_INSERT_META, true)
+    );
+  }, [editor]);
+
   const insertPill = useCallback(
     (json: ReturnType<typeof pillJSON>) => {
       if (!editor) return;
@@ -561,12 +614,18 @@ export function Notepad({
     [editor]
   );
 
-  /** The header's pin: a pill for where the reader is, at the cursor. */
+  /**
+   * The header's pin: a pill for where the reader is, at the cursor.
+   *
+   * Deliberate, and visible, and it leaves the line's own record alone. That
+   * record is where the line STARTED; this is a place the reader is naming on
+   * purpose, from wherever they have got to. If they've moved twenty pages in
+   * between, the two say different things, and both are true.
+   */
   const stampHere = useCallback(() => {
     const place = spotRef.current;
     if (!place) return;
     insertPill(placeNodeJSON(place));
-    lastStampRef.current = place.char;
   }, [insertPill]);
 
   /**
@@ -752,14 +811,36 @@ export function Notepad({
       {/* Room below the last line: so folding the end of the note has
           somewhere to scroll to instead of sliding the column down, and so
           the line being written can sit at eye level rather than the bottom
-          edge. */}
+          edge.
+
+          That room is still the notepad, so a press in it lands the cursor at
+          the end of the note — the one thing anyone means by clicking under
+          what they have written. Mouse-down rather than click, so the caret
+          arrives with the press and nothing flickers on the way. */}
       <div
         ref={scrollRef}
         data-notepad-scroll=""
+        onMouseDown={(e) => {
+          if (!editor || editor.view.dom.contains(e.target as globalThis.Node)) return;
+          if ((e.target as HTMLElement).closest("[role='dialog'],[role='listbox']")) return;
+          e.preventDefault();
+          focusEnd();
+        }}
         className="relative min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-[40vh]"
       >
         <EditorContent editor={editor} className="min-h-full" />
         {menu && <MentionMenu menu={menu} container={scrollRef.current} />}
+        {meta && (
+          <BlockMetaCard
+            meta={meta}
+            container={scrollRef.current}
+            onClose={closeMeta}
+            onGo={(place, withMark) => {
+              closeMeta();
+              openPlaceRef.current(place.char, withMark ? place.mark : null);
+            }}
+          />
+        )}
       </div>
 
       {touch && focused && editor && (
@@ -806,6 +887,25 @@ function OutlineButton({
   );
 }
 
+/**
+ * The class that plays a landing, on the line that just landed.
+ *
+ * Put on the DOM rather than kept in the document: it is about this arrival,
+ * not about the note, and nothing should save it or undo it. The next frame,
+ * because the line has only just been drawn; and taken off at the end, so a
+ * passage clipped twice from the same place lands twice.
+ */
+function land(editor: Editor, id: string) {
+  requestAnimationFrame(() => {
+    const el = editor.view.dom.querySelector<HTMLElement>(
+      `[data-note-block][data-id="${CSS.escape(id)}"]`
+    );
+    if (!el) return;
+    el.classList.add("nb-landing");
+    el.addEventListener("animationend", () => el.classList.remove("nb-landing"), { once: true });
+  });
+}
+
 /** Whether the line the cursor is on holds a chip. */
 function chipInHead(state: Editor["state"]): boolean {
   const $from = state.selection.$from;
@@ -832,6 +932,111 @@ function chipPosition(editor: Editor): number | null {
     return at == null;
   });
   return at;
+}
+
+/**
+ * What a line knows about itself.
+ *
+ * Opened by pressing the line's handle — the only place any of this is shown.
+ * Where the reader was in the book when the line got its first words, when
+ * that was, and a way back to the passage. A clipped passage offers two ways
+ * back: the place, which just moves the book behind these notes, and the
+ * highlight itself, which opens the mark and everything said under it.
+ *
+ * A line from a note written before any of this was recorded says so rather
+ * than opening empty: nothing is broken, there was simply nobody keeping
+ * track yet.
+ *
+ * Not a portal, for the reason the @ menu gives — it belongs to the panel and
+ * scrolls with it. Anchored under whatever was pressed, and kept inside the
+ * column.
+ */
+function BlockMetaCard({
+  meta,
+  container,
+  onClose,
+  onGo,
+}: {
+  meta: BlockMeta;
+  container: HTMLDivElement | null;
+  onClose: () => void;
+  onGo: (place: NotePlace, withMark: boolean) => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as globalThis.Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onClose();
+    };
+    document.addEventListener("mousedown", onDown, true);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [onClose]);
+
+  // The line stays put while this is open, so one measurement is enough.
+  let top = 0;
+  let left = 0;
+  if (container) {
+    const box = container.getBoundingClientRect();
+    top = meta.rect.bottom - box.top + container.scrollTop + 6;
+    left = Math.max(4, Math.min(meta.rect.left - box.left, box.width - 240));
+  }
+
+  const when = meta.at ? stampLabel(meta.at) : null;
+  const place = meta.place;
+
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-label="Where this line came from"
+      className="absolute z-10 w-60 rounded-lg border border-border bg-popover p-1 text-sm shadow-lg"
+      style={{ top, left }}
+    >
+      {!place && !when ? (
+        <p className="px-2 py-1.5 text-xs text-muted-foreground">
+          Written before the notepad kept track of where you were.
+        </p>
+      ) : (
+        <>
+          {when && (
+            <p className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
+              <Clock3 className="h-3.5 w-3.5 shrink-0" />
+              {when}
+            </p>
+          )}
+          {place && (
+            <button
+              type="button"
+              onClick={() => onGo(place, false)}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+            >
+              <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="truncate">{place.label || "Go to this place"}</span>
+            </button>
+          )}
+          {place?.mark && (
+            <button
+              type="button"
+              onClick={() => onGo(place, true)}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+            >
+              <Highlighter className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="truncate">Show the highlight</span>
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 /**

@@ -394,8 +394,13 @@ export function ReaderAnnotationLayer({
    * Which of the two destinations the margin button last showed, so reopening
    * the panel lands where you left it. In-session only: it is a habit of this
    * sitting, not a setting.
+   *
+   * It starts at the notepad, because that is what the panel is FOR now — the
+   * notes are how a book gets read here, and the index of marks is the thing
+   * you go and look up. (An article has no notepad; opening one falls back to
+   * the index either way.)
    */
-  const lastViewRef = useRef<"list" | "notes">("list");
+  const lastViewRef = useRef<"list" | "notes">("notes");
   /**
    * Whether the index is collapsed to starred marks only. Remembered per book —
    * see starred-filter.ts for why it is per book and not per device.
@@ -710,7 +715,8 @@ export function ReaderAnnotationLayer({
       onPanelOpenChange(false);
       return;
     }
-    // Wherever the button last left you: the marks, or your notes.
+    // Wherever the button last left you: your notes, or the marks. Your notes
+    // the first time, before it has left you anywhere.
     setMode(lastViewRef.current === "notes" && !isArticle ? "notes" : "list");
     setDraftId(null);
     onPanelOpenChange(true);

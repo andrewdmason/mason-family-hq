@@ -197,21 +197,27 @@ export function datePill(iso: string): NotePill {
 }
 
 /**
- * How far the reader has to have moved since the last stamp for a new
- * paragraph to get one.
+ * How far the reader has to have moved for a line's place to be worth saying
+ * again.
  *
  * About a paragraph and a half. Any smaller and every thought written on one
- * page gets its own pill, which is noise; much bigger and a note written after
- * turning the page lands under the previous page's stamp, which is wrong.
+ * page gets its own mention, which is noise; much bigger and a note written
+ * after turning the page reads as belonging to the previous page, which is
+ * wrong.
+ *
+ * Every line now records where the reader was (see note-tree.ts), so this is
+ * no longer about what goes IN the notepad — nothing does. It is about the
+ * derived markdown: which of those places is worth writing down for the
+ * things that read the note as text, chiefly the assistant. A place per line
+ * would drown the prose it is meant to locate.
  */
 export const STAMP_MIN_MOVE = 300;
 
 /**
- * Whether a new paragraph should open with a stamp for where the reader is.
+ * Whether a line's place is worth saying, given the last one that was said.
  *
- * The rule the auto-stamp lives by: only when they have moved since the last
- * one. A first paragraph in an empty document always gets one — there is no
- * "last" to have moved from.
+ * Only when the reader has moved since. The first place in a document is
+ * always worth saying — there is no "last" to have moved from.
  */
 export function shouldStamp(lastStampChar: number | null, currentChar: number): boolean {
   if (lastStampChar == null) return true;
@@ -219,10 +225,30 @@ export function shouldStamp(lastStampChar: number | null, currentChar: number): 
 }
 
 /**
+ * When a line was written, as its own metadata says it: "Sep 7, 2026 at
+ * 3:12 PM".
+ *
+ * The year always, for the reason dateLabel gives, and the reader's own clock
+ * and calendar — this is shown to the person who wrote the line, and only
+ * ever to them.
+ */
+export function stampLabel(iso: string): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${dateLabel(todayIso(d))} at ${time}`;
+}
+
+/**
  * A passage as it lands in the stored markdown when the notepad isn't open to
- * take it — a highlight made on a phone with the panel shut. The same shape
- * the editor makes (clipContent): a quote, with the place pill on its last
- * line, and a blank paragraph after it for the next thought.
+ * take it — a highlight made on a phone with the panel shut, on a note old
+ * enough to have no tree yet.
+ *
+ * The same shape treeToMarkdown gives a clipped passage: a quote with its
+ * place at the end of its last line. In the notepad itself that place is the
+ * LINE's and never appears in the text; here there are no lines to put it on,
+ * only markdown, so it is written as the link — and lifted onto the line the
+ * first time the note is opened (absorbPlacePills).
  */
 export function appendClipMarkdown(markdown: string, quote: string, place: NotePlace): string {
   const lines = quote

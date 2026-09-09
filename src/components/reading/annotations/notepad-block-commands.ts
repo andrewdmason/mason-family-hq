@@ -7,7 +7,7 @@ import {
   type EditorState,
   type Transaction,
 } from "@tiptap/pm/state";
-import { newId, NOTE_BLOCK, NOTEPAD_INSERT_META } from "@/lib/reading/note-tree";
+import { newId, NOTE_BLOCK, NOTEPAD_INSERT_META, NOTEPAD_NO_STAMP_META } from "@/lib/reading/note-tree";
 
 /**
  * What the keys do to the outline.
@@ -148,10 +148,28 @@ export function lastVisible(doc: PMNode): Located {
   return deepestVisibleLast(last, doc.content.size - last.nodeSize);
 }
 
-function newBlockNode(state: EditorState, head?: PMNode): PMNode {
+/**
+ * A new line. `from` is the line its words came from, when they came from
+ * one: its record of where and when travels with them, because the words are
+ * the same words (see notepad-provenance.ts).
+ */
+function newBlockNode(state: EditorState, head?: PMNode, from?: PMNode): PMNode {
   const schema = state.schema;
   const type = schema.nodes[NOTE_BLOCK];
-  return type.create({ id: newId(), collapsed: false }, head ?? schema.nodes.paragraph.create());
+  return type.create(
+    {
+      id: newId(),
+      collapsed: false,
+      place: from?.attrs.place ?? null,
+      at: from?.attrs.at ?? null,
+    },
+    head ?? schema.nodes.paragraph.create()
+  );
+}
+
+/** Words that already existed becoming a line of their own: never stamped as new. */
+function inherited(tr: Transaction): Transaction {
+  return tr.setMeta(NOTEPAD_NO_STAMP_META, true);
 }
 
 /** Whether a selection is a whole node (a block picked up by its handle). Duck-typed: see liftHiddenSelection. */
@@ -332,12 +350,21 @@ export function setCollapsed(collapsed: boolean): Command {
  * stay with the old one. At the very start: an empty line opens above and
  * the caret stays put.
  *
+ * On a line that is BLANK and nested, Enter steps it out a level instead —
+ * the outliner's way out, the same key doing the same thing Shift-Tab does,
+ * because pressing Enter twice is how anyone says "I'm finished with this
+ * branch". Press it again and it steps out again, until the line is at the
+ * top level, where an empty line is a thing you might actually want and Enter
+ * goes back to making one.
+ *
  * Inside a quote, Enter is the editor's own — another paragraph of the
  * quote — until the last paragraph is empty, when Enter steps out of the
  * quote onto a new line after it.
  *
- * Not tagged as a structural change, deliberately: a new empty line is what
- * the auto-stamp watches for (notepad-autostamp.ts).
+ * The line made in the middle of another is made of that line's words, so it
+ * takes that line's record of where and when along with them; the empty lines
+ * made at the end and at the start are new, and get stamped when they are
+ * written in (notepad-provenance.ts).
  */
 export const splitBlock: Command = (state, dispatch) => {
   const sel = state.selection;
@@ -364,6 +391,11 @@ export const splitBlock: Command = (state, dispatch) => {
     return true;
   }
 
+  // Blank and nested: out a level, not another blank line.
+  if (sel.empty && head.content.size === 0 && isBlock(b.parent)) {
+    return outdentBlock(state, dispatch);
+  }
+
   if (dispatch) {
     const tr = state.tr;
     if (!sel.empty) tr.deleteSelection();
@@ -385,8 +417,9 @@ export const splitBlock: Command = (state, dispatch) => {
       const tail = state.schema.nodes.paragraph.create(null, h.content.cut(off));
       tr.delete($at.pos, bb.pos + h.nodeSize);
       const at = bb.end - (len - off);
-      tr.insert(at, newBlockNode(state, tail));
+      tr.insert(at, newBlockNode(state, tail, bb.node));
       tr.setSelection(headStart(tr.doc, at));
+      inherited(tr);
     }
     dispatch(tr.scrollIntoView());
   }
@@ -425,8 +458,9 @@ export const joinBlockBackward: Command = (state, dispatch) => {
       const newHead = first ?? state.schema.nodes.paragraph.create();
       tr.replaceWith(b.pos + 1, b.pos + 1 + head.nodeSize, newHead);
       if (rest.length > 0) {
-        tr.insert(tr.mapping.map(b.end), rest.map((p) => newBlockNode(state, p)));
+        tr.insert(tr.mapping.map(b.end), rest.map((p) => newBlockNode(state, p, b.node)));
       }
+      inherited(tr);
       tr.setSelection(headStart(tr.doc, b.pos));
       dispatch(tr.scrollIntoView());
     }
