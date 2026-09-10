@@ -2,7 +2,6 @@ import "server-only";
 
 import { after } from "next/server";
 import { anthropic } from "@/lib/journal/anthropic";
-import { CONCISE_TITLE_GUIDANCE } from "@/lib/journal/opening-candidates";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { READER_CHAT_FAST_MODEL } from "@/lib/reading/chat-prompt";
 
@@ -46,9 +45,15 @@ const TITLE_TOOL = {
       title: {
         type: "string",
         description:
-          `${CONCISE_TITLE_GUIDANCE} Name what the conversation is ABOUT — the ` +
-          "question or the idea — never the book or the act of asking " +
-          '("A question about…", "Discussion of…" are wrong). Max 60 characters.',
+          "The QUESTION the reader is asking, or what they wanted to know, in 3–8 " +
+          "words — as a shortened question or a noun phrase built from it: " +
+          '"When romantic love was invented", "Why the maestro is late", "Is the ' +
+          'narrator reliable here". Sentence case, no end punctuation, no quotation ' +
+          "marks. NEVER a restatement or summary of the passage they were reading: " +
+          "the passage is what prompted the question, not what the conversation is " +
+          "about. NEVER the book's name or the act of asking (\"A question " +
+          'about…", "Discussion of…"). If the reader asked several things, name ' +
+          "the one the conversation mostly turned on. Max 60 characters.",
       },
     },
     required: ["title"],
@@ -65,6 +70,8 @@ export async function generateThreadTitle(input: {
   opening: string;
   transcript: TitleTurn[];
   current: string | null;
+  /** The passage the conversation hangs off, if any. Context, never the subject. */
+  passage?: string | null;
 }): Promise<string | null> {
   const opening = input.opening.trim();
   if (!opening && input.transcript.length === 0) return null;
@@ -73,13 +80,23 @@ export async function generateThreadTitle(input: {
   if (input.current) {
     lines.push(
       `Current title: "${input.current}"`,
-      "Return it exactly unchanged unless the subject of the conversation has genuinely shifted since it was named.",
+      "Return it exactly unchanged unless what the reader is asking about has genuinely shifted since it was named.",
       ""
     );
   }
-  if (opening) lines.push("The reader opened with:", opening, "");
+  const passage = input.passage?.trim();
+  if (passage) {
+    lines.push(
+      "The passage of the book they were reading (context only — the title must not summarize or restate it):",
+      `"""\n${clip(passage, 600)}\n"""`,
+      ""
+    );
+  }
+  if (opening) {
+    lines.push("What the reader asked (this is what the title names):", opening, "");
+  }
   if (input.transcript.length > 0) {
-    lines.push("The conversation since:");
+    lines.push("The conversation since — the AI's answers are context; the reader's lines say what they wanted to know:");
     for (const t of input.transcript) {
       const who = t.role === "assistant" ? "AI" : t.role === "note" ? "Reader (note)" : "Reader";
       lines.push(`${who}: ${clip(t.content, TURN_MAX_CHARS)}`);
@@ -91,8 +108,10 @@ export async function generateThreadTitle(input: {
       model: READER_CHAT_FAST_MODEL,
       max_tokens: 128,
       system:
-        "You name conversations a reader is having in the margin of a book. " +
-        "Call set_thread_title exactly once.",
+        "You name conversations a reader is having in the margin of a book. The " +
+        "name is the reader's question, shortened — what they wanted to know — " +
+        "never a summary of the passage that prompted it. Call set_thread_title " +
+        "exactly once.",
       tools: [TITLE_TOOL],
       tool_choice: { type: "tool", name: TITLE_TOOL.name },
       messages: [{ role: "user", content: lines.join("\n") }],
@@ -156,6 +175,16 @@ export async function refreshThreadTitle(
       .eq("thread_id", threadId)
       .in("role", ["user", "assistant", "note"])
       .order("created_at", { ascending: true });
+    // The passage, so the model can tell it apart from the question — it is
+    // the one thing the title must not be. Any placement will do; a shared
+    // thread's placements quote the same words.
+    const { data: placement } = await db
+      .from("reading_annotations")
+      .select("quoted_text")
+      .eq("thread_id", threadId)
+      .limit(1)
+      .maybeSingle();
+    const passage = (placement as { quoted_text: string | null } | null)?.quoted_text ?? null;
     const messages = ((rows ?? []) as { role: string; content: string }[]).map((m) => ({
       role: (m.role === "assistant" ? "assistant" : m.role === "note" ? "note" : "user") as TitleTurn["role"],
       content: m.content,
@@ -168,7 +197,7 @@ export async function refreshThreadTitle(
     const rest = firstOwn && !seed ? messages.slice(1) : messages;
     const transcript = rest.slice(-TRANSCRIPT_TURNS);
 
-    const title = await generateThreadTitle({ opening, transcript, current: row.title });
+    const title = await generateThreadTitle({ opening, transcript, current: row.title, passage });
     if (!title || title === row.title) return;
 
     // Pinned in the meantime — the reader typed a name while this ran — and

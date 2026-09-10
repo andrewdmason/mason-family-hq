@@ -798,6 +798,9 @@ console.log("\nan old note's stamps, lifted onto its lines");
   const fixed = resolveMarkInDoc(pending, "pending:abc", "real-id");
   check("a clip's mark becomes the real one on the line", fixed?.content[0].attrs.place?.mark === "real-id");
   check("nothing to fix is null", resolveMarkInDoc(fixed!, "pending:abc", "real-id") === null);
+  const asked: NoteDoc = { type: "doc", content: [newBlock(threadHead({ thread: "pending:xyz", kind: "ask", question: "q" }))] };
+  const settled = resolveMarkInDoc(asked, "pending:xyz", "thread-id");
+  check("a line asked before its conversation's row existed points at the row", settled?.content[0].content[0].attrs?.thread === "thread-id");
 }
 
 check("a line says when it was written, to the minute", /^Sep 9, 2026 at /.test(stampLabel("2026-09-09T15:12:00.000Z") ?? ""));
