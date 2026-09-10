@@ -438,6 +438,8 @@ export function ReaderAnnotationLayer({
    */
   /** The row the panel is showing, while it exists only on this device. */
   const pendingRef = useRef<PendingCreate | null>(null);
+  /** The stand-in detail of the row being made, for a panel opened onto it by id. */
+  const pendingDetailRef = useRef<AnnotationDetail | null>(null);
   /**
    * Passages highlighted here that the loaded list hasn't caught up with yet.
    *
@@ -913,99 +915,6 @@ export function ReaderAnnotationLayer({
     [data, isArticle, pageForCharOffset]
   );
 
-  /**
-   * Open the panel now; create the row alongside it.
-   *
-   * Shared by the selection toolbar and the between-paragraphs target, which
-   * differ only in the anchor they arrive with.
-   */
-  const openDraft = useCallback(
-    (
-      resolved: ResolvedAnchor,
-      asDraft: boolean,
-      /** Set when this is a chapter's summary — see createAnnotation. */
-      chapterAnchorId: string | null = null,
-      /** Whether Nor answers in this thread — the toolbar's Ask/Note choice. */
-      askNor = true
-    ) => {
-      const stopOpen = startTimer("annotate: click → panel");
-      const clientId = newPendingId();
-      const optimistic: AnnotationDetail = {
-        ...optimisticRow(resolved, clientId, chapterAnchorId, askNor),
-        messages: [],
-      };
-
-      const result = createAnnotation({
-        bookId,
-        anchor: resolved.anchor,
-        anchorCharOffset: resolved.anchorCharOffset,
-        quotedText: resolved.quotedText,
-        plainQuotedText: resolved.plainQuotedText,
-        chapterAnchorId,
-        askNor,
-        memberEmail,
-      }).then(
-        (detail) => ({ ok: true, detail }) as const,
-        (error: unknown) => ({
-          ok: false as const,
-          error: error instanceof Error ? error : new Error("Couldn't save that annotation."),
-        }) as const
-      );
-      const pending: PendingCreate = {
-        clientId,
-        result,
-        queue: Promise.resolve(),
-        onCreate: "keep",
-        settled: false,
-      };
-      pendingRef.current = pending;
-
-      openPanelWith(optimistic, asDraft);
-      // Two frames: one for React to commit the panel, one for the browser to
-      // paint it. This is the number the reader actually feels.
-      requestAnimationFrame(() => requestAnimationFrame(() => stopOpen()));
-
-      void result.then((settled) => {
-        if (pendingRef.current !== pending) return;
-        pending.settled = true;
-        if (!settled.ok) {
-          console.error("[reader] couldn't save that annotation", settled.error);
-          setCreateError(settled.error.message);
-          return;
-        }
-        const real = settled.detail;
-        note("annotate: id settled", real.id);
-        // Anything written in the meantime outranks the empty row the server
-        // made — a note typed inside the create round trip is already drawn in
-        // the thread and queued for the insert, so the server's freshly-created
-        // (and therefore noteless) row must not paint over it.
-        setDetail((d) =>
-          d && d.id === clientId
-            ? {
-                ...real,
-                latestNote: d.latestNote ?? real.latestNote,
-                noteCount: Math.max(d.noteCount, real.noteCount),
-                firstQuestion: d.firstQuestion ?? real.firstQuestion,
-              }
-            : d
-        );
-        setDraftId((d) => (d === clientId ? real.id : d));
-
-        const queued = pending.queue;
-        const disposition = pending.onCreate;
-        void queued
-          .then(async () => {
-            if (disposition === "delete") await deleteAnnotation(real.id, memberEmail);
-            else if (disposition === "discardIfEmpty") {
-              await discardAnnotationIfEmpty(real.id, memberEmail);
-            }
-          })
-          .then(refreshList)
-          .catch(() => {});
-      });
-    },
-    [bookId, memberEmail, openPanelWith, optimisticRow, refreshList]
-  );
 
   /**
    * Leaving a chat you never wrote in throws it away, so an abandoned draft
@@ -1307,11 +1216,145 @@ export function ReaderAnnotationLayer({
       if (!doc) return;
       const markdown = treeToMarkdown(doc);
       noteRef.current = { ...held, doc, markdown };
-      void saveBookNote({ bookId, markdown, doc, memberEmail })
-        .then(({ updatedAt }) => noteSaved(updatedAt))
-        .catch((err) => console.error("[reader] couldn't finish adding that to your notes", err));
+      const save = () => {
+        const latest = noteRef.current;
+        if (!latest.doc) return Promise.resolve();
+        return saveBookNote({ bookId, markdown: latest.markdown, doc: latest.doc, memberEmail })
+          .then(({ updatedAt }) => noteSaved(updatedAt))
+          .catch((err) => console.error("[reader] couldn't finish adding that to your notes", err));
+      };
+      // Twice. The notepad that held the stand-in may have a save of its own
+      // in flight from the moment the panel swapped away from it, and if that
+      // one lands second the stand-in is what's on disk. A beat later, the
+      // note as it now stands goes again, and last write wins the right way.
+      void save().then(() => {
+        setTimeout(() => void save(), 2500);
+      });
     },
     [bookId, memberEmail, noteSaved]
+  );
+
+  /**
+   * Start a row on the server and hand back a stand-in for it now.
+   *
+   * Everything that opens a conversation goes through here: the panel, the
+   * notepad's /ask. The optimistic detail is what a panel can open with
+   * before the insert lands; the stand-in id is what the thread, the notes
+   * and the marks hold until it does, translated by realIdFor / onceCreated.
+   * When the row exists, the open detail takes on the real id, and whatever
+   * disposition was decided while it didn't (see PendingCreate) is honoured.
+   */
+  const beginCreate = useCallback(
+    (
+      resolved: ResolvedAnchor,
+      /** Set when this is a chapter's summary — see createAnnotation. */
+      chapterAnchorId: string | null,
+      /** Whether Nor answers in this thread — the toolbar's Ask/Note choice. */
+      askNor: boolean,
+      /** The line that opens it, for its name — see createAnnotation. */
+      openingQuestion: string | null = null
+    ): { clientId: string; optimistic: AnnotationDetail } => {
+      const clientId = newPendingId();
+      const optimistic: AnnotationDetail = {
+        ...optimisticRow(resolved, clientId, chapterAnchorId, askNor),
+        messages: [],
+      };
+
+      const result = createAnnotation({
+        bookId,
+        anchor: resolved.anchor,
+        anchorCharOffset: resolved.anchorCharOffset,
+        quotedText: resolved.quotedText,
+        plainQuotedText: resolved.plainQuotedText,
+        chapterAnchorId,
+        askNor,
+        openingQuestion,
+        memberEmail,
+      }).then(
+        (detail) => ({ ok: true, detail }) as const,
+        (error: unknown) => ({
+          ok: false as const,
+          error: error instanceof Error ? error : new Error("Couldn't save that annotation."),
+        }) as const
+      );
+      const pending: PendingCreate = {
+        clientId,
+        result,
+        queue: Promise.resolve(),
+        onCreate: "keep",
+        settled: false,
+      };
+      pendingRef.current = pending;
+      pendingDetailRef.current = optimistic;
+
+      void result.then((settled) => {
+        if (pendingRef.current !== pending) return;
+        pending.settled = true;
+        if (!settled.ok) {
+          console.error("[reader] couldn't save that annotation", settled.error);
+          setCreateError(settled.error.message);
+          return;
+        }
+        const real = settled.detail;
+        note("annotate: id settled", real.id);
+        // The notes may hold a line pointing at the stand-in — a line that
+        // became this conversation. It points at the row now.
+        resolveNoteMark(clientId, real.id);
+        // Anything written in the meantime outranks the empty row the server
+        // made — a note typed inside the create round trip is already drawn in
+        // the thread and queued for the insert, so the server's freshly-created
+        // (and therefore noteless) row must not paint over it.
+        setDetail((d) =>
+          d && d.id === clientId
+            ? {
+                ...real,
+                latestNote: d.latestNote ?? real.latestNote,
+                noteCount: Math.max(d.noteCount, real.noteCount),
+                firstQuestion: d.firstQuestion ?? real.firstQuestion,
+              }
+            : d
+        );
+        setDraftId((d) => (d === clientId ? real.id : d));
+
+        const queued = pending.queue;
+        const disposition = pending.onCreate;
+        void queued
+          .then(async () => {
+            if (disposition === "delete") await deleteAnnotation(real.id, memberEmail);
+            else if (disposition === "discardIfEmpty") {
+              await discardAnnotationIfEmpty(real.id, memberEmail);
+            }
+          })
+          .then(refreshList)
+          .catch(() => {});
+      });
+
+      return { clientId, optimistic };
+    },
+    [bookId, memberEmail, optimisticRow, refreshList, resolveNoteMark]
+  );
+
+  /**
+   * Open the panel now; create the row alongside it.
+   *
+   * Shared by the selection toolbar and the between-paragraphs target, which
+   * differ only in the anchor they arrive with.
+   */
+  const openDraft = useCallback(
+    (
+      resolved: ResolvedAnchor,
+      asDraft: boolean,
+      chapterAnchorId: string | null = null,
+      askNor = true
+    ) => {
+      const stopOpen = startTimer("annotate: click → panel");
+      const { optimistic } = beginCreate(resolved, chapterAnchorId, askNor);
+      openPanelWith(optimistic, asDraft);
+      // Two frames: one for React to commit the panel, one for the browser to
+      // paint it. This is the number the reader actually feels.
+      requestAnimationFrame(() => requestAnimationFrame(() => stopOpen()));
+    },
+    [beginCreate, openPanelWith]
   );
 
   // `blockIndex` is global, like every index that reaches an anchor. See
@@ -2007,6 +2050,17 @@ export function ReaderAnnotationLayer({
    */
   const openThread = useCallback(
     (annotationId: string) => {
+      // A conversation the notepad just started, whose row is still being
+      // made: opened onto its stand-in, the way the panel's own Ask opens —
+      // the thread translates the id when it sends (resolveChatId).
+      if (isPendingId(annotationId)) {
+        const optimistic = pendingDetailRef.current;
+        if (optimistic && optimistic.id === annotationId) {
+          openPanelWith(optimistic, false);
+          setOpeningQuestion((q) => (q?.id === annotationId ? q : null));
+        }
+        return;
+      }
       void openExisting(annotationId).then((chat) => {
         if (!chat) return;
         setOpeningQuestion((q) => (q?.id === annotationId ? q : null));
@@ -2015,7 +2069,7 @@ export function ReaderAnnotationLayer({
         }
       });
     },
-    [openExisting]
+    [openExisting, openPanelWith]
   );
 
   /**
@@ -2041,7 +2095,7 @@ export function ReaderAnnotationLayer({
       let annotationId: string | null = null;
       let resolved: ResolvedAnchor | null = null;
 
-      if (req.quote?.place.mark) {
+      if (req.quote?.place.mark && !isPendingId(req.quote.place.mark)) {
         const existing = await getAnnotation(req.quote.place.mark, memberEmail);
         if (existing) {
           annotationId = existing.id;
@@ -2061,32 +2115,32 @@ export function ReaderAnnotationLayer({
       if (!annotationId && !req.quote) resolved = hereAnchor();
       if (!annotationId && !resolved) throw new Error("Couldn't place that conversation.");
 
+      // A new conversation is handed back NOW, as a stand-in, with the row
+      // being made behind it — the same way the panel's own Ask opens before
+      // its row exists. Nothing here waits on the server: the notepad turns
+      // the line into a block and opens the thread in the same breath, and
+      // the thread's first send waits for the id (resolveChatId) behind a
+      // question already on screen.
       if (!annotationId && resolved) {
-        const created = await createAnnotation({
-          bookId,
-          anchor: resolved.anchor,
-          anchorCharOffset: resolved.anchorCharOffset,
-          quotedText: resolved.quotedText,
-          plainQuotedText: resolved.plainQuotedText,
-          askNor: req.kind === "ask",
-          openingQuestion: req.text,
-          memberEmail,
-        });
-        annotationId = created.id;
+        if (isCreating()) throw new Error("Still saving the last one — try again in a moment.");
+        annotationId = beginCreate(resolved, null, req.kind === "ask", req.text).clientId;
       }
       if (!annotationId) throw new Error("Couldn't place that conversation.");
+      const id = annotationId;
 
       if (req.kind === "member") {
-        await postAnnotationMessage(annotationId, `@${req.handle} ${req.text}`, memberEmail);
+        void onceCreated(id, (real) =>
+          postAnnotationMessage(real, `@${req.handle} ${req.text}`, memberEmail).then(refreshList)
+        );
       } else {
-        const q = { id: annotationId, text: req.text };
+        const q = { id, text: req.text };
         openingQuestionRef.current = q;
         setOpeningQuestion(q);
       }
-      void refreshList();
-      return annotationId;
+      if (!isPendingId(id)) void refreshList();
+      return id;
     },
-    [blocks, bookId, contentRef, hereAnchor, memberEmail, refreshList, space]
+    [beginCreate, blocks, contentRef, hereAnchor, isCreating, memberEmail, onceCreated, refreshList, space]
   );
 
   /** What the open thread is a summary OF, when it's a summary at all. */

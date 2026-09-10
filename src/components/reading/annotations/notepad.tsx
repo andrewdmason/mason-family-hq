@@ -639,7 +639,7 @@ export function Notepad({
     onClipHandled();
   }, [clip, editor, onClipHandled]);
 
-  /** The clip's mark has a real id now: everything pointing at the stand-in points at it. */
+  /** The clip's mark — or the line's conversation — has a real id now: everything pointing at the stand-in points at it. */
   useEffect(() => {
     if (!editor || !markFix) return;
     const { state } = editor;
@@ -647,6 +647,9 @@ export function Notepad({
     state.doc.descendants((n, pos) => {
       if (n.type.name === PILL_NODE && n.attrs.mark === markFix.pending) {
         tr.setNodeMarkup(pos, undefined, { ...n.attrs, mark: markFix.id });
+      }
+      if (n.type.name === THREAD_BLOCK && n.attrs.thread === markFix.pending) {
+        tr.setNodeMarkup(pos, undefined, { ...n.attrs, thread: markFix.id });
       }
       const place = (n.attrs.place ?? null) as NotePlace | null;
       if (place?.mark === markFix.pending) {
@@ -783,12 +786,12 @@ export function Notepad({
   /**
    * Enter on a chip.
    *
-   * The chip marks itself as sending, the layer makes the thread, and the
-   * line becomes the thread's block — then the note is saved and the thread
-   * opened. In that order: the panel switches to the thread, which unmounts
-   * this editor, so everything the note needs to remember has to be on disk
-   * first. A failure puts the chip back the way it was and says so in the
-   * header.
+   * The chip marks itself as sending, the layer starts the thread — handing
+   * back a stand-in id at once, the row made behind it — and the line becomes
+   * the thread's block; the save starts, and the thread opens. The panel
+   * switching unmounts this editor, which flushes on the way out, so nothing
+   * the note needs to remember is lost. A failure puts the chip back the way
+   * it was and says so in the header.
    */
   const send = useCallback(async () => {
     if (!editor) return;
@@ -845,7 +848,10 @@ export function Notepad({
     }
     becomeThread(blockId, id, scope.kind === "ask" ? "ask" : "member");
     setStatus("dirty");
-    await flush();
+    // Saved on its way out, not waited for: the thread should be there the
+    // moment Enter is pressed. The save is already in flight when the panel
+    // swaps, and this editor's last act on unmount is to flush again.
+    void flush();
     openThreadRef.current(id);
   }, [becomeThread, editor, flush]);
 
@@ -858,8 +864,8 @@ export function Notepad({
    * pending: muted, with a pulse where the sparkle will be. That is on the
    * DOM alone, the way a landing is; the words are untouched, so if the
    * thread can't be made the line is simply a line again, with everything
-   * still on it. Made, the line becomes the thread's block, the note is
-   * saved, and the thread opens — in that order, for the reason send() gives.
+   * still on it. Made — which is at once, on a stand-in id, the row landing
+   * behind it — the line becomes the thread's block and the thread opens.
    *
    * A line with nothing on it has nothing to ask. Lines nested under it
    * don't count: they are the detail of a question, not the question.
@@ -911,7 +917,7 @@ export function Notepad({
       setPending(editor, blockId, false);
       becomeThread(blockId, id, "ask");
       setStatus("dirty");
-      await flush();
+      void flush();
       openThreadRef.current(id);
     },
     [becomeThread, editor, flush]

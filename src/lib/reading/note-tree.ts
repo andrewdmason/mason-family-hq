@@ -496,9 +496,10 @@ function dropTrailingPill(inline: JSONContent[]): { inline: JSONContent[]; place
 }
 
 /**
- * A place pill that pointed at a mark by a stand-in id, now pointed at the
- * real one — a highlight lands in the note the instant it's made, before the
- * row that will be its mark exists. Null when nothing pointed at `pending`.
+ * Whatever pointed at a mark by a stand-in id, now pointed at the real one —
+ * a highlight lands in the note the instant it's made, and a line becomes a
+ * conversation the instant it's asked, before the row exists. Null when
+ * nothing pointed at `pending`.
  */
 export function resolveMarkInDoc(doc: NoteDoc, pending: string, id: string): NoteDoc | null {
   let changed = false;
@@ -506,6 +507,12 @@ export function resolveMarkInDoc(doc: NoteDoc, pending: string, id: string): Not
     if (node.type === PILL_NODE && node.attrs?.mark === pending) {
       changed = true;
       return { ...node, attrs: { ...node.attrs, mark: id } };
+    }
+    // A line that became a conversation before the conversation's row
+    // existed points at the stand-in the same way.
+    if (node.type === THREAD_BLOCK && node.attrs?.thread === pending) {
+      changed = true;
+      return { ...node, attrs: { ...node.attrs, thread: id } };
     }
     let next = node;
     // A clipped passage keeps its mark on the line, not in the text.
