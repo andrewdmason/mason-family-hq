@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { whenNotTyping } from "@/lib/sync/refresh";
 
 /**
  * Re-fetches the server snapshot when the user comes back to an already-open
@@ -19,24 +20,37 @@ const MIN_GAP_MS = 5_000;
  * The return-to-window trigger, minus the decision about *how* to refresh —
  * todos re-reads its data in place instead of re-running the route (see
  * shell-refresh.ts), and passes its own refresher here.
+ *
+ * Unless the caller says its refresh is `safeWhileTyping`, the refresh waits
+ * for the cursor to leave whatever field it's in. The focus event that brings
+ * us here is very often the click *into* a field — and a route refresh that
+ * lands a second later can remount the tree or, if the page is from a build the
+ * server has retired, turn into a full reload. Either way the cursor is gone.
  */
-export function useRefreshOnReturn(refresh: () => void) {
+export function useRefreshOnReturn(
+  refresh: () => void,
+  opts: { safeWhileTyping?: boolean } = {}
+) {
   const lastRefresh = useRef(0);
+  const { safeWhileTyping = false } = opts;
 
   useEffect(() => {
     // Don't refresh again for the focus click that often immediately follows a
-    // load. Note what this assumes: that a render reaching the screen is a
-    // render just made. The installed PWA breaks that — the service worker
-    // replays the last HTML it cached to a cold launch (public/sw.js) — so
-    // whoever renders a cached document has to notice that for itself; todos
-    // does it in useShellData, off the render's own timestamp.
+    // load. (A document replayed from the app-shell cache is the freshness
+    // guard's job — src/components/freshness-guard.tsx — not this hook's.)
     lastRefresh.current = Date.now();
+    let cancelDeferred: (() => void) | null = null;
 
     const maybeRefresh = () => {
       const now = Date.now();
       if (now - lastRefresh.current < MIN_GAP_MS) return;
       lastRefresh.current = now;
-      refresh();
+      if (safeWhileTyping) {
+        refresh();
+        return;
+      }
+      cancelDeferred?.();
+      cancelDeferred = whenNotTyping(refresh);
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") maybeRefresh();
@@ -46,9 +60,10 @@ export function useRefreshOnReturn(refresh: () => void) {
     return () => {
       window.removeEventListener("focus", maybeRefresh);
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      cancelDeferred?.();
     };
     // Callers pass a stable refresher, so this subscribes once per mount.
-  }, [refresh]);
+  }, [refresh, safeWhileTyping]);
 }
 
 export function RefreshOnReturn() {

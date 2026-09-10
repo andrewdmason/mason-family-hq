@@ -7,8 +7,33 @@ import { GlobalQuickAdd } from "@/components/todos/global-quick-add";
 import { LastAppTracker } from "@/components/layout/last-app-tracker";
 import { EINK_BOOT_SCRIPT, EinkModeSync } from "@/components/reading/eink-mode";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
+import { FreshnessGuard } from "@/components/freshness-guard";
 import { appleStartupImages } from "@/lib/pwa/apps";
 import "./globals.css";
+
+/**
+ * Which build rendered this document. Vercel names every deployment; locally
+ * there's one build at a time. Stamped on <body> so a page replayed from the
+ * app-shell cache can tell when the server has moved on to a newer build (and
+ * reload before its server actions start failing) — see FreshnessGuard.
+ */
+const BUILD_ID =
+  [
+    process.env.VERCEL_DEPLOYMENT_ID,
+    // Inlined by Next at build time — as `false`, not undefined, when no
+    // deployment id was configured — hence the string check below.
+    process.env.NEXT_DEPLOYMENT_ID,
+    process.env.VERCEL_GIT_COMMIT_SHA,
+  ].find((v): v is string => typeof v === "string" && v.length > 0) ?? "local";
+
+/**
+ * The moment this document was rendered on the server. Read once per render,
+ * outside the component body: this is a Server Component that runs once per
+ * request, so the value is exactly as stable as the HTML it's stamped on.
+ */
+function renderedAt(): number {
+  return Date.now();
+}
 
 const inter = Inter({
   variable: "--font-inter",
@@ -84,7 +109,17 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${inter.variable} ${lora.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body
+        className="min-h-full flex flex-col"
+        // When and from which build this document was rendered. The app-shell
+        // service worker replays the last HTML it saved to a cold launch or a
+        // reload (public/sw.js), so a render can reach the screen hours — and a
+        // deploy — after it was made. The freshness guard below reads these to
+        // tell a render made for this screen from one replayed out of the
+        // cache, and the worker reads the build off the fresh copy it fetches.
+        data-rendered-at={renderedAt()}
+        data-build={BUILD_ID}
+      >
         {/*
           Paints e-ink mode before the first frame — see EINK_BOOT_SCRIPT.
 
@@ -123,6 +158,9 @@ export default function RootLayout({
         {process.env.NODE_ENV === "development" && <LastAppTracker />}
         {/* Caches the app shell so re-launching the PWA paints instantly. */}
         <ServiceWorkerRegister />
+        {/* ...and notices when that instant paint is yesterday's, so the
+            screen re-reads its data (or reloads onto a newer build). */}
+        <FreshnessGuard />
       </body>
     </html>
   );

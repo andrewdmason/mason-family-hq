@@ -57,7 +57,6 @@ export default async function TodoViewPage({
       areas={data.areas}
       viewed={data.viewed}
       selfEmail={data.selfEmail}
-      renderedAt={data.renderedAt}
     />
   );
 }

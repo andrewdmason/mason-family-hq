@@ -1,7 +1,7 @@
 import { AddBookDialog } from "@/components/reading/add-book-dialog";
-import { ReaderShelf } from "@/components/reading/reader-shelf";
-import { getReadingHome, listRecommendRecipients } from "../actions";
-import { getDiscover } from "../discover/actions";
+import { LibraryShelf } from "@/components/reading/library-shelf";
+import { listRecommendRecipients } from "../actions";
+import { loadLibrarySnapshot } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -11,10 +11,11 @@ export const dynamic = "force-dynamic";
  * one — always your own books, never anyone else's.
  */
 export default async function ReaderLibraryPage() {
-  const [recipients, home, discover] = await Promise.all([
+  const [recipients, snapshot] = await Promise.all([
     listRecommendRecipients(),
-    getReadingHome(null),
-    getDiscover(null),
+    // The same read the mounted shelf uses to refresh itself in place, so a
+    // launch replayed from the app-shell cache catches up without remounting.
+    loadLibrarySnapshot(),
   ]);
 
   return (
@@ -26,11 +27,8 @@ export default async function ReaderLibraryPage() {
           needs the list of people you can pass a book to; the settings link and
           the markdown copy the shelf renders itself, the latter because what it
           copies is the shelf's own live list. */}
-      <ReaderShelf
-        books={home.books}
-        recommendations={discover.recommendations}
-        recsHasSignal={discover.hasSignal}
-        recsGenres={discover.genres}
+      <LibraryShelf
+        snapshot={snapshot}
         actions={
           <AddBookDialog
             triggerVariant="default"

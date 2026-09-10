@@ -18,11 +18,15 @@
 //                    the intended native feel — but only a flash, which is the
 //                    page's job, not this worker's: the background copy lands in
 //                    the cache for the *next* launch and never touches the screen
-//                    in front of you. So a page cached here has to re-read its own
-//                    data after paint or it shows yesterday until something else
-//                    asks. Todos does it off the render's timestamp (useShellData
-//                    in src/lib/todos/shell-refresh.ts); the calendar and
-//                    assignments hang it on their mount-time SyncTrigger.
+//                    in front of you. So a page served here has to re-read its
+//                    own data after paint or it shows yesterday until something
+//                    else asks. The worker tells it to: it remembers which URLs
+//                    it just served from cache and answers the page's "hq:status"
+//                    question (src/components/freshness-guard.tsx), then posts
+//                    "hq:revalidated" when the fresh copy lands — carrying that
+//                    copy's build id, so a page from a build the server has
+//                    moved past can reload itself before its server actions
+//                    start 404ing.
 //
 // Never cached (always network): /login, /auth/*, /api/*, /family-status, any
 // non-GET, cross-origin, redirected, or non-200 response — so auth and writes are
@@ -36,7 +40,7 @@
 // IndexedDB registry that says what has been downloaded. See
 // src/lib/reading/offline/content-cache.ts.
 
-const VERSION = "v2";
+const VERSION = "v3";
 const STATIC_CACHE = `static-${VERSION}`;
 const PAGES_CACHE = `pages-${VERSION}`;
 
@@ -112,15 +116,51 @@ async function prefetchAssets(html) {
   );
 }
 
+// What this worker did for each URL it recently served, so the page can ask.
+// Keyed by URL: a launch and its page agree on that even where the browser
+// doesn't hand us a client id. In memory only — if the worker is killed and
+// restarted the answer is "don't know", and the page falls back to the render
+// stamp on its <body> (see src/components/freshness-guard.tsx).
+const served = new Map();
+
+// The build a rendered document came from, as stamped on <body> by the root
+// layout. Null when the markup doesn't carry one.
+function extractBuild(html) {
+  const m = html.match(/<body[^>]*\sdata-build="([^"]*)"/);
+  return m ? m[1] : null;
+}
+
+// Tell the page(s) showing `url` something. Prefer the exact client the
+// navigation created; fall back to every window at that URL.
+async function notifyPage(url, clientId, message) {
+  const targets = [];
+  if (clientId) {
+    const c = await self.clients.get(clientId).catch(() => null);
+    if (c) targets.push(c);
+  }
+  if (targets.length === 0) {
+    const all = await self.clients.matchAll({
+      type: "window",
+      includeUncontrolled: true,
+    });
+    for (const c of all) if (c.url === url) targets.push(c);
+  }
+  for (const c of targets) c.postMessage(message);
+}
+
 // Serve the cached page instantly; refresh it in the background. A revalidation
 // that comes back redirected (e.g. middleware bounced us to /login) or non-200
 // evicts the entry so we don't keep serving a stale signed-in page.
 async function staleWhileRevalidate(request, event) {
   const cache = await caches.open(PAGES_CACHE);
   const cached = await cache.match(request);
+  const url = request.url;
+  const clientId = event?.resultingClientId || null;
+  const entry = { fromCache: !!cached, at: Date.now(), fresh: null };
+  served.set(url, entry);
 
   const network = fetch(request)
-    .then((response) => {
+    .then(async (response) => {
       const cacheable =
         response &&
         response.status === 200 &&
@@ -128,10 +168,19 @@ async function staleWhileRevalidate(request, event) {
         response.type === "basic";
       if (cacheable) {
         cache.put(request, response.clone());
-        if (isReaderPath(new URL(request.url).pathname)) {
-          // Keep the worker alive for this: it outlives the response we're
-          // about to return, and it's the whole reason offline hydration works.
-          event?.waitUntil(response.clone().text().then(prefetchAssets));
+        if (cached) {
+          // This copy goes to the cache, not the screen. Tell the page that's
+          // showing the old one, and which build the new one is from.
+          const html = await response.clone().text();
+          entry.fresh = { build: extractBuild(html) };
+          if (isReaderPath(new URL(url).pathname)) await prefetchAssets(html);
+          await notifyPage(url, clientId, {
+            type: "hq:revalidated",
+            url,
+            fresh: entry.fresh,
+          });
+        } else if (isReaderPath(new URL(url).pathname)) {
+          await response.clone().text().then(prefetchAssets);
         }
       } else {
         cache.delete(request);
@@ -140,8 +189,27 @@ async function staleWhileRevalidate(request, event) {
     })
     .catch(() => null);
 
+  // Keep the worker alive for the background half: it outlives the response
+  // we're about to return, and both the reader's offline chunks and the
+  // "fresh copy landed" message depend on it finishing.
+  event?.waitUntil(network);
+
   return cached || (await network) || readerFallback(request);
 }
+
+// The page asks "was I served from cache, and has my fresh copy landed?"
+// (src/components/freshness-guard.tsx). Answered over the MessageChannel port
+// it sends along. Entries older than a couple of minutes are a previous
+// launch's business, not this one's.
+self.addEventListener("message", (event) => {
+  const data = event.data;
+  if (!data || data.type !== "hq:status") return;
+  const port = event.ports && event.ports[0];
+  if (!port) return;
+  const entry = served.get(data.url);
+  const recent = entry && Date.now() - entry.at < 2 * 60 * 1000;
+  port.postMessage(recent ? { fromCache: entry.fromCache, fresh: entry.fresh } : null);
+});
 
 function isReaderPath(pathname) {
   return pathname === "/reader" || pathname.startsWith("/reader/");

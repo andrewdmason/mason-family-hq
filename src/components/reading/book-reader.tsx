@@ -9,6 +9,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import Link from "next/link";
+import { registerRefresher } from "@/lib/sync/refresh";
 import {
   ArrowLeft,
   Bookmark,
@@ -588,10 +589,18 @@ export function BookReader({
       else checkElsewhere();
     };
     checkElsewhere();
+    // A book page is deliberately served from the app-shell cache so it opens
+    // offline, and what can change behind it — where you are in the book — is
+    // exactly what checkElsewhere already re-reads. So when the freshness guard
+    // finds this document was replayed, "refresh" means that and nothing more;
+    // a route refresh would re-render the page underneath the reader and, with
+    // no network, turn into a full navigation.
+    const unregister = registerRefresher(checkElsewhere);
     window.addEventListener("pagehide", onHide);
     window.addEventListener("online", checkElsewhere);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      unregister();
       window.removeEventListener("pagehide", onHide);
       window.removeEventListener("online", checkElsewhere);
       document.removeEventListener("visibilitychange", onVisibility);
