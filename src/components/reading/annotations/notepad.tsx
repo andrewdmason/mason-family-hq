@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
-import { Extension } from "@tiptap/core";
+import { Extension, type Range } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
@@ -34,15 +34,19 @@ import {
 } from "@/lib/reading/notes";
 import {
   absorbPlacePills,
+  blockHeadText,
   emptyDoc,
   emptyParagraph,
   newBlock,
   NOTEPAD_NO_STAMP_META,
   normalizeDoc,
-
   quoteBlock,
+  THREAD_BLOCK,
+  threadHead,
   treeToMarkdown,
+  type NoteBlockJSON,
   type NoteDoc,
+  type ThreadBlockAttrs,
 } from "@/lib/reading/note-tree";
 import { cn } from "@/lib/utils";
 import { NoteBlock, NotepadDoc, toggleFoldInPlace, type BlockMeta } from "./notepad-block";
@@ -53,18 +57,24 @@ import {
   indentBlock,
   inHead,
   isBlock,
+  isThreadLine,
   outdentBlock,
+  threadLineAt,
 } from "./notepad-block-commands";
-import { COMPOSE_NODE, composeScope, NotepadCompose, type ComposeScope } from "./notepad-compose";
+import { blockScope, COMPOSE_NODE, composeScope, NotepadCompose, type ComposeScope } from "./notepad-compose";
 import {
   NOTEPAD_INSERT_META,
   NotepadMentions,
   type MentionController,
   type MentionMenuState,
+  type MenuState,
+  type SuggestionController,
 } from "./notepad-mentions";
 import { NotepadPill, PILL_NODE, pillJSON, placeNodeJSON } from "./notepad-pill";
 import { NotepadProvenance } from "./notepad-provenance";
 import { NotepadQuote } from "./notepad-quote";
+import { NotepadSlash, type SlashCommand, type SlashItem } from "./notepad-slash";
+import { NotepadThreadBlock, THREAD_FACTS_SPEC, type ThreadFacts } from "./notepad-thread-block";
 
 /**
  * A passage sent here from the book — a highlight landing in the notes.
@@ -111,9 +121,11 @@ export type ComposeRequest = Pick<ComposeScope, "kind" | "handle" | "name" | "te
  * derived from it on every save. A note from before the outline arrives as
  * markdown, is lifted into blocks on the way in, and is saved back as both.
  *
- * It is also where conversations start. Type @ under a passage, pick Ask or a
- * person, press Enter: the paragraph goes off as the first message of a
- * thread, and a pill stays behind that opens it — see notepad-compose.ts.
+ * It is also where conversations start. End a line with /ask and the line
+ * goes off to the AI as the first message of a thread; type @ and pick a
+ * person, press Enter, and it goes to them. Either way the line becomes a
+ * THREAD BLOCK — a locked line wearing the conversation's name, which opens
+ * it — see notepad-thread-block.ts and notepad-slash.ts.
  *
  * Tapping a pill moves the BOOK, behind a panel that stays open — the same
  * reason the preface and afterword came back to the panel from a page of their
@@ -132,7 +144,7 @@ export function Notepad({
   onOpenPlace,
   onOpenThread,
   onCompose,
-  replyCounts,
+  threadFacts,
   onChange,
   onSaved,
   onBack,
@@ -156,12 +168,12 @@ export function Notepad({
   onMarkFixHandled: () => void;
   /** A place pill was tapped: go there, and open the mark if it names one. */
   onOpenPlace: (char: number, mark: string | null) => void;
-  /** A thread pill was tapped, or a thread was just made from a chip. */
+  /** A thread block was pressed, or a thread was just made from a line. */
   onOpenThread: (annotationId: string) => void;
-  /** Make the thread a chip promised. Rejects if it couldn't. */
+  /** Make the thread a line asked for. Rejects if it couldn't. */
   onCompose: (request: ComposeRequest) => Promise<string>;
-  /** Replies per thread, for the pills' counts. */
-  replyCounts: ReadonlyMap<string, number>;
+  /** What's known about each conversation, by annotation id, for the thread blocks. */
+  threadFacts: ReadonlyMap<string, ThreadFacts>;
   /** Every change, so whoever reopens the panel gets the latest text. */
   onChange: (markdown: string, doc: NoteDoc) => void;
   /** A save landed. */
@@ -180,10 +192,11 @@ export function Notepad({
   touch: boolean;
 }) {
   const [status, setStatus] = useState<
-    "idle" | "dirty" | "saving" | "saved" | "error" | "sending" | "sendFailed"
+    "idle" | "dirty" | "saving" | "saved" | "error" | "sending" | "sendFailed" | "nothingToAsk"
   >("idle");
   const [words, setWords] = useState(() => noteWordCount(initial.markdown));
   const [menu, setMenu] = useState<MentionMenuState | null>(null);
+  const [slash, setSlash] = useState<MenuState<SlashItem> | null>(null);
   /** The line whose handle was pressed, and what it knows. */
   const [meta, setMeta] = useState<BlockMeta | null>(null);
   const [focused, setFocused] = useState(false);
@@ -195,20 +208,27 @@ export function Notepad({
   spotRef.current = spot;
   const membersRef = useRef(members);
   membersRef.current = members;
-  const countsRef = useRef(replyCounts);
-  countsRef.current = replyCounts;
+  const factsRef = useRef(threadFacts);
+  factsRef.current = threadFacts;
   const activeIndexRef = useRef(0);
+  const slashIndexRef = useRef(0);
   const openPlaceRef = useRef(onOpenPlace);
   openPlaceRef.current = onOpenPlace;
   const openThreadRef = useRef(onOpenThread);
   openThreadRef.current = onOpenThread;
   const composeRef = useRef(onCompose);
   composeRef.current = onCompose;
-  /** The header's buttons and the send, reachable from the editor's key handler (built once). */
-  const actionsRef = useRef<{ stampHere: () => void; stampDate: () => void; send: () => void }>({
+  /** The header's buttons, the send and the ask, reachable from the editor's plugins (built once). */
+  const actionsRef = useRef<{
+    stampHere: () => void;
+    stampDate: () => void;
+    send: () => void;
+    ask: (range: Range) => void;
+  }>({
     stampHere: () => {},
     stampDate: () => {},
     send: () => {},
+    ask: () => {},
   });
 
   /**
@@ -279,27 +299,53 @@ export function Notepad({
     }),
     []
   );
+  const slashController = useMemo<SuggestionController<SlashItem>>(
+    () => ({
+      onChange: setSlash,
+      activeIndex: () => slashIndexRef.current,
+      setActiveIndex: (i) => {
+        slashIndexRef.current = i;
+      },
+    }),
+    []
+  );
 
   /**
-   * Reply counts on thread pills, as a decoration: the count is a fact about
-   * the thread, not about the note, so it is drawn over the pill rather than
-   * stored in it — and it stays right as replies arrive.
+   * What's known about each conversation, drawn over its block as a
+   * decoration: the name, the count, who's in it are facts about the thread,
+   * not about the note, and they change while the note stands still. The
+   * facts ride in the decoration's spec, which is the one thing a node view
+   * gets handed (notepad-thread-block.ts reads it in `update`); the same
+   * plugin still paints a reply count onto any thread pill left in a
+   * sentence. A fresh spec object per redraw is what tells ProseMirror the
+   * decoration changed.
    */
-  const replyDecorations = useMemo(
+  const factDecorations = useMemo(
     () =>
       Extension.create({
-        name: "notepadReplyCounts",
+        name: "notepadThreadFacts",
         addProseMirrorPlugins() {
           return [
             new Plugin({
-              key: new PluginKey("notepad-reply-counts"),
+              key: new PluginKey("notepad-thread-facts"),
               props: {
                 decorations(state) {
                   const decos: Decoration[] = [];
+                  const facts = factsRef.current;
+                  const loaded = facts.size > 0;
                   state.doc.descendants((node, pos) => {
+                    if (node.type.name === THREAD_BLOCK) {
+                      decos.push(
+                        Decoration.node(pos, pos + node.nodeSize, {}, {
+                          [THREAD_FACTS_SPEC]: facts.get(node.attrs.thread as string) ?? null,
+                          loaded,
+                        })
+                      );
+                      return false;
+                    }
                     if (node.type.name !== PILL_NODE || node.attrs.kind !== "thread") return;
-                    const n = countsRef.current.get(node.attrs.thread as string);
-                    if (n == null || n <= 0) return;
+                    const n = facts.get(node.attrs.thread as string)?.replies ?? 0;
+                    if (n <= 0) return;
                     decos.push(
                       Decoration.node(pos, pos + node.nodeSize, {
                         "data-replies": String(n),
@@ -340,8 +386,9 @@ export function Notepad({
       NotepadDoc,
       NoteBlock.configure({ onShowMeta: setMeta }),
       NotepadQuote,
+      NotepadThreadBlock.configure({ others: () => membersRef.current }),
       Placeholder.configure({
-        placeholder: "Write as you read. @ starts a conversation.",
+        placeholder: "Write as you read. /ask sends a line to the AI, @ to a person.",
         // The empty line is inside a block; look through to it.
         includeChildren: true,
       }),
@@ -360,7 +407,16 @@ export function Notepad({
         members: () => membersRef.current,
         controller,
       }),
-      replyDecorations,
+      NotepadSlash.configure({
+        canStamp: () => spotRef.current != null,
+        run: (command: SlashCommand, range: Range) => {
+          if (command === "ask") actionsRef.current.ask(range);
+          else if (command === "here") actionsRef.current.stampHere();
+          else actionsRef.current.stampDate();
+        },
+        controller: slashController,
+      }),
+      factDecorations,
     ],
     // A tree goes straight in. Markdown — a note from before the outline —
     // goes through the markdown parser, and every paragraph, heading, quote
@@ -377,6 +433,12 @@ export function Notepad({
       // rather than on the DOM, because ProseMirror owns the click first and
       // would otherwise just select the atom.
       handleClickOn: (_view, _pos, node) => {
+        // A conversation: press it and it opens.
+        if (node.type.name === THREAD_BLOCK) {
+          const id = node.attrs.thread as string;
+          if (id) openThreadRef.current(id);
+          return true;
+        }
         if (node.type.name !== PILL_NODE) return false;
         if (node.attrs.kind === "place") {
           openPlaceRef.current(node.attrs.char as number, (node.attrs.mark as string | null) ?? null);
@@ -403,6 +465,14 @@ export function Notepad({
             return true;
           }
           return false;
+        }
+        // Enter on a conversation opens it — the line has nothing to split.
+        if (event.key === "Enter" && isThreadLine(view.state.selection)) {
+          event.preventDefault();
+          const line = threadLineAt(view.state);
+          const id = line?.node.firstChild?.attrs.thread as string | undefined;
+          if (id) openThreadRef.current(id);
+          return true;
         }
         // Enter on a line holding a chip sends it. Shift-Enter is still a
         // line break, so a multi-line message is possible before sending.
@@ -461,18 +531,46 @@ export function Notepad({
     },
   });
 
-  /** The caret to the end of the last line the reader can see — our move, not theirs. */
+  /**
+   * The caret to the end of the last line the reader can see — our move, not
+   * theirs. When that line is a conversation there is nowhere in it to put a
+   * caret, and opening the notepad is opening it to WRITE: a fresh line goes
+   * in after it, and the caret there.
+   */
   const focusEnd = useCallback(() => {
     if (!editor) return;
     editor.view.focus();
     focusEndVisible(editor.state, (tr) => editor.view.dispatch(tr.setMeta(NOTEPAD_INSERT_META, true)));
+    const line = threadLineAt(editor.state);
+    if (!line) return;
+    const at = line.pos + line.node.nodeSize;
+    const fresh = editor.schema.nodeFromJSON(newBlock(emptyParagraph()));
+    const tr = editor.state.tr.insert(at, fresh).setMeta(NOTEPAD_INSERT_META, true);
+    tr.setSelection(TextSelection.create(tr.doc, at + 2)).scrollIntoView();
+    editor.view.dispatch(tr);
   }, [editor]);
 
-  // Reply counts changed: redraw the decorations over an unchanged document.
+  /**
+   * The facts changed: redraw the decorations over an unchanged document —
+   * and write any NAME that changed onto its block, so the note carries the
+   * name the next time it opens, before the facts have loaded. Not a history
+   * step; the reader didn't do it.
+   */
   useEffect(() => {
     if (!editor) return;
-    editor.view.dispatch(editor.state.tr.setMeta("notepad-reply-counts", true));
-  }, [editor, replyCounts]);
+    const { state } = editor;
+    const tr = state.tr;
+    state.doc.descendants((n, pos) => {
+      if (n.type.name !== THREAD_BLOCK) return true;
+      const a = n.attrs as ThreadBlockAttrs;
+      const title = threadFacts.get(a.thread)?.title?.trim() || null;
+      if (title && title !== a.title) tr.setNodeMarkup(pos, undefined, { ...a, title });
+      return false;
+    });
+    tr.setMeta("notepad-thread-facts", true).setMeta(NOTEPAD_INSERT_META, true);
+    if (tr.docChanged) tr.setMeta(NOTEPAD_NO_STAMP_META, true).setMeta("addToHistory", false);
+    editor.view.dispatch(tr);
+  }, [editor, threadFacts]);
 
   // Flush on the way out, and whenever the tab goes to the background — on a
   // phone that is the last thing that runs before the page is frozen.
@@ -650,13 +748,47 @@ export function Notepad({
   }, [editor]);
 
   /**
+   * The line that just became a conversation, as a thread block.
+   *
+   * Found by its id — positions may have moved while the thread was being
+   * made — and swapped head-for-head, so its place in the outline, whatever
+   * is nested under it, and its own record of where and when all stay. The
+   * words become the block's `question`, which is what it shows until the
+   * conversation has a name.
+   */
+  const becomeThread = useCallback(
+    (blockId: string, thread: string, kind: ThreadBlockAttrs["kind"]) => {
+      if (!editor) return;
+      const { state } = editor;
+      let found: { node: PMNode; pos: number } | null = null;
+      state.doc.descendants((n, pos) => {
+        if (found) return false;
+        if (isBlock(n) && n.attrs.id === blockId) found = { node: n, pos };
+        return !found;
+      });
+      if (!found) return;
+      const { node, pos } = found as { node: PMNode; pos: number };
+      const head = node.firstChild!;
+      const question = blockHeadText(node.toJSON() as NoteBlockJSON).replace(/\s+/g, " ").slice(0, 300);
+      const json = threadHead({ thread, kind, question, title: factsRef.current.get(thread)?.title ?? null });
+      const tr = state.tr
+        .replaceWith(pos + 1, pos + 1 + head.nodeSize, state.schema.nodeFromJSON(json))
+        .setMeta(NOTEPAD_INSERT_META, true)
+        .setMeta(NOTEPAD_NO_STAMP_META, true);
+      editor.view.dispatch(tr);
+    },
+    [editor]
+  );
+
+  /**
    * Enter on a chip.
    *
-   * The chip marks itself as sending, the layer makes the thread, and the chip
-   * becomes the thread's pill — then the note is saved and the thread opened.
-   * In that order: the panel switches to the thread, which unmounts this
-   * editor, so everything the note needs to remember has to be on disk first.
-   * A failure puts the chip back the way it was and says so in the header.
+   * The chip marks itself as sending, the layer makes the thread, and the
+   * line becomes the thread's block — then the note is saved and the thread
+   * opened. In that order: the panel switches to the thread, which unmounts
+   * this editor, so everything the note needs to remember has to be on disk
+   * first. A failure puts the chip back the way it was and says so in the
+   * header.
    */
   const send = useCallback(async () => {
     if (!editor) return;
@@ -664,6 +796,8 @@ export function Notepad({
     if (chipPos == null) return;
     const scope = composeScope(editor.state.doc, chipPos);
     if (!scope || !scope.text.trim()) return;
+    const blockId = blockAt(editor.state.doc.resolve(chipPos))?.node.attrs.id as string | undefined;
+    if (!blockId) return;
 
     const chip = editor.state.doc.nodeAt(chipPos);
     if (!chip || chip.attrs.state === "sending") return;
@@ -702,22 +836,93 @@ export function Notepad({
       return;
     }
 
+    // The chip goes first, so the block's question is the words alone.
     const at = chipPosition(editor);
     if (at != null) {
-      const label = scope.kind === "ask" ? "Ask" : scope.name;
-      const pill = editor.state.schema.nodes[PILL_NODE].create(
-        pillJSON({ kind: "thread", thread: id, label }).attrs
-      );
       editor.view.dispatch(
-        editor.state.tr.replaceWith(at, at + 1, pill).setMeta(NOTEPAD_INSERT_META, true)
+        editor.state.tr.delete(at, at + 1).setMeta(NOTEPAD_INSERT_META, true).setMeta("addToHistory", false)
       );
     }
+    becomeThread(blockId, id, scope.kind === "ask" ? "ask" : "member");
     setStatus("dirty");
     await flush();
     openThreadRef.current(id);
-  }, [editor, flush]);
+  }, [becomeThread, editor, flush]);
 
-  actionsRef.current = { stampHere, stampDate, send: () => void send() };
+  /**
+   * `/ask` at the end of a line.
+   *
+   * The `/ask` comes out, the line is read for what it sends — where it sits
+   * in the outline, its words, what's nested under it, the quote above it
+   * (blockScope) — and while the thread is being made the line is drawn as
+   * pending: muted, with a pulse where the sparkle will be. That is on the
+   * DOM alone, the way a landing is; the words are untouched, so if the
+   * thread can't be made the line is simply a line again, with everything
+   * still on it. Made, the line becomes the thread's block, the note is
+   * saved, and the thread opens — in that order, for the reason send() gives.
+   *
+   * A line with nothing on it has nothing to ask. Lines nested under it
+   * don't count: they are the detail of a question, not the question.
+   */
+  const ask = useCallback(
+    async (range: Range) => {
+      if (!editor) return;
+      editor
+        .chain()
+        .focus()
+        .command(({ tr }) => {
+          tr.setMeta(NOTEPAD_INSERT_META, true);
+          return true;
+        })
+        .deleteRange(range)
+        .run();
+
+      const $from = editor.state.selection.$from;
+      const b = blockAt($from);
+      if (!b || !inHead($from)) return;
+      const headType = b.node.firstChild?.type.name;
+      if (headType !== "paragraph" && headType !== "heading") return;
+      const blockId = b.node.attrs.id as string;
+      const words = blockHeadText(b.node.toJSON() as NoteBlockJSON).trim();
+      if (!words) {
+        setStatus("nothingToAsk");
+        return;
+      }
+      const scope = blockScope(editor.state.doc, $from);
+      if (!scope) return;
+
+      setPending(editor, blockId, true);
+      setStatus("sending");
+      let id: string;
+      try {
+        id = await composeRef.current({
+          kind: "ask",
+          handle: "ask",
+          name: "Ask",
+          text: scope.text,
+          quote: scope.quote,
+        });
+      } catch (err) {
+        console.error("[reader] couldn't start that conversation", err);
+        setPending(editor, blockId, false);
+        setStatus("sendFailed");
+        return;
+      }
+      setPending(editor, blockId, false);
+      becomeThread(blockId, id, "ask");
+      setStatus("dirty");
+      await flush();
+      openThreadRef.current(id);
+    },
+    [becomeThread, editor, flush]
+  );
+
+  actionsRef.current = {
+    stampHere,
+    stampDate,
+    send: () => void send(),
+    ask: (range) => void ask(range),
+  };
 
   /**
    * ⌥L and ⌥D from outside the text — the notes open but the cursor back in
@@ -743,6 +948,8 @@ export function Notepad({
       ? "Starting the conversation…"
       : status === "sendFailed"
         ? "Couldn't start that — try again"
+        : status === "nothingToAsk"
+          ? "Write the question on the line first"
         : status === "saving"
           ? "Saving…"
           : status === "error"
@@ -830,6 +1037,7 @@ export function Notepad({
       >
         <EditorContent editor={editor} className="min-h-full" />
         {menu && <MentionMenu menu={menu} container={scrollRef.current} />}
+        {slash && <SlashMenu menu={slash} container={scrollRef.current} />}
         {meta && (
           <BlockMetaCard
             meta={meta}
@@ -904,6 +1112,24 @@ function land(editor: Editor, id: string) {
     el.classList.add("nb-landing");
     el.addEventListener("animationend", () => el.classList.remove("nb-landing"), { once: true });
   });
+}
+
+/**
+ * A line drawn as waiting for its conversation to be made.
+ *
+ * On the DOM rather than in the document, like a landing: it is about this
+ * moment, not about the note, and nothing should save it, undo it, or find
+ * it still there after a failure. The block's own view ignores attribute
+ * changes on its element (notepad-block.ts), so this never reaches
+ * ProseMirror at all.
+ */
+function setPending(editor: Editor, id: string, pending: boolean) {
+  const el = editor.view.dom.querySelector<HTMLElement>(
+    `[data-note-block][data-id="${CSS.escape(id)}"]`
+  );
+  if (!el) return;
+  if (pending) el.setAttribute("data-pending", "true");
+  else el.removeAttribute("data-pending");
 }
 
 /** Whether the line the cursor is on holds a chip. */
@@ -1040,12 +1266,30 @@ function BlockMetaCard({
 }
 
 /**
- * The @ menu: Ask, then everyone.
+ * Where a menu under the caret goes: below it, within the scrolling column,
+ * flipped above it when the caret is near the bottom.
+ */
+function menuPlacement(rect: DOMRect | null, container: HTMLDivElement | null): { top: number; flip: boolean } {
+  if (!rect || !container) return { top: 0, flip: false };
+  const box = container.getBoundingClientRect();
+  const caretTop = rect.top - box.top + container.scrollTop;
+  const caretBottom = rect.bottom - box.top + container.scrollTop;
+  const flip = rect.bottom + 200 > box.bottom && rect.top - box.top > 200;
+  return { top: flip ? caretTop : caretBottom + 4, flip };
+}
+
+const MENU_CLASS = "absolute left-3 z-10 w-64 rounded-lg border border-border bg-popover p-1 shadow-lg";
+const menuRowClass = (active: boolean) =>
+  cn(
+    "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+    active ? "bg-accent text-accent-foreground" : ""
+  );
+
+/**
+ * The @ menu: everyone.
  *
  * Not a portal and not a menu, for the reasons MentionTypeahead gives — it
- * never takes focus, and it lives inside the panel. Positioned under the caret
- * within the scrolling column, and flipped above it when the caret is near the
- * bottom.
+ * never takes focus, and it lives inside the panel.
  */
 function MentionMenu({
   menu,
@@ -1055,53 +1299,17 @@ function MentionMenu({
   container: HTMLDivElement | null;
 }) {
   if (menu.items.length === 0) return null;
-
-  let top = 0;
-  let flip = false;
-  if (menu.rect && container) {
-    const box = container.getBoundingClientRect();
-    const caretTop = menu.rect.top - box.top + container.scrollTop;
-    const caretBottom = menu.rect.bottom - box.top + container.scrollTop;
-    flip = menu.rect.bottom + 200 > box.bottom && menu.rect.top - box.top > 200;
-    top = flip ? caretTop : caretBottom + 4;
-  }
+  const { top, flip } = menuPlacement(menu.rect, container);
 
   return (
     <div
       role="listbox"
-      aria-label="Start a conversation"
-      className={cn(
-        "absolute left-3 z-10 w-64 rounded-lg border border-border bg-popover p-1 shadow-lg",
-        flip && "-translate-y-full"
-      )}
+      aria-label="Send this to someone"
+      className={cn(MENU_CLASS, flip && "-translate-y-full")}
       style={{ top }}
     >
       {menu.items.map((item, i) => {
         const active = i === menu.activeIndex;
-        const rowClass = cn(
-          "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm",
-          active ? "bg-accent text-accent-foreground" : ""
-        );
-        if (item.kind === "ask") {
-          return (
-            <div
-              key="ask"
-              role="option"
-              aria-selected={active}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                menu.command(item);
-              }}
-              className={rowClass}
-            >
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted">
-                <Sparkles className="h-3 w-3 text-muted-foreground" />
-              </span>
-              <span className="font-medium">Ask</span>
-              <span className="text-xs text-muted-foreground">a conversation about this</span>
-            </div>
-          );
-        }
         const t = item.target;
         return (
           <div
@@ -1112,7 +1320,7 @@ function MentionMenu({
               e.preventDefault();
               menu.command(item);
             }}
-            className={rowClass}
+            className={menuRowClass(active)}
           >
             <MemberAvatar
               name={t.name}
@@ -1121,6 +1329,56 @@ function MentionMenu({
             />
             <span className="font-medium">{t.name}</span>
             <span className="text-xs text-muted-foreground">@{t.handle}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * The / menu: what a line can do. Ask, then the two stamps the header
+ * offers. Same body as the @ menu, for the same reasons.
+ */
+function SlashMenu({
+  menu,
+  container,
+}: {
+  menu: MenuState<SlashItem>;
+  container: HTMLDivElement | null;
+}) {
+  if (menu.items.length === 0) return null;
+  const { top, flip } = menuPlacement(menu.rect, container);
+
+  return (
+    <div
+      role="listbox"
+      aria-label="Commands"
+      className={cn(MENU_CLASS, flip && "-translate-y-full")}
+      style={{ top }}
+    >
+      {menu.items.map((item, i) => {
+        const active = i === menu.activeIndex;
+        const Icon = item.id === "ask" ? Sparkles : item.id === "here" ? MapPin : CalendarDays;
+        return (
+          <div
+            key={item.id}
+            role="option"
+            aria-selected={active}
+            aria-disabled={item.disabled || undefined}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              if (!item.disabled) menu.command(item);
+            }}
+            className={cn(menuRowClass(active), item.disabled && "cursor-default opacity-40")}
+          >
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted">
+              <Icon className="h-3 w-3 text-muted-foreground" />
+            </span>
+            <span className="font-medium">{item.label}</span>
+            <span className="truncate text-xs text-muted-foreground">
+              {item.id === "here" && item.disabled ? "nowhere to point yet" : item.hint}
+            </span>
           </div>
         );
       })}

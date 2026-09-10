@@ -301,9 +301,10 @@ export const NOTES_PROMPT_MAX_CHARS = 40_000;
  * The notes as the assistant reads them.
  *
  * Pills become a bracketed aside — "(at p. 41)", "(Sep 7, 2026)", "(a
- * conversation branched off here)" — so the model sees WHERE and WHEN each
- * stretch of notes was written without seeing the link syntax, which it would
- * otherwise be tempted to reproduce. Trimmed from the end when over budget:
+ * conversation branched off here: Why the maestro is late)" — so the model
+ * sees WHERE and WHEN each stretch of notes was written, and what was talked
+ * about, without seeing the link syntax, which it would otherwise be tempted
+ * to reproduce. Trimmed from the end when over budget:
  * the front of a document is where its structure lives.
  */
 export function notesForPrompt(markdown: string): {
@@ -314,7 +315,13 @@ export function notesForPrompt(markdown: string): {
     .replace(PILL_LINK_RE, (_m, label: string, href: string) => {
       if (href.startsWith("place:")) return `(at ${label})`;
       if (href.startsWith("date:")) return `(${label})`;
-      return "(a conversation branched off here)";
+      // A thread's label is its name, or — from before threads had names —
+      // "Ask" or the person it went to, which says nothing worth repeating.
+      const name = label.trim();
+      const named = name && name !== "Ask" && !/^[A-Z][a-z]+$/.test(name);
+      return named
+        ? `(a conversation branched off here: ${name})`
+        : "(a conversation branched off here)";
     })
     .trim();
   if (!withPills) return null;

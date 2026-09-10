@@ -10,6 +10,7 @@ import {
   Check,
   Link2,
   LogOut,
+  Pencil,
   Star,
   Trash2,
   X,
@@ -77,6 +78,7 @@ export function AnnotationThread({
   mentionTargets,
   onAddNote,
   onToggleStar,
+  onRename,
   hasRealPages,
   labelForPage,
   onJumpToPage,
@@ -126,6 +128,11 @@ export function AnnotationThread({
   onAddNote: (text: string) => Promise<void>;
   /** Keep this passage, or stop keeping it. Private to this reader. */
   onToggleStar: (next: boolean) => void;
+  /**
+   * Name the conversation. What the notepad's thread block and the marks list
+   * show; a name typed here is kept over anything generated. Empty clears it.
+   */
+  onRename: (title: string) => Promise<void>;
   hasRealPages: boolean;
   labelForPage: (page: number) => string | null;
   onJumpToPage: (page: number) => void;
@@ -801,6 +808,24 @@ export function AnnotationThread({
     window.setTimeout(() => setCopied(false), 1500);
   }, [chat.threadId]);
 
+  /**
+   * The conversation's name, being edited. Enter keeps it, Escape drops the
+   * edit, leaving the field keeps it too — an edit half-made and walked away
+   * from is still what the reader meant.
+   */
+  const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (titleDraft != null) titleInputRef.current?.select();
+  }, [titleDraft]);
+  const commitTitle = useCallback(() => {
+    if (titleDraft == null) return;
+    const next = titleDraft.trim();
+    setTitleDraft(null);
+    if (next === (chat.title ?? "")) return;
+    void onRename(next);
+  }, [chat.title, onRename, titleDraft]);
+
   /** Where this conversation lives, in the reader's own terms. */
   const locationLabel = isSummary
     ? chapterTitle
@@ -846,14 +871,59 @@ export function AnnotationThread({
           <ChevronLeft className="h-4 w-4" />
         </button>
         <div className="min-w-0 flex-1">
-          {/* The title already names where this conversation lives, so it is
-              also the way back to it — a chat opened from the marks list is
-              otherwise stranded, since opening one deliberately does not move
-              the book out from under you.
-
-              Not a link on an article, whose anchors are measured in a different
-              space and would land somewhere arbitrary. */}
-          {onJumpToAnchor ? (
+          {/* The conversation's name, once it has one (thread-title.ts), and
+              where it lives until then. The name is the reader's to change:
+              press it and type. Where it lives is also the way back to it —
+              a chat opened from the marks list is otherwise stranded, since
+              opening one deliberately does not move the book out from under
+              you; with a name in the first line the jump keeps its arrow
+              beside it. Not a link on an article, whose anchors are measured
+              in a different space and would land somewhere arbitrary. */}
+          {titleDraft != null ? (
+            <input
+              ref={titleInputRef}
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={commitTitle}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitTitle();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setTitleDraft(null);
+                }
+              }}
+              maxLength={60}
+              placeholder={locationLabel}
+              aria-label="Name this conversation"
+              className="w-full min-w-0 rounded-sm bg-transparent text-xs font-medium text-foreground outline-none ring-1 ring-ring/60 px-1 -mx-1"
+            />
+          ) : chat.title ? (
+            <div className="flex min-w-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setTitleDraft(chat.title ?? "")}
+                title={chat.titlePinned ? "Rename this conversation (named by you)" : "Rename this conversation"}
+                className="group/title flex min-w-0 items-center gap-1 text-left text-xs font-medium text-foreground transition-colors hover:text-foreground/70"
+              >
+                <span className="truncate">{chat.title}</span>
+                <Pencil className="h-2.5 w-2.5 shrink-0 opacity-0 transition-opacity group-hover/title:opacity-50" />
+              </button>
+              {onJumpToAnchor && (
+                <button
+                  type="button"
+                  onClick={onJumpToAnchor}
+                  title={`Go to this spot in the book · ${locationLabel}`}
+                  aria-label={`Go to this spot in the book · ${locationLabel}`}
+                  className="shrink-0 rounded p-0.5 text-foreground opacity-50 transition-opacity hover:opacity-100"
+                >
+                  <CornerUpLeft className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          ) : onJumpToAnchor ? (
             <button
               type="button"
               onClick={onJumpToAnchor}
@@ -875,6 +945,7 @@ export function AnnotationThread({
               the controls down by the composer are currently set to. */}
           <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
             <span className="truncate">
+              {chat.title ? `${locationLabel} · ` : ""}
               {settled && chat.aiParticipant
                 ? `${modelLabel} · ${scope}`
                 : scope}

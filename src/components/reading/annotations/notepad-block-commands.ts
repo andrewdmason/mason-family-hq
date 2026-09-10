@@ -7,7 +7,13 @@ import {
   type EditorState,
   type Transaction,
 } from "@tiptap/pm/state";
-import { newId, NOTE_BLOCK, NOTEPAD_INSERT_META, NOTEPAD_NO_STAMP_META } from "@/lib/reading/note-tree";
+import {
+  newId,
+  NOTE_BLOCK,
+  NOTEPAD_INSERT_META,
+  NOTEPAD_NO_STAMP_META,
+  THREAD_BLOCK,
+} from "@/lib/reading/note-tree";
 
 /**
  * What the keys do to the outline.
@@ -19,9 +25,15 @@ import { newId, NOTE_BLOCK, NOTEPAD_INSERT_META, NOTEPAD_NO_STAMP_META } from "@
  * The shape they all work on, from note-tree.ts:
  *
  *   doc        := noteBlock+
- *   noteBlock  := head noteBlock*        head = paragraph | heading | blockquote
+ *   noteBlock  := head noteBlock*        head = paragraph | heading | blockquote | threadBlock
  *
  * A block's children come straight after its head, no list wrapper between.
+ *
+ * A THREAD head has no inside — it is an atom the caret can't enter — so the
+ * line it heads is handled whole: picked up as a node selection (the same
+ * one the handle makes), opened with Enter, and deleted with Backspace. The
+ * keys that would put the caret "at the end of its head" put it on the line
+ * instead (headEnd).
  * Every structural move is one delete and one insert of a whole subtree,
  * which is what keeps undo to one step per key.
  *
@@ -49,6 +61,23 @@ export type BlockInfo = {
 
 export function isBlock(node: PMNode | null | undefined): boolean {
   return node?.type.name === NOTE_BLOCK;
+}
+
+/** Whether a block's head is a conversation rather than words. */
+export function headIsThread(node: PMNode | null | undefined): boolean {
+  return node?.firstChild?.type.name === THREAD_BLOCK;
+}
+
+/** The selection is a whole line whose head is a conversation. */
+export function isThreadLine(sel: Selection): boolean {
+  return isNodeSelection(sel) && isBlock((sel as NodeSelection).node) && headIsThread((sel as NodeSelection).node);
+}
+
+/** The line the selection is on, when it is a thread line: its block, or null. */
+export function threadLineAt(state: EditorState): { node: PMNode; pos: number } | null {
+  const sel = state.selection;
+  if (!isThreadLine(sel)) return null;
+  return { node: (sel as NodeSelection).node, pos: sel.from };
 }
 
 /** The depth of the innermost block around a position, or 0 if none. */
@@ -93,13 +122,20 @@ function childrenFragment(node: PMNode): Fragment {
   return node.content.cut(node.firstChild!.nodeSize);
 }
 
-/** The position at the end of a block's head text. */
+/**
+ * The position at the end of a block's head text — or, for a line whose head
+ * is a conversation, the line itself: there is no inside to put a caret in,
+ * and "near" would otherwise land it on the line above.
+ */
 export function headEnd(doc: PMNode, node: PMNode, pos: number): Selection {
+  if (headIsThread(node)) return NodeSelection.create(doc, pos);
   return Selection.near(doc.resolve(pos + node.firstChild!.nodeSize), -1);
 }
 
 /** The position at the start of a block's head text. */
 function headStart(doc: PMNode, pos: number): Selection {
+  const node = doc.nodeAt(pos);
+  if (node && headIsThread(node)) return NodeSelection.create(doc, pos);
   return Selection.near(doc.resolve(pos + 2), 1);
 }
 
@@ -368,6 +404,9 @@ export function setCollapsed(collapsed: boolean): Command {
  */
 export const splitBlock: Command = (state, dispatch) => {
   const sel = state.selection;
+  // Enter on a conversation opens it (notepad.tsx); here it is only taken,
+  // so nothing underneath tries to split a line that has no text to split.
+  if (isThreadLine(sel)) return true;
   const $from = sel.$from;
   const b = blockAt($from);
   if (!b || !inHead($from)) return false;
@@ -442,6 +481,17 @@ export const splitBlock: Command = (state, dispatch) => {
  */
 export const joinBlockBackward: Command = (state, dispatch) => {
   const sel = state.selection;
+
+  // A conversation picked up: Backspace takes the line out of the note — and
+  // only the note; the conversation is still in the marks — with whatever
+  // was nested under it stepping into its place. The caret lands on the
+  // line above, as it does when an empty line goes.
+  const picked = threadLineAt(state);
+  if (picked) {
+    if (dispatch) dispatch(removeLine(state, picked.node, picked.pos).scrollIntoView());
+    return true;
+  }
+
   if (!sel.empty) return false;
   const $from = sel.$from;
   const b = blockAt($from);
@@ -468,6 +518,19 @@ export const joinBlockBackward: Command = (state, dispatch) => {
   }
 
   const above = prevVisible($from, b);
+
+  // The line above is a conversation. A caret can't join it, and eating it
+  // by accident would be a lot to lose to one key — so the first press picks
+  // it up, and a second press (the case above) takes it out. The line the
+  // caret was on stays exactly as it was.
+  if (above && headIsThread(above.node)) {
+    if (dispatch) {
+      dispatch(
+        structural(state.tr).setSelection(NodeSelection.create(state.doc, above.pos)).scrollIntoView()
+      );
+    }
+    return true;
+  }
 
   if (head.content.size === 0) {
     if (!hasChildren(b.node)) {
@@ -507,6 +570,13 @@ export const joinBlockBackward: Command = (state, dispatch) => {
  */
 export const joinBlockForward: Command = (state, dispatch) => {
   const sel = state.selection;
+
+  const picked = threadLineAt(state);
+  if (picked) {
+    if (dispatch) dispatch(removeLine(state, picked.node, picked.pos).scrollIntoView());
+    return true;
+  }
+
   if (!sel.empty) return false;
   const $from = sel.$from;
   const b = blockAt($from);
@@ -519,6 +589,16 @@ export const joinBlockForward: Command = (state, dispatch) => {
   if (!below) return true;
   const belowHead = below.node.firstChild!;
   if (belowHead.type.name === "blockquote") return true;
+  // A conversation below: picked up first, taken out on the second press —
+  // the mirror of Backspace above.
+  if (headIsThread(below.node)) {
+    if (dispatch) {
+      dispatch(
+        structural(state.tr).setSelection(NodeSelection.create(state.doc, below.pos)).scrollIntoView()
+      );
+    }
+    return true;
+  }
   if (dispatch) {
     const tr = structural(state.tr);
     tr.replaceWith(below.pos, below.pos + below.node.nodeSize, childrenFragment(below.node));
@@ -528,6 +608,22 @@ export const joinBlockForward: Command = (state, dispatch) => {
   }
   return true;
 };
+
+/**
+ * A line out of the note, its children stepping into its place, the caret to
+ * the end of the visible line above (or the start of what took its place, at
+ * the top of the note).
+ */
+function removeLine(state: EditorState, node: PMNode, pos: number): Transaction {
+  const $pos = state.doc.resolve(pos + 1);
+  const b = blockAt($pos)!;
+  const above = prevVisible($pos, b);
+  const tr = structural(state.tr);
+  tr.replaceWith(pos, pos + node.nodeSize, childrenFragment(node));
+  if (above) tr.setSelection(headEnd(tr.doc, above.node, above.pos));
+  else if (tr.doc.content.size > 0) tr.setSelection(headStart(tr.doc, Math.min(pos, tr.doc.content.size - 1)));
+  return tr;
+}
 
 /* ------------------------------------------------------------------ */
 /* Where the caret goes                                                */

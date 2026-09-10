@@ -36,6 +36,7 @@ import {
 import {
   absorbPlacePills,
   appendBlock,
+  blockHeadText,
   childrenLines,
   composeText,
   emptyDoc,
@@ -45,13 +46,14 @@ import {
   provenanceOf,
   quoteBlock,
   resolveMarkInDoc,
+  threadHead,
   treeToMarkdown,
   type NoteBlockJSON,
   type NoteDoc,
 } from "../src/lib/reading/note-tree";
 import { getSchema } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
-import { EditorState, TextSelection, type Command, type Transaction } from "@tiptap/pm/state";
+import { EditorState, NodeSelection, Selection, TextSelection, type Command, type Transaction } from "@tiptap/pm/state";
 import { NoteBlock, NotepadDoc } from "../src/components/reading/annotations/notepad-block";
 import {
   focusEndVisible,
@@ -66,8 +68,10 @@ import {
   setCollapsedAt,
   splitBlock,
 } from "../src/components/reading/annotations/notepad-block-commands";
-import { NotepadCompose, composeScope, quoteAbove } from "../src/components/reading/annotations/notepad-compose";
+import { NotepadCompose, blockScope, composeScope, quoteAbove } from "../src/components/reading/annotations/notepad-compose";
 import { NotepadPill } from "../src/components/reading/annotations/notepad-pill";
+import { NotepadThreadBlock } from "../src/components/reading/annotations/notepad-thread-block";
+import { matchSlashItems, slashAllowed } from "../src/components/reading/annotations/notepad-slash";
 import { provenancePlugin } from "../src/components/reading/annotations/notepad-provenance";
 
 let failures = 0;
@@ -358,6 +362,7 @@ const schema = getSchema([
   NoteBlock,
   NotepadPill,
   NotepadCompose,
+  NotepadThreadBlock,
 ]);
 
 /** A state over a tree, with the caret at `caret` (an absolute position). */
@@ -797,6 +802,197 @@ console.log("\nan old note's stamps, lifted onto its lines");
 
 check("a line says when it was written, to the minute", /^Sep 9, 2026 at /.test(stampLabel("2026-09-09T15:12:00.000Z") ?? ""));
 check("a time that isn't one says nothing", stampLabel("not a date") === null);
+
+/* ------------------------------------------------------------------ */
+/* A line that became a conversation                                   */
+/* ------------------------------------------------------------------ */
+
+console.log("\na line that became a conversation");
+
+const threadPill = (thread: string, label: string) => ({ type: "pill", attrs: { kind: "thread", thread, label } });
+
+{
+  // The shapes a conversation used to leave behind, lifted on the way in.
+  const raw = normalizeDoc({
+    type: "doc",
+    content: [
+      newBlock(p("", threadPill("t-bare", "Ask")), [], { id: "bare" }),
+      newBlock(p("Why is the maestro late? ", threadPill("t-trail", "Ask")), [newBlock(p("kid"), [], { id: "kid" })], { id: "trail", place: HERE, at: NOW }),
+      newBlock(p("Sent to ", threadPill("t-jenny", "Jenny")), [], { id: "jenny" }),
+      newBlock(p("", pill(1200, "p. 41"), { type: "text", text: " Stamped question " }, threadPill("t-stamped", "Ask")), [], { id: "stamped" }),
+      newBlock(p("See ", threadPill("t-mid", "Ask"), { type: "text", text: " for more." }), [], { id: "mid" }),
+      newBlock({ type: "threadBlock", attrs: { thread: "", title: "Orphan", kind: "ask", question: "q" } }, [], { id: "orphan" }),
+      newBlock({ type: "threadBlock", attrs: { thread: "t-ok", title: null, kind: "weird", question: " q " } }, [], { id: "ok" }),
+    ],
+  });
+  const [bare, trail, jenny, stamped, mid, orphan, ok] = raw.content;
+  check("a stamp at the front of a sent line becomes the line's place, not its question", stamped.attrs.place?.char === 1200 && stamped.content[0].attrs?.question === "Stamped question");
+  check("a pill alone on a line becomes a thread block", bare.content[0].type === "threadBlock" && bare.content[0].attrs?.thread === "t-bare");
+  check("its question is the pill's label, having nothing else", bare.content[0].attrs?.question === "Ask" && bare.content[0].attrs?.kind === "ask");
+  check("a pill at the end of a line becomes a thread block", trail.content[0].type === "threadBlock" && trail.content[0].attrs?.thread === "t-trail");
+  check("with the words before it as the question", trail.content[0].attrs?.question === "Why is the maestro late?");
+  check("keeping what was nested under it", trail.content.length === 2 && trail.content[1].attrs?.id === "kid");
+  check("and where and when the line was written", trail.attrs.place?.char === HERE.char && trail.attrs.at === NOW);
+  check("a pill to a person becomes a block to a person", jenny.content[0].type === "threadBlock" && jenny.content[0].attrs?.kind === "member");
+  check("a pill mid-sentence stays a pill", mid.content[0].type === "paragraph" && mid.content[0].content?.[1]?.type === "pill");
+  check("a block with no conversation behind it reads as a line", orphan.content[0].type === "paragraph" && orphan.content[0].content?.[0]?.text === "Orphan");
+  check("a block's attrs are tidied", ok.content[0].attrs?.kind === "ask" && ok.content[0].attrs?.question === "q" && ok.content[0].attrs?.title === null);
+  check("lifting twice is the same as once", JSON.stringify(normalizeDoc(raw)) === JSON.stringify(raw));
+}
+
+{
+  const named = newBlock(threadHead({ thread: "t-1", kind: "ask", question: "Why is the maestro late?", title: "The maestro's lateness" }), [newBlock(p("notes on the answer"))], { id: "named", place: { char: 300, label: "p. 3", mark: null }, at: NOW });
+  const unnamed = newBlock(threadHead({ thread: "t-2", kind: "member", question: "Did you see this bit?" }), [], { id: "unnamed" });
+  const doc: NoteDoc = { type: "doc", content: [newBlock(p("Top"), [named]), unnamed] };
+  const md = treeToMarkdown(doc);
+  check(
+    "a conversation is written as the link the pill wrote, wearing its name",
+    md === "Top\n- [p. 3](place:300) [The maestro's lateness](thread:t-1)\n  - notes on the answer\n\n[Did you see this bit?](thread:t-2)\n",
+    JSON.stringify(md)
+  );
+  check("every conversation is found in the derived markdown", pillsIn(md).filter((x) => x.kind === "thread").map((x) => x.thread).join(",") === "t-1,t-2");
+  check("a name is not words", noteWordCount(md) === 5);
+  const prompt = notesForPrompt(md)?.text ?? "";
+  check("the assistant reads the name", prompt.includes("(a conversation branched off here: The maestro's lateness)"), prompt);
+  check("and the question, when there is no name yet", prompt.includes("(a conversation branched off here: Did you see this bit?)"));
+  check("a bare Ask says only that a conversation branched", notesForPrompt("x [Ask](thread:t)")?.text === "x (a conversation branched off here)");
+  check("a conversation names itself in a breadcrumb", blockHeadText(named) === "The maestro's lateness" && blockHeadText(unnamed) === "Did you see this bit?");
+  check("what a line under a conversation sends names it", composeText([named], named.content[1] as NoteBlockJSON).startsWith("Under: The maestro's lateness"));
+}
+
+{
+  // /ask reads the same scope a chip did.
+  const doc: NoteDoc = {
+    type: "doc",
+    content: [
+      newBlock(p("A parent"), [
+        quoteBlock("The passage.", { char: 50, label: "p. 5", mark: "m-5" }),
+        newBlock(p("I don't get it. ", { type: "compose", attrs: { kind: "ask", handle: "ask", name: "Ask" } }), [newBlock(p("detail"))], { id: "q" }),
+      ]),
+    ],
+  };
+  const pm = schema.nodeFromJSON(doc);
+  let chipPos = -1;
+  pm.descendants((n, pos) => {
+    if (n.type.name === "compose") chipPos = pos;
+    return chipPos < 0;
+  });
+  const viaChip = composeScope(pm, chipPos)!;
+  const viaAsk = blockScope(pm, pm.resolve(chipPos))!;
+  check("/ask sends what a chip sent", viaChip.text === viaAsk.text && viaChip.text === "Under: A parent\n\nI don't get it.\n- detail", JSON.stringify(viaAsk.text));
+  check("and is about the same quote", viaChip.quote?.place.mark === viaAsk.quote?.place.mark && viaAsk.quote?.text === "The passage.");
+}
+
+{
+  // The / menu.
+  check("/ offers everything", matchSlashItems("", { canStamp: true }).map((i) => i.id).join(",") === "ask,here,date");
+  check("/a narrows to ask", matchSlashItems("a", { canStamp: true }).map((i) => i.id).join(",") === "ask");
+  check("/x offers nothing", matchSlashItems("x", { canStamp: true }).length === 0);
+  check("here is offered but not runnable with nowhere to point", matchSlashItems("h", { canStamp: false })[0]?.disabled === true);
+
+  const doc: NoteDoc = {
+    type: "doc",
+    content: [
+      newBlock(p("a line"), [], { id: "line" }),
+      quoteBlock("Quoted words.", { char: 1, label: "1%", mark: null }),
+    ],
+  };
+  const state = stateOf(doc, endOfHead(doc, "line"));
+  check("a slash at the end of a line is a command", slashAllowed(state, state.selection.from));
+  check("a slash mid-line is a slash", !slashAllowed(state, state.selection.from - 2));
+  const inQuote = state.doc.content.size - 3;
+  check("a slash inside a quote is a slash", !slashAllowed(state, inQuote));
+}
+
+{
+  // What the keys do around a conversation.
+  const threadDoc = (): NoteDoc => ({
+    type: "doc",
+    content: [
+      newBlock(p("a"), [], { id: "a" }),
+      newBlock(threadHead({ thread: "t-1", kind: "ask", question: "q" }), [newBlock(p("kid"), [], { id: "kid" })], { id: "t" }),
+      newBlock(p("d"), [], { id: "d" }),
+    ],
+  });
+  const posOf = (state: EditorState, id: string) => {
+    let at = -1;
+    state.doc.descendants((n, pos) => {
+      if (at < 0 && n.type.name === "noteBlock" && n.attrs.id === id) at = pos;
+      return at < 0;
+    });
+    return at;
+  };
+  const pickedUp = (state: EditorState, id: string) => {
+    const sel = state.selection;
+    return "node" in sel && (sel as NodeSelection).node?.attrs.id === id;
+  };
+  const isNode = (sel: Selection) => "node" in sel && (sel as { node?: unknown }).node != null;
+
+  const base = stateOf(threadDoc(), 2);
+  const picked = base.apply(base.tr.setSelection(NodeSelection.create(base.doc, posOf(base, "t"))));
+  {
+    const r = run(picked, joinBlockBackward);
+    check("Backspace on a picked-up conversation takes the line out", r.handled && shape(r.state) === "a\n\nkid\n\nd\n", JSON.stringify(shape(r.state)));
+    check("what was under it steps into its place", r.state.doc.child(1).attrs.id === "kid");
+    check("the caret lands on the line above", caretText(r.state) === "a");
+  }
+  {
+    const r = run(picked, joinBlockForward);
+    check("Delete on a picked-up conversation does the same", r.handled && shape(r.state) === "a\n\nkid\n\nd\n");
+  }
+  {
+    const r = run(picked, splitBlock);
+    check("Enter on a picked-up conversation is taken and changes nothing", r.handled && r.tr === null);
+  }
+  {
+    // Backspace at the start of the line below a conversation: picks it up, doesn't eat it.
+    const doc = threadDoc();
+    doc.content[1].attrs.collapsed = true; // folded, so the conversation IS the line above "d"
+    const state = stateOf(doc, endOfHead(doc, "d") - 1);
+    const r = run(state, joinBlockBackward);
+    check("Backspace at the start of the line below picks the conversation up", r.handled && shape(r.state) === shape(state) && pickedUp(r.state, "t"), JSON.stringify(shape(r.state)));
+    // Open, the line above "d" is the conversation's last child, and Backspace joins as usual. From its own first child:
+    doc.content[1].attrs.collapsed = false;
+    const state2 = stateOf(doc, endOfHead(doc, "kid") - 3);
+    const r2 = run(state2, joinBlockBackward);
+    check("Backspace at the start of its first child picks the conversation up", r2.handled && pickedUp(r2.state, "t"), JSON.stringify(shape(r2.state)));
+    const r3 = run(r2.state, joinBlockBackward);
+    check("and the second press takes it out", shape(r3.state) === "a\n\nkid\n\nd\n", JSON.stringify(shape(r3.state)));
+  }
+  {
+    // Delete at the end of the line above a conversation.
+    const doc = threadDoc();
+    const state = stateOf(doc, endOfHead(doc, "a"));
+    const r = run(state, joinBlockForward);
+    check("Delete at the end of the line above picks the conversation up", r.handled && shape(r.state) === shape(state) && pickedUp(r.state, "t"));
+  }
+  {
+    // The arrow keys step over it.
+    const doc = threadDoc();
+    const state = stateOf(doc, endOfHead(doc, "a"));
+    const fwd = Selection.findFrom(state.doc.resolve(state.selection.from + 1), 1);
+    check("→ from the line above lands on the next line with words", fwd != null && !isNode(fwd) && fwd.$from.parent.textContent === "kid");
+    const back = Selection.findFrom(state.doc.resolve(endOfHead(doc, "kid") - 4), -1);
+    check("← from the line below lands on the line above", back != null && !isNode(back) && back.$from.parent.textContent === "a");
+  }
+  {
+    // Opening the note lands on a conversation at the end: picked up, not lost.
+    const doc: NoteDoc = { type: "doc", content: [newBlock(p("a")), newBlock(threadHead({ thread: "t", kind: "ask", question: "q" }), [], { id: "t" })] };
+    const r = run(stateOf(doc, 2), focusEndVisible);
+    check("the end of a note that ends in a conversation is the conversation", pickedUp(r.state, "t"));
+    check("a picked-up conversation is left where it is", liftHiddenSelection(r.state) === null);
+  }
+  {
+    // Becoming a conversation keeps the line's record, and isn't a new line.
+    const doc: NoteDoc = { type: "doc", content: [newBlock(p("words"), [], { id: "w", place: HERE, at: "2020-01-01T00:00:00.000Z" })] };
+    const state = stamping(doc, 3);
+    const head = state.schema.nodeFromJSON(threadHead({ thread: "t", kind: "ask", question: "words" }));
+    const tr = state.tr.replaceWith(1, 1 + state.doc.child(0).firstChild!.nodeSize, head).setMeta(NOTEPAD_NO_STAMP_META, true);
+    const next = state.apply(tr);
+    check("a line that became a conversation keeps where it was written", recordOf(next, 0).at === "2020-01-01T00:00:00.000Z" && recordOf(next, 0).place?.char === HERE.char);
+    check("and reads as one", next.doc.child(0).firstChild!.type.name === "threadBlock");
+  }
+}
 
 /* ------------------------------------------------------------------ */
 
