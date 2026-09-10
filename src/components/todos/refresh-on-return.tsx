@@ -8,9 +8,10 @@ import { useTodosRefresh } from "@/lib/todos/shell-refresh";
  * window), but the data is re-read into the mounted shell rather than by
  * re-running the route. Coming back to a window with a half-written to-do in it
  * must not cost you the to-do — and after any instant view switch, a route
- * refresh would remount the whole screen (see shell-refresh.ts).
+ * refresh would remount the whole screen (see shell-refresh.ts). Because the
+ * re-read never remounts, it's safe to run while you're typing, so it does.
  */
 export function TodosRefreshOnReturn() {
-  useRefreshOnReturn(useTodosRefresh());
+  useRefreshOnReturn(useTodosRefresh(), { safeWhileTyping: true });
   return null;
 }

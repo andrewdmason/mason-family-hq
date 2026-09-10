@@ -2,6 +2,7 @@
 
 import { useCallback, useRef } from "react";
 import { useTodosRefresh } from "@/lib/todos/shell-refresh";
+import { isStaleBuildError, reloadForNewBuild } from "@/lib/sync/refresh";
 
 /**
  * Optimistic-mutation bookkeeping for the todos client components.
@@ -32,6 +33,13 @@ export function useReconciler() {
       pending.current += 1;
       try {
         await action;
+      } catch (err) {
+        // A page from a build the server has retired can't write anything:
+        // every action 404s, and the optimistic row it just drew is a lie.
+        // Reload onto the current build (once the cursor is out of a field)
+        // rather than let each mutation quietly evaporate.
+        if (isStaleBuildError(err)) reloadForNewBuild();
+        throw err;
       } finally {
         pending.current -= 1;
         if (pending.current === 0) refresh();
