@@ -1,8 +1,9 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "@/lib/journal/anthropic";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { recordMentions } from "@/lib/reading/thread-mentions";
+import { refreshThreadTitle } from "@/lib/reading/thread-title";
 import {
   buildReaderChatContext,
   CHAT_CONTEXT_COLUMNS,
@@ -71,6 +72,27 @@ export async function POST(req: NextRequest) {
     .eq("user_id", userId)
     .maybeSingle();
   if (!book) return new Response("book not found", { status: 404 });
+
+  // The conversation's name follows the answer (thread-title.ts). Registered
+  // here, in the request, and handed a promise the stream settles once the
+  // reply is on disk — `after` can't be called from inside the stream, and
+  // nothing in the stream should wait on a model call the reader didn't ask
+  // for. A turn that fails leaves no reply and gets no rename.
+  let settleReply: (persisted: boolean) => void = () => {};
+  const replied = new Promise<boolean>((resolve) => {
+    settleReply = resolve;
+  });
+  const renameAfterReply = async () => {
+    // The reader going away mid-answer is the one way the stream never
+    // settles; a cap keeps that from holding the function open for nothing.
+    const gaveUp = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 15 * 60 * 1000));
+    if (await Promise.race([replied, gaveUp])) await refreshThreadTitle(chat.thread_id);
+  };
+  try {
+    after(renameAfterReply);
+  } catch {
+    void renameAfterReply();
+  }
 
   // Thread so far. 'notice' rows are app-authored UI text and never go to the
   // model; 'note' rows are the reader's own writing and do — see the marker
@@ -224,6 +246,9 @@ export async function POST(req: NextRequest) {
   const tools = readerWebSearchTools(model);
 
   const stream = new ReadableStream<Uint8Array>({
+    cancel() {
+      settleReply(false);
+    },
     async start(controller) {
       const encoder = new TextEncoder();
       let full = "";
@@ -348,8 +373,10 @@ export async function POST(req: NextRequest) {
             .update({ last_message_at: new Date().toISOString() })
             .eq("id", chat.thread_id);
         }
+        settleReply(trimmed.length > 0);
         controller.close();
       } catch (err) {
+        settleReply(false);
         const msg = err instanceof Error ? err.message : String(err);
         // Marked so the client can render it as an error rather than as text
         // the assistant said. Not persisted — a failed turn leaves no message.

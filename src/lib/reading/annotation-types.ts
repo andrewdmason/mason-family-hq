@@ -225,6 +225,15 @@ export type AnnotationSummary = {
    * that is still only highlighted.
    */
   firstQuestion: string | null;
+  /**
+   * The conversation's name — "Why the maestro is late" — generated from its
+   * opening and refreshed as it moves (thread-title.ts). What the notepad's
+   * thread block and the marks list show. Null until the first generation
+   * lands, which is a second or two after the thread starts.
+   */
+  title: string | null;
+  /** The reader wrote the title themselves; the generator leaves it alone. */
+  titlePinned: boolean;
   createdAt: string;
 };
 

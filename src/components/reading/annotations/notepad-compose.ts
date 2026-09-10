@@ -1,7 +1,7 @@
 import { mergeAttributes, Node } from "@tiptap/core";
 import type { Node as PMNode, ResolvedPos } from "@tiptap/pm/model";
 import type { NotePlace } from "@/lib/reading/notes";
-import { composeText, provenanceOf, type NoteBlockJSON } from "@/lib/reading/note-tree";
+import { composeText, provenanceOf, THREAD_BLOCK, type NoteBlockJSON } from "@/lib/reading/note-tree";
 import { blockAt, inHead, isBlock, type BlockInfo } from "./notepad-block-commands";
 import { PILL_NODE, pillOf } from "./notepad-pill";
 
@@ -9,13 +9,15 @@ import { PILL_NODE, pillOf } from "./notepad-pill";
 type MarkdownSerializerState = { write: (text: string) => void };
 
 /**
- * The chip that turns a paragraph of notes into a conversation.
+ * The chip that turns a paragraph of notes into a conversation with a person.
  *
- * Typing @ and picking "Ask" or a person drops one of these where the @ was.
- * It is a promise about the paragraph it sits in: Enter sends that paragraph —
- * and any written directly above it, back to the nearest quote — off as the
- * first message of a thread, and the chip becomes a pill that opens the
- * thread. Until Enter it is inert; delete it and nothing was promised.
+ * Typing @ and picking somebody drops one of these where the @ was. It is a
+ * promise about the paragraph it sits in: Enter sends that paragraph — with
+ * where it sits in the outline, and the nearest quote above — off as the
+ * first message of a thread with them, and the line becomes a thread block
+ * that opens it (notepad-thread-block.ts). Until Enter it is inert; delete
+ * it and nothing was promised. Asking the AI is `/ask`, not a chip: a
+ * command, run the moment it's given.
  *
  * Not a pill. A pill stands for something that exists — a place, a day, a
  * thread — and this stands for something about to. It is serialized as the
@@ -54,12 +56,7 @@ export const NotepadCompose = Node.create({
 
   renderHTML({ node, HTMLAttributes }) {
     const kind = node.attrs.kind as ComposeKind;
-    const label =
-      kind === "ask"
-        ? node.attrs.quoted
-          ? "Ask about the passage above"
-          : "Ask"
-        : `@${node.attrs.name as string}`;
+    const label = kind === "ask" ? "Ask" : `@${node.attrs.name as string}`;
     return [
       "span",
       mergeAttributes(HTMLAttributes, {
@@ -115,18 +112,39 @@ export function composeScope(doc: PMNode, chipPos: number): ComposeScope | null 
   const chip = doc.nodeAt(chipPos);
   if (!chip || chip.type.name !== COMPOSE_NODE) return null;
   const $chip = doc.resolve(chipPos);
-  const b = blockAt($chip);
-  if (!b || !inHead($chip)) return null;
+  if (!inHead($chip)) return null;
+  const scope = blockScope(doc, $chip);
+  if (!scope) return null;
+  return {
+    ...scope,
+    chipPos,
+    kind: chip.attrs.kind as ComposeKind,
+    handle: chip.attrs.handle as string,
+    name: chip.attrs.name as string,
+  };
+}
+
+/** What a line sends, and the quote it's about — for a chip or for /ask alike. */
+export type BlockScope = Pick<ComposeScope, "text" | "quote">;
+
+/**
+ * The scope of the line around a position inside its head: see composeScope
+ * for what that is. `$pos` can be anywhere in the head — where a chip sits,
+ * or where the caret was when `/ask` was typed.
+ */
+export function blockScope(doc: PMNode, $pos: ResolvedPos): BlockScope | null {
+  const b = blockAt($pos);
+  if (!b) return null;
 
   const ancestors: NoteBlockJSON[] = [];
   for (let d = 1; d < b.depth; d++) {
-    const n = $chip.node(d);
+    const n = $pos.node(d);
     if (isBlock(n)) ancestors.push(n.toJSON() as NoteBlockJSON);
   }
   const text = composeText(ancestors, b.node.toJSON() as NoteBlockJSON);
 
   let quote: ComposeScope["quote"] = null;
-  const above = quoteNear($chip, b);
+  const above = quoteNear($pos, b);
   if (above) {
     // Where a clipped passage came from is the LINE's, not the text's. A pill
     // inside the quote is the older shape and is still read, for a note whose
@@ -145,14 +163,7 @@ export function composeScope(doc: PMNode, chipPos: number): ComposeScope | null 
     if (place && quoteText) quote = { text: quoteText, place };
   }
 
-  return {
-    text,
-    quote,
-    chipPos,
-    kind: chip.attrs.kind as ComposeKind,
-    handle: chip.attrs.handle as string,
-    name: chip.attrs.name as string,
-  };
+  return { text, quote };
 }
 
 /** Whether a quote sits just above the block at `pos` — for the chip's wording. */
@@ -177,7 +188,8 @@ function quoteNear($pos: ResolvedPos, b: BlockInfo): PMNode | null {
     const head = prev.firstChild;
     if (!head) return null;
     if (head.type.name === "blockquote") return prev;
-    if (head.type.name === "paragraph" && hasWords(head)) {
+    // A conversation is a line with words in it, as far as this walk goes.
+    if ((head.type.name === "paragraph" && hasWords(head)) || head.type.name === THREAD_BLOCK) {
       i -= 1;
       continue;
     }

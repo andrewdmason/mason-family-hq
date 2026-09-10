@@ -2,18 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  backfillThreadTitles,
   createAnnotation,
   deleteAnnotation,
   discardAnnotationIfEmpty,
   getAnnotation,
   getAnnotationData,
   openBookDocument,
-  setBookSpoilerFree,
   postAnnotationMessage,
+  seedThreadTitle,
   setAnnotationModelPreference,
   setAnnotationSpoilerFree,
   setAnnotationStarred,
   setAnnotationTemplate,
+  setAnnotationTitle,
+  setBookSpoilerFree,
 } from "@/app/(reading)/reader/annotation-actions";
 import {
   appendBookNoteClip,
@@ -66,6 +69,7 @@ import { ChapterMenu } from "./chapter-menu";
 import { GutterMarkers } from "./gutter-markers";
 import { useGutterPlacement, type PagedGutterContext } from "./gutter-placement";
 import { Notepad, type ComposeRequest, type NoteClip, type NoteMarkFix } from "./notepad";
+import type { ThreadFacts } from "./notepad-thread-block";
 import { PanelDockToggle } from "./panel-dock-toggle";
 import { SelectionToolbar, type SelectionIntent } from "./selection-toolbar";
 import { ContinuePill } from "./continue-pill";
@@ -190,7 +194,12 @@ function sameMarks(
       // a margin marker at all. Leave it out and a star set on another device
       // would land in the database and never reach this screen, because the
       // gate below would decide the refetch drew the same thing.
-      a.starred === b.starred
+      a.starred === b.starred &&
+      // The notepad's thread blocks and the list draw the name; without this a
+      // title generated after the last fetch would land in the database and
+      // never on screen, for the same reason as the star.
+      a.title === b.title &&
+      a.aiParticipant === b.aiParticipant
     );
   });
 }
@@ -653,6 +662,12 @@ export function ReaderAnnotationLayer({
     [bookId, memberEmail]
   );
 
+  /** After a reply: the list now, and again once the name has had time to land. */
+  const afterExchange = useCallback(() => {
+    void refreshList();
+    setTimeout(() => void refreshList(), 3000);
+  }, [refreshList]);
+
   // Keyed on the book, so opening a second one in the same tab re-reads rather
   // than carrying the first book's filter into it.
   useEffect(() => setStarredOnly(loadStarredOnly(bookId)), [bookId]);
@@ -889,6 +904,9 @@ export function ReaderAnnotationLayer({
         messageCount: 0,
         lastMessageAt: null,
         firstQuestion: null,
+        // Named once it has been asked something; nothing to name yet.
+        title: null,
+        titlePinned: false,
         createdAt: new Date().toISOString(),
       };
     },
@@ -1190,12 +1208,44 @@ export function ReaderAnnotationLayer({
     [currentCharOffset, isArticle, placeAt, totalChars]
   );
 
-  /** Replies per thread, for the notepad's conversation pills. */
-  const threadReplyCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const c of chats) counts.set(c.id, c.messageCount);
-    return counts;
+  /** What the notepad's thread blocks draw: the name, the count, who's in it. */
+  const threadFacts = useMemo(() => {
+    const facts = new Map<string, ThreadFacts>();
+    for (const c of chats) {
+      facts.set(c.id, {
+        title: c.title,
+        replies: c.messageCount,
+        unread: c.unreadCount,
+        ai: c.aiParticipant,
+        participants: c.participants.map((p) => ({ userId: p.userId, name: p.name })),
+        createdAt: c.createdAt,
+      });
+    }
+    return facts;
   }, [chats]);
+
+  /**
+   * Conversations from before conversations had names get one now, a few
+   * per visit, once the marks have loaded. Then the list is read again so
+   * the names reach the blocks. Once per book per mount.
+   */
+  const backfilledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!data || isArticle || backfilledRef.current === bookId) return;
+    backfilledRef.current = bookId;
+    if (!data.chats.some((c) => !c.title && (c.messageCount > 0 || c.noteCount > 0))) return;
+    void backfillThreadTitles(bookId, memberEmail)
+      .then((n) => {
+        if (n > 0) void refreshList();
+      })
+      .catch(() => {});
+  }, [bookId, data, isArticle, memberEmail, refreshList]);
+
+  // The name of a conversation lands a beat after its reply. Coming back to
+  // the notes is when it will be looked for, so the list is re-read then.
+  useEffect(() => {
+    if (mode === "notes") void refreshList();
+  }, [mode, refreshList]);
 
   /** Whether the notepad is on screen right now, readable from inside a callback. */
   const notesShowingRef = useRef(false);
@@ -1993,7 +2043,12 @@ export function ReaderAnnotationLayer({
 
       if (req.quote?.place.mark) {
         const existing = await getAnnotation(req.quote.place.mark, memberEmail);
-        if (existing) annotationId = existing.id;
+        if (existing) {
+          annotationId = existing.id;
+          // A conversation that already existed, asked its first question
+          // from here: named from it, if it has no name yet.
+          void seedThreadTitle(existing.id, req.text, memberEmail).catch(() => {});
+        }
       }
       if (!annotationId && req.quote) {
         const gap = anchorForGap(
@@ -2014,6 +2069,7 @@ export function ReaderAnnotationLayer({
           quotedText: resolved.quotedText,
           plainQuotedText: resolved.plainQuotedText,
           askNor: req.kind === "ask",
+          openingQuestion: req.text,
           memberEmail,
         });
         annotationId = created.id;
@@ -2095,6 +2151,40 @@ export function ReaderAnnotationLayer({
       }
     },
     [memberEmail, realIdFor]
+  );
+
+  /**
+   * The reader names the conversation. Shown at once, written behind, put
+   * back if the write fails — the star's shape. The name is the thread's, so
+   * it is patched onto every row that points at it, not only the open one.
+   */
+  const renameThread = useCallback(
+    async (annotationId: string, title: string) => {
+      const before = { title: detail?.title ?? null, pinned: detail?.titlePinned ?? false };
+      const patch = (value: string | null, pinned: boolean) => {
+        setDetail((d) => (d && d.id === annotationId ? { ...d, title: value, titlePinned: pinned } : d));
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                chats: prev.chats.map((c) =>
+                  c.id === annotationId ? { ...c, title: value, titlePinned: pinned } : c
+                ),
+              }
+            : prev
+        );
+      };
+      const clean = title.trim() || null;
+      patch(clean, clean != null);
+      try {
+        const id = await realIdFor(annotationId);
+        const stored = await setAnnotationTitle(id, title, memberEmail);
+        patch(stored, stored != null);
+      } catch {
+        patch(before.title, before.pinned);
+      }
+    },
+    [detail, memberEmail, realIdFor]
   );
 
   /**
@@ -2225,7 +2315,7 @@ export function ReaderAnnotationLayer({
               onOpenPlace={openPlace}
               onOpenThread={openThread}
               onCompose={composeThread}
-              replyCounts={threadReplyCounts}
+              threadFacts={threadFacts}
               onChange={holdNote}
               onSaved={noteSaved}
               onBack={backToList}
@@ -2297,14 +2387,17 @@ export function ReaderAnnotationLayer({
             onTouched={markTouched}
             // A sent message promotes a highlight to a chat, which changes both
             // its colour and whether it gets a margin icon. Refetch so the
-            // change outlives the panel being open.
-            onExchangeComplete={refreshList}
+            // change outlives the panel being open — and again a beat later,
+            // for the name the reply gives the conversation (thread-title.ts),
+            // which is written after the stream closes.
+            onExchangeComplete={afterExchange}
             onSpoilerFreeChange={(v) => void changeSpoilerFree(v)}
             onModelChange={(v) => void changeModel(v)}
             onPickTemplate={pickTemplate}
             mentionTargets={mentionTargets}
             onAddNote={addNote}
             onToggleStar={(next) => void toggleStar(detail.id, next)}
+            onRename={(title) => renameThread(detail.id, title)}
             dockToggle={dockToggle}
             openingQuestion={openingQuestion?.id === detail.id ? openingQuestion.text : null}
           />

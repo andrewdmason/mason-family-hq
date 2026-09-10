@@ -4,15 +4,23 @@ import { pillMarkdown, placeMarkdown, shouldStamp, type NotePill, type NotePlace
 /**
  * The notepad as a tree.
  *
- * Every line of the notepad is a BLOCK: a head (a paragraph, a heading, or a
- * quote that landed from a highlight) followed by any blocks nested under it.
+ * Every line of the notepad is a BLOCK: a head (a paragraph, a heading, a
+ * quote that landed from a highlight, or a conversation that branched off)
+ * followed by any blocks nested under it.
  * A block can be collapsed, hiding what's under it; that is part of the note,
  * saved with it, and the same on every device — the Workflowy and Roam rule,
  * not the Obsidian one.
  *
  *   doc        := noteBlock+
- *   noteBlock  := (paragraph | heading | blockquote) noteBlock*
+ *   noteBlock  := (paragraph | heading | blockquote | threadBlock) noteBlock*
  *                 attrs { id, collapsed, place, at }
+ *
+ * A THREAD BLOCK is a line that became a conversation — the reader ended it
+ * with /ask, or sent it to somebody with @ — and now stands for that
+ * conversation in the outline, wearing its name. Its text is not editable;
+ * the words that started it are the thread's first message. See
+ * notepad-thread-block.ts for how it is drawn and thread-title.ts for how it
+ * gets its name.
  *
  * `place` and `at` are the line's PROVENANCE: where the reader was in the
  * book when the line was written, and when. Recorded silently as each line
@@ -38,6 +46,7 @@ import { pillMarkdown, placeMarkdown, shouldStamp, type NotePill, type NotePlace
 export const NOTE_BLOCK = "noteBlock";
 export const PILL_NODE = "pill";
 export const COMPOSE_NODE = "compose";
+export const THREAD_BLOCK = "threadBlock";
 
 /**
  * Set on transactions the notepad makes itself — a clip landing, a pill from
@@ -76,7 +85,24 @@ export type NoteDoc = {
   content: NoteBlockJSON[];
 };
 
-const HEAD_TYPES = new Set(["paragraph", "heading", "blockquote"]);
+/**
+ * What a thread block knows. `thread` is the annotation the conversation is
+ * reached through — the same id the old thread pill carried. `title` is a
+ * COPY of the conversation's name as last seen, so the block reads right the
+ * instant the note opens, before the list of marks has loaded; the live name
+ * is drawn over it (notepad.tsx) and written back here when it changes.
+ * `question` is the line's own words at the moment it was sent: what the
+ * block says until a name exists, and what the markdown says of it then.
+ */
+export type ThreadBlockAttrs = {
+  thread: string;
+  title: string | null;
+  /** Who the line went to: the AI, or a person. */
+  kind: "ask" | "member";
+  question: string;
+};
+
+const HEAD_TYPES = new Set(["paragraph", "heading", "blockquote", THREAD_BLOCK]);
 
 /** Short, random, and unique enough for the lines of one notepad. */
 export function newId(): string {
@@ -108,6 +134,27 @@ export function newBlock(
 
 export function emptyParagraph(): JSONContent {
   return { type: "paragraph" };
+}
+
+/** A conversation's head, for the line that became one. */
+export function threadHead(attrs: {
+  thread: string;
+  kind: ThreadBlockAttrs["kind"];
+  question: string;
+  title?: string | null;
+}): JSONContent {
+  return {
+    type: THREAD_BLOCK,
+    attrs: { thread: attrs.thread, title: attrs.title ?? null, kind: attrs.kind, question: attrs.question },
+  };
+}
+
+/** What a thread block shows: its name, or the words that started it. */
+export function threadLabel(attrs: Record<string, unknown> | undefined): string {
+  const title = typeof attrs?.title === "string" ? attrs.title.trim() : "";
+  if (title) return title;
+  const question = typeof attrs?.question === "string" ? attrs.question.trim() : "";
+  return question || "A conversation";
 }
 
 /** A note with nothing in it: one block, one empty line. */
@@ -162,9 +209,9 @@ function normalizeBlock(block: NoteBlockJSON, seen: Set<string>): NoteBlockJSON 
 
   const content = block.content ?? [];
   const first = content[0];
-  const head: JSONContent =
-    first && first.type && HEAD_TYPES.has(first.type) ? first : emptyParagraph();
-  const rest = first && first.type && HEAD_TYPES.has(first.type) ? content.slice(1) : content;
+  const isHead = !!(first && first.type && HEAD_TYPES.has(first.type));
+  const cleaned = isHead ? cleanHead(first) : { head: emptyParagraph(), place: null };
+  const rest = isHead ? content.slice(1) : content;
 
   const children: NoteBlockJSON[] = [];
   for (const child of rest) {
@@ -173,9 +220,81 @@ function normalizeBlock(block: NoteBlockJSON, seen: Set<string>): NoteBlockJSON 
   }
   return {
     type: NOTE_BLOCK,
-    attrs: { id, collapsed: attrs.collapsed === true, place: cleanPlace(attrs.place), at: cleanAt(attrs.at) },
-    content: [head, ...children],
+    attrs: {
+      id,
+      collapsed: attrs.collapsed === true,
+      place: cleanPlace(attrs.place) ?? cleaned.place,
+      at: cleanAt(attrs.at),
+    },
+    content: [cleaned.head, ...children],
   };
+}
+
+/**
+ * A head as stored, made well-formed.
+ *
+ * A thread block that has lost the one thing it needs — the conversation it
+ * points at — is no longer a conversation, and reads as a line saying what
+ * the block said. And a paragraph that ENDS in a thread pill is the older
+ * shape of the same thing, lifted: see liftThreadPill.
+ */
+function cleanHead(head: JSONContent): { head: JSONContent; place: NotePlace | null } {
+  if (head.type === THREAD_BLOCK) {
+    const a = (head.attrs ?? {}) as Partial<ThreadBlockAttrs>;
+    const thread = typeof a.thread === "string" ? a.thread.trim() : "";
+    const title = typeof a.title === "string" && a.title.trim() ? a.title.trim() : null;
+    const question = typeof a.question === "string" ? a.question.trim() : "";
+    if (!thread) {
+      const text = title ?? question;
+      return { head: text ? { type: "paragraph", content: [{ type: "text", text }] } : emptyParagraph(), place: null };
+    }
+    return { head: threadHead({ thread, kind: a.kind === "member" ? "member" : "ask", question, title }), place: null };
+  }
+  if (head.type === "paragraph") return liftThreadPill(head) ?? { head, place: null };
+  return { head, place: null };
+}
+
+/**
+ * The line a conversation used to leave behind, as the block it is now.
+ *
+ * Before thread blocks, sending a line left the line as it was with a pill
+ * at its END — "Why is the maestro late? [Ask]" — or, sent from an empty
+ * line, a pill on its own. Both become a thread block: the words before the
+ * pill are the question it asked, the pill's label says who it went to. A
+ * pill anywhere ELSE in a line was put there on purpose and stays a pill.
+ *
+ * Runs on every read (normalizeDoc), so a note is lifted the first time it is
+ * opened after the change and saved in the new shape straight after.
+ */
+function liftThreadPill(head: JSONContent): { head: JSONContent; place: NotePlace | null } | null {
+  const inline = (head.content ?? []).slice();
+  while (inline.length > 0 && isBlankText(inline[inline.length - 1])) inline.pop();
+  const last = inline[inline.length - 1];
+  if (!last || last.type !== PILL_NODE) return null;
+  const pill = pillOfAttrs(last.attrs);
+  if (pill.kind !== "thread" || !pill.thread) return null;
+  let words = inline.slice(0, -1);
+  if (words.some((n) => n.type === PILL_NODE && pillOfAttrs(n.attrs).kind === "thread")) return null;
+  // The auto-stamp of the day put a place at the front of the line. That is
+  // the line's place, not part of its question — the same lift
+  // absorbPlacePills does, done here because the paragraph is about to stop
+  // being one.
+  const stamped = dropLeadingPill(words);
+  if (stamped) words = stamped.inline;
+  const question = inlineText(words).trim();
+  const label = pill.label.trim();
+  return {
+    head: threadHead({
+      thread: pill.thread,
+      kind: label === "Ask" || label === "" ? "ask" : "member",
+      question: question || label,
+    }),
+    place: stamped?.place ?? null,
+  };
+}
+
+function isBlankText(node: JSONContent | undefined): boolean {
+  return !!node && node.type === "text" && !(node.text ?? "").trim();
 }
 
 /** A place out of stored JSON, or null for anything that isn't one. */
@@ -482,6 +601,13 @@ function nestedLines(block: NoteBlockJSON, depth: number, said: Said): string[] 
  */
 function headLines(head: JSONContent, indent: string, place: NotePlace | null): string[] {
   const stamp = place ? placeMarkdown(place) : "";
+  if (head.type === THREAD_BLOCK) {
+    // The same link the thread pill wrote, so everything that read a pill
+    // — pillsIn, the prompt's aside, the word count — reads a block.
+    const a = head.attrs as ThreadBlockAttrs | undefined;
+    const link = pillMarkdown({ kind: "thread", thread: a?.thread ?? "", label: threadLabel(a) });
+    return [`${indent}${stamp ? `${stamp} ` : ""}${link}`];
+  }
   if (head.type === "heading") {
     const level = Math.max(1, Math.min(6, Number(head.attrs?.level ?? 1)));
     const body = inlineLines(head.content ?? [], indent);
@@ -592,10 +718,11 @@ function inlineMarkdown(inline: JSONContent[]): string {
 
 /**
  * A head as plain words: pills become their labels, the chip is left out,
- * a quote's paragraphs are joined by newlines.
+ * a quote's paragraphs are joined by newlines, a conversation is its name.
  */
 export function blockHeadText(block: NoteBlockJSON): string {
   const head = headOf(block);
+  if (head.type === THREAD_BLOCK) return threadLabel(head.attrs);
   if (head.type === "blockquote") {
     return (head.content ?? [])
       .map((p) => inlineText(p.content ?? []).trim())

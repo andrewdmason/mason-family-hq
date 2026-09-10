@@ -584,6 +584,161 @@
   outline-offset: 1px;
 }
 
+/* A line that became a conversation (notepad-thread-block.ts): one sans line
+   on a hairline, rounded like the quote's paper but with no fill of its own —
+   a quote is a scrap laid INTO the pad, a conversation is a door OUT of it.
+   Who's in it at the front, how much has been said at the end. The dot is
+   something unread. */
+.notepad-editor .ntb {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.125em 0;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 0.375rem;
+  background: color-mix(in oklab, var(--foreground) 1.5%, transparent);
+  font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--foreground);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: border-color 120ms, background-color 120ms;
+}
+
+.notepad-editor .ntb:hover {
+  border-color: color-mix(in srgb, var(--border) 95%, transparent);
+  background: color-mix(in oklab, var(--foreground) 3%, transparent);
+}
+
+.notepad-editor .ntb-glyph {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex: none;
+  color: var(--muted-foreground);
+}
+
+.notepad-editor .ntb-glyph svg {
+  display: block;
+}
+
+/* A person in it: their initial, in a small round face. */
+.notepad-editor .ntb-face {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.6rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.notepad-editor .ntb-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notepad-editor .ntb-count {
+  flex: none;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.notepad-editor .ntb-count[data-replies]::after {
+  content: attr(data-replies);
+}
+
+.notepad-editor .ntb-dot {
+  display: none;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.notepad-editor .ntb[data-unread="true"] .ntb-dot {
+  display: block;
+}
+
+/* No name yet: the words that started it, quieter. */
+.notepad-editor .ntb[data-nameless="true"] .ntb-title {
+  color: var(--muted-foreground);
+}
+
+/* The mark it points at is gone from this copy of the book. */
+.notepad-editor .ntb[data-missing="true"] {
+  border-style: dashed;
+  color: var(--muted-foreground);
+  cursor: default;
+}
+
+/* Waiting: for the name (the sparkle breathes), or — before the line has
+   even become a block — for the conversation to be made at all. */
+@keyframes notepad-thread-pulse {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.notepad-editor .ntb[data-settling="true"] .ntb-glyph {
+  animation: notepad-thread-pulse 1.2s ease-in-out infinite alternate;
+}
+
+.notepad-editor [data-note-block][data-pending="true"] > .nb-body > p,
+.notepad-editor [data-note-block][data-pending="true"] > .nb-body > h1,
+.notepad-editor [data-note-block][data-pending="true"] > .nb-body > h2,
+.notepad-editor [data-note-block][data-pending="true"] > .nb-body > h3 {
+  color: var(--muted-foreground);
+}
+
+.notepad-editor [data-note-block][data-pending="true"] > .nb-body > p::before,
+.notepad-editor [data-note-block][data-pending="true"] > .nb-body > h1::before,
+.notepad-editor [data-note-block][data-pending="true"] > .nb-body > h2::before,
+.notepad-editor [data-note-block][data-pending="true"] > .nb-body > h3::before {
+  content: "✦";
+  display: inline-block;
+  margin-right: 0.4em;
+  color: var(--muted-foreground);
+  animation: notepad-thread-pulse 1.2s ease-in-out infinite alternate;
+}
+
+/* The line picked up — Backspace's first press, or Enter about to open it. */
+.notepad-editor [data-note-block].ProseMirror-selectednode > .nb-body > .ntb {
+  border-color: var(--ring);
+}
+
+.eink .notepad-editor .ntb {
+  background: var(--card);
+  border-color: var(--border);
+}
+
+.eink .notepad-editor .ntb[data-settling="true"] .ntb-glyph,
+.eink .notepad-editor [data-note-block][data-pending="true"] > .nb-body > p::before {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notepad-editor .ntb[data-settling="true"] .ntb-glyph,
+  .notepad-editor [data-note-block][data-pending="true"] > .nb-body > p::before {
+    animation: none;
+  }
+}
+
 /* Two voices. The notepad is the reader's, set in the app's sans so it can't
    be mistaken for a third column of the book. A quote is the author's, and
    keeps the book's serif at the book's size — the one thing in the pad that

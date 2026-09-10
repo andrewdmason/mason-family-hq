@@ -299,6 +299,16 @@ export function AnnotationList({
                           />
                         )}
                         <div className="min-w-0 flex-1">
+                          {/* The conversation's name, when it has one — the
+                              same name its line in the notepad wears, so a
+                              thread found here and a thread found there read
+                              as the same thing. Above the passage, which is
+                              context for it. */}
+                          {a.title && (
+                            <p className="mb-0.5 line-clamp-1 text-[13px] font-medium leading-snug text-foreground">
+                              {a.title}
+                            </p>
+                          )}
                           {a.quotedText ? (
                             <p
                               className={cn(
@@ -318,13 +328,14 @@ export function AnnotationList({
                                 </span>
                               )}
                             </p>
-                          ) : (
+                          ) : a.title ? null : (
                             // A conversation about a place rather than a passage
                             // has no quote to show, so it shows what you asked.
                             // "In the text" was the old answer and it named
                             // nothing — this list is the retrieval surface, so an
                             // entry that can't be told apart from the next one is
-                            // the whole failure.
+                            // the whole failure. (Named above when it has a name,
+                            // which says the same thing shorter.)
                             <p
                               className={cn(
                                 "text-[13px] leading-snug",

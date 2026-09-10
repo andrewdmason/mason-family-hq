@@ -19,6 +19,7 @@ import { recordMentions } from "@/lib/reading/thread-mentions";
 import type { StoredMention } from "@/lib/reading/mentions";
 import { listRoster } from "@/lib/members/roster";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { refreshThreadTitle, scheduleTitleRefresh, cleanTitle } from "@/lib/reading/thread-title";
 
 /**
  * Reader chat: anchored conversations about a book.
@@ -43,7 +44,7 @@ const CHAT_COLUMNS =
   // Embedded rather than fetched separately: the composer needs to know whether
   // Nor is listening before the reader types their first character, and a second
   // round trip would leave the chip guessing for as long as it took.
-  "reading_annotation_threads(ai_participant)";
+  "reading_annotation_threads(ai_participant, title, title_pinned)";
 
 type AnnotationRow = {
   id: string;
@@ -71,7 +72,11 @@ type AnnotationRow = {
   created_at: string;
   shared_from_user_id: string | null;
   anchor_status: string;
-  reading_annotation_threads: { ai_participant: boolean } | null;
+  reading_annotation_threads: {
+    ai_participant: boolean;
+    title: string | null;
+    title_pinned: boolean;
+  } | null;
 };
 
 type ReadingClient = Awaited<ReturnType<typeof resolveReadingScope>>["client"];
@@ -277,6 +282,8 @@ function toSummary(
     messageCount: counts?.messageCount ?? 0,
     lastMessageAt: counts?.lastMessageAt ?? null,
     firstQuestion: counts?.firstQuestion ?? null,
+    title: row.reading_annotation_threads?.title ?? null,
+    titlePinned: row.reading_annotation_threads?.title_pinned === true,
     createdAt: row.created_at,
   };
 }
@@ -471,6 +478,12 @@ export async function createAnnotation(input: {
    * passed. Defaults to true: every caller that doesn't say is asking.
    */
   askNor?: boolean;
+  /**
+   * The line that started this, when the caller has it in hand before the
+   * first message lands — an Ask's opening goes out from the thread itself,
+   * after this returns. Lets the conversation be named straight away.
+   */
+  openingQuestion?: string | null;
   memberEmail?: string | null;
 }): Promise<AnnotationDetail> {
   const { client, userId } = await resolveReadingScope(input.memberEmail);
@@ -562,7 +575,112 @@ export async function createAnnotation(input: {
     role: "owner",
   });
 
+  // Named from the question alone, behind the response, so the line in the
+  // notepad settles a beat after Enter rather than after the whole answer.
+  const opening = input.openingQuestion?.trim();
+  if (opening) scheduleTitleRefresh(threadId, { seed: opening });
+
   return { ...toSummary(row), messages: [] };
+}
+
+/**
+ * Name a thread that already exists from a line just sent into it — a
+ * question asked from the notepad under a quote whose mark already had a
+ * conversation. Only when it has no name yet; a named thread will be renamed
+ * by the reply, if the reply warrants it.
+ */
+export async function seedThreadTitle(
+  annotationId: string,
+  question: string,
+  memberEmail?: string | null
+): Promise<void> {
+  const seed = question.trim();
+  if (!seed) return;
+  const { client, userId } = await resolveReadingScope(memberEmail);
+  const { data: row } = await client
+    .from("reading_annotations")
+    .select("thread_id, reading_annotation_threads(title, title_pinned)")
+    .eq("id", annotationId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!row) return;
+  const r = row as unknown as {
+    thread_id: string;
+    reading_annotation_threads: { title: string | null; title_pinned: boolean } | null;
+  };
+  if (r.reading_annotation_threads?.title || r.reading_annotation_threads?.title_pinned) return;
+  scheduleTitleRefresh(r.thread_id, { seed });
+}
+
+/**
+ * The reader names the conversation themselves.
+ *
+ * Pins it: a name somebody typed is never replaced by one the model made.
+ * Clearing it unpins, and the next reply names it again. Scoped through the
+ * reader's own placement, like every write here; the thread's update policy
+ * (00183) lets any participant do this, since the name is the conversation's
+ * and not one person's.
+ */
+export async function setAnnotationTitle(
+  annotationId: string,
+  title: string,
+  memberEmail?: string | null
+): Promise<string | null> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+  const { data: row } = await client
+    .from("reading_annotations")
+    .select("thread_id")
+    .eq("id", annotationId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!row) throw new Error("Annotation not found.");
+  const threadId = (row as { thread_id: string }).thread_id;
+  const clean = cleanTitle(title);
+  const { error } = await client
+    .from("reading_annotation_threads")
+    .update({ title: clean, title_pinned: clean != null })
+    .eq("id", threadId);
+  if (error) throw new Error(error.message);
+  return clean;
+}
+
+/**
+ * Name the conversations in this book that were started before conversations
+ * had names. A few at a time, on demand, when the reader has the book open —
+ * rather than a sweep — so an old book with forty marks names itself over a
+ * couple of visits and never holds anything up. Returns how many were tried,
+ * so the caller knows whether the list is worth re-reading.
+ */
+export async function backfillThreadTitles(
+  bookId: string,
+  memberEmail?: string | null
+): Promise<number> {
+  const { client, userId } = await resolveReadingScope(memberEmail);
+  const { data: rows } = await client
+    .from("reading_annotations")
+    .select("thread_id, reading_annotation_threads(title, title_pinned)")
+    .eq("book_id", bookId)
+    .eq("user_id", userId)
+    .is("book_scope", null);
+  const nameless = ((rows ?? []) as unknown as {
+    thread_id: string;
+    reading_annotation_threads: { title: string | null; title_pinned: boolean } | null;
+  }[])
+    .filter((r) => r.reading_annotation_threads && !r.reading_annotation_threads.title && !r.reading_annotation_threads.title_pinned)
+    .map((r) => r.thread_id);
+  if (nameless.length === 0) return 0;
+
+  // Only conversations with something said in them; a bare highlight has
+  // nothing to be named after.
+  const { data: spoken } = await client
+    .from("reading_annotation_messages")
+    .select("thread_id")
+    .in("thread_id", nameless)
+    .in("role", ["user", "note"]);
+  const withWords = Array.from(new Set(((spoken ?? []) as { thread_id: string }[]).map((m) => m.thread_id)));
+  const batch = withWords.slice(0, 5);
+  for (const threadId of batch) await refreshThreadTitle(threadId);
+  return batch.length;
 }
 
 /**
@@ -1105,6 +1223,31 @@ export async function postAnnotationMessage(
   if (error) throw new Error(error.message);
 
   await touchThread(client, threadId);
+
+  // A reply from somebody the reader brought in is the conversation moving,
+  // and the name follows it. The reader's own first line names a conversation
+  // that has none yet — a line sent to a person from the notepad arrives here
+  // as "@jenny …", and the handle is not part of what it's about.
+  const { data: me } = await client
+    .from("reading_annotation_thread_participants")
+    .select("role")
+    .eq("thread_id", threadId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const role = (me as { role?: string } | null)?.role;
+  if (role === "participant") {
+    scheduleTitleRefresh(threadId);
+  } else {
+    const { data: thread } = await client
+      .from("reading_annotation_threads")
+      .select("title, title_pinned")
+      .eq("id", threadId)
+      .maybeSingle();
+    const t = thread as { title: string | null; title_pinned: boolean } | null;
+    if (t && !t.title && !t.title_pinned) {
+      scheduleTitleRefresh(threadId, { seed: text.replace(/^(?:@\w+\s*)+/, "") });
+    }
+  }
 }
 
 /**

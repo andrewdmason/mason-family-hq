@@ -11,45 +11,46 @@ export { clipContent, NOTEPAD_INSERT_META } from "@/lib/reading/note-tree";
 /**
  * The @ menu: who a paragraph is for.
  *
- * Two kinds of row and no more. "Ask" starts a conversation with the AI;
- * a person's name starts one with them. There was briefly a third kind —
- * every mark in the book, to pull its quote in — and it was the wrong
- * tool: a highlight now lands in the notes by itself, so the menu is back
- * to being about who reads what you wrote.
+ * People, and only people. A person's name sends the line to them. The AI
+ * used to be a row here too, and isn't: `@` names somebody, `/` gives a
+ * command, and asking the AI is a command — see notepad-slash.ts. (There
+ * was also briefly a row per mark in the book, to pull its quote in, and it
+ * was the wrong tool: a highlight lands in the notes by itself.)
  */
-export type MentionItem =
-  | { kind: "ask" }
-  | { kind: "member"; target: MentionTarget };
+export type MentionItem = { kind: "member"; target: MentionTarget };
 
 /**
- * What the React side needs to draw the menu. Handed over through callbacks
+ * What the React side needs to draw a menu. Handed over through callbacks
  * rather than rendered by the plugin, so the menu is an ordinary component
  * inside the panel — see MentionTypeahead for why that matters: the panel
  * closes on any pointerdown outside itself, so a portalled menu would be the
- * one thing in it that shut it.
+ * one thing in it that shut it. Shared by the @ menu and the / menu, which
+ * differ only in what their rows are.
  */
-export type MentionMenuState = {
-  items: MentionItem[];
+export type MenuState<I> = {
+  items: I[];
   activeIndex: number;
   /** Where the caret is, in viewport coordinates. */
   rect: DOMRect | null;
-  command: (item: MentionItem) => void;
+  command: (item: I) => void;
 };
 
-export type MentionController = {
-  onChange: (state: MentionMenuState | null) => void;
+export type SuggestionController<I> = {
+  onChange: (state: MenuState<I> | null) => void;
   /** The current active row, so the plugin's key handling and the menu agree. */
   activeIndex: () => number;
   setActiveIndex: (i: number) => void;
 };
 
+export type MentionMenuState = MenuState<MentionItem>;
+export type MentionController = SuggestionController<MentionItem>;
+
 export const NOTEPAD_MENTION_KEY = new PluginKey("notepad-mention");
 
-/** Ask first, then everyone, narrowed by what's typed. */
+/** Everyone, narrowed by what's typed. */
 export function matchItems(members: MentionTarget[], query: string): MentionItem[] {
   const q = query.trim().toLowerCase();
   const items: MentionItem[] = [];
-  if (!q || "ask".startsWith(q)) items.push({ kind: "ask" });
   for (const t of members) {
     if (t.kind !== "member") continue;
     if (!q || t.handle.startsWith(q) || t.name.toLowerCase().startsWith(q)) {
@@ -145,10 +146,7 @@ export const NotepadMentions = Extension.create<{
  * already there replaces it rather than stacking two promises on one line.
  */
 function insertChip(editor: Editor, range: Range, item: MentionItem) {
-  const attrs =
-    item.kind === "ask"
-      ? { kind: "ask", handle: "ask", name: "Ask" }
-      : { kind: "member", handle: item.target.handle, name: item.target.name.split(/\s+/)[0] };
+  const attrs = { kind: "member", handle: item.target.handle, name: item.target.name.split(/\s+/)[0] };
 
   editor
     .chain()

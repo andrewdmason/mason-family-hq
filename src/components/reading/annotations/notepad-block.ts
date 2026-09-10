@@ -2,7 +2,7 @@ import { mergeAttributes, Node } from "@tiptap/core";
 import { DOMParser as PMDOMParser, Slice, type Node as PMNode } from "@tiptap/pm/model";
 import { NodeSelection, Plugin, PluginKey, type Command } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
-import { newId, NOTE_BLOCK, NOTEPAD_INSERT_META, provenanceOf } from "@/lib/reading/note-tree";
+import { newId, NOTE_BLOCK, NOTEPAD_INSERT_META, provenanceOf, THREAD_BLOCK } from "@/lib/reading/note-tree";
 import { parsePlaceHref, placeHref, type NotePlace } from "@/lib/reading/notes";
 import {
   blockAt,
@@ -24,7 +24,8 @@ import {
  * A line of the notepad, and the lines under it.
  *
  * The notepad is an outline: every line is one of these, holding a head (a
- * paragraph, a heading, or a quote that landed from a highlight) and then any
+ * paragraph, a heading, a quote that landed from a highlight, or a
+ * conversation that branched off — notepad-thread-block.ts) and then any
  * blocks nested beneath it. A block can be folded, hiding its children; that
  * is an attribute, so it's saved with the note and the same on every device.
  *
@@ -84,7 +85,7 @@ export type NoteBlockOptions = {
 
 export const NoteBlock = Node.create<NoteBlockOptions>({
   name: NOTE_BLOCK,
-  content: `(paragraph | heading | blockquote) ${NOTE_BLOCK}*`,
+  content: `(paragraph | heading | blockquote | ${THREAD_BLOCK}) ${NOTE_BLOCK}*`,
   defining: true,
   draggable: true,
   selectable: true,
