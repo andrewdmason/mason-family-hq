@@ -6,17 +6,19 @@ import {
   FollowUpDialog,
   type FollowUpDefaults,
 } from "@/components/practice-table/follow-up-dialog";
+import { relativeDayPhrase } from "@/lib/practice/repeat";
+import type { OptimisticTaskRename } from "@/lib/optimistic-task";
 
 const FOLLOW_UP_SCHEDULED_EVENT = "practice-follow-up-scheduled";
 const TOAST_DURATION_MS = 8000;
 
 export type FollowUpScheduledDetail = {
-  /** The follow-up item that was just created — the toast edits this, not the row. */
+  /** The occurrence that was just scheduled — the toast edits this, not the row. */
   taskId: string;
   pieceName: string | null;
   targetDate: string;
-  tomorrowDate: string;
-  dayAfterDate: string;
+  /** Nearby days the sheet offers besides the scheduled one. */
+  alternateDates: string[];
   sessionNumber: number;
   defaults: FollowUpDefaults;
 };
@@ -30,10 +32,10 @@ export function emitFollowUpScheduled(detail: FollowUpScheduledDetail): void {
 }
 
 /**
- * Confirms the "archive and repeat tomorrow" action and offers a way back into
- * the details. Mounted once at the table so it outlives the row that triggered
- * it: archiving hides that row in the next-session view, and the toast still
- * has to be clickable afterwards.
+ * Confirms that archiving a repeating item scheduled its next occurrence, and
+ * offers a way into the details. Mounted once at the table so it outlives the
+ * row that triggered it: archiving hides that row in the focus view, and the
+ * toast still has to be clickable afterwards.
  */
 export function FollowUpToastHost({
   sessionNumbersByDate,
@@ -57,6 +59,19 @@ export function FollowUpToastHost({
     return () => window.removeEventListener(FOLLOW_UP_SCHEDULED_EVENT, handler);
   }, []);
 
+  // The toast goes up before the write lands, so it starts out holding the
+  // placeholder id. Adopt the real one as soon as the server hands it back.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { tempId, realId } = (e as CustomEvent<OptimisticTaskRename>).detail;
+      setScheduled((prev) =>
+        prev && prev.taskId === tempId ? { ...prev, taskId: realId } : prev
+      );
+    };
+    window.addEventListener("task-rename-optimistic", handler);
+    return () => window.removeEventListener("task-rename-optimistic", handler);
+  }, []);
+
   // Dismiss on its own, unless the sheet is open — then the toast is gone from
   // view anyway and clearing it would unmount the sheet mid-edit.
   const toastKey = scheduled?.key ?? null;
@@ -73,8 +88,10 @@ export function FollowUpToastHost({
 
   if (!scheduled) return null;
 
-  const isDayAfter = scheduled.targetDate === scheduled.dayAfterDate;
-  const whenLabel = isDayAfter ? "the day after" : "tomorrow";
+  const dateOptions = [
+    ...new Set([scheduled.targetDate, ...scheduled.alternateDates]),
+  ].sort();
+  const whenPhrase = relativeDayPhrase(scheduled.targetDate);
 
   return (
     <>
@@ -86,8 +103,8 @@ export function FollowUpToastHost({
           >
             <span className="min-w-0 text-muted-foreground">
               {scheduled.pieceName
-                ? `Added “${scheduled.pieceName}” to ${whenLabel}`
-                : `Added to ${whenLabel}`}
+                ? `“${scheduled.pieceName}” is back ${whenPhrase}`
+                : `Back ${whenPhrase}`}
             </span>
             <button
               type="button"
@@ -105,10 +122,8 @@ export function FollowUpToastHost({
         taskId={scheduled.taskId}
         defaults={scheduled.defaults}
         initialDate={scheduled.targetDate}
-        tomorrowDate={scheduled.tomorrowDate}
-        dayAfterDate={scheduled.dayAfterDate}
-        tomorrowSessions={sessionNumbersByDate[scheduled.tomorrowDate] ?? []}
-        dayAfterSessions={sessionNumbersByDate[scheduled.dayAfterDate] ?? []}
+        dateOptions={dateOptions}
+        sessionNumbersByDate={sessionNumbersByDate}
         defaultSessionNumber={scheduled.sessionNumber}
       />
     </>
