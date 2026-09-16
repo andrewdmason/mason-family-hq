@@ -1136,6 +1136,8 @@ export function PracticeTable({
         ended_at: null,
         sort_order: Number.MAX_SAFE_INTEGER,
         session_number: detail.sessionNumber ?? 1,
+        repeat_interval_days: detail.repeatIntervalDays ?? null,
+        repeat_source_task_id: detail.repeatSourceTaskId ?? null,
         audio_path: null,
         audio_duration_seconds: null,
         audio_trim_start_seconds: null,

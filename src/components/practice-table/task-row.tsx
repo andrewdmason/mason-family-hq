@@ -16,12 +16,17 @@ import {
   CalendarArrowUpIcon,
   ArchiveIcon,
   RepeatIcon,
+  CheckIcon,
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   Popover,
@@ -41,6 +46,7 @@ import {
   moveTaskToDate,
   completeTask,
   uncompleteTask,
+  updateTaskRepeat,
 } from "@/app/practice/timer/task-actions";
 import {
   createTaskOptimistic,
@@ -58,8 +64,14 @@ import {
   loadSectionPickerData,
   type SectionPickerData,
 } from "@/lib/section-picker-cache";
-import { localDate } from "@/lib/date-utils";
+import { addDays, localDate } from "@/lib/date-utils";
 import { practiceTempo } from "@/lib/section-utils";
+import {
+  REPEAT_INTERVAL_OPTIONS,
+  nextOccurrenceDate,
+  relativeDayPhrase,
+  repeatIntervalLabel,
+} from "@/lib/practice/repeat";
 import type { PieceSection, TaskWithDetails, SectionStatus } from "@/lib/types";
 import { SECTION_STATUS_DOT_COLORS } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -347,27 +359,28 @@ export function TaskRow({
     requestAnimationFrame(() => metronomeRef.current?.focus());
   };
 
-  const tomorrowDate = (() => {
-    const d = new Date(task.date + "T12:00:00");
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10);
-  })();
-  const dayAfterDate = (() => {
-    const d = new Date(task.date + "T12:00:00");
-    d.setDate(d.getDate() + 2);
-    return d.toISOString().slice(0, 10);
-  })();
+  // The cadence isn't mirrored into local state: changing it patches the row
+  // in the table, which flows straight back down as a prop.
+  const repeatDays = task.repeat_interval_days;
+  // Where the next occurrence lands if this item repeats.
+  const nextRepeatDate = repeatDays
+    ? nextOccurrenceDate(task.date, repeatDays)
+    : null;
 
-  // Put tomorrow's copy on the board right away rather than stopping to ask.
-  // The toast that follows is the escape hatch for anyone who wanted to change
-  // something about it.
-  const scheduleFollowUp = async () => {
+  // Put the next occurrence on the board right away rather than stopping to
+  // ask. The toast that follows is the escape hatch for anyone who wanted to
+  // change something about it, so it goes up immediately too — waiting on the
+  // write would make finishing an item feel like a request instead of a click.
+  const scheduleNextOccurrence = (targetDate: string) => {
     // Warm the section picker so the sheet is ready if the toast is taken up on.
     if (task.piece_id) void loadSectionPickerData(task.piece_id);
-    const created = await createTaskOptimistic({
+
+    // The next occurrence is the item as it was left: same note and goal, and
+    // the tempo it finished on, so progress compounds across the cadence.
+    const occurrence = {
       pieceId: task.piece_id,
       sectionId: optimisticSection.sectionId,
-      date: tomorrowDate,
+      date: targetDate,
       text,
       metronomeSpeed: optimisticMetronomeSpeed,
       timerSeconds: optimisticGoalSeconds,
@@ -377,13 +390,17 @@ export function TaskRow({
       sectionLabel: optimisticSection.label,
       sectionStatus: optimisticSection.status,
       sessionNumber: task.session_number,
-    });
+      repeatIntervalDays: repeatDays,
+      repeatSourceTaskId: task.id,
+    };
+
+    const tempId = emitOptimisticTask(occurrence);
+    const today = localDate();
     emitFollowUpScheduled({
-      taskId: created.id,
+      taskId: tempId,
       pieceName: task.piece_name,
-      targetDate: tomorrowDate,
-      tomorrowDate,
-      dayAfterDate,
+      targetDate,
+      alternateDates: [addDays(today, 1), addDays(today, 2)],
       sessionNumber: task.session_number,
       defaults: {
         pieceId: task.piece_id,
@@ -396,12 +413,20 @@ export function TaskRow({
         metronomeSpeed: optimisticMetronomeSpeed,
         timerSeconds: optimisticGoalSeconds,
         text,
+        repeatIntervalDays: repeatDays,
       },
     });
+    void createTaskOptimistic({ ...occurrence, existingTempId: tempId });
   };
 
-  const archive = (withFollowUp: boolean) => {
+  const archive = () => {
     setOptimisticCompleted(true);
+    // Tell the table too: the focus view hides archived items, and reading the
+    // server's copy first is what used to make finishing an item lag.
+    emitOptimisticTaskUpdate(task.id, {
+      completed: true,
+      completed_at: new Date().toISOString(),
+    });
     const wasActive = isActive;
     if (wasActive) pauseTaskTimer();
     // If this task is the one the transport bar has loaded (either the
@@ -416,16 +441,36 @@ export function TaskRow({
         })
       );
     }
-    if (withFollowUp) void scheduleFollowUp();
+    if (nextRepeatDate) scheduleNextOccurrence(nextRepeatDate);
   };
 
   const handleComplete = () => {
     if (optimisticCompleted) {
       setOptimisticCompleted(false);
-      void uncompleteTask(task.id);
+      emitOptimisticTaskUpdate(task.id, {
+        completed: false,
+        completed_at: null,
+      });
+      // Bringing an item back also withdraws the occurrence archiving it
+      // scheduled — the server decides which copies are still untouched.
+      void uncompleteTask(task.id).then((withdrawnIds) => {
+        for (const id of withdrawnIds) emitOptimisticTaskDelete(id);
+      });
       return;
     }
-    archive(false);
+    archive();
+  };
+
+  const archiveLabel = optimisticCompleted
+    ? "Un-archive"
+    : nextRepeatDate
+      ? `Archive — back ${relativeDayPhrase(nextRepeatDate)}`
+      : "Archive";
+
+  const setRepeat = (days: number | null) => {
+    emitOptimisticTaskUpdate(task.id, { repeat_interval_days: days });
+    void updateTaskRepeat(task.id, days);
+    setMenuOpen(false);
   };
 
   // The transport bar's "Done" button asks the owning row to finish itself so
@@ -503,17 +548,41 @@ export function TaskRow({
         >
           <PlusIcon className="size-3.5" />
         </button>
-        <button
-          ref={gripButtonRef}
-          type="button"
-          {...attributes}
-          onPointerDown={handleGripPointerDown}
-          onPointerUp={handleGripPointerUp}
-          className="flex items-center justify-center w-4 h-6 cursor-grab rounded-sm text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-colors"
+        {/* The grip is the menu's trigger as well as the row's drag handle. It
+            has to be the trigger: a menu announces its place in the floating
+            tree through one, and a menu that never announces itself treats its
+            own Repeat submenu as a rival and closes as that submenu opens.
+            Being the trigger doesn't mean letting it open the menu, though —
+            pressing it is also how a drag begins, so opening stays with the
+            pointer-up handler below, which can tell a click from a drag. */}
+        <DropdownMenu
+          open={menuOpen}
+          onOpenChange={(open, details) => {
+            const reason = details?.reason;
+            if (
+              reason === "trigger-press" ||
+              reason === "trigger-hover" ||
+              reason === "trigger-focus"
+            ) {
+              return;
+            }
+            setMenuOpen(open);
+          }}
         >
-          <GripVerticalIcon className="size-3.5" />
-        </button>
-        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenuTrigger
+            render={
+              <button
+                ref={gripButtonRef}
+                type="button"
+                {...attributes}
+                onPointerDown={handleGripPointerDown}
+                onPointerUp={handleGripPointerUp}
+                className="flex items-center justify-center w-4 h-6 cursor-grab rounded-sm text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <GripVerticalIcon className="size-3.5" />
+              </button>
+            }
+          />
           <DropdownMenuContent
             anchor={gripButtonRef}
             align="start"
@@ -598,6 +667,29 @@ export function TaskRow({
                 ? "Move to tomorrow"
                 : "Move to today"}
             </DropdownMenuItem>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <RepeatIcon />
+                <span className="min-w-0 flex-1 truncate">
+                  {repeatDays ? repeatIntervalLabel(repeatDays) : "Repeat"}
+                </span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-44">
+                <DropdownMenuItem onClick={() => setRepeat(null)}>
+                  <CheckIcon className={cn(repeatDays !== null && "opacity-0")} />
+                  Doesn&rsquo;t repeat
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {REPEAT_INTERVAL_OPTIONS.map((days) => (
+                  <DropdownMenuItem key={days} onClick={() => setRepeat(days)}>
+                    <CheckIcon
+                      className={cn(repeatDays !== days && "opacity-0")}
+                    />
+                    {repeatIntervalLabel(days)}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
             <DropdownMenuItem
               onClick={() => openAudioDialog(hasAudio ? "playback" : "record")}
             >
@@ -653,7 +745,9 @@ export function TaskRow({
       {/* Row content — Notion-style: bordered cells, no fill */}
       <div
         className={cn(
-          "flex-1 min-w-0 grid grid-cols-[128px_72px_56px_1fr_52px] items-stretch text-xs transition-colors",
+          // The last column holds the archive button alone, so it's only as
+          // wide as that button and its padding — it was sized for two.
+          "flex-1 min-w-0 grid grid-cols-[128px_72px_56px_1fr_28px] items-stretch text-xs transition-colors",
           isActive ? cn(activeRowBg, "text-white") : "text-foreground",
           optimisticCompleted && "opacity-50"
         )}
@@ -880,48 +974,43 @@ export function TaskRow({
           )}
         </div>
 
-        {/* Archive actions — deliberately at the far end of the row, away from
+        {/* Archive action — deliberately at the far end of the row, away from
             the timer's start button, since starting and finishing happen at
             opposite ends of an item's life. Hidden until the row is hovered so
             a day of practice reads as text, not as a column of controls; an
-            already-archived row keeps its button so it can be brought back. */}
+            already-archived row keeps its button so it can be brought back.
+            A repeating item marks the same button rather than adding a second
+            one — archiving is still one click, it just schedules what's next. */}
         <div
           className={cn(
-            "flex items-center justify-end gap-0.5 px-1 py-1.5 transition-opacity",
+            "flex items-center justify-end px-1 py-1.5 transition-opacity",
             optimisticCompleted
               ? "opacity-100"
               : "opacity-0 focus-within:opacity-100 group-hover/task:opacity-100"
           )}
         >
-          {!optimisticCompleted && (
-            <button
-              type="button"
-              onClick={() => archive(true)}
-              aria-label="Archive and repeat tomorrow"
-              title="Archive and repeat tomorrow"
-              className={cn(
-                "flex size-5 items-center justify-center rounded-sm transition-colors",
-                isActive
-                  ? "text-white/70 hover:bg-white/20 hover:text-white"
-                  : "text-muted-foreground/60 hover:bg-muted hover:text-foreground"
-              )}
-            >
-              <RepeatIcon className="size-3.5" />
-            </button>
-          )}
           <button
             type="button"
             onClick={handleComplete}
-            aria-label={optimisticCompleted ? "Un-archive" : "Archive"}
-            title={optimisticCompleted ? "Un-archive" : "Archive"}
+            aria-label={archiveLabel}
+            title={archiveLabel}
             className={cn(
-              "flex size-5 items-center justify-center rounded-sm transition-colors",
+              "relative flex size-5 items-center justify-center rounded-sm transition-colors",
               isActive
                 ? "text-white/70 hover:bg-white/20 hover:text-white"
                 : "text-muted-foreground/60 hover:bg-muted hover:text-foreground"
             )}
           >
             <ArchiveIcon className="size-3.5" />
+            {nextRepeatDate && !optimisticCompleted && (
+              <RepeatIcon
+                aria-hidden
+                className={cn(
+                  "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full",
+                  isActive ? "bg-red-500" : "bg-background"
+                )}
+              />
+            )}
           </button>
         </div>
       </div>

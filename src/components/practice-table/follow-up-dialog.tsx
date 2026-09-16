@@ -21,8 +21,10 @@ import {
   emitOptimisticTaskDelete,
   emitOptimisticTaskRename,
   emitOptimisticTaskUpdate,
+  resolveRealTaskId,
   rollbackOptimisticTask,
 } from "@/lib/optimistic-task";
+import { relativeDayLabel } from "@/lib/practice/repeat";
 import {
   getCachedSectionPickerData,
   loadSectionPickerData,
@@ -50,14 +52,16 @@ export type FollowUpDefaults = {
   metronomeSpeed: number | null;
   timerSeconds: number;
   text: string;
+  /** Carried onto the occurrence so the cadence survives a move. */
+  repeatIntervalDays: number | null;
 };
 
 
 /**
- * Edits a follow-up item that already exists. Archiving with the repeat action
- * creates tomorrow's copy outright and only offers this sheet through the
- * confirmation toast, so the sheet's job is to amend that copy — never to
- * create a second one.
+ * Edits the occurrence a repeating item scheduled when it was archived. That
+ * copy is put on the board outright and this sheet is only reachable from the
+ * confirmation toast, so the sheet's job is to amend it — never to create a
+ * second one.
  */
 export function FollowUpDialog({
   open,
@@ -65,10 +69,8 @@ export function FollowUpDialog({
   taskId,
   defaults,
   initialDate,
-  tomorrowDate,
-  dayAfterDate,
-  tomorrowSessions,
-  dayAfterSessions,
+  dateOptions,
+  sessionNumbersByDate,
   defaultSessionNumber,
 }: {
   open: boolean;
@@ -76,10 +78,9 @@ export function FollowUpDialog({
   taskId: string;
   defaults: FollowUpDefaults;
   initialDate: string;
-  tomorrowDate: string;
-  dayAfterDate: string;
-  tomorrowSessions: number[];
-  dayAfterSessions: number[];
+  /** Days the occurrence can be moved to, including the scheduled one. */
+  dateOptions: string[];
+  sessionNumbersByDate: Record<string, number[]>;
   defaultSessionNumber: number;
 }) {
   const [text, setText] = useState(defaults.text);
@@ -182,8 +183,7 @@ export function FollowUpDialog({
     setMetronomeSpeed(Number.isNaN(num) ? null : num);
   };
 
-  const targetSessions =
-    targetDate === dayAfterDate ? dayAfterSessions : tomorrowSessions;
+  const targetSessions = sessionNumbersByDate[targetDate] ?? [];
   const maxExistingSession = targetSessions.length > 0
     ? Math.max(...targetSessions)
     : 0;
@@ -209,6 +209,11 @@ export function FollowUpDialog({
       text,
     };
 
+    // The sheet can open before the occurrence's own write has landed, so the
+    // id in hand may still be a placeholder. The view understands it either
+    // way; only the server write has to wait for the real one.
+    const realId = resolveRealTaskId(taskId);
+
     // Same day: patch the row in place. Different day: the feed keys rows by
     // day, so lift the row out and drop a copy on the new one rather than
     // leaving it stranded until revalidation.
@@ -223,7 +228,7 @@ export function FollowUpDialog({
         timer_remaining_seconds: timerSeconds,
         text,
       });
-      void updateFollowUpTask(taskId, edits);
+      void realId.then((id) => updateFollowUpTask(id, edits));
       return;
     }
 
@@ -241,9 +246,13 @@ export function FollowUpDialog({
       sectionLabel: section.sectionLabel,
       sectionStatus: section.sectionStatus,
       sessionNumber,
+      repeatIntervalDays: defaults.repeatIntervalDays,
     });
-    void updateFollowUpTask(taskId, edits)
-      .then(() => emitOptimisticTaskRename(tempId, taskId))
+    void realId
+      .then(async (id) => {
+        await updateFollowUpTask(id, edits);
+        emitOptimisticTaskRename(tempId, id);
+      })
       .catch((err) => {
         rollbackOptimisticTask(tempId);
         throw err;
@@ -254,7 +263,7 @@ export function FollowUpDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Edit follow-up</DialogTitle>
+          <DialogTitle>Edit next time</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
@@ -317,30 +326,21 @@ export function FollowUpDialog({
           <div className="flex flex-col gap-1.5">
             <span className="text-xs text-muted-foreground">When</span>
             <div className="flex flex-wrap gap-1">
-              <button
-                type="button"
-                onClick={() => setTargetDate(tomorrowDate)}
-                className={cn(
-                  "rounded px-2 py-1 text-xs transition-colors",
-                  targetDate === tomorrowDate
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
-                )}
-              >
-                Tomorrow
-              </button>
-              <button
-                type="button"
-                onClick={() => setTargetDate(dayAfterDate)}
-                className={cn(
-                  "rounded px-2 py-1 text-xs transition-colors",
-                  targetDate === dayAfterDate
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
-                )}
-              >
-                Day after
-              </button>
+              {dateOptions.map((date) => (
+                <button
+                  key={date}
+                  type="button"
+                  onClick={() => setTargetDate(date)}
+                  className={cn(
+                    "rounded px-2 py-1 text-xs transition-colors",
+                    targetDate === date
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
+                  )}
+                >
+                  {relativeDayLabel(date)}
+                </button>
+              ))}
             </div>
           </div>
 

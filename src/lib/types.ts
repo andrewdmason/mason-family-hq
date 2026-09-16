@@ -94,6 +94,10 @@ export type PracticeTask = {
   ended_at: string | null;
   sort_order: number;
   session_number: number;
+  /** Rolling cadence in days; null for a one-off item. */
+  repeat_interval_days: number | null;
+  /** The occurrence that spawned this one, when it came from a repeat. */
+  repeat_source_task_id: string | null;
   audio_path: string | null;
   audio_duration_seconds: number | null;
   audio_trim_start_seconds: number | null;

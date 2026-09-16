@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getUserTimezone } from "@/lib/date-utils";
 import { localDate } from "@/lib/date-utils";
+import { isUntouchedOccurrence } from "@/lib/practice/repeat";
 import type {
   PieceKind,
   PieceSection,
@@ -16,6 +17,31 @@ export type TaskWithPiece = PracticeTask & {
   piece_composer: string | null;
   section_label: string | null;
 };
+
+type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Withdraw the occurrences a repeating item scheduled when it was archived,
+ * but only the ones still untouched — once a copy has been started, timed or
+ * archived in its own right it belongs to that day and is left alone.
+ * Returns the ids removed so the caller can clear them from the view.
+ */
+async function deletePendingRepeatOccurrences(
+  supabase: SupabaseClient,
+  sourceTaskId: string
+): Promise<string[]> {
+  const { data: spawned } = await supabase
+    .from("practice_tasks")
+    .select("id, timer_seconds, timer_remaining_seconds, completed, started_at")
+    .eq("repeat_source_task_id", sourceTaskId);
+
+  const pending = (spawned ?? []).filter(isUntouchedOccurrence).map((t) => t.id);
+
+  if (pending.length === 0) return [];
+
+  await supabase.from("practice_tasks").delete().in("id", pending);
+  return pending;
+}
 
 export async function getTasksForPieceAndDate(
   pieceId: string,
@@ -116,9 +142,21 @@ export async function createTask(
   afterTaskId?: string | null,
   sessionNumber?: number,
   text?: string,
-  timerSeconds?: number
+  timerSeconds?: number,
+  repeat?: {
+    intervalDays?: number | null;
+    /** Set when this row is the next occurrence of a repeating item. */
+    sourceTaskId?: string | null;
+  }
 ): Promise<{ id: string; timer_seconds: number; timer_remaining_seconds: number }> {
   const supabase = await createClient();
+
+  // Archiving a repeating item schedules its next occurrence. Toggling the
+  // archive off and on again must not leave two copies behind, so clear any
+  // untouched occurrence this same source already put on the board.
+  if (repeat?.sourceTaskId) {
+    await deletePendingRepeatOccurrences(supabase, repeat.sourceTaskId);
+  }
 
   let nextOrder: number;
   let resolvedSession = sessionNumber ?? 1;
@@ -186,6 +224,12 @@ export async function createTask(
       ...(text ? { text } : {}),
       ...(timerSeconds !== undefined
         ? { timer_seconds: timerSeconds, timer_remaining_seconds: timerSeconds }
+        : {}),
+      ...(repeat?.intervalDays !== undefined
+        ? { repeat_interval_days: repeat.intervalDays }
+        : {}),
+      ...(repeat?.sourceTaskId
+        ? { repeat_source_task_id: repeat.sourceTaskId }
         : {}),
     })
     .select("id, timer_seconds, timer_remaining_seconds")
@@ -328,12 +372,35 @@ export async function completeTask(taskId: string) {
   revalidatePath("/practice");
 }
 
-export async function uncompleteTask(taskId: string) {
+/**
+ * Un-archiving a repeating item also takes back the occurrence that archiving
+ * put on a future day — the point of undoing is to leave no trace.
+ * Returns the withdrawn ids so the view can drop those rows too.
+ */
+export async function uncompleteTask(taskId: string): Promise<string[]> {
   const supabase = await createClient();
 
   await supabase
     .from("practice_tasks")
     .update({ completed: false, completed_at: null })
+    .eq("id", taskId);
+
+  const withdrawn = await deletePendingRepeatOccurrences(supabase, taskId);
+
+  revalidatePath("/practice");
+  return withdrawn;
+}
+
+/** Set or clear an item's rolling cadence. `null` makes it a one-off again. */
+export async function updateTaskRepeat(
+  taskId: string,
+  intervalDays: number | null
+): Promise<void> {
+  const supabase = await createClient();
+
+  await supabase
+    .from("practice_tasks")
+    .update({ repeat_interval_days: intervalDays })
     .eq("id", taskId);
 
   revalidatePath("/practice");
@@ -403,11 +470,10 @@ export async function duplicateTask(
 }
 
 /**
- * Save edits to a follow-up item that was already created by the row's
- * "archive and repeat tomorrow" action. Everything the follow-up sheet can
- * change moves in one write; the timer hasn't run yet, so remaining tracks
- * the goal. Moving the item to a different day re-appends it there, matching
- * moveTaskToDate's placement.
+ * Save edits to the occurrence a repeating item scheduled when it was
+ * archived. Everything the edit sheet can change moves in one write; the timer
+ * hasn't run yet, so remaining tracks the goal. Moving the occurrence to a
+ * different day re-appends it there, matching moveTaskToDate's placement.
  */
 export async function updateFollowUpTask(
   taskId: string,
