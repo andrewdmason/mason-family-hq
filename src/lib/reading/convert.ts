@@ -2,7 +2,7 @@ import "server-only";
 import JSZip from "jszip";
 import { DOMParser } from "@xmldom/xmldom";
 import sanitizeHtml from "sanitize-html";
-import { chapterSpans } from "@/lib/reading/chapter-target";
+import { chapterSpans, isContentSection } from "@/lib/reading/chapter-target";
 import { layoutSyntheticPages } from "@/lib/reading/synthetic-pages";
 
 /**
@@ -626,9 +626,12 @@ function stripLeadingTitle(blocks: Block[], title: string): Block[] {
  *
  * Falls back to the last entry, which is the innermost one and so the closest
  * thing to a heading printed at that spot. Searches from the end for the same
- * reason.
+ * reason. Returns -1 when the heading repeats none of them.
  */
-function headingRepeats(entries: { title: string }[], text: string): number {
+function headingRepeats(
+  entries: { title: string; opener?: boolean }[],
+  text: string
+): number {
   const printed = normalizeTitle(text);
   if (printed) {
     for (let i = entries.length - 1; i >= 0; i--) {
@@ -636,7 +639,11 @@ function headingRepeats(entries: { title: string }[], text: string): number {
       if (title && printed.length <= title.length && title.includes(printed)) return i;
     }
   }
-  return entries.length - 1;
+  // A title page lifted onto the text after it (see the spine walk) sits above
+  // that text's first heading rather than being printed by it — so when nothing
+  // matched, the heading repeats none of them.
+  const last = entries.length - 1;
+  return entries[last]?.opener ? -1 : last;
 }
 
 /** A single table-of-contents entry: which spine file it lands in, the fragment
@@ -1002,6 +1009,9 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
       parentNavFiles.add(navEntries[i].file);
     }
   }
+  // Chapter title pages lifted onto the text that follows them (see the walk).
+  const openerFiles = new Set<string>();
+  let pendingOpener: string | null = null;
 
   const blocks: Block[] = [];
   const marks: EpubMark[] = [];
@@ -1043,10 +1053,25 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
     //
     // The divider contributes no text; it just needs a place, and the start of
     // the first chapter inside it is exactly where a reader expects to see it.
+    //
+    // The same goes for a chapter's title page when the chapter's text follows
+    // in a file the contents never lists: a picture of "Chapter One: There Are
+    // at Least Two Kinds of Games", then a page of prose broken up by numbered
+    // sections. Dropping the picture's row left only the numbers — a contents of
+    // 1, 2, 3 … 101 with no chapters. So a textless page whose row names story
+    // (not a cover or a title page) is held, and placed at the start of the next
+    // page with text if that page has no row of its own. If it does, the empty
+    // page was just an illustration and still drops.
     if (!kept.some((b) => b.kind === "para")) {
       if (parentNavFiles.has(path)) fileFirstIndex.set(path, blocks.length);
+      else if (navTitle) pendingOpener = isContentSection(navTitle) ? path : null;
       continue;
     }
+    if (pendingOpener && !navTitle) {
+      fileFirstIndex.set(pendingOpener, blocks.length);
+      openerFiles.add(pendingOpener);
+    }
+    pendingOpener = null;
 
     const dropped = fileBlocks.length - kept.length;
     const base = blocks.length;
@@ -1073,7 +1098,7 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
   // found falls back to the file's start.
   const navByBlock = new Map<
     number,
-    { title: string; level: number; depth: number }[]
+    { title: string; level: number; depth: number; opener: boolean }[]
   >();
   const seenNav = new Set<string>();
   for (const e of navEntries) {
@@ -1085,7 +1110,12 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
     if (seenNav.has(key)) continue;
     seenNav.add(key);
     const list = navByBlock.get(index) ?? [];
-    list.push({ title, level: tocLevel(e.title), depth: e.depth });
+    list.push({
+      title,
+      level: tocLevel(e.title),
+      depth: e.depth,
+      opener: openerFiles.has(e.file),
+    });
     navByBlock.set(index, list);
   }
 
@@ -1176,15 +1206,16 @@ async function convertEpub(buffer: ArrayBuffer): Promise<ConversionResult> {
       // second time after the walk above went to the trouble of keeping it.
       const own = injected ? headingRepeats(injected, block.text) : -1;
       if (injected) {
-        for (let k = 0; k < own; k++) {
+        const above = own >= 0 ? own : injected.length;
+        for (let k = 0; k < above; k++) {
           pushHeading(injected[k].title, injected[k].level, injected[k].depth);
         }
       }
       // The suppressed entry described this place, so its depth still applies.
       // Without it, a chapter whose file opens with a real <h*> would lose the
       // nesting its siblings keep.
-      pushHeading(block.text, block.level, injected?.[own]?.depth);
-      if (injected) {
+      pushHeading(block.text, block.level, own >= 0 ? injected?.[own]?.depth : undefined);
+      if (injected && own >= 0) {
         for (let k = own + 1; k < injected.length; k++) {
           pushHeading(injected[k].title, injected[k].level, injected[k].depth);
         }

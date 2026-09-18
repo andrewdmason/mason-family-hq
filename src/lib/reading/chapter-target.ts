@@ -48,7 +48,7 @@ export type ChapterSpan = { title: string; startWord: number; endWord: number };
  * that. It needs the suffix to reach one.
  */
 const NON_CONTENT_TITLE =
-  /^(cover|title page|copyright|contents|table of contents|dedication|acknowledg\w*|about the (author|publisher)|also (by|available)|by the same author|other books|newsletter|praise for|excerpt|preview|teaser|sneak peek|bonus|end of book|back ad|advertisement|discussion guide|reading group|a note (on|about)|imprint|colophon)\b/i;
+  /^((back )?cover|title page|copyright|contents|table of contents|dedication|acknowledg\w*|about the (author|publisher)|also (by|available)|by the same author|other books|newsletter|praise for|excerpt|preview|teaser|sneak peek|bonus|end of book|back ad|advertisement|discussion guide|reading group|a note (on|about)|imprint|colophon)\b/i;
 
 /** Whether a TOC title names actual story content (vs front/back matter). */
 export function isContentSection(title: string): boolean {

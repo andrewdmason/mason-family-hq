@@ -21,6 +21,9 @@
  *   - When several contents rows land on the same spot and the book prints its
  *     own heading there, only the row that heading repeats is suppressed. The
  *     rest are still places in the book, printed in the order the nav gave them.
+ *   - A chapter whose title is a picture on its own page, with the text in a
+ *     file the contents doesn't list, keeps its row — above that text, with the
+ *     text's own headings nested inside it.
  *   - Both contents formats — the EPUB3 nav document and the EPUB2 NCX — behave
  *     the same, since which one a publisher ships is an accident of vintage.
  *
@@ -279,6 +282,53 @@ check(
     "Chapter 1, Chapter 2",
   shape(buildContents(plain.toc as ReadingTocEntry[], "Test Book", plain.wordCount).body)
 );
+
+// ---------------------------------------------------------------------------
+// 4. Chapters whose titles are pictures on pages of their own.
+// ---------------------------------------------------------------------------
+console.log("\nA book whose chapter titles are image pages");
+
+// Finite and Infinite Games: each chapter is a picture of its title, then a file
+// the contents never lists, holding the prose in numbered sections. Dropping the
+// textless title page left a contents of bare section numbers. The back cover
+// sits up front and is followed by an unlisted page of text too — it must not
+// be mistaken for a chapter.
+const OPENER_DOCS: Doc[] = [
+  { name: "cover.xhtml", body: `<p><img src="cover.jpg" alt=""/></p>` },
+  { name: "backcover.xhtml", body: `<p><img src="back.jpg" alt=""/></p>` },
+  { name: "ebookreg.xhtml", body: prose("thanks") },
+  { name: "ch01a.xhtml", body: `<p><img src="chapter1.jpg" alt=""/></p>` },
+  { name: "ch01.xhtml", body: `<h3>1</h3>${prose("one")}<h3>2</h3>${prose("two")}` },
+  { name: "ch02a.xhtml", body: `<p><img src="chapter2.jpg" alt=""/></p>` },
+  { name: "ch02.xhtml", body: `<h3>3</h3>${prose("three")}` },
+  { name: "map.xhtml", body: `<p><img src="map.jpg" alt=""/></p>` },
+  { name: "index.xhtml", body: `<h1>Index</h1>${prose("index")}` },
+];
+const OPENER_ROWS: Row[] = [
+  { file: "cover.xhtml", title: "Cover", depth: 1 },
+  { file: "backcover.xhtml", title: "Back Cover", depth: 1 },
+  { file: "ch01a.xhtml", title: "Chapter One: There Are at Least Two Kinds of Games", depth: 1 },
+  { file: "ch02a.xhtml", title: "Chapter Two: No One Can Play a Game Alone", depth: 1 },
+  { file: "map.xhtml", title: "Map", depth: 1 },
+  { file: "index.xhtml", title: "Index", depth: 1 },
+];
+
+for (const format of ["nav", "ncx"] as const) {
+  const opener = await convertBookFile("epub", await epub(OPENER_DOCS, OPENER_ROWS, format));
+  const openerTitles = opener.toc.map((t) => t.title);
+  const openerContents = buildContents(opener.toc as ReadingTocEntry[], "Test Book", opener.wordCount);
+  check(
+    `each chapter title sits above its numbered sections (${format})`,
+    shape(openerContents.body) ===
+      "Chapter One: There Are at Least Two Kinds of Games(1, 2), Chapter Two: No One Can Play a Game Alone(3)",
+    shape(openerContents.body)
+  );
+  check(
+    `the covers and a picture with a row of its own after it still drop (${format})`,
+    !openerTitles.includes("Cover") && !openerTitles.includes("Back Cover") && !openerTitles.includes("Map"),
+    openerTitles.join(", ")
+  );
+}
 
 console.log(failures === 0 ? "\nAll good." : `\n${failures} failing check(s).`);
 process.exit(failures === 0 ? 0 : 1);
