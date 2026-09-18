@@ -49,7 +49,6 @@ import {
   updateTaskRepeat,
 } from "@/app/practice/timer/task-actions";
 import {
-  createTaskOptimistic,
   emitOptimisticTask,
   emitOptimisticTaskDelete,
   emitOptimisticTaskRename,
@@ -58,13 +57,14 @@ import {
   type FocusTaskNotesDetail,
 } from "@/lib/optimistic-task";
 import { TaskAudioDialog } from "@/components/practice-table/task-audio-dialog";
-import { emitFollowUpScheduled } from "@/components/practice-table/follow-up-toast";
+import { requestResumeDate } from "@/components/practice-table/resume-repeat-dialog";
+import { scheduleRepeatOccurrence } from "@/lib/practice/schedule-occurrence";
 import {
   getCachedSectionPickerData,
   loadSectionPickerData,
   type SectionPickerData,
 } from "@/lib/section-picker-cache";
-import { addDays, localDate } from "@/lib/date-utils";
+import { localDate } from "@/lib/date-utils";
 import { practiceTempo } from "@/lib/section-utils";
 import {
   REPEAT_INTERVAL_OPTIONS,
@@ -367,17 +367,10 @@ export function TaskRow({
     ? nextOccurrenceDate(task.date, repeatDays)
     : null;
 
-  // Put the next occurrence on the board right away rather than stopping to
-  // ask. The toast that follows is the escape hatch for anyone who wanted to
-  // change something about it, so it goes up immediately too — waiting on the
-  // write would make finishing an item feel like a request instead of a click.
   const scheduleNextOccurrence = (targetDate: string) => {
-    // Warm the section picker so the sheet is ready if the toast is taken up on.
-    if (task.piece_id) void loadSectionPickerData(task.piece_id);
-
     // The next occurrence is the item as it was left: same note and goal, and
     // the tempo it finished on, so progress compounds across the cadence.
-    const occurrence = {
+    scheduleRepeatOccurrence({
       pieceId: task.piece_id,
       sectionId: optimisticSection.sectionId,
       date: targetDate,
@@ -392,34 +385,10 @@ export function TaskRow({
       sessionNumber: task.session_number,
       repeatIntervalDays: repeatDays,
       repeatSourceTaskId: task.id,
-    };
-
-    const tempId = emitOptimisticTask(occurrence);
-    const today = localDate();
-    emitFollowUpScheduled({
-      taskId: tempId,
-      pieceName: task.piece_name,
-      targetDate,
-      alternateDates: [addDays(today, 1), addDays(today, 2)],
-      sessionNumber: task.session_number,
-      defaults: {
-        pieceId: task.piece_id,
-        pieceName: task.piece_name,
-        pieceComposer: task.piece_composer,
-        pieceKind: task.piece_kind,
-        sectionId: optimisticSection.sectionId,
-        sectionLabel: optimisticSection.label,
-        sectionStatus: optimisticSection.status,
-        metronomeSpeed: optimisticMetronomeSpeed,
-        timerSeconds: optimisticGoalSeconds,
-        text,
-        repeatIntervalDays: repeatDays,
-      },
     });
-    void createTaskOptimistic({ ...occurrence, existingTempId: tempId });
   };
 
-  const archive = () => {
+  const archive = (resumeDate: string | null = nextRepeatDate) => {
     setOptimisticCompleted(true);
     // Tell the table too: the focus view hides archived items, and reading the
     // server's copy first is what used to make finishing an item lag.
@@ -441,7 +410,7 @@ export function TaskRow({
         })
       );
     }
-    if (nextRepeatDate) scheduleNextOccurrence(nextRepeatDate);
+    if (resumeDate) scheduleNextOccurrence(resumeDate);
   };
 
   const handleComplete = () => {
@@ -458,6 +427,16 @@ export function TaskRow({
       });
       return;
     }
+    // A repeating item whose next slot has already gone by asks when to pick
+    // up again before anything is archived; dismissing the question leaves it.
+    if (repeatDays && !nextRepeatDate) {
+      void requestResumeDate({ pieceName: task.piece_name, count: 1 }).then(
+        (date) => {
+          if (date) archive(date);
+        }
+      );
+      return;
+    }
     archive();
   };
 
@@ -465,7 +444,9 @@ export function TaskRow({
     ? "Un-archive"
     : nextRepeatDate
       ? `Archive — back ${relativeDayPhrase(nextRepeatDate)}`
-      : "Archive";
+      : repeatDays
+        ? "Archive — choose when it's back"
+        : "Archive";
 
   const setRepeat = (days: number | null) => {
     emitOptimisticTaskUpdate(task.id, { repeat_interval_days: days });

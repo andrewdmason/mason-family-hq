@@ -342,6 +342,16 @@ export function TaskTimerProvider({
       setLoadedTaskMeta(null);
       setLoadedRemaining(0);
       persist(taskId, seconds, nextMeta);
+      // The log follows practice to its day: starting something that isn't on
+      // the day on screen (record from the bar, resume from another day) takes
+      // the log there.
+      if (nextMeta?.date) {
+        window.dispatchEvent(
+          new CustomEvent("practice-timer-started", {
+            detail: { taskId, date: nextMeta.date },
+          })
+        );
+      }
 
       // Record started_at on server
       void startTaskTimerAction(taskId).catch(() => {});

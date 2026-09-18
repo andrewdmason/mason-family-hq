@@ -4,7 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getUserTimezone } from "@/lib/date-utils";
 import { localDate } from "@/lib/date-utils";
-import { isUntouchedOccurrence } from "@/lib/practice/repeat";
+import {
+  isUntouchedOccurrence,
+  nextOccurrenceDate,
+} from "@/lib/practice/repeat";
 import type {
   PieceKind,
   PieceSection,
@@ -527,12 +530,11 @@ export async function updateFollowUpTask(
   revalidatePath("/practice");
 }
 
-export async function moveTaskToDate(
+async function writeTaskDate(
+  supabase: SupabaseClient,
   taskId: string,
   targetDate: string
 ): Promise<void> {
-  const supabase = await createClient();
-
   const { data: source } = await supabase
     .from("practice_tasks")
     .select("piece_id")
@@ -565,8 +567,43 @@ export async function moveTaskToDate(
       sort_order: nextOrder,
     })
     .eq("id", taskId);
+}
 
+export async function moveTaskToDate(
+  taskId: string,
+  targetDate: string
+): Promise<void> {
+  const supabase = await createClient();
+  await writeTaskDate(supabase, taskId, targetDate);
   revalidatePath("/practice");
+}
+
+/*
+ * Leftover cleanup writes. Deliberately no revalidatePath: the list is worked
+ * through a click at a time with each change already on screen, and a route
+ * re-render per click would queue behind the next click and repaint the list
+ * from a snapshot that hasn't caught up. The log re-reads once the clicks stop.
+ */
+
+export async function archiveLeftover(taskId: string): Promise<void> {
+  const supabase = await createClient();
+  await supabase
+    .from("practice_tasks")
+    .update({ completed: true, completed_at: new Date().toISOString() })
+    .eq("id", taskId);
+}
+
+export async function deleteLeftover(taskId: string): Promise<void> {
+  const supabase = await createClient();
+  await supabase.from("practice_tasks").delete().eq("id", taskId);
+}
+
+export async function moveLeftoverToDate(
+  taskId: string,
+  targetDate: string
+): Promise<void> {
+  const supabase = await createClient();
+  await writeTaskDate(supabase, taskId, targetDate);
 }
 
 export async function moveTasksToDate(
@@ -656,68 +693,87 @@ export async function getNextTaskForToday(
   return ((data ?? [])[0] as PracticeTask) ?? null;
 }
 
-export async function rollOverUnfinishedTasks(): Promise<number> {
+/**
+ * Archive a batch of leftovers — items left unfinished on earlier days — in one
+ * write. Repeating ones come back the way a single archive brings them back:
+ * one cadence after the day they were down for, or on `resumeDate` when that
+ * day has already gone by. Pass `ids` for specific rows, or `before` for
+ * everything unfinished dated before that day. Like the single leftover
+ * writes above, it leaves the re-read to the log.
+ */
+export async function archiveLeftovers(input: {
+  ids?: string[];
+  before?: string;
+  today: string;
+  resumeDate: string | null;
+}): Promise<void> {
+  const { ids, before, today, resumeDate } = input;
+  if (!ids?.length && !before) return;
   const supabase = await createClient();
-  const tz = await getUserTimezone();
-  const today = localDate(new Date(), tz);
 
-  const { data: priorDay } = await supabase
+  let repeatingQuery = supabase
     .from("practice_tasks")
-    .select("date")
-    .lt("date", today)
-    .eq("completed", false)
-    .order("date", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (!priorDay) return 0;
-
-  const { data: candidates } = await supabase
-    .from("practice_tasks")
-    .select("id, timer_seconds, timer_remaining_seconds")
-    .eq("date", priorDay.date)
-    .eq("completed", false);
-
-  const toRoll = (candidates ?? []).filter(
-    (row) => row.timer_remaining_seconds >= row.timer_seconds
-  );
-
-  if (toRoll.length === 0) return 0;
-
-  const [sessRes, sortRes] = await Promise.all([
-    supabase
-      .from("practice_tasks")
-      .select("session_number")
-      .eq("date", today)
-      .order("session_number", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from("practice_tasks")
-      .select("sort_order")
-      .eq("date", today)
-      .order("sort_order", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
-  const targetSession = sessRes.data?.session_number ?? 1;
-  let nextSort = (sortRes.data?.sort_order ?? -1) + 1;
-
-  await Promise.all(
-    toRoll.map((row) =>
-      supabase
-        .from("practice_tasks")
-        .update({
-          date: today,
-          session_number: targetSession,
-          sort_order: nextSort++,
-        })
-        .eq("id", row.id)
+    .select(
+      "id, piece_id, section_id, date, text, metronome_speed, timer_seconds, session_number, repeat_interval_days"
     )
-  );
+    .eq("completed", false)
+    .not("repeat_interval_days", "is", null);
+  repeatingQuery = ids?.length
+    ? repeatingQuery.in("id", ids)
+    : repeatingQuery.lt("date", before!);
+  const { data: repeating } = await repeatingQuery;
 
-  revalidatePath("/practice");
-  return toRoll.length;
+  const completedAt = new Date().toISOString();
+  let archiveQuery = supabase
+    .from("practice_tasks")
+    .update({ completed: true, completed_at: completedAt })
+    .eq("completed", false);
+  archiveQuery = ids?.length
+    ? archiveQuery.in("id", ids)
+    : archiveQuery.lt("date", before!);
+  await archiveQuery;
+
+  const occurrences = (repeating ?? []).flatMap((row) => {
+    const date =
+      nextOccurrenceDate(row.date, row.repeat_interval_days!, today) ??
+      resumeDate;
+    return date ? [{ row, date }] : [];
+  });
+  if (occurrences.length === 0) return;
+
+  // Append each occurrence at the end of its day, as a single archive does.
+  const targetDates = [...new Set(occurrences.map((o) => o.date))];
+  const { data: sortRows } = await supabase
+    .from("practice_tasks")
+    .select("date, sort_order")
+    .in("date", targetDates);
+  const nextSortByDate = new Map<string, number>();
+  for (const r of sortRows ?? []) {
+    nextSortByDate.set(
+      r.date,
+      Math.max(nextSortByDate.get(r.date) ?? 0, r.sort_order + 1)
+    );
+  }
+
+  await supabase.from("practice_tasks").insert(
+    occurrences.map(({ row, date }) => {
+      const sortOrder = nextSortByDate.get(date) ?? 0;
+      nextSortByDate.set(date, sortOrder + 1);
+      return {
+        piece_id: row.piece_id,
+        section_id: row.section_id,
+        date,
+        text: row.text,
+        metronome_speed: row.metronome_speed,
+        timer_seconds: row.timer_seconds,
+        timer_remaining_seconds: row.timer_seconds,
+        session_number: row.session_number,
+        sort_order: sortOrder,
+        repeat_interval_days: row.repeat_interval_days,
+        repeat_source_task_id: row.id,
+      };
+    })
+  );
 }
 
 export async function reorderTasks(taskIds: string[]) {

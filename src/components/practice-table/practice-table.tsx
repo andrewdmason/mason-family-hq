@@ -18,9 +18,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   ArrowRightIcon,
-  ArrowUpFromLineIcon,
   CalendarArrowUpIcon,
-  ClockIcon,
   GripVerticalIcon,
   PlusIcon,
 } from "lucide-react";
@@ -31,10 +29,22 @@ import { PieceSessionsDialog } from "@/components/practice-table/piece-sessions-
 import {
   moveTasksToDate,
   reorderTasks,
-  rollOverUnfinishedTasks,
   updateTasksSession,
 } from "@/app/practice/timer/task-actions";
-import { getFeedPage } from "@/app/practice/feed/actions";
+import {
+  getPracticeDays,
+  getPracticeView,
+  type Leftovers,
+  type PracticeView,
+} from "@/app/practice/feed/actions";
+import { usePracticeDay } from "@/components/practice-table/practice-day-context";
+import { LeftoversSection } from "@/components/practice-table/leftovers-section";
+import { AggregateTimerPill } from "@/components/practice-table/aggregate-timer-pill";
+import {
+  isStaleBuildError,
+  registerRefresher,
+  reloadForNewBuild,
+} from "@/lib/sync/refresh";
 import {
   createTaskOptimistic,
   emitOptimisticTask,
@@ -50,7 +60,7 @@ import {
   type OptimisticTaskDelete,
 } from "@/lib/optimistic-task";
 import { FollowUpToastHost } from "@/components/practice-table/follow-up-toast";
-import { localDate } from "@/lib/date-utils";
+import { addDays, localDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -84,83 +94,6 @@ type SessionGroup = {
   // PieceGroup.aggregateTasks. Includes pieces whose tasks were all hidden.
   aggregatePieces?: PieceGroup[];
 };
-
-function formatMinsShort(totalSeconds: number): string {
-  const minutes = Math.round(Math.max(0, totalSeconds) / 60);
-  if (minutes <= 0) return "0m";
-  if (minutes < 60) return `${minutes}m`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return m === 0 ? `${h}h` : `${h}h ${m}m`;
-}
-
-function AggregateTimerPill({
-  elapsedSeconds,
-  goalSeconds,
-  onClick,
-  title,
-  size = "sm",
-}: {
-  elapsedSeconds: number;
-  goalSeconds: number;
-  onClick?: () => void;
-  title?: string;
-  size?: "sm" | "md";
-}) {
-  const goalReached = goalSeconds > 0 && elapsedSeconds >= goalSeconds;
-  const interactive = !!onClick;
-  const textClass = size === "md" ? "text-sm" : "text-xs";
-
-  const content = (
-    <>
-      <span
-        className={cn(
-          "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-muted-foreground/70 transition-colors",
-          interactive &&
-            "group-hover/pill:bg-muted group-hover/pill:text-foreground"
-        )}
-      >
-        <ClockIcon className="size-3" />
-        {formatMinsShort(elapsedSeconds)}
-      </span>
-      <span className="mx-0.5 select-none text-muted-foreground/30">/</span>
-      <span
-        className={cn(
-          "rounded px-1.5 py-0.5 transition-colors",
-          goalReached
-            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
-            : cn(
-                "text-muted-foreground/70",
-                interactive &&
-                  "group-hover/pill:bg-muted group-hover/pill:text-foreground"
-              )
-        )}
-      >
-        {goalSeconds > 0 ? formatMinsShort(goalSeconds) : "—"}
-      </span>
-    </>
-  );
-
-  const baseClass = cn(
-    "inline-flex items-center tabular-nums",
-    textClass
-  );
-
-  if (interactive) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        title={title}
-        className={cn("group/pill", baseClass)}
-      >
-        {content}
-      </button>
-    );
-  }
-
-  return <div className={baseClass}>{content}</div>;
-}
 
 function PieceMenuItemBody({ piece }: { piece: Piece }) {
   return (
@@ -248,32 +181,6 @@ function groupTasksBySession(
       sessionNumber,
       pieces: groupTasksByPiece(sessionTasks, pieceWorkNameById),
     }));
-}
-
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr + "T12:00:00");
-  const today = new Date();
-  const todayStr = localDate(today);
-
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = localDate(yesterday);
-
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = localDate(tomorrow);
-
-  const weekday = date.toLocaleDateString("en-US", { weekday: "long" });
-
-  if (dateStr === todayStr) return `Today (${weekday})`;
-  if (dateStr === yesterdayStr) return `Yesterday (${weekday})`;
-  if (dateStr === tomorrowStr) return `Tomorrow (${weekday})`;
-
-  return date.toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
 }
 
 function SortablePieceGroup({
@@ -477,7 +384,7 @@ function SortablePieceGroup({
           </DropdownMenu>
         </div>
         <div className="flex items-center gap-1.5 px-1">
-          <h3 className="text-sm font-medium text-foreground">
+          <h3 className="text-base font-medium text-foreground">
             {group.pieceName}
             {group.pieceWorkName && (
               <span className="text-muted-foreground/70">
@@ -642,7 +549,7 @@ function SessionBlock({
     <div className={cn("mb-5", !isFirst && showHeader && "mt-6")}>
       {showHeader && (
         <div className="group/session flex items-center gap-3 mb-3 px-1">
-          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/70">
+          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/80">
             Session {sessionNumber}
           </span>
           <div className="h-px flex-1 bg-border/60" />
@@ -711,8 +618,7 @@ function DayGroup({
   focusedPieceName,
   activePieces,
   worksById,
-  hasTomorrow,
-  hasUnfinishedBefore,
+  today,
   isNextSessionView,
   onReorder,
 }: {
@@ -721,8 +627,7 @@ function DayGroup({
   focusedPieceName: string | null;
   activePieces: Piece[];
   worksById: Record<string, string>;
-  hasTomorrow: boolean;
-  hasUnfinishedBefore: boolean;
+  today: string;
   isNextSessionView: boolean;
   onReorder: (dayDate: string, orderedIds: string[]) => void;
 }) {
@@ -870,99 +775,29 @@ function DayGroup({
     worksById
   );
 
-  const dayElapsedSeconds = day.tasks.reduce(
-    (sum, t) => sum + Math.max(0, t.timer_seconds - t.timer_remaining_seconds),
-    0
-  );
-  const dayGoalSeconds = day.tasks.reduce(
-    (sum, t) => sum + Math.max(0, t.timer_seconds),
-    0
-  );
-  const showDayTimer = dayElapsedSeconds > 0 || dayGoalSeconds > 0;
-  const todayStr = localDate();
-  const isToday = day.date === todayStr;
+  const isToday = day.date === today;
+  const isPast = day.date < today;
+  const isEmpty = sessionGroups.length === 0 && pendingEmptySession === null;
 
-  if (
-    sessionGroups.length === 0 &&
-    pendingEmptySession === null &&
-    !isToday
-  )
-    return null;
+  const emptyLabel = focusedPieceId
+    ? `No ${focusedPieceName ?? "practice"} ${isToday ? "yet today" : isPast ? "on this day" : "planned yet"}.`
+    : isToday
+      ? "No practice yet today. Hit record or add something."
+      : isPast
+        ? "Nothing logged on this day."
+        : "Nothing planned yet.";
+
+  const addTrigger = (
+    <>
+      <PlusIcon className="size-3" />
+      {isEmpty ? emptyLabel : "Add"}
+    </>
+  );
+  const addTriggerClass =
+    "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground";
 
   return (
-    <div className="group/day mb-8">
-      {isToday && hasTomorrow && <hr className="mb-8 border-border" />}
-      {/* Day header */}
-      <div
-        {...(isToday ? { "data-today-anchor": "true" } : {})}
-        className={cn(
-          "flex items-center gap-2 mb-3 px-1",
-          isToday && "scroll-mt-24"
-        )}
-      >
-        <h2
-          className={cn(
-            "text-lg font-semibold",
-            isToday ? "text-sky-600 dark:text-sky-400" : "text-foreground"
-          )}
-        >
-          {formatDate(day.date)}
-        </h2>
-        {showDayTimer && (
-          <AggregateTimerPill
-            elapsedSeconds={dayElapsedSeconds}
-            goalSeconds={dayGoalSeconds}
-            size="md"
-          />
-        )}
-        {!focusedPieceId && (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              className="inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground size-6 opacity-0 group-hover/day:opacity-100 data-[state=open]:opacity-100 transition-opacity"
-              title="Add task"
-            >
-              <PlusIcon className="size-4" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-64">
-              <DropdownMenuItem
-                onClick={() => handleAddTask(null, defaultAddSession)}
-              >
-                <span className="text-sm">General note</span>
-              </DropdownMenuItem>
-              {dayAddableEntries.length > 0 && <DropdownMenuSeparator />}
-              <PieceMenuEntries
-                entries={dayAddableEntries}
-                onSelect={(piece) => handleAddPiece(piece, defaultAddSession)}
-              />
-              {filteredTasks.length > 0 &&
-                pendingEmptySession === null &&
-                !isNextSessionView && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={handleAddSession}>
-                      <PlusIcon />
-                      <span className="text-sm">New session</span>
-                    </DropdownMenuItem>
-                  </>
-                )}
-              {isToday && hasUnfinishedBefore && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      void rollOverUnfinishedTasks();
-                    }}
-                  >
-                    <ArrowUpFromLineIcon />
-                    <span className="text-sm">Roll over unfinished</span>
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
-
+    <div className="mb-8">
       {/* Session blocks */}
       {sessionsToRender.map((session, index) => (
         <SessionBlock
@@ -983,44 +818,56 @@ function DayGroup({
         />
       ))}
 
-      {/* Empty state for today when the current view has no tasks */}
-      {isToday &&
-        sessionGroups.length === 0 &&
-        pendingEmptySession === null &&
-        !nextSessionAllComplete && (
-          <div className="mb-3">
-            {focusedPieceId && focusedPieceName && (
-              <div className="flex items-center gap-1.5 mb-1.5 px-1">
-                <h3 className="text-sm font-medium text-muted-foreground">
-                  {focusedPieceName}
-                </h3>
-              </div>
-            )}
-            <button
-              onClick={() => handleAddTask(focusedPieceId, 1)}
-              className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <PlusIcon className="size-3" />
-              No practice yet today. Hit record or add a task.
-            </button>
-          </div>
-        )}
-
-      {nextSessionAllComplete && (
-        <div className="mb-3 px-2 py-1.5 text-xs text-muted-foreground">
+      {nextSessionAllComplete ? (
+        <div className="px-2 py-1.5 text-sm text-muted-foreground">
           All of today&apos;s sessions are complete.
         </div>
+      ) : focusedPieceId ? (
+        <button
+          type="button"
+          onClick={() => handleAddTask(focusedPieceId, defaultAddSession)}
+          className={addTriggerClass}
+        >
+          {addTrigger}
+        </button>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger className={addTriggerClass}>
+            {addTrigger}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-64">
+            <DropdownMenuItem
+              onClick={() => handleAddTask(null, defaultAddSession)}
+            >
+              <span className="text-sm">General note</span>
+            </DropdownMenuItem>
+            {dayAddableEntries.length > 0 && <DropdownMenuSeparator />}
+            <PieceMenuEntries
+              entries={dayAddableEntries}
+              onSelect={(piece) => handleAddPiece(piece, defaultAddSession)}
+            />
+            {filteredTasks.length > 0 &&
+              pendingEmptySession === null &&
+              !isNextSessionView && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleAddSession}>
+                  <PlusIcon />
+                  <span className="text-sm">New session</span>
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
-
-      {isToday && <hr className="mt-8 border-border" />}
     </div>
   );
 }
 
 export function PracticeTable({
-  initialData,
+  initialView,
 }: {
-  initialData: { items: FeedDay[]; nextCursor: string | null };
+  initialView: PracticeView;
 }) {
   const {
     focusedPieceId,
@@ -1056,45 +903,116 @@ export function PracticeTable({
     },
     [activePieceInstance, setActivePieceInstance]
   );
-  const [days, setDays] = useState<FeedDay[]>(initialData.items);
-  const [cursor, setCursor] = useState<string | null>(initialData.nextCursor);
-  const [loading, setLoading] = useState(false);
-  const paginatedRef = useRef(false);
+  const { today, viewDate, goToDate, setDayStats } = usePracticeDay();
 
-  // Sync server revalidation into the loaded days. If the user has paginated
-  // past the first page, merge the fresh first page in by date so later pages
-  // (and our advanced cursor) aren't dropped — otherwise they'd flicker out and
-  // be re-fetched by the infinite-scroll sentinel.
+  // Days are cached as they're visited: the one on screen and its neighbours,
+  // so stepping either way paints at once while the next pair loads behind it.
+  const [days, setDays] = useState<FeedDay[]>(initialView.days);
+  const [loadedDates, setLoadedDates] = useState<ReadonlySet<string>>(
+    () => new Set(initialView.days.map((d) => d.date))
+  );
+  const [leftovers, setLeftovers] = useState<Leftovers>(
+    initialView.leftovers
+  );
+  const inflightRef = useRef(new Set<string>());
+  const daysRef = useRef(days);
+  daysRef.current = days;
+  const viewDateRef = useRef(viewDate);
+  viewDateRef.current = viewDate;
+
+  /**
+   * Take fresh copies of some days. `onlyThese` marks every other cached day
+   * as needing a re-read the next time it's shown — it stays on hand to paint
+   * instantly meanwhile.
+   */
+  const mergeDays = useCallback((fresh: FeedDay[], onlyThese = false) => {
+    const freshDates = new Set(fresh.map((d) => d.date));
+    setDays((prev) =>
+      [...prev.filter((d) => !freshDates.has(d.date)), ...fresh].sort((a, b) =>
+        b.date.localeCompare(a.date)
+      )
+    );
+    setLoadedDates((prev) => new Set([...(onlyThese ? [] : prev), ...freshDates]));
+  }, []);
+
+  // Leftover cleanup is optimistic and meant to be clicked through quickly.
+  // While any of those writes is still on its way, a server snapshot is behind
+  // the screen — applying it would bring back rows already dealt with — so
+  // snapshots are skipped until the clicks settle, then the view is re-read once.
+  const pendingLeftoverOpsRef = useRef(0);
+
+  // A fresh server render (a revalidating write, a reload) is newer than
+  // anything cached for the days it carries.
   useEffect(() => {
-    if (!paginatedRef.current) {
-      setDays(initialData.items);
-      setCursor(initialData.nextCursor);
-      return;
-    }
-    setDays((prev) => {
-      const fresh = new Map(initialData.items.map((d) => [d.date, d]));
-      const seen = new Set<string>();
-      const merged = prev.map((d) => {
-        seen.add(d.date);
-        return fresh.get(d.date) ?? d;
-      });
-      const newDays = initialData.items.filter((d) => !seen.has(d.date));
-      return [...newDays, ...merged];
-    });
-  }, [initialData]);
+    if (pendingLeftoverOpsRef.current > 0) return;
+    mergeDays(initialView.days);
+    setLeftovers(initialView.leftovers);
+  }, [initialView, mergeDays]);
 
-  const loadMore = useCallback(async () => {
-    if (!cursor || loading) return;
-    setLoading(true);
-    try {
-      const result = await getFeedPage(cursor, 7);
-      paginatedRef.current = true;
-      setDays((prev) => [...prev, ...result.items]);
-      setCursor(result.nextCursor);
-    } finally {
-      setLoading(false);
-    }
-  }, [cursor, loading]);
+  // Load the day on screen and its neighbours when they aren't cached yet.
+  useEffect(() => {
+    const wanted = [addDays(viewDate, -1), viewDate, addDays(viewDate, 1)].filter(
+      (d) => !loadedDates.has(d) && !inflightRef.current.has(d)
+    );
+    if (wanted.length === 0) return;
+    for (const d of wanted) inflightRef.current.add(d);
+    void getPracticeDays(wanted)
+      .then((fresh) => mergeDays(fresh))
+      .catch((err: unknown) => {
+        if (isStaleBuildError(err)) reloadForNewBuild();
+      })
+      .finally(() => {
+        for (const d of wanted) inflightRef.current.delete(d);
+      });
+  }, [viewDate, loadedDates, mergeDays]);
+
+  // In-place re-read of whatever is on screen — for coming back to the window
+  // and for the app shell's "this page was replayed from cache" check. Re-reads
+  // into the mounted tree rather than re-running the route, so nothing being
+  // edited is remounted.
+  const refreshSeqRef = useRef(0);
+  const refreshView = useCallback(() => {
+    const mine = ++refreshSeqRef.current;
+    void getPracticeView(viewDateRef.current, localDate())
+      .then((view) => {
+        if (mine !== refreshSeqRef.current) return;
+        if (pendingLeftoverOpsRef.current > 0) return;
+        mergeDays(view.days, true);
+        setLeftovers(view.leftovers);
+      })
+      .catch((err: unknown) => {
+        if (isStaleBuildError(err)) reloadForNewBuild();
+      });
+  }, [mergeDays]);
+  useEffect(() => registerRefresher(refreshView), [refreshView]);
+
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trackLeftoverOp = useCallback(
+    (op: Promise<unknown>) => {
+      pendingLeftoverOpsRef.current += 1;
+      if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+      void op
+        .catch(() => {})
+        .finally(() => {
+          pendingLeftoverOpsRef.current -= 1;
+          if (pendingLeftoverOpsRef.current > 0) return;
+          // A failed write shows up here too: the re-read puts it back.
+          settleTimerRef.current = setTimeout(refreshView, 500);
+        });
+    },
+    [refreshView]
+  );
+
+  // Starting practice on another day (record from the bar, say, while looking
+  // at last week) brings the log to that day.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { date } = (e as CustomEvent<{ date: string }>).detail;
+      if (date !== viewDateRef.current) goToDate(date);
+    };
+    window.addEventListener("practice-timer-started", handler);
+    return () => window.removeEventListener("practice-timer-started", handler);
+  }, [goToDate]);
 
   const handleReorder = useCallback(
     (dayDate: string, orderedIds: string[]) => {
@@ -1189,6 +1107,33 @@ export function PracticeTable({
 
     const updateHandler = (e: Event) => {
       const { taskId, updates } = (e as CustomEvent<OptimisticTaskUpdate>).detail;
+      // An earlier day's item that's un-archived becomes a leftover again.
+      const reopened =
+        updates.completed === false
+          ? daysRef.current
+              .flatMap((d) => d.tasks)
+              .find((t) => t.id === taskId && t.date < localDate())
+          : undefined;
+      setLeftovers((prev) => {
+        const inList = prev.recent.some((t) => t.id === taskId);
+        if (inList) {
+          return {
+            ...prev,
+            recent: prev.recent.map((t) =>
+              t.id === taskId ? { ...t, ...updates } : t
+            ),
+          };
+        }
+        if (reopened && reopened.date >= prev.cutoff) {
+          return {
+            ...prev,
+            recent: [...prev.recent, { ...reopened, ...updates }].sort((a, b) =>
+              b.date.localeCompare(a.date)
+            ),
+          };
+        }
+        return prev;
+      });
       setDays((prev) =>
         prev.map((d) => {
           if (!d.tasks.some((t) => t.id === taskId)) return d;
@@ -1204,6 +1149,11 @@ export function PracticeTable({
 
     const deleteHandler = (e: Event) => {
       const { taskId } = (e as CustomEvent<OptimisticTaskDelete>).detail;
+      setLeftovers((prev) =>
+        prev.recent.some((t) => t.id === taskId)
+          ? { ...prev, recent: prev.recent.filter((t) => t.id !== taskId) }
+          : prev
+      );
       setDays((prev) =>
         prev.map((d) => ({
           ...d,
@@ -1318,8 +1268,9 @@ export function PracticeTable({
     return () => window.removeEventListener("task-auto-advance", handler);
   }, []);
 
-  // Quick-add from the header's "Pieces" menu: append the piece to today's
-  // latest session and make it the active timer item immediately. Uses a ref so
+  // Quick-add from the header's "Pieces" menu: append the piece to the latest
+  // session of the day on screen, and on today make it the active timer item
+  // immediately — planning tomorrow or backfilling yesterday starts nothing. Uses a ref so
   // the always-attached listener reads fresh state without re-subscribing.
   const quickAddContextRef = useRef({
     days,
@@ -1341,9 +1292,10 @@ export function PracticeTable({
       const piece = activePieces.find((p) => p.id === pieceId);
       if (!piece) return;
 
-      const today = localDate();
-      const todayDay = days.find((d) => d.date === today);
-      const sessionNumber = (todayDay?.tasks ?? []).reduce(
+      const date = viewDateRef.current;
+      const isToday = date === localDate();
+      const day = days.find((d) => d.date === date);
+      const sessionNumber = (day?.tasks ?? []).reduce(
         (max, t) => Math.max(max, t.session_number ?? 1),
         1
       );
@@ -1351,7 +1303,7 @@ export function PracticeTable({
       void createTaskOptimistic({
         pieceId: piece.id,
         sectionId: null,
-        date: today,
+        date,
         metronomeSpeed: null,
         pieceName: piece.name,
         pieceComposer: piece.composer,
@@ -1361,6 +1313,7 @@ export function PracticeTable({
         sessionNumber,
       })
         .then((result) => {
+          if (!isToday) return;
           startTaskTimer(result.id, result.timer_remaining_seconds, {
             pieceId: piece.id,
             pieceName: piece.name,
@@ -1371,11 +1324,11 @@ export function PracticeTable({
             text: "",
             goalSeconds: result.timer_seconds,
             metronomeSpeed: null,
-            date: today,
+            date,
           });
           setActivePieceInstance({
             pieceId: piece.id,
-            key: `${today}:${sessionNumber}:${piece.id}`,
+            key: `${date}:${sessionNumber}:${piece.id}`,
           });
         })
         .catch(() => {});
@@ -1384,65 +1337,27 @@ export function PracticeTable({
     return () => window.removeEventListener("practice-quick-add-piece", handler);
   }, []);
 
-  // On initial load, if the feed has tomorrow entries, scroll so Today sits
-  // at the top of the viewport instead of Tomorrow.
-  const didInitialScrollRef = useRef(false);
-  useEffect(() => {
-    if (didInitialScrollRef.current) return;
-    didInitialScrollRef.current = true;
-    const hasTomorrowInitial = initialData.items.some(
-      (d) => d.date === tomorrowStr
-    );
-    if (!hasTomorrowInitial) return;
-    const el = document.querySelector<HTMLElement>("[data-today-anchor]");
-    if (!el) return;
-    el.scrollIntoView({ block: "start", behavior: "instant" as ScrollBehavior });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const viewDay = days.find((d) => d.date === viewDate) ?? null;
+  const isViewLoading = viewDay === null && !loadedDates.has(viewDate);
+  const displayDay: FeedDay = viewDay ?? {
+    date: viewDate,
+    tasks: [],
+    timeSummary: [],
+  };
+  const isToday = viewDate === today;
 
-  // Infinite scroll sentinel
-  useEffect(() => {
-    if (!cursor) return;
-    const sentinel = document.getElementById("load-more-sentinel");
-    if (!sentinel) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          loadMore();
-        }
-      },
-      { rootMargin: "200px" }
-    );
-
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [cursor, loadMore]);
-
-  const tomorrowStr = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return localDate(d);
-  })();
-  const hasTomorrow = days.some((d) => d.date === tomorrowStr);
-  const hasUnfinishedBefore = days.some(
-    (d) => d.date < localDate() && d.tasks.some((t) => !t.completed)
+  // The title bar shows the day's total next to its name.
+  const dayElapsedSeconds = displayDay.tasks.reduce(
+    (sum, t) => sum + Math.max(0, t.timer_seconds - t.timer_remaining_seconds),
+    0
   );
-
-  // Always include today in the displayed list so we can render an empty state
-  // even when nothing has been logged yet.
-  const todayStr = localDate();
-  const displayDays = days.some((d) => d.date === todayStr)
-    ? days
-    : [
-        ...days.filter((d) => d.date > todayStr),
-        { date: todayStr, tasks: [], timeSummary: [] } as FeedDay,
-        ...days.filter((d) => d.date < todayStr),
-      ];
-
-  const visibleDays = isNextSessionView
-    ? displayDays.filter((d) => d.date === todayStr)
-    : displayDays;
+  const dayGoalSeconds = displayDay.tasks.reduce(
+    (sum, t) => sum + Math.max(0, t.timer_seconds),
+    0
+  );
+  useEffect(() => {
+    setDayStats({ elapsedSeconds: dayElapsedSeconds, goalSeconds: dayGoalSeconds });
+  }, [dayElapsedSeconds, dayGoalSeconds, setDayStats]);
 
   const sessionNumbersByDate = useMemo(() => {
     const map: Record<string, number[]> = {};
@@ -1454,33 +1369,49 @@ export function PracticeTable({
     return map;
   }, [days]);
 
+  const openLeftovers = leftovers.recent.filter((t) => !t.completed);
+
   return (
     <div className="pl-8" onClick={handleRootClick}>
-      {visibleDays.map((day) => (
+      {isToday && !isNextSessionView && (
+        <LeftoversSection
+          tasks={openLeftovers}
+          olderCount={leftovers.olderCount}
+          olderRepeatingCount={leftovers.olderRepeatingCount}
+          cutoff={leftovers.cutoff}
+          today={today}
+          onOlderArchived={() =>
+            setLeftovers((prev) => ({
+              ...prev,
+              olderCount: 0,
+              olderRepeatingCount: 0,
+            }))
+          }
+          track={trackLeftoverOp}
+        />
+      )}
+
+      {isViewLoading ? (
+        <div className="space-y-3 py-1" aria-busy="true">
+          <div className="h-5 w-40 animate-pulse rounded bg-muted" />
+          <div className="h-10 animate-pulse rounded bg-muted/60" />
+          <div className="h-10 animate-pulse rounded bg-muted/60" />
+        </div>
+      ) : (
         <DayGroup
-          key={day.date}
-          day={day}
+          key={viewDate}
+          day={displayDay}
           focusedPieceId={focusedPieceId}
           focusedPieceName={focusedPieceName}
           activePieces={activePieces}
           worksById={worksById}
-          hasTomorrow={hasTomorrow && !isNextSessionView}
-          hasUnfinishedBefore={hasUnfinishedBefore}
-          isNextSessionView={isNextSessionView}
+          today={today}
+          isNextSessionView={isNextSessionView && isToday}
           onReorder={handleReorder}
         />
-      ))}
-
-      <FollowUpToastHost sessionNumbersByDate={sessionNumbersByDate} />
-
-      {cursor && !isNextSessionView && (
-        <div id="load-more-sentinel" className="py-4 text-center">
-          {loading && (
-            <span className="text-sm text-muted-foreground">Loading...</span>
-          )}
-        </div>
       )}
 
+      <FollowUpToastHost sessionNumbersByDate={sessionNumbersByDate} />
     </div>
   );
 }
