@@ -1,8 +1,9 @@
 import { addDays, localDate } from "@/lib/date-utils";
 
 /**
- * Cadences offered in the row menu. Rolling, not calendar-anchored: "every 3
- * days" means three days after the last time the item was archived.
+ * Cadences offered in the row menu. Anchored on the schedule, not on when the
+ * item happened to be archived: "every 3 days" means three days after the day
+ * this occurrence was down for.
  */
 export const REPEAT_INTERVAL_OPTIONS = [1, 2, 3, 4, 5, 6, 7] as const;
 
@@ -13,17 +14,18 @@ export function repeatIntervalLabel(days: number): string {
 }
 
 /**
- * When the next occurrence should land. Anchored on the later of the item's own
- * day and today, so archiving a stale row from last Monday schedules forward
- * from now rather than into the past.
+ * When the next occurrence should land: one cadence after the day this one was
+ * scheduled for, however late it's archived — yesterday's daily item comes back
+ * today, not tomorrow. Null when that day has already passed (the rhythm broke,
+ * say over a vacation); the caller asks when to resume instead of guessing.
  */
 export function nextOccurrenceDate(
   taskDate: string,
   intervalDays: number,
   today: string = localDate()
-): string {
-  const anchor = taskDate > today ? taskDate : today;
-  return addDays(anchor, intervalDays);
+): string | null {
+  const next = addDays(taskDate, intervalDays);
+  return next >= today ? next : null;
 }
 
 /**
@@ -51,13 +53,14 @@ const SHORT_DATE_FORMAT = new Intl.DateTimeFormat("en-US", {
 });
 
 /**
- * How a future day reads in a sentence: "tomorrow", "the day after", a weekday
- * name inside the coming week, and a plain date beyond that.
+ * How a day reads in a sentence: "today", "tomorrow", "the day after", a
+ * weekday name inside the coming week, and a plain date beyond that.
  */
 export function relativeDayPhrase(
   targetDate: string,
   fromDate: string = localDate()
 ): string {
+  if (targetDate === fromDate) return "today";
   if (targetDate === addDays(fromDate, 1)) return "tomorrow";
   if (targetDate === addDays(fromDate, 2)) return "the day after";
   const d = new Date(`${targetDate}T12:00:00`);

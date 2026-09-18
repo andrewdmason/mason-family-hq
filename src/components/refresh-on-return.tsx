@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { whenNotTyping } from "@/lib/sync/refresh";
+import { requestRefresh, whenNotTyping } from "@/lib/sync/refresh";
 
 /**
  * Re-fetches the server snapshot when the user comes back to an already-open
@@ -66,8 +66,17 @@ export function useRefreshOnReturn(
   }, [refresh, safeWhileTyping]);
 }
 
+/**
+ * Route-level return refresh for apps without their own. A screen that has
+ * registered an in-place re-read (the practice log) gets that instead, so the
+ * route isn't re-run under it.
+ */
 export function RefreshOnReturn() {
   const router = useRouter();
-  useRefreshOnReturn(useCallback(() => router.refresh(), [router]));
+  useRefreshOnReturn(
+    useCallback(() => {
+      if (!requestRefresh()) router.refresh();
+    }, [router])
+  );
   return null;
 }

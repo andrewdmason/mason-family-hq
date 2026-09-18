@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { localDate, getUserTimezone } from "@/lib/date-utils";
+import { addDays, localDate, getUserTimezone } from "@/lib/date-utils";
 import type {
   TimeSummaryEntry,
   LessonTimeSummary,
@@ -186,6 +186,38 @@ export async function getTimeSummaryForDateRange(
   };
 }
 
+type TaskRowWithJoins = Record<string, unknown> & {
+  date: string;
+  pieces?: unknown;
+  piece_sections?: unknown;
+};
+
+const TASK_WITH_DETAILS_SELECT =
+  "*, pieces(name, composer, kind), piece_sections(label, status)";
+
+function toTaskWithDetails(row: TaskRowWithJoins): TaskWithDetails {
+  const piece = row.pieces as {
+    name: string;
+    composer: string | null;
+    kind: PieceKind;
+  } | null;
+  const section = row.piece_sections as {
+    label: string;
+    status: number;
+  } | null;
+
+  return {
+    ...row,
+    piece_name: piece?.name ?? null,
+    piece_composer: piece?.composer ?? null,
+    piece_kind: (piece?.kind as PieceKind) ?? null,
+    section_label: section?.label ?? null,
+    section_status: (section?.status as SectionStatus) ?? null,
+    pieces: undefined,
+    piece_sections: undefined,
+  } as unknown as TaskWithDetails;
+}
+
 /**
  * Fetch tasks with joined piece/section details for a set of dates.
  */
@@ -198,7 +230,7 @@ async function getTasksWithDetailsForDates(
 
   const { data: tasks } = await supabase
     .from("practice_tasks")
-    .select("*, pieces(name, composer, kind), piece_sections(label, status)")
+    .select(TASK_WITH_DETAILS_SELECT)
     .in("date", dates)
     .order("date", { ascending: false })
     .order("session_number", { ascending: true })
@@ -207,66 +239,23 @@ async function getTasksWithDetailsForDates(
 
   for (const date of dates) result.set(date, []);
 
-  for (const row of tasks ?? []) {
-    const piece = row.pieces as unknown as {
-      name: string;
-      composer: string | null;
-      kind: PieceKind;
-    } | null;
-    const section = row.piece_sections as unknown as {
-      label: string;
-      status: number;
-    } | null;
-
-    const task: TaskWithDetails = {
-      ...row,
-      piece_name: piece?.name ?? null,
-      piece_composer: piece?.composer ?? null,
-      piece_kind: (piece?.kind as PieceKind) ?? null,
-      section_label: section?.label ?? null,
-      section_status: (section?.status as SectionStatus) ?? null,
-      pieces: undefined,
-      piece_sections: undefined,
-    } as TaskWithDetails;
-
-    result.get(row.date)!.push(task);
+  for (const row of (tasks ?? []) as TaskRowWithJoins[]) {
+    result.get(row.date)!.push(toTaskWithDetails(row));
   }
 
   return result;
 }
 
 /**
- * Fetch a page of feed data, cursor-based by date descending.
+ * Build the log's view of each given day — its items, time summary and the
+ * section status changes made on it. Every date gets an entry, empty or not:
+ * the log steps through calendar days, and an empty day is still a place to
+ * plan or backfill.
  */
-export async function getFeedPage(
-  cursor?: string,
-  limit = 7
-): Promise<{ items: FeedDay[]; nextCursor: string | null }> {
+export async function getPracticeDays(dates: string[]): Promise<FeedDay[]> {
   const supabase = await createClient();
-
-  // Get distinct dates that have practice tasks
-  let query = supabase
-    .from("practice_tasks")
-    .select("date")
-    .order("date", { ascending: false })
-    .limit(limit * 5); // over-fetch to get enough distinct dates
-
-  if (cursor) {
-    query = query.lt("date", cursor);
-  }
-
-  const { data: taskDates } = await query;
-
-  const dateSet = new Set<string>();
-  for (const t of taskDates ?? []) dateSet.add(t.date);
-
-  const allDates = Array.from(dateSet)
-    .sort((a, b) => b.localeCompare(a))
-    .slice(0, limit);
-
-  if (allDates.length === 0) {
-    return { items: [], nextCursor: null };
-  }
+  const allDates = [...new Set(dates)].sort((a, b) => b.localeCompare(a));
+  if (allDates.length === 0) return [];
 
   // Fetch tasks, time summaries, and snapshots in parallel
   const [tasksByDate, timeSummaryMap, { data: allSnapshots }] = await Promise.all([
@@ -334,8 +323,7 @@ export async function getFeedPage(
       statusChangesByDatePiece.delete(date);
   }
 
-  // Build feed days
-  const items: FeedDay[] = allDates.map((date) => {
+  return allDates.map((date) => {
     const dayItem: FeedDay = {
       date,
       tasks: tasksByDate.get(date) ?? [],
@@ -349,18 +337,100 @@ export async function getFeedPage(
 
     return dayItem;
   });
+}
 
-  // Check for more data
-  const lastDate = allDates[allDates.length - 1];
-  const { count: moreCount } = await supabase
-    .from("practice_tasks")
-    .select("id", { count: "exact", head: true })
-    .lt("date", lastDate);
+/** How far back the leftovers list shows items one by one. */
+const LEFTOVER_WINDOW_DAYS = 14;
+
+export type Leftovers = {
+  /** Unfinished items from the window before today, newest day first. */
+  recent: TaskWithDetails[];
+  /** Everything unfinished before the window — shown only as a count. */
+  olderCount: number;
+  /** How many of those repeat, so clearing them knows to ask when to resume. */
+  olderRepeatingCount: number;
+  /** First day of the window; older items are the ones dated before it. */
+  cutoff: string;
+};
+
+/**
+ * Items left unfinished on earlier days. Today's view surfaces them so they can
+ * be cleaned up — archived, brought onto today, or deleted.
+ */
+export async function getLeftovers(today: string): Promise<Leftovers> {
+  const supabase = await createClient();
+  const cutoff = addDays(today, -LEFTOVER_WINDOW_DAYS);
+
+  const [{ data: recent }, { data: older }] = await Promise.all([
+    supabase
+      .from("practice_tasks")
+      .select(TASK_WITH_DETAILS_SELECT)
+      .eq("completed", false)
+      .gte("date", cutoff)
+      .lt("date", today)
+      .order("date", { ascending: false })
+      .order("session_number", { ascending: true })
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("practice_tasks")
+      .select("repeat_interval_days")
+      .eq("completed", false)
+      .lt("date", cutoff),
+  ]);
 
   return {
-    items,
-    nextCursor: (moreCount ?? 0) > 0 ? lastDate : null,
+    recent: ((recent ?? []) as TaskRowWithJoins[]).map(toTaskWithDetails),
+    olderCount: older?.length ?? 0,
+    olderRepeatingCount: (older ?? []).filter(
+      (r) => r.repeat_interval_days !== null
+    ).length,
+    cutoff,
   };
+}
+
+export type PracticeView = {
+  /** The user's today, in their timezone, as the server saw it. */
+  today: string;
+  /** The requested day and its neighbours, so a step either way is instant. */
+  days: FeedDay[];
+  leftovers: Leftovers;
+};
+
+/**
+ * Everything the log needs to paint a day: that day, the ones either side of
+ * it, and the leftovers list. `today` comes from the client when it has one —
+ * its clock is the one the user is looking at.
+ */
+export async function getPracticeView(
+  viewDate?: string | null,
+  clientToday?: string
+): Promise<PracticeView> {
+  const today =
+    clientToday ?? localDate(new Date(), await getUserTimezone());
+  const date = viewDate ?? today;
+
+  const [days, leftovers] = await Promise.all([
+    getPracticeDays([addDays(date, -1), date, addDays(date, 1)]),
+    getLeftovers(today),
+  ]);
+
+  return { today, days, leftovers };
+}
+
+/** Days in a range that have anything logged or planned, for the date picker. */
+export async function getPracticedDates(
+  startDate: string,
+  endDate: string
+): Promise<string[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("practice_tasks")
+    .select("date")
+    .gte("date", startDate)
+    .lte("date", endDate);
+
+  return [...new Set((data ?? []).map((r) => r.date as string))];
 }
 
 /**

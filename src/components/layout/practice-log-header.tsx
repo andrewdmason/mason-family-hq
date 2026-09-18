@@ -16,6 +16,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { groupPiecesForMenu } from "@/lib/piece-menu";
+import { DayTitle } from "@/components/practice-table/day-title";
 
 const FOCUS_VIEW = "next-session";
 
@@ -56,10 +57,16 @@ export function PracticeLogHeader() {
       const params = new URLSearchParams();
       if (focusKey) params.set("focus", focusKey);
       if (view) params.set("view", view);
+      // Keep the day being viewed — except for Focus, which is today-only, so
+      // switching it on comes back to today.
+      const date = new URLSearchParams(window.location.search).get("date");
+      if (date && view !== FOCUS_VIEW && pathname === "/practice") {
+        params.set("date", date);
+      }
       const qs = params.toString();
       return qs ? `/practice?${qs}` : "/practice";
     },
-    []
+    [pathname]
   );
 
   const setUrlState = useCallback(
@@ -162,9 +169,9 @@ export function PracticeLogHeader() {
   }, []);
 
   // The "Pieces" menu is a quick-add action, not a filter: picking a piece
-  // appends it to today and makes it the active timer item. PracticeTable owns
-  // the add + timer-start (it knows today's sessions), so we just announce the
-  // pick here.
+  // appends it to the day on screen, and on today makes it the active timer
+  // item. PracticeTable owns the add + timer-start (it knows the day's
+  // sessions), so we just announce the pick here.
   const quickAddPiece = useCallback((pieceId: string) => {
     window.dispatchEvent(
       new CustomEvent("practice-quick-add-piece", { detail: { pieceId } })
@@ -186,7 +193,9 @@ export function PracticeLogHeader() {
         )}
       >
         <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
-          <div className="flex flex-wrap items-center gap-3 py-2 pl-8">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 pl-8">
+            <DayTitle hideNavigation={isFocusView} />
+            <div className="ml-auto flex items-center gap-3">
             <label
               className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground select-none cursor-pointer"
               title="Focus (F)"
@@ -239,6 +248,7 @@ export function PracticeLogHeader() {
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
+            </div>
           </div>
         </div>
       </div>

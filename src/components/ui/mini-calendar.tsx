@@ -22,10 +22,16 @@ export function MiniCalendar({
   selected,
   onSelect,
   className,
+  markedDates,
+  onMonthChange,
 }: {
   selected: Date;
   onSelect: (date: Date) => void;
   className?: string;
+  /** "YYYY-MM-DD" keys that get a dot under the number (e.g. days with data). */
+  markedDates?: ReadonlySet<string>;
+  /** Told whenever the visible month changes, so callers can load its marks. */
+  onMonthChange?: (month: Date) => void;
 }) {
   // The visible month starts on the selected date's month and only moves via
   // the chevrons — re-seeded whenever a fresh `selected` arrives (e.g. the
@@ -35,6 +41,10 @@ export function MiniCalendar({
   React.useEffect(() => {
     setViewMonth(selected);
   }, [selectedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const viewMonthKey = toDateKey(viewMonth);
+  React.useEffect(() => {
+    onMonthChange?.(viewMonth);
+  }, [viewMonthKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className={className}>
@@ -74,13 +84,14 @@ export function MiniCalendar({
           .map((day) => {
             const inMonth = day.getMonth() === viewMonth.getMonth();
             const isSelected = isSameDay(day, selected);
+            const isMarked = markedDates?.has(toDateKey(day)) ?? false;
             return (
               <button
                 key={toDateKey(day)}
                 type="button"
                 onClick={() => onSelect(day)}
                 className={cn(
-                  "mx-auto flex size-8 items-center justify-center rounded-full text-sm tabular-nums transition-colors hover:bg-accent",
+                  "relative mx-auto flex size-8 items-center justify-center rounded-full text-sm tabular-nums transition-colors hover:bg-accent",
                   !inMonth && "text-muted-foreground/50",
                   isToday(day) && !isSelected && "font-semibold text-primary",
                   isSelected &&
@@ -88,6 +99,15 @@ export function MiniCalendar({
                 )}
               >
                 {day.getDate()}
+                {isMarked && (
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "absolute bottom-1 left-1/2 size-1 -translate-x-1/2 rounded-full",
+                      isSelected ? "bg-primary-foreground" : "bg-primary/70",
+                    )}
+                  />
+                )}
               </button>
             );
           })}
