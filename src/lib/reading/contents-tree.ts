@@ -58,7 +58,7 @@ export type Contents = {
  * costs it something if it is already in the back matter.
  */
 const ALSO_NOT_THE_STORY =
-  /^(epigraphs?|index|notes|endnotes|footnotes|bibliography|selected bibliography|works cited|further reading|suggested reading|glossary|permissions|(illustration|photo|image|picture) credits|credits|what'?s next)\b/i;
+  /^(epigraphs?|index|notes|endnotes|footnotes|bibliography|selected bibliography|works cited|further reading|suggested reading|glossary|permissions|(illustration|photo|image|picture) credits|credits|what'?s next|biographical notes?|about the (translator|illustrator|editor|type)|a note (on|about) the (author|translator|type|text))\b/i;
 
 /** Whether an entry is part of the book itself, for contents-display purposes. */
 function isStory(title: string): boolean {
@@ -160,25 +160,100 @@ function endWordAt(
   return totalWords;
 }
 
+/** Two titles compared the way a reader would: case and spacing don't count. */
+function sameTitle(a: string, b: string): boolean {
+  const flatten = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+  return flatten(a) === flatten(b);
+}
+
+/**
+ * A section can't contain a section of the same name.
+ *
+ * When a book's contents points a row at the wrong file — and publishers do,
+ * most often by repeating the link the row above it uses — that row lands
+ * somewhere it doesn't belong, and the heading the book actually prints for the
+ * section turns up later as one the contents never listed. Rule 2 above then
+ * files that heading INSIDE the stray row, and the contents shows "Future"
+ * containing "Future": one of them seconds long in the middle of the previous
+ * chapter, the other the real thing, an indent too deep.
+ *
+ * So an unlisted heading that repeats the row directly above it isn't a section
+ * inside that one — it is where that section actually starts. The row moves to
+ * it. Nothing is added and nothing is lost: the row keeps the nesting the book
+ * gave it, and the chapter before it gets back the pages the stray row took.
+ *
+ * Only the row DIRECTLY above qualifies. A book that lists "Notes" once and
+ * prints an unlisted "Notes" heading in every chapter is a different situation —
+ * those are real, separate sections, and the rows in between say so.
+ */
+function mergeStrayRows(toc: ReadingTocEntry[]): ReadingTocEntry[] {
+  const listed = (e: ReadingTocEntry | undefined) =>
+    e != null && typeof e.depth === "number" && e.depth > 0;
+  const out: ReadingTocEntry[] = [];
+  for (const entry of toc) {
+    const previous = out[out.length - 1];
+    if (!listed(entry) && listed(previous) && sameTitle(previous.title, entry.title)) {
+      out[out.length - 1] = { ...entry, depth: previous.depth };
+      continue;
+    }
+    out.push(entry);
+  }
+  return out;
+}
+
+/**
+ * Drop the rows that only say the book's own name back to you, lifting whatever
+ * was nested inside them into their place.
+ *
+ * The lifting is the point. A contents that opens the story with a row naming
+ * the book and lists every section inside it is completely ordinary — and
+ * dropping that row on its own orphans all of them: they keep the indent the
+ * book gave them with no parent left to sit under, and slide inside whichever
+ * row happens to precede them, which is the last page of the front matter. That
+ * is a whole novel folded into its own epigraph, with nothing left in the body.
+ */
+function dropTitleRows(
+  entries: ReadingTocEntry[],
+  depths: number[],
+  bookTitle: string
+): { entries: ReadingTocEntry[]; depths: number[] } {
+  const keptEntries: ReadingTocEntry[] = [];
+  const keptDepths: number[] = [];
+  // Depths of the dropped rows we are still inside — one level of lift each.
+  const open: number[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const depth = depths[i];
+    while (open.length > 0 && depth <= open[open.length - 1]) open.pop();
+    if (sameTitle(entries[i].title, bookTitle)) {
+      open.push(depth);
+      continue;
+    }
+    keptEntries.push(entries[i]);
+    keptDepths.push(Math.max(1, depth - open.length));
+  }
+  return { entries: keptEntries, depths: keptDepths };
+}
+
 /**
  * Build the reader's contents from the stored heading list.
  *
- * `bookTitle` is skipped when an entry merely repeats it — some contents lead
- * with the book's own name, and a row that says the book back to you is noise.
- * `chapterBounds` in reading-progress.ts drops it for the same reason; the two
- * agreeing is what stops the contents and the running head disagreeing about
- * where the book begins.
+ * A row that merely repeats `bookTitle` is dropped — some contents lead with the
+ * book's own name, and a row that says the book back to you is noise — but
+ * anything nested inside it is lifted into its place rather than orphaned.
+ * `chapterBounds` in reading-progress.ts drops the same row for the same reason;
+ * the two agreeing is what stops the contents and the running head disagreeing
+ * about where the book begins.
  */
 export function buildContents(
   toc: ReadingTocEntry[],
   bookTitle: string,
   totalWords: number | null
 ): Contents {
-  const skip = bookTitle.trim().toLowerCase();
-  const entries = toc.filter((e) => e.title.trim().toLowerCase() !== skip);
-  if (entries.length === 0) return { front: [], body: [], back: [] };
+  const merged = mergeStrayRows(toc);
+  if (merged.length === 0) return { front: [], body: [], back: [] };
 
-  const depths = resolveDepths(entries);
+  const { entries, depths } = dropTitleRows(merged, resolveDepths(merged), bookTitle);
+  if (entries.length === 0) return { front: [], body: [], back: [] };
 
   // Flat nodes first, then nest — a single pass with a stack of open ancestors.
   const flat: ContentsNode[] = entries.map((entry, i) => {
