@@ -253,6 +253,98 @@ check(
 );
 
 // ---------------------------------------------------------------------------
+// 5b. A book that opens its story with a row naming the book.
+//
+// Perfection: the contents lists COVER / TITLE PAGE / ... / EPIGRAPH, then
+// "PERFECTION" with the novel's four sections inside it. Dropping that row
+// without lifting its children left all four still indented with no parent — so
+// they slid under the epigraph, the whole novel folded into the front matter,
+// and the body was nothing but the biographical note.
+// ---------------------------------------------------------------------------
+console.log("\nA book whose story opens with a row naming the book");
+
+const SELF_TITLED = buildContents(
+  [
+    entry("Title Page", 1, 0),
+    entry("Epigraph", 1, 20),
+    entry("Perfection", 1, 50, 1),
+    entry("Present", 2, 51),
+    entry("Imperfect", 2, 1600),
+    entry("Remote", 2, 21500),
+    entry("Future", 2, 27000),
+    entry("Acknowledgments", 1, 29000),
+  ],
+  "Perfection",
+  29400
+);
+check(
+  "the sections come up to the top level instead of being orphaned",
+  shape(SELF_TITLED.body) === "Present, Imperfect, Remote, Future",
+  shape(SELF_TITLED.body)
+);
+check(
+  "so the novel is the body, not something nested in the epigraph",
+  titles(SELF_TITLED.front) === "Title Page, Epigraph",
+  titles(SELF_TITLED.front)
+);
+check(
+  "and the epigraph is an epigraph's length again, not the whole novel",
+  SELF_TITLED.front[1]?.minutes === minutesToRead(31),
+  `${SELF_TITLED.front[1]?.minutes}`
+);
+check(
+  "the trailing matter is still the back",
+  titles(SELF_TITLED.back) === "Acknowledgments",
+  titles(SELF_TITLED.back)
+);
+
+// ---------------------------------------------------------------------------
+// 5c. A contents row pointed at the wrong file.
+//
+// Perfection again: its nav points both "Remote" and "Future" at the same file,
+// so "Future" landed a word into Remote — seconds long — and the real Future
+// heading, which the nav never lists, was filed as a section INSIDE it.
+// ---------------------------------------------------------------------------
+console.log("\nA contents row pointed at the wrong file");
+
+const STRAY = buildContents(
+  [
+    entry("Remote", 1, 1000),
+    entry("Future", 1, 1001),
+    entry("Future", undefined, 5000),
+    entry("Acknowledgments", 1, 9000),
+  ],
+  "Some Book",
+  9400
+);
+check(
+  "the stray row moves to where the book prints its heading",
+  shape(STRAY.body) === "Remote, Future",
+  shape(STRAY.body)
+);
+check(
+  "so the chapter before it gets its pages back",
+  STRAY.body[0]?.minutes === minutesToRead(4000),
+  `${STRAY.body[0]?.minutes}`
+);
+
+const REPEATED_SECTION = buildContents(
+  [
+    entry("Chapter 1", 1, 0),
+    entry("Notes", undefined, 400),
+    entry("Chapter 2", 1, 1000),
+    entry("Notes", undefined, 1400),
+  ],
+  "Some Book",
+  2000
+);
+check(
+  "a heading that repeats an earlier section, with a row between, is left alone",
+  shape(REPEATED_SECTION.body) === "Chapter 1(Notes), Chapter 2(Notes)",
+  shape(REPEATED_SECTION.body)
+);
+
+// ---------------------------------------------------------------------------
 // 6. Finding where the reader is.
 // ---------------------------------------------------------------------------
 console.log("\nOpening on the chapter you're in");
