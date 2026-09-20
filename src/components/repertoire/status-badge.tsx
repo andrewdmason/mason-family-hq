@@ -12,3 +12,12 @@ const statusVariant: Record<PieceStatus, "default" | "secondary" | "outline"> =
 export function StatusBadge({ status }: { status: PieceStatus }) {
   return <Badge variant={statusVariant[status]}>{PIECE_STATUS_LABELS[status]}</Badge>;
 }
+
+/**
+ * Marks a piece as being in the keep-it-warm rotation. Sits alongside the
+ * status badge rather than replacing it — maintenance is not a status, and a
+ * maintenance piece is still active.
+ */
+export function MaintenanceBadge() {
+  return <Badge variant="outline">Maintenance</Badge>;
+}

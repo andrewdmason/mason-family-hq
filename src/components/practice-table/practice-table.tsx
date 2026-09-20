@@ -21,6 +21,7 @@ import {
   CalendarArrowUpIcon,
   GripVerticalIcon,
   PlusIcon,
+  RefreshCwIcon,
 } from "lucide-react";
 import { useTaskTimer } from "@/components/timer/task-timer-context";
 import { useMetronome } from "@/components/metronome/metronome-context";
@@ -60,6 +61,11 @@ import {
   type OptimisticTaskDelete,
 } from "@/lib/optimistic-task";
 import { FollowUpToastHost } from "@/components/practice-table/follow-up-toast";
+import {
+  MAINTENANCE_GOAL_SECONDS,
+  maintenanceLabel,
+  pickMaintenancePiece,
+} from "@/lib/practice/maintenance";
 import { addDays, localDate } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 import {
@@ -620,6 +626,7 @@ function DayGroup({
   worksById,
   today,
   isNextSessionView,
+  leftoverPieceIds,
   onReorder,
 }: {
   day: FeedDay;
@@ -629,6 +636,8 @@ function DayGroup({
   worksById: Record<string, string>;
   today: string;
   isNextSessionView: boolean;
+  /** Pieces already waiting in the unfinished pile — the rotation skips them. */
+  leftoverPieceIds: ReadonlySet<string>;
   onReorder: (dayDate: string, orderedIds: string[]) => void;
 }) {
   const filteredTasks = focusedPieceId
@@ -762,11 +771,30 @@ function DayGroup({
     setPendingNewSession(base + 1);
   };
 
+  const handleAddMaintenance = async () => {
+    if (!nextMaintenance) return;
+    const piece = nextMaintenance.piece;
+    await createTaskOptimistic({
+      pieceId: piece.id,
+      sectionId: null,
+      date: day.date,
+      metronomeSpeed: null,
+      pieceName: piece.name,
+      pieceComposer: piece.composer,
+      pieceKind: piece.kind,
+      sectionLabel: null,
+      sectionStatus: null,
+      sessionNumber: defaultAddSession,
+      timerSeconds: MAINTENANCE_GOAL_SECONDS,
+    });
+  };
+
   const dayExistingPieceIds = new Set(
     filteredTasks
       .map((t) => t.piece_id)
       .filter((id): id is string => id !== null)
   );
+
   const dayAddablePieces = activePieces.filter(
     (p) => !dayExistingPieceIds.has(p.id)
   );
@@ -774,6 +802,29 @@ function DayGroup({
     dayAddablePieces,
     worksById
   );
+
+  // Built from the whole day, not `filteredTasks`: with a piece in focus the
+  // visible list is narrowed, and excluding from that would happily offer a
+  // piece already sitting on the page. Optimistic rows are in `day.tasks` the
+  // moment they are added, which is what lets two taps name two pieces without
+  // waiting on the server.
+  // Built from the whole day, not `filteredTasks`: with a piece in focus the
+  // visible list is narrowed, and excluding from that would happily offer a
+  // piece already sitting on the page. Optimistic rows land in `day.tasks` the
+  // moment they are added, which is what lets two taps name two pieces without
+  // waiting on the server.
+  const dayPieceIds = new Set(
+    day.tasks.map((t) => t.piece_id).filter((id): id is string => id !== null)
+  );
+
+  const maintenancePieces = activePieces.filter((p) => p.maintenance);
+
+  const nextMaintenance = pickMaintenancePiece({
+    pieces: maintenancePieces,
+    lastPracticedByPiece: day.lastPracticedByPiece ?? {},
+    excluded: new Set([...dayPieceIds, ...leftoverPieceIds]),
+    asOf: day.date,
+  });
 
   const isToday = day.date === today;
   const isPast = day.date < today;
@@ -795,6 +846,13 @@ function DayGroup({
   );
   const addTriggerClass =
     "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground";
+
+  // The same conditions that used to hide "New session" from the Add menu.
+  // Now that it stands on its own it stays put and dims instead.
+  const newSessionDisabled =
+    filteredTasks.length === 0 ||
+    pendingEmptySession !== null ||
+    isNextSessionView;
 
   return (
     <div className="mb-8">
@@ -831,34 +889,55 @@ function DayGroup({
           {addTrigger}
         </button>
       ) : (
-        <DropdownMenu>
-          <DropdownMenuTrigger className={addTriggerClass}>
-            {addTrigger}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-64">
-            <DropdownMenuItem
-              onClick={() => handleAddTask(null, defaultAddSession)}
+        <div className="flex flex-wrap items-center gap-1">
+          <DropdownMenu>
+            <DropdownMenuTrigger className={addTriggerClass}>
+              {addTrigger}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64">
+              <DropdownMenuItem
+                onClick={() => handleAddTask(null, defaultAddSession)}
+              >
+                <span className="text-sm">General note</span>
+              </DropdownMenuItem>
+              {dayAddableEntries.length > 0 && <DropdownMenuSeparator />}
+              <PieceMenuEntries
+                entries={dayAddableEntries}
+                onSelect={(piece) => handleAddPiece(piece, defaultAddSession)}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {maintenancePieces.length > 0 && (
+            <button
+              type="button"
+              onClick={handleAddMaintenance}
+              disabled={!nextMaintenance}
+              className={cn(
+                addTriggerClass,
+                !nextMaintenance &&
+                  "cursor-default opacity-50 hover:text-muted-foreground"
+              )}
             >
-              <span className="text-sm">General note</span>
-            </DropdownMenuItem>
-            {dayAddableEntries.length > 0 && <DropdownMenuSeparator />}
-            <PieceMenuEntries
-              entries={dayAddableEntries}
-              onSelect={(piece) => handleAddPiece(piece, defaultAddSession)}
-            />
-            {filteredTasks.length > 0 &&
-              pendingEmptySession === null &&
-              !isNextSessionView && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleAddSession}>
-                  <PlusIcon />
-                  <span className="text-sm">New session</span>
-                </DropdownMenuItem>
-              </>
+              <RefreshCwIcon className="size-3" />
+              {nextMaintenance
+                ? maintenanceLabel(nextMaintenance)
+                : "Maintenance — all queued"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleAddSession}
+            disabled={newSessionDisabled}
+            className={cn(
+              addTriggerClass,
+              newSessionDisabled &&
+                "cursor-default opacity-50 hover:text-muted-foreground"
             )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+          >
+            <PlusIcon className="size-3" />
+            New session
+          </button>
+        </div>
       )}
     </div>
   );
@@ -1371,6 +1450,23 @@ export function PracticeTable({
 
   const openLeftovers = leftovers.recent.filter((t) => !t.completed);
 
+  // Pieces already waiting in the unfinished pile. The older items only come
+  // back as a count, so their piece ids ride along separately — otherwise a
+  // maintenance piece buried in an ancient task would be offered every day.
+  // This set follows the optimistic leftover edits, so archiving one returns
+  // its piece to the rotation immediately.
+  const leftoverPieceIds = useMemo(
+    () =>
+      new Set<string>([
+        ...leftovers.recent
+          .filter((t) => !t.completed)
+          .map((t) => t.piece_id)
+          .filter((id): id is string => id !== null),
+        ...leftovers.olderPieceIds,
+      ]),
+    [leftovers.recent, leftovers.olderPieceIds]
+  );
+
   return (
     <div className="pl-8" onClick={handleRootClick}>
       {isToday && !isNextSessionView && (
@@ -1385,6 +1481,7 @@ export function PracticeTable({
               ...prev,
               olderCount: 0,
               olderRepeatingCount: 0,
+              olderPieceIds: [],
             }))
           }
           track={trackLeftoverOp}
@@ -1407,6 +1504,7 @@ export function PracticeTable({
           worksById={worksById}
           today={today}
           isNextSessionView={isNextSessionView && isToday}
+          leftoverPieceIds={leftoverPieceIds}
           onReorder={handleReorder}
         />
       )}

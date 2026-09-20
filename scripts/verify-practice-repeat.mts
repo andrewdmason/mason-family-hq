@@ -46,8 +46,12 @@ check(
   nextOccurrenceDate("2026-09-16", 3, "2026-09-16") === "2026-09-19"
 );
 check(
-  "a stale item archived late schedules from today, not its own day",
-  nextOccurrenceDate("2026-09-10", 3, "2026-09-16") === "2026-09-19"
+  "yesterday's daily item comes back today, not tomorrow",
+  nextOccurrenceDate("2026-09-15", 1, "2026-09-16") === "2026-09-16"
+);
+check(
+  "an item so stale its next day has passed gives up and asks instead",
+  nextOccurrenceDate("2026-09-10", 3, "2026-09-16") === null
 );
 check(
   "an item already sitting on a future day schedules from that day",

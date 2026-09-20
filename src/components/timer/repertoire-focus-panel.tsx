@@ -38,6 +38,7 @@ import {
 import { useTaskTimer } from "@/components/timer/task-timer-context";
 import { TimeSummary } from "@/components/timer/time-summary";
 import { getTodaySummary } from "@/app/practice/timer/actions";
+import { getLastPracticedByPiece } from "@/app/practice/feed/actions";
 import {
   getAllOpenAssignments,
   getAssignmentsForPiece,
@@ -71,7 +72,8 @@ import type {
   TimeSummaryEntry,
 } from "@/lib/types";
 import { TECHNIQUE_PIECE_ID, SIGHT_READING_PIECE_ID } from "@/lib/types";
-import { localDate } from "@/lib/date-utils";
+import { daysBetween, localDate } from "@/lib/date-utils";
+import { daysSinceLabel } from "@/lib/practice/maintenance";
 
 // Client-side caches so re-selecting a piece shows data instantly
 const sectionsCache = new Map<string, PieceSectionWithChildren[]>();
@@ -913,13 +915,18 @@ function AssignmentRow({
 const overviewCache: {
   assignments: AssignmentWithPiece[] | null;
   summary: TimeSummaryEntry[] | null;
-} = { assignments: null, summary: null };
+  lastPracticed: Record<string, string> | null;
+} = { assignments: null, summary: null, lastPracticed: null };
 
 type AssignmentGroup = {
   key: string;
   label: string;
   subtitle: string | null;
   kind: PieceKind;
+  /** In the keep-it-warm rotation — listed even with no open assignments. */
+  maintenance: boolean;
+  /** Whole days since real practice, or null for never. */
+  daysSince: number | null;
   assignments: AssignmentWithPiece[];
 };
 
@@ -938,21 +945,30 @@ function PracticeOverview({
   const [allAssignments, setAllAssignments] = useState<AssignmentWithPiece[]>(
     () => overviewCache.assignments ?? []
   );
+  const [lastPracticed, setLastPracticed] = useState<Record<string, string>>(
+    () => overviewCache.lastPracticed ?? {}
+  );
   const [loaded, setLoaded] = useState(
     () => overviewCache.assignments !== null && overviewCache.summary !== null
   );
   const [pendingPieceId, setPendingPieceId] = useState<string | null>(null);
 
   const refreshData = useCallback(() => {
-    Promise.all([getTodaySummary(), getAllOpenAssignments()]).then(
-      ([summaryData, assignmentsData]) => {
-        overviewCache.summary = summaryData;
-        overviewCache.assignments = assignmentsData;
-        setSummary(summaryData);
-        setAllAssignments(assignmentsData);
-        setLoaded(true);
-      }
-    );
+    // The client's own date, not a server-derived today: the timezone cookie
+    // can still be missing on a fresh session.
+    Promise.all([
+      getTodaySummary(),
+      getAllOpenAssignments(),
+      getLastPracticedByPiece(localDate()),
+    ]).then(([summaryData, assignmentsData, lastPracticedData]) => {
+      overviewCache.summary = summaryData;
+      overviewCache.assignments = assignmentsData;
+      overviewCache.lastPracticed = lastPracticedData;
+      setSummary(summaryData);
+      setAllAssignments(assignmentsData);
+      setLastPracticed(lastPracticedData);
+      setLoaded(true);
+    });
   }, []);
 
   useEffect(() => {
@@ -963,6 +979,24 @@ function PracticeOverview({
     const handler = () => refreshData();
     window.addEventListener("assignments-changed", handler);
     return () => window.removeEventListener("assignments-changed", handler);
+  }, [refreshData]);
+
+  // Archiving a task by its checkbox changes how long it has been since that
+  // piece was practiced, but runs no timer — so nothing else here would notice.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const handler = (e: Event) => {
+      const { updates } = (e as CustomEvent<{ updates?: { completed?: boolean } }>)
+        .detail;
+      if (updates?.completed === undefined) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => refreshData(), 500);
+    };
+    window.addEventListener("task-updated-optimistic", handler);
+    return () => {
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("task-updated-optimistic", handler);
+    };
   }, [refreshData]);
 
   const updateAssignments = useCallback(
@@ -1123,6 +1157,11 @@ function PracticeOverview({
   // any piece), plus groups for archived/unknown pieces that still have open
   // assignments.
   const allGroups = useMemo<AssignmentGroup[]>(() => {
+    const today = localDate();
+    const sinceFor = (pieceId: string) => {
+      const last = lastPracticed[pieceId];
+      return last ? daysBetween(last, today) : null;
+    };
     const byPiece = new Map<string, AssignmentGroup>();
     for (const piece of activePieces) {
       byPiece.set(piece.id, {
@@ -1130,6 +1169,8 @@ function PracticeOverview({
         label: piece.name,
         subtitle: piece.composer,
         kind: (piece.kind ?? "piece") as PieceKind,
+        maintenance: piece.maintenance,
+        daysSince: sinceFor(piece.id),
         assignments: [],
       });
     }
@@ -1143,6 +1184,8 @@ function PracticeOverview({
           label: a.piece_name,
           subtitle: a.piece_composer,
           kind: a.kind,
+          maintenance: false,
+          daysSince: sinceFor(a.piece_id),
           assignments: [a],
         });
       }
@@ -1168,13 +1211,19 @@ function PracticeOverview({
         (pieceOrder.get(b.key) ?? Infinity)
       );
     });
-  }, [allAssignments, activePieces]);
+  }, [allAssignments, activePieces, lastPracticed]);
 
   // Only render groups that have assignments, unless they're the pending piece.
   const visibleGroups = useMemo(
     () =>
       allGroups.filter(
-        (g) => g.assignments.length > 0 || g.key === pendingPieceId
+        (g) =>
+          g.assignments.length > 0 ||
+          g.key === pendingPieceId ||
+          // The rotation's pieces are the least likely to have an open
+          // assignment — they're learned. List them anyway, or the days-since
+          // picture would cover everything except what it's for.
+          g.maintenance
       ),
     [allGroups, pendingPieceId]
   );
@@ -1342,12 +1391,15 @@ function AssignmentPieceGroup({
       <button
         type="button"
         onClick={() => onFocus(group.key)}
-        className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors mb-1.5 flex items-center gap-1"
+        className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors mb-1.5 flex w-full items-center gap-1 text-left"
       >
         {group.label}
         {group.subtitle && (
           <span className="font-normal">— {group.subtitle}</span>
         )}
+        <span className="ml-auto pl-2 text-[10px] tabular-nums text-muted-foreground/70">
+          {daysSinceLabel(group.daysSince)}
+        </span>
       </button>
       {isPending && (
         <PendingAssignmentInput

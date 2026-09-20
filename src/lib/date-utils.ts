@@ -34,6 +34,23 @@ export function addDays(date: string, days: number): string {
 }
 
 /**
+ * Whole days from one YYYY-MM-DD to another (negative if `to` is earlier).
+ * Both ends anchored at noon so a DST boundary between them never costs or
+ * gains an hour that rounds the count wrong.
+ *
+ * Always compare two calendar days this way rather than diffing a parsed date
+ * against `Date.now()` — a bare YYYY-MM-DD parses as UTC midnight, which reads
+ * a day high west of UTC for most of the day.
+ */
+export function daysBetween(from: string, to: string): number {
+  return Math.round(
+    (new Date(`${to}T12:00:00`).getTime() -
+      new Date(`${from}T12:00:00`).getTime()) /
+      86_400_000
+  );
+}
+
+/**
  * The Monday on or before `date` (YYYY-MM-DD in, YYYY-MM-DD out). Weeks run
  * Mon–Sun across the apps (journal streaks, reading goals, practice reports).
  */
