@@ -4,10 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type {
   Assignment,
-  RepertoireOverviewItem,
   PieceKind,
 } from "@/lib/types";
-import { SYSTEM_PIECE_IDS } from "@/lib/types";
 
 export async function getAssignmentsForPiece(pieceId: string): Promise<{
   openAssignments: Assignment[];
@@ -221,60 +219,4 @@ export async function getAllOpenAssignments(): Promise<AssignmentWithPiece[]> {
       kind: piece.kind,
     } as AssignmentWithPiece;
   });
-}
-
-export async function getRepertoireOverview(): Promise<RepertoireOverviewItem[]> {
-  const supabase = await createClient();
-
-  // Get all active pieces (excluding system pieces)
-  const { data: pieces } = await supabase
-    .from("pieces")
-    .select("id, name, composer")
-    .eq("status", "active")
-    .not("id", "in", `(${SYSTEM_PIECE_IDS.join(",")})`)
-    .order("name");
-
-  if (!pieces || pieces.length === 0) {
-    return [];
-  }
-
-  const pieceIds = pieces.map((p) => p.id);
-
-  // Get open assignment counts per piece
-  const { data: assignmentRows } = await supabase
-    .from("assignments")
-    .select("piece_id")
-    .in("piece_id", pieceIds)
-    .eq("completed", false);
-
-  const assignmentCounts = new Map<string, number>();
-  if (assignmentRows) {
-    for (const t of assignmentRows) {
-      assignmentCounts.set(t.piece_id, (assignmentCounts.get(t.piece_id) ?? 0) + 1);
-    }
-  }
-
-  // Get last played dates from practice_tasks
-  const { data: tasks } = await supabase
-    .from("practice_tasks")
-    .select("piece_id, created_at")
-    .in("piece_id", pieceIds)
-    .order("created_at", { ascending: false });
-
-  const lastPlayedMap = new Map<string, string>();
-  if (tasks) {
-    for (const task of tasks) {
-      if (!lastPlayedMap.has(task.piece_id)) {
-        lastPlayedMap.set(task.piece_id, task.created_at);
-      }
-    }
-  }
-
-  return pieces.map((p) => ({
-    id: p.id,
-    name: p.name,
-    composer: p.composer,
-    last_played: lastPlayedMap.get(p.id) ?? null,
-    open_assignments: assignmentCounts.get(p.id) ?? 0,
-  }));
 }

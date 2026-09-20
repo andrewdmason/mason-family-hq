@@ -247,6 +247,46 @@ async function getTasksWithDetailsForDates(
 }
 
 /**
+ * Last day real practice time went into each piece, keyed by the day it was
+ * asked about. "Real" means the timer ran or the item was archived — queueing
+ * something and never touching it leaves the piece's clock where it was.
+ *
+ * Computed per as-of day so stepping back through the log shows the staleness
+ * that was true then, rather than today's.
+ */
+async function getLastPracticedForDates(
+  dates: string[]
+): Promise<Map<string, Record<string, string>>> {
+  const supabase = await createClient();
+  const { data } = await supabase.rpc("piece_last_practiced", {
+    as_of_dates: dates,
+  });
+
+  const byDate = new Map<string, Record<string, string>>();
+  for (const date of dates) byDate.set(date, {});
+  for (const row of (data ?? []) as {
+    as_of: string;
+    piece_id: string;
+    last_practiced: string;
+  }[]) {
+    const forDay = byDate.get(row.as_of);
+    if (forDay) forDay[row.piece_id] = row.last_practiced;
+  }
+  return byDate;
+}
+
+/**
+ * The same map for a single day, for callers outside the day feed (the
+ * sidebar's days-since markers).
+ */
+export async function getLastPracticedByPiece(
+  asOf: string
+): Promise<Record<string, string>> {
+  const byDate = await getLastPracticedForDates([asOf]);
+  return byDate.get(asOf) ?? {};
+}
+
+/**
  * Build the log's view of each given day — its items, time summary and the
  * section status changes made on it. Every date gets an entry, empty or not:
  * the log steps through calendar days, and an empty day is still a place to
@@ -258,9 +298,15 @@ export async function getPracticeDays(dates: string[]): Promise<FeedDay[]> {
   if (allDates.length === 0) return [];
 
   // Fetch tasks, time summaries, and snapshots in parallel
-  const [tasksByDate, timeSummaryMap, { data: allSnapshots }] = await Promise.all([
+  const [
+    tasksByDate,
+    timeSummaryMap,
+    lastPracticedByDate,
+    { data: allSnapshots },
+  ] = await Promise.all([
     getTasksWithDetailsForDates(allDates),
     getTimeSummariesForDates(allDates),
+    getLastPracticedForDates(allDates),
     supabase
       .from("section_status_snapshots")
       .select("piece_id, section_id, old_status, new_status, snapshot_date")
@@ -328,6 +374,7 @@ export async function getPracticeDays(dates: string[]): Promise<FeedDay[]> {
       date,
       tasks: tasksByDate.get(date) ?? [],
       timeSummary: timeSummaryMap.get(date) ?? [],
+      lastPracticedByPiece: lastPracticedByDate.get(date) ?? {},
     };
 
     const dayStatusChanges = statusChangesByDatePiece.get(date);
@@ -349,6 +396,12 @@ export type Leftovers = {
   olderCount: number;
   /** How many of those repeat, so clearing them knows to ask when to resume. */
   olderRepeatingCount: number;
+  /**
+   * Which pieces those older items belong to. They only come back as a count,
+   * so without this the maintenance rotation would keep offering a piece that
+   * is already buried in the pile.
+   */
+  olderPieceIds: string[];
   /** First day of the window; older items are the ones dated before it. */
   cutoff: string;
 };
@@ -374,7 +427,7 @@ export async function getLeftovers(today: string): Promise<Leftovers> {
       .order("created_at", { ascending: true }),
     supabase
       .from("practice_tasks")
-      .select("repeat_interval_days")
+      .select("repeat_interval_days, piece_id")
       .eq("completed", false)
       .lt("date", cutoff),
   ]);
@@ -385,6 +438,13 @@ export async function getLeftovers(today: string): Promise<Leftovers> {
     olderRepeatingCount: (older ?? []).filter(
       (r) => r.repeat_interval_days !== null
     ).length,
+    olderPieceIds: [
+      ...new Set(
+        (older ?? [])
+          .map((r) => r.piece_id)
+          .filter((id): id is string => id !== null)
+      ),
+    ],
     cutoff,
   };
 }

@@ -106,6 +106,32 @@ export async function updatePieceStatus(
   return { success: true };
 }
 
+/**
+ * Put a piece into the keep-it-warm rotation, or take it out. Independent of
+ * status — a maintenance piece is still active and still shows up everywhere
+ * active pieces do. Also revalidates the log, whose layout carries the flag
+ * out to the rotation button.
+ */
+export async function updatePieceMaintenance(
+  id: string,
+  maintenance: boolean,
+) {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("pieces")
+    .update({ maintenance })
+    .eq("id", id);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  revalidateRepertoire(id);
+  revalidatePath("/practice");
+  return { success: true };
+}
+
 export async function updatePieceField(
   id: string,
   field: "name" | "composer" | "work_id",

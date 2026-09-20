@@ -9,14 +9,6 @@ export function formatElapsed(totalSeconds: number): string {
   return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-export function daysSince(isoDate: string | null): number | null {
-  if (!isoDate) return null;
-  const then = new Date(isoDate);
-  const now = new Date();
-  const diffMs = now.getTime() - then.getTime();
-  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
-}
-
 export function formatMinutes(totalSeconds: number): string {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.round((totalSeconds % 3600) / 60);

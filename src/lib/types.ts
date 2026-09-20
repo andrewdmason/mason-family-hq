@@ -27,6 +27,8 @@ export type Piece = {
   composer: string | null;
   status: PieceStatus;
   kind: PieceKind;
+  /** In the keep-it-warm rotation. Independent of status — still active. */
+  maintenance: boolean;
   notes: string | null;
   target_tempo: number | null;
   created_at: string;
@@ -51,10 +53,6 @@ export type LessonTimeSummary = {
 // Composite types for views
 export type WorkWithPieces = Work & {
   pieces: Piece[];
-};
-
-export type PieceWithLastPlayed = Piece & {
-  last_played: string | null;
 };
 
 // Label constants
@@ -315,14 +313,6 @@ export type StatusChange = {
   newStatus: SectionStatus;
 };
 
-export type RepertoireOverviewItem = {
-  id: string;
-  name: string;
-  composer: string | null;
-  last_played: string | null;
-  open_assignments: number;
-};
-
 // Feed types
 export type TaskWithDetails = PracticeTask & {
   piece_name: string | null;
@@ -338,6 +328,12 @@ export type FeedDay = {
   timeSummary: TimeSummaryEntry[];
   /** Status changes grouped by piece_id for this date */
   statusChangesByPiece?: Record<string, StatusChange[]>;
+  /**
+   * Last day real practice time went into each piece, as of this day. A missing
+   * key means never. Drives the maintenance rotation and the sidebar's
+   * days-since markers.
+   */
+  lastPracticedByPiece?: Record<string, string>;
 };
 
 // Piece section types

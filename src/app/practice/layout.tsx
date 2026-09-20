@@ -27,7 +27,7 @@ export default async function AppLayout({
       supabase
         .from("pieces")
         .select(
-          "id, work_id, name, composer, status, kind, notes, target_tempo, created_at, updated_at"
+          "id, work_id, name, composer, status, kind, maintenance, notes, target_tempo, created_at, updated_at"
         )
         .eq("status", "active")
         .order("name"),

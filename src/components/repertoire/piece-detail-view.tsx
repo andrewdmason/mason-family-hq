@@ -12,6 +12,7 @@ import {
   MusicIcon,
   PencilIcon,
   PlusIcon,
+  RefreshCwIcon,
   RotateCcwIcon,
   Trash2Icon,
   UploadIcon,
@@ -29,7 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { StatusBadge } from "./status-badge";
+import { MaintenanceBadge, StatusBadge } from "./status-badge";
 import { ArchiveDialog } from "./archive-dialog";
 import { PerformanceFormDialog } from "./performance-form-dialog";
 import { WorkPicker } from "./work-picker";
@@ -39,6 +40,7 @@ import { PerformancesPanel } from "./performances-panel";
 import { RecordingsList } from "@/components/recordings/recordings-list";
 import {
   updatePieceDetails,
+  updatePieceMaintenance,
   updatePieceStatus,
 } from "@/app/practice/repertoire/actions";
 import {
@@ -124,6 +126,9 @@ export function PieceDetailView({
   const [addPerformanceOpen, setAddPerformanceOpen] = useState(false);
   const [reactivating, setReactivating] = useState(false);
   const [pickingWork, setPickingWork] = useState(false);
+  // Painted locally so the badge and the menu label flip on the click, ahead of
+  // the revalidate that carries the flag out to the practice log.
+  const [maintenance, setMaintenance] = useState(piece.maintenance);
 
   async function handleSave() {
     setSaving(true);
@@ -144,6 +149,17 @@ export function PieceDetailView({
     setComposer(piece.composer ?? "");
     setNotes(piece.notes ?? "");
     setEditing(false);
+  }
+
+  async function handleToggleMaintenance() {
+    const next = !maintenance;
+    setMaintenance(next);
+    const result = await updatePieceMaintenance(piece.id, next);
+    if ("error" in result) {
+      setMaintenance(!next);
+      return;
+    }
+    router.refresh();
   }
 
   async function handleReactivate() {
@@ -223,7 +239,10 @@ export function PieceDetailView({
   if (editing) {
     return (
       <div className="space-y-3">
-        <StatusBadge status={piece.status} />
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge status={piece.status} />
+          {maintenance && <MaintenanceBadge />}
+        </div>
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -275,6 +294,7 @@ export function PieceDetailView({
       {/* Header */}
       <div className="mb-1 flex flex-wrap items-center gap-2">
         <StatusBadge status={piece.status} />
+        {maintenance && <MaintenanceBadge />}
       </div>
       <div className="mt-2 flex items-start gap-2">
         <h2 className="text-2xl font-semibold tracking-tight">{name}</h2>
@@ -293,6 +313,10 @@ export function PieceDetailView({
             <DropdownMenuItem onClick={() => setAddPerformanceOpen(true)}>
               <PlusIcon />
               Add performance
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleToggleMaintenance}>
+              <RefreshCwIcon />
+              {maintenance ? "Take out of maintenance" : "Move to maintenance"}
             </DropdownMenuItem>
 
             <DropdownMenuSeparator />
