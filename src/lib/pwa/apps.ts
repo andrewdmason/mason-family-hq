@@ -26,6 +26,9 @@ export type PwaApp = {
   // product ("Todos", "Calendar") — only the home dashboard carries the family
   // brand.
   pageTitle: string;
+  // Manifest orientation; defaults to portrait. The clips player is a
+  // landscape video viewer, so that app lets the device rotate.
+  orientation?: "portrait" | "any";
 };
 
 export const PWA_APPS: PwaApp[] = [
@@ -43,6 +46,7 @@ export const PWA_APPS: PwaApp[] = [
   { key: "practice", name: "Practice Log", shortName: "Practice", startUrl: "/practice", pageTitle: "Practice Log" },
   { key: "baseball", name: "Baseball", shortName: "Baseball", startUrl: "/baseball", pageTitle: "Baseball" },
   { key: "games", name: "Games", shortName: "Games", startUrl: "/games", pageTitle: "Games" },
+  { key: "clips", name: "Baseball Clips", shortName: "Clips", startUrl: "/clips", pageTitle: "Baseball Clips", orientation: "any" },
 ];
 
 const byKey = new Map(PWA_APPS.map((app) => [app.key, app]));

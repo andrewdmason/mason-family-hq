@@ -69,7 +69,10 @@ export async function updateSession(request: NextRequest) {
     // The practice-session result callback authenticates with WORKER_SECRET
     // (it's POSTed by the Modal alignment worker, which has no session) — see
     // src/app/practice/session/api/callback/route.ts.
-    !request.nextUrl.pathname.startsWith("/practice/session/api/callback")
+    !request.nextUrl.pathname.startsWith("/practice/session/api/callback") &&
+    // Same for the baseball clips worker's callback — see
+    // src/app/(clips)/clips/api/callback/route.ts.
+    !request.nextUrl.pathname.startsWith("/clips/api/callback")
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";

@@ -17,7 +17,7 @@ export function GET(request: Request) {
     start_url: app.startUrl,
     scope: "/",
     display: "standalone",
-    orientation: "portrait",
+    orientation: app.orientation ?? "portrait",
     background_color: "#faf7f0",
     theme_color: "#7f4327",
     icons: [
