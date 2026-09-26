@@ -390,7 +390,7 @@ export function TaskRow({
 
   const archive = (resumeDate: string | null = nextRepeatDate) => {
     setOptimisticCompleted(true);
-    // Tell the table too: the focus view hides archived items, and reading the
+    // Tell the table too: today hides archived items, and reading the
     // server's copy first is what used to make finishing an item lag.
     emitOptimisticTaskUpdate(task.id, {
       completed: true,

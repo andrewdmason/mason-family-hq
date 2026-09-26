@@ -34,7 +34,7 @@ export function emitFollowUpScheduled(detail: FollowUpScheduledDetail): void {
 /**
  * Confirms that archiving a repeating item scheduled its next occurrence, and
  * offers a way into the details. Mounted once at the table so it outlives the
- * row that triggered it: archiving hides that row in the focus view, and the
+ * row that triggered it: archiving hides that row on today, and the
  * toast still has to be clickable afterwards.
  */
 export function FollowUpToastHost({

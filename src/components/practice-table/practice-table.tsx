@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback, useEffect, useId, useMemo, useRef } from "react";
-import { useSearchParams } from "next/navigation";
 import {
   DndContext,
   closestCenter,
@@ -19,6 +18,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   ArrowRightIcon,
   CalendarArrowUpIcon,
+  ChevronRightIcon,
   GripVerticalIcon,
   PlusIcon,
   RefreshCwIcon,
@@ -62,6 +62,11 @@ import {
 } from "@/lib/optimistic-task";
 import { FollowUpToastHost } from "@/components/practice-table/follow-up-toast";
 import {
+  useJustCompleted,
+  useSessionDisplayPrefs,
+  type LingerPhase,
+} from "@/components/practice-table/session-display";
+import {
   MAINTENANCE_GOAL_SECONDS,
   maintenanceLabel,
   pickMaintenancePiece,
@@ -87,9 +92,9 @@ type PieceGroup = {
   pieceWorkName: string | null;
   pieceKind: PieceKind | null;
   tasks: TaskWithDetails[];
-  // Full task set used for aggregate timers. Differs from `tasks` only in
-  // focus view, where `tasks` is filtered for display but timers should still
-  // reflect all tasks (including completed ones).
+  // Full task set used for aggregate timers. Differs from `tasks` only on
+  // today, where finished items are hidden but timers should still reflect
+  // all tasks (including completed ones).
   aggregateTasks?: TaskWithDetails[];
 };
 
@@ -195,12 +200,14 @@ function SortablePieceGroup({
   onAddTask,
   daySessionNumbers,
   currentSessionNumber,
+  lingering,
 }: {
   group: PieceGroup;
   dayDate: string;
   onAddTask: (afterTaskId: string | null) => void;
   daySessionNumbers: number[];
   currentSessionNumber: number;
+  lingering: ReadonlyMap<string, LingerPhase>;
 }) {
   const { activePieceInstance } = useTaskTimer();
   const sortableId = `piece:${group.pieceId ?? "__general__"}`;
@@ -423,15 +430,29 @@ function SortablePieceGroup({
         items={group.tasks.map((t) => t.id)}
         strategy={verticalListSortingStrategy}
       >
-        {group.tasks.map((task, index) => (
-          <TaskRow
-            key={getStableTaskKey(task.id)}
-            task={task}
-            isFirst={index === 0}
-            onAddBelow={(afterTaskId) => onAddTask(afterTaskId)}
-            daySessionNumbers={daySessionNumbers}
-          />
-        ))}
+        {group.tasks.map((task, index) => {
+          // A just-finished item folds its height away as it goes, so the
+          // rows below slide up rather than jump.
+          const leaving = lingering.get(task.id) === "leaving";
+          return (
+            <div
+              key={getStableTaskKey(task.id)}
+              className={cn(
+                "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
+                leaving ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr]"
+              )}
+            >
+              <div className={cn("min-h-0", leaving && "overflow-hidden")}>
+                <TaskRow
+                  task={task}
+                  isFirst={index === 0}
+                  onAddBelow={(afterTaskId) => onAddTask(afterTaskId)}
+                  daySessionNumbers={daySessionNumbers}
+                />
+              </div>
+            </div>
+          );
+        })}
       </SortableContext>
       {group.pieceId && (
         <PieceSessionsDialog
@@ -451,6 +472,10 @@ function SessionBlock({
   aggregatePieces,
   showHeader,
   isFirst,
+  collapsed,
+  collapsedLabel,
+  onToggleCollapsed,
+  lingering,
   dayDate,
   daySessionNumbers,
   focusedPieceId,
@@ -465,6 +490,11 @@ function SessionBlock({
   aggregatePieces?: PieceGroup[];
   showHeader: boolean;
   isFirst: boolean;
+  collapsed: boolean;
+  /** Shown beside the name while folded — "Done", or how much is left. */
+  collapsedLabel: string | null;
+  onToggleCollapsed: () => void;
+  lingering: ReadonlyMap<string, LingerPhase>;
   dayDate: string;
   daySessionNumbers: number[];
   focusedPieceId: string | null;
@@ -552,12 +582,39 @@ function SessionBlock({
   const addableEntries = groupPiecesForMenu(addablePieces, worksById);
 
   return (
-    <div className={cn("mb-5", !isFirst && showHeader && "mt-6")}>
+    <div
+      className={cn(
+        collapsed ? "mb-3" : "mb-5",
+        !isFirst && showHeader && (collapsed ? "mt-3" : "mt-6")
+      )}
+    >
       {showHeader && (
-        <div className="group/session flex items-center gap-3 mb-3 px-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/80">
+        <div
+          className={cn(
+            "group/session flex items-center gap-3 px-1",
+            !collapsed && "mb-3"
+          )}
+        >
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            aria-expanded={!collapsed}
+            className="-ml-5 flex items-center gap-1.5 rounded-md text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/80 hover:text-foreground"
+            title={collapsed ? "Show session" : "Hide session"}
+          >
+            <ChevronRightIcon
+              className={cn(
+                "size-3.5 transition-transform",
+                !collapsed && "rotate-90"
+              )}
+            />
             Session {sessionNumber}
-          </span>
+            {collapsed && collapsedLabel && (
+              <span className="font-normal normal-case tracking-normal text-muted-foreground/70">
+                · {collapsedLabel}
+              </span>
+            )}
+          </button>
           <div className="h-px flex-1 bg-border/60" />
           {showSessionTimer && (
             <AggregateTimerPill
@@ -566,7 +623,7 @@ function SessionBlock({
               size="sm"
             />
           )}
-          {!focusedPieceId && (
+          {!focusedPieceId && !collapsed && (
             <DropdownMenu>
               <DropdownMenuTrigger
                 className="inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground size-5 opacity-0 group-hover/session:opacity-100 data-[state=open]:opacity-100 transition-opacity"
@@ -590,30 +647,33 @@ function SessionBlock({
           )}
         </div>
       )}
-      <DndContext
-        id={dndId}
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext
-          items={pieces.map((g) => `piece:${g.pieceId ?? "__general__"}`)}
-          strategy={verticalListSortingStrategy}
+      {!collapsed && (
+        <DndContext
+          id={dndId}
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
         >
-          {pieces.map((group) => (
-            <SortablePieceGroup
-              key={group.pieceId ?? "__general__"}
-              group={group}
-              dayDate={dayDate}
-              onAddTask={(afterTaskId) =>
-                onAddTask(group.pieceId, sessionNumber, afterTaskId)
-              }
-              daySessionNumbers={daySessionNumbers}
-              currentSessionNumber={sessionNumber}
-            />
-          ))}
-        </SortableContext>
-      </DndContext>
+          <SortableContext
+            items={pieces.map((g) => `piece:${g.pieceId ?? "__general__"}`)}
+            strategy={verticalListSortingStrategy}
+          >
+            {pieces.map((group) => (
+              <SortablePieceGroup
+                key={group.pieceId ?? "__general__"}
+                group={group}
+                dayDate={dayDate}
+                onAddTask={(afterTaskId) =>
+                  onAddTask(group.pieceId, sessionNumber, afterTaskId)
+                }
+                daySessionNumbers={daySessionNumbers}
+                currentSessionNumber={sessionNumber}
+                lingering={lingering}
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
+      )}
     </div>
   );
 }
@@ -625,7 +685,6 @@ function DayGroup({
   activePieces,
   worksById,
   today,
-  isNextSessionView,
   leftoverPieceIds,
   onReorder,
 }: {
@@ -635,7 +694,6 @@ function DayGroup({
   activePieces: Piece[];
   worksById: Record<string, string>;
   today: string;
-  isNextSessionView: boolean;
   /** Pieces already waiting in the unfinished pile — the rotation skips them. */
   leftoverPieceIds: ReadonlySet<string>;
   onReorder: (dayDate: string, orderedIds: string[]) => void;
@@ -655,47 +713,99 @@ function DayGroup({
     return map;
   }, [activePieces, worksById]);
 
-  const allSessionGroups = groupTasksBySession(
-    filteredTasks,
-    pieceWorkNameById
-  );
+  const sessionGroups = groupTasksBySession(filteredTasks, pieceWorkNameById);
 
-  const sessionGroups = isNextSessionView
-    ? (() => {
-        const firstIncomplete = allSessionGroups.find((s) =>
-          s.pieces.some((p) => p.tasks.some((t) => !t.completed))
-        );
-        const targetNumber = firstIncomplete?.sessionNumber ?? null;
-        if (targetNumber == null) return [];
-        const target = allSessionGroups.find(
-          (s) => s.sessionNumber === targetNumber
-        );
-        if (!target) return [];
-        // Hide completed tasks. Preserve the unfiltered tasks on each piece so
-        // aggregate timers in the session header still reflect the full
-        // session, including time spent on tasks that have been archived.
-        const filteredPieces = target.pieces
-          .map((p) => ({
-            ...p,
-            tasks: p.tasks.filter((t) => !t.completed),
-            aggregateTasks: p.tasks,
-          }))
-          .filter((p) => p.tasks.length > 0);
-        return filteredPieces.length > 0
-          ? [
-              {
-                ...target,
-                pieces: filteredPieces,
-                aggregatePieces: target.pieces,
-              },
-            ]
-          : [];
-      })()
-    : allSessionGroups;
-  const nextSessionAllComplete =
-    isNextSessionView &&
-    allSessionGroups.length > 0 &&
-    sessionGroups.length === 0;
+  const isToday = day.date === today;
+  const isPast = day.date < today;
+
+  // On today, finished items get out of the way: they're hidden unless asked
+  // for, and a session with nothing left folds down to one line. Earlier days
+  // are for looking back over, so they show everything.
+  const { activeTaskId } = useTaskTimer();
+  const display = useSessionDisplayPrefs(today);
+  const lingering = useJustCompleted(filteredTasks, isToday);
+  const hideCompleted = isToday && !display.showCompleted;
+
+  const sessionLayout = sessionGroups.map((session) => {
+    const tasks = session.pieces.flatMap((p) => p.tasks);
+    const openCount = tasks.filter((t) => !t.completed).length;
+    const isLingering = tasks.some((t) => lingering.has(t.id));
+    const isDone = tasks.length > 0 && openCount === 0;
+    const collapsedByDefault = isToday && isDone && !isLingering;
+    const collapsed =
+      display.collapsedOverride(day.date, session.sessionNumber) ??
+      collapsedByDefault;
+    // A finished session opened by hand is there to show what got done; the
+    // only time one is filtered is the beat while its last item slides out.
+    const filterFinished = hideCompleted && (!isDone || isLingering);
+    const isHidden = (t: TaskWithDetails) =>
+      filterFinished && t.completed && !lingering.has(t.id);
+    const visible: SessionGroup = filterFinished
+      ? {
+          ...session,
+          pieces: session.pieces
+            .map((p) => ({
+              ...p,
+              tasks: p.tasks.filter((t) => !isHidden(t)),
+              aggregateTasks: p.tasks,
+            }))
+            .filter((p) => p.tasks.length > 0),
+          aggregatePieces: session.pieces,
+        }
+      : session;
+    // What the "Show completed" link would bring back — only from open,
+    // unfinished sessions, since finished ones have their own fold.
+    const revealable =
+      !collapsed && !isDone && isToday
+        ? tasks.filter((t) => t.completed && !lingering.has(t.id)).length
+        : 0;
+    return {
+      sessionNumber: session.sessionNumber,
+      visible,
+      collapsed,
+      collapsedByDefault,
+      collapsedLabel: isDone ? "Done" : `${openCount} left`,
+      revealable,
+    };
+  });
+  const layoutBySession = new Map(
+    sessionLayout.map((l) => [l.sessionNumber, l])
+  );
+  const revealableCount = sessionLayout.reduce((n, l) => n + l.revealable, 0);
+
+  const toggleCollapsed = (sessionNumber: number) => {
+    const l = layoutBySession.get(sessionNumber);
+    if (!l) return;
+    display.setCollapsed(
+      day.date,
+      sessionNumber,
+      !l.collapsed,
+      l.collapsedByDefault
+    );
+  };
+
+  // Practice moving into a folded session (auto-advance, the transport bar)
+  // opens it, so the running item is always on screen.
+  const activeTask = activeTaskId
+    ? filteredTasks.find((t) => t.id === activeTaskId)
+    : undefined;
+  const activeSession = activeTask
+    ? layoutBySession.get(activeTask.session_number ?? 1)
+    : undefined;
+  const lastActiveTaskIdRef = useRef(activeTaskId);
+  const { setCollapsed } = display;
+  useEffect(() => {
+    if (activeTaskId === lastActiveTaskIdRef.current) return;
+    lastActiveTaskIdRef.current = activeTaskId;
+    if (!activeSession?.collapsed) return;
+    setCollapsed(
+      day.date,
+      activeSession.sessionNumber,
+      false,
+      activeSession.collapsedByDefault
+    );
+  }, [activeTaskId, activeSession, day.date, setCollapsed]);
+
   const [pendingNewSession, setPendingNewSession] = useState<number | null>(
     null
   );
@@ -718,12 +828,15 @@ function DayGroup({
     pendingEmptySession ?? (maxExistingSession > 0 ? maxExistingSession : 1);
 
   const sessionsToRender: SessionGroup[] = [
-    ...sessionGroups,
+    ...sessionLayout.map((l) => l.visible),
     ...(pendingEmptySession !== null
       ? [{ sessionNumber: pendingEmptySession, pieces: [] }]
       : []),
   ];
-  const showSessionHeaders = sessionsToRender.length > 1 || isNextSessionView;
+  // A lone session has no header — unless it's folded, when the header is
+  // all there is to show.
+  const showSessionHeaders =
+    sessionsToRender.length > 1 || sessionLayout.some((l) => l.collapsed);
 
   const handleAddTask = async (
     pieceId: string | null,
@@ -826,8 +939,6 @@ function DayGroup({
     asOf: day.date,
   });
 
-  const isToday = day.date === today;
-  const isPast = day.date < today;
   const isEmpty = sessionGroups.length === 0 && pendingEmptySession === null;
 
   const emptyLabel = focusedPieceId
@@ -850,37 +961,38 @@ function DayGroup({
   // The same conditions that used to hide "New session" from the Add menu.
   // Now that it stands on its own it stays put and dims instead.
   const newSessionDisabled =
-    filteredTasks.length === 0 ||
-    pendingEmptySession !== null ||
-    isNextSessionView;
+    filteredTasks.length === 0 || pendingEmptySession !== null;
 
   return (
     <div className="mb-8">
       {/* Session blocks */}
-      {sessionsToRender.map((session, index) => (
-        <SessionBlock
-          key={session.sessionNumber}
-          sessionNumber={session.sessionNumber}
-          pieces={session.pieces}
-          aggregatePieces={session.aggregatePieces}
-          showHeader={showSessionHeaders}
-          isFirst={index === 0}
-          dayDate={day.date}
-          daySessionNumbers={sessionsToRender.map((s) => s.sessionNumber)}
-          focusedPieceId={focusedPieceId}
-          activePieces={activePieces}
-          worksById={worksById}
-          onReorder={onReorder}
-          onAddTask={handleAddTask}
-          onAddPiece={handleAddPiece}
-        />
-      ))}
+      {sessionsToRender.map((session, index) => {
+        const layout = layoutBySession.get(session.sessionNumber);
+        return (
+          <SessionBlock
+            key={session.sessionNumber}
+            sessionNumber={session.sessionNumber}
+            pieces={session.pieces}
+            aggregatePieces={session.aggregatePieces}
+            showHeader={showSessionHeaders}
+            isFirst={index === 0}
+            collapsed={layout?.collapsed ?? false}
+            collapsedLabel={layout?.collapsedLabel ?? null}
+            onToggleCollapsed={() => toggleCollapsed(session.sessionNumber)}
+            lingering={lingering}
+            dayDate={day.date}
+            daySessionNumbers={sessionsToRender.map((s) => s.sessionNumber)}
+            focusedPieceId={focusedPieceId}
+            activePieces={activePieces}
+            worksById={worksById}
+            onReorder={onReorder}
+            onAddTask={handleAddTask}
+            onAddPiece={handleAddPiece}
+          />
+        );
+      })}
 
-      {nextSessionAllComplete ? (
-        <div className="px-2 py-1.5 text-sm text-muted-foreground">
-          All of today&apos;s sessions are complete.
-        </div>
-      ) : focusedPieceId ? (
+      {focusedPieceId ? (
         <button
           type="button"
           onClick={() => handleAddTask(focusedPieceId, defaultAddSession)}
@@ -939,6 +1051,18 @@ function DayGroup({
           </button>
         </div>
       )}
+
+      {revealableCount > 0 && (
+        <button
+          type="button"
+          onClick={() => display.setShowCompleted(!display.showCompleted)}
+          className="mt-1 px-2 py-1 text-xs text-muted-foreground/80 underline-offset-2 transition-colors hover:text-foreground hover:underline"
+        >
+          {display.showCompleted
+            ? "Hide completed tasks"
+            : `Show ${revealableCount} completed ${revealableCount === 1 ? "task" : "tasks"}`}
+        </button>
+      )}
     </div>
   );
 }
@@ -957,8 +1081,6 @@ export function PracticeTable({
     startTaskTimer,
   } = useTaskTimer();
   const metronomeCtx = useMetronome();
-  const searchParams = useSearchParams();
-  const isNextSessionView = searchParams.get("view") === "next-session";
   const focusedPieceName =
     activePieces.find((p) => p.id === focusedPieceId)?.name ?? null;
 
@@ -1314,7 +1436,10 @@ export function PracticeTable({
       const idx = tasksInView.findIndex((t) => t.id === completedTaskId);
       if (idx === -1) return;
 
-      const nextTask = tasksInView[idx + 1] ?? null;
+      // Finished items are hidden on today, so skip past any to the next
+      // thing still to do.
+      const nextTask =
+        tasksInView.slice(idx + 1).find((t) => !t.completed) ?? null;
       if (!nextTask) return;
 
       startTaskTimer(nextTask.id, nextTask.timer_remaining_seconds, {
@@ -1469,7 +1594,7 @@ export function PracticeTable({
 
   return (
     <div className="pl-8" onClick={handleRootClick}>
-      {isToday && !isNextSessionView && (
+      {isToday && (
         <LeftoversSection
           tasks={openLeftovers}
           olderCount={leftovers.olderCount}
@@ -1503,7 +1628,6 @@ export function PracticeTable({
           activePieces={activePieces}
           worksById={worksById}
           today={today}
-          isNextSessionView={isNextSessionView && isToday}
           leftoverPieceIds={leftoverPieceIds}
           onReorder={handleReorder}
         />
