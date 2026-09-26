@@ -12,7 +12,6 @@ import { AggregateTimerPill } from "@/components/practice-table/aggregate-timer-
 import { usePracticeDay } from "@/components/practice-table/practice-day-context";
 import { getPracticedDates } from "@/app/practice/feed/actions";
 import { addDays, localDate } from "@/lib/date-utils";
-import { cn } from "@/lib/utils";
 
 function daysBetween(from: string, to: string): number {
   const a = new Date(`${from}T12:00:00`).getTime();
@@ -62,7 +61,7 @@ export function describeDay(date: string, today: string) {
  * through the calendar, the day's total, and a way home when you've wandered.
  * Clicking the name opens a month with the days that have practice marked.
  */
-export function DayTitle({ hideNavigation }: { hideNavigation: boolean }) {
+export function DayTitle() {
   const { today, viewDate, isToday, goToDate, dayStats } = usePracticeDay();
   const { title, detail } = describeDay(viewDate, today);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -84,25 +83,19 @@ export function DayTitle({ hideNavigation }: { hideNavigation: boolean }) {
   return (
     <div className="flex min-w-0 items-center gap-x-3 gap-y-1 flex-wrap">
       <div className="-ml-1.5 flex items-center">
-        {!hideNavigation && (
-          <button
-            type="button"
-            onClick={() => goToDate(addDays(viewDate, -1))}
-            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            title="Previous day ([)"
-            aria-label="Previous day"
-          >
-            <ChevronLeftIcon className="size-5" />
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => goToDate(addDays(viewDate, -1))}
+          className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          title="Previous day ([)"
+          aria-label="Previous day"
+        >
+          <ChevronLeftIcon className="size-5" />
+        </button>
         <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
           <PopoverTrigger
-            disabled={hideNavigation}
-            className={cn(
-              "rounded-md px-1.5 font-serif text-2xl tracking-tight text-foreground",
-              !hideNavigation && "hover:bg-accent",
-            )}
-            title={hideNavigation ? undefined : "Go to a date"}
+            className="rounded-md px-1.5 font-serif text-2xl tracking-tight text-foreground hover:bg-accent"
+            title="Go to a date"
           >
             {title}
           </PopoverTrigger>
@@ -118,17 +111,15 @@ export function DayTitle({ hideNavigation }: { hideNavigation: boolean }) {
             />
           </PopoverContent>
         </Popover>
-        {!hideNavigation && (
-          <button
-            type="button"
-            onClick={() => goToDate(addDays(viewDate, 1))}
-            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            title="Next day (])"
-            aria-label="Next day"
-          >
-            <ChevronRightIcon className="size-5" />
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => goToDate(addDays(viewDate, 1))}
+          className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          title="Next day (])"
+          aria-label="Next day"
+        >
+          <ChevronRightIcon className="size-5" />
+        </button>
       </div>
       <span className="hidden text-sm text-muted-foreground sm:inline">
         {detail}

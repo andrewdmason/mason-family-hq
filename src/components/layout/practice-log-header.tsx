@@ -13,20 +13,15 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { groupPiecesForMenu } from "@/lib/piece-menu";
 import { DayTitle } from "@/components/practice-table/day-title";
-
-const FOCUS_VIEW = "next-session";
 
 export function PracticeLogHeader() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const focusParam = searchParams.get("focus");
-  const viewParam = searchParams.get("view");
-  const isFocusView = viewParam === FOCUS_VIEW;
 
   const {
     activePieces,
@@ -53,16 +48,12 @@ export function PracticeLogHeader() {
   }, [focusParam, pathname]);
 
   const buildUrl = useCallback(
-    (focusKey: string | null, view: string | null) => {
+    (focusKey: string | null) => {
       const params = new URLSearchParams();
       if (focusKey) params.set("focus", focusKey);
-      if (view) params.set("view", view);
-      // Keep the day being viewed — except for Focus, which is today-only, so
-      // switching it on comes back to today.
+      // Keep the day being viewed.
       const date = new URLSearchParams(window.location.search).get("date");
-      if (date && view !== FOCUS_VIEW && pathname === "/practice") {
-        params.set("date", date);
-      }
+      if (date && pathname === "/practice") params.set("date", date);
       const qs = params.toString();
       return qs ? `/practice?${qs}` : "/practice";
     },
@@ -70,8 +61,8 @@ export function PracticeLogHeader() {
   );
 
   const setUrlState = useCallback(
-    (pieceId: string | null, view: string | null) => {
-      const url = buildUrl(pieceId, view);
+    (pieceId: string | null) => {
+      const url = buildUrl(pieceId);
       if (pathname !== "/practice") {
         router.push(url);
         return;
@@ -81,18 +72,11 @@ export function PracticeLogHeader() {
     [pathname, router, buildUrl]
   );
 
-  const currentView = isFocusView ? FOCUS_VIEW : null;
-
-  const handleFocusClick = useCallback(() => {
-    setActivePieceInstance(null);
-    setUrlState(focusedPieceId, isFocusView ? null : FOCUS_VIEW);
-  }, [focusedPieceId, isFocusView, setActivePieceInstance, setUrlState]);
-
   const clearFocus = useCallback(() => {
     setFocusedPieceId(null);
     setActivePieceInstance(null);
-    setUrlState(null, currentView);
-  }, [setFocusedPieceId, setActivePieceInstance, setUrlState, currentView]);
+    setUrlState(null);
+  }, [setFocusedPieceId, setActivePieceInstance, setUrlState]);
 
   const handleHeaderClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -106,48 +90,19 @@ export function PracticeLogHeader() {
   );
 
   useEffect(() => {
-    function isTypingTarget(target: EventTarget | null) {
-      if (!(target instanceof HTMLElement)) return false;
-      if (target.isContentEditable) return true;
-      const tag = target.tagName;
-      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
-    }
-
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        // Escape clears whichever is most "active" — the specific instance
-        // first, then piece focus, then the view filter.
-        if (activePieceInstance) {
-          setActivePieceInstance(null);
-          return;
-        }
-        if (focusedPieceId) {
-          clearFocus();
-          return;
-        }
-        if (isFocusView) {
-          setUrlState(null, null);
-        }
+      if (e.key !== "Escape") return;
+      // Escape clears whichever is most "active" — the specific instance
+      // first, then piece focus.
+      if (activePieceInstance) {
+        setActivePieceInstance(null);
         return;
       }
-      if (e.key === "f" || e.key === "F") {
-        if (e.metaKey || e.ctrlKey || e.altKey) return;
-        if (isTypingTarget(e.target)) return;
-        e.preventDefault();
-        handleFocusClick();
-      }
+      if (focusedPieceId) clearFocus();
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    activePieceInstance,
-    focusedPieceId,
-    isFocusView,
-    clearFocus,
-    handleFocusClick,
-    setActivePieceInstance,
-    setUrlState,
-  ]);
+  }, [activePieceInstance, focusedPieceId, clearFocus, setActivePieceInstance]);
 
   const stickyRef = useRef<HTMLDivElement>(null);
   const [isStuck, setIsStuck] = useState(false);
@@ -194,18 +149,8 @@ export function PracticeLogHeader() {
       >
         <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 pl-8">
-            <DayTitle hideNavigation={isFocusView} />
+            <DayTitle />
             <div className="ml-auto flex items-center gap-3">
-            <label
-              className="inline-flex items-center gap-2 text-xs font-medium text-muted-foreground select-none cursor-pointer"
-              title="Focus (F)"
-            >
-              <Switch
-                checked={isFocusView}
-                onCheckedChange={handleFocusClick}
-              />
-              <span className={cn(isFocusView && "text-foreground")}>Focus</span>
-            </label>
             {activePieces.length > 0 && (
               <DropdownMenu>
                 <DropdownMenuTrigger
