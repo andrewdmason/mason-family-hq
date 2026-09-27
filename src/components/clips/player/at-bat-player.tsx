@@ -17,6 +17,7 @@ import {
   StepBack,
   StepForward,
   Trash2,
+  X,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -101,7 +102,6 @@ export function AtBatPlayer({
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
   const [mode, setMode] = useState<Mode>(atBat.pitches.length ? "quick" : "full");
-  const [editing, setEditing] = useState(atBat.pitches.length === 0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"export" | "delete" | "result" | null>(null);
   const [fps, setFps] = useState(atBat.fps ?? 30);
@@ -306,18 +306,6 @@ export function AtBatPlayer({
       const v = video.current;
       if (!v || !sorted.length) return;
       const now = v.currentTime;
-      if (editing) {
-        // Editing: land exactly on the marker, paused and selected.
-        const target =
-          dir > 0
-            ? sorted.find((p) => p.t > now + 0.5 / fps)
-            : [...sorted].reverse().find((p) => p.t < now - 0.5 / fps);
-        if (!target) return;
-        v.pause();
-        setSelectedId(target.id);
-        seek(target.t);
-        return;
-      }
       // Watching: play into the pitch from its lead-in. Previous restarts the
       // current pitch unless you're right at its start.
       const targets = sorted.map((p) => jumpTarget(p.t));
@@ -337,7 +325,7 @@ export function AtBatPlayer({
       seek(targets[i]);
       video.current?.play().catch(() => {});
     },
-    [applySegment, editing, fps, mode, plan, seek, sorted],
+    [applySegment, mode, plan, seek, sorted],
   );
 
   // Hold-to-play for the frame buttons: one step on press, then ~12 frames a
@@ -477,11 +465,11 @@ export function AtBatPlayer({
         seek(v.currentTime + (e.key === "l" ? 10 : -10));
       } else if (e.key === "," || e.key === ".") {
         step(e.key === "." ? 1 : -1);
-      } else if (editing && (e.key === "p" || e.key === "m")) addHere();
-      else if (editing && selected && e.key === "s") patchPitch(selected.id, { swing: !selected.swing });
-      else if (editing && selected && e.key === "c") patchPitch(selected.id, { contact: !selected.contact });
-      else if (editing && selected && (e.key === "Backspace" || e.key === "Delete")) removePitch(selected.id);
-      else if (e.key === "e") setEditing((x) => !x);
+      } else if (e.key === "p" || e.key === "m") addHere();
+      else if (selected && e.key === "s") patchPitch(selected.id, { swing: !selected.swing });
+      else if (selected && e.key === "c") patchPitch(selected.id, { contact: !selected.contact });
+      else if (selected && (e.key === "Backspace" || e.key === "Delete")) removePitch(selected.id);
+      else if (e.key === "Escape") setSelectedId(null);
       else if (e.key === "q") setMode((m) => (m === "quick" ? "full" : "quick"));
     }
     window.addEventListener("keydown", onKey);
@@ -521,11 +509,9 @@ export function AtBatPlayer({
         <RailButton label="Frame back" hold onHoldStart={() => startHold(-1)} onHoldEnd={stopHold}>
           <StepBack className="size-7" />
         </RailButton>
-        {editing && (
-          <RailButton label="Add pitch here" onClick={addHere} accent>
-            <Plus className="size-7" />
-          </RailButton>
-        )}
+        <RailButton label="Add pitch here" onClick={addHere} accent>
+          <Plus className="size-7" />
+        </RailButton>
       </Rail>
 
       {/* Video */}
@@ -588,7 +574,7 @@ export function AtBatPlayer({
         <RailButton label="Frame forward" hold onHoldStart={() => startHold(1)} onHoldEnd={stopHold}>
           <StepForward className="size-7" />
         </RailButton>
-        {editing && <div className="h-14 portrait:hidden" />}
+        <div className="h-14 portrait:hidden" />
       </Rail>
 
       {/* Bottom bar */}
@@ -610,7 +596,6 @@ export function AtBatPlayer({
             time={time}
             pitches={sorted}
             plan={mode === "quick" ? plan : null}
-            editing={editing}
             selectedId={selectedId}
             onSeek={(t) => {
               lastScrubT.current = t;
@@ -656,16 +641,14 @@ export function AtBatPlayer({
               </button>
             ))}
           </div>
-          <Pill active={editing} onClick={() => setEditing((x) => !x)}>
-            {editing ? "Done" : "Edit"}
+          <Pill onClick={() => setDialog("result")} className="font-mono">
+            {badge ?? "Result"}
           </Pill>
         </div>
 
-        {editing && (
+        {/* Marker tools: every change saves as you make it. */}
+        {(selected || !sorted.length) && (
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs">
-            <Pill onClick={addHere} className="landscape:hidden">
-              <Plus className="size-3.5" /> Pitch
-            </Pill>
             {selected ? (
               <>
                 <span className="px-1 text-white/60">
@@ -683,16 +666,16 @@ export function AtBatPlayer({
                 <Pill onClick={() => removePitch(selected.id)} aria-label="Delete pitch">
                   <Trash2 className="size-3.5" />
                 </Pill>
+                <span className="flex-1" />
+                <Pill onClick={() => setSelectedId(null)} aria-label="Done with this pitch">
+                  <X className="size-3.5" />
+                </Pill>
               </>
             ) : (
               <span className="px-1 text-white/60">
-                {sorted.length
-                  ? "Tap a dot to adjust it, or add a pitch where the ball reaches the plate."
-                  : "Play or step to where the ball reaches the plate, then add a pitch."}
+                Play or step to where the ball reaches the plate, then tap + to mark the pitch.
               </span>
             )}
-            <span className="flex-1" />
-            <Pill onClick={() => setDialog("result")}>Result: {badge ?? "—"}</Pill>
           </div>
         )}
       </div>

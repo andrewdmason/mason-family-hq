@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
 // The timeline: a track you can tap or drag to seek, with a dot per pitch —
 // white for takes, yellow for swings and misses, green for contact — and a
 // ring around the at-bat's last pitch. In quick mode the stretches the quick
-// version plays are tinted. In edit mode the dots can be dragged to move them.
+// version plays are tinted. Tapping a dot jumps to it and selects it; dragging
+// one moves the marker.
 
 const DOT_COLOR = {
   take: "bg-white",
@@ -21,7 +22,6 @@ export function Scrubber({
   time,
   pitches,
   plan,
-  editing,
   selectedId,
   onSeek,
   onScrubStart,
@@ -34,7 +34,6 @@ export function Scrubber({
   time: number;
   pitches: ClipPitch[];
   plan: PlanSegment[] | null;
-  editing: boolean;
   selectedId: string | null;
   onSeek: (t: number) => void;
   onScrubStart: () => void;
@@ -44,7 +43,9 @@ export function Scrubber({
   onDropPitch: (id: string, t: number) => void;
 }) {
   const track = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ kind: "seek" } | { kind: "pitch"; id: string; moved: boolean; t: number } | null>(null);
+  const drag = useRef<
+    { kind: "seek" } | { kind: "pitch"; id: string; moved: boolean; t: number; x: number } | null
+  >(null);
   const pct = (t: number) => (duration > 0 ? `${Math.min(100, Math.max(0, (t / duration) * 100))}%` : "0%");
 
   function timeAt(clientX: number) {
@@ -71,6 +72,8 @@ export function Scrubber({
         const t = timeAt(e.clientX);
         if (d.kind === "seek") onSeek(t);
         else {
+          // A tap that wobbles a few pixels shouldn't nudge the marker.
+          if (!d.moved && Math.abs(e.clientX - d.x) < 6) return;
           d.moved = true;
           d.t = t;
           onDragPitch(d.id, t);
@@ -115,13 +118,10 @@ export function Scrubber({
             onPointerDown={(e) => {
               e.stopPropagation();
               onSelect(p.id);
-              if (editing) {
-                track.current!.setPointerCapture(e.pointerId);
-                drag.current = { kind: "pitch", id: p.id, moved: false, t: p.t };
-                onScrubStart();
-              } else {
-                onSeek(p.t);
-              }
+              track.current!.setPointerCapture(e.pointerId);
+              drag.current = { kind: "pitch", id: p.id, moved: false, t: p.t, x: e.clientX };
+              onScrubStart();
+              onSeek(p.t);
             }}
           >
             <span
