@@ -13,6 +13,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   Share,
   StepBack,
   StepForward,
@@ -82,6 +83,7 @@ const SPEEDS = [1, 0.5, 0.25] as const;
 const HOLD_DELAY_MS = 350;
 const HOLD_FPS = 12;
 const JOG_PX_PER_FRAME = 6;
+const MIN_PITCH_GAP_S = 1.5;
 
 type Mode = "quick" | "full";
 
@@ -424,6 +426,14 @@ export function AtBatPlayer({
     if (!v) return;
     // Marking doesn't interrupt playback — tap + (or M) as the pitch goes by.
     const t = frameTime(frameAt(v.currentTime));
+    // Pitches are seconds apart, so a tap right next to an existing marker
+    // (say, during its slow-motion replay) means that pitch — select it
+    // rather than stacking a duplicate.
+    const near = sorted.find((p) => Math.abs(p.t - t) < MIN_PITCH_GAP_S);
+    if (near) {
+      setSelectedId(near.id);
+      return;
+    }
     const tempId = `temp-${++tempSeq.current}`;
     posterDirty.current = true;
     setPitches((list) => [...list, { id: tempId, t, swing: false, contact: false, source: "manual" }]);
@@ -577,6 +587,11 @@ export function AtBatPlayer({
         )}
         {!media && !mediaError && <Loader2 className="size-8 animate-spin text-white/60" />}
         {mediaError && <p className="px-6 text-center text-sm text-white/70">{mediaError}</p>}
+        {seg?.replay && (
+          <span className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-md bg-sky-500/85 px-2 py-1 text-xs font-semibold text-white">
+            <RotateCcw className="size-3.5" /> Slow-mo replay · ¼×
+          </span>
+        )}
         {saveError && (
           <button
             className="absolute inset-x-3 bottom-3 rounded-md bg-red-600/90 px-3 py-2 text-left text-xs"

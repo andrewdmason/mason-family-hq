@@ -13,8 +13,9 @@ import { cn } from "@/lib/utils";
 // stretches the quick version plays are faintly tinted.
 //
 // Quick: the scrubber *is* the quick version — just the pitch windows, end to
-// end with a small gap between pitches, each swing's slow replay a striped
-// extension after its window. Switching modes animates between the two: the
+// end with a small gap between pitches, each swing's slow replay a blue
+// striped "¼×" extension after its window — no dot, so it never reads as
+// another pitch. Switching modes animates between the two: the
 // tinted windows slide together as the gaps fold away.
 
 const GAP_PX = 6;
@@ -197,21 +198,39 @@ export function Scrubber({
                 ? {
                     ...style,
                     backgroundImage:
-                      "repeating-linear-gradient(135deg, rgba(255,255,255,0.28) 0 3px, rgba(255,255,255,0.1) 3px 6px)",
+                      "repeating-linear-gradient(135deg, rgba(56,189,248,0.55) 0 3px, rgba(56,189,248,0.2) 3px 6px)",
                     backgroundColor: "transparent",
                   }
                 : style
             }
           >
-            {quick && <div className="h-full bg-white/80" style={{ width: `${fill * 100}%` }} />}
+            {quick && (
+              <div
+                className={cn("h-full", s.replay ? "bg-sky-400" : "bg-white/80")}
+                style={{ width: `${fill * 100}%` }}
+              />
+            )}
           </div>
         );
       })}
 
-      {/* Pitch labels over each window, where there's room (quick only) */}
+      {/* Pitch labels over each window, and "¼×" over each replay, where there's room (quick only) */}
       {quick &&
         plan.map((s, i) => {
-          if (s.replay || (i > 0 && plan[i - 1].pitchIndex === s.pitchIndex)) return null;
+          if (s.replay) {
+            const px = (segLen(i) / geo.total) * (width - geo.gaps * GAP_PX);
+            if (px < 24) return null;
+            return (
+              <span
+                key={`label-${i}`}
+                className="pointer-events-none absolute top-0 text-[10px] font-semibold leading-none text-sky-300"
+                style={{ left: qLeft(geo.offsets[i], geo.group[i]), width: qWidth(segLen(i)), textAlign: "center" }}
+              >
+                ¼×
+              </span>
+            );
+          }
+          if (i > 0 && plan[i - 1].pitchIndex === s.pitchIndex) return null;
           const groupLen = plan.filter((x) => x.pitchIndex === s.pitchIndex).reduce((a, x) => a + (x.end - x.start) / x.rate, 0);
           const px = (groupLen / geo.total) * (width - geo.gaps * GAP_PX);
           const p = pitches[s.pitchIndex];
