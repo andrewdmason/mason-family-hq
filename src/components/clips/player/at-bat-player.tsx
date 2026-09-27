@@ -462,7 +462,9 @@ export function AtBatPlayer({
       if (dialog || (e.target as HTMLElement)?.closest("input, textarea, select")) return;
       const v = video.current;
       if (!v) return;
-      if (e.key === " ") {
+      // YouTube's shortcuts: space/K play-pause, ←/→ 5s, J/L 10s, ,/. one
+      // frame. Shift+←/→ jumps between pitches.
+      if (e.key === " " || e.key === "k") {
         e.preventDefault();
         if (v.paused) play();
         else pause();
@@ -470,7 +472,11 @@ export function AtBatPlayer({
         e.preventDefault();
         const dir = e.key === "ArrowRight" ? 1 : -1;
         if (e.shiftKey) jumpToPitch(dir);
-        else step(dir);
+        else seek(v.currentTime + dir * 5);
+      } else if (e.key === "j" || e.key === "l") {
+        seek(v.currentTime + (e.key === "l" ? 10 : -10));
+      } else if (e.key === "," || e.key === ".") {
+        step(e.key === "." ? 1 : -1);
       } else if (editing && (e.key === "p" || e.key === "m")) addHere();
       else if (editing && selected && e.key === "s") patchPitch(selected.id, { swing: !selected.swing });
       else if (editing && selected && e.key === "c") patchPitch(selected.id, { contact: !selected.contact });
