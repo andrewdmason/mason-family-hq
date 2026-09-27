@@ -41,7 +41,7 @@ async function signUpload(sb: Client, path: string): Promise<string> {
 
 async function post(payload: Record<string, unknown>): Promise<void> {
   const url = process.env.CLIPS_WORKER_URL;
-  if (!url) throw new Error("The clips worker isn't set up yet (CLIPS_WORKER_URL)");
+  if (!url) throw new Error("Exporting needs the clips video worker, which isn't set up here (CLIPS_WORKER_URL)");
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
