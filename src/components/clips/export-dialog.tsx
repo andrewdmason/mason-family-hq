@@ -16,20 +16,18 @@ type Phase =
   | { kind: "starting" }
   | { kind: "rendering"; exportId: string }
   | { kind: "fetching"; url: string }
-  | { kind: "ready"; url: string; file: File | null }
+  | { kind: "ready"; url: string; fileName: string; file: File | null; objectUrl: string | null }
   | { kind: "failed"; error: string };
 
 export function ExportDialog({
   open,
   onOpenChange,
   title,
-  fileName,
   start,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
-  fileName: string;
   start: () => Promise<{ exportId: string }>;
 }) {
   const [phase, setPhase] = useState<Phase>({ kind: "starting" });
@@ -52,14 +50,17 @@ export function ExportDialog({
           if (s.status === "failed") throw new Error(s.error ?? "The render failed");
           if (s.status === "ready" && s.url) {
             setPhase({ kind: "fetching", url: s.url });
+            const fileName = s.fileName ?? "baseball-clip.mp4";
             let file: File | null = null;
+            let objectUrl: string | null = null;
             try {
               const blob = await (await fetch(s.url)).blob();
               file = new File([blob], fileName, { type: "video/mp4" });
+              objectUrl = URL.createObjectURL(file);
             } catch {
               // Download still works without the in-memory copy.
             }
-            if (!cancelled) setPhase({ kind: "ready", url: s.url, file });
+            if (!cancelled) setPhase({ kind: "ready", url: s.url, fileName, file, objectUrl });
             return;
           }
         }
@@ -70,7 +71,13 @@ export function ExportDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, fileName]);
+  }, [open]);
+
+  // Release the in-memory copy once it's no longer offered.
+  const objectUrl = phase.kind === "ready" ? phase.objectUrl : null;
+  useEffect(() => () => {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+  }, [objectUrl]);
 
   const canShare =
     phase.kind === "ready" &&
@@ -105,8 +112,8 @@ export function ExportDialog({
               </Button>
             )}
             <a
-              href={phase.url}
-              download={fileName}
+              href={phase.objectUrl ?? phase.url}
+              download={phase.fileName}
               className={buttonVariants({ variant: canShare ? "outline" : "default", size: "lg", className: "h-11" })}
             >
               <Download /> Download

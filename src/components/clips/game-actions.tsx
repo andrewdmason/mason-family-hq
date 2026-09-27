@@ -42,7 +42,6 @@ export function GameActions({
   const fieldClass =
     "h-10 w-full rounded-lg border border-input bg-background px-3 text-base outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:text-sm";
 
-  const slug = game.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
   return (
     <>
@@ -68,7 +67,6 @@ export function GameActions({
         open={dialog === "export"}
         onOpenChange={(o) => !o && setDialog(null)}
         title="Game reel"
-        fileName={`${game.playedOn}-${slug || "game"}.mp4`}
         start={() => exportGame(game.id)}
       />
 

@@ -927,7 +927,6 @@ export function AtBatPlayer({
         open={dialog === "export"}
         onOpenChange={(o) => !o && setDialog(null)}
         title={`AB ${index + 1} · quick version`}
-        fileName={`${game.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-ab${index + 1}.mp4`}
         start={() => exportAtBat(atBat.id)}
       />
 

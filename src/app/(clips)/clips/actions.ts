@@ -398,20 +398,56 @@ export async function exportGame(gameId: string): Promise<{ exportId: string }> 
   return beginExport({ gameId }, parts);
 }
 
-export async function getExportStatus(
-  exportId: string,
-): Promise<{ status: "rendering" | "ready" | "failed"; url?: string; error?: string }> {
+export async function getExportStatus(exportId: string): Promise<{
+  status: "rendering" | "ready" | "failed";
+  url?: string;
+  fileName?: string;
+  error?: string;
+}> {
   const sb = await createClient();
   await requireUserId(sb);
   const { data } = await sb
     .from("clip_exports")
-    .select("status, path, error_message")
+    .select("status, path, error_message, at_bat_id, game_id")
     .eq("id", exportId)
     .single();
   if (!data) throw new Error("Export not found");
   if (data.status !== "ready" || !data.path) {
     return { status: data.status, error: data.error_message ?? undefined };
   }
-  const { data: signed } = await sb.storage.from(CLIPS_BUCKET).createSignedUrl(data.path, 60 * 60);
-  return { status: "ready", url: signed?.signedUrl };
+  const fileName = await exportFileName(data.at_bat_id, data.game_id);
+  // `download` makes storage send it as an attachment under that name, so the
+  // link saves the file instead of opening it (a cross-site link's own
+  // download attribute is ignored by browsers).
+  const { data: signed } = await sb.storage
+    .from(CLIPS_BUCKET)
+    .createSignedUrl(data.path, 60 * 60, { download: fileName });
+  return { status: "ready", url: signed?.signedUrl, fileName };
+}
+
+/**
+ * "Sebastian - Merchants Scrimmage - AB 1 (Flyout) - 2026-09-26.mp4", or
+ * without the AB part for a game reel.
+ */
+async function exportFileName(atBatId: string | null, gameId: string | null): Promise<string> {
+  const ab = atBatId ? await getAtBat(atBatId) : null;
+  const game = await getGame(ab?.gameId ?? gameId ?? "");
+  if (!game) return "baseball-clip.mp4";
+  const sb = await createClient();
+  const { data: kid } = await sb.from("baseball_people").select("display_name").eq("id", game.kidId).maybeSingle();
+  const parts = [kid?.display_name?.split(" ")[0], game.name];
+  if (ab) {
+    const n = game.atBats.findIndex((x) => x.id === ab.id) + 1;
+    const result = resultName(ab.result);
+    parts.push(`AB ${n}${result ? ` (${result})` : ""}`);
+  } else {
+    parts.push("Game reel");
+  }
+  parts.push(game.playedOn);
+  const name = parts
+    .filter(Boolean)
+    .join(" - ")
+    .replace(/[\\/:*?"<>|]+/g, "")
+    .trim();
+  return `${name}.mp4`;
 }
