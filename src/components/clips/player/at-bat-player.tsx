@@ -60,6 +60,7 @@ import {
   countsBefore,
   isContact,
   resultLabel,
+  resultName,
   type AtBatResult,
   type ClipAtBat,
   type ClipPitch,
@@ -717,6 +718,7 @@ export function AtBatPlayer({
           </AtBatStep>
           <span className="tabular-nums">
             AB {index + 1} of {count}
+            {result && <span className="text-white/90"> · {resultName(result)}</span>}
           </span>
           <AtBatStep href={nextId ? `/clips/at-bat/${nextId}` : null} label="Next at-bat">
             <ChevronRight className="size-4" />
@@ -761,9 +763,6 @@ export function AtBatPlayer({
           </>
         ) : (
           <>
-            {badge && (
-              <span className="shrink-0 rounded-md bg-white/15 px-2 py-1 font-mono text-xs font-semibold">{badge}</span>
-            )}
             <button
               type="button"
               onClick={startEditing}

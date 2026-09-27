@@ -28,6 +28,12 @@ export const AT_BAT_RESULTS: { value: AtBatResult; label: string; name: string }
   { value: "ROE", label: "ROE", name: "Reached on error" },
 ];
 
+/** "Flyout", "Single"… — the result spelled out. */
+export function resultName(result: AtBatResult | null | undefined): string | null {
+  if (!result) return null;
+  return AT_BAT_RESULTS.find((r) => r.value === result)?.name ?? result;
+}
+
 export function resultLabel(result: AtBatResult | null | undefined): string | null {
   if (!result) return null;
   return AT_BAT_RESULTS.find((r) => r.value === result)?.label ?? result;

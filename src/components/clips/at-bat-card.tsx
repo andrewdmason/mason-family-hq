@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Clapperboard, Loader2 } from "lucide-react";
-import { pitchSummary, posterUrl, resultLabel, type ClipAtBat } from "@/lib/clips/types";
+import { pitchSummary, posterUrl, resultLabel, resultName, type ClipAtBat } from "@/lib/clips/types";
 
 /** Feed tile for one at-bat: thumbnail, result badge, pitch summary. */
 export function AtBatCard({ atBat, index }: { atBat: ClipAtBat; index: number }) {
@@ -40,7 +40,10 @@ export function AtBatCard({ atBat, index }: { atBat: ClipAtBat; index: number })
         )}
       </div>
       <div className="flex items-baseline justify-between gap-2 px-0.5 text-xs">
-        <span className="font-medium text-foreground">AB {index + 1}</span>
+        <span className="shrink-0 font-medium text-foreground">
+          AB {index + 1}
+          {atBat.result && ` · ${resultName(atBat.result)}`}
+        </span>
         <span className="truncate text-muted-foreground">
           {summary && atBat.markedAt ? summary : summary ? `${summary} · marking` : "Not marked yet"}
         </span>
