@@ -6,7 +6,7 @@ import type { AtBatResult, AtBatStatus, ClipAtBat, ClipGame, ClipKid, ClipPitch 
 type Client = Awaited<ReturnType<typeof createClient>>;
 
 const AT_BAT_COLUMNS =
-  "id, game_id, status, error_message, original_name, original_bytes, playback_path, poster_path, duration_s, fps, width, height, recorded_at, result, created_at, updated_at, clip_pitches(id, t, swing, contact, source)";
+  "id, game_id, status, error_message, original_name, original_bytes, playback_path, poster_path, duration_s, fps, width, height, recorded_at, marked_at, result, created_at, updated_at, clip_pitches(id, t, swing, contact, source)";
 
 type AtBatRow = {
   id: string;
@@ -22,6 +22,7 @@ type AtBatRow = {
   width: number | null;
   height: number | null;
   recorded_at: string | null;
+  marked_at: string | null;
   result: AtBatResult | null;
   created_at: string;
   updated_at: string;
@@ -43,6 +44,7 @@ function toAtBat(r: AtBatRow): ClipAtBat {
     width: r.width,
     height: r.height,
     recordedAt: r.recorded_at,
+    markedAt: r.marked_at,
     result: r.result,
     createdAt: r.created_at,
     updatedAt: r.updated_at,

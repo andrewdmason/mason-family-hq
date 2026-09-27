@@ -8,6 +8,8 @@ import {
   ChevronLast,
   ChevronLeft,
   ChevronRight,
+  Check,
+  Pencil,
   Loader2,
   MoreHorizontal,
   Pause,
@@ -59,6 +61,7 @@ import {
 } from "@/lib/clips/types";
 import {
   addPitch,
+  markAtBatDone,
   deleteAtBat,
   deletePitch,
   exportAtBat,
@@ -76,9 +79,11 @@ import { cn } from "@/lib/utils";
 // along the bottom holds play, the scrubber, speed and the quick/full switch.
 // Nothing overlays the video, and nothing has to be tapped to appear.
 //
-// Quick mode walks the quick-version plan (the stretch around each pitch plus
-// a slow replay of each swing); full mode is the whole video. Edit mode adds a
-// second row for placing and labeling pitch markers.
+// Two modes. Watching (the default once an at-bat is marked) walks the quick
+// version — the stretch around each pitch plus a slow replay of each swing —
+// on a scrubber collapsed to just those moments. Editing is the whole video on
+// the full timeline, where pitches are added, moved and labeled; Done goes back
+// to watching. Internally watching is "quick" mode and editing "full".
 
 const SPEEDS = [1, 0.5, 0.25] as const;
 const HOLD_DELAY_MS = 350;
@@ -86,7 +91,7 @@ const HOLD_FPS = 12;
 const JOG_PX_PER_FRAME = 6;
 const MIN_PITCH_GAP_S = 1.5;
 
-type Mode = "quick" | "full";
+type Mode = "quick" | "full"; // quick = watching, full = editing
 
 export function AtBatPlayer({
   atBat,
@@ -113,7 +118,10 @@ export function AtBatPlayer({
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
-  const [mode, setMode] = useState<Mode>(atBat.pitches.length ? "quick" : "full");
+  // Marked at-bats open for watching; unmarked ones open on the full timeline
+  // for marking.
+  const [editing, setEditing] = useState(!atBat.markedAt || atBat.pitches.length === 0);
+  const mode: Mode = editing ? "full" : "quick";
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"export" | "delete" | "result" | null>(null);
   const [fps, setFps] = useState(atBat.fps ?? 30);
@@ -345,6 +353,18 @@ export function AtBatPlayer({
       const v = video.current;
       if (!v || !sorted.length) return;
       const now = v.currentTime;
+      if (editing) {
+        // Editing: land exactly on the marker, paused and selected.
+        const target =
+          dir > 0
+            ? sorted.find((p) => p.t > now + 0.5 / fps)
+            : [...sorted].reverse().find((p) => p.t < now - 0.5 / fps);
+        if (!target) return;
+        v.pause();
+        setSelectedId(target.id);
+        seek(target.t);
+        return;
+      }
       // Watching: play into the pitch from its lead-in. Previous restarts the
       // current pitch unless you're right at its start.
       const targets = sorted.map((p) => jumpTarget(p.t));
@@ -364,7 +384,7 @@ export function AtBatPlayer({
       seek(targets[i]);
       video.current?.play().catch(() => {});
     },
-    [applySegment, mode, plan, seek, sorted],
+    [applySegment, editing, fps, mode, plan, seek, sorted],
   );
 
   // Hold-to-play for the frame buttons: one step on press, then ~12 frames a
@@ -426,7 +446,7 @@ export function AtBatPlayer({
   const posterDirty = useRef(false);
   function addHere() {
     const v = video.current;
-    if (!v) return;
+    if (!v || !editing) return;
     // Marking doesn't interrupt playback — tap + (or M) as the pitch goes by.
     const t = frameTime(frameAt(v.currentTime));
     // Pitches are seconds apart, so a tap right next to an existing marker
@@ -490,6 +510,20 @@ export function AtBatPlayer({
     return () => clearTimeout(timer);
   }, [sorted, media, atBat.id]);
 
+  // --- Modes ------------------------------------------------------------------------------
+
+  function startEditing() {
+    leaveSegments();
+    setEditing(true);
+  }
+
+  function finishEditing() {
+    if (!sorted.length) return;
+    setSelectedId(null);
+    setEditing(false);
+    markAtBatDone(atBat.id).catch(report);
+  }
+
   // --- Keyboard (desktop) ----------------------------------------------------------------
 
   useEffect(() => {
@@ -512,14 +546,14 @@ export function AtBatPlayer({
         seek(v.currentTime + (e.key === "l" ? 10 : -10));
       } else if (e.key === "," || e.key === ".") {
         step(e.key === "." ? 1 : -1);
-      } else if (e.key === "p" || e.key === "m") addHere();
-      else if (selected && e.key === "s") patchPitch(selected.id, { swing: !selected.swing });
-      else if (selected && e.key === "c") patchPitch(selected.id, { contact: !selected.contact });
-      else if (selected && (e.key === "Backspace" || e.key === "Delete")) removePitch(selected.id);
+      } else if (editing && (e.key === "p" || e.key === "m")) addHere();
+      else if (editing && selected && e.key === "s") patchPitch(selected.id, { swing: !selected.swing });
+      else if (editing && selected && e.key === "c") patchPitch(selected.id, { contact: !selected.contact });
+      else if (editing && selected && (e.key === "Backspace" || e.key === "Delete")) removePitch(selected.id);
       else if (e.key === "Escape") setSelectedId(null);
-      else if (e.key === "q") {
-        if (mode === "quick") leaveSegments();
-        setMode(mode === "quick" || !plan.length ? "full" : "quick");
+      else if (e.key === "e") {
+        if (editing) finishEditing();
+        else startEditing();
       }
     }
     window.addEventListener("keydown", onKey);
@@ -543,8 +577,8 @@ export function AtBatPlayer({
       plan={plan}
       quick={quickOn}
       activeSeg={segShown}
-      selectedId={selectedId}
-      selectedTools={selected ? pitchTools(selected) : null}
+      selectedId={editing ? selectedId : null}
+      selectedTools={editing && selected ? pitchTools(selected) : null}
       onSeek={(t) => {
         lastScrubT.current = { t, seg: null };
         seek(t, { fast: scrubbing.current && dragSeekIsFast });
@@ -572,7 +606,7 @@ export function AtBatPlayer({
         if (resumeAfterScrub.current) play();
         resumeAfterScrub.current = false;
       }}
-      onSelect={setSelectedId}
+      onSelect={(id) => editing && setSelectedId(id)}
       onDragPitch={(id, t) => setPitches((list) => list.map((p) => (p.id === id ? { ...p, t } : p)))}
       onDropPitch={(id, t) => patchPitch(id, { t: frameTime(frameAt(t)) })}
     />
@@ -613,7 +647,8 @@ export function AtBatPlayer({
         paddingRight: "env(safe-area-inset-right)",
       }}
     >
-      {/* Top bar: back to the game, step between its at-bats, what's playing, result + menu */}
+      {/* Top bar: back to the game, step between its at-bats, what's playing (or
+          the editing banner), result, Edit/Done, menu */}
       <div className="flex h-11 shrink-0 items-center gap-2 px-2">
         <Link
           href={`/clips/game/${game.id}`}
@@ -634,28 +669,57 @@ export function AtBatPlayer({
           </AtBatStep>
         </div>
         <div className="flex min-w-0 flex-1 justify-center">
-          {seg?.replay ? (
+          {editing ? (
+            <span className="truncate rounded-full bg-amber-400/15 px-2.5 py-0.5 text-xs text-amber-200">
+              {sorted.length
+                ? "Editing · tap a dot to adjust it, or + to add a pitch"
+                : "Editing · tap + as each pitch reaches the plate"}
+            </span>
+          ) : seg?.replay ? (
             <span className="flex items-center gap-1.5 truncate rounded-full bg-sky-500/85 px-2.5 py-0.5 text-xs font-semibold">
               <RotateCcw className="size-3.5 shrink-0" /> Slow-mo replay · ¼×
             </span>
           ) : seg ? (
             <span className="truncate text-xs text-white/60">{seg.caption}</span>
-          ) : !sorted.length ? (
-            <span className="truncate text-xs text-white/50">
-              Tap + where the ball reaches the plate to mark each pitch
-            </span>
           ) : null}
         </div>
-        <button
-          type="button"
-          onClick={() => setDialog("result")}
-          className={cn(
-            "shrink-0 rounded-md px-2 py-1 font-mono text-xs font-semibold",
-            badge ? "bg-white/15" : "text-white/60 hover:bg-white/10",
-          )}
-        >
-          {badge ?? "Result"}
-        </button>
+        {editing ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setDialog("result")}
+              className={cn(
+                "shrink-0 rounded-md px-2 py-1 font-mono text-xs font-semibold",
+                badge ? "bg-white/15" : "text-white/60 ring-1 ring-white/20 hover:bg-white/10",
+              )}
+            >
+              {badge ?? "Result"}
+            </button>
+            <button
+              type="button"
+              onClick={finishEditing}
+              disabled={!sorted.length}
+              title={sorted.length ? "Done marking (E)" : "Mark at least one pitch first"}
+              className="flex h-8 shrink-0 items-center gap-1 rounded-full bg-emerald-500 px-3 text-xs font-semibold disabled:opacity-40"
+            >
+              <Check className="size-4" /> Done
+            </button>
+          </>
+        ) : (
+          <>
+            {badge && (
+              <span className="shrink-0 rounded-md bg-white/15 px-2 py-1 font-mono text-xs font-semibold">{badge}</span>
+            )}
+            <button
+              type="button"
+              onClick={startEditing}
+              title="Edit pitches (E)"
+              className="flex h-8 shrink-0 items-center gap-1 rounded-full bg-white/10 px-3 text-xs font-medium hover:bg-white/15"
+            >
+              <Pencil className="size-3.5" /> Edit
+            </button>
+          </>
+        )}
         <PlayerMenu
           onExport={() => setDialog("export")}
           onDelete={() => setDialog("delete")}
@@ -714,7 +778,7 @@ export function AtBatPlayer({
       </div>
 
       {/* Transport, split to the thumbs: pitch + frame on the outside edges,
-          play / mark / mode / speed in the middle. */}
+          play and speed (plus + Pitch while editing) in the middle. */}
       <div className="flex shrink-0 items-center gap-2 px-2 pb-2 pt-1">
         <TransportButton label="Previous pitch" onClick={() => jumpToPitch(-1)} disabled={!sorted.length}>
           <ChevronFirst className="size-6" />
@@ -724,28 +788,6 @@ export function AtBatPlayer({
         </TransportButton>
 
         <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
-          <div className="flex shrink-0 rounded-full bg-white/10 p-0.5 text-xs">
-            {(["full", "quick"] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                disabled={m === "quick" && !plan.length}
-                onClick={() => {
-                  setMode(m);
-                  if (m === "full") leaveSegments();
-                }}
-                className={cn(
-                  "rounded-full px-2.5 py-1.5 tabular-nums transition-colors disabled:opacity-40",
-                  mode === m ? "bg-white text-black" : "text-white/70",
-                )}
-              >
-                {m === "full" ? "Full" : "Quick"}
-                <span className="ml-1 opacity-60 max-sm:hidden">
-                  {formatClock(m === "full" ? duration : quickLength)}
-                </span>
-              </button>
-            ))}
-          </div>
           <button
             type="button"
             aria-label={playing ? "Pause" : "Play"}
@@ -754,15 +796,17 @@ export function AtBatPlayer({
           >
             {playing ? <Pause className="size-6" fill="currentColor" /> : <Play className="size-6 translate-x-0.5" fill="currentColor" />}
           </button>
-          <button
-            type="button"
-            aria-label="Mark a pitch here"
-            title="Mark a pitch here (M)"
-            className="flex h-9 shrink-0 items-center gap-1 rounded-full bg-emerald-500/85 px-3 text-xs font-semibold active:bg-emerald-500"
-            onClick={addHere}
-          >
-            <Plus className="size-4" /> Pitch
-          </button>
+          {editing && (
+            <button
+              type="button"
+              aria-label="Mark a pitch here"
+              title="Mark a pitch here (M)"
+              className="flex h-9 shrink-0 items-center gap-1 rounded-full bg-emerald-500/85 px-3 text-xs font-semibold active:bg-emerald-500"
+              onClick={addHere}
+            >
+              <Plus className="size-4" /> Pitch
+            </button>
+          )}
           <Pill onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])} className="h-9">
             {speed === 1 ? "1×" : speed === 0.5 ? "½×" : "¼×"}
           </Pill>

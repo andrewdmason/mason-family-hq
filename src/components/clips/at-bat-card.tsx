@@ -41,7 +41,9 @@ export function AtBatCard({ atBat, index }: { atBat: ClipAtBat; index: number })
       </div>
       <div className="flex items-baseline justify-between gap-2 px-0.5 text-xs">
         <span className="font-medium text-foreground">AB {index + 1}</span>
-        <span className="truncate text-muted-foreground">{summary ?? "Not marked yet"}</span>
+        <span className="truncate text-muted-foreground">
+          {summary && atBat.markedAt ? summary : summary ? `${summary} · marking` : "Not marked yet"}
+        </span>
       </div>
     </Link>
   );

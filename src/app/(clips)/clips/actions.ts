@@ -262,6 +262,15 @@ export async function deletePitch(pitchId: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/** Finish marking: the at-bat now opens in the watch view. */
+export async function markAtBatDone(atBatId: string): Promise<void> {
+  const sb = await createClient();
+  await requireUserId(sb);
+  const now = new Date().toISOString();
+  const { error } = await sb.from("clip_at_bats").update({ marked_at: now, updated_at: now }).eq("id", atBatId);
+  if (error) throw new Error(error.message);
+}
+
 export async function setAtBatResult(atBatId: string, result: AtBatResult | null): Promise<void> {
   const sb = await createClient();
   await requireUserId(sb);

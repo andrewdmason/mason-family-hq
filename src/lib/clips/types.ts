@@ -64,6 +64,8 @@ export type ClipAtBat = {
   width: number | null;
   height: number | null;
   recordedAt: string | null;
+  /** When marking was finished; null while it still needs marking. */
+  markedAt: string | null;
   result: AtBatResult | null;
   createdAt: string;
   updatedAt: string;

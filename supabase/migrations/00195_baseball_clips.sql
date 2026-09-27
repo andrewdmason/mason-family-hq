@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS clip_at_bats (
   -- When the phone recorded it (from the file's metadata) — orders a game's
   -- at-bats even when they're uploaded in several batches.
   recorded_at timestamptz,
+  -- Set when someone finishes marking pitches ("Done"). Marked at-bats open
+  -- in the watch view; unmarked ones open on the full timeline for marking.
+  marked_at timestamptz,
   result text CHECK (result IN (
     'K', 'KL', 'BB', 'HBP', '1B', '2B', '3B', 'HR', 'GO', 'FO', 'LO', 'ROE'
   )),
