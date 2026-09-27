@@ -249,16 +249,44 @@ export function AtBatPlayer({
 
   // --- Seeking, frames, pitches ------------------------------------------------------
 
+  // Seeks are coalesced: while the decoder is still landing one, a newer
+  // request just replaces the pending target, applied the moment it lands.
+  // Firing a fresh seek on every pointer move instead cancels the one in
+  // flight, so nothing paints until the finger stops. `fast` (used while
+  // dragging on a video without a playback copy, whose full frames are a
+  // second apart) snaps to the nearest full frame so the picture keeps up;
+  // the drag ends with a precise seek.
+  const pendingSeek = useRef<{ t: number; fast: boolean } | null>(null);
+  const applySeek = useCallback((v: HTMLVideoElement, t: number, fast: boolean) => {
+    if (fast && typeof v.fastSeek === "function") v.fastSeek(t);
+    else v.currentTime = t;
+  }, []);
   const seek = useCallback(
-    (t: number) => {
+    (t: number, opts: { fast?: boolean } = {}) => {
       const v = video.current;
       if (!v) return;
       if (segIdx.current != null) leaveSegments();
-      v.currentTime = Math.min(Math.max(0, t), v.duration || t);
-      setTime(v.currentTime);
+      const target = Math.min(Math.max(0, t), v.duration || t);
+      setTime(target);
+      if (v.seeking) pendingSeek.current = { t: target, fast: !!opts.fast };
+      else applySeek(v, target, !!opts.fast);
     },
-    [leaveSegments],
+    [applySeek, leaveSegments],
   );
+  useEffect(() => {
+    const v = video.current;
+    if (!v) return;
+    const onSeeked = () => {
+      const next = pendingSeek.current;
+      if (!next) return;
+      pendingSeek.current = null;
+      applySeek(v, next.t, next.fast);
+    };
+    v.addEventListener("seeked", onSeeked);
+    return () => v.removeEventListener("seeked", onSeeked);
+  }, [media, applySeek]);
+  const dragSeekIsFast = !media?.isPlaybackCopy;
+  const lastScrubT = useRef<number | null>(null);
 
   const frameAt = useCallback((t: number) => Math.floor(t * fps + 1e-3), [fps]);
   const frameTime = useCallback((frame: number) => (Math.max(0, frame) + 0.5) / fps, [fps]);
@@ -352,7 +380,7 @@ export function AtBatPlayer({
       v.pause();
     }
     const target = j.frame + Math.round(dx / JOG_PX_PER_FRAME);
-    if (!v.seeking && frameAt(v.currentTime) !== target) seek(frameTime(target));
+    if (frameAt(v.currentTime) !== target) seek(frameTime(target));
   }
   function onVideoPointerUp() {
     const j = jog.current;
@@ -579,14 +607,19 @@ export function AtBatPlayer({
             editing={editing}
             selectedId={selectedId}
             onSeek={(t) => {
-              setTime(t);
-              seek(t);
+              lastScrubT.current = t;
+              seek(t, { fast: scrubbing.current && dragSeekIsFast });
             }}
             onScrubStart={() => {
               scrubbing.current = true;
+              lastScrubT.current = null;
               pause();
             }}
-            onScrubEnd={() => (scrubbing.current = false)}
+            onScrubEnd={() => {
+              scrubbing.current = false;
+              // Land exactly where the finger stopped (drags may have snapped).
+              if (dragSeekIsFast && lastScrubT.current != null) seek(lastScrubT.current);
+            }}
             onSelect={setSelectedId}
             onDragPitch={(id, t) => setPitches((list) => list.map((p) => (p.id === id ? { ...p, t } : p)))}
             onDropPitch={(id, t) => patchPitch(id, { t: frameTime(frameAt(t)) })}
