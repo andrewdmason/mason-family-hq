@@ -259,7 +259,8 @@ export function AtBatPlayer({
       // Where playback is headed — a seek may still be landing.
       const t = pendingSeek.current?.t ?? v.currentTime;
       const cur = segIdx.current != null ? planRef.current[segIdx.current] : null;
-      const inCurrent = cur && t >= cur.start - 0.01 && t < cur.end - 0.02;
+      // At its very end (stepped to the last frame) the loop moves straight on.
+      const inCurrent = cur && t >= cur.start - 0.01 && t <= cur.end;
       if (!inCurrent) {
         // Inside a pitch window (say, after tapping the scrubber): carry on
         // from right here. Between pitches: skip ahead to the next one.
@@ -373,14 +374,42 @@ export function AtBatPlayer({
   const frameAt = useCallback((t: number) => Math.floor(t * fps + 1e-3), [fps]);
   const frameTime = useCallback((frame: number) => (Math.max(0, frame) + 0.5) / fps, [fps]);
 
+  /**
+   * Seek to a frame. Watching, it stays on the quick timeline: a frame inside
+   * the current pitch window or replay stays in it (a replay's source range
+   * sits inside its pitch window, so a plain seek would land back in the
+   * real-speed copy). Past an edge, `cross` moves into the neighbouring
+   * segment; `clamp` holds at the edge.
+   */
+  const seekFrame = useCallback(
+    (frame: number, edge: "cross" | "clamp") => {
+      const t = frameTime(frame);
+      const p = planRef.current;
+      const i = segIdx.current;
+      const seg = i != null ? p[i] : null;
+      if (modeRef.current !== "quick" || i == null || !seg) {
+        seek(t);
+        return;
+      }
+      const half = 0.5 / fps;
+      const first = frameTime(frameAt(seg.start + half));
+      const last = frameTime(frameAt(seg.end - half));
+      if (t >= first && t <= last) seekQuick(i, t);
+      else if (edge === "clamp") seekQuick(i, t < first ? first : last);
+      else if (t > last && p[i + 1]) seekQuick(i + 1, frameTime(frameAt(p[i + 1].start + half)));
+      else if (t < first && p[i - 1]) seekQuick(i - 1, frameTime(frameAt(p[i - 1].end - half)));
+    },
+    [fps, frameAt, frameTime, seek, seekQuick],
+  );
+
   const step = useCallback(
     (dir: 1 | -1) => {
       const v = video.current;
       if (!v || v.seeking) return;
       v.pause();
-      seek(frameTime(frameAt(v.currentTime) + dir));
+      seekFrame(frameAt(v.currentTime) + dir, "cross");
     },
-    [frameAt, frameTime, seek],
+    [frameAt, seekFrame],
   );
 
   const jumpToPitch = useCallback(
@@ -462,7 +491,9 @@ export function AtBatPlayer({
       v.pause();
     }
     const target = j.frame + Math.round(dx / JOG_PX_PER_FRAME);
-    if (frameAt(v.currentTime) !== target) seek(frameTime(target));
+    // Held inside one segment: the drag measures from where it started, so
+    // crossing into a neighbour would flip back and forth.
+    if (frameAt(v.currentTime) !== target) seekFrame(target, "clamp");
   }
   function onVideoPointerUp() {
     const j = jog.current;
