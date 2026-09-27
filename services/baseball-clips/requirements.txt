@@ -1,0 +1,4 @@
+fastapi
+uvicorn[standard]
+pillow
+# ffmpeg (with libzimg for HDR tone-mapping) must be on PATH.

@@ -9,6 +9,7 @@ import {
   CalendarDays,
   CalendarRange,
   Check,
+  Clapperboard,
   ChevronDown,
   Brain,
   CircleDot,
@@ -133,6 +134,13 @@ const APPS: App[] = [
     match: "/baseball",
     description: "Season-by-season stats",
     icon: CircleDot,
+  },
+  {
+    href: "/clips",
+    label: "Baseball Clips",
+    match: "/clips",
+    description: "At-bat videos, pitch by pitch",
+    icon: Clapperboard,
   },
   {
     href: "/games",
