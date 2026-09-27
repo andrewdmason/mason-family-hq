@@ -20,6 +20,7 @@ export default async function AtBatPage({ params }: { params: Promise<{ atBatId:
       atBat={atBat}
       game={{ id: game.id, name: game.name }}
       index={index}
+      count={game.atBats.length}
       prevId={game.atBats[index - 1]?.id ?? null}
       nextId={game.atBats[index + 1]?.id ?? null}
     />

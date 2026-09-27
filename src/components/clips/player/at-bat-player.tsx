@@ -7,6 +7,7 @@ import {
   ChevronFirst,
   ChevronLast,
   ChevronLeft,
+  ChevronRight,
   Loader2,
   MoreHorizontal,
   Pause,
@@ -91,12 +92,14 @@ export function AtBatPlayer({
   atBat,
   game,
   index,
+  count,
   prevId,
   nextId,
 }: {
   atBat: ClipAtBat;
   game: { id: string; name: string };
   index: number;
+  count: number;
   prevId: string | null;
   nextId: string | null;
 }) {
@@ -532,11 +535,77 @@ export function AtBatPlayer({
   const quickOn = mode === "quick" && plan.length > 0;
   const quickNow = quickOn ? quickTimeAt(plan, planOffsets(plan), segShown, time) : 0;
 
+  const scrubber = (
+    <Scrubber
+      duration={duration}
+      time={time}
+      pitches={sorted}
+      plan={plan}
+      quick={quickOn}
+      activeSeg={segShown}
+      selectedId={selectedId}
+      selectedTools={selected ? pitchTools(selected) : null}
+      onSeek={(t) => {
+        lastScrubT.current = { t, seg: null };
+        seek(t, { fast: scrubbing.current && dragSeekIsFast });
+      }}
+      onSeekQuick={(i, t) => {
+        lastScrubT.current = { t, seg: i };
+        seekQuick(i, t, { fast: scrubbing.current && dragSeekIsFast });
+      }}
+      onScrubStart={() => {
+        // Hold still while dragging so frames keep up, then carry on
+        // playing from the new spot if it was playing before.
+        scrubbing.current = true;
+        lastScrubT.current = null;
+        resumeAfterScrub.current = !!video.current && !video.current.paused;
+        pause();
+      }}
+      onScrubEnd={() => {
+        scrubbing.current = false;
+        // Land exactly where the finger stopped (drags may have snapped).
+        const last = lastScrubT.current;
+        if (dragSeekIsFast && last) {
+          if (last.seg != null) seekQuick(last.seg, last.t);
+          else seek(last.t);
+        }
+        if (resumeAfterScrub.current) play();
+        resumeAfterScrub.current = false;
+      }}
+      onSelect={setSelectedId}
+      onDragPitch={(id, t) => setPitches((list) => list.map((p) => (p.id === id ? { ...p, t } : p)))}
+      onDropPitch={(id, t) => patchPitch(id, { t: frameTime(frameAt(t)) })}
+    />
+  );
+
+  // The selected pitch's tools, shown in a popover over its dot. Every change
+  // saves as you make it.
+  function pitchTools(p: ClipPitch) {
+    return (
+      <div className="flex items-center gap-1 rounded-full bg-neutral-800 p-1 text-xs shadow-lg ring-1 ring-white/10">
+        <span className="px-2 text-white/60">P{sorted.findIndex((x) => x.id === p.id) + 1}</span>
+        <Pill active={p.swing} onClick={() => patchPitch(p.id, { swing: !p.swing })}>
+          Swing
+        </Pill>
+        <Pill active={p.contact} onClick={() => patchPitch(p.id, { contact: !p.contact })}>
+          Contact
+        </Pill>
+        <Pill onClick={() => patchPitch(p.id, { t: frameTime(frameAt(video.current?.currentTime ?? 0)) })}>
+          Move here
+        </Pill>
+        <Pill onClick={() => removePitch(p.id)} aria-label="Delete pitch">
+          <Trash2 className="size-3.5" />
+        </Pill>
+        <Pill onClick={() => setSelectedId(null)} aria-label="Done with this pitch">
+          <X className="size-3.5" />
+        </Pill>
+      </div>
+    );
+  }
+
   return (
     <div
-      className="fixed inset-0 z-40 grid bg-black text-white select-none
-        landscape:grid-cols-[auto_minmax(0,1fr)_auto] landscape:grid-rows-[minmax(0,1fr)_auto]
-        portrait:grid-cols-2 portrait:grid-rows-[auto_auto_auto_1fr] portrait:content-start"
+      className="fixed inset-0 z-40 flex flex-col bg-black text-white select-none"
       style={{
         paddingTop: "env(safe-area-inset-top)",
         paddingBottom: "env(safe-area-inset-bottom)",
@@ -544,28 +613,64 @@ export function AtBatPlayer({
         paddingRight: "env(safe-area-inset-right)",
       }}
     >
-      {/* Left rail */}
-      <Rail className="landscape:col-start-1 landscape:row-start-1 portrait:order-3 portrait:justify-end">
+      {/* Top bar: back to the game, step between its at-bats, what's playing, result + menu */}
+      <div className="flex h-11 shrink-0 items-center gap-2 px-2">
         <Link
           href={`/clips/game/${game.id}`}
-          className="flex h-10 items-center gap-1 rounded-lg px-2 text-sm text-white/80 hover:bg-white/10 portrait:hidden"
+          className="flex min-w-0 items-center gap-1 rounded-lg px-1.5 py-1 text-sm text-white/80 hover:bg-white/10"
         >
-          <ChevronLeft className="size-5" /> Game
+          <ChevronLeft className="size-5 shrink-0" />
+          <span className="truncate">{game.name}</span>
         </Link>
-        <RailButton label="Previous pitch" onClick={() => jumpToPitch(-1)} disabled={!sorted.length}>
-          <ChevronFirst className="size-7" />
-        </RailButton>
-        <RailButton label="Frame back" hold onHoldStart={() => startHold(-1)} onHoldEnd={stopHold}>
-          <StepBack className="size-7" />
-        </RailButton>
-        <RailButton label="Add pitch here" onClick={addHere} accent>
-          <Plus className="size-7" />
-        </RailButton>
-      </Rail>
+        <div className="flex shrink-0 items-center text-sm text-white/60">
+          <AtBatStep href={prevId ? `/clips/at-bat/${prevId}` : null} label="Previous at-bat">
+            <ChevronLeft className="size-4" />
+          </AtBatStep>
+          <span className="tabular-nums">
+            AB {index + 1} of {count}
+          </span>
+          <AtBatStep href={nextId ? `/clips/at-bat/${nextId}` : null} label="Next at-bat">
+            <ChevronRight className="size-4" />
+          </AtBatStep>
+        </div>
+        <div className="flex min-w-0 flex-1 justify-center">
+          {seg?.replay ? (
+            <span className="flex items-center gap-1.5 truncate rounded-full bg-sky-500/85 px-2.5 py-0.5 text-xs font-semibold">
+              <RotateCcw className="size-3.5 shrink-0" /> Slow-mo replay · ¼×
+            </span>
+          ) : seg ? (
+            <span className="truncate text-xs text-white/60">{seg.caption}</span>
+          ) : !sorted.length ? (
+            <span className="truncate text-xs text-white/50">
+              Tap + where the ball reaches the plate to mark each pitch
+            </span>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={() => setDialog("result")}
+          className={cn(
+            "shrink-0 rounded-md px-2 py-1 font-mono text-xs font-semibold",
+            badge ? "bg-white/15" : "text-white/60 hover:bg-white/10",
+          )}
+        >
+          {badge ?? "Result"}
+        </button>
+        <PlayerMenu
+          onExport={() => setDialog("export")}
+          onDelete={() => setDialog("delete")}
+          onReprocess={
+            atBat.errorMessage || !atBat.hasPlayback
+              ? () => reprocessAtBat(atBat.id).then(() => router.refresh()).catch(report)
+              : null
+          }
+          canExport={sorted.length > 0}
+        />
+      </div>
 
       {/* Video */}
       <div
-        className="relative flex min-h-0 items-center justify-center overflow-hidden landscape:col-start-2 landscape:row-start-1 portrait:order-1 portrait:col-span-2 portrait:aspect-video"
+        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden"
         onPointerDown={onVideoPointerDown}
         onPointerMove={onVideoPointerMove}
         onPointerUp={onVideoPointerUp}
@@ -587,11 +692,6 @@ export function AtBatPlayer({
         )}
         {!media && !mediaError && <Loader2 className="size-8 animate-spin text-white/60" />}
         {mediaError && <p className="px-6 text-center text-sm text-white/70">{mediaError}</p>}
-        {seg?.replay && (
-          <span className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-md bg-sky-500/85 px-2 py-1 text-xs font-semibold text-white">
-            <RotateCcw className="size-3.5" /> Slow-mo replay · ¼×
-          </span>
-        )}
         {saveError && (
           <button
             className="absolute inset-x-3 bottom-3 rounded-md bg-red-600/90 px-3 py-2 text-left text-xs"
@@ -602,35 +702,29 @@ export function AtBatPlayer({
         )}
       </div>
 
-      {/* Right rail */}
-      <Rail className="landscape:col-start-3 landscape:row-start-1 portrait:order-4 portrait:justify-start">
-        <div className="flex h-10 items-center justify-end gap-1 portrait:hidden">
-          {badge && <span className="rounded-md bg-white/15 px-1.5 py-0.5 font-mono text-xs font-semibold">{badge}</span>}
-          <PlayerMenu
-            onExport={() => setDialog("export")}
-            onDelete={() => setDialog("delete")}
-            onReprocess={
-              atBat.errorMessage || !atBat.hasPlayback
-                ? () => reprocessAtBat(atBat.id).then(() => router.refresh()).catch(report)
-                : null
-            }
-            canExport={sorted.length > 0}
-          />
-        </div>
-        <RailButton label="Next pitch" onClick={() => jumpToPitch(1)} disabled={!sorted.length}>
-          <ChevronLast className="size-7" />
-        </RailButton>
-        <RailButton label="Frame forward" hold onHoldStart={() => startHold(1)} onHoldEnd={stopHold}>
-          <StepForward className="size-7" />
-        </RailButton>
-        <div className="h-14 portrait:hidden" />
-      </Rail>
+      {/* Scrubber */}
+      <div className="flex shrink-0 items-center gap-2 px-3 pt-1">
+        <span className="w-10 shrink-0 text-right font-mono text-xs tabular-nums text-white/70">
+          {formatClock(quickOn ? quickNow : time)}
+        </span>
+        {scrubber}
+        <span className="w-10 shrink-0 font-mono text-xs tabular-nums text-white/50">
+          {formatClock(quickOn ? quickLength : duration)}
+        </span>
+      </div>
 
-      {/* Bottom bar */}
-      <div className="flex flex-col gap-1 px-2 pb-1 landscape:col-span-3 landscape:row-start-2 portrait:order-2 portrait:col-span-2">
-        {/* Full vs quick — switching folds the scrubber down to just the pitches. */}
-        <div className="flex items-center gap-3 pl-12 text-xs">
-          <div className="flex shrink-0 rounded-full bg-white/10 p-0.5">
+      {/* Transport, split to the thumbs: pitch + frame on the outside edges,
+          play / mark / mode / speed in the middle. */}
+      <div className="flex shrink-0 items-center gap-2 px-2 pb-2 pt-1">
+        <TransportButton label="Previous pitch" onClick={() => jumpToPitch(-1)} disabled={!sorted.length}>
+          <ChevronFirst className="size-6" />
+        </TransportButton>
+        <TransportButton label="Frame back" hold onHoldStart={() => startHold(-1)} onHoldEnd={stopHold}>
+          <StepBack className="size-6" />
+        </TransportButton>
+
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
+          <div className="flex shrink-0 rounded-full bg-white/10 p-0.5 text-xs">
             {(["full", "quick"] as const).map((m) => (
               <button
                 key={m}
@@ -641,126 +735,45 @@ export function AtBatPlayer({
                   if (m === "full") leaveSegments();
                 }}
                 className={cn(
-                  "rounded-full px-3 py-1 tabular-nums transition-colors disabled:opacity-40",
+                  "rounded-full px-2.5 py-1.5 tabular-nums transition-colors disabled:opacity-40",
                   mode === m ? "bg-white text-black" : "text-white/70",
                 )}
               >
-                {m === "full" ? `Full · ${formatClock(duration)}` : `Quick · ${formatClock(quickLength)}`}
+                {m === "full" ? "Full" : "Quick"}
+                <span className="ml-1 opacity-60 max-sm:hidden">
+                  {formatClock(m === "full" ? duration : quickLength)}
+                </span>
               </button>
             ))}
           </div>
-          {seg && <span className="truncate text-white/60">{seg.caption}</span>}
-        </div>
-        <div className="flex items-center gap-2">
           <button
             type="button"
             aria-label={playing ? "Pause" : "Play"}
-            className="flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-white/10"
+            className="flex size-12 shrink-0 items-center justify-center rounded-full bg-white text-black active:bg-white/80"
             onClick={() => (playing ? pause() : play())}
           >
-            {playing ? <Pause className="size-6" /> : <Play className="size-6" />}
+            {playing ? <Pause className="size-6" fill="currentColor" /> : <Play className="size-6 translate-x-0.5" fill="currentColor" />}
           </button>
-          <span className="w-10 shrink-0 text-right font-mono text-xs tabular-nums text-white/70">
-            {formatClock(quickOn ? quickNow : time)}
-          </span>
-          <Scrubber
-            duration={duration}
-            time={time}
-            pitches={sorted}
-            plan={plan}
-            quick={quickOn}
-            activeSeg={segShown}
-            selectedId={selectedId}
-            onSeek={(t) => {
-              lastScrubT.current = { t, seg: null };
-              seek(t, { fast: scrubbing.current && dragSeekIsFast });
-            }}
-            onSeekQuick={(i, t) => {
-              lastScrubT.current = { t, seg: i };
-              seekQuick(i, t, { fast: scrubbing.current && dragSeekIsFast });
-            }}
-            onScrubStart={() => {
-              // Hold still while dragging so frames keep up, then carry on
-              // playing from the new spot if it was playing before.
-              scrubbing.current = true;
-              lastScrubT.current = null;
-              resumeAfterScrub.current = !!video.current && !video.current.paused;
-              pause();
-            }}
-            onScrubEnd={() => {
-              scrubbing.current = false;
-              // Land exactly where the finger stopped (drags may have snapped).
-              const last = lastScrubT.current;
-              if (dragSeekIsFast && last) {
-                if (last.seg != null) seekQuick(last.seg, last.t);
-                else seek(last.t);
-              }
-              if (resumeAfterScrub.current) play();
-              resumeAfterScrub.current = false;
-            }}
-            onSelect={setSelectedId}
-            onDragPitch={(id, t) => setPitches((list) => list.map((p) => (p.id === id ? { ...p, t } : p)))}
-            onDropPitch={(id, t) => patchPitch(id, { t: frameTime(frameAt(t)) })}
-          />
-          <span className="w-10 shrink-0 font-mono text-xs tabular-nums text-white/50">
-            {formatClock(quickOn ? quickLength : duration)}
-          </span>
-          <Pill onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])}>
+          <button
+            type="button"
+            aria-label="Mark a pitch here"
+            title="Mark a pitch here (M)"
+            className="flex h-9 shrink-0 items-center gap-1 rounded-full bg-emerald-500/85 px-3 text-xs font-semibold active:bg-emerald-500"
+            onClick={addHere}
+          >
+            <Plus className="size-4" /> Pitch
+          </button>
+          <Pill onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])} className="h-9">
             {speed === 1 ? "1×" : speed === 0.5 ? "½×" : "¼×"}
           </Pill>
-          <Pill onClick={() => setDialog("result")} className="font-mono">
-            {badge ?? "Result"}
-          </Pill>
         </div>
 
-        {/* Marker tools: every change saves as you make it. */}
-        {(selected || !sorted.length) && (
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs">
-            {selected ? (
-              <>
-                <span className="px-1 text-white/60">
-                  Pitch {sorted.findIndex((p) => p.id === selected.id) + 1}
-                </span>
-                <Pill active={selected.swing} onClick={() => patchPitch(selected.id, { swing: !selected.swing })}>
-                  Swing
-                </Pill>
-                <Pill active={selected.contact} onClick={() => patchPitch(selected.id, { contact: !selected.contact })}>
-                  Contact
-                </Pill>
-                <Pill onClick={() => patchPitch(selected.id, { t: frameTime(frameAt(video.current?.currentTime ?? 0)) })}>
-                  Move here
-                </Pill>
-                <Pill onClick={() => removePitch(selected.id)} aria-label="Delete pitch">
-                  <Trash2 className="size-3.5" />
-                </Pill>
-                <span className="flex-1" />
-                <Pill onClick={() => setSelectedId(null)} aria-label="Done with this pitch">
-                  <X className="size-3.5" />
-                </Pill>
-              </>
-            ) : (
-              <span className="px-1 text-white/60">
-                Play or step to where the ball reaches the plate, then tap + to mark the pitch.
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Portrait header */}
-      <div className="flex items-center justify-between px-2 py-1 landscape:hidden portrait:-order-1 portrait:col-span-2">
-        <Link href={`/clips/game/${game.id}`} className="flex items-center gap-1 text-sm text-white/80">
-          <ChevronLeft className="size-5" /> {game.name} · AB {index + 1}
-        </Link>
-        <div className="flex items-center gap-1">
-          {badge && <span className="rounded-md bg-white/15 px-1.5 py-0.5 font-mono text-xs font-semibold">{badge}</span>}
-          <PlayerMenu
-            onExport={() => setDialog("export")}
-            onDelete={() => setDialog("delete")}
-            onReprocess={null}
-            canExport={sorted.length > 0}
-          />
-        </div>
+        <TransportButton label="Frame forward" hold onHoldStart={() => startHold(1)} onHoldEnd={stopHold}>
+          <StepForward className="size-6" />
+        </TransportButton>
+        <TransportButton label="Next pitch" onClick={() => jumpToPitch(1)} disabled={!sorted.length}>
+          <ChevronLast className="size-6" />
+        </TransportButton>
       </div>
 
       <div className="hidden">
@@ -831,27 +844,26 @@ export function AtBatPlayer({
 
 // --- Pieces ----------------------------------------------------------------------------
 
-function Rail({ className, children }: { className?: string; children: React.ReactNode }) {
-  return (
-    <div
-      className={cn(
-        "flex gap-2 p-2 landscape:w-28 landscape:flex-col landscape:justify-center portrait:items-start",
-        className,
-      )}
-    >
+function AtBatStep({ href, label, children }: { href: string | null; label: string; children: React.ReactNode }) {
+  const cls = "flex size-8 items-center justify-center rounded-lg";
+  return href ? (
+    <Link href={href} aria-label={label} title={label} className={cn(cls, "hover:bg-white/10")}>
       {children}
-    </div>
+    </Link>
+  ) : (
+    <span aria-hidden className={cn(cls, "opacity-25")}>
+      {children}
+    </span>
   );
 }
 
-function RailButton({
+function TransportButton({
   label,
   onClick,
   hold,
   onHoldStart,
   onHoldEnd,
   disabled,
-  accent,
   children,
 }: {
   label: string;
@@ -860,7 +872,6 @@ function RailButton({
   onHoldStart?: () => void;
   onHoldEnd?: () => void;
   disabled?: boolean;
-  accent?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -869,10 +880,7 @@ function RailButton({
       aria-label={label}
       title={label}
       disabled={disabled}
-      className={cn(
-        "flex h-14 items-center justify-center rounded-xl bg-white/10 active:bg-white/25 disabled:opacity-30 landscape:w-full portrait:w-16",
-        accent && "bg-emerald-500/80 active:bg-emerald-500",
-      )}
+      className="flex h-12 w-14 shrink-0 items-center justify-center rounded-xl bg-white/10 active:bg-white/25 disabled:opacity-30"
       style={{ touchAction: "none", WebkitTouchCallout: "none" }}
       onContextMenu={(e) => e.preventDefault()}
       onClick={hold ? undefined : onClick}

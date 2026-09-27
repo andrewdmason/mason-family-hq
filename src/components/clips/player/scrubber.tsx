@@ -35,6 +35,7 @@ export function Scrubber({
   quick,
   activeSeg,
   selectedId,
+  selectedTools,
   onSeek,
   onSeekQuick,
   onScrubStart,
@@ -51,6 +52,8 @@ export function Scrubber({
   /** The quick-mode segment playing now (tells a replay from its pitch window). */
   activeSeg: number | null;
   selectedId: string | null;
+  /** Floated above the selected pitch's dot. */
+  selectedTools: React.ReactNode;
   onSeek: (t: number) => void;
   onSeekQuick: (segIndex: number, t: number) => void;
   onScrubStart: () => void;
@@ -127,6 +130,19 @@ export function Scrubber({
   }
 
   const lastId = pitches.length ? pitches[pitches.length - 1].id : null;
+
+  // The selected dot's position in pixels, for its tools popover (kept on
+  // screen near the ends of the bar).
+  const selectedX = (() => {
+    const j = pitches.findIndex((p) => p.id === selectedId);
+    if (j < 0 || !width) return null;
+    const p = pitches[j];
+    if (!quick) return duration > 0 ? (p.t / duration) * width : null;
+    const i = plan.findIndex((s) => !s.replay && s.pitchIndex === j);
+    if (i < 0) return null;
+    const avail = width - geo.gaps * GAP_PX;
+    return ((geo.offsets[i] + (p.t - plan[i].start) / plan[i].rate) / geo.total) * avail + geo.group[i] * GAP_PX;
+  })();
   const transition = "transition-[left,width,opacity] duration-500 ease-in-out";
 
   return (
@@ -295,6 +311,16 @@ export function Scrubber({
           </button>
         );
       })}
+
+      {selectedTools && selectedX != null && (
+        <div
+          className="absolute bottom-full z-10 mb-1 -translate-x-1/2 whitespace-nowrap"
+          style={{ left: Math.min(Math.max(selectedX, 150), Math.max(150, width - 150)) }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {selectedTools}
+        </div>
+      )}
 
       {/* Playhead */}
       <div
