@@ -166,6 +166,26 @@ def prepare(payload: dict, work: str) -> dict:
     }
 
 
+def _card_png(path: str, title: str, subtitle: str) -> None:
+    """A title card's text: the at-bat big, the game and date smaller beneath."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    big, small = ImageFont.load_default(size=110), ImageFont.load_default(size=52)
+    probe_draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    tb = probe_draw.textbbox((0, 0), title, font=big)
+    sb = probe_draw.textbbox((0, 0), subtitle, font=small) if subtitle else (0, 0, 0, 0)
+    gap = 36
+    w = max(tb[2] - tb[0], sb[2] - sb[0]) + 20
+    h = (tb[3] - tb[1]) + (gap + sb[3] - sb[1] if subtitle else 0) + 20
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.text(((w - (tb[2] - tb[0])) / 2 - tb[0], 10 - tb[1]), title, font=big, fill=(255, 255, 255, 255))
+    if subtitle:
+        y = 10 + (tb[3] - tb[1]) + gap - sb[1]
+        d.text(((w - (sb[2] - sb[0])) / 2 - sb[0], y), subtitle, font=small, fill=(255, 255, 255, 170))
+    img.save(path)
+
+
 def _caption_png(path: str, text: str, size: int, card: bool) -> None:
     """Draw a caption as a transparent PNG to overlay on the video. Captions are
     drawn with Pillow rather than ffmpeg's drawtext so any ffmpeg build works."""
@@ -210,13 +230,18 @@ def export(payload: dict, work: str) -> dict:
         return p
 
     for src, meta in zip(sources, metas):
-        if src.get("card"):
+        card = src.get("card")
+        if card:
+            # Older callers sent a plain string.
+            title, subtitle = (card, "") if isinstance(card, str) else (card["title"], card.get("subtitle", ""))
+            card_png = os.path.join(work, f"card{len(pieces):03d}.png")
+            _card_png(card_png, title, subtitle)
             out = piece_path()
             _run(
                 [
                     "ffmpeg", "-y", "-v", "error",
                     "-f", "lavfi", "-i", f"color=c=black:s={EXPORT_W}x{EXPORT_H}:r={fps}:d={CARD_SECONDS}",
-                    "-i", caption(src["card"], size=110, card=True),
+                    "-i", card_png,
                     "-f", "lavfi", "-t", str(CARD_SECONDS), "-i", "anullsrc=r=48000:cl=stereo",
                     "-filter_complex", "[0:v][1:v]overlay=(W-w)/2:(H-h)/2,format=yuv420p[v]",
                     "-map", "[v]", "-map", "2:a", "-t", str(CARD_SECONDS),

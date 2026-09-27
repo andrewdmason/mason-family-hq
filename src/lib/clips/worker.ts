@@ -81,8 +81,8 @@ export async function startPrepare(
 }
 
 export type ExportPart = {
-  /** Title card shown before this at-bat (game reels only). */
-  card: string | null;
+  /** Title card shown before this at-bat: "AB 2 · Flyout" over the game and date. */
+  card: { title: string; subtitle: string } | null;
   originalPath: string;
   segments: PlanSegment[];
 };

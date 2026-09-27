@@ -4,11 +4,13 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUserId } from "@/lib/members/auth";
 import { buildQuickPlan, type PlanSegment } from "@/lib/clips/plan";
+import { formatGameDate } from "@/lib/clips/format";
 import { getAtBat, getGame } from "@/lib/clips/queries";
 import {
   AT_BAT_RESULTS,
   CLIPS_BUCKET,
   PITCH_OUTCOMES,
+  resultName,
   type AtBatResult,
   type ClipPitch,
   type ClipZoom,
@@ -298,6 +300,15 @@ export async function setReplayZoom(atBatId: string, on: boolean): Promise<void>
   if (error) throw new Error(error.message);
 }
 
+/** "AB 2 · Flyout" over "Merchants Scrimmage · Sat, Sep 26, 2026" — who's watching knows what they're seeing. */
+function titleCard(game: { name: string; playedOn: string }, index: number, result: AtBatResult | null) {
+  const name = resultName(result);
+  return {
+    title: `AB ${index + 1}${name ? ` · ${name}` : ""}`,
+    subtitle: `${game.name} · ${formatGameDate(game.playedOn, true)}`,
+  };
+}
+
 /** Replays zoom to the at-bat's box when it has one and it's switched on. */
 function withReplayZoom(segments: PlanSegment[], ab: { zoom: ClipZoom | null; replayZoom: boolean }) {
   if (!ab.zoom || !ab.replayZoom) return segments;
@@ -361,8 +372,12 @@ export async function exportAtBat(atBatId: string): Promise<{ exportId: string }
   const ab = await getAtBat(atBatId);
   if (!ab) throw new Error("At-bat not found");
   const { data: row } = await sb.from("clip_at_bats").select("original_path").eq("id", atBatId).single();
+  const game = await getGame(ab.gameId);
+  const index = game?.atBats.findIndex((x) => x.id === atBatId) ?? 0;
   const segments = withReplayZoom(buildQuickPlan(ab.pitches, ab.durationS ?? Infinity, ab.result), ab);
-  return beginExport({ atBatId }, [{ card: null, originalPath: row!.original_path, segments }]);
+  return beginExport({ atBatId }, [
+    { card: game ? titleCard(game, index, ab.result) : null, originalPath: row!.original_path, segments },
+  ]);
 }
 
 export async function exportGame(gameId: string): Promise<{ exportId: string }> {
@@ -375,7 +390,7 @@ export async function exportGame(gameId: string): Promise<{ exportId: string }> 
   // one is skipped.
   const parts: ExportPart[] = game.atBats
     .map((ab, i) => ({
-      card: `AB ${i + 1}`,
+      card: titleCard(game, i, ab.result),
       originalPath: pathById.get(ab.id)!,
       segments: withReplayZoom(buildQuickPlan(ab.pitches, ab.durationS ?? Infinity, ab.result), ab),
     }))

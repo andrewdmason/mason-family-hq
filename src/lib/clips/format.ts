@@ -1,9 +1,9 @@
 // Display helpers shared by the clips screens.
 
-/** "Sat, Sep 26" (adds the year when it isn't this year). Dates are plain YYYY-MM-DD. */
-export function formatGameDate(playedOn: string): string {
+/** "Sat, Sep 26" (adds the year when it isn't this year, or always with `withYear`). Dates are plain YYYY-MM-DD. */
+export function formatGameDate(playedOn: string, withYear = false): string {
   const d = new Date(`${playedOn}T12:00:00`);
-  const sameYear = d.getFullYear() === new Date().getFullYear();
+  const sameYear = !withYear && d.getFullYear() === new Date().getFullYear();
   return d.toLocaleDateString("en-US", {
     weekday: "short",
     month: "short",
