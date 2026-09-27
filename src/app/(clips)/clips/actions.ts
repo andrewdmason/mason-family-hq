@@ -5,7 +5,14 @@ import { createClient } from "@/lib/supabase/server";
 import { requireUserId } from "@/lib/members/auth";
 import { buildQuickPlan } from "@/lib/clips/plan";
 import { getAtBat, getGame } from "@/lib/clips/queries";
-import { AT_BAT_RESULTS, CLIPS_BUCKET, type AtBatResult, type ClipPitch } from "@/lib/clips/types";
+import {
+  AT_BAT_RESULTS,
+  CLIPS_BUCKET,
+  PITCH_OUTCOMES,
+  type AtBatResult,
+  type ClipPitch,
+  type PitchOutcome,
+} from "@/lib/clips/types";
 import {
   atBatPaths,
   clipsWorkerConfigured,
@@ -217,20 +224,24 @@ export async function posterSaved(atBatId: string, path: string): Promise<void> 
 
 // --- Pitch markers -----------------------------------------------------------
 
-type PitchRow = { id: string; t: number; swing: boolean; contact: boolean; source: "manual" | "auto" };
+type PitchRow = { id: string; t: number; outcome: PitchOutcome | null; source: "manual" | "auto" };
+
+function checkOutcome(outcome: PitchOutcome | null | undefined) {
+  if (outcome && !PITCH_OUTCOMES.some((o) => o.value === outcome)) throw new Error("Unknown pitch outcome");
+}
 
 export async function addPitch(
   atBatId: string,
   t: number,
-  labels: { swing?: boolean; contact?: boolean } = {},
+  outcome: PitchOutcome | null = null,
 ): Promise<ClipPitch> {
   const sb = await createClient();
   await requireUserId(sb);
-  const contact = !!labels.contact;
+  checkOutcome(outcome);
   const { data, error } = await sb
     .from("clip_pitches")
-    .insert({ at_bat_id: atBatId, t: Math.max(0, t), swing: contact || !!labels.swing, contact })
-    .select("id, t, swing, contact, source")
+    .insert({ at_bat_id: atBatId, t: Math.max(0, t), outcome })
+    .select("id, t, outcome, source")
     .single();
   if (error) throw new Error(error.message);
   return data as PitchRow;
@@ -238,17 +249,16 @@ export async function addPitch(
 
 export async function updatePitch(
   pitchId: string,
-  patch: { t?: number; swing?: boolean; contact?: boolean },
+  patch: { t?: number; outcome?: PitchOutcome | null },
 ): Promise<void> {
   const sb = await createClient();
   await requireUserId(sb);
   const row: Record<string, unknown> = {};
   if (patch.t !== undefined) row.t = Math.max(0, patch.t);
-  if (patch.swing !== undefined) row.swing = patch.swing;
-  if (patch.contact !== undefined) row.contact = patch.contact;
-  // Contact implies a swing; taking away the swing takes away contact.
-  if (patch.contact) row.swing = true;
-  if (patch.swing === false) row.contact = false;
+  if (patch.outcome !== undefined) {
+    checkOutcome(patch.outcome);
+    row.outcome = patch.outcome;
+  }
   // An edited auto marker is now a human's call.
   row.source = "manual";
   const { error } = await sb.from("clip_pitches").update(row).eq("id", pitchId);

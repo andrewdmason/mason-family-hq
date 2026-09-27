@@ -5,7 +5,15 @@
 //
 // These are starting numbers, meant to be tuned after watching real at-bats.
 
-import { pitchKind, PITCH_KIND_LABEL, resultLabel, type AtBatResult, type ClipPitch } from "./types";
+import {
+  countsBefore,
+  isContact,
+  isSwing,
+  outcomeLabel,
+  resultLabel,
+  type AtBatResult,
+  type ClipPitch,
+} from "./types";
 
 export const QUICK = {
   /** Seconds shown before the ball reaches the plate — the load and stride. */
@@ -41,13 +49,16 @@ export type PlanSegment = {
   replay: boolean;
 };
 
+/** "Pitch 4 · 1-2 · Foul" — the count is before the pitch, like a scorebook. */
 export function pitchCaption(
-  p: Pick<ClipPitch, "swing" | "contact">,
+  p: Pick<ClipPitch, "outcome">,
   n: number,
+  count: string,
   isLast: boolean,
   result: AtBatResult | null,
 ): string {
-  const parts = [`Pitch ${n}`, PITCH_KIND_LABEL[pitchKind(p)]];
+  const parts = [`Pitch ${n}`, count];
+  if (p.outcome) parts.push(outcomeLabel(p.outcome));
   const label = isLast ? resultLabel(result) : null;
   if (label) parts.push(label);
   return parts.join(" · ");
@@ -65,17 +76,18 @@ export function buildQuickPlan(
 ): PlanSegment[] {
   const sorted = [...pitches].sort((a, b) => a.t - b.t);
   const segments: PlanSegment[] = [];
+  const counts = countsBefore(sorted);
   let prevEnd = 0;
   sorted.forEach((p, i) => {
     const isLast = i === sorted.length - 1;
-    const caption = pitchCaption(p, i + 1, isLast, result);
+    const caption = pitchCaption(p, i + 1, counts[i], isLast, result);
     const start = Math.max(0, p.t - QUICK.lead, prevEnd);
-    const end = Math.min(duration, p.t + (p.contact ? QUICK.contactTail : QUICK.tail));
+    const end = Math.min(duration, p.t + (isContact(p) ? QUICK.contactTail : QUICK.tail));
     if (end - start > 0.05) {
       segments.push({ start, end, rate: 1, muted: false, caption, pitchIndex: i, replay: false });
       prevEnd = end;
     }
-    if (p.swing) {
+    if (isSwing(p)) {
       const rs = Math.max(0, p.t - QUICK.replayBefore);
       const re = Math.min(duration, p.t + QUICK.replayAfter);
       if (re - rs > 0.05) {

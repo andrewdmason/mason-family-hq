@@ -42,13 +42,54 @@ export type ClipGame = {
   playedOn: string; // YYYY-MM-DD
 };
 
+// Pitch outcomes, as a scorebook (or GameChanger) records them. Swings are
+// filled dots on the timeline and takes are hollow; the color says what
+// happened.
+export type PitchOutcome = "ball" | "called_strike" | "swinging_strike" | "foul" | "in_play";
+
+export const PITCH_OUTCOMES: { value: PitchOutcome; label: string; short: string; key: string }[] = [
+  { value: "ball", label: "Ball", short: "Ball", key: "b" },
+  { value: "called_strike", label: "Called strike", short: "Strike", key: "c" },
+  { value: "swinging_strike", label: "Swinging strike", short: "Swing", key: "s" },
+  { value: "foul", label: "Foul", short: "Foul", key: "f" },
+  { value: "in_play", label: "Ball in play", short: "In play", key: "i" },
+];
+
+export function outcomeLabel(outcome: PitchOutcome | null, form: "label" | "short" = "label"): string {
+  const o = PITCH_OUTCOMES.find((x) => x.value === outcome);
+  return o ? o[form] : "Pitch";
+}
+
 export type ClipPitch = {
   id: string;
   t: number;
-  swing: boolean;
-  contact: boolean;
+  outcome: PitchOutcome | null;
   source: "manual" | "auto";
 };
+
+export function isSwing(p: Pick<ClipPitch, "outcome">): boolean {
+  return p.outcome === "swinging_strike" || p.outcome === "foul" || p.outcome === "in_play";
+}
+
+export function isContact(p: Pick<ClipPitch, "outcome">): boolean {
+  return p.outcome === "foul" || p.outcome === "in_play";
+}
+
+/**
+ * The count before each pitch ("1-2"), scorebook rules: fouls add a strike
+ * only until two. Stops counting once the at-bat would already be over.
+ */
+export function countsBefore(pitches: Pick<ClipPitch, "outcome">[]): string[] {
+  let balls = 0;
+  let strikes = 0;
+  return pitches.map((p) => {
+    const before = `${Math.min(balls, 3)}-${Math.min(strikes, 2)}`;
+    if (p.outcome === "ball") balls++;
+    else if (p.outcome === "called_strike" || p.outcome === "swinging_strike") strikes++;
+    else if (p.outcome === "foul" && strikes < 2) strikes++;
+    return before;
+  });
+}
 
 export type ClipAtBat = {
   id: string;
@@ -90,20 +131,8 @@ export function posterUrl(ab: Pick<ClipAtBat, "id" | "updatedAt">): string {
 /** "5 pitches · 3 swings", or null when nothing's marked yet. */
 export function pitchSummary(pitches: ClipPitch[]): string | null {
   if (pitches.length === 0) return null;
-  const swings = pitches.filter((p) => p.swing).length;
+  const swings = pitches.filter(isSwing).length;
   const p = `${pitches.length} pitch${pitches.length === 1 ? "" : "es"}`;
   return swings > 0 ? `${p} · ${swings} swing${swings === 1 ? "" : "s"}` : p;
 }
 
-/** What happened on a pitch, from its two labels. */
-export function pitchKind(p: Pick<ClipPitch, "swing" | "contact">): "take" | "miss" | "contact" {
-  if (p.contact) return "contact";
-  if (p.swing) return "miss";
-  return "take";
-}
-
-export const PITCH_KIND_LABEL = {
-  take: "Take",
-  miss: "Swing & miss",
-  contact: "Contact",
-} as const;

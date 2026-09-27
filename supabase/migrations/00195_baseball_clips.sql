@@ -4,7 +4,8 @@
 -- at-bat. The original iPhone file is kept as-is; the clips worker makes a
 -- seek-friendly playback copy (short keyframe interval, so frame-stepping and
 -- scrubbing are instant) plus a poster frame. Pitches are single markers at the
--- moment the ball reaches the plate, labeled swing/take and contact/miss; the
+-- moment the ball reaches the plate, tagged with its outcome the way a
+-- scorebook does (ball, called strike, swinging strike, foul, in play); the
 -- terminal pitch is simply the last one. Exports are rendered "quick versions"
 -- (an at-bat, or a whole game's reel) for sharing with the hitting coach.
 --
@@ -61,8 +62,8 @@ CREATE TABLE IF NOT EXISTS clip_pitches (
   -- Seconds into the original video: the moment the ball reaches the plate
   -- (mitt, past the catcher, or bat on ball).
   t double precision NOT NULL CHECK (t >= 0),
-  swing boolean NOT NULL DEFAULT false,
-  contact boolean NOT NULL DEFAULT false,
+  -- Null until someone tags it.
+  outcome text CHECK (outcome IN ('ball', 'called_strike', 'swinging_strike', 'foul', 'in_play')),
   -- 'auto' is reserved for the detection pass that comes later.
   source text NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'auto')),
   created_at timestamptz NOT NULL DEFAULT now()

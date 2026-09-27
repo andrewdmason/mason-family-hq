@@ -1,31 +1,35 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { pitchKind, type ClipPitch } from "@/lib/clips/types";
+import { outcomeLabel, type ClipPitch, type PitchOutcome } from "@/lib/clips/types";
 import { planDuration, planOffsets, quickTimeAt, type PlanSegment } from "@/lib/clips/plan";
 import { cn } from "@/lib/utils";
 
 // The timeline, in two shapes.
 //
-// Full: the whole video. Tap or drag to seek; a dot per pitch — white for
-// takes, yellow for swings and misses, green for contact, a ring on the last
-// pitch. Tapping a dot jumps to it and selects it; dragging one moves it. The
+// Full: the whole video. Tap or drag to seek; a dot per pitch, colored like a
+// scorebook — green ball, red strike, amber foul, blue in play; swings filled,
+// takes hollow, untagged plain white — with a ring on the last pitch. Tapping a dot jumps to it and selects it; dragging one moves it. The
 // stretches the quick version plays are faintly tinted.
 //
 // Quick: the scrubber *is* the quick version — just the pitch windows, end to
-// end with a small gap between pitches, each swing's slow replay a blue
+// end with a small gap between pitches, each swing's slow replay a violet
 // striped "¼×" extension after its window — no dot, so it never reads as
 // another pitch. Switching modes animates between the two: the
 // tinted windows slide together as the gaps fold away.
 
 const GAP_PX = 6;
+// Roughly half the pitch-tools popover's width, to keep it on screen.
+const TOOLS_HALF = 300;
 const LABEL_MIN_PX = 64;
-const DOT_COLOR = {
-  take: "bg-white",
-  miss: "bg-yellow-400",
-  contact: "bg-emerald-400",
-} as const;
-const KIND_SHORT = { take: "Take", miss: "Swing", contact: "Contact" } as const;
+const DOT_STYLE: Record<PitchOutcome | "none", string> = {
+  none: "bg-white/70",
+  ball: "bg-black ring-2 ring-emerald-400",
+  called_strike: "bg-black ring-2 ring-red-500",
+  swinging_strike: "bg-red-500",
+  foul: "bg-amber-400",
+  in_play: "bg-blue-500",
+};
 
 export function Scrubber({
   duration,
@@ -214,7 +218,7 @@ export function Scrubber({
                 ? {
                     ...style,
                     backgroundImage:
-                      "repeating-linear-gradient(135deg, rgba(56,189,248,0.55) 0 3px, rgba(56,189,248,0.2) 3px 6px)",
+                      "repeating-linear-gradient(135deg, rgba(167,139,250,0.6) 0 3px, rgba(167,139,250,0.2) 3px 6px)",
                     backgroundColor: "transparent",
                   }
                 : style
@@ -222,7 +226,7 @@ export function Scrubber({
           >
             {quick && (
               <div
-                className={cn("h-full", s.replay ? "bg-sky-400" : "bg-white/80")}
+                className={cn("h-full", s.replay ? "bg-violet-400" : "bg-white/80")}
                 style={{ width: `${fill * 100}%` }}
               />
             )}
@@ -239,7 +243,7 @@ export function Scrubber({
             return (
               <span
                 key={`label-${i}`}
-                className="pointer-events-none absolute top-0 text-[10px] font-semibold leading-none text-sky-300"
+                className="pointer-events-none absolute top-0 text-[10px] font-semibold leading-none text-violet-300"
                 style={{ left: qLeft(geo.offsets[i], geo.group[i]), width: qWidth(segLen(i)), textAlign: "center" }}
               >
                 ¼×
@@ -257,7 +261,7 @@ export function Scrubber({
               className="pointer-events-none absolute top-0 truncate text-[10px] leading-none text-white/60"
               style={{ left: qLeft(geo.offsets[i], geo.group[i]), maxWidth: qWidth(groupLen) }}
             >
-              P{s.pitchIndex + 1} · {KIND_SHORT[pitchKind(p)]}
+              P{s.pitchIndex + 1} · {outcomeLabel(p.outcome, "short")}
             </span>
           );
         })}
@@ -302,10 +306,10 @@ export function Scrubber({
           >
             <span
               className={cn(
-                "block rounded-full shadow ring-black/40",
-                DOT_COLOR[pitchKind(p)],
-                selected ? "size-4 ring-2 ring-offset-2 ring-offset-black ring-white" : "size-3 ring-1",
-                p.id === lastId && !selected && "outline-2 outline-offset-2 outline-white",
+                "block rounded-full shadow",
+                DOT_STYLE[p.outcome ?? "none"],
+                selected ? "size-4 outline-2 outline-offset-3 outline-white" : "size-3",
+                p.id === lastId && !selected && "outline-1 outline-offset-2 outline-white/80",
               )}
             />
           </button>
@@ -314,8 +318,8 @@ export function Scrubber({
 
       {selectedTools && selectedX != null && (
         <div
-          className="absolute bottom-full z-10 mb-1 -translate-x-1/2 whitespace-nowrap"
-          style={{ left: Math.min(Math.max(selectedX, 150), Math.max(150, width - 150)) }}
+          className="absolute bottom-full z-10 mb-1 w-max max-w-[92vw] -translate-x-1/2"
+          style={{ left: Math.min(Math.max(selectedX, TOOLS_HALF), Math.max(TOOLS_HALF, width - TOOLS_HALF)) }}
           onPointerDown={(e) => e.stopPropagation()}
         >
           {selectedTools}

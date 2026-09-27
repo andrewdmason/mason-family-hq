@@ -54,6 +54,9 @@ import { createClient } from "@/lib/supabase/client";
 import {
   AT_BAT_RESULTS,
   CLIPS_BUCKET,
+  PITCH_OUTCOMES,
+  countsBefore,
+  isContact,
   resultLabel,
   type AtBatResult,
   type ClipAtBat,
@@ -459,7 +462,7 @@ export function AtBatPlayer({
     }
     const tempId = `temp-${++tempSeq.current}`;
     posterDirty.current = true;
-    setPitches((list) => [...list, { id: tempId, t, swing: false, contact: false, source: "manual" }]);
+    setPitches((list) => [...list, { id: tempId, t, outcome: null, source: "manual" }]);
     setSelectedId(tempId);
     addPitch(atBat.id, t)
       .then((saved) => {
@@ -472,10 +475,8 @@ export function AtBatPlayer({
       });
   }
 
-  function patchPitch(id: string, patch: Partial<Pick<ClipPitch, "t" | "swing" | "contact">>) {
+  function patchPitch(id: string, patch: Partial<Pick<ClipPitch, "t" | "outcome">>) {
     const next = { ...patch };
-    if (next.contact) next.swing = true;
-    if (next.swing === false) next.contact = false;
     posterDirty.current = true;
     setPitches((list) => list.map((p) => (p.id === id ? { ...p, ...next, source: "manual" } : p)));
     if (id.startsWith("temp-")) return;
@@ -500,7 +501,7 @@ export function AtBatPlayer({
   const lastPosterT = useRef<number | null>(null);
   useEffect(() => {
     if (!media || !posterDirty.current || !sorted.length) return;
-    const key = [...sorted].reverse().find((p) => p.contact) ?? sorted[sorted.length - 1];
+    const key = [...sorted].reverse().find(isContact) ?? sorted[sorted.length - 1];
     if (lastPosterT.current != null && Math.abs(lastPosterT.current - key.t) < 0.01) return;
     const timer = setTimeout(() => {
       posterDirty.current = false;
@@ -547,8 +548,10 @@ export function AtBatPlayer({
       } else if (e.key === "," || e.key === ".") {
         step(e.key === "." ? 1 : -1);
       } else if (editing && (e.key === "p" || e.key === "m")) addHere();
-      else if (editing && selected && e.key === "s") patchPitch(selected.id, { swing: !selected.swing });
-      else if (editing && selected && e.key === "c") patchPitch(selected.id, { contact: !selected.contact });
+      else if (editing && selected && PITCH_OUTCOMES.some((o) => o.key === e.key)) {
+        const o = PITCH_OUTCOMES.find((x) => x.key === e.key)!.value;
+        patchPitch(selected.id, { outcome: selected.outcome === o ? null : o });
+      }
       else if (editing && selected && (e.key === "Backspace" || e.key === "Delete")) removePitch(selected.id);
       else if (e.key === "Escape") setSelectedId(null);
       else if (e.key === "e") {
@@ -616,14 +619,20 @@ export function AtBatPlayer({
   // saves as you make it.
   function pitchTools(p: ClipPitch) {
     return (
-      <div className="flex items-center gap-1 rounded-full bg-neutral-800 p-1 text-xs shadow-lg ring-1 ring-white/10">
-        <span className="px-2 text-white/60">P{sorted.findIndex((x) => x.id === p.id) + 1}</span>
-        <Pill active={p.swing} onClick={() => patchPitch(p.id, { swing: !p.swing })}>
-          Swing
-        </Pill>
-        <Pill active={p.contact} onClick={() => patchPitch(p.id, { contact: !p.contact })}>
-          Contact
-        </Pill>
+      <div className="flex flex-wrap items-center justify-center gap-1 rounded-2xl bg-neutral-800 p-1 text-xs shadow-lg ring-1 ring-white/10">
+        <span className="px-2 tabular-nums text-white/60">
+          P{sorted.findIndex((x) => x.id === p.id) + 1} · {countsBefore(sorted)[sorted.findIndex((x) => x.id === p.id)]}
+        </span>
+        {PITCH_OUTCOMES.map((o) => (
+          <Pill
+            key={o.value}
+            active={p.outcome === o.value}
+            title={`${o.label} (${o.key.toUpperCase()})`}
+            onClick={() => patchPitch(p.id, { outcome: p.outcome === o.value ? null : o.value })}
+          >
+            {o.label}
+          </Pill>
+        ))}
         <Pill onClick={() => patchPitch(p.id, { t: frameTime(frameAt(video.current?.currentTime ?? 0)) })}>
           Move here
         </Pill>
@@ -676,7 +685,7 @@ export function AtBatPlayer({
                 : "Editing · tap + as each pitch reaches the plate"}
             </span>
           ) : seg?.replay ? (
-            <span className="flex items-center gap-1.5 truncate rounded-full bg-sky-500/85 px-2.5 py-0.5 text-xs font-semibold">
+            <span className="flex items-center gap-1.5 truncate rounded-full bg-violet-500/85 px-2.5 py-0.5 text-xs font-semibold">
               <RotateCcw className="size-3.5 shrink-0" /> Slow-mo replay · ¼×
             </span>
           ) : seg ? (
