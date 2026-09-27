@@ -125,6 +125,8 @@ export function AtBatPlayer({
   // The quick-mode segment now playing: a ref for the loop, mirrored in state
   // for the caption.
   const segIdx = useRef<number | null>(null);
+  // A seek waiting for the one in flight to land (see seek()).
+  const pendingSeek = useRef<{ t: number; fast: boolean } | null>(null);
   const [segShown, setSegShown] = useState<number | null>(null);
   const setSeg = useCallback((i: number | null) => {
     segIdx.current = i;
@@ -199,16 +201,27 @@ export function AtBatPlayer({
     const v = video.current;
     if (!v) return;
     if (modeRef.current === "quick" && planRef.current.length) {
-      // Paused mid-segment (a replay included): carry on from here.
+      // Where playback is headed — a seek may still be landing.
+      const t = pendingSeek.current?.t ?? v.currentTime;
       const cur = segIdx.current != null ? planRef.current[segIdx.current] : null;
-      const inCurrent = cur && v.currentTime >= cur.start - 0.01 && v.currentTime < cur.end - 0.02;
-      if (!inCurrent) applySegment(segmentFor(v.currentTime));
+      const inCurrent = cur && t >= cur.start - 0.01 && t < cur.end - 0.02;
+      if (!inCurrent) {
+        // Inside a pitch window (say, after tapping the scrubber): carry on
+        // from right here. Between pitches: skip ahead to the next one.
+        const i = segmentFor(t);
+        const seg = planRef.current[i];
+        if (t >= seg.start - 0.01 && t < seg.end - 0.05) {
+          setSeg(i);
+          v.playbackRate = seg.rate * speedRef.current;
+          v.muted = seg.muted;
+        } else applySegment(i);
+      }
     } else {
       leaveSegments();
       if (v.ended) v.currentTime = 0;
     }
     v.play().catch(() => {});
-  }, [applySegment, leaveSegments, segmentFor]);
+  }, [applySegment, leaveSegments, segmentFor, setSeg]);
 
   const pause = useCallback(() => video.current?.pause(), []);
 
@@ -256,7 +269,6 @@ export function AtBatPlayer({
   // dragging on a video without a playback copy, whose full frames are a
   // second apart) snaps to the nearest full frame so the picture keeps up;
   // the drag ends with a precise seek.
-  const pendingSeek = useRef<{ t: number; fast: boolean } | null>(null);
   const applySeek = useCallback((v: HTMLVideoElement, t: number, fast: boolean) => {
     if (fast && typeof v.fastSeek === "function") v.fastSeek(t);
     else v.currentTime = t;
@@ -287,6 +299,7 @@ export function AtBatPlayer({
   }, [media, applySeek]);
   const dragSeekIsFast = !media?.isPlaybackCopy;
   const lastScrubT = useRef<number | null>(null);
+  const resumeAfterScrub = useRef(false);
 
   const frameAt = useCallback((t: number) => Math.floor(t * fps + 1e-3), [fps]);
   const frameTime = useCallback((frame: number) => (Math.max(0, frame) + 0.5) / fps, [fps]);
@@ -388,7 +401,7 @@ export function AtBatPlayer({
   function addHere() {
     const v = video.current;
     if (!v) return;
-    v.pause();
+    // Marking doesn't interrupt playback — tap + (or M) as the pitch goes by.
     const t = frameTime(frameAt(v.currentTime));
     const tempId = `temp-${++tempSeq.current}`;
     posterDirty.current = true;
@@ -602,14 +615,19 @@ export function AtBatPlayer({
               seek(t, { fast: scrubbing.current && dragSeekIsFast });
             }}
             onScrubStart={() => {
+              // Hold still while dragging so frames keep up, then carry on
+              // playing from the new spot if it was playing before.
               scrubbing.current = true;
               lastScrubT.current = null;
+              resumeAfterScrub.current = !!video.current && !video.current.paused;
               pause();
             }}
             onScrubEnd={() => {
               scrubbing.current = false;
               // Land exactly where the finger stopped (drags may have snapped).
               if (dragSeekIsFast && lastScrubT.current != null) seek(lastScrubT.current);
+              if (resumeAfterScrub.current) play();
+              resumeAfterScrub.current = false;
             }}
             onSelect={setSelectedId}
             onDragPitch={(id, t) => setPitches((list) => list.map((p) => (p.id === id ? { ...p, t } : p)))}
