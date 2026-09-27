@@ -22,6 +22,7 @@ import {
   StepForward,
   Trash2,
   X,
+  ZoomIn,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -41,6 +42,7 @@ import {
 } from "@/components/ui/dialog";
 import { ExportDialog } from "@/components/clips/export-dialog";
 import { Scrubber } from "@/components/clips/player/scrubber";
+import { ZoomBox } from "@/components/clips/player/zoom-box";
 import {
   buildQuickPlan,
   jumpTarget,
@@ -61,10 +63,13 @@ import {
   type AtBatResult,
   type ClipAtBat,
   type ClipPitch,
+  type ClipZoom,
 } from "@/lib/clips/types";
 import {
   addPitch,
   markAtBatDone,
+  setAtBatZoom,
+  setReplayZoom,
   deleteAtBat,
   deletePitch,
   exportAtBat,
@@ -125,6 +130,15 @@ export function AtBatPlayer({
   // for marking.
   const [editing, setEditing] = useState(!atBat.markedAt || atBat.pitches.length === 0);
   const mode: Mode = editing ? "full" : "quick";
+  // Replay zoom: one box for the whole video, set in edit mode.
+  const [zoom, setZoom] = useState<ClipZoom | null>(atBat.zoom);
+  const [replayZoom, setReplayZoomOn] = useState(atBat.replayZoom);
+  const [zoomEditing, setZoomEditing] = useState(false);
+  // Where the picture sits inside the video area (the zoom box lays over it).
+  const videoArea = useRef<HTMLDivElement>(null);
+  const [videoRect, setVideoRect] = useState<{ left: number; top: number; width: number; height: number } | null>(
+    null,
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"export" | "delete" | "result" | null>(null);
   const [fps, setFps] = useState(atBat.fps ?? 30);
@@ -189,6 +203,23 @@ export function AtBatPlayer({
     handle = v.requestVideoFrameCallback(onFrame);
     return () => v.cancelVideoFrameCallback(handle);
   }, [atBat.fps, media]);
+
+  useEffect(() => {
+    const v = video.current;
+    const area = videoArea.current;
+    if (!v || !area) return;
+    // Offsets measure the untransformed box (a zoomed replay scales the element).
+    const measure = () =>
+      setVideoRect({ left: v.offsetLeft, top: v.offsetTop, width: v.offsetWidth, height: v.offsetHeight });
+    const ro = new ResizeObserver(measure);
+    ro.observe(v);
+    ro.observe(area);
+    v.addEventListener("loadedmetadata", measure);
+    return () => {
+      ro.disconnect();
+      v.removeEventListener("loadedmetadata", measure);
+    };
+  }, [media]);
 
   // --- Playback engine ------------------------------------------------------------
 
@@ -521,6 +552,7 @@ export function AtBatPlayer({
   function finishEditing() {
     if (!sorted.length) return;
     setSelectedId(null);
+    setZoomEditing(false);
     setEditing(false);
     markAtBatDone(atBat.id).catch(report);
   }
@@ -571,6 +603,19 @@ export function AtBatPlayer({
   const quickLength = plan.length ? planDuration(plan) : 0;
   const quickOn = mode === "quick" && plan.length > 0;
   const quickNow = quickOn ? quickTimeAt(plan, planOffsets(plan), segShown, time) : 0;
+
+  // Zoom a replay into the box: scale the picture so the box fills it, and
+  // clip to the box so nothing spills into the letterbox around the video.
+  const zoomed = !editing && !!zoom && replayZoom && !!seg?.replay;
+  const zoomStyle: React.CSSProperties = {
+    transformOrigin: "0 0",
+    transition: "transform 350ms ease, clip-path 350ms ease",
+    transform: zoomed && zoom ? `scale(${1 / zoom.s}) translate(${-zoom.x * 100}%, ${-zoom.y * 100}%)` : "none",
+    clipPath:
+      zoomed && zoom
+        ? `inset(${zoom.y * 100}% ${(1 - zoom.x - zoom.s) * 100}% ${(1 - zoom.y - zoom.s) * 100}% ${zoom.x * 100}%)`
+        : "inset(0% 0% 0% 0%)",
+  };
 
   const scrubber = (
     <Scrubber
@@ -743,6 +788,7 @@ export function AtBatPlayer({
 
       {/* Video */}
       <div
+        ref={videoArea}
         className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden"
         onPointerDown={onVideoPointerDown}
         onPointerMove={onVideoPointerMove}
@@ -758,9 +804,22 @@ export function AtBatPlayer({
             preload="auto"
             disablePictureInPicture
             className="max-h-full max-w-full"
+            style={zoomStyle}
             onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
             onPlay={() => setPlaying(true)}
             onPause={() => setPlaying(false)}
+          />
+        )}
+        {zoomEditing && videoRect && (
+          <ZoomBox
+            rect={videoRect}
+            zoom={zoom}
+            onChange={setZoom}
+            onCommit={(z) => {
+              setZoom(z);
+              setReplayZoomOn(true);
+              setAtBatZoom(atBat.id, z).catch(report);
+            }}
           />
         )}
         {!media && !mediaError && <Loader2 className="size-8 animate-spin text-white/60" />}
@@ -815,6 +874,36 @@ export function AtBatPlayer({
             >
               <Plus className="size-4" /> Pitch
             </button>
+          )}
+          {editing && (
+            <Pill active={zoomEditing} onClick={() => setZoomEditing((x) => !x)} className="h-9" title="Zoom for replays">
+              <ZoomIn className="size-4" /> {zoomEditing ? "Done" : "Zoom"}
+            </Pill>
+          )}
+          {editing && zoomEditing && zoom && (
+            <Pill
+              className="h-9"
+              onClick={() => {
+                setZoom(null);
+                setAtBatZoom(atBat.id, null).catch(report);
+              }}
+            >
+              Remove zoom
+            </Pill>
+          )}
+          {!editing && zoom && (
+            <Pill
+              active={replayZoom}
+              className="h-9"
+              title={replayZoom ? "Replays zoom in — tap to turn off" : "Zoom in on replays"}
+              onClick={() => {
+                const on = !replayZoom;
+                setReplayZoomOn(on);
+                setReplayZoom(atBat.id, on).catch(report);
+              }}
+            >
+              <ZoomIn className="size-4" />
+            </Pill>
           )}
           <Pill onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])} className="h-9">
             {speed === 1 ? "1×" : speed === 0.5 ? "½×" : "¼×"}

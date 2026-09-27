@@ -105,6 +105,7 @@ export async function startExport(
         rate: s.rate,
         muted: s.muted,
         caption: s.caption,
+        crop: s.crop ?? null,
       })),
     });
   }

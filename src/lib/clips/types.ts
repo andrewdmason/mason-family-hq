@@ -91,6 +91,9 @@ export function countsBefore(pitches: Pick<ClipPitch, "outcome">[]): string[] {
   });
 }
 
+/** A zoom box as fractions of the frame; it keeps the video's shape, so `s` sizes both sides. */
+export type ClipZoom = { x: number; y: number; s: number };
+
 export type ClipAtBat = {
   id: string;
   gameId: string;
@@ -107,6 +110,8 @@ export type ClipAtBat = {
   recordedAt: string | null;
   /** When marking was finished; null while it still needs marking. */
   markedAt: string | null;
+  zoom: ClipZoom | null;
+  replayZoom: boolean;
   result: AtBatResult | null;
   createdAt: string;
   updatedAt: string;

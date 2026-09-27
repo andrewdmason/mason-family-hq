@@ -47,6 +47,11 @@ CREATE TABLE IF NOT EXISTS clip_at_bats (
   -- Set when someone finishes marking pitches ("Done"). Marked at-bats open
   -- in the watch view; unmarked ones open on the full timeline for marking.
   marked_at timestamptz,
+  -- Optional zoom box for slow-motion replays, as fractions of the frame:
+  -- {"x": left, "y": top, "s": size} (the box keeps the video's shape, so one
+  -- size covers both width and height). replay_zoom switches it on or off.
+  zoom jsonb,
+  replay_zoom boolean NOT NULL DEFAULT true,
   result text CHECK (result IN (
     'K', 'KL', 'BB', 'HBP', '1B', '2B', '3B', 'HR', 'GO', 'FO', 'LO', 'ROE'
   )),

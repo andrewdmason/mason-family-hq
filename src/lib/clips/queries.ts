@@ -1,12 +1,12 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
-import type { AtBatResult, AtBatStatus, ClipAtBat, ClipGame, ClipKid, ClipPitch } from "./types";
+import type { AtBatResult, AtBatStatus, ClipAtBat, ClipGame, ClipKid, ClipPitch, ClipZoom } from "./types";
 
 type Client = Awaited<ReturnType<typeof createClient>>;
 
 const AT_BAT_COLUMNS =
-  "id, game_id, status, error_message, original_name, original_bytes, playback_path, poster_path, duration_s, fps, width, height, recorded_at, marked_at, result, created_at, updated_at, clip_pitches(id, t, outcome, source)";
+  "id, game_id, status, error_message, original_name, original_bytes, playback_path, poster_path, duration_s, fps, width, height, recorded_at, marked_at, zoom, replay_zoom, result, created_at, updated_at, clip_pitches(id, t, outcome, source)";
 
 type AtBatRow = {
   id: string;
@@ -23,6 +23,8 @@ type AtBatRow = {
   height: number | null;
   recorded_at: string | null;
   marked_at: string | null;
+  zoom: ClipZoom | null;
+  replay_zoom: boolean;
   result: AtBatResult | null;
   created_at: string;
   updated_at: string;
@@ -45,6 +47,8 @@ function toAtBat(r: AtBatRow): ClipAtBat {
     height: r.height,
     recordedAt: r.recorded_at,
     markedAt: r.marked_at,
+    zoom: r.zoom,
+    replayZoom: r.replay_zoom,
     result: r.result,
     createdAt: r.created_at,
     updatedAt: r.updated_at,

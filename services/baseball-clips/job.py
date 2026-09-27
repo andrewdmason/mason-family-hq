@@ -230,7 +230,16 @@ def export(payload: dict, work: str) -> dict:
             length = max(0.05, end - start)
             out_len = length / rate
             slow = f"setpts={1 / rate:.4f}*PTS," if rate != 1 else ""
-            vf = (TONEMAP if meta["hdr"] else "") + slow + fit
+            # Replay zoom: crop to the at-bat's box (fractions of the frame)
+            # before scaling back up to 1080p — from a 4K original a 2× zoom
+            # stays full-HD sharp.
+            box = seg.get("crop")
+            crop = (
+                f"crop=w=iw*{box['s']:.4f}:h=ih*{box['s']:.4f}:x=iw*{box['x']:.4f}:y=ih*{box['y']:.4f},"
+                if box
+                else ""
+            )
+            vf = (TONEMAP if meta["hdr"] else "") + crop + slow + fit
             video = f"[0:v]{vf}[base];[base][1:v]overlay=40:40,format=yuv420p[v]"
             with_audio = meta["hasAudio"] and not seg.get("muted") and rate == 1
             net = NET_OPTS if src["url"].startswith("http") else []

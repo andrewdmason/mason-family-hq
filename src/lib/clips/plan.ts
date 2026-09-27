@@ -47,6 +47,8 @@ export type PlanSegment = {
   /** Index into the at-bat's sorted pitch list. */
   pitchIndex: number;
   replay: boolean;
+  /** Export only: crop to this box (the at-bat's replay zoom). */
+  crop?: { x: number; y: number; s: number };
 };
 
 /** "Pitch 4 · 1-2 · Foul" — the count is before the pitch, like a scorebook. */

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireUserId } from "@/lib/members/auth";
-import { buildQuickPlan } from "@/lib/clips/plan";
+import { buildQuickPlan, type PlanSegment } from "@/lib/clips/plan";
 import { getAtBat, getGame } from "@/lib/clips/queries";
 import {
   AT_BAT_RESULTS,
@@ -11,6 +11,7 @@ import {
   PITCH_OUTCOMES,
   type AtBatResult,
   type ClipPitch,
+  type ClipZoom,
   type PitchOutcome,
 } from "@/lib/clips/types";
 import {
@@ -272,6 +273,37 @@ export async function deletePitch(pitchId: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/** Set or clear the replay zoom box (fractions of the frame). */
+export async function setAtBatZoom(atBatId: string, zoom: ClipZoom | null): Promise<void> {
+  const sb = await createClient();
+  await requireUserId(sb);
+  if (zoom) {
+    const ok = [zoom.x, zoom.y, zoom.s].every((n) => Number.isFinite(n)) &&
+      zoom.s > 0.05 && zoom.s <= 1 && zoom.x >= 0 && zoom.y >= 0 &&
+      zoom.x + zoom.s <= 1.0001 && zoom.y + zoom.s <= 1.0001;
+    if (!ok) throw new Error("Zoom box is off the frame");
+  }
+  const { error } = await sb
+    .from("clip_at_bats")
+    .update({ zoom, replay_zoom: true, updated_at: new Date().toISOString() })
+    .eq("id", atBatId);
+  if (error) throw new Error(error.message);
+}
+
+/** Turn the replay zoom on or off (the box itself is kept). */
+export async function setReplayZoom(atBatId: string, on: boolean): Promise<void> {
+  const sb = await createClient();
+  await requireUserId(sb);
+  const { error } = await sb.from("clip_at_bats").update({ replay_zoom: on }).eq("id", atBatId);
+  if (error) throw new Error(error.message);
+}
+
+/** Replays zoom to the at-bat's box when it has one and it's switched on. */
+function withReplayZoom(segments: PlanSegment[], ab: { zoom: ClipZoom | null; replayZoom: boolean }) {
+  if (!ab.zoom || !ab.replayZoom) return segments;
+  return segments.map((s) => (s.replay ? { ...s, crop: ab.zoom! } : s));
+}
+
 /** Finish marking: the at-bat now opens in the watch view. */
 export async function markAtBatDone(atBatId: string): Promise<void> {
   const sb = await createClient();
@@ -329,7 +361,7 @@ export async function exportAtBat(atBatId: string): Promise<{ exportId: string }
   const ab = await getAtBat(atBatId);
   if (!ab) throw new Error("At-bat not found");
   const { data: row } = await sb.from("clip_at_bats").select("original_path").eq("id", atBatId).single();
-  const segments = buildQuickPlan(ab.pitches, ab.durationS ?? Infinity, ab.result);
+  const segments = withReplayZoom(buildQuickPlan(ab.pitches, ab.durationS ?? Infinity, ab.result), ab);
   return beginExport({ atBatId }, [{ card: null, originalPath: row!.original_path, segments }]);
 }
 
@@ -345,7 +377,7 @@ export async function exportGame(gameId: string): Promise<{ exportId: string }> 
     .map((ab, i) => ({
       card: `AB ${i + 1}`,
       originalPath: pathById.get(ab.id)!,
-      segments: buildQuickPlan(ab.pitches, ab.durationS ?? Infinity, ab.result),
+      segments: withReplayZoom(buildQuickPlan(ab.pitches, ab.durationS ?? Infinity, ab.result), ab),
     }))
     .filter((part) => part.segments.length > 0);
   return beginExport({ gameId }, parts);
