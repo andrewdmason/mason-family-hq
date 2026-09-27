@@ -98,3 +98,30 @@ export function buildQuickPlan(
 export function planDuration(plan: PlanSegment[]): number {
   return plan.reduce((sum, s) => sum + (s.end - s.start) / s.rate, 0);
 }
+
+/** Where each segment starts on the quick timeline (seconds of quick-version playing time). */
+export function planOffsets(plan: PlanSegment[]): number[] {
+  const out: number[] = [];
+  let acc = 0;
+  for (const s of plan) {
+    out.push(acc);
+    acc += (s.end - s.start) / s.rate;
+  }
+  return out;
+}
+
+/**
+ * The position on the quick timeline for a spot in the source video. `segIdx`
+ * disambiguates a replay (whose source range sits inside its pitch's window);
+ * otherwise the real-speed window containing `t` is used, or the start of the
+ * next one when `t` falls between pitches.
+ */
+export function quickTimeAt(plan: PlanSegment[], offsets: number[], segIdx: number | null, t: number): number {
+  if (!plan.length) return 0;
+  const clamp = (i: number) => offsets[i] + Math.min(Math.max(0, t - plan[i].start), plan[i].end - plan[i].start) / plan[i].rate;
+  if (segIdx != null && plan[segIdx]) return clamp(segIdx);
+  const inside = plan.findIndex((s) => !s.replay && t >= s.start && t < s.end);
+  if (inside >= 0) return clamp(inside);
+  const next = plan.findIndex((s) => !s.replay && s.start >= t);
+  return next >= 0 ? offsets[next] : planDuration(plan);
+}

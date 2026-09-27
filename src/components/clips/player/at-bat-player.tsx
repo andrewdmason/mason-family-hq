@@ -37,7 +37,14 @@ import {
 } from "@/components/ui/dialog";
 import { ExportDialog } from "@/components/clips/export-dialog";
 import { Scrubber } from "@/components/clips/player/scrubber";
-import { buildQuickPlan, jumpTarget, planDuration, type PlanSegment } from "@/lib/clips/plan";
+import {
+  buildQuickPlan,
+  jumpTarget,
+  planDuration,
+  planOffsets,
+  quickTimeAt,
+  type PlanSegment,
+} from "@/lib/clips/plan";
 import { formatClock } from "@/lib/clips/format";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -274,10 +281,10 @@ export function AtBatPlayer({
     else v.currentTime = t;
   }, []);
   const seek = useCallback(
-    (t: number, opts: { fast?: boolean } = {}) => {
+    (t: number, opts: { fast?: boolean; keepSeg?: boolean } = {}) => {
       const v = video.current;
       if (!v) return;
-      if (segIdx.current != null) leaveSegments();
+      if (segIdx.current != null && !opts.keepSeg) leaveSegments();
       const target = Math.min(Math.max(0, t), v.duration || t);
       setTime(target);
       if (v.seeking) pendingSeek.current = { t: target, fast: !!opts.fast };
@@ -298,7 +305,21 @@ export function AtBatPlayer({
     return () => v.removeEventListener("seeked", onSeeked);
   }, [media, applySeek]);
   const dragSeekIsFast = !media?.isPlaybackCopy;
-  const lastScrubT = useRef<number | null>(null);
+  const lastScrubT = useRef<{ t: number; seg: number | null } | null>(null);
+
+  /** Seek within a quick-mode segment (a pitch window or a replay), taking on its speed and sound. */
+  const seekQuick = useCallback(
+    (i: number, t: number, opts: { fast?: boolean } = {}) => {
+      const v = video.current;
+      const seg = planRef.current[i];
+      if (!v || !seg) return;
+      setSeg(i);
+      v.playbackRate = seg.rate * speedRef.current;
+      v.muted = seg.muted;
+      seek(t, { ...opts, keepSeg: true });
+    },
+    [seek, setSeg],
+  );
   const resumeAfterScrub = useRef(false);
 
   const frameAt = useCallback((t: number) => Math.floor(t * fps + 1e-3), [fps]);
@@ -483,7 +504,10 @@ export function AtBatPlayer({
       else if (selected && e.key === "c") patchPitch(selected.id, { contact: !selected.contact });
       else if (selected && (e.key === "Backspace" || e.key === "Delete")) removePitch(selected.id);
       else if (e.key === "Escape") setSelectedId(null);
-      else if (e.key === "q") setMode((m) => (m === "quick" ? "full" : "quick"));
+      else if (e.key === "q") {
+        if (mode === "quick") leaveSegments();
+        setMode(mode === "quick" || !plan.length ? "full" : "quick");
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -495,6 +519,8 @@ export function AtBatPlayer({
     mode === "quick" && segShown != null ? (plan[segShown] ?? null) : null;
   const badge = resultLabel(result);
   const quickLength = plan.length ? planDuration(plan) : 0;
+  const quickOn = mode === "quick" && plan.length > 0;
+  const quickNow = quickOn ? quickTimeAt(plan, planOffsets(plan), segShown, time) : 0;
 
   return (
     <div
@@ -551,11 +577,6 @@ export function AtBatPlayer({
         )}
         {!media && !mediaError && <Loader2 className="size-8 animate-spin text-white/60" />}
         {mediaError && <p className="px-6 text-center text-sm text-white/70">{mediaError}</p>}
-        {seg && playing && (
-          <span className="pointer-events-none absolute left-3 top-3 rounded-md bg-black/60 px-2 py-1 text-xs font-medium">
-            {seg.caption}
-          </span>
-        )}
         {saveError && (
           <button
             className="absolute inset-x-3 bottom-3 rounded-md bg-red-600/90 px-3 py-2 text-left text-xs"
@@ -592,6 +613,29 @@ export function AtBatPlayer({
 
       {/* Bottom bar */}
       <div className="flex flex-col gap-1 px-2 pb-1 landscape:col-span-3 landscape:row-start-2 portrait:order-2 portrait:col-span-2">
+        {/* Full vs quick — switching folds the scrubber down to just the pitches. */}
+        <div className="flex items-center gap-3 pl-12 text-xs">
+          <div className="flex shrink-0 rounded-full bg-white/10 p-0.5">
+            {(["full", "quick"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                disabled={m === "quick" && !plan.length}
+                onClick={() => {
+                  setMode(m);
+                  if (m === "full") leaveSegments();
+                }}
+                className={cn(
+                  "rounded-full px-3 py-1 tabular-nums transition-colors disabled:opacity-40",
+                  mode === m ? "bg-white text-black" : "text-white/70",
+                )}
+              >
+                {m === "full" ? `Full · ${formatClock(duration)}` : `Quick · ${formatClock(quickLength)}`}
+              </button>
+            ))}
+          </div>
+          {seg && <span className="truncate text-white/60">{seg.caption}</span>}
+        </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -602,17 +646,23 @@ export function AtBatPlayer({
             {playing ? <Pause className="size-6" /> : <Play className="size-6" />}
           </button>
           <span className="w-10 shrink-0 text-right font-mono text-xs tabular-nums text-white/70">
-            {formatClock(time)}
+            {formatClock(quickOn ? quickNow : time)}
           </span>
           <Scrubber
             duration={duration}
             time={time}
             pitches={sorted}
-            plan={mode === "quick" ? plan : null}
+            plan={plan}
+            quick={quickOn}
+            activeSeg={segShown}
             selectedId={selectedId}
             onSeek={(t) => {
-              lastScrubT.current = t;
+              lastScrubT.current = { t, seg: null };
               seek(t, { fast: scrubbing.current && dragSeekIsFast });
+            }}
+            onSeekQuick={(i, t) => {
+              lastScrubT.current = { t, seg: i };
+              seekQuick(i, t, { fast: scrubbing.current && dragSeekIsFast });
             }}
             onScrubStart={() => {
               // Hold still while dragging so frames keep up, then carry on
@@ -625,7 +675,11 @@ export function AtBatPlayer({
             onScrubEnd={() => {
               scrubbing.current = false;
               // Land exactly where the finger stopped (drags may have snapped).
-              if (dragSeekIsFast && lastScrubT.current != null) seek(lastScrubT.current);
+              const last = lastScrubT.current;
+              if (dragSeekIsFast && last) {
+                if (last.seg != null) seekQuick(last.seg, last.t);
+                else seek(last.t);
+              }
               if (resumeAfterScrub.current) play();
               resumeAfterScrub.current = false;
             }}
@@ -634,31 +688,11 @@ export function AtBatPlayer({
             onDropPitch={(id, t) => patchPitch(id, { t: frameTime(frameAt(t)) })}
           />
           <span className="w-10 shrink-0 font-mono text-xs tabular-nums text-white/50">
-            {formatClock(duration)}
+            {formatClock(quickOn ? quickLength : duration)}
           </span>
           <Pill onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])}>
             {speed === 1 ? "1×" : speed === 0.5 ? "½×" : "¼×"}
           </Pill>
-          <div className="flex shrink-0 overflow-hidden rounded-full bg-white/10 text-xs">
-            {(["quick", "full"] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                disabled={m === "quick" && !sorted.length}
-                onClick={() => {
-                  setMode(m);
-                  if (m === "full") leaveSegments();
-                }}
-                className={cn(
-                  "px-2.5 py-1.5 disabled:opacity-40",
-                  mode === m ? "bg-white text-black" : "text-white/80",
-                )}
-                title={m === "quick" && quickLength ? `${Math.round(quickLength)}s` : undefined}
-              >
-                {m === "quick" ? "Quick" : "Full"}
-              </button>
-            ))}
-          </div>
           <Pill onClick={() => setDialog("result")} className="font-mono">
             {badge ?? "Result"}
           </Pill>
