@@ -1,5 +1,5 @@
 import "server-only";
-import { anthropic } from "@/lib/journal/anthropic";
+import { anthropic, SONNET_5_5_THINKING_OFF } from "@/lib/journal/anthropic";
 import type { BookBlock } from "@/lib/reading/block-stream";
 
 /**
@@ -34,7 +34,7 @@ import type { BookBlock } from "@/lib/reading/block-stream";
  * pass costs a rounding error next to the narration it feeds.
  */
 export const NARRATION_CLEANUP_MODEL =
-  process.env.READING_NARRATION_MODEL ?? "claude-sonnet-5";
+  process.env.READING_NARRATION_MODEL ?? "claude-sonnet-5-5";
 
 /**
  * Source characters per model request.
@@ -173,8 +173,8 @@ async function cleanBatch(blocks: NarrationBlock[]): Promise<NarrationBlock[]> {
     max_tokens: MAX_OUTPUT_TOKENS,
     // Off deliberately. Every decision here is local — each block is judged on
     // its own text — and thinking would share the output budget with the prose
-    // we actually need back.
-    thinking: { type: "disabled" },
+    // we actually need back. (Sonnet 5.5's off switch; `disabled` is a 400.)
+    thinking: SONNET_5_5_THINKING_OFF,
     output_config: {
       effort: "low",
       format: { type: "json_schema", schema: OUTPUT_SCHEMA },

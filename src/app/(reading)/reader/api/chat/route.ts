@@ -1,6 +1,6 @@
 import { NextRequest, after } from "next/server";
 import type Anthropic from "@anthropic-ai/sdk";
-import { anthropic } from "@/lib/journal/anthropic";
+import { anthropic, SONNET_5_5_THINKING_OFF } from "@/lib/journal/anthropic";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { recordMentions } from "@/lib/reading/thread-mentions";
 import { refreshThreadTitle } from "@/lib/reading/thread-title";
@@ -285,7 +285,7 @@ export async function POST(req: NextRequest) {
             messages: conversation,
             // Deep thinks before it answers — how often, and how much that is
             // worth, is measured in READER_CHAT_DEEP_EFFORT. Set explicitly
-            // rather than omitted: leaving `thinking` out runs Sonnet's own
+            // rather than omitted: leaving `thinking` out runs the model's own
             // default, which is not the level these numbers were taken at.
             //
             // `display` is set rather than left alone because the reasoning is
@@ -293,12 +293,17 @@ export async function POST(req: NextRequest) {
             // downstream reads a thinking block, so a server-side default that
             // started returning summaries would be tokens spent on text no one
             // ever sees.
+            //
+            // A promoted Fast turn switches thinking off explicitly: Sonnet
+            // 5.5 thinks by default, and Fast's budget is sized for prose only.
             ...(deep
               ? {
                   thinking: { type: "adaptive" as const, display: "omitted" as const },
                   output_config: { effort: READER_CHAT_DEEP_EFFORT },
                 }
-              : {}),
+              : model === READER_CHAT_PROMOTION_MODEL
+                ? { thinking: SONNET_5_5_THINKING_OFF }
+                : {}),
           });
 
           for await (const event of claudeStream) {

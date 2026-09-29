@@ -41,7 +41,7 @@ import {
  */
 export const PLAIN_MODEL = process.env.PLAIN_ENGLISH_MODEL ?? "claude-fable-5-1";
 export const PLAIN_FALLBACK_MODEL =
-  process.env.PLAIN_ENGLISH_FALLBACK_MODEL ?? "claude-opus-5";
+  process.env.PLAIN_ENGLISH_FALLBACK_MODEL ?? "claude-opus-5-5";
 export const PLAIN_EFFORT = "medium" as const;
 
 /**

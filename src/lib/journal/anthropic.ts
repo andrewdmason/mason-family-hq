@@ -17,3 +17,27 @@ export function anthropic(): Anthropic {
 }
 
 export const JOURNAL_MODEL = process.env.JOURNAL_MODEL ?? "claude-sonnet-4-6";
+
+/**
+ * Thinking switched off, on Claude Sonnet 5.5 — the only model that accepts it.
+ * `{ type: "disabled" }` is a 400 there. Cast because the installed SDK's types
+ * predate this mode.
+ */
+export const SONNET_5_5_THINKING_OFF = {
+  type: "between_tools",
+} as unknown as Anthropic.ThinkingConfigParam;
+
+/**
+ * The JSON a structured-output reply (`output_config.format`) carries, or null
+ * when there isn't any — a refusal, or a reply cut off before the JSON closed.
+ */
+export function structuredReply(message: Anthropic.Message): unknown {
+  if (message.stop_reason !== "end_turn") return null;
+  const block = message.content.find((b) => b.type === "text");
+  if (!block || block.type !== "text") return null;
+  try {
+    return JSON.parse(block.text);
+  } catch {
+    return null;
+  }
+}

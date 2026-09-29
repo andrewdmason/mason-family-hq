@@ -32,7 +32,7 @@ export const READER_CHAT_FAST_MODEL = "claude-haiku-4-5";
  * answered here and answered by Opus in a chat window with no instructions at
  * all. The chat window won so completely that the feature read as broken.
  */
-export const READER_CHAT_DEEP_MODEL = "claude-opus-5";
+export const READER_CHAT_DEEP_MODEL = "claude-opus-5-5";
 
 /**
  * What a book too long for Fast is answered with — NOT the Deep model.
@@ -47,7 +47,7 @@ export const READER_CHAT_DEEP_MODEL = "claude-opus-5";
  * So the model follows what FITS and the register follows what they PICKED.
  * Sonnet holds a million tokens, which is the only property this needs.
  */
-export const READER_CHAT_PROMOTION_MODEL = "claude-sonnet-5";
+export const READER_CHAT_PROMOTION_MODEL = "claude-sonnet-5-5";
 
 /**
  * Haiku 4.5's context window. Every other current model is 1M, which is why a
@@ -114,8 +114,11 @@ export const READER_CHAT_MAX_TOKENS = 2048;
  * ceiling would have cut the good answers off in their second half — exactly
  * the failure the reader's afterword hit, and the one nobody sees, because an
  * essay that stops early reads as an essay that rambled.
+ *
+ * Doubled from 8192 on the move to Opus 5.5, which thinks more per turn than
+ * Opus 5 did at the same effort.
  */
-export const READER_CHAT_DEEP_MAX_TOKENS = 8192;
+export const READER_CHAT_DEEP_MAX_TOKENS = 16_000;
 
 /**
  * Deep reasons before it answers; Fast can't — Haiku has no effort dial and no
@@ -151,6 +154,9 @@ export const READER_CHAT_DEEP_MAX_TOKENS = 8192;
  * the prompt, and a large context is exactly the condition under which
  * triggering is said to change, so re-measure in place before concluding
  * anything from them.
+ *
+ * They were also taken on Opus 5. Opus 5.5 thinks more at the same level, so
+ * the table understates how often "high" engages now.
  *
  * What it costs meanwhile is small and paid on every Deep turn: ~2.1s to the
  * first character against ~1.0s with thinking off. What it buys, on the turn
@@ -277,8 +283,12 @@ export function readerWebSearchTools(model: string): Anthropic.ToolUnion[] {
  */
 export const CHAPTER_SUMMARY_MODEL = READER_CHAT_DEEP_MODEL;
 
-/** A few sentences of prose, with room to overrun rather than stop mid-word. */
-export const CHAPTER_SUMMARY_MAX_TOKENS = 700;
+/**
+ * A few sentences of prose, with room to overrun rather than stop mid-word —
+ * and room for thinking, which Opus 5.5 can't switch off and which spends out
+ * of the same allowance. Kept to a minimum by low effort (see the route).
+ */
+export const CHAPTER_SUMMARY_MAX_TOKENS = 2_000;
 
 export type ChapterSummaryPromptInput = {
   bookTitle: string;
@@ -1143,7 +1153,7 @@ export function buildReaderChatSections(
  * picker: nothing about "which model should write the thing I'll still be
  * reading in three years" is a decision worth handing to the reader.
  */
-export const BOOK_DOCUMENT_MODEL = "claude-opus-5";
+export const BOOK_DOCUMENT_MODEL = "claude-opus-5-5";
 
 /**
  * Which turn of the work this is.
@@ -1170,13 +1180,16 @@ export type BookDocumentPhase = "converse" | "document";
  * these prevent is invisible: the document looks finished until you read to the
  * bottom of it.
  */
-export const BOOK_DOCUMENT_CONVERSE_MAX_TOKENS = 2_000;
-export const BOOK_DOCUMENT_WRITE_MAX_TOKENS = 8_000;
+// Doubled on the move to Opus 5.5, which thinks more per turn than Opus 5 did
+// at the same effort.
+export const BOOK_DOCUMENT_CONVERSE_MAX_TOKENS = 4_000;
+export const BOOK_DOCUMENT_WRITE_MAX_TOKENS = 16_000;
 
 /**
  * Interview turns are conversational and want to feel quick; the document is
- * read once and kept. Opus 5 runs adaptive thinking by default, and disabling it
- * has failure modes that low effort doesn't — so the lever here is effort.
+ * read once and kept. Opus 5.5 always thinks — switching it off is a 400 — so
+ * the lever here is effort, set explicitly because this model's default
+ * (medium) is neither of these.
  */
 export const BOOK_DOCUMENT_EFFORT: Record<BookDocumentPhase, "low" | "high"> = {
   converse: "low",

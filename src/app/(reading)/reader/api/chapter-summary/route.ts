@@ -107,9 +107,10 @@ export async function POST(req: NextRequest) {
           max_tokens: CHAPTER_SUMMARY_MAX_TOKENS,
           system,
           messages: [{ role: "user", content: question }],
-          // Sonnet 5 runs adaptive thinking when `thinking` is omitted, which
-          // costs tokens and delays the first visible character.
-          thinking: { type: "disabled" as const },
+          // Opus 5.5 always thinks — `disabled` is a 400 — so low effort is
+          // what keeps thinking from delaying the first visible character.
+          // Thinking blocks never reach the reader: only text deltas stream.
+          output_config: { effort: "low" as const },
         });
 
         for await (const event of claudeStream) {
