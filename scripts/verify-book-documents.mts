@@ -639,7 +639,7 @@ console.log("\nWhat the reader is shown");
 
 console.log("\nModel");
 {
-  check("the best model there is, for the things that get kept", BOOK_DOCUMENT_MODEL === "claude-opus-5");
+  check("the best model there is, for the things that get kept", BOOK_DOCUMENT_MODEL === "claude-opus-5-5");
   check(
     "quick for a question, thorough for a document",
     BOOK_DOCUMENT_EFFORT.converse === "low" && BOOK_DOCUMENT_EFFORT.document === "high"

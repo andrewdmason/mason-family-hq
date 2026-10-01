@@ -1,6 +1,10 @@
-import { anthropic, JOURNAL_MODEL } from "@/lib/journal/anthropic";
+import {
+  anthropic,
+  SONNET_5_5_THINKING_OFF,
+  structuredReply,
+} from "@/lib/journal/anthropic";
 import { genreLabel } from "@/lib/reading/book-genres";
-import { lookupBookByTitle } from "@/lib/reading/book-lookup";
+import { lookupBookByTitle, READER_LIBRARIAN_MODEL } from "@/lib/reading/book-lookup";
 
 /** A book the member has an opinion on, used to describe their taste to the AI. */
 export type RatedTitle = {
@@ -80,36 +84,33 @@ export type RecommendationCandidate = {
   rationale: string | null;
 };
 
-const RECOMMEND_TOOL = {
-  name: "report_recommendations",
-  description:
-    "Report a list of book recommendations tailored to this reader's taste.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      recommendations: {
-        type: "array",
-        description:
-          "Distinct books to recommend, best fit first. Do not include any book " +
-          "the reader has already read, rated, or been shown.",
-        items: {
-          type: "object",
-          properties: {
-            title: { type: "string", description: "The book's title." },
-            author: { type: "string", description: "The primary author." },
-            reason: {
-              type: "string",
-              description:
-                "One warm, specific sentence on why this reader would like it, " +
-                "grounded in the books they've loved. Spoiler-free.",
-            },
+const RECOMMEND_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    recommendations: {
+      type: "array",
+      description:
+        "Distinct books to recommend, best fit first. Do not include any book " +
+        "the reader has already read, rated, or been shown.",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "The book's title." },
+          author: { type: "string", description: "The primary author." },
+          reason: {
+            type: "string",
+            description:
+              "One warm, specific sentence on why this reader would like it, " +
+              "grounded in the books they've loved. Spoiler-free.",
           },
-          required: ["title", "reason"],
         },
+        required: ["title", "reason"],
+        additionalProperties: false,
       },
     },
-    required: ["recommendations"],
   },
+  required: ["recommendations"],
+  additionalProperties: false,
 };
 
 type RawRec = { title?: unknown; author?: unknown; reason?: unknown };
@@ -307,20 +308,19 @@ export async function generateRecommendationCandidates(
   try {
     const client = anthropic();
     const message = await client.messages.create({
-      model: JOURNAL_MODEL,
+      model: READER_LIBRARIAN_MODEL,
       max_tokens: 1024,
+      thinking: SONNET_5_5_THINKING_OFF,
       system:
         "You are a thoughtful librarian who recommends books a specific reader " +
         "will love, based on their reading history. Be honest and specific, " +
         "match the reader's age and taste, and never recommend a book they've " +
         "already read or rejected.",
-      tools: [RECOMMEND_TOOL],
-      tool_choice: { type: "tool", name: RECOMMEND_TOOL.name },
+      output_config: { format: { type: "json_schema", schema: RECOMMEND_SCHEMA } },
       messages: [{ role: "user", content: buildPrompt(profile, count, focus) }],
     });
-    const toolUse = message.content.find((b) => b.type === "tool_use");
-    if (!toolUse || toolUse.type !== "tool_use") return [];
-    const input = toolUse.input as { recommendations?: unknown };
+    const input = structuredReply(message) as { recommendations?: unknown } | null;
+    if (!input) return [];
     if (Array.isArray(input.recommendations)) {
       raw = input.recommendations as RawRec[];
     }
@@ -421,47 +421,43 @@ export function assessmentNote(assessment: BookAssessment): string {
   return `${ASSESSMENT_LABELS[assessment.verdict]} — ${assessment.reason}`;
 }
 
-const ASSESS_TOOL = {
-  name: "report_assessment",
-  description:
-    "Report an honest prediction of whether this reader will enjoy one specific book.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      verdict: {
-        type: "string",
-        enum: ["love", "like", "mixed", "pass"],
-        description:
-          'Your honest read on the fit: "love" = right up their alley, ' +
-          '"like" = a good fit, "mixed" = could go either way, ' +
-          '"pass" = probably not for them.',
-      },
-      reason: {
-        type: "string",
-        description:
-          "TWO sentences. Three is the absolute maximum and only when the " +
-          "third earns its place; never four. Under 400 characters. This sits " +
-          "above the Add button in a dialog, so it has to be readable at a " +
-          "glance — a paragraph gets skipped and the feature wasted. Name one " +
-          "specific book of theirs as the comparison, and end on the condition " +
-          'under which the answer flips ("worth it if you want X; skip it if ' +
-          'you want Y"). Warm, spoiler-free, addressed to the reader as "you". ' +
-          "Do not summarise the book — they can read the blurb. Tell them " +
-          "something about the FIT they don't already know.",
-      },
-      basis: {
-        type: "string",
-        description:
-          "At most eight words naming the books you actually weighed this " +
-          'against, shown as a caption under the verdict — e.g. "compared ' +
-          'with your literary fiction" or "your non-fiction only; no ' +
-          'philosophy read". It is a label, not a sentence: no explanation, ' +
-          "no counts spelled out. Say plainly when the peer set is thin; do " +
-          "not dress up a guess.",
-      },
+const ASSESS_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    verdict: {
+      type: "string",
+      enum: ["love", "like", "mixed", "pass"],
+      description:
+        'Your honest read on the fit: "love" = right up their alley, ' +
+        '"like" = a good fit, "mixed" = could go either way, ' +
+        '"pass" = probably not for them.',
     },
-    required: ["verdict", "reason", "basis"],
+    reason: {
+      type: "string",
+      description:
+        "TWO sentences. Three is the absolute maximum and only when the " +
+        "third earns its place; never four. Under 400 characters. This sits " +
+        "above the Add button in a dialog, so it has to be readable at a " +
+        "glance — a paragraph gets skipped and the feature wasted. Name one " +
+        "specific book of theirs as the comparison, and end on the condition " +
+        'under which the answer flips ("worth it if you want X; skip it if ' +
+        'you want Y"). Warm, spoiler-free, addressed to the reader as "you". ' +
+        "Do not summarise the book — they can read the blurb. Tell them " +
+        "something about the FIT they don't already know.",
+    },
+    basis: {
+      type: "string",
+      description:
+        "At most eight words naming the books you actually weighed this " +
+        'against, shown as a caption under the verdict — e.g. "compared ' +
+        'with your literary fiction" or "your non-fiction only; no ' +
+        'philosophy read". It is a label, not a sentence: no explanation, ' +
+        "no counts spelled out. Say plainly when the peer set is thin; do " +
+        "not dress up a guess.",
+    },
   },
+  required: ["verdict", "reason", "basis"],
+  additionalProperties: false,
 };
 
 /**
@@ -586,16 +582,16 @@ export async function assessBookFit(
   try {
     const client = anthropic();
     const message = await client.messages.create({
-      model: JOURNAL_MODEL,
+      model: READER_LIBRARIAN_MODEL,
       max_tokens: 512,
+      thinking: SONNET_5_5_THINKING_OFF,
       system:
         "You are a thoughtful librarian who honestly predicts whether a specific " +
         "reader will enjoy a given book, based on their reading history and age. " +
         "Be candid: if it's a weak fit, say so and explain why. Compare like " +
         "with like — a book is judged against the reader's history in its own " +
         "kind first. Match their age and taste, and never spoil the plot.",
-      tools: [ASSESS_TOOL],
-      tool_choice: { type: "tool", name: ASSESS_TOOL.name },
+      output_config: { format: { type: "json_schema", schema: ASSESS_SCHEMA } },
       messages: [
         {
           role: "user",
@@ -608,13 +604,12 @@ export async function assessBookFit(
         },
       ],
     });
-    const toolUse = message.content.find((b) => b.type === "tool_use");
-    if (!toolUse || toolUse.type !== "tool_use") return null;
-    const input = toolUse.input as {
+    const input = structuredReply(message) as {
       verdict?: unknown;
       reason?: unknown;
       basis?: unknown;
-    };
+    } | null;
+    if (!input) return null;
     const verdict = typeof input.verdict === "string" ? input.verdict : "";
     const reason = typeof input.reason === "string" ? input.reason.trim() : "";
     if (!ASSESS_VERDICTS.has(verdict as BookAssessment["verdict"]) || !reason) {

@@ -2,7 +2,7 @@ import type { AnnotationAnchor } from "@/lib/reading/annotation-anchors";
 import type { StoredMention } from "@/lib/reading/mentions";
 import type { BookScope } from "@/lib/reading/book-documents";
 
-/** "fast" = claude-haiku-4-5, "deep" = claude-sonnet-5. */
+/** "fast" = claude-haiku-4-5, "deep" = claude-opus-5-5. */
 export type ReaderChatModelPreference = "fast" | "deep";
 
 /**

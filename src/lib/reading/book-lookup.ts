@@ -1,4 +1,8 @@
-import { anthropic, JOURNAL_MODEL } from "@/lib/journal/anthropic";
+import {
+  anthropic,
+  SONNET_5_5_THINKING_OFF,
+  structuredReply,
+} from "@/lib/journal/anthropic";
 import { plausibleYear } from "@/lib/reading/classify-book";
 import {
   READING_GENRES,
@@ -38,79 +42,81 @@ export type BookLookupResult = {
   genre: ReadingGenre | null;
 };
 
-const LOOKUP_TOOL = {
-  name: "report_book",
-  description:
-    "Report the canonical details of the book the user named, so it can be " +
-    "added to their reading list.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      found: {
-        type: "boolean",
-        description:
-          "True if you recognize a real, published book matching the input.",
-      },
-      confident: {
-        type: "boolean",
-        description:
-          "True ONLY if the input clearly identifies one specific book. Set " +
-          "false if the title is ambiguous (multiple well-known books share it), " +
-          "too vague, or you're unsure which edition/book is meant — the user " +
-          "will then fill in the details by hand.",
-      },
-      title: {
-        type: "string",
-        description: "The canonical, correctly-capitalized book title.",
-      },
-      author: { type: "string", description: "The primary author's full name." },
-      total_pages: {
-        type: "integer",
-        description:
-          "Approximate page count of a common print edition. Omit if unsure.",
-      },
-      isbn: {
-        type: "string",
-        description:
-          "ISBN-13 (digits only, no hyphens) of a common print edition, used to " +
-          "fetch the cover. Omit if you don't know it confidently.",
-      },
-      published_year: {
-        type: "integer",
-        description:
-          "The year the work was FIRST published, not the year of a later " +
-          "reissue or translation. Omit if you're unsure.",
-      },
-      fiction: {
-        type: "boolean",
-        description:
-          "True if this is a work of fiction (novel, short stories, narrative " +
-          "verse). False for non-fiction (history, memoir, science, reference, " +
-          "self-help). Omit only if genuinely unclear.",
-      },
-      genre: {
-        type: "string",
-        enum: READING_GENRE_VALUES,
-        description:
-          "The single best-fitting shelf genre — the one a reader would look " +
-          "under to find this book again. Stay on the side that matches your " +
-          "`fiction` answer: the shelf groups fiction and non-fiction apart, so " +
-          "a novel filed under a non-fiction genre lands in the wrong half. " +
-          "The options:\n" +
-          READING_GENRES.map((g) => `- ${g.value} (${g.side}): ${g.hint}`).join(
-            "\n"
-          ),
-      },
-      genres: {
-        type: "array",
-        items: { type: "string" },
-        description:
-          "One to three short free-text genre labels, e.g. [\"literary fiction\"], " +
-          "[\"fantasy\", \"young adult\"]. Omit if unsure.",
-      },
+/**
+ * The model behind the reader's small librarian calls — this lookup, and the
+ * recommendations and "Will I like this?" built on it. Each is a short,
+ * structured answer, so thinking stays off (see the requests).
+ */
+export const READER_LIBRARIAN_MODEL = "claude-sonnet-5-5";
+
+const LOOKUP_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    found: {
+      type: "boolean",
+      description:
+        "True if you recognize a real, published book matching the input.",
     },
-    required: ["found", "confident", "title"],
+    confident: {
+      type: "boolean",
+      description:
+        "True ONLY if the input clearly identifies one specific book. Set " +
+        "false if the title is ambiguous (multiple well-known books share it), " +
+        "too vague, or you're unsure which edition/book is meant — the user " +
+        "will then fill in the details by hand.",
+    },
+    title: {
+      type: "string",
+      description: "The canonical, correctly-capitalized book title.",
+    },
+    author: { type: "string", description: "The primary author's full name." },
+    total_pages: {
+      type: "integer",
+      description:
+        "Approximate page count of a common print edition. Omit if unsure.",
+    },
+    isbn: {
+      type: "string",
+      description:
+        "ISBN-13 (digits only, no hyphens) of a common print edition, used to " +
+        "fetch the cover. Omit if you don't know it confidently.",
+    },
+    published_year: {
+      type: "integer",
+      description:
+        "The year the work was FIRST published, not the year of a later " +
+        "reissue or translation. Omit if you're unsure.",
+    },
+    fiction: {
+      type: "boolean",
+      description:
+        "True if this is a work of fiction (novel, short stories, narrative " +
+        "verse). False for non-fiction (history, memoir, science, reference, " +
+        "self-help). Omit only if genuinely unclear.",
+    },
+    genre: {
+      type: "string",
+      enum: READING_GENRE_VALUES,
+      description:
+        "The single best-fitting shelf genre — the one a reader would look " +
+        "under to find this book again. Stay on the side that matches your " +
+        "`fiction` answer: the shelf groups fiction and non-fiction apart, so " +
+        "a novel filed under a non-fiction genre lands in the wrong half. " +
+        "The options:\n" +
+        READING_GENRES.map((g) => `- ${g.value} (${g.side}): ${g.hint}`).join(
+          "\n"
+        ),
+    },
+    genres: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "One to three short free-text genre labels, e.g. [\"literary fiction\"], " +
+        "[\"fantasy\", \"young adult\"]. Omit if unsure.",
+    },
   },
+  required: ["found", "confident", "title"],
+  additionalProperties: false,
 };
 
 type LookupInput = {
@@ -230,20 +236,20 @@ export async function lookupBookByTitle(title: string): Promise<BookLookupResult
   try {
     const client = anthropic();
     const message = await client.messages.create({
-      model: JOURNAL_MODEL,
+      model: READER_LIBRARIAN_MODEL,
       max_tokens: 512,
+      thinking: SONNET_5_5_THINKING_OFF,
       system:
-        "You identify books from a title the user typed and report their details. " +
-        "Call report_book exactly once. Be honest about uncertainty: if you can't " +
-        "pin down one specific book, set confident=false.",
-      tools: [LOOKUP_TOOL],
-      tool_choice: { type: "tool", name: LOOKUP_TOOL.name },
+        "You identify books from a title the user typed and report their " +
+        "canonical details, so the book can be added to their reading list. " +
+        "Be honest about uncertainty: if you can't pin down one specific book, " +
+        "set confident=false.",
+      output_config: { format: { type: "json_schema", schema: LOOKUP_SCHEMA } },
       messages: [{ role: "user", content: trimmed }],
     });
 
-    const toolUse = message.content.find((b) => b.type === "tool_use");
-    if (!toolUse || toolUse.type !== "tool_use") return fallback;
-    const input = toolUse.input as LookupInput;
+    const input = structuredReply(message) as LookupInput | null;
+    if (!input) return fallback;
 
     const found = input.found === true;
     const confident = found && input.confident === true;
