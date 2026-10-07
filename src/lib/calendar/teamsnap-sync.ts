@@ -231,9 +231,16 @@ async function syncRsvpStatuses(
         const mine = availabilities.find((a) => a.member_id === playerMemberId);
         if (!mine) return;
 
+        // TeamSnap owns the RSVP for linked teams, so a "No" made in the
+        // TeamSnap app also marks the kid not going here. The next full sync
+        // takes the event off Google; the drive sweep tears down blocks.
+        const rsvp = statusCodeToRsvp(mine.status_code);
         await supabase
           .from("calendar_events")
-          .update({ teamsnap_rsvp: statusCodeToRsvp(mine.status_code) })
+          .update({
+            teamsnap_rsvp: rsvp,
+            owner_not_going: rsvp === "not_going",
+          })
           .eq("id", localId);
       }),
     );

@@ -7,6 +7,7 @@
 // until one can see the team — for sources added before that column existed.
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { setOwnerGoing } from "@/lib/calendar/mutations";
 import {
   getValidToken,
   getTeamsnapMe,
@@ -270,6 +271,10 @@ export async function setEventRsvp(
     .update({ teamsnap_rsvp: status })
     .eq("id", eventId);
 
+  // A TeamSnap "No" means the same as the kid's not-going switch: off every
+  // calendar, drives torn down. Going/Maybe restores it. (Its own failures —
+  // e.g. an adult's team event — don't undo the TeamSnap write.)
+  await setOwnerGoing(eventId, status !== "not_going");
   return { ok: true };
 }
 

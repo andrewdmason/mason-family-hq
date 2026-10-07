@@ -37,6 +37,8 @@ export function EventPanelHost({
   sourceLabel,
   going,
   onToggleGoing,
+  ownerGoing,
+  onSetOwnerGoing,
   onChangeOwner,
   duties,
   parents,
@@ -58,6 +60,11 @@ export function EventPanelHost({
     eventId: string,
     email: string,
     willGo: boolean,
+  ) => Promise<{ warning?: string }>;
+  ownerGoing: boolean | null;
+  onSetOwnerGoing: (
+    eventId: string,
+    going: boolean,
   ) => Promise<{ warning?: string }>;
   onChangeOwner: (
     eventId: string,
@@ -147,6 +154,8 @@ export function EventPanelHost({
           sourceLabel={sourceLabel}
           going={going}
           onToggleGoing={onToggleGoing}
+          ownerGoing={ownerGoing}
+          onSetOwnerGoing={onSetOwnerGoing}
           onChangeOwner={onChangeOwner}
           duties={duties}
           parents={parents}

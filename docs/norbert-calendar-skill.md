@@ -57,6 +57,9 @@ GET /api/agent/calendar/events/<id>
 - `member` — whose event it is
 - `teamsnap` — for team events: `is_game`, `opponent`, `arrival_time`, and
   `rsvp` (the KID's TeamSnap attendance: going/maybe/not_going/no_reply)
+- `kid_going` — kid events only: `false` when the kid was marked not going
+  (the event is off every Google calendar and its drive blocks are gone);
+  `null` on adults' events
 - `going` — family member emails marked as attending (this is how PARENT
   attendance is tracked)
 - `duties` — kid events only: `dropoff`/`pickup`, each `null` (unset) or
@@ -118,7 +121,20 @@ DELETE /api/agent/calendar/events/<id>
 
 TeamSnap and school (ICS) events can't be edited or deleted — they're synced
 from their source and the API returns 409 explaining what to do instead (for
-a skipped team event, set the RSVP to `not_going`).
+a skipped event, mark the kid not going — below).
+
+**Kid not going** ("Sebastian's skipping Wednesday's practice"):
+
+```
+POST /api/agent/calendar/events/<id>/attendance    {"going": false}   # or true to restore
+```
+
+Works on any kid's event. Not going takes the event off every Google
+calendar (the kid's and any parent going along) and removes its drop-off /
+pick-up blocks; `{"going": true}` puts all of it back, assignments intact.
+Nothing is sent to TeamSnap — most teams are on TeamSnap ONE, which has no
+API, so tell the parents to answer the coach there if it matters. One event
+per call; for a vacation week, loop over the kids' events in the range.
 
 **Parent attendance** ("Mom is going to the game"):
 
@@ -153,8 +169,8 @@ The RSVP writes back to TeamSnap itself — the coach sees it there.
 
 - **Conflict**: tell the parents both events, ask which gives way (or apply
   their standing rule). Resolve by deleting/moving the losing event (if it's
-  ours to move), or by setting the kid's RSVP to `not_going` for a skipped
-  team event. Some "conflicts" are fine (a parent's reminder overlapping a
+  ours to move), or by marking the kid not going (`/attendance`) for a
+  skipped event. Some "conflicts" are fine (a parent's reminder overlapping a
   drive block) — use judgment, don't thrash.
 - **Missing drop-off/pick-up**: look at both parents' calendars around the
   event (this API shows them), propose who drives, confirm, then POST the

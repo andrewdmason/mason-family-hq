@@ -76,7 +76,7 @@ export interface DutyAssignmentRow {
 }
 
 const SOURCE_EVENT_COLUMNS =
-  "id, member_email, title, location, start_time, end_time, all_day, is_canceled, dismissed, teamsnap_arrival_time, drive_minutes";
+  "id, member_email, title, location, start_time, end_time, all_day, is_canceled, dismissed, owner_not_going, teamsnap_arrival_time, drive_minutes";
 
 interface SourceEventRow {
   id: string;
@@ -88,6 +88,7 @@ interface SourceEventRow {
   all_day: boolean;
   is_canceled: boolean;
   dismissed: boolean;
+  owner_not_going: boolean;
   teamsnap_arrival_time: string | null;
   drive_minutes: number | null;
 }
@@ -214,6 +215,9 @@ function desiredFor(
     !!event &&
     !event.is_canceled &&
     !event.dismissed &&
+    // The kid isn't going — no drive. The assignment stays saved, so flipping
+    // back to going rebuilds the block.
+    !event.owner_not_going &&
     !event.all_day &&
     // An event AT home needs no driving — even if a duty was assigned before
     // the location changed (the sweep tears stale blocks down through here).

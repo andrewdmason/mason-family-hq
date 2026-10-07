@@ -34,6 +34,7 @@ import {
   deleteCalendarEvent,
   changeCalendarEventOwner,
   setGoing,
+  setOwnerGoing,
   setDuty,
 } from "@/lib/calendar/mutations";
 import {
@@ -56,6 +57,18 @@ async function requireParent(): Promise<string> {
     throw new Error("Not authorized");
   }
   return data.email as string;
+}
+
+/** Throw unless the caller is a family member (any role, kids included). */
+async function requireMember(): Promise<void> {
+  const supabase = await createClient();
+  const userId = await requireUserId(supabase);
+  const { data } = await supabase
+    .from("family_members")
+    .select("email")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!data) throw new Error("Not authorized");
 }
 
 // The mutation bodies live in @/lib/calendar/mutations (shared with the
@@ -510,6 +523,17 @@ export async function setEventGoing(
 ): Promise<{ ok: true; warning?: string } | { error: string }> {
   await requireParent();
   return setGoing(eventId, memberEmail, going);
+}
+
+/** Mark whether a kid is going to their own event. Not going takes it off every
+ * calendar (drives included); going restores it. Any family member — kids can
+ * mark their own. See setOwnerGoing in @/lib/calendar/mutations. */
+export async function setEventOwnerGoing(
+  eventId: string,
+  going: boolean,
+): Promise<{ ok: true; warning?: string } | { error: string }> {
+  await requireMember();
+  return setOwnerGoing(eventId, going);
 }
 
 // --- Drop-off / pick-up duty ------------------------------------------------

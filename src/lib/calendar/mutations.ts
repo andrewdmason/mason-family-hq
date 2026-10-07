@@ -19,6 +19,7 @@ import {
 import {
   credForMember,
   syncEventGuests,
+  syncOwnerGoing,
   importerEnabled,
   getMemberPrimary,
 } from "@/lib/calendar/materialize";
@@ -608,6 +609,84 @@ export async function setGoing(
           // best-effort: the next sweep reshapes the block
           console.error(
             `[drive] reconcile failed after going change (event ${eventId}):`,
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }),
+    );
+  }
+
+  revalidatePath("/calendar");
+  return warning ? { ok: true, warning } : { ok: true };
+}
+
+/** Mark whether a kid is going to their own event. Not going takes it off every
+ * calendar: the Google event is cancelled (dropping the copies of anyone going
+ * along) and drop-off/pick-up blocks are torn down. Going restores all of it —
+ * duty assignments and going-along rows are never touched, so nothing needs
+ * reassigning. Local only: nothing is pushed to TeamSnap (that's setEventRsvp,
+ * which calls this after a successful write). */
+export async function setOwnerGoing(
+  eventId: string,
+  going: boolean,
+): Promise<{ ok: true; warning?: string } | { error: string }> {
+  const admin = createAdminClient();
+
+  const { data: ev } = await admin
+    .from("calendar_events")
+    .select("id, member_email, source_type, drive_source_event_id, owner_not_going")
+    .eq("id", eventId)
+    .maybeSingle();
+  if (!ev) return { error: "Event not found." };
+  if (ev.drive_source_event_id) {
+    return { error: "This is a drive block, not an event." };
+  }
+  const { data: owner } = await admin
+    .from("family_members")
+    .select("role")
+    .eq("email", ev.member_email ?? "")
+    .maybeSingle();
+  if (owner?.role !== "kid") {
+    return { error: "Going / not going only applies to kids' events." };
+  }
+  if (ev.owner_not_going === !going) return { ok: true };
+
+  const { error } = await admin
+    .from("calendar_events")
+    .update({ owner_not_going: !going })
+    .eq("id", eventId);
+  if (error) return { error: error.message };
+
+  let warning: string | undefined;
+  if (importerEnabled()) {
+    try {
+      await syncOwnerGoing(admin, eventId);
+    } catch {
+      // Imported events are re-asserted by the next full sync; a native Google
+      // event isn't, so say so.
+      if (ev.source_type === "google") {
+        warning = "Saved here, but Google Calendar couldn't be updated.";
+      }
+    }
+  }
+
+  const { data: heldDuty } = await admin
+    .from("event_duty_assignments")
+    .select("id")
+    .eq("event_id", eventId)
+    .not("assignee_email", "is", null)
+    .limit(1)
+    .maybeSingle();
+  if (heldDuty) {
+    after(() =>
+      queueDriveWork(async () => {
+        try {
+          await reconcileEventDrive(admin, eventId);
+          revalidatePath("/calendar");
+        } catch (err) {
+          // best-effort: the next sweep tears down / rebuilds the block
+          console.error(
+            `[drive] reconcile failed after owner going change (event ${eventId}):`,
             err instanceof Error ? err.message : err,
           );
         }

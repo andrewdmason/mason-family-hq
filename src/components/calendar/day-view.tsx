@@ -833,6 +833,7 @@ export function DayView({
           "group absolute flex justify-center overflow-visible",
           hot ? "z-30" : "z-20",
           d.pendingDrive && "animate-pulse opacity-60",
+          d.declined && "opacity-50",
           event.id.startsWith("draft:") && "opacity-70",
         )}
       >
@@ -1070,6 +1071,7 @@ export function DayView({
             "absolute z-20 flex items-start justify-end overflow-hidden rounded-sm px-0.5 py-0.5",
             event.id === selectedEventId && "ring-1 ring-ring",
             d.pendingDrive && "animate-pulse opacity-60",
+            d.declined && "opacity-50",
             isDraft && "opacity-70",
           )}
         >
@@ -1112,6 +1114,7 @@ export function DayView({
             driveDuty === "combined" && "pr-3.5",
             event.id === selectedEventId && "brightness-[.82]",
             d.pendingDrive && "animate-pulse opacity-60",
+            d.declined && "opacity-50",
           )}
         >
           <span
@@ -1164,6 +1167,7 @@ export function DayView({
           // A duty tap's block-to-be: visible instantly, ghosted until the
           // real mirror row replaces it.
           d.pendingDrive && "animate-pulse opacity-60",
+          d.declined && "opacity-50",
           // The not-yet-saved draft the panel is collecting details for.
           isDraft && "border-dashed bg-white/70 dark:bg-card/70",
           // Mid-drag: lift it over its neighbors so the preview reads cleanly.

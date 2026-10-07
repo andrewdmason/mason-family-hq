@@ -150,7 +150,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   if (ev.source_type === "teamsnap" || ev.source_type === "ics") {
     return NextResponse.json(
       {
-        error: `This event is synced from ${ev.source_type === "teamsnap" ? "TeamSnap" : "an ICS feed"} — deleting it here would just bring it back on the next sync. For a TeamSnap event the kid is skipping, set their RSVP to not_going instead.`,
+        error: `This event is synced from ${ev.source_type === "teamsnap" ? "TeamSnap" : "an ICS feed"} — deleting it here would just bring it back on the next sync. If the kid is skipping it, POST {\"going\": false} to /events/{id}/attendance instead.`,
       },
       { status: 409 },
     );

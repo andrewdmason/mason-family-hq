@@ -85,6 +85,7 @@ import {
   changeEventOwner,
   setEventDuty,
   setEventGoing,
+  setEventOwnerGoing,
   updateManualEvent,
 } from "@/app/(calendar)/calendar/actions";
 
@@ -148,7 +149,7 @@ export function CalendarClient({
     params.set("date", toDateKey(anchor));
     window.history.replaceState(null, "", `?${params.toString()}`);
   }, [view, anchor]);
-  // TeamSnap events you've RSVP'd "Not going" to are hidden unless this is on.
+  // Events marked "Not going" (or dismissed) are hidden unless this is on.
   const [showDeclined, setShowDeclined] = useState(false);
 
   // The event panel (desktop flyout drawer / mobile bottom sheet): viewing or
@@ -183,13 +184,29 @@ export function CalendarClient({
   const [timeOverrides, setTimeOverrides] = useState<
     Record<string, { start: string; end: string | null }>
   >({});
+  // Optimistic kid going / not-going (event id -> not going), applied to the
+  // raw events like the time overrides so hiding, drive ghosts and triage all
+  // react on the tap.
+  const [notGoingOverrides, setNotGoingOverrides] = useState<
+    Record<string, boolean>
+  >({});
   const adjustedEvents = useMemo(() => {
-    if (Object.keys(timeOverrides).length === 0) return events;
+    if (
+      Object.keys(timeOverrides).length === 0 &&
+      Object.keys(notGoingOverrides).length === 0
+    )
+      return events;
     return events.map((e) => {
       const ov = timeOverrides[e.id];
-      return ov ? { ...e, start_time: ov.start, end_time: ov.end } : e;
+      const ng = notGoingOverrides[e.id];
+      if (!ov && ng === undefined) return e;
+      return {
+        ...e,
+        ...(ov ? { start_time: ov.start, end_time: ov.end } : {}),
+        ...(ng !== undefined ? { owner_not_going: ng } : {}),
+      };
     });
-  }, [events, timeOverrides]);
+  }, [events, timeOverrides, notGoingOverrides]);
   // Once a refresh delivers the moved times from the server, the override has
   // done its job — drop it so it can't mask a LATER time change (a panel edit,
   // or a sync from Google). Render-phase adjustment, not an effect: prune when
@@ -212,6 +229,16 @@ export function CalendarClient({
       }
     }
     if (changed) setTimeOverrides(next);
+    // Same for not-going taps the server has confirmed.
+    const ngNext = { ...notGoingOverrides };
+    let ngChanged = false;
+    for (const e of events) {
+      if (e.id in ngNext && ngNext[e.id] === e.owner_not_going) {
+        delete ngNext[e.id];
+        ngChanged = true;
+      }
+    }
+    if (ngChanged) setNotGoingOverrides(ngNext);
   }
 
   const dutiesFor = useCallback(
@@ -266,6 +293,25 @@ export function CalendarClient({
     }
     // Going can reshape this parent's drive block (round trip ↔ one-way leg)
     // after the response — swap the ghost for the real row, like duty taps.
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => router.refresh(), 4000);
+    return { warning: res.warning };
+  }
+
+  async function setOwnerGoing(
+    eventId: string,
+    going: boolean,
+  ): Promise<{ warning?: string }> {
+    const set = (notGoing: boolean) =>
+      setNotGoingOverrides((prev) => ({ ...prev, [eventId]: notGoing }));
+    set(!going); // optimistic
+    const res = await setEventOwnerGoing(eventId, going);
+    if ("error" in res) {
+      set(going); // revert
+      throw new Error(res.error);
+    }
+    // Drive blocks come down / go back up after the response — refresh to
+    // pick up the real rows, like duty taps.
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => router.refresh(), 4000);
     return { warning: res.warning };
@@ -417,6 +463,8 @@ export function CalendarClient({
     return (event: CalendarEvent): boolean => {
       // Deleted off the owner's Google calendar → treated as declined (hidden).
       if (event.dismissed) return true;
+      // The kid was marked not going.
+      if (event.owner_not_going) return true;
       const source = event.calendar_source_id
         ? sourcesById.get(event.calendar_source_id)
         : undefined;
@@ -455,7 +503,10 @@ export function CalendarClient({
       if (ev.drive_source_event_id || ev.all_day) continue;
       if (!ev.member_email || !kidEmails.has(ev.member_email)) continue;
       if (isHomeLocation(ev.location, logistics.homeAddress)) continue;
-      const d = dutiesFor(ev.id);
+      // Not going / dismissed: no drive — treat as unassigned so any lingering
+      // mirror hides on the tap (the assignments themselves stay saved).
+      const d: EventDuties =
+        ev.owner_not_going || ev.dismissed ? {} : dutiesFor(ev.id);
       if (!d.dropoff?.assignee && !d.pickup?.assignee) {
         // Nothing assigned — any lingering mirror is a just-cleared duty.
         for (const duty of ["dropoff", "pickup"] as const) {
@@ -601,6 +652,7 @@ export function CalendarClient({
         google_attendees: null,
         is_canceled: false,
         dismissed: false,
+        owner_not_going: false,
         drive_source_event_id: src.ev.id,
         drive_duty: src.duty,
         drive_minutes: null,
@@ -638,6 +690,7 @@ export function CalendarClient({
       google_attendees: null,
       is_canceled: false,
       dismissed: false,
+      owner_not_going: false,
       drive_source_event_id: null,
       drive_duty: null,
       drive_minutes: null,
@@ -733,6 +786,7 @@ export function CalendarClient({
     const dayKey = toDateKey(anchor);
     return visibleEvents.filter((e) => {
       if (e.all_day || e.drive_source_event_id) return false;
+      if (isDeclined(e)) return false;
       if (!e.member_email || !kidEmails.has(e.member_email)) return false;
       if (!e.location || isHomeLocation(e.location, logistics.homeAddress))
         return false;
@@ -747,6 +801,7 @@ export function CalendarClient({
     nowTick,
     canManage,
     visibleEvents,
+    isDeclined,
     anchor,
     kidEmails,
     logistics,
@@ -788,11 +843,14 @@ export function CalendarClient({
         isImported || (sourceCountByOwner.get(event.member_email) ?? 0) > 1
           ? source?.nickname ?? source?.teamsnap_team_name ?? null
           : null;
-      // RSVP only applies to TeamSnap events whose source is linked to a player.
+      // RSVP only applies to TeamSnap events whose source is linked to a player;
+      // any other kid event the kid isn't going to reads "Not going" too.
       const rsvp =
         source?.source_type === "teamsnap" && source.teamsnap_player_member_id
           ? event.teamsnap_rsvp ?? "no_reply"
-          : null;
+          : event.owner_not_going
+            ? "not_going"
+            : null;
       const attendees = attendeesFor(event.id, event.member_email).map(
         (email) => ({
           email,
@@ -806,6 +864,7 @@ export function CalendarClient({
       let duties: EventDutyChips | null = null;
       if (
         !event.all_day &&
+        !event.owner_not_going &&
         !event.drive_source_event_id &&
         !isHomeLocation(event.location, logistics.homeAddress) &&
         event.member_email &&
@@ -845,10 +904,13 @@ export function CalendarClient({
         // A synthesized block awaiting its real mirror row — rendered as a
         // translucent ghost so the tap visibly "took" instantly.
         pendingDrive: event.id.startsWith("pending-drive:"),
+        // Shown only with "show declined" on — rendered faded.
+        declined: isDeclined(event),
       };
     };
   }, [
     sourcesById,
+    isDeclined,
     memberNames,
     memberColors,
     sourceCountByOwner,
@@ -1296,7 +1358,7 @@ export function CalendarClient({
                       Show hidden events
                     </label>
                     <p className="text-xs text-muted-foreground">
-                      Events you&rsquo;ve declined are hidden — a TeamSnap
+                      Events you&rsquo;ve declined are hidden — one marked
                       &ldquo;Not going,&rdquo; or one removed from its Google
                       calendar.
                       {declinedCount > 0 &&
@@ -1426,6 +1488,18 @@ export function CalendarClient({
           panelEvent ? attendeesFor(panelEvent.id, panelEvent.member_email) : []
         }
         onToggleGoing={toggleGoing}
+        ownerGoing={
+          panelEvent &&
+          !panelEvent.drive_source_event_id &&
+          panelEvent.source_type !== "teamsnap" &&
+          !!panelEvent.member_email &&
+          kidEmails.has(panelEvent.member_email)
+            ? !(
+                notGoingOverrides[panelEvent.id] ?? panelEvent.owner_not_going
+              )
+            : null
+        }
+        onSetOwnerGoing={setOwnerGoing}
         onChangeOwner={changeOwner}
         duties={panelEvent ? dutiesFor(panelEvent.id) : {}}
         parents={parents}
