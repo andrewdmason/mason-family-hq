@@ -116,6 +116,9 @@ export function deterministicEventId(externalId: string): string {
 // the hash differs and we re-confirm it.
 // ---------------------------------------------------------------------------
 const CANCELLED_HASH = "cancelled";
+// The owner isn't going: same Google state as a soft-cancel (status cancelled),
+// but a distinct sentinel so flipping back revives with the guest list.
+export const NOT_GOING_HASH = "notgoing";
 
 interface CoreFields {
   title: string;
@@ -183,12 +186,13 @@ interface LedgerRow extends CoreFields {
   external_id: string | null;
   is_canceled: boolean;
   dismissed: boolean;
+  owner_not_going: boolean;
   google_event_id: string | null;
   google_sync_hash: string | null;
 }
 
 const LEDGER_COLUMNS =
-  "id, external_id, title, description, location, start_time, end_time, all_day, is_canceled, dismissed, google_event_id, google_sync_hash";
+  "id, external_id, title, description, location, start_time, end_time, all_day, is_canceled, dismissed, owner_not_going, google_event_id, google_sync_hash";
 
 /** The native guest list for an event, from the "going" toggles. Used only when
  * (re)creating an event — patches omit attendees so a guest's response and
@@ -249,6 +253,33 @@ async function materializeRow(
     return;
   }
 
+  // The owner isn't going: take the event off their calendar. Cancelling the
+  // organizer's copy drops every guest's copy with it. Cancel rather than
+  // delete — a deleted id can't be reused, a cancelled one revives by patch.
+  // Never created yet → nothing to take down (and nothing to create).
+  if (row.owner_not_going) {
+    if (!row.google_event_id || row.google_sync_hash === NOT_GOING_HASH) return;
+    try {
+      await patchGoogleEvent(
+        cred,
+        dest.calendarId,
+        row.google_event_id,
+        { status: "cancelled" },
+        { sendUpdates: "none" },
+      );
+    } catch (err) {
+      if (!isHttp(err, 404) && !isHttp(err, 410)) throw err;
+    }
+    await supabase
+      .from("calendar_events")
+      .update({
+        google_sync_hash: NOT_GOING_HASH,
+        google_synced_at: new Date().toISOString(),
+      })
+      .eq("id", row.id);
+    return;
+  }
+
   const title = titlePrefix ? `${titlePrefix}: ${row.title}` : row.title;
   const h = hashes(row, title);
 
@@ -282,12 +313,21 @@ async function materializeRow(
     // PATCH only changed fields; omit attendees so the guest list is preserved.
     // Notify guests only when the time/location moved.
     const prevTimeLoc = (row.google_sync_hash ?? "").split(".")[0];
-    const notify = !!prevTimeLoc && prevTimeLoc !== CANCELLED_HASH && prevTimeLoc !== h.timeLoc;
+    const reviving = prevTimeLoc === NOT_GOING_HASH;
+    const notify =
+      !!prevTimeLoc &&
+      prevTimeLoc !== CANCELLED_HASH &&
+      !reviving &&
+      prevTimeLoc !== h.timeLoc;
+    // Reviving a not-going event re-asserts the guest list, so everyone going
+    // along gets their copy back (the cancel dropped them).
     await patchGoogleEvent(
       cred,
       dest.calendarId,
       row.google_event_id,
-      bodyFromRow(row, title),
+      reviving
+        ? { ...bodyFromRow(row, title), attendees: await guestList(supabase, row.id) }
+        : bodyFromRow(row, title),
       { sendUpdates: notify ? "all" : "none" },
     );
   } else {
@@ -460,26 +500,32 @@ export async function credForMember(
   return { kind: "oauth", memberEmail: connection };
 }
 
-export async function reconcileEventGuests(
+/** Where an event's real Google counterpart lives and how to write it: the
+ * importer's copy on the owner's primary calendar, or — for an event read in
+ * from a Google calendar — the native event on that calendar (impersonating its
+ * owner). Null when there's no Google event to write. */
+async function googleTargetFor(
   supabase: AdminClient,
-  eventId: string,
-): Promise<void> {
-  const { data: ev } = await supabase
-    .from("calendar_events")
-    .select(
-      "id, member_email, source_type, external_id, calendar_source_id, google_event_id, google_calendar_id",
-    )
-    .eq("id", eventId)
-    .maybeSingle();
-  if (!ev) return;
-
-  let googleEventId = ev.google_event_id as string | null;
-  let calendarId = ev.google_calendar_id as string | null;
+  ev: {
+    member_email: string | null;
+    source_type: string;
+    external_id: string | null;
+    calendar_source_id: string | null;
+    google_event_id: string | null;
+    google_calendar_id: string | null;
+  },
+): Promise<{
+  googleEventId: string;
+  calendarId: string;
+  cred: GoogleCredential;
+} | null> {
+  let googleEventId = ev.google_event_id;
+  let calendarId = ev.google_calendar_id;
   let cred: GoogleCredential | null = null;
 
   if (googleEventId && calendarId) {
     // Importer-created event: write via the owning member's primary credential.
-    const dest = await getMemberPrimary(supabase, ev.member_email as string | null);
+    const dest = await getMemberPrimary(supabase, ev.member_email);
     cred = dest?.cred ?? null;
   } else if (
     ev.source_type === "google" &&
@@ -510,7 +556,29 @@ export async function reconcileEventGuests(
     }
   }
 
-  if (!googleEventId || !calendarId || !cred) return;
+  if (!googleEventId || !calendarId || !cred) return null;
+  return { googleEventId, calendarId, cred };
+}
+
+const TARGET_COLUMNS =
+  "id, member_email, source_type, external_id, calendar_source_id, google_event_id, google_calendar_id, organizer_email, owner_not_going";
+
+export async function reconcileEventGuests(
+  supabase: AdminClient,
+  eventId: string,
+): Promise<void> {
+  const { data: ev } = await supabase
+    .from("calendar_events")
+    .select(TARGET_COLUMNS)
+    .eq("id", eventId)
+    .maybeSingle();
+  if (!ev) return;
+  // The owner isn't going — the event is off Google; reviving it re-asserts
+  // the guest list, so there's nothing to reconcile now.
+  if (ev.owner_not_going) return;
+  const target = await googleTargetFor(supabase, ev);
+  if (!target) return;
+  const { googleEventId, calendarId, cred } = target;
 
   // Merge our "going" toggles into the event's CURRENT guest list rather than
   // replacing it — so guests we don't track (someone invited directly in Google,
@@ -593,6 +661,64 @@ export async function syncEventGuests(
   } else {
     await reconcileEventGuests(supabase, eventId);
   }
+}
+
+/** Apply the owner's going / not-going to Google for one event — the live path
+ * behind the kid's attendance switch.
+ *   * TeamSnap/ICS: run the importer for this one row, which cancels (not going)
+ *     or revives/creates (going) the owner's copy, guests included.
+ *   * An event the owner organizes on their own Google calendar: cancel or
+ *     revive that occurrence (cancelling drops every guest's copy with it).
+ *   * An event the owner was invited to: they can't cancel someone else's
+ *     event, so decline / accept it on their calendar instead.
+ * App-only events have no Google side. */
+export async function syncOwnerGoing(
+  supabase: AdminClient,
+  eventId: string,
+): Promise<void> {
+  const { data: ev } = await supabase
+    .from("calendar_events")
+    .select(TARGET_COLUMNS)
+    .eq("id", eventId)
+    .maybeSingle();
+  if (!ev) return;
+  if (ev.source_type === "teamsnap" || ev.source_type === "ics") {
+    await materializeEventById(supabase, eventId);
+    return;
+  }
+  if (ev.source_type !== "google") return;
+  const target = await googleTargetFor(supabase, ev);
+  if (!target) return;
+  const { googleEventId, calendarId, cred } = target;
+  const notGoing = ev.owner_not_going as boolean;
+  const owner = (ev.member_email as string | null)?.toLowerCase() ?? null;
+  const organizer = (ev.organizer_email as string | null)?.toLowerCase() ?? null;
+
+  if (!organizer || organizer === owner) {
+    await patchGoogleEvent(
+      cred,
+      calendarId,
+      googleEventId,
+      { status: notGoing ? "cancelled" : "confirmed" },
+      { sendUpdates: "none" },
+    );
+    return;
+  }
+
+  const current = await getGoogleEvent(cred, calendarId, googleEventId);
+  if (!current) return;
+  const attendees = (current.attendees ?? []).map((a) =>
+    a.email?.toLowerCase() === owner
+      ? { ...a, responseStatus: notGoing ? "declined" : "accepted" }
+      : a,
+  );
+  await patchGoogleEvent(
+    cred,
+    calendarId,
+    googleEventId,
+    { attendees },
+    { sendUpdates: "none" },
+  );
 }
 
 /** Delete every Google event this source materialized (used when the source is

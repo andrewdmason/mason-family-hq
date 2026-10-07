@@ -261,6 +261,7 @@ export function WeekView({
             : "rounded-sm border border-border/70 border-l-[3px] bg-white hover:bg-muted/40 dark:bg-card",
           event.id === selectedEventId && "z-20 ring-1 ring-ring",
           d.pendingDrive && "animate-pulse opacity-60",
+          d.declined && "opacity-50",
           isDraft &&
             (isDrive
               ? "border border-dashed border-foreground/40 opacity-70"
@@ -323,6 +324,7 @@ export function WeekView({
           "group absolute flex justify-center overflow-visible",
           hot ? "z-20" : "z-10",
           d.pendingDrive && "animate-pulse opacity-60",
+          d.declined && "opacity-50",
         )}
       >
         <span className="relative shrink-0" style={{ width: DOT }} aria-hidden>
@@ -625,6 +627,7 @@ export function WeekView({
           !isDrive && "border-l-2",
           event.id === selectedEventId && "z-20 ring-1 ring-ring",
           d.pendingDrive && "animate-pulse opacity-60",
+          d.declined && "opacity-50",
           isDraft && "border border-dashed border-foreground/40 opacity-70",
         )}
       >

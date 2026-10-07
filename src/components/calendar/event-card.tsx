@@ -48,6 +48,8 @@ export interface EventDisplay {
   // A client-synthesized drive block whose real mirror row hasn't landed yet —
   // rendered translucent/pulsing so a duty tap shows its block instantly.
   pendingDrive: boolean;
+  // Hidden by default (not going / declined); faded when "show declined" is on.
+  declined: boolean;
 }
 
 /** The drop-off (→) / pick-up (←) glyphs on a kid's event card. Assigned reads
@@ -182,6 +184,7 @@ export function EventRow({
       className={cn(
         "flex w-full items-start gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition-colors hover:bg-muted/60",
         selected && "border-border bg-muted/60",
+        display.declined && "opacity-50",
       )}
     >
       <span
@@ -265,6 +268,7 @@ export function EventColumnCard({
         "block w-full rounded-sm border border-border/70 border-l-[3px] bg-white px-2 py-1.5 text-left transition-colors hover:bg-muted/40 dark:bg-card",
         selected && "ring-1 ring-ring",
         display.pendingDrive && "animate-pulse opacity-60",
+        display.declined && "opacity-50",
       )}
     >
       <span className="flex items-center gap-1 text-[11px] italic tabular-nums text-muted-foreground">

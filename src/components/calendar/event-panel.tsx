@@ -174,6 +174,8 @@ export function EventPanelContent({
   sourceLabel,
   going,
   onToggleGoing,
+  ownerGoing,
+  onSetOwnerGoing,
   onChangeOwner,
   duties,
   parents,
@@ -194,6 +196,13 @@ export function EventPanelContent({
     eventId: string,
     email: string,
     willGo: boolean,
+  ) => Promise<{ warning?: string }>;
+  // A kid's own going / not going (local only, never sent to TeamSnap); null
+  // when the switch doesn't apply (adult's event, linked TeamSnap team).
+  ownerGoing: boolean | null;
+  onSetOwnerGoing: (
+    eventId: string,
+    going: boolean,
   ) => Promise<{ warning?: string }>;
   onChangeOwner: (
     eventId: string,
@@ -367,6 +376,10 @@ export function EventPanelContent({
   }
 
   const isTeamsnap = event?.source_type === "teamsnap";
+  // The kid isn't going: the event is off every calendar, so the going-along
+  // and drive rows fold away and the title fades.
+  const notGoing =
+    ownerGoing === false || (isTeamsnap && !!event?.owner_not_going);
   const showSaveBar = editable && (mode.kind === "create" || dirty);
   const showAdvancedControls =
     (mode.kind === "create" && googleSources.length > 0) ||
@@ -388,7 +401,12 @@ export function EventPanelContent({
             className="w-full min-w-0 border-none bg-transparent text-base font-medium text-foreground outline-none placeholder:text-muted-foreground/60"
           />
         ) : (
-          <h2 className="text-base font-medium text-foreground">
+          <h2
+            className={cn(
+              "text-base font-medium text-foreground transition-opacity",
+              notGoing && "opacity-50",
+            )}
+          >
             {event?.title}
           </h2>
         )}
@@ -710,15 +728,25 @@ export function EventPanelContent({
                 canRsvp={canRsvp}
               />
             )}
-            <GoingRow
-              key={`going-${event.id}`}
-              event={event}
-              members={members}
-              going={going}
-              canManage={canManage}
-              onToggleGoing={onToggleGoing}
-            />
-            {showLogistics && (
+            {ownerGoing !== null && (
+              <OwnerAttendance
+                key={`owner-${event.id}`}
+                eventId={event.id}
+                going={ownerGoing}
+                onSetOwnerGoing={onSetOwnerGoing}
+              />
+            )}
+            {!notGoing && (
+              <GoingRow
+                key={`going-${event.id}`}
+                event={event}
+                members={members}
+                going={going}
+                canManage={canManage}
+                onToggleGoing={onToggleGoing}
+              />
+            )}
+            {showLogistics && !notGoing && (
               <LogisticsRows
                 key={`duty-${event.id}`}
                 event={event}
@@ -869,6 +897,72 @@ function LocationTypeahead({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// The kid's own attendance: the same Going / Not going switch as a linked
+// TeamSnap team's, minus Maybe (nothing goes to a coach here, so Maybe would
+// mean the same as Going). Not going takes the event off every calendar;
+// Going puts it all back. Open to everyone, kids included.
+function OwnerAttendance({
+  eventId,
+  going,
+  onSetOwnerGoing,
+}: {
+  eventId: string;
+  going: boolean;
+  onSetOwnerGoing: (
+    eventId: string,
+    going: boolean,
+  ) => Promise<{ warning?: string }>;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function choose(next: boolean) {
+    if (saving || next === going) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const res = await onSetOwnerGoing(eventId, next);
+      if (res.warning) setMessage(res.warning);
+    } catch (e) {
+      // The calendar client reverts its optimistic state on failure.
+      setMessage(e instanceof Error ? e.message : "Couldn't save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <span className="text-xs font-medium text-muted-foreground">
+        Attendance
+      </span>
+      <div className="inline-flex w-full rounded-lg border p-0.5">
+        {[
+          { value: true, label: "Going" },
+          { value: false, label: "Not going" },
+        ].map((o) => (
+          <button
+            key={o.label}
+            type="button"
+            disabled={saving}
+            onClick={() => choose(o.value)}
+            aria-pressed={going === o.value}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-60",
+              going === o.value
+                ? "bg-foreground text-background"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      {message && <p className="text-xs text-muted-foreground">{message}</p>}
     </div>
   );
 }

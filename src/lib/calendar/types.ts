@@ -51,6 +51,10 @@ export interface CalendarEvent {
   // Set when the user deleted the materialized event off their Google calendar:
   // treated as a decline (hidden, not recreated). Survives re-sync.
   dismissed: boolean;
+  // The owner (a kid) isn't going: the event is taken off every Google calendar
+  // and its drive blocks torn down, but kept here (hidden) so it can be flipped
+  // back. Survives re-sync.
+  owner_not_going: boolean;
   // Set only on drive-block mirror rows (drive-events.ts): the kid's event this
   // block drives to/from. The UI colors the block with the kid's color and
   // opens the kid's event sheet on tap.

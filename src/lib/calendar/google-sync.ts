@@ -11,6 +11,7 @@ import {
   type GoogleCredential,
   type GoogleEvent,
 } from "./google";
+import { NOT_GOING_HASH } from "./materialize";
 import type { GoogleAttendee } from "./types";
 
 // How far back/forward to pull. A year ahead covers school years and seasons; a
@@ -128,6 +129,18 @@ export async function syncGoogleSource(
     // proceed without rrules
   }
 
+  // Events whose owner was marked not going: we cancelled them on Google
+  // ourselves, so a cancelled status here is our doing — keep the row live
+  // (hidden as not-going, not removed) so it can be flipped back.
+  const { data: notGoingRows } = await supabase
+    .from("calendar_events")
+    .select("external_id")
+    .eq("calendar_source_id", source.id)
+    .eq("owner_not_going", true);
+  const notGoingExtIds = new Set(
+    (notGoingRows ?? []).map((r) => r.external_id as string),
+  );
+
   // One row per external_id (last wins) so the batched upsert never touches the
   // same conflict target twice.
   const rowByExtId = new Map<string, Record<string, unknown>>();
@@ -151,7 +164,8 @@ export async function syncGoogleSource(
       source_type: "google" as const,
       external_id: externalId,
       organizer_email: ev.organizer?.email?.toLowerCase() ?? null,
-      is_canceled: ev.status === "cancelled",
+      is_canceled:
+        ev.status === "cancelled" && !notGoingExtIds.has(externalId),
       google_recurring_event_id: ev.recurringEventId ?? null,
       rrule: ev.recurringEventId
         ? (rruleByMasterId.get(ev.recurringEventId) ?? null)
@@ -180,7 +194,7 @@ export async function syncGoogleSource(
 
   const { data: existingEvents } = await supabase
     .from("calendar_events")
-    .select("id, external_id, is_canceled")
+    .select("id, external_id, is_canceled, owner_not_going")
     .eq("calendar_source_id", source.id);
 
   // Cancel events no longer present in the window (e.g. deleted in Google).
@@ -188,6 +202,7 @@ export async function syncGoogleSource(
     .filter(
       (e) =>
         !e.is_canceled &&
+        !e.owner_not_going &&
         e.external_id &&
         !syncedExternalIds.has(e.external_id),
     )
@@ -230,7 +245,9 @@ async function reconcileMaterializedOnCalendar(
 
   const { data: materialized } = await supabase
     .from("calendar_events")
-    .select("id, google_event_id, dismissed, google_attendees")
+    .select(
+      "id, google_event_id, dismissed, owner_not_going, google_sync_hash, google_attendees",
+    )
     .eq("google_calendar_id", calendarId)
     .not("google_event_id", "is", null)
     .gte("start_time", window.timeMin)
@@ -244,6 +261,10 @@ async function reconcileMaterializedOnCalendar(
     Array<{ email?: string; responseStatus?: string }>
   >();
   for (const m of materialized) {
+    // Not going: we cancelled it ourselves — not a user dismissal. The hash
+    // check covers the moment after flipping back to going, before the revive
+    // has landed on Google.
+    if (m.owner_not_going || m.google_sync_hash === NOT_GOING_HASH) continue;
     const g = googleById.get(m.google_event_id as string);
     const present = !!g && g.status !== "cancelled";
     if (!present && !m.dismissed) dismiss.push(m.id as string);

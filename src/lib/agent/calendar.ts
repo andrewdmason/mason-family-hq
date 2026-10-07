@@ -28,7 +28,7 @@ export function parseDateParam(
 // Mirrors EVENT_COLUMNS in @/lib/calendar/queries (which is session-scoped;
 // this side reads through the service-role client).
 const EVENT_COLUMNS =
-  "id, member_email, calendar_source_id, title, description, location, start_time, end_time, all_day, source_type, external_id, google_event_id, organizer_email, teamsnap_opponent, teamsnap_arrival_time, teamsnap_is_game, teamsnap_rsvp, rrule, google_recurring_event_id, google_attendees, is_canceled, dismissed, drive_source_event_id, drive_duty, drive_minutes";
+  "id, member_email, calendar_source_id, title, description, location, start_time, end_time, all_day, source_type, external_id, google_event_id, organizer_email, teamsnap_opponent, teamsnap_arrival_time, teamsnap_is_game, teamsnap_rsvp, rrule, google_recurring_event_id, google_attendees, is_canceled, dismissed, owner_not_going, drive_source_event_id, drive_duty, drive_minutes";
 
 export interface AgentMember {
   email: string;
@@ -129,7 +129,8 @@ export async function loadAgentCalendar(range: {
     attendees,
     duties,
     homeAddress: (logRes.data?.home_address as string | null) ?? null,
-    conflictMap: detectConflictMap(events),
+    // A kid who isn't going can't clash with anything.
+    conflictMap: detectConflictMap(events.filter((e) => !e.owner_not_going)),
   };
 }
 
@@ -168,6 +169,10 @@ export function serializeEvent(ev: CalendarEvent, data: AgentCalendarData) {
             rsvp: ev.teamsnap_rsvp,
           }
         : null,
+    // Kids' events only: false when the kid was marked not going — the event
+    // is off every Google calendar and its drive blocks are torn down (set via
+    // POST /events/{id}/attendance). Null for adults' events.
+    kid_going: isKidEvent ? !ev.owner_not_going : null,
     // Family members marked "going" (parents attending a kid's event).
     going: data.attendees.get(ev.id) ?? [],
     // Drop-off/pick-up assignments — only meaningful on kids' timed events
@@ -243,7 +248,7 @@ export function computeReview(data: AgentCalendarData, now: Date) {
   const missingDuties: Array<{ event: AgentEvent; missing: string[] }> = [];
   for (const ev of future) {
     if (!dutyEligible(ev, data)) continue;
-    if (ev.teamsnap_rsvp === "not_going") continue;
+    if (ev.teamsnap_rsvp === "not_going" || ev.owner_not_going) continue;
     const duties = data.duties.get(ev.id) ?? {};
     const missing = (["dropoff", "pickup"] as const).filter((d) => !duties[d]);
     if (missing.length > 0) {
@@ -265,7 +270,7 @@ export function computeReview(data: AgentCalendarData, now: Date) {
   const noParentGoing = future
     .filter((ev) => {
       if (!dutyEligible(ev, data)) return false;
-      if (ev.teamsnap_rsvp === "not_going") return false;
+      if (ev.teamsnap_rsvp === "not_going" || ev.owner_not_going) return false;
       const going = data.attendees.get(ev.id) ?? [];
       return !going.some((email) => {
         const role = data.members.get(email)?.role;
