@@ -67,7 +67,6 @@ import {
   type LingerPhase,
 } from "@/components/practice-table/session-display";
 import {
-  MAINTENANCE_GOAL_SECONDS,
   maintenanceLabel,
   pickMaintenancePiece,
 } from "@/lib/practice/maintenance";
@@ -895,7 +894,6 @@ function DayGroup({
       sectionLabel: null,
       sectionStatus: null,
       sessionNumber: defaultAddSession,
-      timerSeconds: MAINTENANCE_GOAL_SECONDS,
     });
   };
 

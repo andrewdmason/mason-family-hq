@@ -172,6 +172,8 @@ export async function createTaskFromAssignment(
       metronome_speed: metronomeSpeed,
       date,
       sort_order: nextOrder,
+      timer_seconds: 0,
+      timer_remaining_seconds: 0,
     })
     .select("id")
     .single();

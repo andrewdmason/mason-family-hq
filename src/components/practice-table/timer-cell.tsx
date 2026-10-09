@@ -26,7 +26,7 @@ function parseGoalInput(input: string): number | null {
 }
 
 function formatMinutesShort(minutes: number): string {
-  if (minutes <= 0) return "—";
+  if (minutes <= 0) return "∞";
   if (minutes < 60) return `${minutes}m`;
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
@@ -70,13 +70,13 @@ export function TimerCell({
     <div className="flex items-center tabular-nums">
       <button
         onClick={onToggleTimer}
-        disabled={isCompleted || goalSeconds <= 0}
+        disabled={isCompleted}
         className={cn(
           "flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors",
           isActive
             ? "bg-white/20 text-white hover:bg-white/30"
             : "hover:bg-muted text-muted-foreground hover:text-foreground",
-          (isCompleted || goalSeconds <= 0) && "cursor-not-allowed opacity-60"
+          isCompleted && "cursor-not-allowed opacity-60"
         )}
       >
         <ClockIcon className="size-3" />
@@ -94,6 +94,7 @@ export function TimerCell({
 
       <Popover open={goalOpen} onOpenChange={setGoalOpen}>
         <PopoverTrigger
+          title={goalMinutes <= 0 ? "No time limit" : undefined}
           className={cn(
             "rounded px-1.5 py-0.5 transition-colors focus:outline-none",
             goalReached
@@ -114,6 +115,17 @@ export function TimerCell({
           className="w-auto min-w-[220px] gap-2 p-2 data-closed:!animate-none data-closed:!duration-0"
         >
           <div className="flex flex-wrap gap-1">
+            <button
+              onClick={() => setGoal(0)}
+              className={cn(
+                "rounded px-2 py-1 text-xs transition-colors",
+                goalMinutes <= 0
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
+              )}
+            >
+              No limit
+            </button>
             {GOAL_PRESETS.map((m) => (
               <button
                 key={m}

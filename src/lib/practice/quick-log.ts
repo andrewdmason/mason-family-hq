@@ -12,12 +12,6 @@ export function parseLogMode(value: string | undefined): LogMode {
 }
 
 /**
- * Goal for an entry the quick logger creates: the same 15 minutes a piece
- * added from the "Pieces" menu gets (the column default).
- */
-export const QUICK_LOG_GOAL_SECONDS = 15 * 60;
-
-/**
  * One card in the quick logger. A work with several active pieces (a trio's
  * movements) is one card split into a segment per piece; anything else is a
  * card of one.

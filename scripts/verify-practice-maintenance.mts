@@ -8,7 +8,6 @@ config({ path: ".env.local" });
 
 const { createAdminClient } = await import("../src/lib/supabase/admin");
 const {
-  MAINTENANCE_GOAL_SECONDS,
   daysSinceLabel,
   maintenanceLabel,
   pickMaintenancePiece,
@@ -128,7 +127,6 @@ check(
     "Maintenance — Ballade · 19d"
 );
 check("a never-practiced piece reads 'new'", daysSinceLabel(null) === "new");
-check("the goal is twenty minutes", MAINTENANCE_GOAL_SECONDS === 1200);
 
 console.log("\nDay arithmetic");
 check("nineteen days apart counts as nineteen", daysBetween("2026-09-01", "2026-09-20") === 19);
