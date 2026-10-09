@@ -16,6 +16,14 @@ import {
 import { cn } from "@/lib/utils";
 import { groupPiecesForMenu } from "@/lib/piece-menu";
 import { DayTitle } from "@/components/practice-table/day-title";
+import { usePracticeDay } from "@/components/practice-table/practice-day-context";
+import { useLogMode } from "@/components/practice-table/log-mode";
+import type { LogMode } from "@/lib/practice/quick-log";
+
+const MODE_OPTIONS: { value: LogMode; label: string }[] = [
+  { value: "list", label: "List" },
+  { value: "quick", label: "Quick" },
+];
 
 export function PracticeLogHeader() {
   const router = useRouter();
@@ -104,6 +112,11 @@ export function PracticeLogHeader() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activePieceInstance, focusedPieceId, clearFocus, setActivePieceInstance]);
 
+  // Quick is a way of logging today; other days are always the list.
+  const { isToday } = usePracticeDay();
+  const { mode, setMode } = useLogMode();
+  const quick = isToday && mode === "quick";
+
   const stickyRef = useRef<HTMLDivElement>(null);
   const [isStuck, setIsStuck] = useState(false);
 
@@ -151,7 +164,32 @@ export function PracticeLogHeader() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 pl-8">
             <DayTitle />
             <div className="ml-auto flex items-center gap-3">
-            {activePieces.length > 0 && (
+            {isToday && (
+              <div
+                role="radiogroup"
+                aria-label="Log view"
+                className="inline-flex rounded-full bg-muted p-0.5 text-xs font-medium"
+              >
+                {MODE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={mode === opt.value}
+                    onClick={() => setMode(opt.value)}
+                    className={cn(
+                      "rounded-full px-3 py-1 transition-colors",
+                      mode === opt.value
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {activePieces.length > 0 && !quick && (
               <DropdownMenu>
                 <DropdownMenuTrigger
                   className={cn(

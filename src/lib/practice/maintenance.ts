@@ -22,11 +22,10 @@ export type MaintenancePick = {
  * Ties break on name so repeated renders name the same piece and the label
  * doesn't flicker between them.
  *
- * `excluded` carries the pieces already on the day being looked at and the ones
- * sitting in the unfinished pile. It is supplied by the caller (rather than
- * derived here) because the log knows about optimistic rows the server hasn't
- * seen yet: that is what lets two taps in a row offer two different pieces
- * without a round trip.
+ * `excluded` carries the pieces already on the day being looked at. It is
+ * supplied by the caller (rather than derived here) because the log knows about
+ * optimistic rows the server hasn't seen yet: that is what lets two taps in a
+ * row offer two different pieces without a round trip.
  */
 export function pickMaintenancePiece({
   pieces,

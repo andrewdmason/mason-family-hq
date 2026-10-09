@@ -229,9 +229,13 @@ try {
       .update({ timer_remaining_seconds: 900, completed: true })
       .eq("id", untouched);
     check(
-      "archiving with nothing on the clock counts too",
-      (await lastPracticed("2026-09-20")) === "2026-09-15"
+      "archiving with nothing on the clock does not count (the nightly rollover archives everything)",
+      (await lastPracticed("2026-09-20")) === null
     );
+    await admin
+      .from("practice_tasks")
+      .update({ timer_remaining_seconds: 899 })
+      .eq("id", untouched);
 
     console.log("\nIt answers for the day you ask about");
     await addTask({

@@ -1,7 +1,13 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { addDays, localDate, getUserTimezone } from "@/lib/date-utils";
+import {
+  addDays,
+  localDate,
+  getUserTimezone,
+  isValidTimeZone,
+} from "@/lib/date-utils";
 import type {
   TimeSummaryEntry,
   LessonTimeSummary,
@@ -248,8 +254,9 @@ async function getTasksWithDetailsForDates(
 
 /**
  * Last day real practice time went into each piece, keyed by the day it was
- * asked about. "Real" means the timer ran or the item was archived — queueing
- * something and never touching it leaves the piece's clock where it was.
+ * asked about. "Real" means the timer ran — queueing something, or archiving
+ * it untouched (which the nightly rollover does to everything), leaves the
+ * piece's clock where it was.
  *
  * Computed per as-of day so stepping back through the log shows the staleness
  * that was true then, rather than today's.
@@ -386,96 +393,61 @@ export async function getPracticeDays(dates: string[]): Promise<FeedDay[]> {
   });
 }
 
-/** How far back the leftovers list shows items one by one. */
-const LEFTOVER_WINDOW_DAYS = 14;
-
-export type Leftovers = {
-  /** Unfinished items from the window before today, newest day first. */
-  recent: TaskWithDetails[];
-  /** Everything unfinished before the window — shown only as a count. */
-  olderCount: number;
-  /** How many of those repeat, so clearing them knows to ask when to resume. */
-  olderRepeatingCount: number;
-  /**
-   * Which pieces those older items belong to. They only come back as a count,
-   * so without this the maintenance rotation would keep offering a piece that
-   * is already buried in the pile.
-   */
-  olderPieceIds: string[];
-  /** First day of the window; older items are the ones dated before it. */
-  cutoff: string;
-};
-
-/**
- * Items left unfinished on earlier days. Today's view surfaces them so they can
- * be cleaned up — archived, brought onto today, or deleted.
- */
-export async function getLeftovers(today: string): Promise<Leftovers> {
-  const supabase = await createClient();
-  const cutoff = addDays(today, -LEFTOVER_WINDOW_DAYS);
-
-  const [{ data: recent }, { data: older }] = await Promise.all([
-    supabase
-      .from("practice_tasks")
-      .select(TASK_WITH_DETAILS_SELECT)
-      .eq("completed", false)
-      .gte("date", cutoff)
-      .lt("date", today)
-      .order("date", { ascending: false })
-      .order("session_number", { ascending: true })
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("practice_tasks")
-      .select("repeat_interval_days, piece_id")
-      .eq("completed", false)
-      .lt("date", cutoff),
-  ]);
-
-  return {
-    recent: ((recent ?? []) as TaskRowWithJoins[]).map(toTaskWithDetails),
-    olderCount: older?.length ?? 0,
-    olderRepeatingCount: (older ?? []).filter(
-      (r) => r.repeat_interval_days !== null
-    ).length,
-    olderPieceIds: [
-      ...new Set(
-        (older ?? [])
-          .map((r) => r.piece_id)
-          .filter((id): id is string => id !== null)
-      ),
-    ],
-    cutoff,
-  };
-}
-
 export type PracticeView = {
   /** The user's today, in their timezone, as the server saw it. */
   today: string;
   /** The requested day and its neighbours, so a step either way is instant. */
   days: FeedDay[];
-  leftovers: Leftovers;
 };
 
 /**
- * Everything the log needs to paint a day: that day, the ones either side of
- * it, and the leftovers list. `today` comes from the client when it has one —
- * its clock is the one the user is looking at.
+ * Everything the log needs to paint a day: that day and the ones either side
+ * of it. `today` comes from the client when it has one — its clock is the one
+ * the user is looking at.
+ *
+ * Runs the day rollover first, so whatever the nightly sweep hasn't reached
+ * yet (a missed run, a different timezone) is archived before it's shown.
  */
 export async function getPracticeView(
   viewDate?: string | null,
   clientToday?: string
 ): Promise<PracticeView> {
-  const today =
-    clientToday ?? localDate(new Date(), await getUserTimezone());
+  const tz = await getUserTimezone();
+  const today = clientToday ?? localDate(new Date(), tz);
   const date = viewDate ?? today;
 
-  const [days, leftovers] = await Promise.all([
-    getPracticeDays([addDays(date, -1), date, addDays(date, 1)]),
-    getLeftovers(today),
+  await rollOverPracticeDays();
+  const days = await getPracticeDays([
+    addDays(date, -1),
+    date,
+    addDays(date, 1),
   ]);
 
-  return { today, days, leftovers };
+  return { today, days };
+}
+
+/**
+ * The practice day ends at 3am, not midnight, so a late session isn't archived
+ * out from under the timer. Mirrors the pg_cron schedule in migration 00197.
+ */
+const DAY_ROLLOVER_HOUR = 3;
+
+/**
+ * Archive everything left unfinished on days that have ended and schedule the
+ * repeating items' next occurrences — see practice_rollover().
+ */
+async function rollOverPracticeDays(): Promise<void> {
+  // Only with a known timezone: the UTC fallback would end a Pacific day at
+  // 8pm. The nightly job covers a first visit that hasn't set the cookie yet.
+  const tz = (await cookies()).get("tz")?.value;
+  if (!isValidTimeZone(tz)) return;
+  const supabase = await createClient();
+  const cutoff = localDate(
+    new Date(Date.now() - DAY_ROLLOVER_HOUR * 3_600_000),
+    tz
+  );
+  const { error } = await supabase.rpc("practice_rollover", { cutoff });
+  if (error) console.error("practice_rollover failed", error);
 }
 
 /** Days in a range that have anything logged or planned, for the date picker. */

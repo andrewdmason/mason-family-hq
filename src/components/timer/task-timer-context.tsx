@@ -14,9 +14,25 @@ import {
   startTaskTimer as startTaskTimerAction,
   stopTaskTimer as stopTaskTimerAction,
 } from "@/app/practice/timer/task-actions";
+import {
+  resolveRealTaskId,
+  type OptimisticTaskRename,
+  type OptimisticTaskRollback,
+} from "@/lib/optimistic-task";
 import type { Piece, PieceKind, SectionStatus } from "@/lib/types";
 
 const STORAGE_KEY = "practice-task-timer-state";
+
+/**
+ * Run a timer write against the task's server id. A task can be timed the
+ * instant it's created, while it still carries its optimistic temp id; the
+ * write waits for the real one rather than holding up the tap.
+ */
+function writeForTask(taskId: string, write: (id: string) => Promise<unknown>) {
+  void resolveRealTaskId(taskId)
+    .then(write)
+    .catch(() => {});
+}
 
 export type ActiveTaskMeta = {
   pieceId: string | null;
@@ -120,6 +136,8 @@ export function TaskTimerProvider({
   const [loadedRemaining, setLoadedRemaining] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeTaskStartRef = useRef<number | null>(null);
+  const activeTaskIdRef = useRef(activeTaskId);
+  activeTaskIdRef.current = activeTaskId;
 
   const dailyElapsedSeconds = baseDailySeconds + activeTaskElapsed;
 
@@ -133,7 +151,7 @@ export function TaskTimerProvider({
 
   const persistTaskRemaining = useCallback(
     (taskId: string, seconds: number) => {
-      void updateTaskRemaining(taskId, seconds).catch(() => {});
+      writeForTask(taskId, (id) => updateTaskRemaining(id, seconds));
       announceRemaining(taskId, seconds);
     },
     [announceRemaining]
@@ -228,6 +246,53 @@ export function TaskTimerProvider({
     [restored]
   );
 
+  // A task timed while still optimistic takes its real id once the server
+  // hands it back; one whose create failed stops being timed.
+  useEffect(() => {
+    const rewriteStored = (tempId: string, realId: string | null) => {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const state: PersistedState = JSON.parse(raw);
+        if (state.taskId !== tempId) return;
+        if (realId) {
+          localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({ ...state, taskId: realId })
+          );
+        } else {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      } catch {
+        // Ignore
+      }
+    };
+    const onRename = (e: Event) => {
+      const { tempId, realId } = (e as CustomEvent<OptimisticTaskRename>)
+        .detail;
+      setActiveTaskId((prev) => (prev === tempId ? realId : prev));
+      setLoadedTaskId((prev) => (prev === tempId ? realId : prev));
+      rewriteStored(tempId, realId);
+    };
+    const onRollback = (e: Event) => {
+      const { tempId } = (e as CustomEvent<OptimisticTaskRollback>).detail;
+      if (activeTaskIdRef.current === tempId) {
+        setActiveTaskId(null);
+        setActiveTaskMeta(null);
+        setActiveTaskElapsed(0);
+        activeTaskStartRef.current = null;
+      }
+      setLoadedTaskId((prev) => (prev === tempId ? null : prev));
+      rewriteStored(tempId, null);
+    };
+    window.addEventListener("task-rename-optimistic", onRename);
+    window.addEventListener("task-created-rollback", onRollback);
+    return () => {
+      window.removeEventListener("task-rename-optimistic", onRename);
+      window.removeEventListener("task-created-rollback", onRollback);
+    };
+  }, []);
+
   // Handle visibility change
   useEffect(() => {
     const handler = () => {
@@ -302,7 +367,8 @@ export function TaskTimerProvider({
     tickCount.current++;
     if (tickCount.current % 10 === 0) {
       persist(activeTaskId, remainingSeconds, activeTaskMeta);
-      void updateTaskRemaining(activeTaskId, remainingSeconds).catch(() => {});
+      const seconds = remainingSeconds;
+      writeForTask(activeTaskId, (id) => updateTaskRemaining(id, seconds));
     }
   }, [remainingSeconds, activeTaskId, activeTaskMeta, persist]);
 
@@ -354,7 +420,7 @@ export function TaskTimerProvider({
       }
 
       // Record started_at on server
-      void startTaskTimerAction(taskId).catch(() => {});
+      writeForTask(taskId, startTaskTimerAction);
     },
     [activeTaskId, remainingSeconds, persist, persistTaskRemaining]
   );
@@ -379,7 +445,7 @@ export function TaskTimerProvider({
 
     // Atomically persist remaining + ended_at so a subsequent revalidate
     // can't race and read a stale timer_remaining_seconds.
-    void stopTaskTimerAction(pausedTaskId, finalRemaining).catch(() => {});
+    writeForTask(pausedTaskId, (id) => stopTaskTimerAction(id, finalRemaining));
 
     // Hold the task in "loaded" state so the transport bar can offer to
     // resume it without re-picking the piece.
