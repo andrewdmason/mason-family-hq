@@ -23,7 +23,7 @@ export type RepeatOccurrence = Omit<
  * stopping to ask. The toast that follows is the escape hatch for anyone who
  * wanted to change something about it, so it goes up immediately too — waiting
  * on the write would make finishing an item feel like a request instead of a
- * click. Shared by a row's own archive and the leftovers list's.
+ * click.
  */
 export function scheduleRepeatOccurrence(occurrence: RepeatOccurrence): void {
   // Warm the section picker so the sheet is ready if the toast is taken up on.

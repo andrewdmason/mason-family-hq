@@ -5,19 +5,27 @@ import { RepertoireFocusPanel } from "@/components/timer/repertoire-focus-panel"
 import { TwoColumnLayout } from "@/components/layout/two-column-layout";
 import { PracticeLogHeader } from "@/components/layout/practice-log-header";
 import { PracticeDayProvider } from "@/components/practice-table/practice-day-context";
-import { ResumeRepeatDialogHost } from "@/components/practice-table/resume-repeat-dialog";
+import { LogModeProvider } from "@/components/practice-table/log-mode";
 import type { PracticeView } from "@/app/practice/feed/actions";
+import type { LogMode } from "@/lib/practice/quick-log";
 
 /** The practice log: one day at a time, with the repertoire alongside. */
-export function PracticeLog({ initialView }: { initialView: PracticeView }) {
+export function PracticeLog({
+  initialView,
+  initialMode,
+}: {
+  initialView: PracticeView;
+  initialMode: LogMode;
+}) {
   return (
     <PracticeDayProvider initialToday={initialView.today}>
-      <PracticeLogHeader />
-      <TwoColumnLayout
-        left={<PracticeTable initialView={initialView} />}
-        right={<RepertoireFocusPanel />}
-      />
-      <ResumeRepeatDialogHost />
+      <LogModeProvider initialMode={initialMode}>
+        <PracticeLogHeader />
+        <TwoColumnLayout
+          left={<PracticeTable initialView={initialView} />}
+          right={<RepertoireFocusPanel />}
+        />
+      </LogModeProvider>
     </PracticeDayProvider>
   );
 }

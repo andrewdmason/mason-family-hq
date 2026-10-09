@@ -35,11 +35,11 @@ import {
 import {
   getPracticeDays,
   getPracticeView,
-  type Leftovers,
   type PracticeView,
 } from "@/app/practice/feed/actions";
 import { usePracticeDay } from "@/components/practice-table/practice-day-context";
-import { LeftoversSection } from "@/components/practice-table/leftovers-section";
+import { useLogMode } from "@/components/practice-table/log-mode";
+import { QuickLog } from "@/components/practice-table/quick-log";
 import { AggregateTimerPill } from "@/components/practice-table/aggregate-timer-pill";
 import {
   isStaleBuildError,
@@ -685,7 +685,6 @@ function DayGroup({
   activePieces,
   worksById,
   today,
-  leftoverPieceIds,
   onReorder,
 }: {
   day: FeedDay;
@@ -694,8 +693,6 @@ function DayGroup({
   activePieces: Piece[];
   worksById: Record<string, string>;
   today: string;
-  /** Pieces already waiting in the unfinished pile — the rotation skips them. */
-  leftoverPieceIds: ReadonlySet<string>;
   onReorder: (dayDate: string, orderedIds: string[]) => void;
 }) {
   const filteredTasks = focusedPieceId
@@ -935,7 +932,7 @@ function DayGroup({
   const nextMaintenance = pickMaintenancePiece({
     pieces: maintenancePieces,
     lastPracticedByPiece: day.lastPracticedByPiece ?? {},
-    excluded: new Set([...dayPieceIds, ...leftoverPieceIds]),
+    excluded: dayPieceIds,
     asOf: day.date,
   });
 
@@ -1112,9 +1109,6 @@ export function PracticeTable({
   const [loadedDates, setLoadedDates] = useState<ReadonlySet<string>>(
     () => new Set(initialView.days.map((d) => d.date))
   );
-  const [leftovers, setLeftovers] = useState<Leftovers>(
-    initialView.leftovers
-  );
   const inflightRef = useRef(new Set<string>());
   const daysRef = useRef(days);
   daysRef.current = days;
@@ -1136,18 +1130,10 @@ export function PracticeTable({
     setLoadedDates((prev) => new Set([...(onlyThese ? [] : prev), ...freshDates]));
   }, []);
 
-  // Leftover cleanup is optimistic and meant to be clicked through quickly.
-  // While any of those writes is still on its way, a server snapshot is behind
-  // the screen — applying it would bring back rows already dealt with — so
-  // snapshots are skipped until the clicks settle, then the view is re-read once.
-  const pendingLeftoverOpsRef = useRef(0);
-
   // A fresh server render (a revalidating write, a reload) is newer than
   // anything cached for the days it carries.
   useEffect(() => {
-    if (pendingLeftoverOpsRef.current > 0) return;
     mergeDays(initialView.days);
-    setLeftovers(initialView.leftovers);
   }, [initialView, mergeDays]);
 
   // Load the day on screen and its neighbours when they aren't cached yet.
@@ -1177,32 +1163,13 @@ export function PracticeTable({
     void getPracticeView(viewDateRef.current, localDate())
       .then((view) => {
         if (mine !== refreshSeqRef.current) return;
-        if (pendingLeftoverOpsRef.current > 0) return;
         mergeDays(view.days, true);
-        setLeftovers(view.leftovers);
       })
       .catch((err: unknown) => {
         if (isStaleBuildError(err)) reloadForNewBuild();
       });
   }, [mergeDays]);
   useEffect(() => registerRefresher(refreshView), [refreshView]);
-
-  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const trackLeftoverOp = useCallback(
-    (op: Promise<unknown>) => {
-      pendingLeftoverOpsRef.current += 1;
-      if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
-      void op
-        .catch(() => {})
-        .finally(() => {
-          pendingLeftoverOpsRef.current -= 1;
-          if (pendingLeftoverOpsRef.current > 0) return;
-          // A failed write shows up here too: the re-read puts it back.
-          settleTimerRef.current = setTimeout(refreshView, 500);
-        });
-    },
-    [refreshView]
-  );
 
   // Starting practice on another day (record from the bar, say, while looking
   // at last week) brings the log to that day.
@@ -1235,6 +1202,34 @@ export function PracticeTable({
     },
     []
   );
+
+  // A timer stopping (or handing over to another task) announces where it
+  // left off. Rows keep their own copy; the day takes it too, so anything
+  // reading the day — the quick logger's totals — is current without waiting
+  // for the server.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { taskId, remainingSeconds } = (
+        e as CustomEvent<{ taskId: string; remainingSeconds: number }>
+      ).detail;
+      setDays((prev) =>
+        prev.map((d) =>
+          d.tasks.some((t) => t.id === taskId)
+            ? {
+                ...d,
+                tasks: d.tasks.map((t) =>
+                  t.id === taskId
+                    ? { ...t, timer_remaining_seconds: remainingSeconds }
+                    : t
+                ),
+              }
+            : d
+        )
+      );
+    };
+    window.addEventListener("task-timer-paused", handler);
+    return () => window.removeEventListener("task-timer-paused", handler);
+  }, []);
 
   // Optimistic task-created listener
   useEffect(() => {
@@ -1308,33 +1303,6 @@ export function PracticeTable({
 
     const updateHandler = (e: Event) => {
       const { taskId, updates } = (e as CustomEvent<OptimisticTaskUpdate>).detail;
-      // An earlier day's item that's un-archived becomes a leftover again.
-      const reopened =
-        updates.completed === false
-          ? daysRef.current
-              .flatMap((d) => d.tasks)
-              .find((t) => t.id === taskId && t.date < localDate())
-          : undefined;
-      setLeftovers((prev) => {
-        const inList = prev.recent.some((t) => t.id === taskId);
-        if (inList) {
-          return {
-            ...prev,
-            recent: prev.recent.map((t) =>
-              t.id === taskId ? { ...t, ...updates } : t
-            ),
-          };
-        }
-        if (reopened && reopened.date >= prev.cutoff) {
-          return {
-            ...prev,
-            recent: [...prev.recent, { ...reopened, ...updates }].sort((a, b) =>
-              b.date.localeCompare(a.date)
-            ),
-          };
-        }
-        return prev;
-      });
       setDays((prev) =>
         prev.map((d) => {
           if (!d.tasks.some((t) => t.id === taskId)) return d;
@@ -1350,11 +1318,6 @@ export function PracticeTable({
 
     const deleteHandler = (e: Event) => {
       const { taskId } = (e as CustomEvent<OptimisticTaskDelete>).detail;
-      setLeftovers((prev) =>
-        prev.recent.some((t) => t.id === taskId)
-          ? { ...prev, recent: prev.recent.filter((t) => t.id !== taskId) }
-          : prev
-      );
       setDays((prev) =>
         prev.map((d) => ({
           ...d,
@@ -1549,6 +1512,7 @@ export function PracticeTable({
     timeSummary: [],
   };
   const isToday = viewDate === today;
+  const { mode } = useLogMode();
 
   // The title bar shows the day's total next to its name.
   const dayElapsedSeconds = displayDay.tasks.reduce(
@@ -1573,47 +1537,11 @@ export function PracticeTable({
     return map;
   }, [days]);
 
-  const openLeftovers = leftovers.recent.filter((t) => !t.completed);
-
-  // Pieces already waiting in the unfinished pile. The older items only come
-  // back as a count, so their piece ids ride along separately — otherwise a
-  // maintenance piece buried in an ancient task would be offered every day.
-  // This set follows the optimistic leftover edits, so archiving one returns
-  // its piece to the rotation immediately.
-  const leftoverPieceIds = useMemo(
-    () =>
-      new Set<string>([
-        ...leftovers.recent
-          .filter((t) => !t.completed)
-          .map((t) => t.piece_id)
-          .filter((id): id is string => id !== null),
-        ...leftovers.olderPieceIds,
-      ]),
-    [leftovers.recent, leftovers.olderPieceIds]
-  );
-
   return (
     <div className="pl-8" onClick={handleRootClick}>
-      {isToday && (
-        <LeftoversSection
-          tasks={openLeftovers}
-          olderCount={leftovers.olderCount}
-          olderRepeatingCount={leftovers.olderRepeatingCount}
-          cutoff={leftovers.cutoff}
-          today={today}
-          onOlderArchived={() =>
-            setLeftovers((prev) => ({
-              ...prev,
-              olderCount: 0,
-              olderRepeatingCount: 0,
-              olderPieceIds: [],
-            }))
-          }
-          track={trackLeftoverOp}
-        />
-      )}
-
-      {isViewLoading ? (
+      {isToday && mode === "quick" ? (
+        <QuickLog day={displayDay} today={today} />
+      ) : isViewLoading ? (
         <div className="space-y-3 py-1" aria-busy="true">
           <div className="h-5 w-40 animate-pulse rounded bg-muted" />
           <div className="h-10 animate-pulse rounded bg-muted/60" />
@@ -1628,7 +1556,6 @@ export function PracticeTable({
           activePieces={activePieces}
           worksById={worksById}
           today={today}
-          leftoverPieceIds={leftoverPieceIds}
           onReorder={handleReorder}
         />
       )}

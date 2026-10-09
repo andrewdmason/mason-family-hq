@@ -57,7 +57,6 @@ import {
   type FocusTaskNotesDetail,
 } from "@/lib/optimistic-task";
 import { TaskAudioDialog } from "@/components/practice-table/task-audio-dialog";
-import { requestResumeDate } from "@/components/practice-table/resume-repeat-dialog";
 import { scheduleRepeatOccurrence } from "@/lib/practice/schedule-occurrence";
 import {
   getCachedSectionPickerData,
@@ -388,7 +387,7 @@ export function TaskRow({
     });
   };
 
-  const archive = (resumeDate: string | null = nextRepeatDate) => {
+  const archive = () => {
     setOptimisticCompleted(true);
     // Tell the table too: today hides archived items, and reading the
     // server's copy first is what used to make finishing an item lag.
@@ -410,7 +409,7 @@ export function TaskRow({
         })
       );
     }
-    if (resumeDate) scheduleNextOccurrence(resumeDate);
+    if (nextRepeatDate) scheduleNextOccurrence(nextRepeatDate);
   };
 
   const handleComplete = () => {
@@ -427,16 +426,6 @@ export function TaskRow({
       });
       return;
     }
-    // A repeating item whose next slot has already gone by asks when to pick
-    // up again before anything is archived; dismissing the question leaves it.
-    if (repeatDays && !nextRepeatDate) {
-      void requestResumeDate({ pieceName: task.piece_name, count: 1 }).then(
-        (date) => {
-          if (date) archive(date);
-        }
-      );
-      return;
-    }
     archive();
   };
 
@@ -444,9 +433,7 @@ export function TaskRow({
     ? "Un-archive"
     : nextRepeatDate
       ? `Archive — back ${relativeDayPhrase(nextRepeatDate)}`
-      : repeatDays
-        ? "Archive — choose when it's back"
-        : "Archive";
+      : "Archive";
 
   const setRepeat = (days: number | null) => {
     emitOptimisticTaskUpdate(task.id, { repeat_interval_days: days });

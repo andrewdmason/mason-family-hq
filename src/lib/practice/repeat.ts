@@ -16,16 +16,17 @@ export function repeatIntervalLabel(days: number): string {
 /**
  * When the next occurrence should land: one cadence after the day this one was
  * scheduled for, however late it's archived — yesterday's daily item comes back
- * today, not tomorrow. Null when that day has already passed (the rhythm broke,
- * say over a vacation); the caller asks when to resume instead of guessing.
+ * today, not tomorrow. If that day has already gone by (the rhythm broke, say
+ * over a vacation) it picks back up today, the same rule the nightly rollover
+ * (practice_rollover) applies.
  */
 export function nextOccurrenceDate(
   taskDate: string,
   intervalDays: number,
   today: string = localDate()
-): string | null {
+): string {
   const next = addDays(taskDate, intervalDays);
-  return next >= today ? next : null;
+  return next >= today ? next : today;
 }
 
 /**
