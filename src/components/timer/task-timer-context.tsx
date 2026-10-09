@@ -562,7 +562,8 @@ export function TaskTimerProvider({
         activeTaskId,
         activeTaskMeta,
         remainingSeconds,
-        isExpired,
+        // A task with no goal counts up open-ended; it's never "over".
+        isExpired: isExpired && (activeTaskMeta?.goalSeconds ?? 1) > 0,
         dailyElapsedSeconds,
         activePieces,
         worksById,

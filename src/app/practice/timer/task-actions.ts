@@ -222,9 +222,9 @@ export async function createTask(
       session_number: resolvedSession,
       ...(date ? { date } : {}),
       ...(text ? { text } : {}),
-      ...(timerSeconds !== undefined
-        ? { timer_seconds: timerSeconds, timer_remaining_seconds: timerSeconds }
-        : {}),
+      // New items have no time goal unless the caller sets one.
+      timer_seconds: timerSeconds ?? 0,
+      timer_remaining_seconds: timerSeconds ?? 0,
       ...(repeat?.intervalDays !== undefined
         ? { repeat_interval_days: repeat.intervalDays }
         : {}),

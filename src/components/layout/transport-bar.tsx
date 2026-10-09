@@ -157,8 +157,10 @@ export function TransportBar() {
   const sectionLabel = displayMeta?.sectionLabel ?? null;
   const text = displayMeta?.text ?? "";
   const goalSeconds = displayMeta?.goalSeconds ?? 0;
-  const elapsed =
-    goalSeconds > 0 ? Math.max(0, goalSeconds - displayRemaining) : 0;
+  // No goal means no limit: remaining runs negative from zero, so elapsed is
+  // still goal − remaining.
+  const hasGoal = goalSeconds > 0;
+  const elapsed = displayMeta ? Math.max(0, goalSeconds - displayRemaining) : 0;
   const progressPct =
     goalSeconds > 0 ? Math.min(100, (elapsed / goalSeconds) * 100) : 0;
   const hasTask = isActive || isLoaded;
@@ -286,7 +288,11 @@ export function TransportBar() {
                   <div
                     className={cn(
                       "relative h-1.5 flex-1 overflow-hidden rounded-full",
-                      isActive ? "bg-white/25" : "bg-muted"
+                      !hasGoal
+                        ? "invisible"
+                        : isActive
+                          ? "bg-white/25"
+                          : "bg-muted"
                     )}
                   >
                     <div
@@ -308,9 +314,11 @@ export function TransportBar() {
                       isLoaded && "text-muted-foreground"
                     )}
                   >
-                    {isExpired
-                      ? `${formatSigned(displayRemaining)} over`
-                      : `${formatSigned(displayRemaining)} left`}
+                    {!hasGoal
+                      ? "no limit"
+                      : isExpired
+                        ? `${formatSigned(displayRemaining)} over`
+                        : `${formatSigned(displayRemaining)} left`}
                   </span>
                 </div>
               </>

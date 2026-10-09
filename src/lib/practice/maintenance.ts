@@ -1,13 +1,6 @@
 import { daysBetween } from "@/lib/date-utils";
 import type { Piece } from "@/lib/types";
 
-/**
- * How long a maintenance task runs by default. Flat rather than per-piece: the
- * point of the rotation is that nothing has to be configured, and the goal is
- * still editable on the row like any other task.
- */
-export const MAINTENANCE_GOAL_SECONDS = 20 * 60;
-
 export type MaintenancePick = {
   piece: Piece;
   /** Whole days since real practice, or null if it has never been practiced. */

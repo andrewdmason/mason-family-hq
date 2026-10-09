@@ -8,7 +8,6 @@ import {
 } from "@/lib/optimistic-task";
 import { pickMaintenancePiece } from "@/lib/practice/maintenance";
 import {
-  QUICK_LOG_GOAL_SECONDS,
   buildQuickCards,
   daysSinceText,
   formatQuickClock,
@@ -130,7 +129,6 @@ export function QuickLog({ day, today }: { day: FeedDay; today: string }) {
       sectionId: null,
       date: today,
       metronomeSpeed: null,
-      timerSeconds: QUICK_LOG_GOAL_SECONDS,
       pieceName: piece.name,
       pieceComposer: piece.composer,
       pieceKind: piece.kind,
@@ -139,7 +137,7 @@ export function QuickLog({ day, today }: { day: FeedDay; today: string }) {
       sessionNumber,
     };
     const tempId = emitOptimisticTask(detail);
-    startTaskTimer(tempId, QUICK_LOG_GOAL_SECONDS, {
+    startTaskTimer(tempId, 0, {
       pieceId: piece.id,
       pieceName: piece.name,
       pieceComposer: piece.composer,
@@ -147,7 +145,7 @@ export function QuickLog({ day, today }: { day: FeedDay; today: string }) {
       sectionLabel: null,
       sectionStatus: null,
       text: "",
-      goalSeconds: QUICK_LOG_GOAL_SECONDS,
+      goalSeconds: 0,
       metronomeSpeed: null,
       date: today,
     });

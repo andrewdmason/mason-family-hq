@@ -519,8 +519,8 @@ export async function createTask(
       metronome_speed: options?.metronomeSpeed ?? null,
       sort_order: nextOrder,
       text: options?.text ?? "",
-      timer_seconds: options?.timerSeconds ?? 900,
-      timer_remaining_seconds: options?.timerSeconds ?? 900,
+      timer_seconds: options?.timerSeconds ?? 0,
+      timer_remaining_seconds: options?.timerSeconds ?? 0,
       ...(options?.date ? { date: options.date } : {}),
     })
     .select("id")
