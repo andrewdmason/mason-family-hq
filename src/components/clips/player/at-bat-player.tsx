@@ -745,7 +745,7 @@ export function AtBatPlayer({
   );
 
   // The selected pitch's tools, shown in a popover over its dot. Every change
-  // saves as you make it.
+  // saves as you make it; picking an outcome closes it.
   function pitchTools(p: ClipPitch) {
     return (
       <div className="flex flex-wrap items-center justify-center gap-1 rounded-2xl bg-neutral-800 p-1 text-xs shadow-lg ring-1 ring-white/10">
@@ -757,7 +757,10 @@ export function AtBatPlayer({
             key={o.value}
             active={p.outcome === o.value}
             title={`${o.label} (${o.key.toUpperCase()})`}
-            onClick={() => patchPitch(p.id, { outcome: p.outcome === o.value ? null : o.value })}
+            onClick={() => {
+              patchPitch(p.id, { outcome: p.outcome === o.value ? null : o.value });
+              setSelectedId(null);
+            }}
           >
             {o.label}
           </Pill>

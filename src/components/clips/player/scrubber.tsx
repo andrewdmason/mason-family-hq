@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { outcomeLabel, type ClipPitch, type PitchOutcome } from "@/lib/clips/types";
 import { planDuration, planOffsets, quickTimeAt, type PlanSegment } from "@/lib/clips/plan";
 import type { Detection } from "@/lib/clips/detect";
@@ -24,8 +24,8 @@ import { cn } from "@/lib/utils";
 // pitch — brighter the stronger it is — to compare against the dots.
 
 const GAP_PX = 6;
-// Roughly half the pitch-tools popover's width, to keep it on screen.
-const TOOLS_HALF = 300;
+// The pitch-tools popover keeps at least this far from the screen's edges.
+const TOOLS_MARGIN = 8;
 const LABEL_MIN_PX = 64;
 const DOT_STYLE: Record<PitchOutcome | "none", string> = {
   none: "bg-white/70",
@@ -158,6 +158,20 @@ export function Scrubber({
     return ((geo.offsets[i] + (p.t - plan[i].start) / plan[i].rate) / geo.total) * avail + geo.group[i] * GAP_PX;
   })();
   const transition = "transition-[left,width,opacity] duration-500 ease-in-out";
+
+  // Centre the popover over its dot, then slide it back inside the screen —
+  // measured, since it wraps to a different width on a phone than a laptop.
+  const tools = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = tools.current;
+    if (!el || !track.current || selectedX == null) return;
+    const trackLeft = track.current.getBoundingClientRect().left;
+    const vw = document.documentElement.clientWidth;
+    const half = el.offsetWidth / 2;
+    const min = TOOLS_MARGIN + half - trackLeft;
+    const max = vw - TOOLS_MARGIN - half - trackLeft;
+    el.style.left = `${min > max ? vw / 2 - trackLeft : Math.min(Math.max(selectedX, min), max)}px`;
+  });
 
   return (
     <div
@@ -378,8 +392,8 @@ export function Scrubber({
 
       {selectedTools && selectedX != null && (
         <div
-          className="absolute bottom-full z-10 mb-1 w-max max-w-[92vw] -translate-x-1/2"
-          style={{ left: Math.min(Math.max(selectedX, TOOLS_HALF), Math.max(TOOLS_HALF, width - TOOLS_HALF)) }}
+          ref={tools}
+          className="absolute bottom-full z-10 mb-1 w-max max-w-[calc(100vw-16px)] -translate-x-1/2"
           onPointerDown={(e) => e.stopPropagation()}
         >
           {selectedTools}
