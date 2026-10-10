@@ -793,13 +793,13 @@ export function AtBatPlayer({
           className="flex min-w-0 items-center gap-1 rounded-lg px-1.5 py-1 text-sm text-white/80 hover:bg-white/10"
         >
           <ChevronLeft className="size-5 shrink-0" />
-          <span className="truncate">{game.name}</span>
+          <span className="hidden truncate sm:inline">{game.name}</span>
         </Link>
-        <div className="flex shrink-0 items-center text-sm text-white/60">
+        <div className="flex min-w-0 items-center text-sm text-white/60">
           <AtBatStep href={prevId ? `/clips/at-bat/${prevId}` : null} label="Previous at-bat">
             <ChevronLeft className="size-4" />
           </AtBatStep>
-          <span className="tabular-nums">
+          <span className="truncate tabular-nums">
             AB {index + 1} of {count}
             {result && <span className="text-white/90"> · {resultName(result)}</span>}
           </span>
@@ -809,7 +809,7 @@ export function AtBatPlayer({
         </div>
         <div className="flex min-w-0 flex-1 justify-center">
           {editing ? (
-            <span className="truncate rounded-full bg-amber-400/15 px-2.5 py-0.5 text-xs text-amber-200">
+            <span className="hidden truncate rounded-full bg-amber-400/15 px-2.5 py-0.5 text-xs text-amber-200 sm:inline">
               {sorted.length
                 ? "Editing · tap a dot to adjust it, or + to add a pitch"
                 : "Editing · tap + as each pitch reaches the plate"}
@@ -964,9 +964,40 @@ export function AtBatPlayer({
         </span>
       </div>
 
+      {/* Edit tools, on their own row so the transport below fits a phone */}
+      {editing && (
+        <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 px-2 pt-2">
+          <Pill
+            active={!!detection}
+            onClick={() => (detection ? closeDetection() : runDetection())}
+            disabled={!media || detecting}
+            className="h-9"
+            title="Auto-detect pitches from the sound, to compare with your marks"
+          >
+            {detecting ? <Loader2 className="size-4 animate-spin" /> : <AudioWaveform className="size-4" />}
+            Detect
+          </Pill>
+          <Pill active={zoomEditing} onClick={() => setZoomEditing((x) => !x)} className="h-9" title="Zoom for replays">
+            <ZoomIn className="size-4" /> {zoomEditing ? "Done" : "Zoom"}
+          </Pill>
+          {zoomEditing && zoom && (
+            <Pill
+              className="h-9"
+              onClick={() => {
+                setZoom(null);
+                setAtBatZoom(atBat.id, null).catch(report);
+              }}
+            >
+              Remove zoom
+            </Pill>
+          )}
+        </div>
+      )}
+
       {/* Transport, split to the thumbs: pitch + frame on the outside edges,
-          play and speed (plus + Pitch while editing) in the middle. */}
-      <div className="flex shrink-0 items-center gap-2 px-2 pb-2 pt-1">
+          play and speed (plus + Pitch while editing) in the middle. The middle
+          never shrinks below its buttons; the edge buttons narrow instead. */}
+      <div className="flex shrink-0 items-center gap-1.5 px-2 pb-2 pt-1 sm:gap-2">
         <TransportButton label="Previous pitch" onClick={() => jumpToPitch(-1)} disabled={!sorted.length}>
           <ChevronFirst className="size-6" />
         </TransportButton>
@@ -974,7 +1005,7 @@ export function AtBatPlayer({
           <StepBack className="size-6" />
         </TransportButton>
 
-        <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
+        <div className="flex flex-1 items-center justify-center gap-1.5 sm:gap-2">
           <button
             type="button"
             aria-label={playing ? "Pause" : "Play"}
@@ -993,34 +1024,6 @@ export function AtBatPlayer({
             >
               <Plus className="size-4" /> Pitch
             </button>
-          )}
-          {editing && (
-            <Pill
-              active={!!detection}
-              onClick={() => (detection ? closeDetection() : runDetection())}
-              disabled={!media || detecting}
-              className="h-9"
-              title="Auto-detect pitches from the sound, to compare with your marks"
-            >
-              {detecting ? <Loader2 className="size-4 animate-spin" /> : <AudioWaveform className="size-4" />}
-              Detect
-            </Pill>
-          )}
-          {editing && (
-            <Pill active={zoomEditing} onClick={() => setZoomEditing((x) => !x)} className="h-9" title="Zoom for replays">
-              <ZoomIn className="size-4" /> {zoomEditing ? "Done" : "Zoom"}
-            </Pill>
-          )}
-          {editing && zoomEditing && zoom && (
-            <Pill
-              className="h-9"
-              onClick={() => {
-                setZoom(null);
-                setAtBatZoom(atBat.id, null).catch(report);
-              }}
-            >
-              Remove zoom
-            </Pill>
           )}
           {!editing && zoom && (
             <Pill
@@ -1152,7 +1155,7 @@ function TransportButton({
       aria-label={label}
       title={label}
       disabled={disabled}
-      className="flex h-12 w-14 shrink-0 items-center justify-center rounded-xl bg-white/10 active:bg-white/25 disabled:opacity-30"
+      className="flex h-12 w-14 min-w-9 shrink items-center justify-center rounded-xl bg-white/10 active:bg-white/25 disabled:opacity-30"
       style={{ touchAction: "none", WebkitTouchCallout: "none" }}
       onContextMenu={(e) => e.preventDefault()}
       onClick={hold ? undefined : onClick}
