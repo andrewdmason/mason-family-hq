@@ -103,6 +103,8 @@ const HOLD_DELAY_MS = 350;
 const HOLD_FPS = 12;
 const JOG_PX_PER_FRAME = 6;
 const MIN_PITCH_GAP_S = 1.5;
+// How long a seek may hang before a newer one is applied over it (see seek()).
+const SEEK_STALL_MS = 1500;
 
 type Mode = "quick" | "full"; // quick = watching, full = editing
 
@@ -169,6 +171,7 @@ export function AtBatPlayer({
   const segIdx = useRef<number | null>(null);
   // A seek waiting for the one in flight to land (see seek()).
   const pendingSeek = useRef<{ t: number; fast: boolean } | null>(null);
+  const seekWatchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [segShown, setSegShown] = useState<number | null>(null);
   const setSeg = useCallback((i: number | null) => {
     segIdx.current = i;
@@ -292,7 +295,9 @@ export function AtBatPlayer({
     const tick = () => {
       const v = video.current;
       if (v) {
-        if (!scrubbing.current) setTime(v.currentTime);
+        // A seek still waiting its turn shows where it's headed, not where
+        // the video was.
+        if (!scrubbing.current) setTime(pendingSeek.current?.t ?? v.currentTime);
         const i = segIdx.current;
         if (!v.paused && modeRef.current === "quick" && i != null) {
           const seg = planRef.current[i];
@@ -329,6 +334,12 @@ export function AtBatPlayer({
   // dragging on a video without a playback copy, whose full frames are a
   // second apart) snaps to the nearest full frame so the picture keeps up;
   // the drag ends with a precise seek.
+  //
+  // iOS Safari can leave a seek in flight indefinitely (seen on a large
+  // playback copy over cellular): `seeking` stays true and `seeked` never
+  // fires, so every later seek would queue forever and the playhead snaps
+  // back. A watchdog applies the waiting seek anyway — setting currentTime
+  // again restarts the stalled one.
   const applySeek = useCallback((v: HTMLVideoElement, t: number, fast: boolean) => {
     if (fast && typeof v.fastSeek === "function") v.fastSeek(t);
     else v.currentTime = t;
@@ -340,8 +351,18 @@ export function AtBatPlayer({
       if (segIdx.current != null && !opts.keepSeg) leaveSegments();
       const target = Math.min(Math.max(0, t), v.duration || t);
       setTime(target);
-      if (v.seeking) pendingSeek.current = { t: target, fast: !!opts.fast };
-      else applySeek(v, target, !!opts.fast);
+      if (!v.seeking) {
+        applySeek(v, target, !!opts.fast);
+        return;
+      }
+      pendingSeek.current = { t: target, fast: !!opts.fast };
+      seekWatchdog.current ??= setTimeout(() => {
+        seekWatchdog.current = null;
+        const next = pendingSeek.current;
+        if (!next) return;
+        pendingSeek.current = null;
+        applySeek(v, next.t, next.fast);
+      }, SEEK_STALL_MS);
     },
     [applySeek, leaveSegments],
   );
@@ -349,13 +370,19 @@ export function AtBatPlayer({
     const v = video.current;
     if (!v) return;
     const onSeeked = () => {
+      if (seekWatchdog.current) clearTimeout(seekWatchdog.current);
+      seekWatchdog.current = null;
       const next = pendingSeek.current;
       if (!next) return;
       pendingSeek.current = null;
       applySeek(v, next.t, next.fast);
     };
     v.addEventListener("seeked", onSeeked);
-    return () => v.removeEventListener("seeked", onSeeked);
+    return () => {
+      v.removeEventListener("seeked", onSeeked);
+      if (seekWatchdog.current) clearTimeout(seekWatchdog.current);
+      seekWatchdog.current = null;
+    };
   }, [media, applySeek]);
   const dragSeekIsFast = !media?.isPlaybackCopy;
   const lastScrubT = useRef<{ t: number; seg: number | null } | null>(null);
