@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { outcomeLabel, type ClipPitch, type PitchOutcome } from "@/lib/clips/types";
 import { planDuration, planOffsets, quickTimeAt, type PlanSegment } from "@/lib/clips/plan";
+import type { Detection } from "@/lib/clips/detect";
 import { cn } from "@/lib/utils";
 
 // The timeline, in two shapes.
@@ -17,6 +18,10 @@ import { cn } from "@/lib/utils";
 // striped "¼×" extension after its window — no dot, so it never reads as
 // another pitch. Switching modes animates between the two: the
 // tinted windows slide together as the gaps fold away.
+//
+// Auto-detection (full only, while the experiment is on): the sound's onset
+// strength drawn faintly behind the track, and a red tick at each detected
+// pitch — brighter the stronger it is — to compare against the dots.
 
 const GAP_PX = 6;
 // Roughly half the pitch-tools popover's width, to keep it on screen.
@@ -47,6 +52,8 @@ export function Scrubber({
   onSelect,
   onDragPitch,
   onDropPitch,
+  detection,
+  detectThreshold,
 }: {
   duration: number;
   time: number;
@@ -65,6 +72,9 @@ export function Scrubber({
   onSelect: (id: string) => void;
   onDragPitch: (id: string, t: number) => void;
   onDropPitch: (id: string, t: number) => void;
+  detection?: Detection | null;
+  /** Ticks show for onsets at least this strong (dB). */
+  detectThreshold?: number;
 }) {
   const track = useRef<HTMLDivElement>(null);
   const drag = useRef<{ kind: "seek" } | { kind: "pitch"; id: string; moved: boolean; t: number; x: number } | null>(
@@ -265,6 +275,56 @@ export function Scrubber({
             </span>
           );
         })}
+
+      {/* Auto-detection: strength curve and ticks (full only) */}
+      {!quick && detection && detectThreshold != null && (
+        <>
+          <svg
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 w-full"
+            viewBox={`0 0 ${detection.curve.length} 1`}
+            preserveAspectRatio="none"
+            aria-hidden
+          >
+            <polyline
+              fill="none"
+              stroke="rgb(248 113 113 / 0.45)"
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+              points={detection.curve.map((v, i) => `${i},${1 - Math.min(1, v / 40)}`).join(" ")}
+            />
+            <line
+              x1={0}
+              x2={detection.curve.length}
+              y1={1 - Math.min(1, detectThreshold / 40)}
+              y2={1 - Math.min(1, detectThreshold / 40)}
+              stroke="rgb(248 113 113 / 0.3)"
+              strokeDasharray="2 3"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+          {detection.onsets
+            .filter((o) => o.strength >= detectThreshold)
+            .map((o) => (
+              <button
+                key={o.t}
+                type="button"
+                aria-label={`Detected pitch at ${o.t.toFixed(2)}s`}
+                title={`${o.t.toFixed(2)}s · ${o.strength} dB`}
+                className="absolute top-0 flex h-full w-3 -translate-x-1/2 justify-center"
+                style={{ left: pct(o.t) }}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  onSeek(o.t);
+                }}
+              >
+                <span
+                  className="block h-full w-0.5 rounded-full bg-red-500"
+                  style={{ opacity: 0.45 + 0.55 * Math.min(1, (o.strength - detectThreshold) / 15) }}
+                />
+              </button>
+            ))}
+        </>
+      )}
 
       {/* Pitch dots */}
       {pitches.map((p, j) => {

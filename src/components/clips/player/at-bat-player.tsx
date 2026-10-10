@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  AudioWaveform,
   ChevronFirst,
   ChevronLast,
   ChevronLeft,
@@ -52,6 +53,8 @@ import {
   type PlanSegment,
 } from "@/lib/clips/plan";
 import { formatClock } from "@/lib/clips/format";
+import { compareToMarks, detectPitches, DETECT, type Detection } from "@/lib/clips/detect";
+import { decodeAudio } from "@/lib/clips/detect-audio";
 import { createClient } from "@/lib/supabase/client";
 import {
   AT_BAT_RESULTS,
@@ -581,6 +584,53 @@ export function AtBatPlayer({
     setEditing(true);
   }
 
+  // --- Auto-detection (experiment) -------------------------------------------------------
+  // Edit mode's Detect button: find pitches from the sound and lay red ticks
+  // beside the hand-marked dots, with a running score. Nothing is saved.
+  const [detection, setDetection] = useState<Detection | null>(null);
+  const [detectStatus, setDetectStatus] = useState<string | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const [detectThreshold, setDetectThreshold] = useState<number>(DETECT.defaultThresholdDb);
+  const detectAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => detectAbort.current?.abort(), []);
+
+  async function runDetection() {
+    if (!media || detectAbort.current) return;
+    const abort = new AbortController();
+    detectAbort.current = abort;
+    setDetecting(true);
+    setDetectStatus("Downloading…");
+    try {
+      const { samples, rate } = await decodeAudio(
+        media.videoUrl,
+        (f) => setDetectStatus(`Downloading ${Math.round(f * 100)}%`),
+        abort.signal,
+      );
+      setDetectStatus("Listening…");
+      // Let the status paint before the (brief) synchronous crunch.
+      await new Promise((r) => setTimeout(r, 0));
+      setDetection(detectPitches(samples, rate));
+      setDetectStatus(null);
+    } catch (e) {
+      if (!abort.signal.aborted) setDetectStatus(e instanceof Error ? e.message : "Detection failed");
+    } finally {
+      detectAbort.current = null;
+      setDetecting(false);
+    }
+  }
+
+  function closeDetection() {
+    detectAbort.current?.abort();
+    setDetection(null);
+    setDetectStatus(null);
+  }
+
+  const detectScore = useMemo(() => {
+    if (!detection) return null;
+    const shown = detection.onsets.filter((o) => o.strength >= detectThreshold);
+    return { shown: shown.length, ...compareToMarks(shown, sorted.map((p) => p.t)) };
+  }, [detection, detectThreshold, sorted]);
+
   function finishEditing() {
     if (!sorted.length) return;
     setSelectedId(null);
@@ -689,6 +739,8 @@ export function AtBatPlayer({
       onSelect={(id) => editing && setSelectedId(id)}
       onDragPitch={(id, t) => setPitches((list) => list.map((p) => (p.id === id ? { ...p, t } : p)))}
       onDropPitch={(id, t) => patchPitch(id, { t: frameTime(frameAt(t)) })}
+      detection={editing ? detection : null}
+      detectThreshold={detectThreshold}
     />
   );
 
@@ -864,6 +916,43 @@ export function AtBatPlayer({
         )}
       </div>
 
+      {/* Auto-detection readout: progress, then the score against the marks */}
+      {editing && (detectStatus || detectScore) && (
+        <div className="flex shrink-0 items-center gap-2 px-3 pt-1 text-xs text-red-200">
+          <AudioWaveform className="size-3.5 shrink-0 text-red-400" />
+          <span className="min-w-0 flex-1 truncate tabular-nums">
+            {detectStatus ?? (detectScore && describeScore(detectScore, sorted.length))}
+          </span>
+          {detectScore && !detectStatus && (
+            <>
+              <Pill
+                className="h-7 px-2.5"
+                title="Show only stronger detections"
+                onClick={() => setDetectThreshold((x) => x + 2)}
+              >
+                Fewer
+              </Pill>
+              <Pill
+                className="h-7 px-2.5"
+                title="Show weaker detections too"
+                onClick={() => setDetectThreshold((x) => Math.max(DETECT.floorDb, x - 2))}
+              >
+                More
+              </Pill>
+              <span className="w-10 text-right font-mono text-[10px] text-red-200/60">{detectThreshold} dB</span>
+            </>
+          )}
+          <button
+            type="button"
+            aria-label="Close auto-detection"
+            className="rounded-full p-1 text-white/60 hover:bg-white/10"
+            onClick={closeDetection}
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Scrubber */}
       <div className="flex shrink-0 items-center gap-2 px-3 pt-1">
         <span className="w-10 shrink-0 text-right font-mono text-xs tabular-nums text-white/70">
@@ -904,6 +993,18 @@ export function AtBatPlayer({
             >
               <Plus className="size-4" /> Pitch
             </button>
+          )}
+          {editing && (
+            <Pill
+              active={!!detection}
+              onClick={() => (detection ? closeDetection() : runDetection())}
+              disabled={!media || detecting}
+              className="h-9"
+              title="Auto-detect pitches from the sound, to compare with your marks"
+            >
+              {detecting ? <Loader2 className="size-4 animate-spin" /> : <AudioWaveform className="size-4" />}
+              Detect
+            </Pill>
           )}
           {editing && (
             <Pill active={zoomEditing} onClick={() => setZoomEditing((x) => !x)} className="h-9" title="Zoom for replays">
@@ -1070,6 +1171,26 @@ function TransportButton({
       {children}
     </button>
   );
+}
+
+/** "6 found · 5 of 6 pitches matched, avg 0.04s late (worst 0.21s) · 1 missed · 1 extra" */
+function describeScore(
+  score: { shown: number; matched: { offset: number }[]; missed: number[]; extra: number[] },
+  marks: number,
+): string {
+  const parts = [`${score.shown} found`];
+  if (marks) {
+    let m = `${score.matched.length} of ${marks} pitches matched`;
+    if (score.matched.length) {
+      const avg = score.matched.reduce((a, x) => a + x.offset, 0) / score.matched.length;
+      const worst = Math.max(...score.matched.map((x) => Math.abs(x.offset)));
+      m += `, avg ${Math.abs(avg).toFixed(2)}s ${avg >= 0 ? "late" : "early"} (worst ${worst.toFixed(2)}s)`;
+    }
+    parts.push(m);
+    if (score.missed.length) parts.push(`${score.missed.length} missed`);
+  }
+  if (score.extra.length) parts.push(`${score.extra.length} extra`);
+  return parts.join(" · ");
 }
 
 function Pill({
