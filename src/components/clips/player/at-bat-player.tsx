@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Check,
+  Flag,
   Pencil,
   Loader2,
   MoreHorizontal,
@@ -745,7 +746,7 @@ export function AtBatPlayer({
   );
 
   // The selected pitch's tools, shown in a popover over its dot. Every change
-  // saves as you make it.
+  // saves as you make it; picking an outcome closes it.
   function pitchTools(p: ClipPitch) {
     return (
       <div className="flex flex-wrap items-center justify-center gap-1 rounded-2xl bg-neutral-800 p-1 text-xs shadow-lg ring-1 ring-white/10">
@@ -757,7 +758,10 @@ export function AtBatPlayer({
             key={o.value}
             active={p.outcome === o.value}
             title={`${o.label} (${o.key.toUpperCase()})`}
-            onClick={() => patchPitch(p.id, { outcome: p.outcome === o.value ? null : o.value })}
+            onClick={() => {
+              patchPitch(p.id, { outcome: p.outcome === o.value ? null : o.value });
+              setSelectedId(null);
+            }}
           >
             {o.label}
           </Pill>
@@ -793,13 +797,13 @@ export function AtBatPlayer({
           className="flex min-w-0 items-center gap-1 rounded-lg px-1.5 py-1 text-sm text-white/80 hover:bg-white/10"
         >
           <ChevronLeft className="size-5 shrink-0" />
-          <span className="truncate">{game.name}</span>
+          <span className="hidden truncate sm:inline">{game.name}</span>
         </Link>
-        <div className="flex shrink-0 items-center text-sm text-white/60">
+        <div className="flex min-w-0 items-center text-sm text-white/60">
           <AtBatStep href={prevId ? `/clips/at-bat/${prevId}` : null} label="Previous at-bat">
             <ChevronLeft className="size-4" />
           </AtBatStep>
-          <span className="tabular-nums">
+          <span className="truncate tabular-nums">
             AB {index + 1} of {count}
             {result && <span className="text-white/90"> · {resultName(result)}</span>}
           </span>
@@ -809,7 +813,7 @@ export function AtBatPlayer({
         </div>
         <div className="flex min-w-0 flex-1 justify-center">
           {editing ? (
-            <span className="truncate rounded-full bg-amber-400/15 px-2.5 py-0.5 text-xs text-amber-200">
+            <span className="hidden truncate rounded-full bg-amber-400/15 px-2.5 py-0.5 text-xs text-amber-200 sm:inline">
               {sorted.length
                 ? "Editing · tap a dot to adjust it, or + to add a pitch"
                 : "Editing · tap + as each pitch reaches the plate"}
@@ -822,39 +826,16 @@ export function AtBatPlayer({
             <span className="truncate text-xs text-white/60">{seg.caption}</span>
           ) : null}
         </div>
-        {editing ? (
-          <>
-            <button
-              type="button"
-              onClick={() => setDialog("result")}
-              className={cn(
-                "shrink-0 rounded-md px-2 py-1 font-mono text-xs font-semibold",
-                badge ? "bg-white/15" : "text-white/60 ring-1 ring-white/20 hover:bg-white/10",
-              )}
-            >
-              {badge ?? "Result"}
-            </button>
-            <button
-              type="button"
-              onClick={finishEditing}
-              disabled={!sorted.length}
-              title={sorted.length ? "Done marking (E)" : "Mark at least one pitch first"}
-              className="flex h-8 shrink-0 items-center gap-1 rounded-full bg-emerald-500 px-3 text-xs font-semibold disabled:opacity-40"
-            >
-              <Check className="size-4" /> Done
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              onClick={startEditing}
-              title="Edit pitches (E)"
-              className="flex h-8 shrink-0 items-center gap-1 rounded-full bg-white/10 px-3 text-xs font-medium hover:bg-white/15"
-            >
-              <Pencil className="size-3.5" /> Edit
-            </button>
-          </>
+        {editing && (
+          <button
+            type="button"
+            onClick={finishEditing}
+            disabled={!sorted.length}
+            title={sorted.length ? "Done marking (E)" : "Mark at least one pitch first"}
+            className="flex h-8 shrink-0 items-center gap-1 rounded-full bg-emerald-500 px-3 text-xs font-semibold disabled:opacity-40"
+          >
+            <Check className="size-4" /> Done
+          </button>
         )}
         <PlayerMenu
           onExport={() => setDialog("export")}
@@ -865,7 +846,28 @@ export function AtBatPlayer({
               : null
           }
           canExport={sorted.length > 0}
-        />
+        >
+          {editing ? (
+            <>
+              <DropdownMenuItem onClick={() => setDialog("result")}>
+                <Flag /> {badge ? `Result · ${badge}` : "Set result"}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setZoomEditing(true)} disabled={zoomEditing}>
+                <ZoomIn /> Zoom for replays
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => (detection ? closeDetection() : runDetection())}
+                disabled={!media || detecting}
+              >
+                <AudioWaveform /> {detection ? "Hide auto-detect" : "Auto-detect pitches"}
+              </DropdownMenuItem>
+            </>
+          ) : (
+            <DropdownMenuItem onClick={startEditing}>
+              <Pencil /> Edit pitches
+            </DropdownMenuItem>
+          )}
+        </PlayerMenu>
       </div>
 
       {/* Video */}
@@ -964,9 +966,31 @@ export function AtBatPlayer({
         </span>
       </div>
 
+      {/* Zoom editing (started from the menu): drag the box, then Done */}
+      {editing && zoomEditing && (
+        <div className="flex shrink-0 items-center justify-center gap-2 px-2 pt-2">
+          <span className="text-xs text-white/60">Drag to frame the replay zoom</span>
+          {zoom && (
+            <Pill
+              className="h-9"
+              onClick={() => {
+                setZoom(null);
+                setAtBatZoom(atBat.id, null).catch(report);
+              }}
+            >
+              Remove
+            </Pill>
+          )}
+          <Pill active className="h-9" onClick={() => setZoomEditing(false)}>
+            <Check className="size-4" /> Done
+          </Pill>
+        </div>
+      )}
+
       {/* Transport, split to the thumbs: pitch + frame on the outside edges,
-          play and speed (plus + Pitch while editing) in the middle. */}
-      <div className="flex shrink-0 items-center gap-2 px-2 pb-2 pt-1">
+          play and speed (plus + Pitch while editing) in the middle. The middle
+          never shrinks below its buttons; the edge buttons narrow instead. */}
+      <div className="flex shrink-0 items-center gap-1.5 px-2 pb-2 pt-1 sm:gap-2">
         <TransportButton label="Previous pitch" onClick={() => jumpToPitch(-1)} disabled={!sorted.length}>
           <ChevronFirst className="size-6" />
         </TransportButton>
@@ -974,7 +998,7 @@ export function AtBatPlayer({
           <StepBack className="size-6" />
         </TransportButton>
 
-        <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
+        <div className="flex flex-1 items-center justify-center gap-1.5 sm:gap-2">
           <button
             type="button"
             aria-label={playing ? "Pause" : "Play"}
@@ -993,34 +1017,6 @@ export function AtBatPlayer({
             >
               <Plus className="size-4" /> Pitch
             </button>
-          )}
-          {editing && (
-            <Pill
-              active={!!detection}
-              onClick={() => (detection ? closeDetection() : runDetection())}
-              disabled={!media || detecting}
-              className="h-9"
-              title="Auto-detect pitches from the sound, to compare with your marks"
-            >
-              {detecting ? <Loader2 className="size-4 animate-spin" /> : <AudioWaveform className="size-4" />}
-              Detect
-            </Pill>
-          )}
-          {editing && (
-            <Pill active={zoomEditing} onClick={() => setZoomEditing((x) => !x)} className="h-9" title="Zoom for replays">
-              <ZoomIn className="size-4" /> {zoomEditing ? "Done" : "Zoom"}
-            </Pill>
-          )}
-          {editing && zoomEditing && zoom && (
-            <Pill
-              className="h-9"
-              onClick={() => {
-                setZoom(null);
-                setAtBatZoom(atBat.id, null).catch(report);
-              }}
-            >
-              Remove zoom
-            </Pill>
           )}
           {!editing && zoom && (
             <Pill
@@ -1152,7 +1148,7 @@ function TransportButton({
       aria-label={label}
       title={label}
       disabled={disabled}
-      className="flex h-12 w-14 shrink-0 items-center justify-center rounded-xl bg-white/10 active:bg-white/25 disabled:opacity-30"
+      className="flex h-12 w-14 min-w-9 shrink items-center justify-center rounded-xl bg-white/10 active:bg-white/25 disabled:opacity-30"
       style={{ touchAction: "none", WebkitTouchCallout: "none" }}
       onContextMenu={(e) => e.preventDefault()}
       onClick={hold ? undefined : onClick}
@@ -1219,7 +1215,9 @@ function PlayerMenu({
   onDelete,
   onReprocess,
   canExport,
+  children,
 }: {
+  children?: React.ReactNode;
   onExport: () => void;
   onDelete: () => void;
   onReprocess: (() => void) | null;
@@ -1239,6 +1237,8 @@ function PlayerMenu({
         <MoreHorizontal className="size-5" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
+        {children}
+        {children && <DropdownMenuSeparator />}
         <DropdownMenuItem disabled={!canExport} onClick={onExport}>
           <Share /> Export quick version
         </DropdownMenuItem>
