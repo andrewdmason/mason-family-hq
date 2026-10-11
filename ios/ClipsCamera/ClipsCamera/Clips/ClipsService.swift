@@ -33,14 +33,16 @@ struct GameChoice: Codable, Equatable, Identifiable {
     }
 }
 
-/// Storage paths, the same layout the website uses.
+/// Storage paths, the same layout the website uses. A rebuilt video (and its
+/// poster) gets a new name, so no cache serves the old one.
 struct AtBatPaths {
     let video: String
     let poster: String
-    init(gameID: UUID, atBatID: UUID) {
+    init(gameID: UUID, atBatID: UUID, revision: Int? = nil) {
         let dir = "\(gameID.uuidString.lowercased())/\(atBatID.uuidString.lowercased())"
-        video = "\(dir)/playback.mp4"
-        poster = "\(dir)/poster.jpg"
+        let suffix = revision.map { $0 > 0 ? "-r\($0)" : "" } ?? ""
+        video = "\(dir)/playback\(suffix).mp4"
+        poster = "\(dir)/poster\(suffix).jpg"
     }
 }
 
@@ -146,6 +148,42 @@ final class ClipsService {
         try await client.from("clip_at_bats").delete().eq("id", value: id).execute()
     }
 
+    // MARK: Relabeling
+
+    /// An at-bat's pitches as Clips has them, in order. The deciding ball in
+    /// play gets its result back from the at-bat's.
+    func pitches(atBatID: UUID, result: AtBatResult?) async throws -> [Pitch] {
+        struct Row: Decodable { let id: UUID; let t: Double; let outcome: PitchOutcome?; let batted_ball: BattedBall? }
+        let rows: [Row] = try await client.from("clip_pitches")
+            .select("id, t, outcome, batted_ball")
+            .eq("at_bat_id", value: atBatID)
+            .order("t")
+            .execute()
+            .value
+        var pitches = rows.map { Pitch(id: $0.id, t: $0.t, outcome: $0.outcome, battedBall: $0.batted_ball) }
+        if let i = pitches.lastIndex(where: { $0.outcome == .inPlay }) {
+            pitches[i].playResult = result?.playResult
+        }
+        return pitches
+    }
+
+    /// New labels for an at-bat's pitches and its result. The video is untouched.
+    func relabel(atBatID: UUID, pitches: [Pitch]) async throws {
+        struct PitchLabels: Encodable { @Nullable var outcome: String?; @Nullable var batted_ball: String? }
+        for p in pitches {
+            try await client.from("clip_pitches")
+                .update(PitchLabels(outcome: p.outcome?.rawValue, batted_ball: p.outcome == .inPlay ? p.battedBall?.rawValue : nil))
+                .eq("id", value: p.id)
+                .execute()
+        }
+        struct ResultRow: Encodable { @Nullable var result: String? }
+        let result = Scorebook.outcome(pitches.sorted { $0.t < $1.t })?.result
+        try await client.from("clip_at_bats")
+            .update(ResultRow(result: result?.rawValue))
+            .eq("id", value: atBatID)
+            .execute()
+    }
+
     func videoURL(_ path: String) async throws -> URL {
         try await client.storage.from(Config.bucket).createSignedURL(path: path, expiresIn: 3600)
     }
@@ -164,7 +202,7 @@ final class ClipsService {
     /// Safe to repeat — every write is an upsert keyed on the phone's ids.
     func finalize(job: AtBatJob, game: GameChoice, poster: Data?) async throws {
         let session = try await client.auth.session
-        let paths = AtBatPaths(gameID: game.id, atBatID: job.id)
+        let paths = AtBatPaths(gameID: game.id, atBatID: job.id, revision: job.revision)
         if let poster {
             try await client.storage.from(Config.bucket)
                 .upload(paths.poster, data: poster, options: FileOptions(contentType: "image/jpeg", upsert: true))
@@ -183,7 +221,7 @@ final class ClipsService {
             let original_path: String; let original_name: String; let original_bytes: Int64?
             let playback_path: String; let poster_path: String?
             let duration_s: Double?; let fps = 60.0; let width = 1920; let height = 1080; let codec = "h264"
-            let recorded_at: Date; let marked_at: Date; let result: String?; let created_by: UUID
+            let recorded_at: Date; let marked_at: Date; @Nullable var result: String?; let created_by: UUID
         }
         try await client.from("clip_at_bats")
             .upsert(AtBatRow(
@@ -196,7 +234,7 @@ final class ClipsService {
             .execute()
 
         struct PitchRow: Encodable {
-            let id: UUID; let at_bat_id: UUID; let t: Double; let outcome: String?; let batted_ball: String?; let source = "camera"
+            let id: UUID; let at_bat_id: UUID; let t: Double; @Nullable var outcome: String?; @Nullable var batted_ball: String?; let source = "camera"
         }
         let sorted = job.pitches.sorted { $0.t < $1.t }
         let times = job.pitchTimes ?? []
@@ -207,6 +245,19 @@ final class ClipsService {
         if !rows.isEmpty {
             try await client.from("clip_pitches").upsert(rows, onConflict: "id").execute()
         }
+    }
+}
+
+/// Writes a missing value as null, so an upsert or update clears the column
+/// (a plain optional is left out, which keeps the old value).
+@propertyWrapper
+struct Nullable<Value: Encodable>: Encodable {
+    var wrappedValue: Value?
+    init(wrappedValue: Value?) { self.wrappedValue = wrappedValue }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        if let wrappedValue { try c.encode(wrappedValue) } else { try c.encodeNil() }
     }
 }
 

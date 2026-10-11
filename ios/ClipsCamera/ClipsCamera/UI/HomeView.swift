@@ -24,6 +24,10 @@ struct HomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
 
+    /// Fixing an at-bat's pitch labels (the sheet is open).
+    @State private var editing: PitchEditTarget?
+    @State private var editError: String?
+
     /// Starting a new game for this kid (the sheet is open).
     @State private var newGameFor: Kid?
 
@@ -118,6 +122,12 @@ struct HomeView: View {
         .alert("Can't delete", isPresented: .constant(deleteError != nil), presenting: deleteError) { _ in
             Button("OK") { deleteError = nil }
         } message: { Text($0) }
+        .alert("Can't save the changes", isPresented: .constant(editError != nil), presenting: editError) { _ in
+            Button("OK") { editError = nil }
+        } message: { Text($0) }
+        .sheet(item: $editing) { target in
+            PitchEditor(target: target) { pitches in save(target, pitches: pitches) }
+        }
         .confirmationDialog(
             deleting.map { "Delete AB \($0.number) from \($0.game.name)?" } ?? "",
             isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
@@ -196,8 +206,10 @@ struct HomeView: View {
                         case .atBat(let ab, let number):
                             HistoryCard(atBat: ab, poster: ab.posterPath.flatMap { posters[$0] },
                                         sharing: sharing == ab.id,
+                                        rebuilding: isRebuilding(ab.id),
                                         onOpen: { open(ab) },
                                         onShare: { share(ab, game: section, number: number) },
+                                        onEdit: ab.isCamera && !isRebuilding(ab.id) ? { edit(ab, title: "AB \(number) · \(section.name)") } : nil,
                                         onDelete: { deleting = (ab, section, number) })
                         case .local(let job):
                             localCard(job)
@@ -255,6 +267,9 @@ struct HomeView: View {
             if job.editFile != nil {
                 Button { shareLocal(job) } label: { Label("Share", systemImage: "square.and.arrow.up") }
             }
+            if job.state != .building && job.upload != .uploading && job.upload != .finishing {
+                Button { editLocal(job) } label: { Label("Edit pitches", systemImage: "pencil") }
+            }
             Button(role: .destructive) { store.delete(job.id) } label: { Label("Delete", systemImage: "trash") }
         }
     }
@@ -285,6 +300,8 @@ struct HomeView: View {
         if let g = history[sebastian.id]?.first {
             model.settings.setCurrentGame(GameChoice(id: g.id, kid: sebastian, name: g.name, playedOn: GameChoice.day(Date()), priorAtBats: 2))
         }
+        // `-demoHome -demo`: straight into the camera, mid-at-bat.
+        if ProcessInfo.processInfo.arguments.contains("-demo") { cameraOpen = true }
         return true
     }
     #else
@@ -379,6 +396,59 @@ struct HomeView: View {
         }
     }
 
+    /// A phone at-bat being rebuilt after its labels changed, until the new
+    /// video is in Clips.
+    private func isRebuilding(_ id: UUID) -> Bool {
+        guard let job = store.jobs.first(where: { $0.id == id }), job.revision != nil else { return false }
+        return job.state == .building || (job.upload != nil && job.upload != .uploaded)
+    }
+
+    /// Edit an at-bat in Clips: from this phone's copy when the full
+    /// recording's still here (so the video can be rebuilt), else the labels
+    /// as Clips has them.
+    private func edit(_ ab: HistoryAtBat, title: String) {
+        if store.canRebuild(ab.id), let job = store.jobs.first(where: { $0.id == ab.id }) {
+            editing = PitchEditTarget(id: ab.id, title: title, pitches: job.pitches, rebuild: true)
+            return
+        }
+        editing = PitchEditTarget(id: ab.id, title: title, pitches: nil, rebuild: false)
+        Task {
+            do {
+                let pitches = try await model.clips.pitches(atBatID: ab.id, result: ab.result)
+                if editing?.id == ab.id { editing?.pitches = pitches }
+            } catch {
+                if editing?.id == ab.id { editing?.loadError = "Check your signal and try again." }
+            }
+        }
+    }
+
+    /// Edit an at-bat that's only on this phone so far.
+    private func editLocal(_ job: AtBatJob) {
+        let title = "AB \(store.number(of: job) ?? 1)" + (job.game.map { " · \($0.name)" } ?? "")
+        editing = PitchEditTarget(id: job.id, title: title, pitches: job.pitches, rebuild: store.canRebuild(job.id))
+    }
+
+    private func save(_ target: PitchEditTarget, pitches: [Pitch]) {
+        if target.rebuild {
+            store.rebuild(target.id, pitches: pitches)
+            return
+        }
+        let inClips = history.values.joined().flatMap(\.atBats).contains { $0.id == target.id }
+        guard inClips else {
+            store.setLabels(target.id, pitches: pitches)
+            return
+        }
+        Task {
+            do {
+                try await model.clips.relabel(atBatID: target.id, pitches: pitches)
+                store.setLabels(target.id, pitches: pitches)
+                await load()
+            } catch {
+                editError = "Couldn't reach Clips — check your signal and try again."
+            }
+        }
+    }
+
     private func shareLocal(_ job: AtBatJob) {
         guard let file = job.editFile else { return }
         let name = Self.fileName(kid: job.game?.kid.firstName, game: job.game?.name, number: store.number(of: job) ?? 1,
@@ -464,8 +534,10 @@ private struct HistoryCard: View {
     let atBat: HistoryAtBat
     let poster: URL?
     let sharing: Bool
+    let rebuilding: Bool
     let onOpen: () -> Void
     let onShare: () -> Void
+    let onEdit: (() -> Void)?
     let onDelete: () -> Void
 
     var body: some View {
@@ -473,6 +545,16 @@ private struct HistoryCard: View {
             Thumbnail(url: poster)
                 .overlay(alignment: .topLeading) { if let r = atBat.result { ResultBadge(result: r) } }
                 .overlay(alignment: .bottomTrailing) { ShareButton(busy: sharing, action: onShare) }
+                .overlay {
+                    if rebuilding {
+                        VStack(spacing: 6) {
+                            ProgressView().tint(.white)
+                            Text("Updating video…").font(.caption2.weight(.semibold)).foregroundStyle(.white)
+                        }
+                        .padding(10)
+                        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+                    }
+                }
             HStack(spacing: 4) {
                 Text(atBat.result?.name ?? "No result").font(.subheadline.weight(.semibold)).lineLimit(1)
                 if !atBat.isCamera {
@@ -486,6 +568,9 @@ private struct HistoryCard: View {
         .onTapGesture(perform: onOpen)
         .contextMenu {
             Button(action: onShare) { Label("Share", systemImage: "square.and.arrow.up") }
+            if let onEdit {
+                Button(action: onEdit) { Label("Edit pitches", systemImage: "pencil") }
+            }
             Button(role: .destructive, action: onDelete) { Label("Delete from Clips", systemImage: "trash") }
         }
     }
@@ -590,6 +675,8 @@ struct PlayItem: Identifiable {
     var id: String { url.absoluteString }
 }
 
+/// Plays an at-bat starting just after its title card (the card is for shared
+/// copies), and goes back there when it ends so Play replays from the top.
 private struct PlayerScreen: View {
     let url: URL
     @Environment(\.dismiss) private var dismiss
@@ -606,10 +693,19 @@ private struct PlayerScreen: View {
             }
             .padding()
         }
-        .onAppear {
-            let p = AVPlayer(url: url)
+        .task {
+            let asset = AVURLAsset(url: url)
+            // Files from before the mark all have the standard card.
+            let intro = await EditRenderer.IntroMark.seconds(in: asset) ?? EditTimings.standard.titleCard
+            let start = CMTime(seconds: intro, preferredTimescale: 600)
+            let item = AVPlayerItem(asset: asset)
+            let p = AVPlayer(playerItem: item)
+            if intro > 0 { await p.seek(to: start, toleranceBefore: .zero, toleranceAfter: .zero) }
             player = p
             p.play()
+            for await _ in NotificationCenter.default.notifications(named: AVPlayerItem.didPlayToEndTimeNotification, object: item) {
+                await p.seek(to: start, toleranceBefore: .zero, toleranceAfter: .zero)
+            }
         }
         .onDisappear { player?.pause() }
     }

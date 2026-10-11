@@ -153,10 +153,12 @@ final class RecordModel {
 
     // MARK: Pitches
 
-    /// A finger came down on the picture: that instant is the pitch.
-    func tap(hostTime: TimeInterval) {
-        guard phase == .recording else { touched(); return }
-        guard let t = capture.recordingTime(hostTime: hostTime) else { return }
+    /// A finger came down on the Pitch button: that instant is the pitch.
+    func pitch(hostTime: TimeInterval) {
+        guard phase == .recording else { return }
+        // The Pitch button takes Record's place, so a double-tap on Record
+        // would otherwise log a pitch the moment filming starts.
+        guard let t = capture.recordingTime(hostTime: hostTime), t >= 0.5 else { return }
         haptic.impactOccurred()
         let pitch = Pitch(t: t)
         pitches.append(pitch)

@@ -119,6 +119,20 @@ enum AtBatResult: String, Codable {
         }
     }
 
+    /// What the deciding ball in play did, for an at-bat that ended in play.
+    var playResult: PlayResult? {
+        switch self {
+        case .single: .single
+        case .double: .double
+        case .triple: .triple
+        case .homeRun: .homeRun
+        case .groundout, .flyout, .lineout, .popout: .out
+        case .reachedOnError: .error
+        case .fieldersChoice: .fieldersChoice
+        case .strikeoutSwinging, .strikeoutLooking, .walk, .hitByPitch: nil
+        }
+    }
+
     static func inPlay(_ result: PlayResult, battedBall: BattedBall?) -> AtBatResult {
         switch result {
         case .single: .single

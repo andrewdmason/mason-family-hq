@@ -8,12 +8,24 @@ import UIKit
 // timestamp and every tap are measured on the capture session's clock, and a
 // pitch's time is just tap − first frame.
 
-struct ZoomStop: Identifiable, Equatable {
-    /// What the button says ("1×").
+/// One zoom button. At 240fps the phone can't hop between lenses on its own
+/// (the multi-lens camera doesn't offer 1080p240), so each button is a whole
+/// lens at its native size — no blurry digital zoom. The one exception is 2×:
+/// the main lens can crop its full-resolution sensor cleanly, but only at
+/// 120fps, so that button trades smoother slow-mo for reach.
+struct Lens: Identifiable, Equatable {
+    /// What the button says ("0.5×", "1×", "2×", "4×").
     var label: String
-    /// The device's zoom factor for it.
-    var factor: CGFloat
+    var fps: Int32
     var id: String { label }
+}
+
+/// How to set the camera up for a lens (session queue).
+private struct LensSetup {
+    var lens: Lens
+    var device: AVCaptureDevice
+    var format: AVCaptureDevice.Format
+    var zoom: CGFloat
 }
 
 enum CaptureError: LocalizedError {
@@ -42,8 +54,8 @@ final class CaptureController: NSObject, @unchecked Sendable {
     private(set) var isRecording = false
     private(set) var setupError: String?
     private(set) var formatDescription = ""
-    private(set) var zoomStops: [ZoomStop] = []
-    private(set) var zoom: ZoomStop?
+    private(set) var lenses: [Lens] = []
+    private(set) var lens: Lens?
 
     let session = AVCaptureSession()
 
@@ -51,6 +63,8 @@ final class CaptureController: NSObject, @unchecked Sendable {
     private let sessionQueue = DispatchQueue(label: "capture.session")
     private let dataQueue = DispatchQueue(label: "capture.data", qos: .userInitiated)
     private var device: AVCaptureDevice?
+    private var deviceInput: AVCaptureDeviceInput?
+    private var lensSetups: [String: LensSetup] = [:]
     private let videoOutput = AVCaptureVideoDataOutput()
     private let audioOutput = AVCaptureAudioDataOutput()
     private var configured = false
@@ -58,6 +72,7 @@ final class CaptureController: NSObject, @unchecked Sendable {
     private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
     private weak var previewLayer: AVCaptureVideoPreviewLayer?
     private var configuredDevice: AVCaptureDevice?
+    @ObservationIgnored private var previewAngleObservation: NSKeyValueObservation?
 
     // Touched only on dataQueue while recording.
     private var writer: AVAssetWriter?
@@ -114,18 +129,43 @@ final class CaptureController: NSObject, @unchecked Sendable {
 
     // MARK: Configuration
 
-    /// The first camera (multi-lens first, so zoom switches lenses) that has a
-    /// 1920×1080 format reaching 240fps.
-    private func pickDevice() -> (AVCaptureDevice, AVCaptureDevice.Format)? {
-        let types: [AVCaptureDevice.DeviceType] = [.builtInTripleCamera, .builtInDualWideCamera, .builtInWideAngleCamera]
-        for type in types {
-            guard let d = AVCaptureDevice.default(type, for: .video, position: .back) else { continue }
-            if let f = Self.bestFormat(d) { return (d, f) }
+    /// The zoom buttons, widest first: every back lens with a 1920×1080 format
+    /// reaching 240fps, labelled the way the Camera app names them, plus a
+    /// sensor-crop 2× on the main lens at 120fps.
+    private static func findLenses() -> [LensSetup] {
+        let types: [AVCaptureDevice.DeviceType] = [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera]
+        let devices = types.compactMap { AVCaptureDevice.default($0, for: .video, position: .back) }
+        let wide = devices.first { $0.deviceType == .builtInWideAngleCamera }
+        let wideFov = wide.flatMap { bestFormat($0, fps: 240) }?.videoFieldOfView
+        var setups: [LensSetup] = []
+        for d in devices {
+            guard let f = bestFormat(d, fps: 240) else { continue }
+            let label: String
+            switch d.deviceType {
+            case .builtInUltraWideCamera: label = "0.5×"
+            case .builtInTelephotoCamera:
+                // 4× on a 17 Pro; older phones have 2×, 3× or 5×.
+                func halfWidth(_ fov: Float) -> Double { tan(Double(fov) * .pi / 360) }
+                let ratio: Double = wideFov.map { halfWidth($0) / halfWidth(f.videoFieldOfView) } ?? 3
+                label = "\(Int(ratio.rounded()))×"
+            default: label = "1×"
+            }
+            setups.append(LensSetup(lens: Lens(label: label, fps: 240), device: d, format: f, zoom: 1))
         }
-        return nil
+        // 2× straight after the main lens (unless a telephoto already is 2×),
+        // from a 120fps format that reads at least twice the video's
+        // resolution, so the crop isn't upscaled.
+        if let wide, !setups.contains(where: { $0.lens.label == "2×" }),
+           let crop = bestFormat(wide, fps: 120), crop.videoZoomFactorUpscaleThreshold >= 2,
+           let i = setups.firstIndex(where: { $0.device == wide }) {
+            setups.insert(LensSetup(lens: Lens(label: "2×", fps: 120), device: wide, format: crop, zoom: 2), at: i + 1)
+        }
+        return setups
     }
 
-    static func bestFormat(_ d: AVCaptureDevice) -> AVCaptureDevice.Format? {
+    /// A 1920×1080 8-bit format reaching `fps`, preferring the one that reads
+    /// the most sensor (highest zoom before upscaling), then the widest view.
+    static func bestFormat(_ d: AVCaptureDevice, fps: Double = 240) -> AVCaptureDevice.Format? {
         let candidates = d.formats.filter { f in
             let dims = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
             let sub = CMFormatDescriptionGetMediaSubType(f.formatDescription)
@@ -133,17 +173,22 @@ final class CaptureController: NSObject, @unchecked Sendable {
             let eightBit = sub == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
                 || sub == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
             return dims.width == 1920 && dims.height == 1080 && eightBit
-                && f.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= 240 }
+                && f.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= fps }
         }
-        // Widest field of view, so the 1× stop isn't a crop.
-        return candidates.max { $0.videoFieldOfView < $1.videoFieldOfView }
+        return candidates.max { a, b in
+            if a.videoZoomFactorUpscaleThreshold != b.videoZoomFactorUpscaleThreshold {
+                return a.videoZoomFactorUpscaleThreshold < b.videoZoomFactorUpscaleThreshold
+            }
+            return a.videoFieldOfView < b.videoFieldOfView
+        }
     }
 
     private func configure() throws {
-        guard let (device, format) = pickDevice() else {
+        let found = Self.findLenses()
+        guard let start = found.first(where: { $0.lens.label == "1×" }) ?? found.first else {
             throw AVCaptureDevice.default(for: .video) == nil ? CaptureError.noCamera : CaptureError.no240fps
         }
-        self.device = device
+        lensSetups = Dictionary(uniqueKeysWithValues: found.map { ($0.lens.id, $0) })
         session.beginConfiguration()
         defer { session.commitConfiguration() }
         session.sessionPreset = .inputPriority
@@ -151,76 +196,92 @@ final class CaptureController: NSObject, @unchecked Sendable {
         // iOS mutes haptics while the mic records; the pitch tap needs its buzz.
         try? AVAudioSession.sharedInstance().setAllowHapticsAndSystemSoundsDuringRecording(true)
 
-        let videoIn = try AVCaptureDeviceInput(device: device)
-        guard session.canAddInput(videoIn) else { throw CaptureError.noCamera }
-        session.addInput(videoIn)
         if let mic = AVCaptureDevice.default(for: .audio), let audioIn = try? AVCaptureDeviceInput(device: mic), session.canAddInput(audioIn) {
             session.addInput(audioIn)
         }
-
         videoOutput.alwaysDiscardsLateVideoFrames = false
         videoOutput.setSampleBufferDelegate(self, queue: dataQueue)
         if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
         audioOutput.setSampleBufferDelegate(self, queue: dataQueue)
         if session.canAddOutput(audioOutput) { session.addOutput(audioOutput) }
 
-        try device.lockForConfiguration()
-        device.activeFormat = format
-        let frame = CMTime(value: 1, timescale: 240)
-        device.activeVideoMinFrameDuration = frame
-        device.activeVideoMaxFrameDuration = frame
-        if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
-        if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
-        let stops = Self.zoomStops(for: device)
-        if let one = stops.first(where: { $0.label == "1×" }) ?? stops.first {
-            device.videoZoomFactor = one.factor
-        }
-        device.unlockForConfiguration()
-
-        // Stabilization is on whenever the 240fps format allows it.
-        var stabilized = false
-        if let c = videoOutput.connection(with: .video), c.isVideoStabilizationSupported {
-            c.preferredVideoStabilizationMode = .standard
-            stabilized = true
-        }
-
-        let fps = format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0
-        let lens = device.deviceType == .builtInWideAngleCamera ? "wide" : "multi-lens"
+        let stabilized = try attach(start)
         configured = true
+        let lenses = found.map(\.lens)
         DispatchQueue.main.async {
-            self.configuredDevice = device
-            self.setUpRotation()
-            self.zoomStops = stops
-            self.zoom = stops.first(where: { $0.label == "1×" }) ?? stops.first
-            self.formatDescription = "1080p · \(Int(fps))fps · \(lens) · \(stabilized ? "stabilized" : "no stabilization")"
+            self.lenses = lenses
+            self.lensAttached(start.lens, device: start.device, stabilized: stabilized)
         }
     }
 
-    /// Lens stops for the zoom buttons. On a multi-lens device a factor of 1 is
-    /// the ultra-wide, and the switch-over factors mark the wide (our "1×") and
-    /// the telephoto.
-    static func zoomStops(for d: AVCaptureDevice) -> [ZoomStop] {
-        let switches = d.virtualDeviceSwitchOverVideoZoomFactors.map { CGFloat(truncating: $0) }
-        let base = switches.first ?? 1
-        var factors: [CGFloat] = [1]
-        factors += switches
-        factors.append(base * 2)
-        let maxZoom = min(d.activeFormat.videoMaxZoomFactor, base * 10)
-        let unique = Array(Set(factors.filter { $0 <= maxZoom })).sorted()
-        return unique.map { f in
-            let x = f / base
-            let label = x < 1 ? String(format: "%.1g×", x) : (x == x.rounded() ? "\(Int(x))×" : String(format: "%.1f×", x))
-            return ZoomStop(label: label, factor: f)
+    /// Make the setup's lens the session's camera. Session queue, inside a
+    /// configuration block. Returns whether stabilization is on.
+    private func attach(_ setup: LensSetup) throws -> Bool {
+        let device = setup.device
+        if deviceInput?.device != device {
+            let input = try AVCaptureDeviceInput(device: device)
+            let old = deviceInput
+            if let old { session.removeInput(old) }
+            guard session.canAddInput(input) else {
+                if let old { session.addInput(old) }
+                throw CaptureError.noCamera
+            }
+            session.addInput(input)
+            deviceInput = input
+            self.device = device
         }
+
+        try device.lockForConfiguration()
+        device.activeFormat = setup.format
+        let frame = CMTime(value: 1, timescale: setup.lens.fps)
+        device.activeVideoMinFrameDuration = frame
+        device.activeVideoMaxFrameDuration = frame
+        device.videoZoomFactor = min(setup.zoom, setup.format.videoMaxZoomFactor)
+        if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
+        if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+        device.unlockForConfiguration()
+
+        // Stabilization is on whenever the format allows it. The video
+        // connection is new with each lens, so this is set every time.
+        if let c = videoOutput.connection(with: .video), c.isVideoStabilizationSupported {
+            c.preferredVideoStabilizationMode = .standard
+            return true
+        }
+        return false
     }
 
     @MainActor
-    func setZoom(_ stop: ZoomStop) {
-        zoom = stop
+    private func lensAttached(_ lens: Lens, device: AVCaptureDevice, stabilized: Bool) {
+        self.lens = lens
+        configuredDevice = device
+        // The rotation coordinator belongs to one camera; make a fresh one.
+        previewAngleObservation = nil
+        rotationCoordinator = nil
+        setUpRotation()
+        formatDescription = "1080p · \(lens.fps)fps · \(lens.label) · \(stabilized ? "stabilized" : "no stabilization")"
+    }
+
+    /// Switch lenses (between at-bats only — the picture blinks while it swaps).
+    @MainActor
+    func setLens(_ lens: Lens) {
+        guard !isRecording, lens != self.lens else { return }
+        let previous = self.lens
+        self.lens = lens
         sessionQueue.async { [self] in
-            guard let device, (try? device.lockForConfiguration()) != nil else { return }
-            device.ramp(toVideoZoomFactor: stop.factor, withRate: 8)
-            device.unlockForConfiguration()
+            guard !wantsRecording, let setup = lensSetups[lens.id] else {
+                DispatchQueue.main.async { self.lens = previous }
+                return
+            }
+            session.beginConfiguration()
+            let stabilized = try? attach(setup)
+            session.commitConfiguration()
+            DispatchQueue.main.async {
+                if let stabilized {
+                    self.lensAttached(lens, device: setup.device, stabilized: stabilized)
+                } else {
+                    self.lens = previous
+                }
+            }
         }
     }
 
@@ -237,6 +298,12 @@ final class CaptureController: NSObject, @unchecked Sendable {
         guard rotationCoordinator == nil, let layer = previewLayer, let device = configuredDevice else { return }
         let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: layer)
         rotationCoordinator = coordinator
+        // The angle changes only once the screen has finished turning, which is
+        // after the device-orientation notification and (for a half turn) with
+        // no re-layout — so follow the coordinator itself.
+        previewAngleObservation = coordinator.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.updatePreviewRotation() }
+        }
         updatePreviewRotation()
     }
 

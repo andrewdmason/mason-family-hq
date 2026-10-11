@@ -33,6 +33,9 @@ final class EditRendererTests: XCTestCase {
         let asset = AVURLAsset(url: out)
         let duration = try await asset.load(.duration).seconds
         XCTAssertEqual(duration, expected, accuracy: 0.1)
+        // The app's player skips the card, so the file says how long it is.
+        let intro = await EditRenderer.IntroMark.seconds(in: asset)
+        XCTAssertEqual(try XCTUnwrap(intro), 2, accuracy: 0.001)
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         let video = try XCTUnwrap(videoTracks.first)
         let size = try await video.load(.naturalSize)
