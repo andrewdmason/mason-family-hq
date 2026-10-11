@@ -1,4 +1,5 @@
 import AVKit
+import Combine
 import SwiftUI
 
 /// Home: held upright. A tab per kid with their at-bats from Clips, newest game
@@ -13,6 +14,9 @@ struct HomeView: View {
     @State private var cameraOpen = false
     @State private var showingSettings = false
     @State private var playing: PlayItem?
+    /// The at-bat whose video link is being fetched from Clips to play.
+    @State private var opening: UUID?
+    @State private var playError: String?
     /// The at-bat whose video is being fetched for the share sheet.
     @State private var sharing: UUID?
     @State private var shareError: String?
@@ -94,6 +98,9 @@ struct HomeView: View {
             NewGameSheet(kid: kid) { game in model.settings.setCurrentGame(game) }
         }
         .fullScreenCover(item: $playing) { item in PlayerScreen(url: item.url) }
+        .alert("Can't play", isPresented: .constant(playError != nil), presenting: playError) { _ in
+            Button("OK") { playError = nil }
+        } message: { Text($0) }
         .alert("Can't share", isPresented: .constant(shareError != nil), presenting: shareError) { _ in
             Button("OK") { shareError = nil }
         } message: { Text($0) }
@@ -172,6 +179,7 @@ struct HomeView: View {
             Section {
                 ForEach(Array(section.atBats.enumerated()), id: \.element.id) { i, ab in
                     HistoryRow(atBat: ab, poster: ab.posterPath.flatMap { posters[$0] },
+                               opening: opening == ab.id,
                                sharing: sharing == ab.id,
                                onOpen: { open(ab) },
                                onShare: { share(ab, game: section, number: i + 1) })
@@ -303,8 +311,15 @@ struct HomeView: View {
             playing = PlayItem(url: store.url(file))
             return
         }
+        guard opening == nil else { return }
+        opening = ab.id
         Task {
-            if let url = try? await model.clips.videoURL(path) { playing = PlayItem(url: url) }
+            defer { opening = nil }
+            do {
+                playing = PlayItem(url: try await model.clips.videoURL(path))
+            } catch {
+                playError = "Couldn't load the video — check your signal."
+            }
         }
     }
 
@@ -427,6 +442,7 @@ struct HomeView: View {
 private struct HistoryRow: View {
     let atBat: HistoryAtBat
     let poster: URL?
+    let opening: Bool
     let sharing: Bool
     let onOpen: () -> Void
     let onShare: () -> Void
@@ -434,6 +450,15 @@ private struct HistoryRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Thumbnail(url: poster)
+                .overlay {
+                    if opening {
+                        ZStack {
+                            Color.black.opacity(0.45)
+                            ProgressView().tint(.white)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                }
             VStack(alignment: .leading, spacing: 3) {
                 Text(atBat.result?.name ?? "No result").font(.headline)
                 Text(detail).font(.caption).foregroundStyle(.secondary)
@@ -537,11 +562,22 @@ private struct PlayerScreen: View {
     let url: URL
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
+    /// The stream died (signal dropped after the player opened).
+    @State private var failed = false
+    @State private var attempt = 0
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
-            if let player {
+            if failed {
+                VStack(spacing: 14) {
+                    Image(systemName: "wifi.exclamationmark").font(.largeTitle)
+                    Text("Couldn't load the video — check your signal.")
+                    Button("Try again") { attempt += 1 }.buttonStyle(.borderedProminent)
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let player {
                 VideoPlayer(player: player)
             }
             Button { dismiss() } label: {
@@ -549,10 +585,17 @@ private struct PlayerScreen: View {
             }
             .padding()
         }
-        .onAppear {
-            let p = AVPlayer(url: url)
+        .task(id: attempt) {
+            failed = false
+            let item = AVPlayerItem(url: url)
+            let p = AVPlayer(playerItem: item)
             player = p
             p.play()
+            for await status in item.publisher(for: \.status).values where status == .failed {
+                p.pause()
+                failed = true
+                break
+            }
         }
         .onDisappear { player?.pause() }
     }
