@@ -11,8 +11,9 @@ import UIKit
 //
 //   recording → building the edit → uploading the video → filing it in Clips
 //
-// The raw recording is deleted as soon as the edit is built. The edit itself
-// stays on the phone for a week after it's uploaded, then is cleaned up.
+// The raw recording stays on the phone for three days, so a mislabeled pitch
+// can be fixed and the video rebuilt; after that only the labels can change.
+// The edit stays for a week after it's uploaded. Both are then cleaned up.
 
 struct AtBatJob: Codable, Identifiable, Equatable {
     enum State: Codable, Equatable {
@@ -48,6 +49,9 @@ struct AtBatJob: Codable, Identifiable, Equatable {
     var editBytes: Int64?
     var renderSeconds: Double?
     var pitchTimes: [Double]?
+    /// Times the video was rebuilt after relabeling. Each rebuild uploads to a
+    /// new file name, so nothing serves a cached copy of the old video.
+    var revision: Int?
 }
 
 @MainActor
@@ -94,6 +98,50 @@ final class AtBatStore {
     }
 
     func url(_ file: String) -> URL { root.appendingPathComponent(file) }
+
+    /// How long the full recording is kept for rebuilding after a relabel.
+    static let rawKeptFor: TimeInterval = 3 * 24 * 3600
+
+    /// The full recording is still here, and nothing is mid-build or mid-upload.
+    func canRebuild(_ id: UUID) -> Bool {
+        guard let job = jobs.first(where: { $0.id == id }), let raw = job.rawFile,
+              FileManager.default.fileExists(atPath: url(raw).path) else { return false }
+        return job.state != .building && job.upload != .uploading && job.upload != .finishing
+    }
+
+    /// New labels, and a new video built from the full recording, which then
+    /// replaces the one in Clips.
+    func rebuild(_ id: UUID, pitches: [Pitch]) {
+        guard canRebuild(id), let job = jobs.first(where: { $0.id == id }) else { return }
+        if let file = job.editFile { try? FileManager.default.removeItem(at: url(file)) }
+        update(id) {
+            $0.pitches = pitches
+            $0.result = Scorebook.outcome(pitches)?.result
+            $0.editFile = nil
+            $0.pitchTimes = nil
+            $0.state = .building
+            if $0.game != nil {
+                $0.upload = .waiting
+                $0.uploadedAt = nil
+                $0.revision = ($0.revision ?? 0) + (job.upload == nil || job.upload == .waiting ? 0 : 1)
+            }
+        }
+        processNext()
+    }
+
+    /// New labels only (the video keeps its captions) — for an at-bat whose
+    /// full recording is gone. Matches what was written to Clips.
+    func setLabels(_ id: UUID, pitches: [Pitch]) {
+        update(id) { job in
+            for p in pitches {
+                guard let i = job.pitches.firstIndex(where: { $0.id == p.id }) else { continue }
+                job.pitches[i].outcome = p.outcome
+                job.pitches[i].battedBall = p.battedBall
+                job.pitches[i].playResult = p.playResult
+            }
+            job.result = Scorebook.outcome(job.pitches.sorted { $0.t < $1.t })?.result
+        }
+    }
 
     /// Take ownership of a just-finished recording and start building it.
     func add(_ recording: FinishedRecording, pitches: [Pitch], result: AtBatResult?, game: GameChoice?) {
@@ -171,7 +219,7 @@ final class AtBatStore {
     }
 
     private func build(_ job: AtBatJob) async {
-        let editName = "edit-\(job.id.uuidString).mp4"
+        let editName = job.revision.map { "edit-\(job.id.uuidString)-r\($0).mp4" } ?? "edit-\(job.id.uuidString).mp4"
         let rawURL = job.rawFile.map(url)
         do {
             // A retry after the edit was already built skips straight on.
@@ -203,15 +251,11 @@ final class AtBatStore {
             if AppSettings.shared.saveEditsToPhotos {
                 try await Self.saveToPhotos(url(editName))
             }
-            if AppSettings.shared.saveRawToPhotos, let rawURL, FileManager.default.fileExists(atPath: rawURL.path) {
+            // A rebuild has saved the recording already.
+            if AppSettings.shared.saveRawToPhotos, job.revision == nil, let rawURL, FileManager.default.fileExists(atPath: rawURL.path) {
                 try await Self.saveToPhotos(rawURL)
             }
-            // The edit is what we keep; the raw recording goes.
-            if let rawURL { try? FileManager.default.removeItem(at: rawURL) }
-            update(job.id) {
-                $0.rawFile = nil
-                $0.state = .done
-            }
+            update(job.id) { $0.state = .done }
         } catch {
             update(job.id) { $0.state = .failed(error.localizedDescription) }
         }
@@ -245,7 +289,7 @@ final class AtBatStore {
         Task {
             defer { starting.remove(id) }
             do {
-                let target = try await clips.videoUploadURL(AtBatPaths(gameID: game.id, atBatID: id))
+                let target = try await clips.videoUploadURL(AtBatPaths(gameID: game.id, atBatID: id, revision: job.revision))
                 uploads.upload(url(editFile), to: target, contentType: "video/mp4", id: id)
                 progress[id] = 0
                 update(id) { $0.upload = .uploading }
@@ -299,8 +343,15 @@ final class AtBatStore {
 
     // MARK: Housekeeping
 
-    /// Edits are deleted from the phone a week after they're safely in Clips.
+    /// Full recordings go three days after filming; edits a week after
+    /// they're safely in Clips.
     private func cleanUp() {
+        let rawCutoff = Date().addingTimeInterval(-Self.rawKeptFor)
+        for job in jobs where job.recordedAt < rawCutoff && job.state == .done {
+            guard let raw = job.rawFile else { continue }
+            try? FileManager.default.removeItem(at: url(raw))
+            update(job.id) { $0.rawFile = nil }
+        }
         let cutoff = Date().addingTimeInterval(-7 * 24 * 3600)
         for job in jobs where job.upload == .uploaded && (job.uploadedAt ?? .distantFuture) < cutoff {
             if let file = job.editFile { try? FileManager.default.removeItem(at: url(file)) }

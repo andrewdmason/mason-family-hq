@@ -1,41 +1,49 @@
 import SwiftUI
 
-/// The camera: full-width picture held sideways, status down the left edge,
-/// controls down the right. Opened from the home screen, which it returns to.
+/// The camera, held sideways: a rail with everything you touch while filming
+/// on one side (the left unless swapped), and the picture on the other with
+/// the status over its outer edge.
+/// Touching the picture does nothing during an at-bat — pitches are logged only
+/// with the rail's Pitch button. Opened from the home screen, which it returns to.
 struct CameraView: View {
     let model: RecordModel
     let onClose: () -> Void
     @Environment(\.scenePhase) private var scenePhase
+    /// Which side the Dynamic Island is on; the rail keeps clear of it.
+    @State private var islandOnRight = false
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            CameraPreview(capture: model.capture) { model.tap(hostTime: $0) }
-                .aspectRatio(16 / 9, contentMode: .fit)
-                .ignoresSafeArea()
-                .overlay(alignment: .top) { recordingBadge }
-
             HStack(spacing: 0) {
-                StatusBar(model: model)
+                if !railOnRight { rail }
+                ZStack {
+                    CameraPreview(capture: model.capture) { model.touched() }
+                        .aspectRatio(16 / 9, contentMode: .fit)
+                        .overlay(alignment: .top) { recordingBadge }
+
+                    if let left = model.countdown {
+                        CountdownBanner(seconds: left, result: model.outcome?.result) { model.keepRecording() }
+                            .frame(maxHeight: .infinity, alignment: .top)
+                            .padding(.top, 48)
+                    }
+
+                    if let message = model.message {
+                        MessageBanner(text: message) { model.message = nil }
+                            .frame(maxHeight: .infinity, alignment: .bottom)
+                            .padding(.bottom, 16)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if railOnRight { rail }
+            }
+            .ignoresSafeArea()
+
+            HStack {
+                if railOnRight { StatusBar(model: model) }
                 Spacer(minLength: 0)
-                ControlBar(model: model, onClose: onClose)
-            }
-
-            if model.labelStep != nil {
-                LabelPanel(model: model)
-            }
-
-            if let left = model.countdown {
-                CountdownBanner(seconds: left, result: model.outcome?.result) { model.keepRecording() }
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .padding(.top, 48)
-            }
-
-            if let message = model.message {
-                MessageBanner(text: message) { model.message = nil }
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                    .padding(.bottom, 16)
+                if !railOnRight { StatusBar(model: model) }
             }
 
             if let error = model.capture.setupError {
@@ -44,7 +52,13 @@ struct CameraView: View {
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
-        .onAppear { Orientation.lock(.landscape) }
+        .defersSystemGestures(on: .all)
+        .onAppear {
+            Orientation.lock(.landscape)
+            // Interface "landscape left" has the top of the phone on the right.
+            let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+            islandOnRight = scene?.effectiveGeometry.interfaceOrientation == .landscapeLeft
+        }
         .task { await model.cameraOpened() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { model.wentToBackground() }
@@ -52,7 +66,25 @@ struct CameraView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             model.capture.updatePreviewRotation()
+            // Device "landscape right" is turned clockwise: the top is on the right.
+            switch UIDevice.current.orientation {
+            case .landscapeRight: islandOnRight = true
+            case .landscapeLeft: islandOnRight = false
+            default: break
+            }
         }
+    }
+
+    private var railOnRight: Bool { model.settings.railOnRight }
+
+    /// Clear of the Dynamic Island on the screen edge, 10pt from the picture.
+    private var rail: some View {
+        let islandSide = railOnRight == islandOnRight
+        return Rail(model: model, onClose: onClose)
+            .padding(railOnRight ? .leading : .trailing, 10)
+            .padding(railOnRight ? .trailing : .leading, islandSide ? 52 : 20)
+            .padding(.top, 14)
+            .padding(.bottom, 24)
     }
 
     @ViewBuilder private var recordingBadge: some View {
@@ -84,7 +116,7 @@ func clock(_ seconds: Double) -> String {
     return String(format: "%d:%02d", s / 60, s % 60)
 }
 
-// MARK: - Left edge: count, pitches, phone health
+// MARK: - Status column: count, pitches, phone health
 
 private struct StatusBar: View {
     let model: RecordModel
@@ -222,89 +254,175 @@ private struct HealthView: View {
     }
 }
 
-// MARK: - Right edge: record, undo, zoom, menus
+// MARK: - Rail: the controls, the labels, and the big button
 
-private struct ControlBar: View {
+/// Close and zoom (or Stop and Undo while filming) along the top; the big
+/// button at the bottom, under the thumb — Record, then Pitch once filming;
+/// in between, the side-swap button before an at-bat and a pitch's labels
+/// during one, just above the big button.
+private struct Rail: View {
     let model: RecordModel
     let onClose: () -> Void
 
     var body: some View {
-        VStack(spacing: 14) {
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.headline)
-                    .frame(width: 40, height: 40)
-                    .background(.white.opacity(0.18), in: Circle())
-            }
-            .accessibilityLabel("Close camera")
-            .foregroundStyle(.white)
-            .disabled(model.phase != .ready)
-            .opacity(model.phase == .ready ? 1 : 0.3)
-
-            Spacer(minLength: 0)
-
-            RecordButton(phase: model.phase) {
-                model.phase == .recording ? model.stop() : model.record()
-            }
-
-            Button { model.undoLastPitch() } label: {
-                VStack(spacing: 2) {
-                    Image(systemName: "arrow.uturn.backward")
-                    Text("Undo").font(.caption2.weight(.semibold))
+        VStack(spacing: 10) {
+            HStack {
+                if model.phase == .ready {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.headline)
+                            .frame(width: 44, height: 44)
+                            .background(.white.opacity(0.18), in: Circle())
+                    }
+                    .accessibilityLabel("Close camera")
+                    .foregroundStyle(.white)
+                    Spacer(minLength: 0)
+                    LensPicker(capture: model.capture, enabled: true)
+                } else {
+                    StopButton(stopping: model.phase == .stopping) { model.stop() }
+                    Spacer(minLength: 0)
+                    Button { model.undoLastPitch() } label: {
+                        Label("Undo", systemImage: "arrow.uturn.backward")
+                            .font(.caption.weight(.bold))
+                            .padding(.horizontal, 12)
+                            .frame(height: 44)
+                            .background(.white.opacity(0.18), in: Capsule())
+                    }
+                    .foregroundStyle(.white)
+                    .disabled(model.pitches.isEmpty)
+                    .opacity(model.pitches.isEmpty ? 0.3 : 1)
                 }
-                .frame(width: 64, height: 50)
-                .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 10))
             }
-            .foregroundStyle(.white)
-            .disabled(model.pitches.isEmpty)
-            .opacity(model.pitches.isEmpty ? 0.3 : 1)
 
-            Spacer(minLength: 0)
+            Group {
+                if model.phase == .ready {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.25)) { model.settings.railOnRight.toggle() }
+                    } label: {
+                        Image(systemName: "arrow.left.arrow.right")
+                            .font(.headline)
+                            .frame(width: 44, height: 44)
+                            .background(.white.opacity(0.18), in: Circle())
+                    }
+                    .foregroundStyle(.white)
+                    .accessibilityLabel("Move controls to the other side")
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                } else if model.labelStep != nil {
+                    LabelPanel(model: model)
+                } else if model.phase == .recording && model.pitches.isEmpty {
+                    Text("Tap Pitch as the ball reaches the plate")
+                        .font(.caption)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white.opacity(0.6))
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(maxHeight: .infinity)
 
-            ZoomPicker(capture: model.capture)
+            BigButton(model: model)
         }
-        .frame(width: 84)
-        .padding(.vertical, 10)
+        .frame(width: 144)
     }
 }
 
-private struct RecordButton: View {
-    let phase: RecordModel.Phase
+private struct StopButton: View {
+    let stopping: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             ZStack {
-                Circle().stroke(.white, lineWidth: 4).frame(width: 70, height: 70)
-                if phase == .recording {
-                    RoundedRectangle(cornerRadius: 6).fill(.red).frame(width: 28, height: 28)
-                } else if phase == .stopping {
+                Circle().stroke(.white, lineWidth: 3).frame(width: 44, height: 44)
+                if stopping {
                     ProgressView().tint(.white)
                 } else {
-                    Circle().fill(.red).frame(width: 56, height: 56)
+                    RoundedRectangle(cornerRadius: 4).fill(.red).frame(width: 18, height: 18)
                 }
             }
         }
-        .disabled(phase == .stopping)
-        .accessibilityLabel(phase == .recording ? "Stop" : "Record")
+        .disabled(stopping)
+        .accessibilityLabel("Stop")
     }
 }
 
-private struct ZoomPicker: View {
-    let capture: CaptureController
+/// One fixed spot for the thumb: Record before the at-bat, Pitch during it.
+/// The pitch is the instant the finger lands, so it's a touch-down area rather
+/// than a button (buttons fire when the finger lifts).
+private struct BigButton: View {
+    let model: RecordModel
+    @State private var flash = false
 
     var body: some View {
-        VStack(spacing: 6) {
-            ForEach(capture.zoomStops) { stop in
-                Button { capture.setZoom(stop) } label: {
-                    Text(stop.label)
-                        .font(.caption.weight(.bold))
-                        .frame(width: 44, height: 30)
-                        .foregroundStyle(capture.zoom == stop ? .yellow : .white)
-                        .background(.black.opacity(0.55), in: Capsule())
+        switch model.phase {
+        case .ready:
+            Button { model.record() } label: {
+                HStack(spacing: 8) {
+                    Circle().fill(.white).frame(width: 14, height: 14)
+                    Text("Record").font(.title3.weight(.heavy))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 84)
+                .background(.red, in: RoundedRectangle(cornerRadius: 20))
+            }
+            .accessibilityLabel("Record")
+        case .recording:
+            Text("PITCH")
+                .font(.title2.weight(.heavy))
+                .tracking(2)
+                .foregroundStyle(flash ? .black : .white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 84)
+                .background(flash ? Color.yellow : Color.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).stroke(.yellow, lineWidth: 3))
+                .overlay {
+                    TouchDownArea(accessibilityLabel: "Pitch") { time in
+                        model.pitch(hostTime: time)
+                        flash = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            withAnimation(.easeOut(duration: 0.25)) { flash = false }
+                        }
+                    }
+                }
+        case .stopping:
+            ProgressView()
+                .tint(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 84)
+                .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 20))
+        }
+    }
+}
+
+/// The current zoom; tap for the others. Only shown between at-bats: a lens
+/// swap mid-recording would drop frames.
+private struct LensPicker: View {
+    let capture: CaptureController
+    let enabled: Bool
+
+    var body: some View {
+        Menu {
+            ForEach(capture.lenses) { lens in
+                Button { capture.setLens(lens) } label: {
+                    if capture.lens == lens {
+                        Label(lens.label, systemImage: "checkmark")
+                    } else {
+                        Text(lens.label)
+                    }
                 }
             }
+        } label: {
+            Text(capture.lens?.label ?? "1×")
+                .font(.subheadline.weight(.bold))
+                .frame(width: 56, height: 44)
+                .foregroundStyle(.yellow)
+                .background(.white.opacity(0.18), in: Capsule())
         }
+        .disabled(!enabled || capture.lenses.count < 2)
+        .opacity(enabled ? 1 : 0.4)
+        .accessibilityLabel("Zoom")
     }
 }
 

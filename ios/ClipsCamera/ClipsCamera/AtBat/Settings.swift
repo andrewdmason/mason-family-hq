@@ -41,6 +41,12 @@ final class AppSettings {
         didSet { save(cachedKids, key: "cachedKids") }
     }
 
+    /// The camera's control rail (Record/Pitch and the labels) sits on the
+    /// right instead of the left.
+    var railOnRight: Bool {
+        didSet { defaults.set(railOnRight, forKey: "railOnRight") }
+    }
+
     /// Seconds the at-bat-ending countdown runs before recording stops.
     var autoStopSeconds: Int {
         didSet { defaults.set(autoStopSeconds, forKey: "autoStopSeconds") }
@@ -58,6 +64,7 @@ final class AppSettings {
         currentGames = current
         cachedKids = defaults.data(forKey: "cachedKids").flatMap { try? JSONDecoder().decode([Kid].self, from: $0) } ?? []
         autoStopSeconds = defaults.object(forKey: "autoStopSeconds") as? Int ?? 3
+        railOnRight = defaults.bool(forKey: "railOnRight")
     }
 
     private func save<T: Encodable>(_ value: T, key: String) {

@@ -135,7 +135,7 @@ enum EditRenderer {
         let videoComposition = AVVideoComposition(configuration: config)
 
         try? FileManager.default.removeItem(at: out)
-        try await encode(composition: composition, video: video, audio: audio, videoComposition: videoComposition, to: out)
+        try await encode(composition: composition, video: video, audio: audio, videoComposition: videoComposition, intro: cardLength, to: out)
 
         let bytes = (try? FileManager.default.attributesOfItem(atPath: out.path)[.size] as? Int64) ?? 0
         return RenderedEdit(
@@ -153,11 +153,35 @@ enum EditRenderer {
 
     // MARK: Encoding
 
+    /// How long the title card runs, written into the file so the app's player
+    /// can start after it. Shared and downloaded copies keep the card.
+    enum IntroMark {
+        // A comment, because an MP4 drops custom QuickTime keys on writing.
+        static let prefix = "clips-intro-seconds="
+
+        static func item(seconds: Double) -> AVMetadataItem {
+            let item = AVMutableMetadataItem()
+            item.identifier = .iTunesMetadataUserComment
+            item.value = (prefix + String(format: "%.3f", seconds)) as NSString
+            return item
+        }
+
+        /// The card's length; nil for a file from before the mark was written.
+        static func seconds(in asset: AVAsset) async -> Double? {
+            guard let items = try? await asset.load(.metadata) else { return nil }
+            for item in AVMetadataItem.metadataItems(from: items, filteredByIdentifier: .iTunesMetadataUserComment) {
+                if let s = try? await item.load(.stringValue), s.hasPrefix(prefix), let v = Double(s.dropFirst(prefix.count)) { return v }
+            }
+            return nil
+        }
+    }
+
     private static func encode(
         composition: AVComposition,
         video: AVCompositionTrack,
         audio: AVCompositionTrack?,
         videoComposition: AVVideoComposition,
+        intro: Double,
         to out: URL
     ) async throws {
         let reader = try AVAssetReader(asset: composition)
@@ -186,6 +210,7 @@ enum EditRenderer {
 
         let writer = try AVAssetWriter(outputURL: out, fileType: .mp4)
         writer.shouldOptimizeForNetworkUse = true
+        writer.metadata = [IntroMark.item(seconds: intro)]
         let videoIn = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: Int(size.width),
