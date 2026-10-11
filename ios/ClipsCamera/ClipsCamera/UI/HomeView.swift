@@ -1,9 +1,10 @@
 import AVKit
 import SwiftUI
 
-/// Home: held upright. A tab per kid with their at-bats from Clips, newest game
-/// first; anything still building or uploading on this phone sits on top. The
-/// camera opens from the button at the bottom.
+/// Home: held upright. A tab per kid with their at-bats from Clips as a
+/// two-wide card grid per game, newest game first; anything still building or
+/// uploading on this phone joins its game. Film opens from the last card of
+/// the most recent game.
 struct HomeView: View {
     @State private var model = RecordModel()
     @State private var update = AppUpdate()
@@ -35,29 +36,31 @@ struct HomeView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section { } header: { kidTabs }
-                if let link = update.available {
-                    Section {
-                        Button { openURL(link) } label: {
-                            Label("A new version is ready — tap to update", systemImage: "arrow.down.circle.fill")
-                                .font(.subheadline.weight(.semibold))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    kidTabs
+                    if let link = update.available {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Button { openURL(link) } label: {
+                                Label("A new version is ready — tap to update", systemImage: "arrow.down.circle.fill")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            Text("Your at-bats and settings stay.").font(.caption).foregroundStyle(.secondary)
                         }
-                    } footer: {
-                        Text("Your at-bats and settings stay.")
+                    }
+                    if kidID == Self.unfiledTab {
+                        VStack(alignment: .leading, spacing: 10) {
+                            CardGrid { ForEach(unfiled) { job in localCard(job) } }
+                            Text("Filmed before uploading was added — these stay on this phone. Press and hold to delete.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } else {
+                        kidSections
                     }
                 }
-                if kidID == Self.unfiledTab {
-                    Section {
-                        ForEach(unfiled) { job in localRow(job) }
-                    } footer: {
-                        Text("Filmed before uploading was added — these stay on this phone. Swipe to delete.")
-                    }
-                } else {
-                    kidSections
-                }
+                .padding(.horizontal)
+                .padding(.bottom, 24)
             }
-            .listStyle(.insetGrouped)
             .navigationTitle("Baseball Clips")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -105,7 +108,10 @@ struct HomeView: View {
         .sheet(item: $newGameFor) { kid in
             NewGameSheet(kid: kid) { game in model.settings.setCurrentGame(game) }
         }
-        .fullScreenCover(item: $playing) { item in PlayerScreen(url: item.url) }
+        // Home is upright-only; videos can turn sideways.
+        .fullScreenCover(item: $playing, onDismiss: { Orientation.lock(.portrait) }) { item in
+            PlayerScreen(url: item.url).onAppear { Orientation.lock(.allButUpsideDown) }
+        }
         .alert("Can't share", isPresented: .constant(shareError != nil), presenting: shareError) { _ in
             Button("OK") { shareError = nil }
         } message: { Text($0) }
@@ -138,9 +144,6 @@ struct HomeView: View {
             if !unfiled.isEmpty { Text("Unfiled").tag(Optional(Self.unfiledTab)) }
         }
         .pickerStyle(.segmented)
-        .textCase(nil)
-        .listRowInsets(EdgeInsets())
-        .padding(.bottom, 4)
     }
 
     // MARK: A kid's at-bats
@@ -181,75 +184,83 @@ struct HomeView: View {
     @ViewBuilder private var kidSections: some View {
         let sections = sections
         ForEach(sections) { section in
-            Section {
-                ForEach(Array(section.atBats.enumerated()), id: \.element.id) { i, ab in
-                    HistoryRow(atBat: ab, poster: ab.posterPath.flatMap { posters[$0] },
-                               sharing: sharing == ab.id,
-                               onOpen: { open(ab) },
-                               onShare: { share(ab, game: section, number: i + 1) })
-                        .swipeActions {
-                            Button("Delete", role: .destructive) { deleting = (ab, section, i + 1) }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(section.name).font(.title3).fontDesign(.serif).lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(formatDay(section.playedOn)).font(.footnote).foregroundStyle(.secondary)
+                }
+                CardGrid {
+                    ForEach(section.cards) { card in
+                        switch card {
+                        case .atBat(let ab, let number):
+                            HistoryCard(atBat: ab, poster: ab.posterPath.flatMap { posters[$0] },
+                                        sharing: sharing == ab.id,
+                                        onOpen: { open(ab) },
+                                        onShare: { share(ab, game: section, number: number) },
+                                        onDelete: { deleting = (ab, section, number) })
+                        case .local(let job):
+                            localCard(job)
+                        case .film(let game):
+                            FilmCard { film(game) }
                         }
+                    }
                 }
-                ForEach(section.local) { job in localRow(job) }
-                if let game = section.current {
-                    FilmRow { film(game) }
-                }
-            } header: {
-                Text("\(section.name) · \(formatDay(section.playedOn))")
-            } footer: {
                 if section.current != nil && section.playedOn != GameChoice.day(Date()) {
-                    Text("New game today? Tap + first.")
+                    Text("New game today? Tap + first.").font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
         if sections.isEmpty {
-            Section {
-                Text(loadError ?? (kidID == nil ? "Loading…" : "No games yet — tap + to start one."))
-                    .foregroundStyle(.secondary)
-            }
+            Text(loadError ?? (kidID == nil ? "Loading…" : "No games yet — tap + to start one."))
+                .foregroundStyle(.secondary)
         }
     }
 
-    @ViewBuilder private func localRow(_ job: AtBatJob) -> some View {
-        HStack(spacing: 12) {
+    /// An at-bat still on this phone: building, uploading, or filmed before uploads.
+    @ViewBuilder private func localCard(_ job: AtBatJob) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
             Thumbnail(url: nil)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(job.result?.name ?? "No result").font(.headline)
-                Text(localDetail(job)).font(.caption).foregroundStyle(.secondary)
-                if case .failed(let why) = job.state {
-                    Text(why).font(.caption).foregroundStyle(.red)
-                } else {
-                    UploadStatus(job: job, progress: store.progress[job.id], online: store.online)
+                .overlay(alignment: .topLeading) { if let r = job.result { ResultBadge(result: r) } }
+                .overlay {
+                    if job.state == .building { ProgressView().tint(.white) }
                 }
-            }
-            Spacer(minLength: 0)
-            if job.editFile != nil {
-                ShareButton(busy: false) { shareLocal(job) }
+                .overlay(alignment: .bottom) {
+                    if job.upload == .uploading {
+                        ProgressView(value: store.progress[job.id] ?? 0).padding(8)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if job.editFile != nil, job.upload != .uploading {
+                        ShareButton(busy: false) { shareLocal(job) }
+                    }
+                }
+            Text(job.result?.name ?? "No result").font(.subheadline.weight(.semibold)).lineLimit(1)
+            if case .failed(let why) = job.state {
+                Text(why).font(.caption).foregroundStyle(.red).lineLimit(2)
+            } else {
+                UploadStatus(job: job, progress: store.progress[job.id], online: store.online)
             }
             if case .failed = job.state {
-                Button("Retry") { store.retry(job.id) }.buttonStyle(.bordered)
+                retryButton(job)
             } else if case .failed = job.upload, job.state == .done {
-                Button("Retry") { store.retry(job.id) }.buttonStyle(.bordered)
-            } else if job.state == .building {
-                ProgressView()
+                retryButton(job)
             }
         }
         .contentShape(Rectangle())
         .onTapGesture {
             if let file = job.editFile { playing = PlayItem(url: store.url(file)) }
         }
-        .swipeActions {
-            Button("Delete", role: .destructive) { store.delete(job.id) }
+        .contextMenu {
+            if job.editFile != nil {
+                Button { shareLocal(job) } label: { Label("Share", systemImage: "square.and.arrow.up") }
+            }
+            Button(role: .destructive) { store.delete(job.id) } label: { Label("Delete", systemImage: "trash") }
         }
     }
 
-    private func localDetail(_ job: AtBatJob) -> String {
-        var parts = ["\(job.pitches.count) pitch\(job.pitches.count == 1 ? "" : "es")"]
-        if let g = job.game { parts.append(g.name) }
-        parts.append(job.recordedAt.formatted(date: .omitted, time: .shortened))
-        if let r = job.renderSeconds { parts.append(String(format: "built in %.0fs", r)) }
-        return parts.joined(separator: " · ")
+    private func retryButton(_ job: AtBatJob) -> some View {
+        Button("Retry") { store.retry(job.id) }.buttonStyle(.bordered).controlSize(.small)
     }
 
     #if DEBUG
@@ -434,42 +445,75 @@ struct HomeView: View {
     }
 }
 
-// MARK: - Rows
+// MARK: - Cards
 
-private struct HistoryRow: View {
+/// Two cards across, like the website's game rows.
+private struct CardGrid<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12, alignment: .top),
+                            GridItem(.flexible(), spacing: 12, alignment: .top)],
+                  alignment: .leading, spacing: 16) {
+            content
+        }
+    }
+}
+
+private struct HistoryCard: View {
     let atBat: HistoryAtBat
     let poster: URL?
     let sharing: Bool
     let onOpen: () -> Void
     let onShare: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 4) {
             Thumbnail(url: poster)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(atBat.result?.name ?? "No result").font(.headline)
-                Text(detail).font(.caption).foregroundStyle(.secondary)
+                .overlay(alignment: .topLeading) { if let r = atBat.result { ResultBadge(result: r) } }
+                .overlay(alignment: .bottomTrailing) { ShareButton(busy: sharing, action: onShare) }
+            HStack(spacing: 4) {
+                Text(atBat.result?.name ?? "No result").font(.subheadline.weight(.semibold)).lineLimit(1)
+                if !atBat.isCamera {
+                    Image(systemName: "arrow.up.right").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                        .accessibilityLabel("Opens in Clips")
+                }
             }
-            Spacer(minLength: 0)
-            ShareButton(busy: sharing, action: onShare)
+            Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
+        .contextMenu {
+            Button(action: onShare) { Label("Share", systemImage: "square.and.arrow.up") }
+            Button(role: .destructive, action: onDelete) { Label("Delete from Clips", systemImage: "trash") }
+        }
     }
 
     private var detail: String {
-        var parts: [String] = []
-        if atBat.pitches > 0 {
-            parts.append("\(atBat.pitches) pitch\(atBat.pitches == 1 ? "" : "es")")
-            if atBat.swings > 0 { parts.append("\(atBat.swings) swing\(atBat.swings == 1 ? "" : "s")") }
-        } else {
-            parts.append("Not marked yet")
-        }
-        if !atBat.isCamera { parts.append("opens in Clips") }
+        guard atBat.pitches > 0 else { return "Not marked yet" }
+        var parts = ["\(atBat.pitches) pitch\(atBat.pitches == 1 ? "" : "es")"]
+        if atBat.swings > 0 { parts.append("\(atBat.swings) swing\(atBat.swings == 1 ? "" : "s")") }
         return parts.joined(separator: " · ")
     }
 }
 
+/// The result in the thumbnail's corner, as on the website ("1B", "BB", "ꓘ").
+private struct ResultBadge: View {
+    let result: AtBatResult
+
+    var body: some View {
+        Text(result.label)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 5))
+            .padding(6)
+    }
+}
+
+/// Sits on the thumbnail's bottom-right corner.
 private struct ShareButton: View {
     let busy: Bool
     let action: () -> Void
@@ -477,11 +521,14 @@ private struct ShareButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                if busy { ProgressView() } else { Image(systemName: "square.and.arrow.up").font(.title3) }
+                if busy { ProgressView().tint(.white) } else { Image(systemName: "square.and.arrow.up").font(.footnote.weight(.semibold)) }
             }
-            .frame(width: 36, height: 36)
+            .foregroundStyle(.white)
+            .frame(width: 30, height: 30)
+            .background(.black.opacity(0.45), in: Circle())
+            .padding(6)
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
         .disabled(busy)
         .accessibilityLabel("Share video")
     }
@@ -491,24 +538,24 @@ private struct Thumbnail: View {
     let url: URL?
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.2))
-            if let url {
-                AsyncImage(url: url) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Color.clear
+        Color.secondary.opacity(0.2)
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .overlay {
+                if let url {
+                    AsyncImage(url: url) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        Color.clear
+                    }
+                } else {
+                    Image(systemName: "film").font(.title3).foregroundStyle(.secondary)
                 }
-            } else {
-                Image(systemName: "film").foregroundStyle(.secondary)
             }
-        }
-        .frame(width: 96, height: 54)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
-/// One line: where the upload stands.
+/// One line under a card: where the upload stands.
 struct UploadStatus: View {
     let job: AtBatJob
     let progress: Double?
@@ -517,16 +564,14 @@ struct UploadStatus: View {
     var body: some View {
         switch job.upload {
         case nil:
-            Text("Not uploaded (filmed before uploads)").font(.caption).foregroundStyle(.secondary)
+            Text("Only on this phone").font(.caption).foregroundStyle(.secondary)
         case .waiting?:
             Label(job.state == .building ? "Building the video…" : online ? "Waiting to upload" : "Waiting for signal",
                   systemImage: online ? "clock" : "antenna.radiowaves.left.and.right.slash")
                 .font(.caption).foregroundStyle(.orange)
         case .uploading?:
-            HStack(spacing: 6) {
-                ProgressView(value: progress ?? 0).frame(width: 90)
-                Text("Uploading \(Int((progress ?? 0) * 100))%").font(.caption).foregroundStyle(.blue)
-            }
+            // The bar itself runs along the bottom of the card's thumbnail.
+            Text("Uploading \(Int((progress ?? 0) * 100))%").font(.caption).foregroundStyle(.blue)
         case .finishing?:
             Label("Adding to Clips…", systemImage: "arrow.up.circle").font(.caption).foregroundStyle(.blue)
         case .uploaded?:
@@ -583,26 +628,51 @@ struct GameSection: Identifiable {
     let local: [AtBatJob]
     /// Set on the most recent game: the one Film files into.
     var current: GameChoice?
+
+    /// In grid order. An at-bat that just finished uploading turns from a
+    /// phone card into a Clips card under a different id, so the grid draws
+    /// it fresh (with its thumbnail) rather than keeping the phone card.
+    var cards: [Card] {
+        atBats.enumerated().map { .atBat($1, number: $0 + 1) }
+            + local.map { .local($0) }
+            + (current.map { [.film($0)] } ?? [])
+    }
+
+    enum Card: Identifiable {
+        case atBat(HistoryAtBat, number: Int)
+        case local(AtBatJob)
+        case film(GameChoice)
+
+        var id: String {
+            switch self {
+            case .atBat(let ab, _): "clips-\(ab.id)"
+            case .local(let job): "phone-\(job.id)"
+            case .film: "film"
+            }
+        }
+    }
 }
 
-/// The last row of the most recent game.
-private struct FilmRow: View {
+/// The last card of the most recent game.
+private struct FilmCard: View {
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: "video.fill")
-                    .font(.title3)
-                    .frame(width: 96, height: 40)
-                    .background(Color.red.opacity(0.18), in: RoundedRectangle(cornerRadius: 6))
-                Text("Film next at-bat").font(.headline)
-                Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 4) {
+                Color.red.opacity(0.12)
+                    .aspectRatio(16 / 9, contentMode: .fit)
+                    .overlay { Image(systemName: "video.fill").font(.title2) }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8).strokeBorder(Color.red.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                Text("Film next at-bat").font(.subheadline.weight(.semibold))
             }
             .foregroundStyle(.red)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
     }
 }
 
