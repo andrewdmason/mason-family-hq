@@ -67,6 +67,7 @@ enum EditRenderer {
         result: AtBatResult?,
         card: TitleCard?,
         timings: EditTimings,
+        replayCrop: CGRect? = nil,
         to out: URL
     ) async throws -> RenderedEdit {
         let started = Date()
@@ -95,7 +96,7 @@ enum EditRenderer {
             video.scaleTimeRange(CMTimeRange(start: .zero, duration: oneFrame.duration), toDuration: range.duration)
             audio?.insertEmptyTimeRange(range)
             instructions.append(CaptionInstruction(
-                timeRange: range, sourceTrackID: nil, rotate180: false,
+                timeRange: range, sourceTrackID: nil, rotate180: false, crop: nil,
                 overlay: CaptionArt.titleCard(card)
             ))
             cursor = range.duration
@@ -103,7 +104,8 @@ enum EditRenderer {
         let cardLength = cursor.seconds
         for seg in plan {
             let range = CMTimeRange(start: time(seg.start), end: time(seg.end))
-            let played = time(seg.playLength)
+            // At real speed the inserted range is the played length, to the tick.
+            let played = seg.rate == 1 ? range.duration : time(seg.playLength)
             try video.insertTimeRange(range, of: sourceVideo, at: cursor)
             if seg.rate != 1 {
                 video.scaleTimeRange(CMTimeRange(start: cursor, duration: range.duration), toDuration: played)
@@ -119,6 +121,7 @@ enum EditRenderer {
                 timeRange: CMTimeRange(start: cursor, duration: played),
                 sourceTrackID: video.trackID,
                 rotate180: rotation == 180,
+                crop: seg.replay ? replayCrop : nil,
                 overlay: CaptionArt.caption(seg.caption, replay: seg.replay)
             ))
             cursor = CMTimeAdd(cursor, played)
@@ -272,13 +275,17 @@ final class CaptionInstruction: NSObject, AVVideoCompositionInstructionProtocol 
 
     let sourceTrackID: CMPersistentTrackID?
     let rotate180: Bool
+    /// Zoom box as fractions of the picture, origin top-left (website-uploaded
+    /// at-bats' replay zoom).
+    let crop: CGRect?
     let overlay: CIImage?
 
-    init(timeRange: CMTimeRange, sourceTrackID: CMPersistentTrackID?, rotate180: Bool, overlay: CIImage?) {
+    init(timeRange: CMTimeRange, sourceTrackID: CMPersistentTrackID?, rotate180: Bool, crop: CGRect?, overlay: CIImage?) {
         self.timeRange = timeRange
         self.sourceTrackID = sourceTrackID
         self.requiredSourceTrackIDs = sourceTrackID.map { [NSNumber(value: $0)] } ?? []
         self.rotate180 = rotate180
+        self.crop = crop
         self.overlay = overlay
     }
 }
@@ -306,12 +313,19 @@ final class CaptionCompositor: NSObject, AVVideoCompositing {
         var image = CIImage(color: .black).cropped(to: frame)
         if let id = instruction.sourceTrackID, let source = request.sourceFrame(byTrackID: id) {
             var src = CIImage(cvPixelBuffer: source)
+            if instruction.rotate180 {
+                let e = src.extent
+                src = src.transformed(by: CGAffineTransform(translationX: e.width, y: e.height).rotated(by: .pi))
+            }
+            // Crop at full resolution before scaling, so a zoomed 4K replay stays sharp.
+            if let c = instruction.crop {
+                let e = src.extent
+                let box = CGRect(x: c.minX * e.width, y: (1 - c.maxY) * e.height, width: c.width * e.width, height: c.height * e.height)
+                src = src.cropped(to: box).transformed(by: CGAffineTransform(translationX: -box.minX, y: -box.minY))
+            }
             let e = src.extent
             if e.size != frame.size {
                 src = src.transformed(by: CGAffineTransform(scaleX: frame.width / e.width, y: frame.height / e.height))
-            }
-            if instruction.rotate180 {
-                src = src.transformed(by: CGAffineTransform(translationX: frame.width, y: frame.height).rotated(by: .pi))
             }
             image = src.composited(over: image)
         }
