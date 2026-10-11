@@ -6,7 +6,7 @@ struct ClipsCameraApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RecordView()
+            HomeView()
                 .preferredColorScheme(.dark)
         }
     }

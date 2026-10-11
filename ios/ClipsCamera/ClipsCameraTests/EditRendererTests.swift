@@ -18,14 +18,16 @@ final class EditRendererTests: XCTestCase {
         ]
         let out = FileManager.default.temporaryDirectory.appendingPathComponent("edit-\(UUID().uuidString).mp4")
         defer { try? FileManager.default.removeItem(at: out) }
-        let edit = try await EditRenderer.render(raw: raw, rotation: 180, pitches: pitches, result: .single, timings: .standard, to: out)
+        let card = TitleCard.make(number: 2, result: .single, game: "vs Kabuki", playedOn: "2026-10-11")
+        XCTAssertEqual(card, TitleCard(title: "AB 2 · Single", subtitle: "vs Kabuki · Sun, Oct 11, 2026"))
+        let edit = try await EditRenderer.render(raw: raw, rotation: 180, pitches: pitches, result: .single, card: card, timings: .standard, to: out)
 
-        // Ball: 0.5→3.5 (3s). In play: 3.5→8 (4.5s, clipped to the clip's end), then
-        // its replay 4.7→5.9 at ¼ (4.8s), then the 2s result card.
-        let expected = 3 + 4.5 + 4.8 + 2
+        // The 2s title card, then the ball: 0.5→3.5 (3s), in play: 3.5→8 (4.5s,
+        // clipped to the clip's end), then its replay 4.7→5.9 at ¼ (4.8s).
+        let expected = 2 + 3 + 4.5 + 4.8
         XCTAssertEqual(edit.duration, expected, accuracy: 0.05)
-        XCTAssertEqual(edit.pitchTimes[0], 2, accuracy: 0.01)
-        XCTAssertEqual(edit.pitchTimes[1], 3 + 2, accuracy: 0.01)
+        XCTAssertEqual(edit.pitchTimes[0], 2 + 2, accuracy: 0.01)
+        XCTAssertEqual(edit.pitchTimes[1], 2 + 3 + 2, accuracy: 0.01)
         XCTAssertGreaterThan(edit.bytes, 0)
 
         let asset = AVURLAsset(url: out)
@@ -45,14 +47,14 @@ final class EditRendererTests: XCTestCase {
         let gen = AVAssetImageGenerator(asset: asset)
         gen.requestedTimeToleranceBefore = .zero
         gen.requestedTimeToleranceAfter = .zero
-        let replayStart = 3 + 4.5
+        let replayStart = 2 + 3 + 4.5
         let a = try await Self.frameNumber(gen, at: replayStart + 1.0)
         let b = try await Self.frameNumber(gen, at: replayStart + 1.0 + 1.0 / 60)
         XCTAssertEqual(b - a, 1, "¼-speed replay should step one 240fps frame per 60fps frame (got \(a)→\(b))")
 
         // Snapshots for eyeballing captions and the card, when asked for.
         if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"] ?? (FileManager.default.fileExists(atPath: "/tmp/clipscamera-snapshots") ? "/tmp/clipscamera-snapshots" : nil) {
-            for (name, t) in [("pitch", 1.0), ("replay", replayStart + 0.5), ("card", expected - 0.5)] {
+            for (name, t) in [("card", 0.5), ("pitch", 3.0), ("replay", replayStart + 0.5)] {
                 let (image, _) = try await gen.image(at: CMTime(seconds: t, preferredTimescale: 600))
                 let url = URL(fileURLWithPath: dir).appendingPathComponent("\(name).png")
                 let ctx = CIContext()

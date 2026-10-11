@@ -22,8 +22,9 @@ The renderer test builds a real edit from a generated 240fps clip (about a
 minute on the simulator). Create `/tmp/clipscamera-snapshots` first to get PNGs
 of a caption frame, a replay frame and the result card.
 
-The simulator has no camera. Launch with `-demo` (or `-demo -demoCountdown`) to
-see the recording screen mid-at-bat for layout checks.
+The simulator has no camera or sign-in. Launch with `-demoHome` to see the home
+screen with made-up games, or `-demo` (`-demo -demoCountdown`) with the camera
+open for the recording screen mid-at-bat.
 
 ## Install on Andrew's phone
 
