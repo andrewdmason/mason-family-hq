@@ -34,6 +34,7 @@ const DOT_STYLE: Record<PitchOutcome | "none", string> = {
   swinging_strike: "bg-red-500",
   foul: "bg-amber-400",
   in_play: "bg-blue-500",
+  hit_by_pitch: "bg-violet-400",
 };
 
 export function Scrubber({

@@ -4,7 +4,10 @@ The native capture companion to Baseball Clips: films an at-bat at 1080p/240fps,
 logs each pitch with a tap, builds the finished quick version on the phone.
 Plan: `docs/plans/2026-10-11-001-feat-clips-camera-app-plan.md`.
 
-Phase 1 (this build) ends at Photos — no Clips upload yet.
+Phase 2: signs in with Google (Supabase, PKCE, `io.mason.clipscamera://auth-callback`
+must be in Supabase's allowed redirect URLs), files at-bats under a kid + game,
+uploads the finished edit on a background URLSession, then writes the game,
+at-bat (`source = 'camera'`) and pitches into Clips. Needs migration 00199 in prod.
 
 ## Build & test (agents)
 

@@ -3,6 +3,7 @@ import SwiftUI
 /// Edit timings (applied to at-bats built from now on) and test aids.
 struct SettingsView: View {
     @Bindable var settings: AppSettings
+    let clips: ClipsService
     let formatDescription: String
     @Environment(\.dismiss) private var dismiss
 
@@ -32,11 +33,17 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("Also save finished at-bats to Photos", isOn: $settings.saveEditsToPhotos)
                     Toggle("Also save full recordings to Photos", isOn: $settings.saveRawToPhotos)
                 } header: {
                     Text("Testing")
                 } footer: {
                     Text("For checking tap timing against the whole at-bat. Full 240fps recordings are large — about half a gigabyte a minute.")
+                }
+
+                Section("Account") {
+                    LabeledContent("Signed in as", value: clips.email ?? "—")
+                    Button("Sign out", role: .destructive) { Task { await clips.signOut() } }
                 }
 
                 Section {

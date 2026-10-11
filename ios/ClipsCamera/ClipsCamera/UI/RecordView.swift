@@ -6,6 +6,7 @@ struct RecordView: View {
     @State private var model = RecordModel()
     @State private var showingLibrary = false
     @State private var showingSettings = false
+    @State private var showingGame = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -18,7 +19,7 @@ struct RecordView: View {
                 .overlay(alignment: .top) { recordingBadge }
 
             HStack(spacing: 0) {
-                StatusBar(model: model)
+                StatusBar(model: model) { showingGame = true }
                 Spacer(minLength: 0)
                 ControlBar(model: model, showingLibrary: $showingLibrary, showingSettings: $showingSettings)
             }
@@ -54,7 +55,19 @@ struct RecordView: View {
             model.capture.updatePreviewRotation()
         }
         .sheet(isPresented: $showingLibrary) { LibraryView(store: model.store) }
-        .sheet(isPresented: $showingSettings) { SettingsView(settings: model.settings, formatDescription: model.capture.formatDescription) }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView(settings: model.settings, clips: model.clips, formatDescription: model.capture.formatDescription)
+        }
+        .sheet(isPresented: $showingGame) { GamePickerView(clips: model.clips, settings: model.settings) }
+        .onChange(of: model.needsGame) { _, needs in
+            if needs { showingGame = true; model.needsGame = false }
+        }
+        .onChange(of: model.clips.isSignedIn) { _, signedIn in
+            if signedIn { model.store.resume() }
+        }
+        .fullScreenCover(isPresented: .constant(model.clips.checkedSession && !model.clips.isSignedIn)) {
+            SignInView(clips: model.clips)
+        }
     }
 
     @ViewBuilder private var recordingBadge: some View {
@@ -90,11 +103,13 @@ func clock(_ seconds: Double) -> String {
 
 private struct StatusBar: View {
     let model: RecordModel
+    let onPickGame: () -> Void
     @State private var thermal = ProcessInfo.processInfo.thermalState
     @State private var battery: Float = UIDevice.current.batteryLevel
 
     var body: some View {
         VStack(spacing: 10) {
+            GameChip(game: model.settings.game, enabled: model.phase == .ready, action: onPickGame)
             CountView(count: model.count, result: model.outcome?.result)
             PitchStrip(model: model)
             Spacer(minLength: 0)
@@ -109,6 +124,27 @@ private struct StatusBar: View {
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.batteryLevelDidChangeNotification)) { _ in
             battery = UIDevice.current.batteryLevel
         }
+    }
+}
+
+/// Whose game at-bats are filed under; tap to change it between at-bats.
+private struct GameChip: View {
+    let game: GameChoice?
+    let enabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 1) {
+                Text(game?.kid.firstName ?? "Pick").font(.caption.weight(.bold))
+                Text(game?.name ?? "game").font(.caption2).lineLimit(2).multilineTextAlignment(.center).opacity(0.75)
+            }
+            .foregroundStyle(game == nil ? .yellow : .white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 5)
+            .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
+        }
+        .disabled(!enabled)
     }
 }
 

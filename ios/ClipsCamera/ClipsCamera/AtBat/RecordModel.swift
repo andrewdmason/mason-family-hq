@@ -17,6 +17,9 @@ final class RecordModel {
     let capture = CaptureController()
     let store = AtBatStore()
     let settings = AppSettings.shared
+    let clips = ClipsService.shared
+    /// Record was tapped with no game picked: the picker opens first.
+    var needsGame = false
 
     enum Phase: Equatable { case ready, recording, stopping }
 
@@ -61,7 +64,7 @@ final class RecordModel {
         #if DEBUG
         loadDemoIfAsked()
         #endif
-        store.processNext()
+        store.resume()
         armIdle()
     }
 
@@ -90,6 +93,7 @@ final class RecordModel {
 
     func record() {
         guard phase == .ready else { return }
+        guard settings.game != nil else { needsGame = true; return }
         // Camera dozed off between at-bats: wake it and go straight to recording.
         guard capture.isRunning else {
             Task {
@@ -128,10 +132,11 @@ final class RecordModel {
         clockTimer?.invalidate()
         let pitches = pitches
         let result = outcome?.result
+        let game = settings.game
         Task {
             do {
                 let recording = try await capture.stopRecording()
-                store.add(recording, pitches: pitches, result: result)
+                store.add(recording, pitches: pitches, result: result, game: game)
             } catch {
                 message = error.localizedDescription
             }
