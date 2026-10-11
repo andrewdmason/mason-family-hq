@@ -6,6 +6,7 @@ import SwiftUI
 /// camera opens from the button at the bottom.
 struct HomeView: View {
     @State private var model = RecordModel()
+    @State private var update = AppUpdate()
     @State private var kidID: UUID?
     @State private var history: [UUID: [HistoryGame]] = [:]
     @State private var posters: [String: URL] = [:]
@@ -36,6 +37,16 @@ struct HomeView: View {
         NavigationStack {
             List {
                 Section { } header: { kidTabs }
+                if let link = update.available {
+                    Section {
+                        Button { openURL(link) } label: {
+                            Label("A new version is ready — tap to update", systemImage: "arrow.down.circle.fill")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                    } footer: {
+                        Text("Your at-bats and settings stay.")
+                    }
+                }
                 if kidID == Self.unfiledTab {
                     Section {
                         ForEach(unfiled) { job in localRow(job) }
@@ -71,11 +82,12 @@ struct HomeView: View {
             if loadDemo() { return }
             #endif
             store.resume()
+            await update.check()
             await loadKids()
         }
         .onChange(of: kidID) { Task { await load() } }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { store.resume(); Task { await load() } }
+            if phase == .active { store.resume(); Task { await load(); await update.check() } }
             if phase == .background && cameraOpen { model.wentToBackground() }
         }
         // A finished upload shows up in the kid's history.

@@ -4,7 +4,8 @@ import { supabaseUrl } from "@/lib/supabase/config";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Install Baseball Clips" };
 
-// The install link for the Clips Camera iPhone app, for family phones that
+// The install link for the Clips Camera iPhone app — public, so it can be
+// texted to anyone — for family phones that
 // can't use TestFlight (Apple won't let under-13 accounts test). The publish
 // script drops each build in the public app-builds bucket with a manifest and
 // a latest.json pointer; iOS installs from the manifest when the link is tapped
@@ -56,7 +57,7 @@ export default async function InstallClipsCameraPage() {
           Tap <strong>Install Baseball Clips</strong>, then <strong>Install</strong> when your iPhone asks.
         </li>
         <li>Go to your home screen and wait for the app to finish installing.</li>
-        <li>Open it and sign in with Google, using the same account as here.</li>
+        <li>Open it and sign in with your Family HQ Google account.</li>
       </ol>
       <p className="mt-6 text-sm text-muted-foreground">
         To update, come back and tap Install again — your at-bats and settings stay. It only installs on iPhones
