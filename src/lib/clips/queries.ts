@@ -1,16 +1,25 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
-import type { AtBatResult, AtBatStatus, ClipAtBat, ClipGame, ClipKid, ClipPitch, ClipZoom } from "./types";
+import type { AtBatResult, AtBatSource, AtBatStatus, ClipAtBat, ClipGame, ClipKid, ClipPitch, ClipZoom } from "./types";
 
 type Client = Awaited<ReturnType<typeof createClient>>;
 
 const AT_BAT_COLUMNS =
-  "id, game_id, status, error_message, original_name, original_bytes, playback_path, poster_path, duration_s, fps, width, height, recorded_at, marked_at, zoom, replay_zoom, result, created_at, updated_at, clip_pitches(id, t, outcome, source)";
+  "id, game_id, source, status, error_message, original_name, original_bytes, playback_path, poster_path, duration_s, fps, width, height, recorded_at, marked_at, zoom, replay_zoom, result, created_at, updated_at, clip_pitches(id, t, outcome, source, batted_ball)";
+
+type PitchRow = {
+  id: string;
+  t: number;
+  outcome: ClipPitch["outcome"];
+  source: ClipPitch["source"];
+  batted_ball: ClipPitch["battedBall"];
+};
 
 type AtBatRow = {
   id: string;
   game_id: string;
+  source: AtBatSource;
   status: AtBatStatus;
   error_message: string | null;
   original_name: string | null;
@@ -28,13 +37,14 @@ type AtBatRow = {
   result: AtBatResult | null;
   created_at: string;
   updated_at: string;
-  clip_pitches: ClipPitch[] | null;
+  clip_pitches: PitchRow[] | null;
 };
 
 function toAtBat(r: AtBatRow): ClipAtBat {
   return {
     id: r.id,
     gameId: r.game_id,
+    source: r.source ?? "upload",
     status: r.status,
     errorMessage: r.error_message,
     originalName: r.original_name,
@@ -52,7 +62,9 @@ function toAtBat(r: AtBatRow): ClipAtBat {
     result: r.result,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
-    pitches: [...(r.clip_pitches ?? [])].sort((a, b) => a.t - b.t),
+    pitches: (r.clip_pitches ?? [])
+      .map((p) => ({ id: p.id, t: p.t, outcome: p.outcome, source: p.source, battedBall: p.batted_ball }))
+      .sort((a, b) => a.t - b.t),
   };
 }
 

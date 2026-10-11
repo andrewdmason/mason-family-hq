@@ -1,8 +1,8 @@
 import AVKit
 import SwiftUI
 
-/// Recent at-bats: building, saved, or failed — with the numbers that matter
-/// for the phase 1 test (how long the edit took to build, how big it is).
+/// Recent at-bats and where each one is: building, uploading (with progress),
+/// in Clips, or stuck with a retry — plus how long the edit took to build.
 struct LibraryView: View {
     let store: AtBatStore
     @Environment(\.dismiss) private var dismiss
@@ -39,9 +39,14 @@ struct LibraryView: View {
                 Text(detail(job)).font(.caption).foregroundStyle(.secondary)
                 if case .failed(let why) = job.state {
                     Text(why).font(.caption).foregroundStyle(.red)
+                } else {
+                    UploadStatus(job: job, progress: store.progress[job.id], online: store.online)
                 }
             }
             Spacer()
+            if case .failed = job.upload, job.state == .done {
+                Button("Retry") { store.retry(job.id) }.buttonStyle(.bordered)
+            }
             switch job.state {
             case .building:
                 ProgressView()
@@ -57,8 +62,9 @@ struct LibraryView: View {
     }
 
     private func title(_ job: AtBatJob) -> String {
-        let when = job.recordedAt.formatted(date: .abbreviated, time: .shortened)
-        return "\(job.result?.name ?? "Unfinished") · \(when)"
+        let when = job.recordedAt.formatted(date: .omitted, time: .shortened)
+        let who = job.game.map { "\($0.kid.firstName) · \($0.name) · " } ?? ""
+        return "\(job.result?.name ?? "Unfinished") · \(who)\(when)"
     }
 
     private func detail(_ job: AtBatJob) -> String {
@@ -67,6 +73,36 @@ struct LibraryView: View {
         if let b = job.editBytes { parts.append(ByteCountFormatter.string(fromByteCount: b, countStyle: .file)) }
         if let r = job.renderSeconds { parts.append(String(format: "built in %.0fs", r)) }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// One line: where the upload stands.
+private struct UploadStatus: View {
+    let job: AtBatJob
+    let progress: Double?
+    let online: Bool
+
+    var body: some View {
+        switch job.upload {
+        case nil:
+            Text("Not uploaded (recorded before uploads)").font(.caption).foregroundStyle(.secondary)
+        case .waiting?:
+            Label(job.state == .building ? "Uploads when built" : online ? "Waiting to upload" : "Waiting for signal",
+                  systemImage: online ? "clock" : "antenna.radiowaves.left.and.right.slash")
+                .font(.caption).foregroundStyle(.orange)
+        case .uploading?:
+            HStack(spacing: 6) {
+                ProgressView(value: progress ?? 0).frame(width: 120)
+                Text("Uploading \(Int((progress ?? 0) * 100))%").font(.caption).foregroundStyle(.blue)
+            }
+        case .finishing?:
+            Label("Adding to Clips…", systemImage: "arrow.up.circle").font(.caption).foregroundStyle(.blue)
+        case .uploaded?:
+            Label("In Clips", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+        case .failed(let why)?:
+            Label("Upload failed: \(why)", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption).foregroundStyle(.red).lineLimit(2)
+        }
     }
 }
 

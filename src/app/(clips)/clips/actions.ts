@@ -309,6 +309,38 @@ function titleCard(game: { name: string; playedOn: string }, index: number, resu
   };
 }
 
+/**
+ * A camera at-bat is already the finished quick version (captions and all), so
+ * a game reel plays it whole. The worker always draws a caption, so it gets a
+ * small "AB 2" in the corner, clear of the phone's own captions at the bottom.
+ */
+function finishedEditSegments(ab: { durationS: number | null }, index: number): PlanSegment[] {
+  if (!ab.durationS) return [];
+  return [
+    { start: 0, end: ab.durationS, rate: 1, muted: false, caption: `AB ${index + 1}`, pitchIndex: 0, replay: false },
+  ];
+}
+
+/**
+ * Sharing a camera at-bat needs no render — the file is the finished video.
+ * The export row is born ready so the share dialog works the same way.
+ */
+async function shareFinishedEdit(atBatId: string, path: string): Promise<{ exportId: string }> {
+  const sb = await createClient();
+  const userId = await requireUserId(sb);
+  const exportId = crypto.randomUUID();
+  const { error } = await sb.from("clip_exports").insert({
+    id: exportId,
+    at_bat_id: atBatId,
+    status: "ready",
+    path,
+    created_by: userId,
+    finished_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(error.message);
+  return { exportId };
+}
+
 /** Replays zoom to the at-bat's box when it has one and it's switched on. */
 function withReplayZoom(segments: PlanSegment[], ab: { zoom: ClipZoom | null; replayZoom: boolean }) {
   if (!ab.zoom || !ab.replayZoom) return segments;
@@ -372,6 +404,7 @@ export async function exportAtBat(atBatId: string): Promise<{ exportId: string }
   const ab = await getAtBat(atBatId);
   if (!ab) throw new Error("At-bat not found");
   const { data: row } = await sb.from("clip_at_bats").select("original_path").eq("id", atBatId).single();
+  if (ab.source === "camera") return shareFinishedEdit(atBatId, row!.original_path);
   const game = await getGame(ab.gameId);
   const index = game?.atBats.findIndex((x) => x.id === atBatId) ?? 0;
   const segments = withReplayZoom(buildQuickPlan(ab.pitches, ab.durationS ?? Infinity, ab.result), ab);
@@ -392,7 +425,10 @@ export async function exportGame(gameId: string): Promise<{ exportId: string }> 
     .map((ab, i) => ({
       card: titleCard(game, i, ab.result),
       originalPath: pathById.get(ab.id)!,
-      segments: withReplayZoom(buildQuickPlan(ab.pitches, ab.durationS ?? Infinity, ab.result), ab),
+      segments:
+        ab.source === "camera"
+          ? finishedEditSegments(ab, i)
+          : withReplayZoom(buildQuickPlan(ab.pitches, ab.durationS ?? Infinity, ab.result), ab),
     }))
     .filter((part) => part.segments.length > 0);
   return beginExport({ gameId }, parts);

@@ -135,7 +135,10 @@ export function AtBatPlayer({
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
   // Marked at-bats open for watching; unmarked ones open on the full timeline
   // for marking.
-  const [editing, setEditing] = useState(!atBat.markedAt || atBat.pitches.length === 0);
+  // A camera at-bat is the phone's finished edit: it plays as-is, its pitch
+  // dots are jump points, and there's nothing to edit.
+  const finished = atBat.source === "camera";
+  const [editing, setEditing] = useState(!finished && (!atBat.markedAt || atBat.pitches.length === 0));
   const mode: Mode = editing ? "full" : "quick";
   // Replay zoom: one box for the whole video, set in edit mode.
   const [zoom, setZoom] = useState<ClipZoom | null>(atBat.zoom);
@@ -152,8 +155,8 @@ export function AtBatPlayer({
 
   const sorted = useMemo(() => [...pitches].sort((a, b) => a.t - b.t), [pitches]);
   const plan = useMemo(
-    () => (duration > 0 && sorted.length ? buildQuickPlan(sorted, duration, result) : []),
-    [sorted, duration, result],
+    () => (!finished && duration > 0 && sorted.length ? buildQuickPlan(sorted, duration, result) : []),
+    [finished, sorted, duration, result],
   );
   const selected = pitches.find((p) => p.id === selectedId) ?? null;
 
@@ -608,6 +611,7 @@ export function AtBatPlayer({
   // --- Modes ------------------------------------------------------------------------------
 
   function startEditing() {
+    if (finished) return;
     leaveSegments();
     setEditing(true);
   }
@@ -874,7 +878,7 @@ export function AtBatPlayer({
           }
           canExport={sorted.length > 0}
         >
-          {editing ? (
+          {finished ? null : editing ? (
             <>
               <DropdownMenuItem onClick={() => setDialog("result")}>
                 <Flag /> {badge ? `Result · ${badge}` : "Set result"}

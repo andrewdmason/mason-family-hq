@@ -8,7 +8,7 @@ export type AtBatStatus = "uploading" | "processing" | "ready" | "failed";
 export type AtBatResult =
   | "K" | "KL" | "BB" | "HBP"
   | "1B" | "2B" | "3B" | "HR"
-  | "GO" | "FO" | "LO" | "ROE";
+  | "GO" | "FO" | "LO" | "PO" | "ROE" | "FC";
 
 // Scorebook order: strikeouts and free passes, then hits, then outs in play.
 // `label` is what the badge shows (a backwards K reads as ꓘ); `name` is the
@@ -25,7 +25,9 @@ export const AT_BAT_RESULTS: { value: AtBatResult; label: string; name: string }
   { value: "GO", label: "GO", name: "Groundout" },
   { value: "FO", label: "FO", name: "Flyout" },
   { value: "LO", label: "LO", name: "Lineout" },
+  { value: "PO", label: "PO", name: "Popout" },
   { value: "ROE", label: "ROE", name: "Reached on error" },
+  { value: "FC", label: "FC", name: "Fielder's choice" },
 ];
 
 /** "Flyout", "Single"… — the result spelled out. */
@@ -51,7 +53,7 @@ export type ClipGame = {
 // Pitch outcomes, as a scorebook (or GameChanger) records them. Swings are
 // filled dots on the timeline and takes are hollow; the color says what
 // happened.
-export type PitchOutcome = "ball" | "called_strike" | "swinging_strike" | "foul" | "in_play";
+export type PitchOutcome = "ball" | "called_strike" | "swinging_strike" | "foul" | "in_play" | "hit_by_pitch";
 
 export const PITCH_OUTCOMES: { value: PitchOutcome; label: string; short: string; key: string }[] = [
   { value: "ball", label: "Ball", short: "Ball", key: "b" },
@@ -59,7 +61,15 @@ export const PITCH_OUTCOMES: { value: PitchOutcome; label: string; short: string
   { value: "swinging_strike", label: "Swinging strike", short: "Swing", key: "s" },
   { value: "foul", label: "Foul", short: "Foul", key: "f" },
   { value: "in_play", label: "Ball in play", short: "In play", key: "i" },
+  { value: "hit_by_pitch", label: "Hit by pitch", short: "HBP", key: "h" },
 ];
+
+/** What kind of ball in play, in Scorelord's terms (set by the Clips Camera app). */
+export type BattedBall = "ground_ball" | "line_drive" | "fly_ball" | "pop_fly" | "bunt";
+
+/** Where an at-bat came from: a video uploaded and marked here, or the Clips
+ * Camera app, which sends a finished edit with its pitches already labeled. */
+export type AtBatSource = "upload" | "camera";
 
 export function outcomeLabel(outcome: PitchOutcome | null, form: "label" | "short" = "label"): string {
   const o = PITCH_OUTCOMES.find((x) => x.value === outcome);
@@ -68,9 +78,11 @@ export function outcomeLabel(outcome: PitchOutcome | null, form: "label" | "shor
 
 export type ClipPitch = {
   id: string;
+  /** Seconds into the at-bat's video — for a camera at-bat, its finished edit. */
   t: number;
   outcome: PitchOutcome | null;
-  source: "manual" | "auto";
+  source: "manual" | "auto" | "camera";
+  battedBall?: BattedBall | null;
 };
 
 export function isSwing(p: Pick<ClipPitch, "outcome">): boolean {
@@ -103,6 +115,7 @@ export type ClipZoom = { x: number; y: number; s: number };
 export type ClipAtBat = {
   id: string;
   gameId: string;
+  source: AtBatSource;
   status: AtBatStatus;
   errorMessage: string | null;
   originalName: string | null;
