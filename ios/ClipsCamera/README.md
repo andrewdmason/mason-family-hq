@@ -31,12 +31,20 @@ open for the recording screen mid-at-bat.
 `scripts/install-on-phone.sh` builds, signs (team S4AV4J8F99, automatic) and
 installs over the cable or Wi-Fi. The phone must be unlocked with Developer Mode on.
 
-## TestFlight
+## Releasing
 
-`scripts/testflight.sh` archives a Release build (build number = upload time),
-signs it with Xcode's signed-in account and uploads it to App Store Connect
-(app record "io.mason.clipscamera"). Testers install through the TestFlight app.
-The icon is drawn by `scripts/make-icon.swift`.
+`scripts/release.sh` archives one Release build (build number = release time)
+and ships it two ways:
+
+- **TestFlight** (Andrew): uploaded to App Store Connect, app "Baseball Clips".
+- **Install link** (Sebastian — under 13, so no TestFlight): an ad hoc export
+  published to the public `app-builds` bucket with an install manifest;
+  family.mason.io/clips/install links to the latest. Ad hoc builds install only
+  on iPhones registered on the developer account — plug a new phone in and
+  build for it once (`scripts/install-on-phone.sh` with `PHONE=<udid>`) to
+  register it, then release again so the ad hoc profile includes it.
+
+`--adhoc-only` skips TestFlight. The icon is drawn by `scripts/make-icon.swift`.
 
 ## Field test checklist (phase 1 exit)
 
