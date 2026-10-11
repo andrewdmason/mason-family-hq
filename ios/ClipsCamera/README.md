@@ -31,6 +31,13 @@ open for the recording screen mid-at-bat.
 `scripts/install-on-phone.sh` builds, signs (team S4AV4J8F99, automatic) and
 installs over the cable or Wi-Fi. The phone must be unlocked with Developer Mode on.
 
+## TestFlight
+
+`scripts/testflight.sh` archives a Release build (build number = upload time),
+signs it with Xcode's signed-in account and uploads it to App Store Connect
+(app record "io.mason.clipscamera"). Testers install through the TestFlight app.
+The icon is drawn by `scripts/make-icon.swift`.
+
 ## Field test checklist (phase 1 exit)
 
 - A full simulated game: 8+ at-bats over ~2 hours. Watch the thermometer in the
