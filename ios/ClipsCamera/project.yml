@@ -1,0 +1,54 @@
+# Clips Camera — the native capture companion to Baseball Clips.
+# Generate the Xcode project with `xcodegen` from this folder (the .xcodeproj
+# is gitignored); see README.md for build and install steps.
+name: ClipsCamera
+options:
+  bundleIdPrefix: io.mason
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: S4AV4J8F99
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  ClipsCamera:
+    type: application
+    platform: iOS
+    sources: [ClipsCamera]
+    info:
+      path: ClipsCamera/Info.plist
+      properties:
+        CFBundleDisplayName: Clips Camera
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: ""
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSCameraUsageDescription: Clips Camera films your kid's at-bats.
+        NSMicrophoneUsageDescription: At-bats are recorded with sound (it's muted during slow-motion replays).
+        NSPhotoLibraryAddUsageDescription: Finished at-bats are saved to Photos while the app is being tested.
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.mason.clipscamera
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+    scheme:
+      testTargets: [ClipsCameraTests]
+  ClipsCameraTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [ClipsCameraTests]
+    dependencies:
+      - target: ClipsCamera
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
