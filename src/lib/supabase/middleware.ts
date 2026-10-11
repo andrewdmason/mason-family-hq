@@ -72,7 +72,10 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith("/practice/session/api/callback") &&
     // Same for the baseball clips worker's callback — see
     // src/app/(clips)/clips/api/callback/route.ts.
-    !request.nextUrl.pathname.startsWith("/clips/api/callback")
+    !request.nextUrl.pathname.startsWith("/clips/api/callback") &&
+    // The Clips Camera iPhone app's install page is shareable without an
+    // account; the app it installs only runs on registered iPhones.
+    !request.nextUrl.pathname.startsWith("/clips/install")
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
