@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import Photos
 import UIKit
 
 // One at-bat at a time: Record, tap per pitch, label it, and the at-bat stops
@@ -18,8 +17,6 @@ final class RecordModel {
     let store = AtBatStore()
     let settings = AppSettings.shared
     let clips = ClipsService.shared
-    /// Record was tapped with no game picked: the picker opens first.
-    var needsGame = false
 
     enum Phase: Equatable { case ready, recording, stopping }
 
@@ -56,16 +53,23 @@ final class RecordModel {
 
     // MARK: Camera power
 
-    func appeared() async {
+    /// The camera screen opened (or the app came back to it).
+    func cameraOpened() async {
         UIApplication.shared.isIdleTimerDisabled = true
         await capture.start()
-        // Ask for Photos now, not mid-game when the first edit is ready.
-        _ = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         #if DEBUG
         loadDemoIfAsked()
         #endif
-        store.resume()
         armIdle()
+    }
+
+    /// Back to the home screen: the camera powers down.
+    func cameraClosed() {
+        guard phase == .ready else { return }
+        UIApplication.shared.isIdleTimerDisabled = false
+        idleTimer?.invalidate()
+        closeLabels()
+        capture.stop()
     }
 
     func wentToBackground() {
@@ -93,7 +97,7 @@ final class RecordModel {
 
     func record() {
         guard phase == .ready else { return }
-        guard settings.game != nil else { needsGame = true; return }
+        guard settings.game != nil else { message = "No game picked — close the camera and start one."; return }
         // Camera dozed off between at-bats: wake it and go straight to recording.
         guard capture.isRunning else {
             Task {

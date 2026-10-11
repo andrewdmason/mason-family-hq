@@ -20,7 +20,7 @@ struct SettingsView: View {
                         Text("¼ speed").tag(0.25)
                         Text("⅛ speed").tag(0.125)
                     }
-                    stepper("Result card", value: $settings.timings.endCard, range: 0...5)
+                    stepper("Title card", value: $settings.timings.titleCard, range: 0...5)
                     Button("Reset to defaults") { settings.timings = .standard }
                 } header: {
                     Text("The finished video")

@@ -17,8 +17,9 @@ struct EditTimings: Codable, Equatable {
     var replayAfter = 0.4
     /// Replay speed. ¼ of 240fps plays every captured frame at 60fps.
     var replayRate = 0.25
-    /// The closing result card.
-    var endCard = 2.0
+    /// The opening title card ("AB 2 · Single" over the game and date), as
+    /// long as the website's exports show it.
+    var titleCard = 2.0
 
     static let standard = EditTimings()
 }

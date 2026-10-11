@@ -187,6 +187,8 @@ final class AtBatStore {
                     rotation: job.rotation,
                     pitches: job.pitches,
                     result: job.result,
+                    card: TitleCard.make(number: number(of: job), result: job.result,
+                                         game: job.game?.name, playedOn: job.game?.playedOn),
                     timings: AppSettings.shared.timings,
                     to: url(editName)
                 )
@@ -213,6 +215,19 @@ final class AtBatStore {
         } catch {
             update(job.id) { $0.state = .failed(error.localizedDescription) }
         }
+    }
+
+    /// The number the game's next at-bat will get.
+    func nextNumber(for game: GameChoice) -> Int {
+        (game.priorAtBats ?? 0) + jobs.filter { $0.game?.id == game.id }.count + 1
+    }
+
+    /// Its place in the game ("AB 3"): the game's at-bats already in Clips
+    /// when it was picked, plus this phone's at-bats for it up to this one.
+    func number(of job: AtBatJob) -> Int? {
+        guard let game = job.game else { return nil }
+        let here = jobs.filter { $0.game?.id == game.id && $0.recordedAt <= job.recordedAt }.count
+        return (game.priorAtBats ?? 0) + max(1, here)
     }
 
     // MARK: Uploading

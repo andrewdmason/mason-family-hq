@@ -1,12 +1,10 @@
 import SwiftUI
 
-/// The one screen: full-width picture held sideways, status down the left
-/// edge, controls down the right.
-struct RecordView: View {
-    @State private var model = RecordModel()
-    @State private var showingLibrary = false
-    @State private var showingSettings = false
-    @State private var showingGame = false
+/// The camera: full-width picture held sideways, status down the left edge,
+/// controls down the right. Opened from the home screen, which it returns to.
+struct CameraView: View {
+    let model: RecordModel
+    let onClose: () -> Void
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -19,9 +17,9 @@ struct RecordView: View {
                 .overlay(alignment: .top) { recordingBadge }
 
             HStack(spacing: 0) {
-                StatusBar(model: model) { showingGame = true }
+                StatusBar(model: model)
                 Spacer(minLength: 0)
-                ControlBar(model: model, showingLibrary: $showingLibrary, showingSettings: $showingSettings)
+                ControlBar(model: model, onClose: onClose)
             }
 
             if model.labelStep != nil {
@@ -46,27 +44,14 @@ struct RecordView: View {
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
-        .task { await model.appeared() }
+        .onAppear { Orientation.lock(.landscape) }
+        .task { await model.cameraOpened() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { model.wentToBackground() }
-            if phase == .active { Task { await model.appeared() } }
+            if phase == .active { Task { await model.cameraOpened() } }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
             model.capture.updatePreviewRotation()
-        }
-        .sheet(isPresented: $showingLibrary) { LibraryView(store: model.store) }
-        .sheet(isPresented: $showingSettings) {
-            SettingsView(settings: model.settings, clips: model.clips, formatDescription: model.capture.formatDescription)
-        }
-        .sheet(isPresented: $showingGame) { GamePickerView(clips: model.clips, settings: model.settings) }
-        .onChange(of: model.needsGame) { _, needs in
-            if needs { showingGame = true; model.needsGame = false }
-        }
-        .onChange(of: model.clips.isSignedIn) { _, signedIn in
-            if signedIn { model.store.resume() }
-        }
-        .fullScreenCover(isPresented: .constant(model.clips.checkedSession && !model.clips.isSignedIn)) {
-            SignInView(clips: model.clips)
         }
     }
 
@@ -103,13 +88,12 @@ func clock(_ seconds: Double) -> String {
 
 private struct StatusBar: View {
     let model: RecordModel
-    let onPickGame: () -> Void
     @State private var thermal = ProcessInfo.processInfo.thermalState
     @State private var battery: Float = UIDevice.current.batteryLevel
 
     var body: some View {
         VStack(spacing: 10) {
-            GameChip(game: model.settings.game, enabled: model.phase == .ready, action: onPickGame)
+            GameLabel(game: model.settings.game, number: model.settings.game.map { model.store.nextNumber(for: $0) })
             CountView(count: model.count, result: model.outcome?.result)
             PitchStrip(model: model)
             Spacer(minLength: 0)
@@ -127,24 +111,23 @@ private struct StatusBar: View {
     }
 }
 
-/// Whose game at-bats are filed under; tap to change it between at-bats.
-private struct GameChip: View {
+/// Where this at-bat is filed — chosen on the home screen before filming.
+private struct GameLabel: View {
     let game: GameChoice?
-    let enabled: Bool
-    let action: () -> Void
+    let number: Int?
 
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 1) {
-                Text(game?.kid.firstName ?? "Pick").font(.caption.weight(.bold))
-                Text(game?.name ?? "game").font(.caption2).lineLimit(2).multilineTextAlignment(.center).opacity(0.75)
+        VStack(spacing: 1) {
+            Text(game?.kid.firstName ?? "No game").font(.caption.weight(.bold))
+            if let game {
+                Text(game.name).font(.caption2).lineLimit(2).multilineTextAlignment(.center).opacity(0.75)
             }
-            .foregroundStyle(game == nil ? .yellow : .white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 5)
-            .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 10))
+            if let number { Text("AB \(number)").font(.caption2.weight(.semibold)).opacity(0.75) }
         }
-        .disabled(!enabled)
+        .foregroundStyle(game == nil ? .yellow : .white)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 5)
+        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -243,16 +226,17 @@ private struct HealthView: View {
 
 private struct ControlBar: View {
     let model: RecordModel
-    @Binding var showingLibrary: Bool
-    @Binding var showingSettings: Bool
+    let onClose: () -> Void
 
     var body: some View {
         VStack(spacing: 14) {
-            HStack(spacing: 14) {
-                Button { model.touched(); showingLibrary = true } label: { Image(systemName: "film.stack") }
-                Button { model.touched(); showingSettings = true } label: { Image(systemName: "gearshape") }
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.headline)
+                    .frame(width: 40, height: 40)
+                    .background(.white.opacity(0.18), in: Circle())
             }
-            .font(.title3)
+            .accessibilityLabel("Close camera")
             .foregroundStyle(.white)
             .disabled(model.phase != .ready)
             .opacity(model.phase == .ready ? 1 : 0.3)

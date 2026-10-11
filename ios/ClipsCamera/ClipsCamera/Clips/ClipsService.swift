@@ -20,6 +20,8 @@ struct GameChoice: Codable, Equatable, Identifiable {
     var name: String
     /// yyyy-MM-dd
     var playedOn: String
+    /// At-bats it already had in Clips when picked, so new ones number on from there.
+    var priorAtBats: Int?
 
     /// yyyy-MM-dd for a calendar day.
     static func day(_ date: Date) -> String {
@@ -93,17 +95,59 @@ final class ClipsService {
         return rows.map { Kid(id: $0.id, displayName: $0.display_name) }
     }
 
-    func recentGames(for kid: Kid) async throws -> [GameChoice] {
-        struct Row: Decodable { let id: UUID; let name: String; let played_on: String }
-        let rows: [Row] = try await client.from("clip_games")
-            .select("id, name, played_on")
+    // MARK: History
+
+    /// A kid's games in Clips, newest first, each with its at-bats in order.
+    func history(for kid: Kid) async throws -> [HistoryGame] {
+        let games: [HistoryGame] = try await client.from("clip_games")
+            .select("id, name, played_on, clip_at_bats(id, source, status, result, poster_path, playback_path, duration_s, recorded_at, created_at, clip_pitches(outcome))")
             .eq("kid_id", value: kid.id)
             .order("played_on", ascending: false)
             .order("created_at", ascending: false)
-            .limit(12)
+            .limit(40)
             .execute()
             .value
-        return rows.map { GameChoice(id: $0.id, kid: kid, name: $0.name, playedOn: $0.played_on) }
+        return games.filter { !$0.atBats.isEmpty }
+    }
+
+    /// Short-lived links for feed thumbnails, by storage path.
+    func posterURLs(_ paths: [String]) async -> [String: URL] {
+        guard !paths.isEmpty,
+              let results: [SignedURLResult] = try? await client.storage.from(Config.bucket).createSignedURLs(paths: paths, expiresIn: 3600)
+        else { return [:] }
+        var out: [String: URL] = [:]
+        for case .success(let path, let url) in results { out[path] = url }
+        return out
+    }
+
+    /// The newest finished export of a website at-bat, if one was ever made.
+    func latestExportPath(atBatID: UUID) async -> String? {
+        struct Row: Decodable { let path: String? }
+        let rows: [Row]? = try? await client.from("clip_exports")
+            .select("path")
+            .eq("at_bat_id", value: atBatID)
+            .eq("status", value: "ready")
+            .order("created_at", ascending: false)
+            .limit(1)
+            .execute()
+            .value
+        return rows?.first?.path ?? nil
+    }
+
+    /// Delete an at-bat from Clips, as the website's Delete does: its files
+    /// (video, poster, playback copy) and the row, which takes its pitches with it.
+    func deleteAtBat(_ id: UUID, gameID: UUID) async throws {
+        let dir = "\(gameID.uuidString.lowercased())/\(id.uuidString.lowercased())"
+        let bucket = client.storage.from(Config.bucket)
+        let files = try await bucket.list(path: dir)
+        if !files.isEmpty {
+            _ = try await bucket.remove(paths: files.map { "\(dir)/\($0.name)" })
+        }
+        try await client.from("clip_at_bats").delete().eq("id", value: id).execute()
+    }
+
+    func videoURL(_ path: String) async throws -> URL {
+        try await client.storage.from(Config.bucket).createSignedURL(path: path, expiresIn: 3600)
     }
 
     // MARK: Upload
@@ -163,5 +207,70 @@ final class ClipsService {
         if !rows.isEmpty {
             try await client.from("clip_pitches").upsert(rows, onConflict: "id").execute()
         }
+    }
+}
+
+// MARK: - History rows
+
+struct HistoryGame: Decodable, Identifiable {
+    let id: UUID
+    let name: String
+    let playedOn: String
+    /// In the order they happened.
+    var atBats: [HistoryAtBat]
+
+    /// Without one at-bat; nil when that was the game's last.
+    func removing(_ atBatID: UUID) -> HistoryGame? {
+        var copy = self
+        copy.atBats.removeAll { $0.id == atBatID }
+        return copy.atBats.isEmpty ? nil : copy
+    }
+
+    enum CodingKeys: String, CodingKey { case id, name, played_on, clip_at_bats }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        playedOn = try c.decode(String.self, forKey: .played_on)
+        atBats = try c.decode([HistoryAtBat].self, forKey: .clip_at_bats).sorted { $0.when < $1.when }
+    }
+}
+
+struct HistoryAtBat: Decodable, Identifiable {
+    let id: UUID
+    let source: String
+    let status: String
+    let result: AtBatResult?
+    let posterPath: String?
+    let playbackPath: String?
+    let durationS: Double?
+    let when: Date
+    let pitches: Int
+    let swings: Int
+
+    /// Filmed with this app: the file is the finished video.
+    var isCamera: Bool { source == "camera" }
+    var webURL: URL { URL(string: "https://family.mason.io/clips/at-bat/\(id.uuidString.lowercased())")! }
+
+    enum CodingKeys: String, CodingKey {
+        case id, source, status, result, poster_path, playback_path, duration_s, recorded_at, created_at, clip_pitches
+    }
+    private struct PitchRow: Decodable { let outcome: PitchOutcome? }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        source = try c.decodeIfPresent(String.self, forKey: .source) ?? "upload"
+        status = try c.decode(String.self, forKey: .status)
+        result = (try? c.decodeIfPresent(String.self, forKey: .result)).flatMap { $0.flatMap(AtBatResult.init(rawValue:)) }
+        posterPath = try c.decodeIfPresent(String.self, forKey: .poster_path)
+        playbackPath = try c.decodeIfPresent(String.self, forKey: .playback_path)
+        durationS = try c.decodeIfPresent(Double.self, forKey: .duration_s)
+        let recorded = try c.decodeIfPresent(Date.self, forKey: .recorded_at)
+        when = try recorded ?? c.decode(Date.self, forKey: .created_at)
+        let rows = (try? c.decode([PitchRow].self, forKey: .clip_pitches)) ?? []
+        pitches = rows.count
+        swings = rows.filter { $0.outcome?.isSwing ?? false }.count
     }
 }

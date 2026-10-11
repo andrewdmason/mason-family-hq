@@ -23,10 +23,18 @@ final class AppSettings {
         didSet { defaults.set(saveEditsToPhotos, forKey: "saveEditsToPhotos") }
     }
 
-    /// The game new at-bats are filed under — set once per game.
+    /// The game the camera files at-bats under — set when Film is tapped.
     var game: GameChoice? {
         didSet { save(game, key: "game") }
     }
+
+    /// Each kid's current game (the one on their home tab's card), by kid id.
+    var currentGames: [String: GameChoice] {
+        didSet { save(currentGames, key: "currentGames") }
+    }
+
+    func currentGame(for kid: UUID) -> GameChoice? { currentGames[kid.uuidString] }
+    func setCurrentGame(_ game: GameChoice) { currentGames[game.kid.id.uuidString] = game }
 
     /// Kids from the last time the list loaded, so the picker works offline.
     var cachedKids: [Kid] {
@@ -42,7 +50,12 @@ final class AppSettings {
         timings = (defaults.data(forKey: "timings")).flatMap { try? JSONDecoder().decode(EditTimings.self, from: $0) } ?? .standard
         saveRawToPhotos = defaults.bool(forKey: "saveRawToPhotos")
         saveEditsToPhotos = defaults.bool(forKey: "saveEditsToPhotos")
-        game = defaults.data(forKey: "game").flatMap { try? JSONDecoder().decode(GameChoice.self, from: $0) }
+        let game = defaults.data(forKey: "game").flatMap { try? JSONDecoder().decode(GameChoice.self, from: $0) }
+        self.game = game
+        var current = defaults.data(forKey: "currentGames").flatMap { try? JSONDecoder().decode([String: GameChoice].self, from: $0) } ?? [:]
+        // Before per-kid games existed, the one picked game becomes its kid's current game.
+        if current.isEmpty, let game { current[game.kid.id.uuidString] = game }
+        currentGames = current
         cachedKids = defaults.data(forKey: "cachedKids").flatMap { try? JSONDecoder().decode([Kid].self, from: $0) } ?? []
         autoStopSeconds = defaults.object(forKey: "autoStopSeconds") as? Int ?? 3
     }
