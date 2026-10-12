@@ -68,17 +68,17 @@ final class EditRendererTests: XCTestCase {
 
     // MARK: Synthetic clip: each frame's brightness encodes its index.
 
-    static func makeClip(at url: URL, seconds: Double, fps: Int32) async throws {
+    static func makeClip(at url: URL, seconds: Double, fps: Int32, width: Int = 1920, height: Int = 1080, level: Int? = nil) async throws {
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
         let vIn = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: 1920,
-            AVVideoHeightKey: 1080,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
         ])
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: vIn, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: 1920,
-            kCVPixelBufferHeightKey as String: 1080,
+            kCVPixelBufferWidthKey as String: width,
+            kCVPixelBufferHeightKey as String: height,
         ])
         writer.add(vIn)
         let aIn = AVAssetWriterInput(mediaType: .audio, outputSettings: [
@@ -88,35 +88,50 @@ final class EditRendererTests: XCTestCase {
         XCTAssertTrue(writer.startWriting())
         writer.startSession(atSourceTime: .zero)
 
-        // Video and sound are appended interleaved — the writer stalls one
-        // input while it waits for the other to catch up.
+        // Picture and sound are each fed whenever the writer asks for more,
+        // so neither waits on the other while it interleaves them.
         let frames = Int(seconds * Double(fps))
         let rate = 48_000
         let totalSamples = Int(seconds * Double(rate))
-        var written = 0
-        for i in 0..<frames {
-            let dueSamples = min(totalSamples, Int(Double(i + 1) / Double(fps) * Double(rate)))
-            while written < dueSamples {
-                while !aIn.isReadyForMoreMediaData { try await Task.sleep(nanoseconds: 1_000_000) }
-                let n = min(1024, dueSamples - written)
-                aIn.append(try pcmBuffer(start: written, count: n, rate: rate))
-                written += n
+        let pool = adaptor.pixelBufferPool!
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            let group = DispatchGroup()
+            group.enter()
+            var frame = 0
+            vIn.requestMediaDataWhenReady(on: DispatchQueue(label: "clip.video")) {
+                while vIn.isReadyForMoreMediaData {
+                    guard frame < frames else {
+                        if frame == frames { frame += 1; vIn.markAsFinished(); group.leave() }
+                        return
+                    }
+                    var pb: CVPixelBuffer?
+                    CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb)
+                    let buffer = pb!
+                    CVPixelBufferLockBaseAddress(buffer, [])
+                    // The whole frame is one grey level: a coarse 32-step code
+                    // of the frame index, coarse enough to survive compression
+                    // (or a fixed level, to tell clips apart).
+                    memset(CVPixelBufferGetBaseAddress(buffer)!, Int32(level ?? (frame % 32) * 8), CVPixelBufferGetBytesPerRow(buffer) * height)
+                    CVPixelBufferUnlockBaseAddress(buffer, [])
+                    adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: fps))
+                    frame += 1
+                }
             }
-            while !vIn.isReadyForMoreMediaData { try await Task.sleep(nanoseconds: 1_000_000) }
-            var pb: CVPixelBuffer?
-            CVPixelBufferPoolCreatePixelBuffer(nil, adaptor.pixelBufferPool!, &pb)
-            let buffer = pb!
-            CVPixelBufferLockBaseAddress(buffer, [])
-            let base = CVPixelBufferGetBaseAddress(buffer)!
-            // The whole frame is one grey level: a coarse 32-step code of the
-            // frame index, coarse enough to survive compression.
-            let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
-            memset(base, Int32((i % 32) * 8), bytesPerRow * 1080)
-            CVPixelBufferUnlockBaseAddress(buffer, [])
-            adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(i), timescale: fps))
+            group.enter()
+            var written = 0
+            aIn.requestMediaDataWhenReady(on: DispatchQueue(label: "clip.audio")) {
+                while aIn.isReadyForMoreMediaData {
+                    guard written < totalSamples else {
+                        if written == totalSamples { written += 1; aIn.markAsFinished(); group.leave() }
+                        return
+                    }
+                    let n = min(1024, totalSamples - written)
+                    aIn.append(try! pcmBuffer(start: written, count: n, rate: rate))
+                    written += n
+                }
+            }
+            group.notify(queue: .global()) { done.resume() }
         }
-        vIn.markAsFinished()
-        aIn.markAsFinished()
         await writer.finishWriting()
         XCTAssertEqual(writer.status, .completed, writer.error?.localizedDescription ?? "")
     }

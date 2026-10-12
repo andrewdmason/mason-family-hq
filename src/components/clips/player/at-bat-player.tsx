@@ -466,6 +466,8 @@ export function AtBatPlayer({
       // Watching: play into the pitch from its lead-in. Previous restarts the
       // current pitch unless you're right at its start.
       const targets = sorted.map((p) => jumpTarget(p.t));
+      // A camera at-bat's GameChanger field view follows its last pitch; Next goes there too.
+      if (finished && atBat.fieldViewAtS != null) targets.push(atBat.fieldViewAtS);
       const i =
         dir > 0
           ? targets.findIndex((t) => t > now + 0.25)
@@ -482,7 +484,7 @@ export function AtBatPlayer({
       seek(targets[i]);
       video.current?.play().catch(() => {});
     },
-    [applySegment, editing, fps, mode, plan, seek, sorted],
+    [applySegment, atBat.fieldViewAtS, editing, finished, fps, mode, plan, seek, sorted],
   );
 
   // Hold-to-play for the frame buttons: one step on press, then ~12 frames a
@@ -876,7 +878,7 @@ export function AtBatPlayer({
               ? () => reprocessAtBat(atBat.id).then(() => router.refresh()).catch(report)
               : null
           }
-          canExport={sorted.length > 0}
+          canExport={finished || sorted.length > 0}
         >
           {finished ? null : editing ? (
             <>

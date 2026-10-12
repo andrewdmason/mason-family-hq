@@ -132,6 +132,8 @@ export type ClipAtBat = {
   zoom: ClipZoom | null;
   replayZoom: boolean;
   result: AtBatResult | null;
+  /** Camera at-bats: where a GameChanger field view starts in the finished video. */
+  fieldViewAtS: number | null;
   createdAt: string;
   updatedAt: string;
   pitches: ClipPitch[];

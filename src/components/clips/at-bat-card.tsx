@@ -45,7 +45,13 @@ export function AtBatCard({ atBat, index }: { atBat: ClipAtBat; index: number })
           {atBat.result && ` · ${resultName(atBat.result)}`}
         </span>
         <span className="truncate text-muted-foreground">
-          {summary && atBat.markedAt ? summary : summary ? `${summary} · marking` : "Not marked yet"}
+          {summary && atBat.markedAt
+            ? summary
+            : summary
+              ? `${summary} · marking`
+              : atBat.source === "camera"
+                ? "Field view"
+                : "Not marked yet"}
         </span>
       </div>
     </Link>

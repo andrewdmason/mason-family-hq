@@ -1,15 +1,18 @@
 import Foundation
 
 /// Uploads the finished videos with a background URLSession, so they keep
-/// going with the app closed and wait out dead spots at the field. One task per
-/// at-bat, tagged with its id; the session outlives app launches, so on relaunch
-/// it reconnects to whatever was still in flight.
+/// going with the app closed and wait out dead spots at the field. One task at
+/// a time per at-bat, tagged with its id and the file's storage path; the
+/// session outlives app launches, so on relaunch it reconnects to whatever was
+/// still in flight.
 final class UploadSession: NSObject, URLSessionTaskDelegate, URLSessionDataDelegate, @unchecked Sendable {
     static let shared = UploadSession()
 
     /// Main-thread callbacks.
     var onProgress: ((UUID, Double) -> Void)?
-    var onFinish: ((UUID, Result<Void, Error>) -> Void)?
+    /// The at-bat, the storage path (nil for a task from before paths were
+    /// tagged — always its video), and how it went.
+    var onFinish: ((UUID, String?, Result<Void, Error>) -> Void)?
     /// Handed over by the app delegate when iOS wakes us for finished uploads.
     var backgroundCompletion: (() -> Void)?
 
@@ -32,23 +35,30 @@ final class UploadSession: NSObject, URLSessionTaskDelegate, URLSessionDataDeleg
     /// At-bat ids with an upload still in flight.
     func activeUploads() async -> Set<UUID> {
         let tasks = await session.allTasks
-        return Set(tasks.filter { $0.state == .running || $0.state == .suspended }.compactMap { $0.taskDescription.flatMap(UUID.init) })
+        return Set(tasks.filter { $0.state == .running || $0.state == .suspended }.compactMap { Self.tag($0)?.id })
     }
 
-    func upload(_ file: URL, to url: URL, contentType: String, id: UUID) {
+    func upload(_ file: URL, to url: URL, contentType: String, id: UUID, path: String) {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         request.setValue("true", forHTTPHeaderField: "x-upsert")
         let task = session.uploadTask(with: request, fromFile: file)
-        task.taskDescription = id.uuidString
+        task.taskDescription = "\(id.uuidString) \(path)"
         task.resume()
+    }
+
+    /// "<at-bat id> <storage path>", or just the id from older builds.
+    private static func tag(_ task: URLSessionTask) -> (id: UUID, path: String?)? {
+        guard let d = task.taskDescription, let id = UUID(uuidString: String(d.prefix(36))) else { return nil }
+        let path = d.dropFirst(37)
+        return (id, path.isEmpty ? nil : String(path))
     }
 
     // MARK: Delegate
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
-        guard let id = task.taskDescription.flatMap(UUID.init), totalBytesExpectedToSend > 0 else { return }
+        guard let id = Self.tag(task)?.id, totalBytesExpectedToSend > 0 else { return }
         let fraction = Double(totalBytesSent) / Double(totalBytesExpectedToSend)
         DispatchQueue.main.async { self.onProgress?(id, fraction) }
     }
@@ -58,7 +68,7 @@ final class UploadSession: NSObject, URLSessionTaskDelegate, URLSessionDataDeleg
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let id = task.taskDescription.flatMap(UUID.init) else { return }
+        guard let (id, path) = Self.tag(task) else { return }
         lock.lock(); let body = bodies.removeValue(forKey: task.taskIdentifier); lock.unlock()
         let result: Result<Void, Error>
         if let error {
@@ -71,7 +81,7 @@ final class UploadSession: NSObject, URLSessionTaskDelegate, URLSessionDataDeleg
         } else {
             result = .success(())
         }
-        DispatchQueue.main.async { self.onFinish?(id, result) }
+        DispatchQueue.main.async { self.onFinish?(id, path, result) }
     }
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {

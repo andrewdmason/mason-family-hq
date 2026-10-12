@@ -9,6 +9,21 @@ must be in Supabase's allowed redirect URLs), files at-bats under a kid + game,
 uploads the finished edit on a background URLSession, then writes the game,
 at-bat (`source = 'camera'`) and pitches into Clips. Needs migration 00199 in prod.
 
+## GameChanger field view
+
+A GameChanger clip (the wide stream camera's look at the whole play) can go on
+the end of an at-bat, or be an at-bat on its own (title card + clip, outcome
+only). It comes in through the share sheet ("Baseball Clips", the `ClipsShare`
+extension, which drops the file in the `group.io.mason.clipscamera` Inbox and
+opens `io.mason.clipscamera://import`), the + menu (Photos), or an at-bat's
+press-and-hold menu. Trim → pick the at-bat → the phone renders one finished
+video (close-up, ½s cross-dissolve, field view at real speed with its sound)
+and uploads it with the untrimmed clip and the close-up, so "Trim field view"
+works any time. Columns: migration 00201 (`field_view_*`, `closeup_path`).
+
+Simulator check: `-demoHome -demoImport /path/clip.mp4` opens the trimmer on a
+clip; add `-demoPick` for the at-bat picker.
+
 ## Build & test (agents)
 
 ```sh

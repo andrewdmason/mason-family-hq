@@ -25,8 +25,14 @@ enum Orientation {
         AppDelegate.orientations = mask
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask))
+        // Every screen up the stack, not just the bottom one: a screen
+        // presented over home keeps home's rule until it's told.
         for window in scene.windows {
-            window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+            var vc = window.rootViewController
+            while let current = vc {
+                current.setNeedsUpdateOfSupportedInterfaceOrientations()
+                vc = current.presentedViewController
+            }
         }
     }
 }

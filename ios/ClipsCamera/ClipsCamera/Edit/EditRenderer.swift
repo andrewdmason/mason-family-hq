@@ -135,7 +135,8 @@ enum EditRenderer {
         let videoComposition = AVVideoComposition(configuration: config)
 
         try? FileManager.default.removeItem(at: out)
-        try await encode(composition: composition, video: video, audio: audio, videoComposition: videoComposition, intro: cardLength, to: out)
+        try await encode(composition: composition, videoTracks: [video], audioTracks: audio.map { [$0] } ?? [],
+                         videoComposition: videoComposition, intro: cardLength, to: out)
 
         let bytes = (try? FileManager.default.attributesOfItem(atPath: out.path)[.size] as? Int64) ?? 0
         return RenderedEdit(
@@ -147,7 +148,7 @@ enum EditRenderer {
         )
     }
 
-    private static func time(_ seconds: Double) -> CMTime {
+    static func time(_ seconds: Double) -> CMTime {
         CMTime(seconds: seconds, preferredTimescale: timescale)
     }
 
@@ -176,17 +177,21 @@ enum EditRenderer {
         }
     }
 
-    private static func encode(
+    /// Draws the composition through its compositor and writes the 1080p60
+    /// file, with the title card's length marked in it. Several audio tracks
+    /// are mixed down (with `audioMix`'s fades).
+    static func encode(
         composition: AVComposition,
-        video: AVCompositionTrack,
-        audio: AVCompositionTrack?,
+        videoTracks: [AVCompositionTrack],
+        audioTracks: [AVCompositionTrack],
+        audioMix: AVAudioMix? = nil,
         videoComposition: AVVideoComposition,
         intro: Double,
         to out: URL
     ) async throws {
         let reader = try AVAssetReader(asset: composition)
         let videoOut = AVAssetReaderVideoCompositionOutput(
-            videoTracks: [video],
+            videoTracks: videoTracks,
             videoSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         )
         videoOut.videoComposition = videoComposition
@@ -195,8 +200,8 @@ enum EditRenderer {
         reader.add(videoOut)
 
         var audioOut: AVAssetReaderAudioMixOutput?
-        if let audio {
-            let o = AVAssetReaderAudioMixOutput(audioTracks: [audio], audioSettings: [
+        if !audioTracks.isEmpty {
+            let o = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: [
                 AVFormatIDKey: kAudioFormatLinearPCM,
                 AVSampleRateKey: 48_000,
                 AVNumberOfChannelsKey: 2,
@@ -205,6 +210,7 @@ enum EditRenderer {
                 AVLinearPCMIsBigEndianKey: false,
                 AVLinearPCMIsNonInterleaved: false,
             ])
+            o.audioMix = audioMix
             if reader.canAdd(o) { reader.add(o); audioOut = o }
         }
 
