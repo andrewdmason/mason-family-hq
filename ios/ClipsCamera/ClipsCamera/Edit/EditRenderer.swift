@@ -71,12 +71,33 @@ enum EditRenderer {
         to out: URL
     ) async throws -> RenderedEdit {
         let started = Date()
-        let asset = AVURLAsset(url: raw)
-        let duration = try await asset.load(.duration).seconds
+        let duration = try await AVURLAsset(url: raw).load(.duration).seconds
+        let plan = QuickPlan.build(pitches: pitches, duration: duration, result: result, timings: timings)
+        let rendered = try await render(source: raw, rotation: rotation, plan: plan, card: card, timings: timings,
+                                        replayCrop: replayCrop, to: out)
+        return RenderedEdit(
+            url: out,
+            duration: rendered.duration,
+            pitchTimes: QuickPlan.editTimes(pitches: pitches, plan: plan).map { $0 + rendered.cardLength },
+            bytes: rendered.bytes,
+            renderSeconds: Date().timeIntervalSince(started)
+        )
+    }
+
+    /// Lays a plan (ranges of `source`, in its own time) out after the title
+    /// card and writes the finished video. Shared reels go through here too.
+    static func render(
+        source: URL,
+        rotation: Int,
+        plan: [PlanSegment],
+        card: TitleCard?,
+        timings: EditTimings,
+        replayCrop: CGRect? = nil,
+        to out: URL
+    ) async throws -> (duration: Double, cardLength: Double, bytes: Int64) {
+        let asset = AVURLAsset(url: source)
         guard let sourceVideo = try await asset.loadTracks(withMediaType: .video).first else { throw RenderError.noVideo }
         let sourceAudio = try await asset.loadTracks(withMediaType: .audio).first
-
-        let plan = QuickPlan.build(pitches: pitches, duration: duration, result: result, timings: timings)
         guard !plan.isEmpty else { throw RenderError.failed("no pitches to show") }
 
         // Lay the plan out on a composition.
@@ -139,13 +160,7 @@ enum EditRenderer {
                          videoComposition: videoComposition, intro: cardLength, to: out)
 
         let bytes = (try? FileManager.default.attributesOfItem(atPath: out.path)[.size] as? Int64) ?? 0
-        return RenderedEdit(
-            url: out,
-            duration: cursor.seconds,
-            pitchTimes: QuickPlan.editTimes(pitches: pitches, plan: plan).map { $0 + cardLength },
-            bytes: bytes,
-            renderSeconds: Date().timeIntervalSince(started)
-        )
+        return (cursor.seconds, cardLength, bytes)
     }
 
     static func time(_ seconds: Double) -> CMTime {
@@ -269,7 +284,7 @@ enum EditRenderer {
     }
 
     /// Copy samples from a reader output into a writer input until either runs out.
-    private static func pump(_ output: AVAssetReaderOutput, into input: AVAssetWriterInput, reader: AVAssetReader, group: DispatchGroup, label: String) {
+    static func pump(_ output: AVAssetReaderOutput, into input: AVAssetWriterInput, reader: AVAssetReader, group: DispatchGroup, label: String) {
         group.enter()
         var finished = false
         input.requestMediaDataWhenReady(on: DispatchQueue(label: label)) {

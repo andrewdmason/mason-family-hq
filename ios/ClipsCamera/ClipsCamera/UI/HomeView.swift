@@ -16,6 +16,10 @@ struct HomeView: View {
     @State private var cameraOpen = false
     @State private var showingSettings = false
     @State private var playing: PlayItem?
+    /// A pitch reel open in the live player.
+    @State private var reelPlaying: ReelItem?
+    /// Share was tapped on a reel: replays or real speed?
+    @State private var shareChoice: ReelShareTarget?
     /// The at-bat whose video is being fetched for the share sheet.
     @State private var sharing: UUID?
     @State private var shareError: String?
@@ -143,6 +147,22 @@ struct HomeView: View {
                 Orientation.lock(.allButUpsideDown)
                 TrimView.playWithSound()
             }
+        }
+        .fullScreenCover(item: $reelPlaying, onDismiss: { Orientation.lock(.portrait); showPendingImport() }) { item in
+            ReelPlayerScreen(
+                item: item,
+                onRelabel: { pitches in applyLabels(item.id, pitches) },
+                onShare: { replays, pitches in await shareReel(item.id, replays: replays, pitches: pitches) }
+            )
+            .onAppear {
+                Orientation.lock(.allButUpsideDown)
+                TrimView.playWithSound()
+            }
+        }
+        .confirmationDialog("Share this at-bat", isPresented: Binding(get: { shareChoice != nil }, set: { if !$0 { shareChoice = nil } }),
+                            titleVisibility: .visible, presenting: shareChoice) { target in
+            Button("With slow-mo replays") { Task { await shareReel(target.id, replays: true, pitches: nil) } }
+            Button("Real speed only") { Task { await shareReel(target.id, replays: false, pitches: nil) } }
         }
         .alert("Can't share", isPresented: .constant(shareError != nil), presenting: shareError) { _ in
             Button("OK") { shareError = nil }
@@ -335,7 +355,11 @@ struct HomeView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            if let file = job.editFile { playing = PlayItem(url: store.url(file)) }
+            if job.isReel, let item = localReelItem(job, labels: nil) {
+                reelPlaying = item
+            } else if let file = job.editFile {
+                playing = PlayItem(url: store.url(file))
+            }
         }
         .contextMenu {
             if job.editFile != nil {
@@ -378,9 +402,28 @@ struct HomeView: View {
         }
         // `-demoHome -demo`: straight into the camera, mid-at-bat.
         if ProcessInfo.processInfo.arguments.contains("-demo") { cameraOpen = true }
+        let args = ProcessInfo.processInfo.arguments
+        // `-demoHome -demoReel /path/reel.mp4`: the live player on that video,
+        // cut into made-up pitch windows (3s each; a ball, a foul, in play).
+        if let i = args.firstIndex(of: "-demoReel"), i + 1 < args.count {
+            let segments = (0..<3).map { ReelSegment(start: Double($0) * 3, end: Double($0 + 1) * 3, fps: $0 == 0 ? 60 : 240, pitch: $0) }
+            let pitches = [Pitch(t: 2, outcome: .ball), Pitch(t: 5, outcome: .foul),
+                           Pitch(t: 8, outcome: .inPlay, battedBall: .lineDrive, playResult: .double)]
+            let item = ReelItem(id: UUID(), title: "AB 2 · vs Kabuki", reel: URL(fileURLWithPath: args[i + 1]), segments: segments,
+                                pitches: pitches, result: .double,
+                                fieldView: FieldViewPlayback(url: URL(fileURLWithPath: args[i + 1]), start: 1, end: 4))
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                reelPlaying = item
+                // `-demoLandscape`: turned sideways, as it's usually watched.
+                if args.contains("-demoLandscape") {
+                    try? await Task.sleep(for: .seconds(1))
+                    Orientation.lock(.landscapeRight)
+                }
+            }
+        }
         // `-demoHome -demoImport /path/clip.mp4` (add `-demoPick` for the
         // at-bat picker): the GameChanger trimmer with that clip.
-        let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-demoImport"), i + 1 < args.count,
            let file = try? store.importClip(from: URL(fileURLWithPath: args[i + 1])) {
             // After the home screen is up, as when a clip comes in for real.
@@ -421,6 +464,10 @@ struct HomeView: View {
     /// Phone at-bats play here (from this phone if the file's still on it);
     /// videos uploaded on the website open there, where their markers live.
     private func open(_ ab: HistoryAtBat) {
+        if ab.isReel {
+            openReel(ab)
+            return
+        }
         guard ab.isCamera, let path = ab.playbackPath else {
             openURL(ab.webURL)
             return
@@ -440,6 +487,10 @@ struct HomeView: View {
     /// it's still here); website at-bats share their latest export, or open in
     /// Clips to make one.
     private func share(_ ab: HistoryAtBat, game: GameSection, number: Int) {
+        if ab.isReel {
+            shareChoice = ReelShareTarget(id: ab.id)
+            return
+        }
         let kid = kids.first { $0.id == kidID }?.firstName
         let name = Self.fileName(kid: kid, game: game.name, number: number, result: ab.result, day: game.playedOn)
         if let file = store.jobs.first(where: { $0.id == ab.id })?.editFile,
@@ -503,10 +554,10 @@ struct HomeView: View {
     /// as Clips has them.
     private func edit(_ ab: HistoryAtBat, title: String) {
         if store.canRebuild(ab.id), let job = store.jobs.first(where: { $0.id == ab.id }) {
-            editing = PitchEditTarget(id: ab.id, title: title, pitches: job.pitches, rebuild: true)
+            editing = PitchEditTarget(id: ab.id, title: title, pitches: job.pitches, rebuild: true, liveCaptions: ab.isReel)
             return
         }
-        editing = PitchEditTarget(id: ab.id, title: title, pitches: nil, rebuild: false)
+        editing = PitchEditTarget(id: ab.id, title: title, pitches: nil, rebuild: false, liveCaptions: ab.isReel)
         Task {
             do {
                 let pitches = try await model.clips.pitches(atBatID: ab.id, result: ab.result)
@@ -520,23 +571,43 @@ struct HomeView: View {
     /// Edit an at-bat that's only on this phone so far.
     private func editLocal(_ job: AtBatJob) {
         let title = "AB \(store.number(of: job) ?? 1)" + (job.game.map { " · \($0.name)" } ?? "")
-        editing = PitchEditTarget(id: job.id, title: title, pitches: job.pitches, rebuild: store.canRebuild(job.id))
+        editing = PitchEditTarget(id: job.id, title: title, pitches: job.pitches, rebuild: store.canRebuild(job.id), liveCaptions: job.isReel)
     }
 
     private func save(_ target: PitchEditTarget, pitches: [Pitch]) {
-        if target.rebuild {
-            store.rebuild(target.id, pitches: pitches)
-            return
+        applyLabels(target.id, pitches)
+    }
+
+    /// New labels for an at-bat, matched to its pitches by id. A finished
+    /// edit is rebuilt when its recording's still here (its captions are
+    /// burned in). A reel's captions are live, so it's only rebuilt when the
+    /// labels change its cuts — a take became a swing (it needs every frame)
+    /// or contact (a longer window) — and the recording's still here.
+    private func applyLabels(_ id: UUID, _ labeled: [Pitch]) {
+        let inClips = history.values.joined().flatMap(\.atBats).contains { $0.id == id }
+        if let job = store.jobs.first(where: { $0.id == id }), store.canRebuild(id) {
+            let merged = job.pitches.map { p in
+                guard let l = labeled.first(where: { $0.id == p.id }) else { return p }
+                var q = p
+                q.outcome = l.outcome
+                q.battedBall = l.battedBall
+                q.playResult = l.playResult
+                return q
+            }
+            if !job.isReel || ReelPlan.needsRebuild(old: job.pitches, new: merged, duration: job.rawDuration, timings: AppSettings.shared.timings) {
+                store.rebuild(id, pitches: merged)
+                if job.isReel && inClips { Task { try? await model.clips.relabel(atBatID: id, pitches: merged) } }
+                return
+            }
         }
-        let inClips = history.values.joined().flatMap(\.atBats).contains { $0.id == target.id }
         guard inClips else {
-            store.setLabels(target.id, pitches: pitches)
+            store.setLabels(id, pitches: labeled)
             return
         }
         Task {
             do {
-                try await model.clips.relabel(atBatID: target.id, pitches: pitches)
-                store.setLabels(target.id, pitches: pitches)
+                try await model.clips.relabel(atBatID: id, pitches: labeled)
+                store.setLabels(id, pitches: labeled)
                 await load()
             } catch {
                 editError = "Couldn't reach Clips — check your signal and try again."
@@ -544,7 +615,154 @@ struct HomeView: View {
         }
     }
 
+    // MARK: Reels
+
+    /// Play a reel: from this phone when it's still here, else from Clips.
+    private func openReel(_ ab: HistoryAtBat) {
+        let title = atBatTitle(ab.id)
+        if let job = store.jobs.first(where: { $0.id == ab.id }), job.isFilmed,
+           var item = localReelItem(job, labels: ab.pitchList) {
+            item.title = title
+            Task {
+                item.fieldView = await fieldViewPlayback(ab)
+                reelPlaying = item
+            }
+            return
+        }
+        guard let path = ab.playbackPath, let segments = ab.reel else { return }
+        Task {
+            do {
+                let url = try await model.clips.videoURL(path)
+                reelPlaying = ReelItem(id: ab.id, title: title, reel: url, segments: segments, pitches: ab.pitchList,
+                                       result: ab.result, fieldView: await fieldViewPlayback(ab))
+            } catch {
+                shareError = "Couldn't load the video — check your signal."
+            }
+        }
+    }
+
+    /// A reel built on this phone, at its reel times; labels from Clips when
+    /// given (they may have been changed elsewhere).
+    private func localReelItem(_ job: AtBatJob, labels: [Pitch]?) -> ReelItem? {
+        guard let file = job.editFile, FileManager.default.fileExists(atPath: store.url(file).path),
+              let segments = job.reelSegments else { return nil }
+        let request = store.shareRequest(job.id, replays: false)
+        var pitches = request.pitches
+        if let labels {
+            for i in pitches.indices {
+                guard let l = labels.first(where: { $0.id == pitches[i].id }) else { continue }
+                pitches[i].outcome = l.outcome
+                pitches[i].battedBall = l.battedBall
+                pitches[i].playResult = l.playResult
+            }
+        }
+        let fv = request.fieldView.map { FieldViewPlayback(url: $0.url, start: $0.start, end: $0.end) }
+        return ReelItem(id: job.id, title: atBatTitle(job.id), reel: store.url(file), segments: segments,
+                        pitches: pitches, result: Scorebook.outcome(pitches)?.result ?? job.result, fieldView: fv)
+    }
+
+    /// The field view to run on into: this phone's copy, else Clips'.
+    private func fieldViewPlayback(_ ab: HistoryAtBat) async -> FieldViewPlayback? {
+        guard let path = ab.fieldViewPath, let start = ab.fieldViewStart, let end = ab.fieldViewEnd else { return nil }
+        if let local = store.fieldViewFile(ab.id) { return FieldViewPlayback(url: local, start: start, end: end) }
+        guard let url = try? await model.clips.videoURL(path) else { return nil }
+        return FieldViewPlayback(url: url, start: start, end: end)
+    }
+
+    /// "AB 2 · vs Kabuki"
+    private func atBatTitle(_ id: UUID) -> String {
+        if let (_, game, number) = findAtBat(id) {
+            return "AB \(number) · \(game.name)"
+        }
+        if let job = store.jobs.first(where: { $0.id == id }) {
+            return "AB \(store.number(of: job) ?? 1)" + (job.game.map { " · \($0.name)" } ?? "")
+        }
+        return "At-bat"
+    }
+
+    private func findAtBat(_ id: UUID) -> (HistoryAtBat, GameSection, Int)? {
+        for section in sections {
+            for card in section.cards {
+                if case .atBat(let ab, let number) = card, ab.id == id { return (ab, section, number) }
+            }
+        }
+        return nil
+    }
+
+    /// Render a reel for sharing (with or without slow-mo replays) and open
+    /// the share sheet. `pitches` are the player's labels, if it's open.
+    private func shareReel(_ id: UUID, replays: Bool, pitches: [Pitch]?) async {
+        sharing = id
+        defer { sharing = nil }
+        do {
+            var request: ShareRequest
+            var name: String
+            if let (ab, game, number) = findAtBat(id), let segments = ab.reel {
+                let job = store.jobs.first { $0.id == id }
+                if let job, job.isFilmed, let file = job.editFile, FileManager.default.fileExists(atPath: store.url(file).path),
+                   job.reelSegments != nil {
+                    request = store.shareRequest(id, replays: replays)
+                } else {
+                    guard let path = ab.playbackPath else { return }
+                    request = ShareRequest(atBatID: id, reel: try await cachedDownload(path), segments: segments,
+                                           pitches: ab.pitchList, result: ab.result,
+                                           card: TitleCard(title: "", subtitle: ""), replays: replays, reelKey: path)
+                }
+                let labels = pitches ?? (ab.pitchList.isEmpty ? request.pitches : ab.pitchList)
+                for i in request.pitches.indices {
+                    guard let l = labels.first(where: { $0.id == request.pitches[i].id }) else { continue }
+                    request.pitches[i].outcome = l.outcome
+                    request.pitches[i].battedBall = l.battedBall
+                    request.pitches[i].playResult = l.playResult
+                }
+                request.result = Scorebook.outcome(request.pitches)?.result ?? ab.result
+                request.card = TitleCard.make(number: number, result: request.result, game: game.name, playedOn: game.playedOn)
+                if let fvPath = ab.fieldViewPath, let start = ab.fieldViewStart, let end = ab.fieldViewEnd {
+                    var clip = store.fieldViewFile(id)
+                    if clip == nil { clip = try await cachedDownload(fvPath) }
+                    request.fieldView = (clip!, start, end, fvPath)
+                }
+                let kid = kids.first { $0.id == kidID }?.firstName
+                name = Self.fileName(kid: kid, game: game.name, number: number, result: request.result, day: game.playedOn)
+            } else if let job = store.jobs.first(where: { $0.id == id }) {
+                request = store.shareRequest(id, replays: replays)
+                if let pitches {
+                    for i in request.pitches.indices {
+                        guard let l = pitches.first(where: { $0.id == request.pitches[i].id }) else { continue }
+                        request.pitches[i].outcome = l.outcome
+                        request.pitches[i].battedBall = l.battedBall
+                        request.pitches[i].playResult = l.playResult
+                    }
+                    request.result = Scorebook.outcome(request.pitches)?.result ?? job.result
+                }
+                name = Self.fileName(kid: job.game?.kid.firstName, game: job.game?.name, number: store.number(of: job) ?? 1,
+                                     result: request.result, day: job.game?.playedOn)
+            } else {
+                return
+            }
+            let file = try await ShareRenderer.render(request)
+            presentShare(copying: file, as: name)
+        } catch {
+            shareError = "Couldn't make the video: \(error.localizedDescription)"
+        }
+    }
+
+    /// A file from Clips, kept in the caches folder for next time.
+    private func cachedDownload(_ path: String) async throws -> URL {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Downloads", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent(path.replacingOccurrences(of: "/", with: "_"))
+        if FileManager.default.fileExists(atPath: file.path) { return file }
+        try await model.clips.download(path, to: file)
+        return file
+    }
+
     private func shareLocal(_ job: AtBatJob) {
+        if job.isReel {
+            shareChoice = ReelShareTarget(id: job.id)
+            return
+        }
         guard let file = job.editFile else { return }
         let name = Self.fileName(kid: job.game?.kid.firstName, game: job.game?.name, number: store.number(of: job) ?? 1,
                                  result: job.result, day: job.game?.playedOn)
@@ -896,6 +1114,11 @@ struct UploadStatus: View {
 }
 
 // MARK: - Player
+
+/// A reel whose Share was tapped, waiting on the replays choice.
+struct ReelShareTarget: Identifiable {
+    let id: UUID
+}
 
 struct PlayItem: Identifiable {
     let url: URL
