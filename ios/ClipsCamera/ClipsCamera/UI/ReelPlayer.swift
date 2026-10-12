@@ -312,6 +312,19 @@ struct ReelPlayerScreen: View {
         ZStack {
             Color.black.ignoresSafeArea()
             picture.ignoresSafeArea()
+            // Shading behind the controls, down to the screen's very edges.
+            if controlsShown {
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 110)
+                    Spacer(minLength: 0)
+                    LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 190)
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
             // The caption stays up; the controls come and go with a tap.
             VStack(spacing: 0) {
                 if controlsShown { topBar.transition(.opacity) }
@@ -325,14 +338,6 @@ struct ReelPlayerScreen: View {
                         .padding(.horizontal, 12)
                         .padding(.bottom, 4)
                         .transition(.opacity)
-                }
-            }
-            .background(alignment: .bottom) {
-                if controlsShown {
-                    LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .top, endPoint: .bottom)
-                        .frame(height: 170)
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
                 }
             }
         }
