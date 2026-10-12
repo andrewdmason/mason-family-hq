@@ -191,30 +191,43 @@ final class ReelPlayerModel {
         active.currentItem?.step(byCount: frames)
     }
 
-    /// Previous/Next: each pitch's lead-in, and the field view's start.
-    private var targets: [Double] {
-        var out = pitches.indices.map { ReelPlan.jumpTarget(pitch: $0, segments: segments, pitchTimes: pitches.map(\.t)) }
+    /// Previous/Next stops: each pitch's mark, and the field view's start.
+    private var marks: [Double] {
+        var out = pitches.map(\.t)
         if fieldView != nil { out.append(reelLength) }
         return out
     }
 
-    /// Previous restarts the pitch on screen unless it's just begun.
+    /// Onto the next mark, or back to the last one behind — the one before
+    /// that if you're still right on it (half a second, or just landed).
     func jump(_ dir: Int) {
         let t = time
         if dir > 0 {
-            if let target = targets.first(where: { $0 > t + 0.25 }) { jumpTo(target) }
+            if let mark = marks.first(where: { $0 > t + 0.01 }) { jumpTo(mark) }
+            return
+        }
+        let behind = marks.filter { $0 <= t + 0.01 }
+        guard let last = behind.last else { return jumpTo(0) }
+        let justLanded = lastJump.map { abs($0 - last) < 0.01 && Date().timeIntervalSince(lastJumpAt) < 1.5 } ?? false
+        if t - last > 0.5 && !justLanded {
+            jumpTo(last)
         } else {
-            jumpTo(targets.last { $0 < t - 0.75 } ?? 0)
+            jumpTo(behind.dropLast().last ?? 0)
         }
     }
 
     func jumpTo(pitch i: Int) {
-        jumpTo(ReelPlan.jumpTarget(pitch: i, segments: segments, pitchTimes: pitches.map(\.t)))
+        jumpTo(pitches[i].t)
     }
+
+    private var lastJump: Double?
+    private var lastJumpAt = Date.distantPast
 
     private func jumpTo(_ t: Double) {
         replaying = false
         replayEnd = nil
+        lastJump = t
+        lastJumpAt = Date()
         seek(to: t)
     }
 
@@ -286,6 +299,7 @@ struct ReelPlayerScreen: View {
     @State private var choosingShare = false
     @State private var sharing = false
     @State private var jogFrom: Double?
+    @State private var controlsShown = true
 
     init(item: ReelItem, onRelabel: @escaping ([Pitch]) -> Void, onShare: @escaping (Bool, [Pitch]) async -> Void) {
         self.item = item
@@ -295,14 +309,33 @@ struct ReelPlayerScreen: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            picture
-            ReelControls(model: model)
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
+        ZStack {
+            Color.black.ignoresSafeArea()
+            picture.ignoresSafeArea()
+            // The caption stays up; the controls come and go with a tap.
+            VStack(spacing: 0) {
+                if controlsShown { topBar.transition(.opacity) }
+                Spacer(minLength: 0)
+                captionPill
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, controlsShown ? 4 : 12)
+                if controlsShown {
+                    ReelControls(model: model)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 4)
+                        .transition(.opacity)
+                }
+            }
+            .background(alignment: .bottom) {
+                if controlsShown {
+                    LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 170)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                }
+            }
         }
-        .background(Color.black.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .onAppear { model.play(1) }
         .onDisappear { model.stop() }
@@ -328,15 +361,17 @@ struct ReelPlayerScreen: View {
         }
     }
 
+    /// The video as big as the screen allows. Tap it to show or hide the
+    /// controls; drag sideways to jog (the full width is two seconds).
     private var picture: some View {
         ZStack {
             PlayerLayerView(player: model.reelPlayer).opacity(model.onField ? 0 : 1)
             if let field = model.fieldPlayer {
                 PlayerLayerView(player: field).opacity(model.onField ? 1 : 0)
             }
-            // Drag sideways on the picture to jog: the full width is two seconds.
             GeometryReader { geo in
                 Color.clear.contentShape(Rectangle())
+                    .onTapGesture { withAnimation(.easeOut(duration: 0.2)) { controlsShown.toggle() } }
                     .gesture(DragGesture(minimumDistance: 8).onChanged { g in
                         if jogFrom == nil {
                             model.pause()
@@ -346,8 +381,6 @@ struct ReelPlayerScreen: View {
                     }.onEnded { _ in jogFrom = nil })
             }
         }
-        .overlay(alignment: .bottomLeading) { captionPill.padding(12) }
-        .overlay(alignment: .top) { topBar }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
