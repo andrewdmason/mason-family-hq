@@ -26,10 +26,20 @@ targets:
     dependencies:
       - package: Supabase
         product: Supabase
+      - target: ClipsShare
+    entitlements:
+      path: ClipsCamera/ClipsCamera.entitlements
+      properties:
+        # Shared with the share extension: its Inbox of shared videos.
+        com.apple.security.application-groups: [group.io.mason.clipscamera]
     info:
       path: ClipsCamera/Info.plist
       properties:
         CFBundleDisplayName: Clips Camera
+        # The share extension opens the app with io.mason.clipscamera://import.
+        CFBundleURLTypes:
+          - CFBundleURLName: io.mason.clipscamera
+            CFBundleURLSchemes: [io.mason.clipscamera]
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen:
@@ -49,11 +59,49 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
     scheme:
-      testTargets: [ClipsCameraTests]
+      testTargets: [ClipsCameraTests, ClipsCameraUITests]
+  # "Baseball Clips" in the share sheet: hands a GameChanger video to the app.
+  ClipsShare:
+    type: app-extension
+    platform: iOS
+    sources: [ClipsShare]
+    entitlements:
+      path: ClipsShare/ClipsShare.entitlements
+      properties:
+        com.apple.security.application-groups: [group.io.mason.clipscamera]
+    info:
+      path: ClipsShare/Info.plist
+      properties:
+        CFBundleDisplayName: Baseball Clips
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            # Any share with a video in it. GameChanger sends its clip with a
+            # line of text ("Follow … on GameChanger"), which the plain
+            # "movies only" rule refuses.
+            NSExtensionActivationRule: >-
+              SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $a,
+              ANY $a.registeredTypeIdentifiers UTI-CONFORMS-TO "public.movie").@count >= 1).@count >= 1
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.mason.clipscamera.share
+        TARGETED_DEVICE_FAMILY: "1"
   ClipsCameraTests:
     type: bundle.unit-test
     platform: iOS
     sources: [ClipsCameraTests]
+    dependencies:
+      - target: ClipsCamera
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+  ClipsCameraUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [ClipsCameraUITests]
     dependencies:
       - target: ClipsCamera
     settings:

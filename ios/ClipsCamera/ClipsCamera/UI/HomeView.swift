@@ -1,4 +1,5 @@
 import AVKit
+import PhotosUI
 import SwiftUI
 
 /// Home: held upright. A tab per kid with their at-bats from Clips as a
@@ -31,6 +32,19 @@ struct HomeView: View {
     /// Starting a new game for this kid (the sheet is open).
     @State private var newGameFor: Kid?
 
+    /// A GameChanger clip being trimmed and placed (the screen is open).
+    @State private var importing: FieldViewRequest?
+    /// One that arrived while the camera or a video was open.
+    @State private var pendingImport: FieldViewRequest?
+    @State private var choosingVideo = false
+    @State private var pickedVideo: PhotosPickerItem?
+    /// The at-bat a video from Photos is for, when picked from its menu.
+    @State private var pickingFor: FieldViewTarget?
+    /// The at-bat whose GameChanger clip is being fetched to re-trim.
+    @State private var fetchingFieldView: UUID?
+    @State private var removingFieldView: FieldViewTarget?
+    @State private var importError: String?
+
     private var store: AtBatStore { model.store }
     private var currentKid: Kid? { kids.first { $0.id == kidID } }
     private var kids: [Kid] { model.settings.cachedKids }
@@ -39,6 +53,10 @@ struct HomeView: View {
     private static let unfiledTab = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
 
     var body: some View {
+        fieldViewFlow(home)
+    }
+
+    private var home: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
@@ -71,9 +89,14 @@ struct HomeView: View {
                     Button { showingSettings = true } label: { Image(systemName: "gearshape") }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { newGameFor = currentKid } label: { Image(systemName: "plus") }
+                    Menu {
+                        Button { newGameFor = currentKid } label: { Label("New game", systemImage: "baseball.diamond.bases") }
+                        Button { pickingFor = nil; choosingVideo = true } label: {
+                            Label("Add GameChanger video", systemImage: "film.stack")
+                        }
+                    } label: { Image(systemName: "plus") }
                         .disabled(currentKid == nil)
-                        .accessibilityLabel("New game")
+                        .accessibilityLabel("Add")
                 }
             }
             .refreshable { await load() }
@@ -94,18 +117,20 @@ struct HomeView: View {
         }
         .onChange(of: kidID) { Task { await load() } }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { store.resume(); Task { await load(); await update.check() } }
+            if phase == .active { store.resume(); takeShared(); Task { await load(); await update.check() } }
             if phase == .background && cameraOpen { model.wentToBackground() }
         }
         // A finished upload shows up in the kid's history.
         .onChange(of: store.jobs.filter { $0.upload == .uploaded }.count) { Task { await load() } }
         .onChange(of: model.clips.isSignedIn) { _, signedIn in
-            if signedIn { store.resume(); Task { await loadKids() } }
+            // (A demo run keeps its made-up kids even if the simulator is signed in.)
+            if signedIn && !Self.demo { store.resume(); Task { await loadKids() } }
         }
         .fullScreenCover(isPresented: $cameraOpen, onDismiss: {
             model.cameraClosed()
             Orientation.lock(.portrait)
             if let kid = model.settings.game?.kid.id, kid != kidID { kidID = kid }
+            showPendingImport()
         }) {
             CameraView(model: model) { cameraOpen = false }
         }
@@ -113,8 +138,11 @@ struct HomeView: View {
             NewGameSheet(kid: kid) { game in model.settings.setCurrentGame(game) }
         }
         // Home is upright-only; videos can turn sideways.
-        .fullScreenCover(item: $playing, onDismiss: { Orientation.lock(.portrait) }) { item in
-            PlayerScreen(url: item.url).onAppear { Orientation.lock(.allButUpsideDown) }
+        .fullScreenCover(item: $playing, onDismiss: { Orientation.lock(.portrait); showPendingImport() }) { item in
+            PlayerScreen(url: item.url).onAppear {
+                Orientation.lock(.allButUpsideDown)
+                TrimView.playWithSound()
+            }
         }
         .alert("Can't share", isPresented: .constant(shareError != nil), presenting: shareError) { _ in
             Button("OK") { shareError = nil }
@@ -144,6 +172,49 @@ struct HomeView: View {
         .fullScreenCover(isPresented: .constant(model.clips.checkedSession && !model.clips.isSignedIn && !Self.demo)) {
             SignInView(clips: model.clips)
         }
+    }
+
+    /// Bringing in GameChanger clips: from the share sheet or Photos, or an
+    /// at-bat's own being re-trimmed.
+    private func fieldViewFlow(_ content: some View) -> some View {
+        content
+            .onOpenURL { url in
+                guard url.host() == "import" else { return }
+                takeShared()
+            }
+            .photosPicker(isPresented: $choosingVideo, selection: $pickedVideo, matching: .videos, preferredItemEncoding: .current)
+            .onChange(of: pickedVideo) { _, item in
+                guard let item else { return }
+                pickedVideo = nil
+                loadPicked(item)
+            }
+            .fullScreenCover(item: $importing, onDismiss: { Orientation.lock(.portrait) }) { request in
+                FieldViewImportView(
+                    request: request, clipURL: store.url(request.file), kids: kids, kidID: $kidID,
+                    sections: sections, posters: posters,
+                    onDone: { start, end, decision in
+                        importing = nil
+                        place(request, start: start, end: end, decision)
+                    },
+                    onCancel: {
+                        importing = nil
+                        store.discardClip(request.file)
+                    }
+                )
+            }
+            .alert("Can't add the video", isPresented: .constant(importError != nil), presenting: importError) { _ in
+                Button("OK") { importError = nil }
+            } message: { Text($0) }
+            .confirmationDialog(
+                "Remove the field view?",
+                isPresented: Binding(get: { removingFieldView != nil }, set: { if !$0 { removingFieldView = nil } }),
+                titleVisibility: .visible,
+                presenting: removingFieldView
+            ) { target in
+                Button("Remove field view", role: .destructive) { removeFieldView(target) }
+            } message: { _ in
+                Text("The at-bat goes back to just your video, and the GameChanger clip is deleted from Clips.")
+            }
     }
 
     // MARK: Tabs
@@ -204,12 +275,19 @@ struct HomeView: View {
                     ForEach(section.cards) { card in
                         switch card {
                         case .atBat(let ab, let number):
+                            let target = FieldViewTarget(atBat: ab, game: section, number: number)
+                            let canChange = ab.isCamera && !isRebuilding(ab.id) && store.canChangeFieldView(ab.id)
                             HistoryCard(atBat: ab, poster: ab.posterPath.flatMap { posters[$0] },
-                                        sharing: sharing == ab.id,
+                                        sharing: sharing == ab.id || fetchingFieldView == ab.id,
                                         rebuilding: isRebuilding(ab.id),
+                                        updateFailed: updateFailure(ab.id) != nil,
+                                        onRetry: { store.retry(ab.id) },
                                         onOpen: { open(ab) },
                                         onShare: { share(ab, game: section, number: number) },
-                                        onEdit: ab.isCamera && !isRebuilding(ab.id) ? { edit(ab, title: "AB \(number) · \(section.name)") } : nil,
+                                        onEdit: ab.isCamera && !ab.isFieldOnly && !isRebuilding(ab.id) ? { edit(ab, title: "AB \(number) · \(section.name)") } : nil,
+                                        onAddFieldView: canChange && !ab.hasFieldView ? { pickingFor = target; choosingVideo = true } : nil,
+                                        onTrimFieldView: canChange && ab.hasFieldView ? { retrim(target) } : nil,
+                                        onRemoveFieldView: canChange && ab.hasFieldView && !ab.isFieldOnly ? { removingFieldView = target } : nil,
                                         onDelete: { deleting = (ab, section, number) })
                         case .local(let job):
                             localCard(job)
@@ -242,11 +320,7 @@ struct HomeView: View {
                         ProgressView(value: store.progress[job.id] ?? 0).padding(8)
                     }
                 }
-                .overlay(alignment: .bottomTrailing) {
-                    if job.editFile != nil, job.upload != .uploading {
-                        ShareButton(busy: false) { shareLocal(job) }
-                    }
-                }
+                .overlay(alignment: .topTrailing) { if job.fieldView != nil { FieldViewBadge() } }
             Text(job.result?.name ?? "No result").font(.subheadline.weight(.semibold)).lineLimit(1)
             if case .failed(let why) = job.state {
                 Text(why).font(.caption).foregroundStyle(.red).lineLimit(2)
@@ -267,7 +341,7 @@ struct HomeView: View {
             if job.editFile != nil {
                 Button { shareLocal(job) } label: { Label("Share", systemImage: "square.and.arrow.up") }
             }
-            if job.state != .building && job.upload != .uploading && job.upload != .finishing {
+            if job.isFilmed && job.state != .building && job.upload != .uploading && job.upload != .finishing {
                 Button { editLocal(job) } label: { Label("Edit pitches", systemImage: "pencil") }
             }
             Button(role: .destructive) { store.delete(job.id) } label: { Label("Delete", systemImage: "trash") }
@@ -290,7 +364,9 @@ struct HomeView: View {
         let json = """
         [{"id":"\(UUID())","name":"vs Kabuki","played_on":"2026-10-11","clip_at_bats":[
           {"id":"\(UUID())","source":"camera","status":"ready","result":"1B","recorded_at":"2026-10-11T16:02:00Z","created_at":"2026-10-11T16:02:00Z","clip_pitches":[{"outcome":"ball"},{"outcome":"foul"},{"outcome":"in_play"}]},
-          {"id":"\(UUID())","source":"camera","status":"ready","result":"KL","recorded_at":"2026-10-11T16:40:00Z","created_at":"2026-10-11T16:40:00Z","clip_pitches":[{"outcome":"called_strike"},{"outcome":"swinging_strike"},{"outcome":"ball"},{"outcome":"called_strike"}]}]},
+          {"id":"\(UUID())","source":"camera","status":"ready","result":"KL","recorded_at":"2026-10-11T16:40:00Z","created_at":"2026-10-11T16:40:00Z","clip_pitches":[{"outcome":"called_strike"},{"outcome":"swinging_strike"},{"outcome":"ball"},{"outcome":"called_strike"}]},
+          {"id":"\(UUID())","source":"camera","status":"ready","result":"2B","recorded_at":"2026-10-11T17:20:00Z","created_at":"2026-10-11T17:20:00Z","field_view_path":"g/a/gamechanger-1.mp4","closeup_path":"g/a/closeup.mp4","clip_pitches":[{"outcome":"foul"},{"outcome":"in_play"}]},
+          {"id":"\(UUID())","source":"camera","status":"ready","result":"GO","recorded_at":"2026-10-11T17:50:00Z","created_at":"2026-10-11T17:50:00Z","field_view_path":"g/b/gamechanger-2.mp4","clip_pitches":[]}]},
          {"id":"\(UUID())","name":"Merchants Scrimmage","played_on":"2026-09-26","clip_at_bats":[
           {"id":"\(UUID())","source":"upload","status":"ready","result":"FO","recorded_at":"2026-09-26T17:00:00Z","created_at":"2026-09-26T17:00:00Z","clip_pitches":[{"outcome":"ball"},{"outcome":"in_play"}]}]}]
         """
@@ -302,6 +378,17 @@ struct HomeView: View {
         }
         // `-demoHome -demo`: straight into the camera, mid-at-bat.
         if ProcessInfo.processInfo.arguments.contains("-demo") { cameraOpen = true }
+        // `-demoHome -demoImport /path/clip.mp4` (add `-demoPick` for the
+        // at-bat picker): the GameChanger trimmer with that clip.
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-demoImport"), i + 1 < args.count,
+           let file = try? store.importClip(from: URL(fileURLWithPath: args[i + 1])) {
+            // After the home screen is up, as when a clip comes in for real.
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                importing = FieldViewRequest(file: file)
+            }
+        }
         return true
     }
     #else
@@ -326,7 +413,7 @@ struct HomeView: View {
         guard let kid = currentKid else { return nil }
         let started = model.settings.currentGame(for: kid.id)
         guard let newest = history[kid.id]?.first, newest.playedOn > (started?.playedOn ?? "") else { return started }
-        let mine = Set(store.jobs.map(\.id))
+        let mine = Set(store.jobs.filter { $0.kind != .attach }.map(\.id))
         return GameChoice(id: newest.id, kid: kid, name: newest.name, playedOn: newest.playedOn,
                           priorAtBats: newest.atBats.filter { !mine.contains($0.id) }.count)
     }
@@ -400,7 +487,15 @@ struct HomeView: View {
     /// video is in Clips.
     private func isRebuilding(_ id: UUID) -> Bool {
         guard let job = store.jobs.first(where: { $0.id == id }), job.revision != nil else { return false }
-        return job.state == .building || (job.upload != nil && job.upload != .uploaded)
+        return updateFailure(id) == nil && (job.state == .building || (job.upload != nil && job.upload != .uploaded))
+    }
+
+    /// Why a changed video didn't make it into Clips (it's waiting on Retry).
+    private func updateFailure(_ id: UUID) -> String? {
+        guard let job = store.jobs.first(where: { $0.id == id }), job.revision != nil else { return nil }
+        if case .failed(let why) = job.state { return why }
+        if case .failed(let why)? = job.upload { return why }
+        return nil
     }
 
     /// Edit an at-bat in Clips: from this phone's copy when the full
@@ -483,6 +578,113 @@ struct HomeView: View {
         top.present(sheet, animated: true)
     }
 
+    // MARK: Field views
+
+    /// Put a clip up for trimming now, or once the camera or a video closes.
+    private func present(_ request: FieldViewRequest) {
+        if cameraOpen || playing != nil || importing != nil {
+            if let old = pendingImport { store.discardClip(old.file) }
+            pendingImport = request
+        } else {
+            importing = request
+        }
+    }
+
+    private func showPendingImport() {
+        guard let request = pendingImport else { return }
+        pendingImport = nil
+        // Let the closing screen finish going away first.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            present(request)
+        }
+    }
+
+    /// Clips the share sheet dropped off: the newest is opened, any older
+    /// ones were abandoned and are cleared out.
+    private func takeShared() {
+        let waiting = SharedInbox.waiting()
+        guard let newest = waiting.last else { return }
+        defer { for file in waiting { try? FileManager.default.removeItem(at: file) } }
+        do {
+            present(FieldViewRequest(file: try store.importClip(from: newest)))
+        } catch {
+            importError = "Couldn't open the shared video: \(error.localizedDescription)"
+        }
+    }
+
+    private func loadPicked(_ item: PhotosPickerItem) {
+        let target = pickingFor
+        pickingFor = nil
+        Task {
+            do {
+                guard let movie = try await item.loadTransferable(type: PickedMovie.self) else { return }
+                defer { try? FileManager.default.removeItem(at: movie.url) }
+                let file = try store.importClip(from: movie.url)
+                // Let the Photos picker finish closing before the trimmer opens.
+                try? await Task.sleep(for: .milliseconds(500))
+                present(FieldViewRequest(file: file, target: target))
+            } catch {
+                importError = "Couldn't load that video from Photos."
+            }
+        }
+    }
+
+    /// Re-trim an at-bat's field view, fetching the GameChanger clip from
+    /// Clips when it isn't on this phone.
+    private func retrim(_ target: FieldViewTarget) {
+        let ab = target.atBat
+        guard let path = ab.fieldViewPath else { return }
+        if let local = store.fieldViewFile(ab.id) {
+            present(FieldViewRequest(file: local.lastPathComponent, existingPath: path, target: target,
+                                     start: ab.fieldViewStart, end: ab.fieldViewEnd))
+            return
+        }
+        fetchingFieldView = ab.id
+        Task {
+            defer { fetchingFieldView = nil }
+            let name = "gc-\(UUID().uuidString).\((path as NSString).pathExtension)"
+            do {
+                try await model.clips.download(path, to: store.url(name))
+                present(FieldViewRequest(file: name, existingPath: path, target: target,
+                                         start: ab.fieldViewStart, end: ab.fieldViewEnd))
+            } catch {
+                importError = "Couldn't download the GameChanger video — check your signal."
+            }
+        }
+    }
+
+    /// Hand the trimmed clip to the store: onto an at-bat, or as a new one.
+    private func place(_ request: FieldViewRequest, start: Double, end: Double, _ decision: FieldViewDecision) {
+        let clip: FieldViewClip = request.existingPath.map { .existing(path: $0, file: request.file) } ?? .imported(file: request.file)
+        switch decision {
+        case .attach(let target):
+            guard let kid = kids.first(where: { $0.id == kidID }) else { return }
+            guard store.canChangeFieldView(target.atBat.id) else {
+                importError = "That at-bat's video is still being updated — try again when it's done."
+                store.discardClip(request.file)
+                return
+            }
+            let game = GameChoice(id: target.game.id, kid: kid, name: target.game.name, playedOn: target.game.playedOn)
+            store.addFieldView(to: target.atBat, game: game, number: target.number, clip: clip, start: start, end: end)
+        case .new(let game, let result, let number, let recordedAt):
+            store.addFieldOnly(game: game, number: number, result: result, recordedAt: recordedAt, clip: clip, start: start, end: end)
+            if kidID != game.kid.id { kidID = game.kid.id }
+        }
+    }
+
+    private func removeFieldView(_ target: FieldViewTarget) {
+        Task {
+            do {
+                try await model.clips.removeFieldView(target.atBat)
+                store.fieldViewRemoved(target.atBat.id)
+                await load()
+            } catch {
+                importError = "Couldn't remove it — check your signal and try again."
+            }
+        }
+    }
+
     private func loadKids() async {
         guard model.clips.isSignedIn else { return }
         if let kids = try? await model.clips.kids(), !kids.isEmpty {
@@ -493,7 +695,7 @@ struct HomeView: View {
     }
 
     private func load() async {
-        guard model.clips.isSignedIn, let kidID, let kid = kids.first(where: { $0.id == kidID }) else { return }
+        guard !Self.demo, model.clips.isSignedIn, let kidID, let kid = kids.first(where: { $0.id == kidID }) else { return }
         do {
             let games = try await model.clips.history(for: kid)
             history[kidID] = games
@@ -518,7 +720,7 @@ struct HomeView: View {
 // MARK: - Cards
 
 /// Two cards across, like the website's game rows.
-private struct CardGrid<Content: View>: View {
+struct CardGrid<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -535,16 +737,26 @@ private struct HistoryCard: View {
     let poster: URL?
     let sharing: Bool
     let rebuilding: Bool
+    /// The changed video didn't make it into Clips; this phone still has it.
+    let updateFailed: Bool
+    let onRetry: () -> Void
     let onOpen: () -> Void
     let onShare: () -> Void
     let onEdit: (() -> Void)?
+    let onAddFieldView: (() -> Void)?
+    let onTrimFieldView: (() -> Void)?
+    let onRemoveFieldView: (() -> Void)?
     let onDelete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Thumbnail(url: poster)
                 .overlay(alignment: .topLeading) { if let r = atBat.result { ResultBadge(result: r) } }
-                .overlay(alignment: .bottomTrailing) { ShareButton(busy: sharing, action: onShare) }
+                .overlay(alignment: .topTrailing) { if atBat.hasFieldView { FieldViewBadge() } }
+                // Fetching the video for Share (or a field view to re-trim).
+                .overlay(alignment: .bottomTrailing) {
+                    if sharing { ProgressView().tint(.white).padding(10) }
+                }
                 .overlay {
                     if rebuilding {
                         VStack(spacing: 6) {
@@ -553,6 +765,18 @@ private struct HistoryCard: View {
                         }
                         .padding(10)
                         .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+                    } else if updateFailed {
+                        Button(action: onRetry) {
+                            VStack(spacing: 4) {
+                                Label("Not in Clips yet", systemImage: "exclamationmark.triangle.fill")
+                                    .font(.caption2.weight(.semibold))
+                                Text("Tap to retry").font(.caption2)
+                            }
+                            .foregroundStyle(.white)
+                            .padding(10)
+                            .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 10))
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             HStack(spacing: 4) {
@@ -571,12 +795,21 @@ private struct HistoryCard: View {
             if let onEdit {
                 Button(action: onEdit) { Label("Edit pitches", systemImage: "pencil") }
             }
+            if let onAddFieldView {
+                Button(action: onAddFieldView) { Label("Add GameChanger video", systemImage: "film.stack") }
+            }
+            if let onTrimFieldView {
+                Button(action: onTrimFieldView) { Label("Trim field view", systemImage: "timeline.selection") }
+            }
+            if let onRemoveFieldView {
+                Button(role: .destructive, action: onRemoveFieldView) { Label("Remove field view", systemImage: "rectangle.badge.minus") }
+            }
             Button(role: .destructive, action: onDelete) { Label("Delete from Clips", systemImage: "trash") }
         }
     }
 
     private var detail: String {
-        guard atBat.pitches > 0 else { return "Not marked yet" }
+        guard atBat.pitches > 0 else { return atBat.hasFieldView ? "Field view" : "Not marked yet" }
         var parts = ["\(atBat.pitches) pitch\(atBat.pitches == 1 ? "" : "es")"]
         if atBat.swings > 0 { parts.append("\(atBat.swings) swing\(atBat.swings == 1 ? "" : "s")") }
         return parts.joined(separator: " · ")
@@ -584,7 +817,7 @@ private struct HistoryCard: View {
 }
 
 /// The result in the thumbnail's corner, as on the website ("1B", "BB", "ꓘ").
-private struct ResultBadge: View {
+struct ResultBadge: View {
     let result: AtBatResult
 
     var body: some View {
@@ -598,28 +831,22 @@ private struct ResultBadge: View {
     }
 }
 
-/// Sits on the thumbnail's bottom-right corner.
-private struct ShareButton: View {
-    let busy: Bool
-    let action: () -> Void
-
+/// Top-right on a card whose video ends with a GameChanger field view —
+/// "GC", styled like the result badge opposite.
+private struct FieldViewBadge: View {
     var body: some View {
-        Button(action: action) {
-            ZStack {
-                if busy { ProgressView().tint(.white) } else { Image(systemName: "square.and.arrow.up").font(.footnote.weight(.semibold)) }
-            }
+        Text("GC")
+            .font(.caption.weight(.semibold))
             .foregroundStyle(.white)
-            .frame(width: 30, height: 30)
-            .background(.black.opacity(0.45), in: Circle())
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 5))
             .padding(6)
-        }
-        .buttonStyle(.plain)
-        .disabled(busy)
-        .accessibilityLabel("Share video")
+            .accessibilityLabel("Has GameChanger field view")
     }
 }
 
-private struct Thumbnail: View {
+struct Thumbnail: View {
     let url: URL?
 
     var body: some View {

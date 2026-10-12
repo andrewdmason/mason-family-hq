@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Observation
 import Supabase
@@ -36,13 +37,23 @@ struct GameChoice: Codable, Equatable, Identifiable {
 /// Storage paths, the same layout the website uses. A rebuilt video (and its
 /// poster) gets a new name, so no cache serves the old one.
 struct AtBatPaths {
+    let dir: String
     let video: String
     let poster: String
+    /// The finished video without its field view, kept for re-trimming.
+    let closeup: String
     init(gameID: UUID, atBatID: UUID, revision: Int? = nil) {
-        let dir = "\(gameID.uuidString.lowercased())/\(atBatID.uuidString.lowercased())"
+        dir = "\(gameID.uuidString.lowercased())/\(atBatID.uuidString.lowercased())"
         let suffix = revision.map { $0 > 0 ? "-r\($0)" : "" } ?? ""
         video = "\(dir)/playback\(suffix).mp4"
         poster = "\(dir)/poster\(suffix).jpg"
+        closeup = "\(dir)/closeup\(suffix).mp4"
+    }
+
+    /// A GameChanger clip as shared, in the at-bat's folder (so deleting the
+    /// at-bat takes it too). Each import gets its own name.
+    func fieldView(fileExtension: String) -> String {
+        "\(dir)/gamechanger-\(UUID().uuidString.prefix(8).lowercased()).\(fileExtension.isEmpty ? "mp4" : fileExtension.lowercased())"
     }
 }
 
@@ -101,14 +112,25 @@ final class ClipsService {
 
     /// A kid's games in Clips, newest first, each with its at-bats in order.
     func history(for kid: Kid) async throws -> [HistoryGame] {
-        let games: [HistoryGame] = try await client.from("clip_games")
-            .select("id, name, played_on, clip_at_bats(id, source, status, result, poster_path, playback_path, duration_s, recorded_at, created_at, clip_pitches(outcome))")
-            .eq("kid_id", value: kid.id)
-            .order("played_on", ascending: false)
-            .order("created_at", ascending: false)
-            .limit(40)
-            .execute()
-            .value
+        let base = "id, source, status, result, poster_path, playback_path, duration_s, recorded_at, created_at"
+        let fieldView = "closeup_path, field_view_path, field_view_start_s, field_view_end_s, field_view_at_s"
+        func fetch(_ columns: String) async throws -> [HistoryGame] {
+            try await client.from("clip_games")
+                .select("id, name, played_on, clip_at_bats(\(columns), clip_pitches(outcome))")
+                .eq("kid_id", value: kid.id)
+                .order("played_on", ascending: false)
+                .order("created_at", ascending: false)
+                .limit(40)
+                .execute()
+                .value
+        }
+        let games: [HistoryGame]
+        do {
+            games = try await fetch("\(base), \(fieldView)")
+        } catch is PostgrestError {
+            // Clips without the field-view columns yet (migration 00201).
+            games = try await fetch(base)
+        }
         return games.filter { !$0.atBats.isEmpty }
     }
 
@@ -190,12 +212,22 @@ final class ClipsService {
 
     // MARK: Upload
 
-    /// A fresh signed upload URL for the at-bat's video (good for two hours).
-    func videoUploadURL(_ paths: AtBatPaths) async throws -> URL {
+    /// A fresh signed upload URL for one of the at-bat's files (good for two hours).
+    func uploadURL(path: String) async throws -> URL {
         _ = try await client.auth.session // refreshes an expired token first
         let signed = try await client.storage.from(Config.bucket)
-            .createSignedUploadURL(path: paths.video, options: CreateSignedUploadURLOptions(upsert: true))
+            .createSignedUploadURL(path: path, options: CreateSignedUploadURLOptions(upsert: true))
         return signed.signedURL
+    }
+
+    /// Fetch a file from Clips into `destination`.
+    func download(_ path: String, to destination: URL) async throws {
+        let (file, response) = try await URLSession.shared.download(from: try await videoURL(path))
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw StoreError("Couldn't download the video from Clips (\(http.statusCode)).")
+        }
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.moveItem(at: file, to: destination)
     }
 
     /// The video is up: file the poster, the game, the at-bat and its pitches.
@@ -222,14 +254,22 @@ final class ClipsService {
             let playback_path: String; let poster_path: String?
             let duration_s: Double?; let fps = 60.0; let width = 1920; let height = 1080; let codec = "h264"
             let recorded_at: Date; let marked_at: Date; @Nullable var result: String?; let created_by: UUID
+            // Left out when there's no field view (a removal clears them
+            // itself), so at-bats file fine before migration 00201 is live.
+            var field_view_path: String?; var field_view_start_s: Double?
+            var field_view_end_s: Double?; var field_view_at_s: Double?; var closeup_path: String?
         }
+        let fv = FieldViewColumns(job)
         try await client.from("clip_at_bats")
             .upsert(AtBatRow(
                 id: job.id, game_id: game.id,
-                original_path: paths.video, original_name: "Clips Camera", original_bytes: job.editBytes,
+                original_path: paths.video, original_name: job.kind == .fieldOnly ? "GameChanger" : "Clips Camera",
+                original_bytes: job.editBytes,
                 playback_path: paths.video, poster_path: poster == nil ? nil : paths.poster,
                 duration_s: job.editDuration, recorded_at: job.recordedAt, marked_at: Date(),
-                result: job.result?.rawValue, created_by: session.user.id
+                result: job.result?.rawValue, created_by: session.user.id,
+                field_view_path: fv.path, field_view_start_s: fv.start, field_view_end_s: fv.end,
+                field_view_at_s: fv.at, closeup_path: fv.closeup
             ), onConflict: "id")
             .execute()
 
@@ -245,6 +285,82 @@ final class ClipsService {
         if !rows.isEmpty {
             try await client.from("clip_pitches").upsert(rows, onConflict: "id").execute()
         }
+    }
+}
+
+// MARK: - Field view
+
+/// The field-view columns as a job has them; all nil when it has none.
+struct FieldViewColumns {
+    var path: String?
+    var start: Double?
+    var end: Double?
+    var at: Double?
+    var closeup: String?
+
+    init(_ job: AtBatJob) {
+        let fv = job.fieldView
+        path = fv?.path
+        start = fv?.start
+        end = fv?.end
+        at = fv == nil ? nil : job.fieldViewAt
+        closeup = fv == nil || job.kind == .fieldOnly ? nil : job.closeupPath
+    }
+}
+
+extension ClipsService {
+    /// A field view was added to (or re-trimmed on) an at-bat already in
+    /// Clips: point it at the new video. Labels, result and poster stay.
+    func attachFieldView(job: AtBatJob, game: GameChoice) async throws {
+        struct Row: Encodable {
+            let original_path: String; let playback_path: String; let original_bytes: Int64?; let duration_s: Double?
+            // Left out when there's no field view (a removal clears them
+            // itself), so at-bats file fine before migration 00201 is live.
+            var field_view_path: String?; var field_view_start_s: Double?
+            var field_view_end_s: Double?; var field_view_at_s: Double?; var closeup_path: String?
+        }
+        let fv = FieldViewColumns(job)
+        let paths = AtBatPaths(gameID: game.id, atBatID: job.id, revision: job.revision)
+        try await client.from("clip_at_bats")
+            .update(Row(original_path: paths.video, playback_path: paths.video, original_bytes: job.editBytes,
+                        duration_s: job.editDuration, field_view_path: fv.path, field_view_start_s: fv.start,
+                        field_view_end_s: fv.end, field_view_at_s: fv.at, closeup_path: fv.closeup))
+            .eq("id", value: job.id)
+            .execute()
+    }
+
+    /// Take the field view off: the at-bat goes back to its close-up, and the
+    /// GameChanger clip and the combined video leave storage.
+    func removeFieldView(_ ab: HistoryAtBat) async throws {
+        guard let closeup = ab.closeupPath else { return }
+        var duration: Double?
+        if let url = try? await videoURL(closeup) {
+            duration = try? await AVURLAsset(url: url).load(.duration).seconds
+        }
+        struct Row: Encodable {
+            let original_path: String; let playback_path: String; let duration_s: Double?
+            @Nullable var closeup_path: String?; @Nullable var field_view_path: String?
+            @Nullable var field_view_start_s: Double?; @Nullable var field_view_end_s: Double?; @Nullable var field_view_at_s: Double?
+        }
+        try await client.from("clip_at_bats")
+            .update(Row(original_path: closeup, playback_path: closeup, duration_s: duration ?? ab.durationS))
+            .eq("id", value: ab.id)
+            .execute()
+        let stale = [ab.fieldViewPath, ab.playbackPath].compactMap { $0 }.filter { $0 != closeup }
+        if !stale.isEmpty { _ = try? await client.storage.from(Config.bucket).remove(paths: stale) }
+    }
+
+    /// An at-bat's field view as Clips has it, so a rebuild on this phone
+    /// keeps one that was added on another.
+    func fieldView(of atBatID: UUID) async throws -> FieldView? {
+        struct Row: Decodable { let field_view_path: String?; let field_view_start_s: Double?; let field_view_end_s: Double? }
+        let rows: [Row] = try await client.from("clip_at_bats")
+            .select("field_view_path, field_view_start_s, field_view_end_s")
+            .eq("id", value: atBatID)
+            .execute()
+            .value
+        guard let r = rows.first, let path = r.field_view_path, let start = r.field_view_start_s, let end = r.field_view_end_s else { return nil }
+        return FieldView(file: nil, path: path, uploaded: true, start: start, end: end)
     }
 }
 
@@ -299,13 +415,23 @@ struct HistoryAtBat: Decodable, Identifiable {
     let when: Date
     let pitches: Int
     let swings: Int
+    /// The GameChanger clip, untrimmed, and the stretch of it that's kept.
+    let fieldViewPath: String?
+    let fieldViewStart: Double?
+    let fieldViewEnd: Double?
+    /// The video without its field view (nil for a field view alone).
+    let closeupPath: String?
 
     /// Filmed with this app: the file is the finished video.
     var isCamera: Bool { source == "camera" }
+    var hasFieldView: Bool { fieldViewPath != nil }
+    /// Made from a GameChanger clip alone, with no close-up.
+    var isFieldOnly: Bool { hasFieldView && closeupPath == nil }
     var webURL: URL { URL(string: "https://family.mason.io/clips/at-bat/\(id.uuidString.lowercased())")! }
 
     enum CodingKeys: String, CodingKey {
         case id, source, status, result, poster_path, playback_path, duration_s, recorded_at, created_at, clip_pitches
+        case closeup_path, field_view_path, field_view_start_s, field_view_end_s
     }
     private struct PitchRow: Decodable { let outcome: PitchOutcome? }
 
@@ -323,5 +449,9 @@ struct HistoryAtBat: Decodable, Identifiable {
         let rows = (try? c.decode([PitchRow].self, forKey: .clip_pitches)) ?? []
         pitches = rows.count
         swings = rows.filter { $0.outcome?.isSwing ?? false }.count
+        fieldViewPath = try c.decodeIfPresent(String.self, forKey: .field_view_path)
+        fieldViewStart = try c.decodeIfPresent(Double.self, forKey: .field_view_start_s)
+        fieldViewEnd = try c.decodeIfPresent(Double.self, forKey: .field_view_end_s)
+        closeupPath = try c.decodeIfPresent(String.self, forKey: .closeup_path)
     }
 }
