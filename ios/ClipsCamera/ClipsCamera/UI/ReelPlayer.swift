@@ -406,7 +406,7 @@ private struct PitchRef: Identifiable {
 
 // MARK: - Controls
 
-/// The scrubber with its pitch markers, then ←▮ Play Slow ▮→ centered and ◀︎ ▶︎ at the right.
+/// The scrubber with its pitch markers, then ←▮ ▮→ at the left, Play and Slow centered, ◀︎ ▶︎ at the right.
 struct ReelControls: View {
     let model: ReelPlayerModel
 
@@ -414,32 +414,39 @@ struct ReelControls: View {
         VStack(spacing: 2) {
             ReelScrubber(model: model)
                 .frame(height: 24)
-            // Playing (pitch to pitch, Play, Slow) centered; the frame steps
-            // their own group at the right. Stacked when
-            // there isn't room for both side by side.
+            // Pitch to pitch at the left, Play and Slow centered, frame
+            // steps at the right; Play and Slow get a row of their own when
+            // there isn't room for all three side by side.
             ViewThatFits(in: .horizontal) {
                 ZStack {
-                    watching
-                    HStack { Spacer(minLength: 0); studying }
+                    playing
+                    HStack { pitches; Spacer(minLength: 0); frames }
                 }
                 .frame(minWidth: 640)
-                HStack(spacing: 8) { watching; studying }
-                VStack(spacing: 6) { watching; studying }
+                VStack(spacing: 0) {
+                    playing
+                    HStack { pitches; Spacer(minLength: 0); frames }
+                }
             }
             .foregroundStyle(.white)
         }
     }
 
-    private var watching: some View {
+    private var pitches: some View {
         HStack(spacing: 0) {
             markJump(forward: false) { model.jump(-1) }
-            button(model.rate == 1 ? "pause.fill" : "play.fill", "Play", big: true) { model.togglePlay() }
-            slowButton
             markJump(forward: true) { model.jump(1) }
         }
     }
 
-    private var studying: some View {
+    private var playing: some View {
+        HStack(spacing: 0) {
+            button(model.rate == 1 ? "pause.fill" : "play.fill", "Play", big: true) { model.togglePlay() }
+            slowButton
+        }
+    }
+
+    private var frames: some View {
         HStack(spacing: 0) {
             HoldButton(systemImage: "backward.frame.fill", label: "Back one frame") { model.step(-1) }
             HoldButton(systemImage: "forward.frame.fill", label: "Forward one frame") { model.step(1) }
@@ -467,11 +474,11 @@ struct ReelControls: View {
         Button(action: action) {
             HStack(spacing: 2) {
                 if !forward { Image(systemName: "arrow.left") }
-                Image(systemName: "bookmark.fill").font(.title)
+                Image(systemName: "bookmark.fill").font(.title2)
                 if forward { Image(systemName: "arrow.right") }
             }
-            .font(.title2.weight(.bold))
-            .frame(width: 80, height: 64)
+            .font(.title3.weight(.bold))
+            .frame(width: 72, height: 64)
             .contentShape(Rectangle())
         }
         .accessibilityLabel(forward ? "Next pitch" : "Previous pitch")
