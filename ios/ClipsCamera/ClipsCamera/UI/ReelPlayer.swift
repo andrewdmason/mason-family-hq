@@ -405,7 +405,7 @@ private struct PitchRef: Identifiable {
 
 // MARK: - Controls
 
-/// The scrubber with its pitch markers, then ←▮ ◀︎ Play Slow ▶︎ ▮→.
+/// The scrubber with its pitch markers, then ←▮ Play ▮→ centered and ◀︎ Slow ▶︎ at the right.
 struct ReelControls: View {
     let model: ReelPlayerModel
 
@@ -413,18 +413,40 @@ struct ReelControls: View {
         VStack(spacing: 2) {
             ReelScrubber(model: model)
                 .frame(height: 24)
-            HStack(spacing: 0) {
-                markJump(forward: false) { model.jump(-1) }
-                HoldButton(systemImage: "backward.frame.fill", label: "Back one frame") { model.step(-1) }
-                button(model.rate == 1 ? "pause.fill" : "play.fill", "Play", big: true) { model.togglePlay() }
-                slowButton
-                HoldButton(systemImage: "forward.frame.fill", label: "Forward one frame") { model.step(1) }
-                markJump(forward: true) { model.jump(1) }
+            // Watching (pitch to pitch, Play) centered; studying (frame
+            // steps around Slow) its own group at the right. Stacked when
+            // there isn't room for both side by side.
+            ViewThatFits(in: .horizontal) {
+                ZStack {
+                    watching
+                    HStack { Spacer(minLength: 0); studying }
+                }
+                .frame(minWidth: 640)
+                HStack(spacing: 8) { watching; studying }
+                VStack(spacing: 6) { watching; studying }
             }
-            .padding(.horizontal, 8)
-            .background(.black.opacity(0.45), in: Capsule())
             .foregroundStyle(.white)
         }
+    }
+
+    private var watching: some View {
+        HStack(spacing: 0) {
+            markJump(forward: false) { model.jump(-1) }
+            button(model.rate == 1 ? "pause.fill" : "play.fill", "Play", big: true) { model.togglePlay() }
+            markJump(forward: true) { model.jump(1) }
+        }
+        .padding(.horizontal, 8)
+        .background(.black.opacity(0.45), in: Capsule())
+    }
+
+    private var studying: some View {
+        HStack(spacing: 0) {
+            HoldButton(systemImage: "backward.frame.fill", label: "Back one frame") { model.step(-1) }
+            slowButton
+            HoldButton(systemImage: "forward.frame.fill", label: "Forward one frame") { model.step(1) }
+        }
+        .padding(.horizontal, 8)
+        .background(.black.opacity(0.45), in: Capsule())
     }
 
     private var slowButton: some View {
