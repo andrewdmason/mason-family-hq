@@ -18,7 +18,10 @@ import UIKit
 //
 // The raw recording stays on the phone for three days, so a mislabeled pitch
 // can be fixed and the video rebuilt; after that only the labels can change.
-// The reel stays for a week after it's uploaded. Both are then cleaned up.
+// It's never cleaned up before its reel is safely in Clips, though — and an
+// at-bat filmed before the reel existed keeps its recording until it has been
+// rebuilt as one (see convertToReels). The reel stays for a week after it's
+// uploaded.
 //
 // A GameChanger clip (the "field view") goes through the same queue. On a reel
 // it's kept as its own file that the player runs on into; on an older edit
@@ -411,6 +414,7 @@ final class AtBatStore {
     /// uploads a previous launch left mid-flight. Call on launch, on coming
     /// back to the foreground, and after signing in.
     func resume() {
+        convertToReels()
         processNext()
         Task {
             let inFlight = await uploads.activeUploads()
@@ -426,6 +430,60 @@ final class AtBatStore {
                     break
                 }
             }
+        }
+    }
+
+    // MARK: Converting
+
+    private var converting = false
+
+    /// At-bats filmed before the reel was built as finished edits. While the
+    /// full recording is still here, each is rebuilt as a 240fps reel and
+    /// replaces the edit in Clips, its labels as Clips has them now. A field
+    /// view stays, as the reel's own file.
+    func convertToReels() {
+        guard !converting else { return }
+        let waiting = jobs.filter { job in
+            job.isFilmed && !job.isReel && job.game != nil && job.state == .done && job.upload == .uploaded
+                && job.rawFile.map { FileManager.default.fileExists(atPath: url($0).path) } == true
+        }
+        guard !waiting.isEmpty, clips.isSignedIn, online else { return }
+        converting = true
+        Task {
+            defer { converting = false }
+            for job in waiting {
+                // Labels changed in Clips since (on the website, say) win.
+                var pitches = job.pitches
+                if let remote = try? await clips.pitches(atBatID: job.id, result: job.result) {
+                    for i in pitches.indices {
+                        guard let r = remote.first(where: { $0.id == pitches[i].id }) else { continue }
+                        pitches[i].outcome = r.outcome
+                        pitches[i].battedBall = r.battedBall
+                        pitches[i].playResult = r.playResult
+                    }
+                }
+                guard let current = jobs.first(where: { $0.id == job.id }), !isBusy(current), !current.isReel else { continue }
+                for file in [current.editFile, current.closeupFile].compactMap({ $0 }) {
+                    try? FileManager.default.removeItem(at: url(file))
+                }
+                update(job.id) {
+                    $0.reel = true
+                    $0.pitches = pitches
+                    $0.result = Scorebook.outcome(pitches.sorted { $0.t < $1.t })?.result ?? $0.result
+                    $0.editFile = nil
+                    $0.closeupFile = nil
+                    $0.closeupPath = nil
+                    $0.fieldViewAt = nil
+                    $0.pitchTimes = nil
+                    $0.fieldViewOnly = nil
+                    $0.state = .building
+                    $0.upload = .waiting
+                    $0.uploadedAt = nil
+                    $0.uploadedPaths = nil
+                    $0.revision = Self.freshRevision(after: $0.revision)
+                }
+            }
+            processNext()
         }
     }
 
@@ -741,11 +799,13 @@ final class AtBatStore {
 
     // MARK: Housekeeping
 
-    /// Full recordings go three days after filming; edits a week after
-    /// they're safely in Clips.
+    /// Full recordings go three days after filming, once their reel is safely
+    /// in Clips; reels and edits a week after they're there.
     private func cleanUp() {
         let rawCutoff = Date().addingTimeInterval(-Self.rawKeptFor)
-        for job in jobs where job.recordedAt < rawCutoff && job.state == .done {
+        // Only once its reel is in Clips (or it was never going there).
+        for job in jobs where job.recordedAt < rawCutoff && job.state == .done
+            && (job.game == nil || (job.isReel && job.upload == .uploaded)) {
             guard let raw = job.rawFile else { continue }
             try? FileManager.default.removeItem(at: url(raw))
             update(job.id) { $0.rawFile = nil }

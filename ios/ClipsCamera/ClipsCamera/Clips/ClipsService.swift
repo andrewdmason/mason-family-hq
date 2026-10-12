@@ -287,6 +287,16 @@ final class ClipsService {
             ), onConflict: "id")
             .execute()
 
+        if job.isReel {
+            // A reel's field view is its own file: the stitched video's
+            // columns (from before it became a reel) are cleared.
+            struct NotStitched: Encodable { @Nullable var closeup_path: String?; @Nullable var field_view_at_s: Double? }
+            try await client.from("clip_at_bats")
+                .update(NotStitched(closeup_path: nil, field_view_at_s: nil))
+                .eq("id", value: job.id)
+                .execute()
+        }
+
         struct PitchRow: Encodable {
             let id: UUID; let at_bat_id: UUID; let t: Double; @Nullable var outcome: String?; @Nullable var batted_ball: String?; let source = "camera"
         }
