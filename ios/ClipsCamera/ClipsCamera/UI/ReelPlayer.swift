@@ -405,7 +405,7 @@ private struct PitchRef: Identifiable {
 
 // MARK: - Controls
 
-/// The scrubber with its pitch markers, then ←▮ Play ▮→ centered and ◀︎ Slow ▶︎ at the right.
+/// The scrubber with its pitch markers, then ←▮ Play Slow ▮→ centered and ◀︎ ▶︎ at the right.
 struct ReelControls: View {
     let model: ReelPlayerModel
 
@@ -413,8 +413,8 @@ struct ReelControls: View {
         VStack(spacing: 2) {
             ReelScrubber(model: model)
                 .frame(height: 24)
-            // Watching (pitch to pitch, Play) centered; studying (frame
-            // steps around Slow) its own group at the right. Stacked when
+            // Playing (pitch to pitch, Play, Slow) centered; the frame steps
+            // their own group at the right. Stacked when
             // there isn't room for both side by side.
             ViewThatFits(in: .horizontal) {
                 ZStack {
@@ -433,6 +433,7 @@ struct ReelControls: View {
         HStack(spacing: 0) {
             markJump(forward: false) { model.jump(-1) }
             button(model.rate == 1 ? "pause.fill" : "play.fill", "Play", big: true) { model.togglePlay() }
+            slowButton
             markJump(forward: true) { model.jump(1) }
         }
         .padding(.horizontal, 8)
@@ -442,7 +443,6 @@ struct ReelControls: View {
     private var studying: some View {
         HStack(spacing: 0) {
             HoldButton(systemImage: "backward.frame.fill", label: "Back one frame") { model.step(-1) }
-            slowButton
             HoldButton(systemImage: "forward.frame.fill", label: "Forward one frame") { model.step(1) }
         }
         .padding(.horizontal, 8)
