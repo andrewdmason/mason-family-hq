@@ -298,14 +298,15 @@ struct ReelPlayerScreen: View {
                 captionPill
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
-                    .padding(.bottom, controlsShown ? 4 : 12)
+                    .padding(.bottom, controlsShown ? 4 : 24)
                 if controlsShown {
                     ReelControls(model: model)
                         .padding(.horizontal, 12)
-                        .padding(.bottom, 4)
                         .transition(.opacity)
                 }
             }
+            // Into the home-bar margin: the room goes to bigger buttons.
+            .ignoresSafeArea(.container, edges: .bottom)
         }
         .preferredColorScheme(.dark)
         .onAppear { model.play(1) }
@@ -436,8 +437,6 @@ struct ReelControls: View {
             slowButton
             markJump(forward: true) { model.jump(1) }
         }
-        .padding(.horizontal, 8)
-        .background(.black.opacity(0.45), in: Capsule())
     }
 
     private var studying: some View {
@@ -445,8 +444,6 @@ struct ReelControls: View {
             HoldButton(systemImage: "backward.frame.fill", label: "Back one frame") { model.step(-1) }
             HoldButton(systemImage: "forward.frame.fill", label: "Forward one frame") { model.step(1) }
         }
-        .padding(.horizontal, 8)
-        .background(.black.opacity(0.45), in: Capsule())
     }
 
     private var slowButton: some View {
@@ -454,11 +451,11 @@ struct ReelControls: View {
         return Button { model.toggleSlow() } label: {
             HStack(spacing: 3) {
                 Image(systemName: on ? "pause.fill" : "tortoise.fill")
-                Text("¼×").font(.footnote.weight(.bold)).fixedSize()
+                Text("¼×").font(.headline).fixedSize()
             }
             .lineLimit(1)
-            .font(.title3)
-            .frame(width: 72, height: 44)
+            .font(.title)
+            .frame(width: 96, height: 64)
             .contentShape(Rectangle())
         }
         .accessibilityLabel(on ? "Pause slow motion" : "Play in slow motion")
@@ -470,11 +467,11 @@ struct ReelControls: View {
         Button(action: action) {
             HStack(spacing: 2) {
                 if !forward { Image(systemName: "arrow.left") }
-                Image(systemName: "bookmark.fill").font(.title3)
+                Image(systemName: "bookmark.fill").font(.title)
                 if forward { Image(systemName: "arrow.right") }
             }
-            .font(.body.weight(.bold))
-            .frame(width: 60, height: 44)
+            .font(.title2.weight(.bold))
+            .frame(width: 80, height: 64)
             .contentShape(Rectangle())
         }
         .accessibilityLabel(forward ? "Next pitch" : "Previous pitch")
@@ -483,8 +480,8 @@ struct ReelControls: View {
     private func button(_ symbol: String, _ label: String, big: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(big ? .title2 : .title3)
-                .frame(width: 60, height: 44)
+                .font(big ? .largeTitle : .title)
+                .frame(width: 80, height: 64)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel(label)
@@ -501,8 +498,8 @@ struct HoldButton: View {
 
     var body: some View {
         Image(systemName: systemImage)
-            .font(.title3)
-            .frame(width: 56, height: 44)
+            .font(.title)
+            .frame(width: 68, height: 64)
             .contentShape(Rectangle())
             .opacity(pressed ? 0.5 : 1)
             .gesture(DragGesture(minimumDistance: 0).onChanged { _ in
