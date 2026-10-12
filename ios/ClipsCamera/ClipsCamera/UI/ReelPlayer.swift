@@ -399,7 +399,7 @@ private struct PitchRef: Identifiable {
 
 // MARK: - Controls
 
-/// The scrubber with its pitch markers, then ⏮ ◀︎ Play Slow ▶︎ ⏭.
+/// The scrubber with its pitch markers, then ←▮ ◀︎ Play Slow ▶︎ ▮→.
 struct ReelControls: View {
     let model: ReelPlayerModel
 
@@ -408,12 +408,12 @@ struct ReelControls: View {
             ReelScrubber(model: model)
                 .frame(height: 30)
             HStack(spacing: 0) {
-                button("backward.end.fill", "Previous pitch") { model.jump(-1) }
+                markJump(forward: false) { model.jump(-1) }
                 HoldButton(systemImage: "backward.frame.fill", label: "Back one frame") { model.step(-1) }
                 button(model.rate == 1 ? "pause.fill" : "play.fill", "Play", big: true) { model.togglePlay() }
                 slowButton
                 HoldButton(systemImage: "forward.frame.fill", label: "Forward one frame") { model.step(1) }
-                button("forward.end.fill", "Next pitch") { model.jump(1) }
+                markJump(forward: true) { model.jump(1) }
             }
             .foregroundStyle(.white)
         }
@@ -432,6 +432,22 @@ struct ReelControls: View {
             .contentShape(Rectangle())
         }
         .accessibilityLabel(on ? "Pause slow motion" : "Play in slow motion")
+    }
+
+    /// Arrow-and-marker, so a pitch jump reads differently from a frame step:
+    /// ←▮ back to the previous pitch, ▮→ on to the next.
+    private func markJump(forward: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 2) {
+                if !forward { Image(systemName: "arrow.left") }
+                Image(systemName: "bookmark.fill").font(.title3)
+                if forward { Image(systemName: "arrow.right") }
+            }
+            .font(.body.weight(.bold))
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel(forward ? "Next pitch" : "Previous pitch")
     }
 
     private func button(_ symbol: String, _ label: String, big: Bool = false, action: @escaping () -> Void) -> some View {
