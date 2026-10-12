@@ -233,10 +233,13 @@ final class ReelPlayerModel {
         return ReelPlan.pitchShowing(at: time, segments: segments, pitchTimes: pitches.map(\.t))
     }
 
-    /// "Pitch 4 · 1-2 · Foul", the result on the last.
+    /// "1-2 · Foul", the result on the last. (Shared videos also number the pitch.)
     func caption(_ i: Int) -> String {
         let counts = Scorebook.countsBefore(pitches)
-        return QuickPlan.caption(pitches[i], n: i + 1, count: counts[i], isLast: i == pitches.count - 1, result: result)
+        var parts = [counts[i].description]
+        if let o = pitches[i].outcome { parts.append(o.label) }
+        if i == pitches.count - 1, let result { parts.append(result.label) }
+        return parts.joined(separator: " · ")
     }
 
     func relabel(_ i: Int, outcome: PitchOutcome, battedBall: BattedBall?, playResult: PlayResult?) {
@@ -281,8 +284,8 @@ struct ReelPlayerScreen: View {
                     LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
                         .frame(height: 110)
                     Spacer(minLength: 0)
-                    LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
-                        .frame(height: 190)
+                    LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 150)
                 }
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
@@ -369,26 +372,29 @@ struct ReelPlayerScreen: View {
         }
     }
 
+    /// Title on the left; Share, then Close, on the right.
     private var topBar: some View {
-        HStack {
-            Button { dismiss() } label: {
-                Image(systemName: "xmark.circle.fill").font(.title).foregroundStyle(.white.opacity(0.85))
-            }
-            .accessibilityLabel("Close")
-            Spacer()
-            Text(item.title).font(.footnote.weight(.semibold)).foregroundStyle(.white.opacity(0.8)).lineLimit(1)
-            Spacer()
+        HStack(spacing: 4) {
+            Text(item.title).font(.headline).foregroundStyle(.white).lineLimit(1)
+            Spacer(minLength: 12)
             if sharing {
-                ProgressView().tint(.white).frame(width: 32)
+                ProgressView().tint(.white).frame(width: 44, height: 44)
             } else {
                 Button { choosingShare = true } label: {
-                    Image(systemName: "square.and.arrow.up.circle.fill").font(.title).foregroundStyle(.white.opacity(0.85))
+                    Image(systemName: "square.and.arrow.up").frame(width: 44, height: 44).contentShape(Rectangle())
                 }
                 .accessibilityLabel("Share")
             }
+            Button { dismiss() } label: {
+                Image(systemName: "xmark").frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .accessibilityLabel("Close")
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
+        .font(.title3.weight(.semibold))
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.5), radius: 3)
+        .padding(.leading, 16)
+        .padding(.trailing, 4)
     }
 }
 
@@ -404,9 +410,9 @@ struct ReelControls: View {
     let model: ReelPlayerModel
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 2) {
             ReelScrubber(model: model)
-                .frame(height: 30)
+                .frame(height: 24)
             HStack(spacing: 0) {
                 markJump(forward: false) { model.jump(-1) }
                 HoldButton(systemImage: "backward.frame.fill", label: "Back one frame") { model.step(-1) }
@@ -415,6 +421,8 @@ struct ReelControls: View {
                 HoldButton(systemImage: "forward.frame.fill", label: "Forward one frame") { model.step(1) }
                 markJump(forward: true) { model.jump(1) }
             }
+            .padding(.horizontal, 8)
+            .background(.black.opacity(0.45), in: Capsule())
             .foregroundStyle(.white)
         }
     }
@@ -428,7 +436,7 @@ struct ReelControls: View {
             }
             .lineLimit(1)
             .font(.title3)
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .frame(width: 72, height: 44)
             .contentShape(Rectangle())
         }
         .accessibilityLabel(on ? "Pause slow motion" : "Play in slow motion")
@@ -444,7 +452,7 @@ struct ReelControls: View {
                 if forward { Image(systemName: "arrow.right") }
             }
             .font(.body.weight(.bold))
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .frame(width: 60, height: 44)
             .contentShape(Rectangle())
         }
         .accessibilityLabel(forward ? "Next pitch" : "Previous pitch")
@@ -453,8 +461,8 @@ struct ReelControls: View {
     private func button(_ symbol: String, _ label: String, big: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(big ? .title : .title3)
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .font(big ? .title2 : .title3)
+                .frame(width: 60, height: 44)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel(label)
@@ -472,7 +480,7 @@ struct HoldButton: View {
     var body: some View {
         Image(systemName: systemImage)
             .font(.title3)
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .frame(width: 56, height: 44)
             .contentShape(Rectangle())
             .opacity(pressed ? 0.5 : 1)
             .gesture(DragGesture(minimumDistance: 0).onChanged { _ in
