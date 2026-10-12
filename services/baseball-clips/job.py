@@ -265,14 +265,22 @@ def export(payload: dict, work: str) -> dict:
                 else ""
             )
             vf = (TONEMAP if meta["hdr"] else "") + crop + slow + fit
-            video = f"[0:v]{vf}[base];[base][1:v]overlay=40:40,format=yuv420p[v]"
+            # No caption (a GameChanger field view): the picture alone.
+            text = seg.get("caption") or ""
+            video = (
+                f"[0:v]{vf}[base];[base][1:v]overlay=40:40,format=yuv420p[v]"
+                if text
+                else f"[0:v]{vf},format=yuv420p[v]"
+            )
             with_audio = meta["hasAudio"] and not seg.get("muted") and rate == 1
             net = NET_OPTS if src["url"].startswith("http") else []
             args = [
                 "ffmpeg", "-y", "-v", "error", *net,
                 "-ss", f"{start:.3f}", "-t", f"{length:.3f}", "-i", src["url"],
-                "-i", caption(seg["caption"]),
             ]
+            if text:
+                args += ["-i", caption(text)]
+            silence = "2:a" if text else "1:a"
             if with_audio:
                 args += [
                     "-filter_complex", f"{video};[0:a]aresample=48000,aformat=channel_layouts=stereo[a]",
@@ -281,7 +289,7 @@ def export(payload: dict, work: str) -> dict:
             else:
                 args += [
                     "-f", "lavfi", "-t", f"{out_len:.3f}", "-i", "anullsrc=r=48000:cl=stereo",
-                    "-filter_complex", video, "-map", "[v]", "-map", "2:a",
+                    "-filter_complex", video, "-map", "[v]", "-map", silence,
                 ]
             out = piece_path()
             _run([*args, "-t", f"{out_len:.3f}", *_encode_args(fps), out])

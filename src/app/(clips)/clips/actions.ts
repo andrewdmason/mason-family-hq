@@ -6,12 +6,15 @@ import { requireUserId } from "@/lib/members/auth";
 import { buildQuickPlan, type PlanSegment } from "@/lib/clips/plan";
 import { formatGameDate } from "@/lib/clips/format";
 import { getAtBat, getGame } from "@/lib/clips/queries";
+import { playResultOf, reelSharePlan, scorebookResult, type PlayResult } from "@/lib/clips/reel";
 import {
   AT_BAT_RESULTS,
   CLIPS_BUCKET,
   PITCH_OUTCOMES,
   resultName,
   type AtBatResult,
+  type BattedBall,
+  type ClipAtBat,
   type ClipPitch,
   type ClipZoom,
   type PitchOutcome,
@@ -207,6 +210,63 @@ export async function getAtBatMedia(
   return { videoUrl: data.signedUrl, isPlaybackCopy: !!ab.playback_path };
 }
 
+/**
+ * Fresh signed URLs for a pitch reel and its GameChanger field view (the
+ * player runs on from one into the other).
+ */
+export async function getReelMedia(atBatId: string): Promise<{ reelUrl: string; fieldViewUrl: string | null }> {
+  const sb = await createClient();
+  await requireUserId(sb);
+  const { data: ab } = await sb
+    .from("clip_at_bats")
+    .select("playback_path, original_path, field_view_path")
+    .eq("id", atBatId)
+    .single();
+  if (!ab) throw new Error("At-bat not found");
+  const sign = async (path: string) => {
+    const { data, error } = await sb.storage.from(CLIPS_BUCKET).createSignedUrl(path, 6 * 60 * 60);
+    if (error || !data) throw new Error(error?.message ?? "Could not load the video");
+    return data.signedUrl;
+  };
+  return {
+    reelUrl: await sign(ab.playback_path ?? ab.original_path),
+    fieldViewUrl: ab.field_view_path ? await sign(ab.field_view_path) : null,
+  };
+}
+
+/**
+ * Relabel one of a camera at-bat's pitches, the way the phone does: the
+ * outcome (and for a ball in play its kind and what it did), with the at-bat's
+ * result worked out again from all its pitches. Returns the new result.
+ */
+export async function relabelCameraPitch(
+  atBatId: string,
+  pitchId: string,
+  label: { outcome: PitchOutcome; battedBall: BattedBall | null; playResult: PlayResult | null },
+): Promise<AtBatResult | null> {
+  const sb = await createClient();
+  await requireUserId(sb);
+  checkOutcome(label.outcome);
+  const inPlay = label.outcome === "in_play";
+  const { error } = await sb
+    .from("clip_pitches")
+    .update({ outcome: label.outcome, batted_ball: inPlay ? label.battedBall : null })
+    .eq("id", pitchId)
+    .eq("at_bat_id", atBatId);
+  if (error) throw new Error(error.message);
+  const ab = await getAtBat(atBatId);
+  if (!ab) throw new Error("At-bat not found");
+  // The play's result lives on the at-bat: the new one when this pitch is the
+  // ball in play, else whatever the at-bat already says.
+  const result = scorebookResult(ab.pitches, inPlay ? label.playResult : playResultOf(ab.result));
+  const { error: e2 } = await sb
+    .from("clip_at_bats")
+    .update({ result, updated_at: new Date().toISOString() })
+    .eq("id", atBatId);
+  if (e2) throw new Error(e2.message);
+  return result;
+}
+
 /** Signed upload for a new feed thumbnail (captured in the browser from a marked pitch). */
 export async function getPosterUpload(atBatId: string): Promise<{ signedUrl: string; token: string; path: string }> {
   const sb = await createClient();
@@ -399,11 +459,70 @@ async function beginExport(
   return { exportId };
 }
 
-export async function exportAtBat(atBatId: string): Promise<{ exportId: string }> {
+/**
+ * A pitch reel's export: its share plan (captions, and a ¼-speed replay after
+ * each swing unless `replays` is off), then its GameChanger field view at real
+ * speed with no caption.
+ */
+function reelParts(
+  ab: ClipAtBat,
+  paths: { reel: string; fieldView: string | null },
+  card: ExportPart["card"],
+  replays: boolean,
+): ExportPart[] {
+  const parts: ExportPart[] = [
+    { card, originalPath: paths.reel, segments: reelSharePlan(ab.reel ?? [], ab.pitches, ab.result, replays) },
+  ];
+  if (ab.fieldView && paths.fieldView) {
+    parts.push({
+      card: null,
+      originalPath: paths.fieldView,
+      segments: [
+        { start: ab.fieldView.start, end: ab.fieldView.end, rate: 1, muted: false, caption: "", pitchIndex: 0, replay: false },
+      ],
+    });
+  }
+  return parts;
+}
+
+/** The latest finished export of exactly these parts, if one was made. */
+async function readyExport(atBatId: string, parts: ExportPart[]): Promise<string | null> {
+  const sb = await createClient();
+  const { data } = await sb
+    .from("clip_exports")
+    .select("id, plan")
+    .eq("at_bat_id", atBatId)
+    .eq("status", "ready")
+    .order("created_at", { ascending: false })
+    .limit(10);
+  const want = JSON.stringify(parts);
+  return data?.find((e) => JSON.stringify(e.plan) === want)?.id ?? null;
+}
+
+export async function exportAtBat(
+  atBatId: string,
+  opts: { replays?: boolean } = {},
+): Promise<{ exportId: string }> {
   const sb = await createClient();
   const ab = await getAtBat(atBatId);
   if (!ab) throw new Error("At-bat not found");
-  const { data: row } = await sb.from("clip_at_bats").select("original_path").eq("id", atBatId).single();
+  const { data: row } = await sb
+    .from("clip_at_bats")
+    .select("original_path, playback_path, field_view_path")
+    .eq("id", atBatId)
+    .single();
+  if (ab.reel) {
+    const game = await getGame(ab.gameId);
+    const index = game?.atBats.findIndex((x) => x.id === atBatId) ?? 0;
+    const parts = reelParts(
+      ab,
+      { reel: row!.playback_path ?? row!.original_path, fieldView: row!.field_view_path },
+      game ? titleCard(game, index, ab.result) : null,
+      opts.replays ?? true,
+    );
+    const ready = await readyExport(atBatId, parts);
+    return ready ? { exportId: ready } : beginExport({ atBatId }, parts);
+  }
   if (ab.source === "camera") return shareFinishedEdit(atBatId, row!.original_path);
   const game = await getGame(ab.gameId);
   const index = game?.atBats.findIndex((x) => x.id === atBatId) ?? 0;
@@ -417,19 +536,31 @@ export async function exportGame(gameId: string): Promise<{ exportId: string }> 
   const sb = await createClient();
   const game = await getGame(gameId);
   if (!game) throw new Error("Game not found");
-  const { data: rows } = await sb.from("clip_at_bats").select("id, original_path").eq("game_id", gameId);
-  const pathById = new Map((rows ?? []).map((r) => [r.id, r.original_path as string]));
+  const { data: rows } = await sb
+    .from("clip_at_bats")
+    .select("id, original_path, playback_path, field_view_path")
+    .eq("game_id", gameId);
+  const rowById = new Map((rows ?? []).map((r) => [r.id as string, r]));
   // Cards number at-bats by their place in the game, even when an unmarked
-  // one is skipped.
+  // one is skipped. A reel brings its replays and its field view.
   const parts: ExportPart[] = game.atBats
-    .map((ab, i) => ({
-      card: titleCard(game, i, ab.result),
-      originalPath: pathById.get(ab.id)!,
-      segments:
-        ab.source === "camera"
-          ? finishedEditSegments(ab, i)
-          : withReplayZoom(buildQuickPlan(ab.pitches, ab.durationS ?? Infinity, ab.result), ab),
-    }))
+    .flatMap((ab, i): ExportPart[] => {
+      const row = rowById.get(ab.id)!;
+      const card = titleCard(game, i, ab.result);
+      if (ab.reel) {
+        return reelParts(ab, { reel: row.playback_path ?? row.original_path, fieldView: row.field_view_path }, card, true);
+      }
+      return [
+        {
+          card,
+          originalPath: row.original_path,
+          segments:
+            ab.source === "camera"
+              ? finishedEditSegments(ab, i)
+              : withReplayZoom(buildQuickPlan(ab.pitches, ab.durationS ?? Infinity, ab.result), ab),
+        },
+      ];
+    })
     .filter((part) => part.segments.length > 0);
   return beginExport({ gameId }, parts);
 }

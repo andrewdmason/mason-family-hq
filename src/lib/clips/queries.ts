@@ -6,7 +6,7 @@ import type { AtBatResult, AtBatSource, AtBatStatus, ClipAtBat, ClipGame, ClipKi
 type Client = Awaited<ReturnType<typeof createClient>>;
 
 const AT_BAT_COLUMNS =
-  "id, game_id, source, status, error_message, original_name, original_bytes, playback_path, poster_path, duration_s, fps, width, height, recorded_at, marked_at, zoom, replay_zoom, result, field_view_at_s, created_at, updated_at, clip_pitches(id, t, outcome, source, batted_ball)";
+  "id, game_id, source, status, error_message, original_name, original_bytes, playback_path, poster_path, duration_s, fps, width, height, recorded_at, marked_at, zoom, replay_zoom, result, field_view_at_s, reel, field_view_path, field_view_start_s, field_view_end_s, created_at, updated_at, clip_pitches(id, t, outcome, source, batted_ball)";
 
 type PitchRow = {
   id: string;
@@ -36,6 +36,10 @@ type AtBatRow = {
   replay_zoom: boolean;
   result: AtBatResult | null;
   field_view_at_s: number | null;
+  reel: { segments: ClipAtBat["reel"] } | null;
+  field_view_path: string | null;
+  field_view_start_s: number | null;
+  field_view_end_s: number | null;
   created_at: string;
   updated_at: string;
   clip_pitches: PitchRow[] | null;
@@ -62,6 +66,11 @@ function toAtBat(r: AtBatRow): ClipAtBat {
     replayZoom: r.replay_zoom,
     result: r.result,
     fieldViewAtS: r.field_view_at_s ?? null,
+    reel: r.reel?.segments ?? null,
+    fieldView:
+      r.reel && r.field_view_path && r.field_view_start_s != null && r.field_view_end_s != null
+        ? { start: r.field_view_start_s, end: r.field_view_end_s }
+        : null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     pitches: (r.clip_pitches ?? [])
