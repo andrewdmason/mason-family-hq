@@ -3,9 +3,9 @@ import SwiftUI
 
 // The at-bat player for pitch reels. Nothing is baked into the reel, so speed
 // and captions happen here: Play runs at real speed, Slow at ¼ (smooth on
-// swings, which keep every 240fps frame), and Replay re-runs the pitch on
-// screen in slow motion. The GameChanger field view, a file of its own, is the
-// last stretch of the same timeline. Controls stay on screen.
+// swings, which keep every 240fps frame), switchable mid-play. The GameChanger
+// field view, a file of its own, is the last stretch of the same timeline.
+// Controls lie over the video; a tap shows or hides them.
 
 /// An at-bat to play: its reel and pitches (at their reel times), and the
 /// field view if it has one.
@@ -45,10 +45,7 @@ final class ReelPlayerModel {
     private(set) var onField = false
     /// 0 when paused.
     private(set) var rate: Float = 0
-    private(set) var replaying = false
 
-    private var replayEnd: Double?
-    private var resumeRate: Float = 0
     private var seekTarget: Double?
     private var seeking = false
     private var tokens: [(AVPlayer, Any)] = []
@@ -115,7 +112,6 @@ final class ReelPlayerModel {
     private func ticked(_ local: Double, field: Bool) {
         guard field == onField, !seeking, seekTarget == nil else { return }
         time = field ? reelLength + local - (fieldView?.start ?? 0) : local
-        if replaying, let end = replayEnd, time >= end { endReplay() }
     }
 
     /// The reel ran out: on into the field view while playing, else stop there.
@@ -133,20 +129,16 @@ final class ReelPlayerModel {
     }
 
     private func finished() {
-        replaying = false
-        replayEnd = nil
         rate = 0
         active.pause()
     }
 
     // MARK: Transport
 
-    func togglePlay() { rate == 1 && !replaying ? pause() : play(1) }
-    func toggleSlow() { rate == Self.slow && !replaying ? pause() : play(Self.slow) }
+    func togglePlay() { rate == 1 ? pause() : play(1) }
+    func toggleSlow() { rate == Self.slow ? pause() : play(Self.slow) }
 
     func play(_ r: Float) {
-        replaying = false
-        replayEnd = nil
         if time >= total - 0.05 { seek(to: 0) }
         rate = r
         active.isMuted = r != 1
@@ -154,36 +146,9 @@ final class ReelPlayerModel {
     }
 
     func pause() {
-        replaying = false
-        replayEnd = nil
         rate = 0
         reelPlayer.pause()
         fieldPlayer?.pause()
-    }
-
-    /// Re-run the pitch on screen at ¼ speed, then carry on as before.
-    func replay() {
-        guard let i = currentPitch,
-              let w = ReelPlan.replayWindow(pitch: i, segments: segments, pitchTimes: pitches.map(\.t)) else { return }
-        resumeRate = replaying ? resumeRate : rate
-        seek(to: w.lowerBound)
-        replaying = true
-        replayEnd = w.upperBound
-        rate = Self.slow
-        reelPlayer.isMuted = true
-        reelPlayer.rate = Self.slow
-    }
-
-    private func endReplay() {
-        replaying = false
-        replayEnd = nil
-        if resumeRate > 0 {
-            rate = resumeRate
-            active.isMuted = resumeRate != 1
-            active.rate = resumeRate
-        } else {
-            pause()
-        }
     }
 
     func step(_ frames: Int) {
@@ -224,8 +189,6 @@ final class ReelPlayerModel {
     private var lastJumpAt = Date.distantPast
 
     private func jumpTo(_ t: Double) {
-        replaying = false
-        replayEnd = nil
         lastJump = t
         lastJumpAt = Date()
         seek(to: t)
@@ -393,14 +356,14 @@ struct ReelPlayerScreen: View {
         if let i = model.currentPitch {
             Button { model.pause(); relabeling = i } label: {
                 HStack(spacing: 6) {
-                    Text(model.caption(i) + (model.replaying ? " · Replay" : ""))
+                    Text(model.caption(i))
                     Image(systemName: "pencil").font(.caption2.weight(.bold)).opacity(0.7)
                 }
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(model.replaying ? Color.orange.opacity(0.85) : Color.black.opacity(0.6), in: Capsule())
+                .background(Color.black.opacity(0.6), in: Capsule())
             }
             .accessibilityLabel("Relabel pitch \(i + 1)")
         }
@@ -436,7 +399,7 @@ private struct PitchRef: Identifiable {
 
 // MARK: - Controls
 
-/// The scrubber with its pitch markers, then ⏮ ◀︎ Play Slow ↺ ▶︎ ⏭.
+/// The scrubber with its pitch markers, then ⏮ ◀︎ Play Slow ▶︎ ⏭.
 struct ReelControls: View {
     let model: ReelPlayerModel
 
@@ -447,10 +410,8 @@ struct ReelControls: View {
             HStack(spacing: 0) {
                 button("backward.end.fill", "Previous pitch") { model.jump(-1) }
                 HoldButton(systemImage: "backward.frame.fill", label: "Back one frame") { model.step(-1) }
-                button(model.rate == 1 && !model.replaying ? "pause.fill" : "play.fill", "Play", big: true) { model.togglePlay() }
+                button(model.rate == 1 ? "pause.fill" : "play.fill", "Play", big: true) { model.togglePlay() }
                 slowButton
-                button("gobackward", "Replay in slow motion") { model.replay() }
-                    .disabled(model.currentPitch == nil)
                 HoldButton(systemImage: "forward.frame.fill", label: "Forward one frame") { model.step(1) }
                 button("forward.end.fill", "Next pitch") { model.jump(1) }
             }
@@ -459,7 +420,7 @@ struct ReelControls: View {
     }
 
     private var slowButton: some View {
-        let on = model.rate == ReelPlayerModel.slow && !model.replaying
+        let on = model.rate == ReelPlayerModel.slow
         return Button { model.toggleSlow() } label: {
             HStack(spacing: 3) {
                 Image(systemName: on ? "pause.fill" : "tortoise.fill")
