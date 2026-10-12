@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { AtBatPlayer } from "@/components/clips/player/at-bat-player";
+import { ReelPlayer } from "@/components/clips/player/reel-player";
 import { getAtBat, getGame } from "@/lib/clips/queries";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +14,10 @@ export default async function AtBatPage({ params }: { params: Promise<{ atBatId:
   if (!game) notFound();
   const index = game.atBats.findIndex((ab) => ab.id === atBat.id);
 
+  // A Clips Camera pitch reel plays live in its own player.
+  const Player = atBat.reel ? ReelPlayer : AtBatPlayer;
   return (
-    <AtBatPlayer
+    <Player
       // Remount per at-bat so moving between at-bats starts clean.
       key={atBat.id}
       atBat={atBat}

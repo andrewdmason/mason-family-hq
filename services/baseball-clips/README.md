@@ -33,6 +33,11 @@ settings (1080p, captions drawn with Pillow and overlaid), then concatenated
 without re-encoding. Sources are read over HTTP range requests — only the
 seconds around each pitch are fetched. Slowed replays are muted.
 
+A Clips Camera pitch reel exports the same way: its source is the reel (HEVC,
+up to 240fps, so ¼-speed replays use every captured frame), and its GameChanger
+field view follows as another source with no card and one segment whose
+caption is empty — an empty caption draws nothing over the picture.
+
 ## Run locally
 ```bash
 python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt

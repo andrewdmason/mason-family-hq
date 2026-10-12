@@ -68,7 +68,8 @@ export const PITCH_OUTCOMES: { value: PitchOutcome; label: string; short: string
 export type BattedBall = "ground_ball" | "line_drive" | "fly_ball" | "pop_fly" | "bunt";
 
 /** Where an at-bat came from: a video uploaded and marked here, or the Clips
- * Camera app, which sends a finished edit with its pitches already labeled. */
+ * Camera app, which sends a pitch reel (or, before the reel, a finished edit)
+ * with its pitches already labeled. */
 export type AtBatSource = "upload" | "camera";
 
 export function outcomeLabel(outcome: PitchOutcome | null, form: "label" | "short" = "label"): string {
@@ -78,7 +79,7 @@ export function outcomeLabel(outcome: PitchOutcome | null, form: "label" | "shor
 
 export type ClipPitch = {
   id: string;
-  /** Seconds into the at-bat's video — for a camera at-bat, its finished edit. */
+  /** Seconds into the at-bat's video — for a camera at-bat, its reel or finished edit. */
   t: number;
   outcome: PitchOutcome | null;
   source: "manual" | "auto" | "camera";
@@ -134,6 +135,13 @@ export type ClipAtBat = {
   result: AtBatResult | null;
   /** Camera at-bats: where a GameChanger field view starts in the finished video. */
   fieldViewAtS: number | null;
+  /**
+   * A pitch reel's windows (camera at-bats from the reel on), played live with
+   * slow motion and captions; null for a finished edit or an upload.
+   */
+  reel: { start: number; end: number; fps: number; pitch: number }[] | null;
+  /** A reel's GameChanger field view: the kept stretch of its own file, played after the reel. */
+  fieldView: { start: number; end: number } | null;
   createdAt: string;
   updatedAt: string;
   pitches: ClipPitch[];

@@ -13,6 +13,7 @@ import { getExportStatus } from "@/app/(clips)/clips/actions";
 // has to be in hand before the tap — it can't be fetched after).
 
 type Phase =
+  | { kind: "choosing" }
   | { kind: "starting" }
   | { kind: "rendering"; exportId: string }
   | { kind: "fetching"; url: string }
@@ -24,18 +25,33 @@ export function ExportDialog({
   onOpenChange,
   title,
   start,
+  choices,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   start: () => Promise<{ exportId: string }>;
+  /** Versions to pick from before anything renders (a reel: with or without replays). */
+  choices?: { label: string; start: () => Promise<{ exportId: string }> }[];
 }) {
   const [phase, setPhase] = useState<Phase>({ kind: "starting" });
   const startRef = useRef(start);
-  startRef.current = start;
+  // Bumped when a choice is made, to start that render.
+  const [run, setRun] = useState(0);
+  const chosen = useRef<(() => Promise<{ exportId: string }>) | null>(null);
+  startRef.current = chosen.current ?? start;
+  const choosing = !!choices?.length && run === 0;
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      chosen.current = null;
+      setRun(0);
+      return;
+    }
+    if (choosing) {
+      setPhase({ kind: "choosing" });
+      return;
+    }
     let cancelled = false;
     setPhase({ kind: "starting" });
     (async () => {
@@ -71,7 +87,7 @@ export function ExportDialog({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, choosing, run]);
 
   // Release the in-memory copy once it's no longer offered.
   const objectUrl = phase.kind === "ready" ? phase.objectUrl : null;
@@ -93,12 +109,31 @@ export function ExportDialog({
           <DialogDescription>
             {phase.kind === "failed"
               ? phase.error
-              : phase.kind === "ready"
-                ? "Ready to send."
-                : "Rendering the quick version — this takes a minute or two."}
+              : phase.kind === "choosing"
+                ? "Which version?"
+                : phase.kind === "ready"
+                  ? "Ready to send."
+                  : "Rendering the quick version — this takes a minute or two."}
           </DialogDescription>
         </DialogHeader>
-        {phase.kind === "ready" ? (
+        {phase.kind === "choosing" ? (
+          <div className="flex flex-col gap-2">
+            {choices?.map((c, i) => (
+              <Button
+                key={c.label}
+                size="lg"
+                variant={i === 0 ? "default" : "outline"}
+                className="h-11"
+                onClick={() => {
+                  chosen.current = c.start;
+                  setRun((n) => n + 1);
+                }}
+              >
+                {c.label}
+              </Button>
+            ))}
+          </div>
+        ) : phase.kind === "ready" ? (
           <div className="flex flex-col gap-2">
             {canShare && (
               <Button
