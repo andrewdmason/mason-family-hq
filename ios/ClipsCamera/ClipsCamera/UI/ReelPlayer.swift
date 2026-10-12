@@ -3,9 +3,9 @@ import SwiftUI
 
 // The at-bat player for pitch reels. Nothing is baked into the reel, so speed
 // and captions happen here: Play runs at real speed, Slow at ¼ (smooth on
-// swings, which keep every 240fps frame), and Replay re-runs the pitch on
-// screen in slow motion. The GameChanger field view, a file of its own, is the
-// last stretch of the same timeline. Controls stay on screen.
+// swings, which keep every 240fps frame), switchable mid-play. The GameChanger
+// field view, a file of its own, is the last stretch of the same timeline.
+// Controls lie over the video; a tap shows or hides them.
 
 /// An at-bat to play: its reel and pitches (at their reel times), and the
 /// field view if it has one.
@@ -45,10 +45,7 @@ final class ReelPlayerModel {
     private(set) var onField = false
     /// 0 when paused.
     private(set) var rate: Float = 0
-    private(set) var replaying = false
 
-    private var replayEnd: Double?
-    private var resumeRate: Float = 0
     private var seekTarget: Double?
     private var seeking = false
     private var tokens: [(AVPlayer, Any)] = []
@@ -115,7 +112,6 @@ final class ReelPlayerModel {
     private func ticked(_ local: Double, field: Bool) {
         guard field == onField, !seeking, seekTarget == nil else { return }
         time = field ? reelLength + local - (fieldView?.start ?? 0) : local
-        if replaying, let end = replayEnd, time >= end { endReplay() }
     }
 
     /// The reel ran out: on into the field view while playing, else stop there.
@@ -133,20 +129,16 @@ final class ReelPlayerModel {
     }
 
     private func finished() {
-        replaying = false
-        replayEnd = nil
         rate = 0
         active.pause()
     }
 
     // MARK: Transport
 
-    func togglePlay() { rate == 1 && !replaying ? pause() : play(1) }
-    func toggleSlow() { rate == Self.slow && !replaying ? pause() : play(Self.slow) }
+    func togglePlay() { rate == 1 ? pause() : play(1) }
+    func toggleSlow() { rate == Self.slow ? pause() : play(Self.slow) }
 
     func play(_ r: Float) {
-        replaying = false
-        replayEnd = nil
         if time >= total - 0.05 { seek(to: 0) }
         rate = r
         active.isMuted = r != 1
@@ -154,36 +146,9 @@ final class ReelPlayerModel {
     }
 
     func pause() {
-        replaying = false
-        replayEnd = nil
         rate = 0
         reelPlayer.pause()
         fieldPlayer?.pause()
-    }
-
-    /// Re-run the pitch on screen at ¼ speed, then carry on as before.
-    func replay() {
-        guard let i = currentPitch,
-              let w = ReelPlan.replayWindow(pitch: i, segments: segments, pitchTimes: pitches.map(\.t)) else { return }
-        resumeRate = replaying ? resumeRate : rate
-        seek(to: w.lowerBound)
-        replaying = true
-        replayEnd = w.upperBound
-        rate = Self.slow
-        reelPlayer.isMuted = true
-        reelPlayer.rate = Self.slow
-    }
-
-    private func endReplay() {
-        replaying = false
-        replayEnd = nil
-        if resumeRate > 0 {
-            rate = resumeRate
-            active.isMuted = resumeRate != 1
-            active.rate = resumeRate
-        } else {
-            pause()
-        }
     }
 
     func step(_ frames: Int) {
@@ -191,30 +156,41 @@ final class ReelPlayerModel {
         active.currentItem?.step(byCount: frames)
     }
 
-    /// Previous/Next: each pitch's lead-in, and the field view's start.
-    private var targets: [Double] {
-        var out = pitches.indices.map { ReelPlan.jumpTarget(pitch: $0, segments: segments, pitchTimes: pitches.map(\.t)) }
+    /// Previous/Next stops: each pitch's mark, and the field view's start.
+    private var marks: [Double] {
+        var out = pitches.map(\.t)
         if fieldView != nil { out.append(reelLength) }
         return out
     }
 
-    /// Previous restarts the pitch on screen unless it's just begun.
+    /// Onto the next mark, or back to the last one behind — the one before
+    /// that if you're still right on it (half a second, or just landed).
     func jump(_ dir: Int) {
         let t = time
         if dir > 0 {
-            if let target = targets.first(where: { $0 > t + 0.25 }) { jumpTo(target) }
+            if let mark = marks.first(where: { $0 > t + 0.01 }) { jumpTo(mark) }
+            return
+        }
+        let behind = marks.filter { $0 <= t + 0.01 }
+        guard let last = behind.last else { return jumpTo(0) }
+        let justLanded = lastJump.map { abs($0 - last) < 0.01 && Date().timeIntervalSince(lastJumpAt) < 1.5 } ?? false
+        if t - last > 0.5 && !justLanded {
+            jumpTo(last)
         } else {
-            jumpTo(targets.last { $0 < t - 0.75 } ?? 0)
+            jumpTo(behind.dropLast().last ?? 0)
         }
     }
 
     func jumpTo(pitch i: Int) {
-        jumpTo(ReelPlan.jumpTarget(pitch: i, segments: segments, pitchTimes: pitches.map(\.t)))
+        jumpTo(pitches[i].t)
     }
 
+    private var lastJump: Double?
+    private var lastJumpAt = Date.distantPast
+
     private func jumpTo(_ t: Double) {
-        replaying = false
-        replayEnd = nil
+        lastJump = t
+        lastJumpAt = Date()
         seek(to: t)
     }
 
@@ -257,10 +233,13 @@ final class ReelPlayerModel {
         return ReelPlan.pitchShowing(at: time, segments: segments, pitchTimes: pitches.map(\.t))
     }
 
-    /// "Pitch 4 · 1-2 · Foul", the result on the last.
+    /// "1-2 · Foul", the result on the last. (Shared videos also number the pitch.)
     func caption(_ i: Int) -> String {
         let counts = Scorebook.countsBefore(pitches)
-        return QuickPlan.caption(pitches[i], n: i + 1, count: counts[i], isLast: i == pitches.count - 1, result: result)
+        var parts = [counts[i].description]
+        if let o = pitches[i].outcome { parts.append(o.label) }
+        if i == pitches.count - 1, let result { parts.append(result.label) }
+        return parts.joined(separator: " · ")
     }
 
     func relabel(_ i: Int, outcome: PitchOutcome, battedBall: BattedBall?, playResult: PlayResult?) {
@@ -286,6 +265,7 @@ struct ReelPlayerScreen: View {
     @State private var choosingShare = false
     @State private var sharing = false
     @State private var jogFrom: Double?
+    @State private var controlsShown = true
 
     init(item: ReelItem, onRelabel: @escaping ([Pitch]) -> Void, onShare: @escaping (Bool, [Pitch]) async -> Void) {
         self.item = item
@@ -295,14 +275,39 @@ struct ReelPlayerScreen: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            picture
-            ReelControls(model: model)
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
+        ZStack {
+            Color.black.ignoresSafeArea()
+            picture.ignoresSafeArea()
+            // Shading behind the controls, down to the screen's very edges.
+            if controlsShown {
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 110)
+                    Spacer(minLength: 0)
+                    LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 150)
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+            // The caption stays up; the controls come and go with a tap.
+            VStack(spacing: 0) {
+                if controlsShown { topBar.transition(.opacity) }
+                Spacer(minLength: 0)
+                captionPill
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, controlsShown ? 4 : 24)
+                if controlsShown {
+                    ReelControls(model: model)
+                        .padding(.horizontal, 12)
+                        .transition(.opacity)
+                }
+            }
+            // Into the home-bar margin: the room goes to bigger buttons.
+            .ignoresSafeArea(.container, edges: .bottom)
         }
-        .background(Color.black.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .onAppear { model.play(1) }
         .onDisappear { model.stop() }
@@ -328,15 +333,17 @@ struct ReelPlayerScreen: View {
         }
     }
 
+    /// The video as big as the screen allows. Tap it to show or hide the
+    /// controls; drag sideways to jog (the full width is two seconds).
     private var picture: some View {
         ZStack {
             PlayerLayerView(player: model.reelPlayer).opacity(model.onField ? 0 : 1)
             if let field = model.fieldPlayer {
                 PlayerLayerView(player: field).opacity(model.onField ? 1 : 0)
             }
-            // Drag sideways on the picture to jog: the full width is two seconds.
             GeometryReader { geo in
                 Color.clear.contentShape(Rectangle())
+                    .onTapGesture { withAnimation(.easeOut(duration: 0.2)) { controlsShown.toggle() } }
                     .gesture(DragGesture(minimumDistance: 8).onChanged { g in
                         if jogFrom == nil {
                             model.pause()
@@ -346,8 +353,6 @@ struct ReelPlayerScreen: View {
                     }.onEnded { _ in jogFrom = nil })
             }
         }
-        .overlay(alignment: .bottomLeading) { captionPill.padding(12) }
-        .overlay(alignment: .top) { topBar }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -355,39 +360,42 @@ struct ReelPlayerScreen: View {
         if let i = model.currentPitch {
             Button { model.pause(); relabeling = i } label: {
                 HStack(spacing: 6) {
-                    Text(model.caption(i) + (model.replaying ? " · Replay" : ""))
+                    Text(model.caption(i))
                     Image(systemName: "pencil").font(.caption2.weight(.bold)).opacity(0.7)
                 }
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(model.replaying ? Color.orange.opacity(0.85) : Color.black.opacity(0.6), in: Capsule())
+                .background(Color.black.opacity(0.6), in: Capsule())
             }
             .accessibilityLabel("Relabel pitch \(i + 1)")
         }
     }
 
+    /// Title on the left; Share, then Close, on the right.
     private var topBar: some View {
-        HStack {
-            Button { dismiss() } label: {
-                Image(systemName: "xmark.circle.fill").font(.title).foregroundStyle(.white.opacity(0.85))
-            }
-            .accessibilityLabel("Close")
-            Spacer()
-            Text(item.title).font(.footnote.weight(.semibold)).foregroundStyle(.white.opacity(0.8)).lineLimit(1)
-            Spacer()
+        HStack(spacing: 4) {
+            Text(item.title).font(.headline).foregroundStyle(.white).lineLimit(1)
+            Spacer(minLength: 12)
             if sharing {
-                ProgressView().tint(.white).frame(width: 32)
+                ProgressView().tint(.white).frame(width: 44, height: 44)
             } else {
                 Button { choosingShare = true } label: {
-                    Image(systemName: "square.and.arrow.up.circle.fill").font(.title).foregroundStyle(.white.opacity(0.85))
+                    Image(systemName: "square.and.arrow.up").frame(width: 44, height: 44).contentShape(Rectangle())
                 }
                 .accessibilityLabel("Share")
             }
+            Button { dismiss() } label: {
+                Image(systemName: "xmark").frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .accessibilityLabel("Close")
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
+        .font(.title3.weight(.semibold))
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.5), radius: 3)
+        .padding(.leading, 16)
+        .padding(.trailing, 4)
     }
 }
 
@@ -398,48 +406,89 @@ private struct PitchRef: Identifiable {
 
 // MARK: - Controls
 
-/// The scrubber with its pitch markers, then ⏮ ◀︎ Play Slow ↺ ▶︎ ⏭.
+/// The scrubber with its pitch markers, then ←▮ ▮→ at the left, Play and Slow centered, ◀︎ ▶︎ at the right.
 struct ReelControls: View {
     let model: ReelPlayerModel
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 2) {
             ReelScrubber(model: model)
-                .frame(height: 30)
-            HStack(spacing: 0) {
-                button("backward.end.fill", "Previous pitch") { model.jump(-1) }
-                HoldButton(systemImage: "backward.frame.fill", label: "Back one frame") { model.step(-1) }
-                button(model.rate == 1 && !model.replaying ? "pause.fill" : "play.fill", "Play", big: true) { model.togglePlay() }
-                slowButton
-                button("gobackward", "Replay in slow motion") { model.replay() }
-                    .disabled(model.currentPitch == nil)
-                HoldButton(systemImage: "forward.frame.fill", label: "Forward one frame") { model.step(1) }
-                button("forward.end.fill", "Next pitch") { model.jump(1) }
+                .frame(height: 24)
+            // Pitch to pitch at the left, Play and Slow centered, frame
+            // steps at the right; Play and Slow get a row of their own when
+            // there isn't room for all three side by side.
+            ViewThatFits(in: .horizontal) {
+                ZStack {
+                    playing
+                    HStack { pitches; Spacer(minLength: 0); frames }
+                }
+                .frame(minWidth: 640)
+                VStack(spacing: 0) {
+                    playing
+                    HStack { pitches; Spacer(minLength: 0); frames }
+                }
             }
             .foregroundStyle(.white)
         }
     }
 
+    private var pitches: some View {
+        HStack(spacing: 0) {
+            markJump(forward: false) { model.jump(-1) }
+            markJump(forward: true) { model.jump(1) }
+        }
+    }
+
+    private var playing: some View {
+        HStack(spacing: 0) {
+            button(model.rate == 1 ? "pause.fill" : "play.fill", "Play", big: true) { model.togglePlay() }
+            slowButton
+        }
+    }
+
+    private var frames: some View {
+        HStack(spacing: 0) {
+            HoldButton(systemImage: "backward.frame.fill", label: "Back one frame") { model.step(-1) }
+            HoldButton(systemImage: "forward.frame.fill", label: "Forward one frame") { model.step(1) }
+        }
+    }
+
     private var slowButton: some View {
-        let on = model.rate == ReelPlayerModel.slow && !model.replaying
+        let on = model.rate == ReelPlayerModel.slow
         return Button { model.toggleSlow() } label: {
             HStack(spacing: 3) {
                 Image(systemName: on ? "pause.fill" : "tortoise.fill")
-                Text("¼×").font(.footnote.weight(.bold)).fixedSize()
+                Text("¼×").font(.headline).fixedSize()
             }
             .lineLimit(1)
-            .font(.title3)
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .font(.title)
+            .frame(width: 96, height: 64)
             .contentShape(Rectangle())
         }
         .accessibilityLabel(on ? "Pause slow motion" : "Play in slow motion")
     }
 
+    /// Arrow-and-marker, so a pitch jump reads differently from a frame step:
+    /// ←▮ back to the previous pitch, ▮→ on to the next.
+    private func markJump(forward: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 2) {
+                if !forward { Image(systemName: "arrow.left") }
+                Image(systemName: "bookmark.fill").font(.title2)
+                if forward { Image(systemName: "arrow.right") }
+            }
+            .font(.title3.weight(.bold))
+            .frame(width: 72, height: 64)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel(forward ? "Next pitch" : "Previous pitch")
+    }
+
     private func button(_ symbol: String, _ label: String, big: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(big ? .title : .title3)
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .font(big ? .largeTitle : .title)
+                .frame(width: 80, height: 64)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel(label)
@@ -456,8 +505,8 @@ struct HoldButton: View {
 
     var body: some View {
         Image(systemName: systemImage)
-            .font(.title3)
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .font(.title)
+            .frame(width: 68, height: 64)
             .contentShape(Rectangle())
             .opacity(pressed ? 0.5 : 1)
             .gesture(DragGesture(minimumDistance: 0).onChanged { _ in
