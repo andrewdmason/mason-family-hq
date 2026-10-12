@@ -8,6 +8,8 @@ struct PitchEditTarget: Identifiable {
     /// Nil while they load from Clips.
     var pitches: [Pitch]?
     let rebuild: Bool
+    /// A pitch reel: captions are drawn as it plays, so they follow the labels.
+    var liveCaptions = false
     var loadError: String?
 }
 
@@ -39,7 +41,7 @@ struct PitchEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(target.rebuild ? "Save & rebuild" : "Save") {
+                    Button(target.rebuild && !target.liveCaptions ? "Save & rebuild" : "Save") {
                         onSave(sorted)
                         dismiss()
                     }
@@ -54,6 +56,17 @@ struct PitchEditor: View {
         }
     }
 
+    private var footer: String {
+        if target.liveCaptions {
+            return target.rebuild
+                ? "Captions follow the labels. A take that becomes a swing gets its slow-motion footage back (the video is rebuilt from the full recording, kept for three days)."
+                : "Captions follow the labels. The full recording is gone (it's kept for three days), so a take that becomes a swing stays at its old frame rate."
+        }
+        return target.rebuild
+            ? "The video is rebuilt with the new labels — captions, replays and title card — and replaces the one in Clips."
+            : "The full recording is gone (it's kept for three days), so only the labels change. The video keeps its old captions."
+    }
+
     private var form: some View {
         let counts = Scorebook.countsBefore(sorted)
         let outcome = Scorebook.outcome(sorted)
@@ -61,9 +74,7 @@ struct PitchEditor: View {
             Section {
                 LabeledContent("Result", value: outcome?.result.name ?? "Not decided")
             } footer: {
-                Text(target.rebuild
-                     ? "The video is rebuilt with the new labels — captions, replays and title card — and replaces the one in Clips."
-                     : "The full recording is gone (it's kept for three days), so only the labels change. The video keeps its old captions.")
+                Text(footer)
             }
             ForEach(Array(sorted.enumerated()), id: \.element.id) { i, p in
                 Section("Pitch \(i + 1) · \(counts[i].description)") {

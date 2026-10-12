@@ -23,6 +23,8 @@ works any time. Columns: migration 00201 (`field_view_*`, `closeup_path`).
 
 Simulator check: `-demoHome -demoImport /path/clip.mp4` opens the trimmer on a
 clip; add `-demoPick` for the at-bat picker.
+`-demoHome -demoReel /path/video.mp4` opens the live at-bat player on that video
+(cut into three made-up pitch windows); add `-demoLandscape` to turn it sideways.
 
 ## Build & test (agents)
 

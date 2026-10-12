@@ -11,13 +11,19 @@ import UIKit
 //
 //   recording → building the edit → uploading the video → filing it in Clips
 //
+// What's built is the pitch reel (see ReelPlan): just the pitch windows, swings
+// at full frame rate, played live with slow motion and captions in the app.
+// At-bats filmed before the reel existed were built as a finished edit, and
+// keep that through rebuilds.
+//
 // The raw recording stays on the phone for three days, so a mislabeled pitch
 // can be fixed and the video rebuilt; after that only the labels can change.
-// The edit stays for a week after it's uploaded. Both are then cleaned up.
+// The reel stays for a week after it's uploaded. Both are then cleaned up.
 //
-// A GameChanger clip (the "field view") goes through the same queue: added to
-// an at-bat it's stitched onto the end of the close-up, or it's an at-bat on
-// its own. The clip itself is uploaded too, so it can be re-trimmed any time.
+// A GameChanger clip (the "field view") goes through the same queue. On a reel
+// it's kept as its own file that the player runs on into; on an older edit
+// it's stitched onto the end of the close-up; or it's an at-bat on its own.
+// The clip itself is uploaded too, so it can be re-trimmed any time.
 
 /// A GameChanger clip of the whole play, played after the close-up.
 struct FieldView: Codable, Equatable {
@@ -101,7 +107,17 @@ struct AtBatJob: Codable, Identifiable, Equatable {
     /// Its place in the game, for an at-bat made from a field view alone.
     var atBatNumber: Int?
 
+    /// The video in Clips is a pitch reel (filmed at-bats from this version
+    /// on, and field views added to one): the field view stays a separate file.
+    var reel: Bool?
+    /// The reel's pitch windows, once it's built.
+    var reelSegments: [ReelSegment]?
+    /// Only the field view changed on a reel already in Clips: filing it
+    /// touches just those columns, not labels changed elsewhere.
+    var fieldViewOnly: Bool?
+
     var isFilmed: Bool { (kind ?? .filmed) == .filmed }
+    var isReel: Bool { reel == true }
 }
 
 @MainActor
@@ -184,6 +200,7 @@ final class AtBatStore {
             $0.closeupFile = nil
             $0.closeupPath = nil
             $0.pitchTimes = nil
+            $0.fieldViewOnly = nil
             $0.state = .building
             if $0.game != nil {
                 $0.upload = .waiting
@@ -238,6 +255,10 @@ final class AtBatStore {
     func addFieldView(to ab: HistoryAtBat, game: GameChoice, number: Int, clip: FieldViewClip, start: Double, end: Double) {
         let paths = AtBatPaths(gameID: game.id, atBatID: ab.id)
         let fieldView = Self.fieldView(clip, paths: paths, start: start, end: end)
+        if ab.isReel || jobs.first(where: { $0.id == ab.id })?.isReel == true {
+            addFieldViewToReel(ab, game: game, fieldView: fieldView)
+            return
+        }
         if let job = jobs.first(where: { $0.id == ab.id }) {
             guard !isBusy(job) else { return }
             replaceFieldView(job, with: fieldView)
@@ -276,6 +297,28 @@ final class AtBatStore {
         processNext()
     }
 
+    /// A reel's field view is its own file: nothing is rebuilt, the clip goes
+    /// up (unless it's already there) and the at-bat is pointed at it.
+    private func addFieldViewToReel(_ ab: HistoryAtBat, game: GameChoice, fieldView: FieldView) {
+        if let job = jobs.first(where: { $0.id == ab.id }) {
+            guard !isBusy(job) else { return }
+            replaceFieldView(job, with: fieldView)
+            update(ab.id) {
+                if $0.upload == .uploaded { $0.fieldViewOnly = true }
+                $0.fieldView = fieldView
+                $0.upload = .waiting
+                $0.uploadedAt = nil
+            }
+        } else {
+            jobs.insert(AtBatJob(
+                id: ab.id, recordedAt: ab.when, rotation: 0, rawDuration: 0, pitches: [], result: ab.result,
+                state: .done, game: game, upload: .waiting, kind: .attach, fieldView: fieldView, reel: true
+            ), at: 0)
+            persist()
+        }
+        startUpload(ab.id)
+    }
+
     /// A new at-bat from a GameChanger clip alone: the title card, then the field view.
     func addFieldOnly(game: GameChoice, number: Int, result: AtBatResult, recordedAt: Date, clip: FieldViewClip, start: Double, end: Double) {
         let id = UUID()
@@ -292,6 +335,10 @@ final class AtBatStore {
     func fieldViewRemoved(_ id: UUID) {
         guard let job = jobs.first(where: { $0.id == id }), job.fieldView != nil else { return }
         replaceFieldView(job, with: nil)
+        if job.isReel {
+            update(id) { $0.fieldView = nil }
+            return
+        }
         if let old = job.editFile { try? FileManager.default.removeItem(at: url(old)) }
         update(id) {
             $0.editFile = $0.closeupFile
@@ -327,7 +374,8 @@ final class AtBatStore {
         let id = UUID()
         let rawName = "raw-\(id.uuidString).mov"
         var job = AtBatJob(id: id, recordedAt: Date().addingTimeInterval(-recording.duration), rotation: recording.rotation,
-                           rawDuration: recording.duration, pitches: pitches, result: result, game: game, upload: .waiting)
+                           rawDuration: recording.duration, pitches: pitches, result: result, game: game, upload: .waiting,
+                           reel: true)
         do {
             try FileManager.default.moveItem(at: recording.url, to: url(rawName))
             job.rawFile = rawName
@@ -401,6 +449,10 @@ final class AtBatStore {
         let suffix = job.revision.map { "-r\($0)" } ?? ""
         let closeupName = "edit-\(job.id.uuidString)\(suffix).mp4"
         let rawURL = job.rawFile.map(url)
+        if job.isReel {
+            await buildReel(job)
+            return
+        }
         do {
             var job = job
             // A pitch fix on this phone keeps a field view added on another.
@@ -456,6 +508,60 @@ final class AtBatStore {
         } catch {
             update(job.id) { $0.state = .failed(error.localizedDescription) }
         }
+    }
+
+    /// The pitch reel from the full recording (a field view isn't part of it).
+    private func buildReel(_ job: AtBatJob) async {
+        let suffix = job.revision.map { "-r\($0)" } ?? ""
+        let name = "reel-\(job.id.uuidString)\(suffix).mp4"
+        do {
+            if job.isFilmed, job.editFile.map({ !FileManager.default.fileExists(atPath: url($0).path) }) ?? true {
+                guard let raw = job.rawFile.map(url), FileManager.default.fileExists(atPath: raw.path) else {
+                    throw StoreError("The recording is missing.")
+                }
+                guard !job.pitches.isEmpty else {
+                    throw StoreError("No pitches were logged, so there's nothing to cut.")
+                }
+                let reel = try await ReelRenderer.render(raw: raw, rotation: job.rotation, pitches: job.pitches,
+                                                         timings: AppSettings.shared.timings, to: url(name))
+                update(job.id) {
+                    $0.editFile = name
+                    $0.editDuration = reel.duration
+                    $0.editBytes = reel.bytes
+                    $0.renderSeconds = reel.renderSeconds
+                    $0.pitchTimes = reel.pitchTimes
+                    $0.reelSegments = reel.segments
+                }
+                if AppSettings.shared.saveEditsToPhotos, let shared = try? await ShareRenderer.render(shareRequest(job.id, replays: true)) {
+                    try await Self.saveToPhotos(shared)
+                }
+                if AppSettings.shared.saveRawToPhotos, job.revision == nil {
+                    try await Self.saveToPhotos(raw)
+                }
+            }
+            update(job.id) { $0.state = .done }
+        } catch {
+            update(job.id) { $0.state = .failed(error.localizedDescription) }
+        }
+    }
+
+    /// What sharing a reel built on this phone needs, at its reel times.
+    func shareRequest(_ id: UUID, replays: Bool) -> ShareRequest {
+        let job = jobs.first { $0.id == id }!
+        let sorted = job.pitches.sorted { $0.t < $1.t }
+        let times = job.pitchTimes ?? []
+        let reelPitches = sorted.enumerated().map { i, p in
+            var q = p
+            q.t = i < times.count ? times[i] : 0
+            return q
+        }
+        let card = TitleCard.make(number: number(of: job), result: job.result, game: job.game?.name, playedOn: job.game?.playedOn)
+        let fv = job.fieldView.flatMap { fv in
+            fv.file.map { (url: url($0), start: fv.start, end: fv.end, key: fv.path) }
+        }
+        return ShareRequest(atBatID: id, reel: url(job.editFile ?? ""), segments: job.reelSegments ?? [],
+                            pitches: reelPitches, result: job.result, card: card, replays: replays,
+                            fieldView: fv, reelKey: job.editFile ?? "")
     }
 
     /// The close-up a filmed at-bat's video starts from is already built: the
@@ -530,10 +636,10 @@ final class AtBatStore {
         let paths = AtBatPaths(gameID: game.id, atBatID: job.id, revision: job.revision)
         var out: [(String, String)] = []
         if let fv = job.fieldView, !fv.uploaded, let file = fv.file { out.append((file, fv.path)) }
-        if job.fieldView != nil, job.kind != .fieldOnly, job.closeupPath == nil, let file = job.closeupFile {
+        if !job.isReel, job.fieldView != nil, job.kind != .fieldOnly, job.closeupPath == nil, let file = job.closeupFile {
             out.append((file, paths.closeup))
         }
-        if let file = job.editFile { out.append((file, paths.video)) }
+        if let file = job.editFile { out.append((file, job.isReel ? paths.reel : paths.video)) }
         let done = Set(job.uploadedPaths ?? [])
         return out.filter { !done.contains($0.1) }
     }
@@ -542,7 +648,8 @@ final class AtBatStore {
     /// `.waiting`) without signal or a sign-in; `resume()` retries later.
     func startUpload(_ id: UUID) {
         guard let job = jobs.first(where: { $0.id == id }), job.state == .done,
-              let game = job.game, job.editFile != nil, !starting.contains(id) else { return }
+              let game = job.game, job.editFile != nil || job.isReel,
+              !starting.contains(id) else { return }
         guard clips.isSignedIn, online else {
             update(id) { $0.upload = .waiting }
             return
@@ -596,7 +703,7 @@ final class AtBatStore {
         let background = UIApplication.shared.beginBackgroundTask(withName: "file-at-bat")
         defer { UIApplication.shared.endBackgroundTask(background) }
         do {
-            if job.kind == .attach {
+            if job.kind == .attach || job.fieldViewOnly == true {
                 try await clips.attachFieldView(job: job, game: game)
             } else {
                 var poster: Data?
@@ -606,6 +713,7 @@ final class AtBatStore {
             update(id) {
                 $0.upload = .uploaded
                 $0.uploadedAt = Date()
+                $0.fieldViewOnly = nil
             }
         } catch {
             update(id) { $0.upload = .failed(error.localizedDescription) }
