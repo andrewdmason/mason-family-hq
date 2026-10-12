@@ -683,23 +683,17 @@ private struct PlayerScreen: View {
     @State private var player: AVPlayer?
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
             if let player {
                 VideoPlayer(player: player)
             }
-        }
-        // The close button gets its own strip above the video: laid over it,
-        // it covered the player's volume control in the top corner.
-        .safeAreaInset(edge: .top, spacing: 0) {
-            HStack {
-                Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark.circle.fill").font(.title).foregroundStyle(.white.opacity(0.85))
-                }
+            Button { dismiss() } label: {
+                Image(systemName: "xmark.circle.fill").font(.largeTitle).foregroundStyle(.white.opacity(0.85))
             }
-            .padding(.horizontal)
-            .padding(.vertical, 6)
+            // Level with the player's own buttons, just left of its mute button.
+            .padding(.top, 9)
+            .padding(.trailing, 60)
         }
         .task {
             let asset = AVURLAsset(url: url)
