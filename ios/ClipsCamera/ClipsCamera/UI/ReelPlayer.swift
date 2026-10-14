@@ -23,6 +23,8 @@ struct ReelItem: Identifiable {
     var trail: BallTrailInfo = .none
     /// Signed in: the trail can be asked for (and fixed).
     var canTrace = false
+    /// Open straight onto "Fix the ball" (from the home card's badge).
+    var fixOnOpen = false
 }
 
 struct FieldViewPlayback {
@@ -342,6 +344,9 @@ struct ReelPlayerScreen: View {
     @State private var controlsShown = true
     @State private var showingTrail = false
     @State private var trailError: String?
+    /// "Fix the ball" is open, or opens once the trail panel has closed.
+    @State private var fixing = false
+    @State private var fixAfterPanel = false
     /// Bumped by each ask for a trace, so the watch for it starts over.
     @State private var traceRound = 0
     private let settings = AppSettings.shared
@@ -377,6 +382,8 @@ struct ReelPlayerScreen: View {
             // The caption stays up; the controls come and go with a tap.
             VStack(spacing: 0) {
                 if controlsShown { topBar.transition(.opacity) }
+                trailNotice
+                    .padding(.top, controlsShown ? 4 : 16)
                 Spacer(minLength: 0)
                 captionPill
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -392,7 +399,13 @@ struct ReelPlayerScreen: View {
             .ignoresSafeArea(.container, edges: .bottom)
         }
         .preferredColorScheme(.dark)
-        .onAppear { model.play(1) }
+        .onAppear {
+            if item.fixOnOpen && item.canTrace && item.fieldView != nil {
+                fixTheBall()
+            } else {
+                model.play(1)
+            }
+        }
         .onDisappear { model.stop() }
         .sheet(item: Binding(get: { relabeling.map(PitchRef.init) }, set: { relabeling = $0?.index })) { ref in
             RelabelSheet(title: "Pitch \(ref.index + 1)", pitch: model.pitches[ref.index]) { outcome, battedBall, playResult in
@@ -413,12 +426,29 @@ struct ReelPlayerScreen: View {
                 pendingShare = ($0, $1)
             }
         }
-        .sheet(isPresented: $showingTrail, onDismiss: { model.endLoop() }) {
-            TrailPanel(info: model.trail, canTrace: item.canTrace, onAddTrail: { askForTrail() })
+        .sheet(isPresented: $showingTrail, onDismiss: {
+            model.endLoop()
+            if fixAfterPanel {
+                fixAfterPanel = false
+                fixTheBall()
+            }
+        }) {
+            TrailPanel(info: model.trail, canTrace: item.canTrace, onAddTrail: { askForTrail() },
+                       onFix: item.canTrace ? { fixAfterPanel = true; showingTrail = false } : nil)
                 .presentationDetents([.height(TrailPanel.height)])
                 .presentationBackgroundInteraction(.enabled)
                 .presentationDragIndicator(.visible)
                 .onAppear { model.loopHit() }
+        }
+        .fullScreenCover(isPresented: $fixing) {
+            if let fv = item.fieldView {
+                FixBallScreen(fieldView: fv, startAt: fixStart) { tap in
+                    askForTrail(tap: tap)
+                    // Back on the field view, to watch for the new trail.
+                    model.seek(to: model.reelLength)
+                    model.play(1)
+                }
+            }
         }
         .alert("Ball trail", isPresented: .constant(trailError != nil), presenting: trailError) { _ in
             Button("OK") { trailError = nil }
@@ -439,6 +469,47 @@ struct ReelPlayerScreen: View {
                 onTrailUpdate?(info)
                 return
             }
+        }
+    }
+
+    private func fixTheBall() {
+        model.pause()
+        fixing = true
+    }
+
+    /// Where "Fix the ball" opens: the last tap's frame, else just after
+    /// contact, else the start of the kept play.
+    private var fixStart: Double {
+        if let tap = model.trail.tap { return tap.t }
+        if let contact = model.trail.trail?.contactS { return contact + 0.1 }
+        return item.fieldView?.start ?? 0
+    }
+
+    /// Over the field view: tracing wants a tap (the way into the fix), or is
+    /// at work.
+    @ViewBuilder private var trailNotice: some View {
+        if model.onField && item.canTrace && model.trail.needsHelp {
+            Button(action: fixTheBall) {
+                Label("Tap the ball to add a trail", systemImage: "sparkles")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.orange.opacity(0.85), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .transition(.opacity)
+        } else if model.onField && model.trail.status == .pending && settings.trailOn {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small).tint(.white)
+                Text("Finding the ball…")
+            }
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.black.opacity(0.6), in: Capsule())
+            .allowsHitTesting(false)
         }
     }
 

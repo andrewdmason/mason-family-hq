@@ -384,6 +384,8 @@ struct HomeView: View {
                                         mark: !selecting ? .none : !ab.isReel ? .unavailable : selected.contains(ab.id) ? .on : .off,
                                         onRetry: { store.retry(ab.id) },
                                         onOpen: { selecting ? toggle(ab) : open(ab) },
+                                        onFixTrail: !watching && !selecting && ab.isReel && ab.hasFieldView && ab.trail.needsHelp
+                                            ? { openReel(ab, fix: true) } : nil,
                                         onShare: { share(ab, game: section, number: number) },
                                         onEdit: !watching && ab.isCamera && !ab.isFieldOnly && !isRebuilding(ab.id) ? { edit(ab, title: "AB \(number) · \(section.name)") } : nil,
                                         onAddFieldView: !watching && canChange && !ab.hasFieldView ? { pickingFor = target; choosingVideo = true } : nil,
@@ -522,6 +524,9 @@ struct HomeView: View {
                let data = try? Data(contentsOf: URL(fileURLWithPath: args[f + 1])) {
                 let status = args.firstIndex(of: "-demoTrailStatus").flatMap { $0 + 1 < args.count ? BallTrailStatus(rawValue: args[$0 + 1]) : nil }
                 item.trail = BallTrailInfo(trail: try? JSONDecoder().decode(BallTrail.self, from: data), status: status ?? .ready)
+                // As if signed in, for the banner and "Fix the ball" (`-demoFix` opens on it).
+                item.canTrace = true
+                item.fixOnOpen = args.contains("-demoFix")
             }
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(1))
@@ -730,10 +735,13 @@ struct HomeView: View {
     // MARK: Reels
 
     /// Play a reel: from this phone when it's still here, else from Clips.
-    private func openReel(_ ab: HistoryAtBat) {
+    private func openReel(_ ab: HistoryAtBat, fix: Bool = false) {
         Task {
             do {
-                if let item = try await reelItem(ab) { reelPlaying = item }
+                if var item = try await reelItem(ab) {
+                    item.fixOnOpen = fix
+                    reelPlaying = item
+                }
             } catch {
                 shareError = "Couldn't load the video — check your signal."
             }
@@ -1266,6 +1274,8 @@ private struct HistoryCard: View {
     var mark: SelectMark = .none
     let onRetry: () -> Void
     let onOpen: () -> Void
+    /// Tracing couldn't follow the ball: the badge opens "Fix the ball".
+    let onFixTrail: (() -> Void)?
     let onShare: () -> Void
     let onEdit: (() -> Void)?
     let onAddFieldView: (() -> Void)?
@@ -1293,6 +1303,9 @@ private struct HistoryCard: View {
                 // Fetching the video for Share (or a field view to re-trim).
                 .overlay(alignment: .bottomTrailing) {
                     if sharing { ProgressView().tint(.white).padding(10) }
+                }
+                .overlay(alignment: .bottomLeading) {
+                    if let onFixTrail, !sharing { TrailHelpBadge(action: onFixTrail) }
                 }
                 .overlay {
                     if rebuilding {
@@ -1365,6 +1378,25 @@ private struct HistoryCard: View {
 /// (so it can't go in a highlight reel).
 enum SelectMark {
     case none, off, on, unavailable
+}
+
+/// Bottom-left on a card whose ball trail needs a tap on the ball.
+private struct TrailHelpBadge: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label("Tap the ball", systemImage: "sparkles")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(Color.orange.opacity(0.9), in: Capsule())
+                .padding(6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Ball trail needs help: tap the ball")
+    }
 }
 
 /// The result in the thumbnail's corner, as on the website ("1B", "BB", "ꓘ").

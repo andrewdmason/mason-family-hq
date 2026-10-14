@@ -8,6 +8,8 @@ struct TrailPanel: View {
     let canTrace: Bool
     /// Trace a field view that never was.
     let onAddTrail: () -> Void
+    /// Open "Fix the ball" (signed in only).
+    var onFix: (() -> Void)?
 
     @Bindable private var settings = AppSettings.shared
 
@@ -28,6 +30,18 @@ struct TrailPanel: View {
             }
             .opacity(settings.trailOn ? 1 : 0.5)
             status
+            if let onFix, info.status != nil {
+                Button(action: onFix) {
+                    HStack {
+                        Label(info.needsHelp ? "Tap the ball to add a trail" : "Fix the ball", systemImage: "hand.tap")
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 20)
