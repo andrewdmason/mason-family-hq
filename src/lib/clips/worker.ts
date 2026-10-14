@@ -1,17 +1,19 @@
 import "server-only";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { headers } from "next/headers";
-import type { createClient } from "@/lib/supabase/server";
 import type { PlanSegment } from "./plan";
 import { CLIPS_BUCKET } from "./types";
 
 // The clips worker (services/baseball-clips, on Modal) does the ffmpeg work:
-// a seek-friendly playback copy + poster for each upload, and rendered quick
-// versions for export. The app hands it signed URLs to read from and write to,
-// and it POSTs back to /clips/api/callback when done — same shape as the
-// practice worker, sharing its WORKER_SECRET.
+// a seek-friendly playback copy + poster for each upload, rendered quick
+// versions for export, and ball trails traced through GameChanger field views.
+// The app hands it signed URLs to read from and write to, and it POSTs back to
+// /clips/api/callback when done — same shape as the practice worker, sharing
+// its WORKER_SECRET.
 
-type Client = Awaited<ReturnType<typeof createClient>>;
+/** Any Supabase client that can sign storage URLs (the session client or the admin client). */
+type Client = Pick<SupabaseClient, "storage">;
 
 export function clipsWorkerConfigured(): boolean {
   return !!process.env.CLIPS_WORKER_URL;
@@ -110,4 +112,32 @@ export async function startExport(
     });
   }
   await post({ job: "export", exportId, sources, upload: await signUpload(sb, path), path });
+}
+
+/** A "Fix the ball" tap: the ball on one frame, in untrimmed clip seconds and frame-normalized x/y. */
+export type TraceTap = { t: number; x: number; y: number };
+
+/**
+ * Kick off tracing the batted ball through an at-bat's GameChanger field view
+ * (docs/clips-ball-trail.md). The worker analyses only the kept stretch; every
+ * time stays in untrimmed clip seconds.
+ */
+export async function startTrace(
+  sb: Client,
+  atBat: {
+    id: string;
+    fieldViewPath: string;
+    trimStart: number | null;
+    trimEnd: number | null;
+    tap: TraceTap | null;
+  },
+): Promise<void> {
+  await post({
+    job: "trace",
+    atBatId: atBat.id,
+    sourceUrl: await signDownload(sb, atBat.fieldViewPath),
+    trimStart: atBat.trimStart,
+    trimEnd: atBat.trimEnd,
+    tap: atBat.tap,
+  });
 }

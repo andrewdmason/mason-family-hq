@@ -77,6 +77,10 @@ export async function updateSession(request: NextRequest) {
     // with the viewer key it's built with — see
     // src/app/(clips)/clips/api/viewer/route.ts.
     !request.nextUrl.pathname.startsWith("/clips/api/viewer") &&
+    // The Clips Camera app asks for ball-trail traces with its Supabase access
+    // token (a bearer header, no cookies), which the route validates itself —
+    // see src/app/(clips)/clips/api/trace/route.ts.
+    !request.nextUrl.pathname.startsWith("/clips/api/trace") &&
     // The Clips Camera iPhone app's install page is shareable without an
     // account; the app it installs only runs on registered iPhones.
     !request.nextUrl.pathname.startsWith("/clips/install")

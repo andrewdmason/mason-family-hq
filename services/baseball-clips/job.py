@@ -7,6 +7,9 @@ local dev server (server.py), so prod and local run identical logic.
   export  — render one or more at-bats' quick versions (real-speed pitch
             windows, slowed swing replays, captions, title cards) into a single
             shareable MP4.
+  trace   — follow the batted ball through a GameChanger field view and send
+            back a ball trail (docs/clips-ball-trail.md; the vision is in
+            balltrail/), or `needs_tap` when it isn't sure.
 
 The app passes signed URLs to read sources from and to upload results to, and
 this POSTs the outcome back to the app's callback. Nothing here talks to the
@@ -306,25 +309,51 @@ def export(payload: dict, work: str) -> dict:
     return {"exportId": payload["exportId"], "path": payload["path"]}
 
 
+def trace(payload: dict, work: str) -> dict:
+    """Ball trail for a field view. Only the kept stretch (trimStart..trimEnd, clip
+    seconds) is analysed; a tap {t, x, y} anchors the search to the ball."""
+    from balltrail import trace as trace_ball  # opencv/scipy: only this job needs them
+
+    src = os.path.join(work, "fieldview")
+    _download(payload["sourceUrl"], src)
+
+    def num(v):
+        return float(v) if v is not None else None
+
+    tap = payload.get("tap")
+    if tap is not None:
+        tap = {"t": float(tap["t"]), "x": float(tap["x"]), "y": float(tap["y"])}
+    res = trace_ball(src, num(payload.get("trimStart")), num(payload.get("trimEnd")), tap)
+    print(f"trace {payload.get('atBatId')}: {res['status']} {res.get('reason', '')}")
+    return {"status": res["status"], "trail": res["trail"]}
+
+
 def run_and_callback(payload: dict) -> None:
     job = payload.get("job")
     out: dict = {"job": job, "secret": os.environ.get("WORKER_SECRET")}
-    if job == "prepare":
+    if job in ("prepare", "trace"):
         out["atBatId"] = payload.get("atBatId")
     elif job == "export":
         out["exportId"] = payload.get("exportId")
+    if job == "trace":
+        # echoed so the app can drop a result a newer "Fix the ball" tap has superseded
+        out["tap"] = payload.get("tap")
     work = tempfile.mkdtemp(prefix=f"clips-{job}-")
     try:
         if job == "prepare":
             out.update(prepare(payload, work))
         elif job == "export":
             out.update(export(payload, work))
+        elif job == "trace":
+            out.update(trace(payload, work))
         else:
             raise RuntimeError(f"unknown job {job!r}")
         out["ok"] = True
     except Exception as e:  # noqa: BLE001
         out["ok"] = False
         out["error"] = str(e)[:500]
+        if job == "trace":
+            out.update(status="failed", trail=None)
         # A failed transcode can still report what the probe learned, so the
         # player can frame-step the original at the right rate.
         if job == "prepare":
