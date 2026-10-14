@@ -432,28 +432,31 @@ final class CaptionCompositor: NSObject, AVVideoCompositing {
 
 enum CaptionArt {
     /// The caption pill, bottom-left, as a full-frame transparent overlay;
-    /// orange during a replay. In a vertical video it sits a quarter of the
-    /// way up, clear of what Instagram lays over the bottom of a Reel.
+    /// orange during a replay. In a vertical video it's centered near the top,
+    /// just under where Instagram puts a Reel's header — its caption, name and
+    /// buttons cover the bottom third.
     static func caption(_ text: String, replay: Bool, size: CGSize = EditRenderer.size) -> CIImage? {
         let tall = size.height > size.width
-        var font = UIFont.systemFont(ofSize: tall ? 46 : 40, weight: .semibold)
-        // In a vertical video, clear of Instagram's buttons down the right.
-        let room = size.width - 48 - 56 - (tall ? 140 : 0)
+        var font = UIFont.systemFont(ofSize: 40, weight: .semibold)
+        let margin: CGFloat = tall ? 60 : 48
+        let pad = CGSize(width: 28, height: 14)
+        let room = size.width - margin * 2 - pad.width * 2
         let wide = (text as NSString).size(withAttributes: [.font: font]).width
         if wide > room { font = UIFont.systemFont(ofSize: (font.pointSize * room / wide).rounded(.down), weight: .semibold) }
         let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.white]
         let textSize = (text as NSString).size(withAttributes: attrs)
-        let pad = CGSize(width: 28, height: 14)
-        let pill = CGRect(x: 48, y: 0, width: textSize.width + pad.width * 2, height: textSize.height + pad.height * 2)
-        let image = draw(CGSize(width: pill.maxX + 8, height: pill.height)) { _ in
+        let pill = CGRect(x: 0, y: 0, width: textSize.width + pad.width * 2, height: textSize.height + pad.height * 2)
+        let image = draw(pill.size) { _ in
             let bg = replay ? UIColor(red: 0.85, green: 0.55, blue: 0.0, alpha: 0.85) : UIColor(white: 0, alpha: 0.6)
             bg.setFill()
             UIBezierPath(roundedRect: pill, cornerRadius: pill.height / 2).fill()
-            (text as NSString).draw(at: CGPoint(x: pill.minX + pad.width, y: pad.height), withAttributes: attrs)
+            (text as NSString).draw(at: CGPoint(x: pad.width, y: pad.height), withAttributes: attrs)
         }
-        // CIImage's origin is bottom-left: lift the pill off the bottom edge.
-        let lift: CGFloat = tall ? (size.height * 0.25).rounded() : 48
-        return image.map { CIImage(cgImage: $0).transformed(by: CGAffineTransform(translationX: 0, y: lift)) }
+        // CIImage's origin is bottom-left.
+        let at = tall
+            ? CGPoint(x: ((size.width - pill.width) / 2).rounded(), y: size.height - (size.height * 0.15).rounded() - pill.height)
+            : CGPoint(x: margin, y: 48)
+        return image.map { CIImage(cgImage: $0).transformed(by: CGAffineTransform(translationX: at.x, y: at.y)) }
     }
 
     /// The opening card, laid out like the website's exports (same sizes and
