@@ -107,7 +107,7 @@ final class VerticalTests: XCTestCase {
 
         let plan = [PlanSegment(start: 0, end: 3, rate: 1, muted: false, caption: "Pitch 4 · 1-2 · Ball in play · 2B",
                                 pitchIndex: 0, replay: false)]
-        let card = TitleCard.make(number: 3, result: .double, game: "Oakland Ballers 13U @ Falcon Prospects 13U", playedOn: "2026-10-14")
+        let card = TitleCard.make(kid: "Sebastian Mason", result: .double, game: "Oakland Ballers 13U @ Falcon Prospects 13U", playedOn: "2026-10-14")
         _ = try await EditRenderer.render(source: raw, rotation: 0, plan: plan, card: card, timings: .standard,
                                           shape: .vertical, cropCenter: 0.3, to: closeup)
         let done = try await FieldViewRenderer.append(closeup: closeup, fieldView: gc, start: 0, end: 3,

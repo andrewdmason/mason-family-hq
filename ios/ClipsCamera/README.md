@@ -40,6 +40,22 @@ clip; add `-demoPick` for the at-bat picker.
 `-demoHome -demoReel /path/video.mp4` opens the live at-bat player on that video
 (cut into three made-up pitch windows); add `-demoLandscape` to turn it sideways.
 
+## Title cards
+
+A shared video opens on a card in the kid's look: their full name big, the
+result (or a badge per at-bat on a highlight reel) and the opponent and date
+beneath, their headshot cut out with a white outline, over the swing playing at
+¼ speed through contact (the ball in play, else the last foul; a walk gets a
+graphic). Each kid picks one of 8 themes (two colors and a typeface, bundled in
+`ClipsCamera/Fonts`, all SIL OFL) and a headshot in Settings › Title cards; the
+phone cuts the person out (Vision). Both are kept in Clips at
+`kids/{kid id}/card.json` and `kids/{kid id}/headshot-*.png` in the clips
+bucket, so every family phone makes the same card; watch-only phones get the
+default. When the at-bat has no vertical framing, the batter is found as what
+moves most over the swing. Snapshot every theme with
+`TitleCardTests` (`CARD_HEADSHOT`, `CARD_SWING`, `CARD_REEL` + `CARD_TAP` draw
+real ones; pass them as `TEST_RUNNER_…`).
+
 ## Build & test (agents)
 
 ```sh

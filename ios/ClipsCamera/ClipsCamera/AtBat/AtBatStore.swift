@@ -534,8 +534,8 @@ final class AtBatStore {
                     rotation: job.rotation,
                     pitches: job.pitches,
                     result: job.result,
-                    card: TitleCard.make(number: number(of: job), result: job.result,
-                                         game: job.game?.name, playedOn: job.game?.playedOn),
+                    card: TitleCard.make(kid: job.game?.kid.displayName, result: job.result, game: job.game?.name,
+                                         playedOn: job.game?.playedOn, style: CardStyleStore.shared.style(for: job.game?.kid.id)),
                     timings: AppSettings.shared.timings,
                     to: url(closeupName)
                 )
@@ -616,7 +616,8 @@ final class AtBatStore {
             q.t = i < times.count ? times[i] : 0
             return q
         }
-        let card = TitleCard.make(number: number(of: job), result: job.result, game: job.game?.name, playedOn: job.game?.playedOn)
+        let card = TitleCard.make(kid: job.game?.kid.displayName, result: job.result, game: job.game?.name, playedOn: job.game?.playedOn,
+                                  style: CardStyleStore.shared.style(for: job.game?.kid.id))
         let fv = job.fieldView.flatMap { fv in
             fv.file.map { (url: url($0), start: fv.start, end: fv.end, key: fv.path) }
         }
@@ -651,7 +652,8 @@ final class AtBatStore {
         let out = url("combined-\(job.id.uuidString)\(suffix).mp4")
         let rendered: RenderedFieldView
         if job.kind == .fieldOnly {
-            let card = TitleCard.make(number: number(of: job), result: job.result, game: job.game?.name, playedOn: job.game?.playedOn)
+            let card = TitleCard.make(kid: job.game?.kid.displayName, result: job.result, game: job.game?.name, playedOn: job.game?.playedOn,
+                                  style: CardStyleStore.shared.style(for: job.game?.kid.id))
             rendered = try await FieldViewRenderer.alone(card: card, cardSeconds: AppSettings.shared.timings.titleCard,
                                                          fieldView: clip, start: fieldView.start, end: fieldView.end, to: out)
         } else {

@@ -109,7 +109,7 @@ final class BallTrailShareTests: XCTestCase {
         // The second: its field view alone, as a highlight reel asks for it (no card, no captions).
         let options = ShareOptions(content: .fieldView, titleCard: false, captions: false)
         var request = ShareRequest(atBatID: UUID(), reel: plain, segments: [], pitches: [], result: .double,
-                                   card: TitleCard(title: "", subtitle: ""), options: options,
+                                   card: TitleCard(name: "", meta: ""), options: options,
                                    fieldView: (falcon, start, end, "test/falcon.mp4"), reelKey: "test", timings: .standard)
         request.trail = trail
         request.trailStyle = .neon

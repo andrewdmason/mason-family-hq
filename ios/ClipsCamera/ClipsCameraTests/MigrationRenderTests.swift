@@ -54,7 +54,7 @@ final class MigrationRenderTests: XCTestCase {
             // Every label the website stored must survive the trip.
             XCTAssertEqual(pitches.compactMap(\.outcome).count, item.pitches.compactMap(\.outcome).count, item.id)
             let result = item.result.flatMap(AtBatResult.init(rawValue:))
-            let card = TitleCard.make(number: item.number, result: result, game: item.game, playedOn: item.playedOn)
+            let card = TitleCard.make(kid: "Sebastian Mason", result: result, game: item.game, playedOn: item.playedOn)
             let crop = item.crop.map { CGRect(x: $0.x, y: $0.y, width: $0.s, height: $0.s) }
             print("rendering \(item.game) AB \(item.number) (rotation \(rotation), crop \(crop.map { "\($0)" } ?? "none"))")
             let edit: RenderedEdit
