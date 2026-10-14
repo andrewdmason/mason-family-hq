@@ -23,7 +23,8 @@ const AT_BAT_FILE = /^[0-9a-f-]{36}\/([0-9a-f-]{36})\/[A-Za-z0-9._-]+$/i;
 
 const AT_BAT_COLUMNS =
   "id, source, status, result, poster_path, playback_path, duration_s, recorded_at, created_at, " +
-  "closeup_path, field_view_path, field_view_start_s, field_view_end_s, field_view_at_s, reel";
+  "closeup_path, field_view_path, field_view_start_s, field_view_end_s, field_view_at_s, reel, " +
+  "ball_trail, ball_trail_status, ball_trail_tap";
 
 let cachedKey: { key: string; at: number } | null = null;
 
