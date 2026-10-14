@@ -28,6 +28,10 @@ struct SettingsView: View {
                     Text("Changes apply to at-bats built from now on.")
                 }
 
+                if clips.isSignedIn, !settings.cachedKids.isEmpty {
+                    TitleCardSettingsSection(kids: settings.cachedKids)
+                }
+
                 Section {
                     Stepper("Stop \(settings.autoStopSeconds)s after the at-bat ends", value: $settings.autoStopSeconds, in: 1...10)
                 }
