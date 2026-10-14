@@ -34,6 +34,9 @@ trails in the format below: `prototypes/ball-trail/fixtures/{cardinals,falcon}.j
 | `ball_trail_status` | text, null | `pending` · `ready` · `needs_tap` · `failed` · null (never traced) |
 | `ball_trail_tap` | jsonb, null | last tap `{t, x, y}` (clip seconds, normalized) — kept so re-traces stay anchored |
 
+Migration `00204_clips_ball_trail.sql`. The watch-only viewer route
+(`/clips/api/viewer`) returns all three with the rest of the at-bat.
+
 ## Trace route
 
 `POST /clips/api/trace` — `Authorization: Bearer <supabase access token>`
@@ -46,6 +49,11 @@ trails in the format below: `prototypes/ball-trail/fixtures/{cardinals,falcon}.j
 untrimmed GameChanger file) and **frame-normalized** coordinates (0–1 of that
 frame's width/height, origin top-left).
 
+Errors: `401` no/invalid token · `400` bad body · `404` no such at-bat ·
+`409` the at-bat has no field view · `503` the clips worker isn't configured
+here (`CLIPS_WORKER_URL`) · `502` the worker refused the job (status is then
+set to `failed`). Without a `tap`, a re-trace reuses the stored one.
+
 ## Worker job
 
 ```json
@@ -53,6 +61,14 @@ frame's width/height, origin top-left).
   "trimStart": 3.1, "trimEnd": 14.8, "tap": null }
 ```
 Callback: `{ "job":"trace", "atBatId", "status":"ready"|"needs_tap"|"failed", "trail": {…}|null, "error"?: "…" }`.
+It also carries the worker's usual `ok`, and echoes the job's `tap`: the app
+drops a result whose tap no longer matches `ball_trail_tap` (a newer "Fix the
+ball" superseded it while it ran). `needs_tap` clears any old trail; `failed`
+leaves the previous trail in place (only `ready` is ever drawn).
+
+The tracer lives in `services/baseball-clips/balltrail/` (pipeline overview at
+the top of `pipeline.py`); `services/baseball-clips/tests/trace_scorecard.py`
+runs it against the test clips and draws verification sheets.
 
 ## Trail JSON (version 1)
 
@@ -84,6 +100,21 @@ the video's displayed rect). Outside the `frames` range, use the nearest entry.
 All times are **untrimmed clip time**. The player/renderer converts from its own
 timeline using the field view's `field_view_start_s` (as it already does for
 playback).
+
+Worker notes (all within v1):
+- Times are each frame's real presentation timestamp. GameChanger files are
+  variable frame rate, so `frame / fps` runs a couple of frames behind by a few
+  seconds in (the hand-made fixtures were built that way; worker output isn't).
+  `clip.fps` is the file's average rate, for information only.
+- The reference frame is the frame at contact. `frames` may hold the last
+  known view for a few entries past the stretch the worker analysed.
+- `points` before the first sighting and after the last come from the fitted
+  flight; while the ball is seen they follow what the camera saw. `stats` is
+  null when there's no 3D fit (then `landed` is false and the trail ends where
+  the ball was last seen).
+- `confidence`: ~0.9 ball followed for a long stretch and the camera calibrated;
+  ~0.7 short sighting extrapolated through the fit; below 0.5 the worker says
+  `needs_tap` instead (auto only — a tapped trace always returns its trail).
 
 ## Drawing (phone)
 

@@ -115,6 +115,33 @@ def sheet(case: dict, trail: dict, times: np.ndarray, dbg: dict, out: str, label
     cv2.imwrite(out, grid, [cv2.IMWRITE_JPEG_QUALITY, 85])
 
 
+def vs_fixture(trail: dict, name: str) -> str:
+    """Distance (1280-wide px) between this trail and the hand-made fixture, compared
+    in each frame's own picture (both mapped through their homographies) over the
+    time both cover. Fixture times are frame/fps, not presentation times, so they
+    can lead by a frame or two."""
+    path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "prototypes", "ball-trail", "fixtures", name)
+    if not os.path.exists(path):
+        return "fixture missing"
+    fx = json.load(open(path))
+
+    def in_frame(tr, t):
+        pts = np.array(tr["points"], float)
+        frs = np.array(tr["frames"], float)
+        x = np.interp(t, pts[:, 0], pts[:, 1])
+        y = np.interp(t, pts[:, 0], pts[:, 2])
+        Hn = frs[np.argmin(np.abs(frs[:, 0] - t)), 1:].reshape(3, 3)
+        p = Hn @ [x, y, 1.0]
+        return p[:2] / p[2] * [1280, 720]
+
+    a = max(trail["contactS"], fx["contactS"])
+    b = min(trail["landS"], fx["landS"])
+    if b <= a:
+        return "no overlap"
+    d = [np.hypot(*(in_frame(trail, t) - in_frame(fx, t))) for t in np.linspace(a, b, 40)]
+    return f"median {np.median(d):.0f}px, max {np.max(d):.0f}px over {b - a:.2f}s"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="/tmp/balltrail-scorecard")
@@ -165,6 +192,8 @@ def main() -> None:
                     row["land_px"] = f"{row['land_px']} (exp {case['land_ref']})"
                 if case.get("stats"):
                     row["stats"] = f"{trail['stats']} (exp mph/deg/ft {case['stats']})"
+                if case.get("fixture"):
+                    row["vs_fixture"] = vs_fixture(trail, case["fixture"])
                 label = f"{case['name']} {mode}: {res['status']} conf {trail['confidence']} {trail['stats']}"
                 sheet(case, trail, times, dbg, os.path.join(args.out, f"{case['name']}-{mode}.jpg"), label)
                 with open(os.path.join(args.out, f"{case['name']}-{mode}.json"), "w") as f:
