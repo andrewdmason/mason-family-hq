@@ -227,6 +227,40 @@ final class BallTrailTests: XCTestCase {
         XCTAssertNil(g.moment(at: trail.landS + 0.1, style: .broadcast))
     }
 
+    // MARK: Fix the ball
+
+    /// A tap on the picture → 0–1 of the GameChanger frame, past the black bars.
+    func testTapsAreInTheFramesOwnCoordinates() throws {
+        let video = CGSize(width: 1280, height: 720)
+        // An upright phone: bars above and below (402 × 226.125 picture, 300.94 down).
+        let portrait = CGSize(width: 402, height: 828)
+        let r = TapMapping.videoRect(in: portrait, video: video)
+        XCTAssertEqual(r.minX, 0, accuracy: 1e-9)
+        XCTAssertEqual(r.height, 226.125, accuracy: 1e-9)
+        XCTAssertEqual(r.minY, (828 - 226.125) / 2, accuracy: 1e-9)
+        let mid = try XCTUnwrap(TapMapping.normalized(CGPoint(x: 201, y: 414), in: portrait, video: video))
+        XCTAssertEqual(mid.x, 0.5, accuracy: 1e-9)
+        XCTAssertEqual(mid.y, 0.5, accuracy: 1e-9)
+        let corner = try XCTUnwrap(TapMapping.normalized(CGPoint(x: 40.2, y: r.minY + 22.6125), in: portrait, video: video))
+        XCTAssertEqual(corner.x, 0.1, accuracy: 1e-9)
+        XCTAssertEqual(corner.y, 0.1, accuracy: 1e-9)
+        XCTAssertNil(TapMapping.normalized(CGPoint(x: 201, y: 100), in: portrait, video: video), "on the bar")
+        // Sideways on a wider screen: bars left and right.
+        let landscape = CGSize(width: 874, height: 402)
+        let l = TapMapping.videoRect(in: landscape, video: video)
+        XCTAssertEqual(l.width, 402 * 16 / 9, accuracy: 1e-9)
+        XCTAssertNil(TapMapping.normalized(CGPoint(x: 10, y: 200), in: landscape, video: video))
+        let back = TapMapping.point(CGPoint(x: 0.474, y: 0.474), in: landscape, video: video)
+        let again = try XCTUnwrap(TapMapping.normalized(back, in: landscape, video: video))
+        XCTAssertEqual(again.x, 0.474, accuracy: 1e-9)
+        XCTAssertEqual(again.y, 0.474, accuracy: 1e-9)
+    }
+
+    func testTapGoesToTheTraceRouteAsTheContractSays() throws {
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(TrailTap(t: 5.47, x: 0.474, y: 0.5))) as? [String: Double]
+        XCTAssertEqual(json, ["t": 5.47, "x": 0.474, "y": 0.5])
+    }
+
     // MARK: Drawing
 
     /// Each look puts its colour at the ball, and nothing outside the picture.

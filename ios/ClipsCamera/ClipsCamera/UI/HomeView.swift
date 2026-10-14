@@ -327,6 +327,7 @@ struct HomeView: View {
                                         updateFailed: updateFailure(ab.id) != nil,
                                         onRetry: { store.retry(ab.id) },
                                         onOpen: { open(ab) },
+                                        onFixTrail: !watching && ab.isReel && ab.hasFieldView && ab.trail.needsHelp ? { openReel(ab, fix: true) } : nil,
                                         onShare: { share(ab, game: section, number: number) },
                                         onEdit: !watching && ab.isCamera && !ab.isFieldOnly && !isRebuilding(ab.id) ? { edit(ab, title: "AB \(number) · \(section.name)") } : nil,
                                         onAddFieldView: !watching && canChange && !ab.hasFieldView ? { pickingFor = target; choosingVideo = true } : nil,
@@ -447,6 +448,9 @@ struct HomeView: View {
                let data = try? Data(contentsOf: URL(fileURLWithPath: args[f + 1])) {
                 let status = args.firstIndex(of: "-demoTrailStatus").flatMap { $0 + 1 < args.count ? BallTrailStatus(rawValue: args[$0 + 1]) : nil }
                 item.trail = BallTrailInfo(trail: try? JSONDecoder().decode(BallTrail.self, from: data), status: status ?? .ready)
+                // As if signed in, for the banner and "Fix the ball" (`-demoFix` opens on it).
+                item.canTrace = true
+                item.fixOnOpen = args.contains("-demoFix")
             }
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(1))
@@ -655,7 +659,7 @@ struct HomeView: View {
     // MARK: Reels
 
     /// Play a reel: from this phone when it's still here, else from Clips.
-    private func openReel(_ ab: HistoryAtBat) {
+    private func openReel(_ ab: HistoryAtBat, fix: Bool = false) {
         let title = atBatTitle(ab.id)
         if let job = store.jobs.first(where: { $0.id == ab.id }), job.isFilmed,
            var item = localReelItem(job, labels: ab.pitchList) {
@@ -664,6 +668,7 @@ struct HomeView: View {
                 item.fieldView = await fieldViewPlayback(ab)
                 item.trail = ab.trail
                 item.canTrace = !watching
+                item.fixOnOpen = fix
                 reelPlaying = item
             }
             return
@@ -674,7 +679,7 @@ struct HomeView: View {
                 let url = try await model.clips.videoURL(path)
                 reelPlaying = ReelItem(id: ab.id, title: title, reel: url, segments: segments, pitches: ab.pitchList,
                                        result: ab.result, fieldView: await fieldViewPlayback(ab),
-                                       trail: ab.trail, canTrace: !watching)
+                                       trail: ab.trail, canTrace: !watching, fixOnOpen: fix)
             } catch {
                 shareError = "Couldn't load the video — check your signal."
             }
@@ -1034,6 +1039,8 @@ private struct HistoryCard: View {
     let updateFailed: Bool
     let onRetry: () -> Void
     let onOpen: () -> Void
+    /// Tracing couldn't follow the ball: the badge opens "Fix the ball".
+    let onFixTrail: (() -> Void)?
     let onShare: () -> Void
     let onEdit: (() -> Void)?
     let onAddFieldView: (() -> Void)?
@@ -1049,6 +1056,9 @@ private struct HistoryCard: View {
                 // Fetching the video for Share (or a field view to re-trim).
                 .overlay(alignment: .bottomTrailing) {
                     if sharing { ProgressView().tint(.white).padding(10) }
+                }
+                .overlay(alignment: .bottomLeading) {
+                    if let onFixTrail, !sharing { TrailHelpBadge(action: onFixTrail) }
                 }
                 .overlay {
                     if rebuilding {
@@ -1108,6 +1118,25 @@ private struct HistoryCard: View {
         var parts = ["\(atBat.pitches) pitch\(atBat.pitches == 1 ? "" : "es")"]
         if atBat.swings > 0 { parts.append("\(atBat.swings) swing\(atBat.swings == 1 ? "" : "s")") }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// Bottom-left on a card whose ball trail needs a tap on the ball.
+private struct TrailHelpBadge: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label("Tap the ball", systemImage: "sparkles")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(Color.orange.opacity(0.9), in: Capsule())
+                .padding(6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Ball trail needs help: tap the ball")
     }
 }
 
