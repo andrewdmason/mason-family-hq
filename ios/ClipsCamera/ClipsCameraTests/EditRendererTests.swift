@@ -18,8 +18,8 @@ final class EditRendererTests: XCTestCase {
         ]
         let out = FileManager.default.temporaryDirectory.appendingPathComponent("edit-\(UUID().uuidString).mp4")
         defer { try? FileManager.default.removeItem(at: out) }
-        let card = TitleCard.make(number: 2, result: .single, game: "vs Kabuki", playedOn: "2026-10-11")
-        XCTAssertEqual(card, TitleCard(title: "AB 2 · Single", subtitle: "vs Kabuki · Sun, Oct 11, 2026"))
+        let card = TitleCard.make(kid: "Sebastian Mason", result: .single, game: "Kabuki", playedOn: "2026-10-11")
+        XCTAssertEqual(card, TitleCard(name: "Sebastian Mason", result: "Single", meta: "vs Kabuki · Sun, Oct 11, 2026"))
         let edit = try await EditRenderer.render(raw: raw, rotation: 180, pitches: pitches, result: .single, card: card, timings: .standard, to: out)
 
         // The 2s title card, then the ball: 0.5→3.5 (3s), in play: 3.5→8 (4.5s,

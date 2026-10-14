@@ -57,15 +57,19 @@ enum ReelStitcher {
             let range = try await video.load(.timeRange)
             let k = i % videoTracks.count
             if i == 0, let card, cardSeconds > 0 {
-                // The card stands on one frame stretched out (a track can't
-                // start with nothing); the compositor draws the card over it.
                 let length = EditRenderer.time(cardSeconds)
-                let oneFrame = CMTimeRange(start: range.start, duration: CMTime(value: 1, timescale: 600))
-                try videoTracks[0].insertTimeRange(oneFrame, of: video, at: .zero)
-                videoTracks[0].scaleTimeRange(CMTimeRange(start: .zero, duration: oneFrame.duration), toDuration: length)
+                let swing = try await EditRenderer.insertSwing(card.swing, into: videoTracks[0], length: length)
+                if !swing {
+                    // The card stands on one frame stretched out (a track can't
+                    // start with nothing); the compositor draws the card.
+                    let oneFrame = CMTimeRange(start: range.start, duration: CMTime(value: 1, timescale: 600))
+                    try videoTracks[0].insertTimeRange(oneFrame, of: video, at: .zero)
+                    videoTracks[0].scaleTimeRange(CMTimeRange(start: .zero, duration: oneFrame.duration), toDuration: length)
+                }
                 audioTracks[0].insertEmptyTimeRange(CMTimeRange(start: .zero, duration: length))
-                instructions.append(LayerInstruction(timeRange: CMTimeRange(start: .zero, duration: length), layers: [],
-                                                     overlay: CaptionArt.titleCard(card, size: shape.size)))
+                let layers = swing ? [LayerInstruction.Layer(trackID: videoTracks[0].trackID, orientation: .up, fadeIn: false)] : []
+                instructions.append(LayerInstruction(timeRange: CMTimeRange(start: .zero, duration: length), layers: layers,
+                                                     card: CardAnimator(card: card, size: shape.size, length: cardSeconds)))
                 cursor = length
             }
             try videoTracks[k].insertTimeRange(range, of: video, at: cursor)
@@ -152,17 +156,26 @@ extension ReelStitcher {
         return parts.joined(separator: " · ")
     }
 
-    /// The reel's one card: the kid's name over the game and its date, or
-    /// over the span of dates when the at-bats come from several games.
-    static func card(kid: String?, games: [(name: String, playedOn: String)]) -> TitleCard {
-        let title = kid.flatMap { $0.isEmpty ? nil : $0 } ?? "Highlights"
+    /// The reel's one card: the kid's full name, a badge per at-bat (or a
+    /// tally of a long reel), and the game and its date — or how many games
+    /// over the span of dates when the at-bats come from several.
+    static func card(kid: String?, games: [(name: String, playedOn: String)], results: [AtBatResult?] = [],
+                     style: CardStyle = CardStyle()) -> TitleCard {
         let days = games.map(\.playedOn).sorted()
         let names = Set(games.map(\.name))
-        guard let first = days.first, let last = days.last else { return TitleCard(title: title, subtitle: "") }
-        if names.count == 1, first == last, let name = names.first {
-            return TitleCard(title: title, subtitle: "\(name) · \(TitleCard.formatGameDate(first))")
+        var meta = ""
+        if let first = days.first, let last = days.last {
+            if names.count == 1, first == last, let name = names.first {
+                meta = TitleCard.meta(game: name, playedOn: first)
+            } else {
+                let count = Set(games.map { "\($0.name)|\($0.playedOn)" }).count
+                meta = count > 1 ? "\(count) games · \(dateRange(first, last))" : dateRange(first, last)
+            }
         }
-        return TitleCard(title: title, subtitle: dateRange(first, last))
+        let long = results.count >= CardBadge.tallyFrom
+        return TitleCard(name: TitleCard.displayName(kid), chip: "Highlights", meta: meta,
+                         badges: long ? [] : results.map(CardBadge.init), tally: long ? CardBadge.tally(results) : nil,
+                         style: style)
     }
 
     /// "Oct 11" from "2026-10-11".

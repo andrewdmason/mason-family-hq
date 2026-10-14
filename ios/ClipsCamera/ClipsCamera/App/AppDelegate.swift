@@ -6,6 +6,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     /// this through `Orientation.lock` when it appears.
     static var orientations: UIInterfaceOrientationMask = .portrait
 
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // The title cards' typefaces, for the settings screen's swatches too.
+        CardFonts.register()
+        return true
+    }
+
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         Self.orientations
     }

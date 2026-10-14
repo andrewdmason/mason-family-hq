@@ -21,7 +21,7 @@ final class FieldViewRendererTests: XCTestCase {
 
         let edit = try await EditRenderer.render(
             raw: raw, rotation: 0, pitches: [Pitch(t: 3, outcome: .calledStrike)], result: nil,
-            card: TitleCard(title: "AB 1", subtitle: ""), timings: .standard, to: closeup)
+            card: TitleCard(name: "Sebastian Mason", meta: ""), timings: .standard, to: closeup)
         let combined = try await FieldViewRenderer.append(closeup: closeup, fieldView: gc, start: 5, end: 13, to: out)
 
         // The whole close-up, then 8s of field view dissolving in over its held last frame.
@@ -59,7 +59,7 @@ final class FieldViewRendererTests: XCTestCase {
         defer { for u in [gc, out] { try? FileManager.default.removeItem(at: u) } }
         try await EditRendererTests.makeClip(at: gc, seconds: 10, fps: 30, width: 1280, height: 720, level: 200)
 
-        let card = TitleCard.make(number: 3, result: .double, game: "vs Kabuki", playedOn: "2026-10-11")
+        let card = TitleCard.make(kid: "Sebastian Mason", result: .double, game: "vs Kabuki", playedOn: "2026-10-11")
         let rendered = try await FieldViewRenderer.alone(card: card, cardSeconds: 2, fieldView: gc, start: 2, end: 8, to: out)
         XCTAssertEqual(rendered.fieldViewAt, 2, accuracy: 0.001)
         XCTAssertEqual(rendered.duration, 8, accuracy: 0.05)
@@ -69,7 +69,7 @@ final class FieldViewRendererTests: XCTestCase {
         gen.requestedTimeToleranceAfter = .zero
         let card0 = try await Self.grey(gen, at: 1)
         let field = try await Self.grey(gen, at: 4)
-        XCTAssertLessThan(card0, 20) // the card is black around its text
+        XCTAssertLessThan(card0, 30) // the card is its theme's dark ink above its text
         XCTAssertGreaterThan(field, 130)
         Self.snapshot(gen, ["alone-card": 1, "alone-field": 4])
     }

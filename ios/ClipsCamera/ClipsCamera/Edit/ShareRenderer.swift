@@ -189,7 +189,16 @@ enum ShareRenderer {
                 .sorted { modified($0) > modified($1) }
             for url in mine.dropFirst(3) { try? FileManager.default.removeItem(at: url) }
         }
-        let card = r.options.titleCard ? r.card : nil
+        var card = r.options.titleCard ? r.card : nil
+        // Behind the card, the swing in slow motion (the field view alone
+        // gets the graphic).
+        if card != nil, r.options.showsCloseup, card?.swing == nil {
+            card?.swing = CardSwing.make(reel: r.reel, segments: r.segments, pitches: r.pitches,
+                                         cardSeconds: r.timings.titleCard, focus: r.framing.closeup)
+            if let swing = card?.swing, swing.focus == nil {
+                card?.swing?.focus = await CardSwing.findBatter(in: swing.url, from: swing.start, to: swing.end)
+            }
+        }
         let fieldView = r.options.showsFieldView ? r.fieldView : nil
         let shape: VideoShape = r.options.vertical ? .vertical : .landscape
         let fieldFill: LayerFill = !r.options.vertical ? .fit
@@ -256,7 +265,8 @@ enum ShareRenderer {
     private static func key(_ r: ShareRequest) -> String {
         let o = r.options
         var parts = [r.reelKey, o.content.rawValue, o.slowMo ? "replays" : "realspeed", o.titleCard ? "card" : "nocard",
-                     o.captions ? "captions" : "nocaptions", r.card.title, r.card.subtitle, r.result?.rawValue ?? "-"]
+                     o.captions ? "captions" : "nocaptions", r.card.name, r.card.result ?? "-", r.card.meta,
+                     r.card.style.theme, r.card.style.headshot?.lastPathComponent ?? "-", r.result?.rawValue ?? "-"]
         if o.vertical {
             let f = { (x: Double?) in String(format: "%.3f", x ?? 0.5) }
             parts += ["vertical", f(r.framing.closeup), o.cropFieldView ? "gc-crop-\(f(r.framing.fieldView))" : "gc-whole"]
@@ -266,6 +276,7 @@ enum ShareRenderer {
         // How the video is laid out: the close-up meeting the field view, and
         // where a vertical caption sits (copies from earlier layouts aren't reused).
         parts.append("hold-dissolve")
+        parts.append("card-v2")
         if o.vertical { parts.append("captions-top") }
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
