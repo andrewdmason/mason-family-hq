@@ -24,9 +24,9 @@ final class FieldViewRendererTests: XCTestCase {
             card: TitleCard(title: "AB 1", subtitle: ""), timings: .standard, to: closeup)
         let combined = try await FieldViewRenderer.append(closeup: closeup, fieldView: gc, start: 5, end: 13, to: out)
 
-        // Close-up, then 8s of field view overlapping its last half second.
-        XCTAssertEqual(combined.fieldViewAt, edit.duration - 0.5, accuracy: 0.05)
-        XCTAssertEqual(combined.duration, edit.duration - 0.5 + 8, accuracy: 0.05)
+        // The whole close-up, then 8s of field view dissolving in over its held last frame.
+        XCTAssertEqual(combined.fieldViewAt, edit.duration, accuracy: 0.05)
+        XCTAssertEqual(combined.duration, edit.duration + 8, accuracy: 0.05)
         let asset = AVURLAsset(url: out)
         let duration = try await asset.load(.duration).seconds
         XCTAssertEqual(duration, combined.duration, accuracy: 0.1)
@@ -39,13 +39,15 @@ final class FieldViewRendererTests: XCTestCase {
         let gen = AVAssetImageGenerator(asset: asset)
         gen.requestedTimeToleranceBefore = .zero
         gen.requestedTimeToleranceAfter = .zero
-        // The close-up before the dissolve, a blend in the middle of it, the field view after.
+        // The close-up right to its end, a blend in the middle of the dissolve, the field view after.
         let before = try await Self.grey(gen, at: combined.fieldViewAt - 0.3)
+        let lastFrame = try await Self.grey(gen, at: combined.fieldViewAt - 0.03)
         let middle = try await Self.grey(gen, at: combined.fieldViewAt + 0.25)
         let after = try await Self.grey(gen, at: combined.fieldViewAt + 2)
         // (Grey levels shift a little through the encoder; what matters is
         // dark close-up → bright field view.)
         XCTAssertLessThan(before, 90)
+        XCTAssertLessThan(lastFrame, 90, "the close-up should play out before the dissolve starts")
         XCTAssertGreaterThan(after, 130)
         XCTAssertTrue(middle > before + 20 && middle < after - 20, "mid-dissolve should be a blend (\(before) → \(middle) → \(after))")
         Self.snapshot(gen, ["combined-closeup": combined.fieldViewAt - 0.3, "combined-dissolve": combined.fieldViewAt + 0.25, "combined-field": combined.fieldViewAt + 2])

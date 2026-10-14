@@ -143,7 +143,8 @@ enum EditRenderer {
                 sourceTrackID: video.trackID,
                 rotate180: rotation == 180,
                 crop: seg.replay ? replayCrop : nil,
-                overlay: CaptionArt.caption(seg.caption, replay: seg.replay)
+                // No caption, no pill (a shared video with captions off).
+                overlay: seg.caption.isEmpty ? nil : CaptionArt.caption(seg.caption, replay: seg.replay)
             ))
             cursor = CMTimeAdd(cursor, played)
         }

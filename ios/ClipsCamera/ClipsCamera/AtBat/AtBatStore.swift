@@ -590,7 +590,7 @@ final class AtBatStore {
                     $0.pitchTimes = reel.pitchTimes
                     $0.reelSegments = reel.segments
                 }
-                if AppSettings.shared.saveEditsToPhotos, let shared = try? await ShareRenderer.render(shareRequest(job.id, replays: true)) {
+                if AppSettings.shared.saveEditsToPhotos, let shared = try? await ShareRenderer.render(shareRequest(job.id, options: .standard)) {
                     try await Self.saveToPhotos(shared)
                 }
                 if AppSettings.shared.saveRawToPhotos, job.revision == nil {
@@ -604,7 +604,7 @@ final class AtBatStore {
     }
 
     /// What sharing a reel built on this phone needs, at its reel times.
-    func shareRequest(_ id: UUID, replays: Bool) -> ShareRequest {
+    func shareRequest(_ id: UUID, options: ShareOptions) -> ShareRequest {
         let job = jobs.first { $0.id == id }!
         let sorted = job.pitches.sorted { $0.t < $1.t }
         let times = job.pitchTimes ?? []
@@ -618,7 +618,7 @@ final class AtBatStore {
             fv.file.map { (url: url($0), start: fv.start, end: fv.end, key: fv.path) }
         }
         return ShareRequest(atBatID: id, reel: url(job.editFile ?? ""), segments: job.reelSegments ?? [],
-                            pitches: reelPitches, result: job.result, card: card, replays: replays,
+                            pitches: reelPitches, result: job.result, card: card, options: options,
                             fieldView: fv, reelKey: job.editFile ?? "")
     }
 

@@ -52,6 +52,11 @@ final class AppSettings {
         didSet { defaults.set(autoStopSeconds, forKey: "autoStopSeconds") }
     }
 
+    /// The share sheet's choices from the last share.
+    var shareOptions: ShareOptions {
+        didSet { save(shareOptions, key: "shareOptions") }
+    }
+
     private init() {
         timings = (defaults.data(forKey: "timings")).flatMap { try? JSONDecoder().decode(EditTimings.self, from: $0) } ?? .standard
         saveRawToPhotos = defaults.bool(forKey: "saveRawToPhotos")
@@ -65,6 +70,7 @@ final class AppSettings {
         cachedKids = defaults.data(forKey: "cachedKids").flatMap { try? JSONDecoder().decode([Kid].self, from: $0) } ?? []
         autoStopSeconds = defaults.object(forKey: "autoStopSeconds") as? Int ?? 3
         railOnRight = defaults.bool(forKey: "railOnRight")
+        shareOptions = defaults.data(forKey: "shareOptions").flatMap { try? JSONDecoder().decode(ShareOptions.self, from: $0) } ?? .standard
     }
 
     private func save<T: Encodable>(_ value: T, key: String) {

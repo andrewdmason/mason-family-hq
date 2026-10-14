@@ -4,9 +4,11 @@ import UIKit
 
 // The GameChanger "field view": the wide stream camera's look at the whole
 // play, trimmed and added to the end of an at-bat. The close-up (the finished
-// edit, title card and all) plays first, then a half-second cross-dissolve into
-// the field view at real speed with its own sound. An at-bat with no close-up
-// is the title card and then the field view.
+// edit, title card and all) plays out in full, then its last frame holds while
+// the field view dissolves in over it for half a second, at real speed with its
+// own sound. (The dissolve doesn't overlap the close-up, which is cut tight —
+// it would eat the end of the swing.) An at-bat with no close-up is the title
+// card, if any, and then the field view.
 //
 // The GameChanger clip can be any size or frame rate; it's fitted into the
 // 1080p60 frame with black bars rather than stretched.
@@ -40,23 +42,26 @@ enum FieldViewRenderer {
             throw RenderError.failed("composition")
         }
         let closeupLength = aRange.duration
-        let fade = EditRenderer.time(min(dissolve, closeupLength.seconds / 2, bRange.duration.seconds / 2))
-        let bAt = CMTimeSubtract(closeupLength, fade)
+        let fade = EditRenderer.time(min(dissolve, bRange.duration.seconds / 2))
+        let bAt = closeupLength
         try videoA.insertTimeRange(aRange, of: aVideo, at: .zero)
+        // The close-up's last frame, held through the dissolve.
+        var frame = try await aVideo.load(.minFrameDuration)
+        if !frame.isValid || frame.seconds <= 0 || frame > aRange.duration { frame = CMTime(value: 1, timescale: EditRenderer.fps) }
+        try videoA.insertTimeRange(CMTimeRange(start: CMTimeSubtract(aRange.end, frame), duration: frame), of: aVideo, at: closeupLength)
+        videoA.scaleTimeRange(CMTimeRange(start: closeupLength, duration: frame), toDuration: fade)
         try videoB.insertTimeRange(bRange, of: bVideo, at: bAt)
         let end = CMTimeAdd(bAt, bRange.duration)
 
-        // Sound: the close-up's fades out as the field view's fades in.
+        // Sound: the close-up's plays out, then the field view's fades in.
         var audioTracks: [AVCompositionTrack] = []
         var mixParams: [AVAudioMixInputParameters] = []
         let overlap = CMTimeRange(start: bAt, duration: fade)
         if let aAudio, let track = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
             let range = try await aAudio.load(.timeRange)
             try track.insertTimeRange(CMTimeRange(start: range.start, duration: CMTimeMinimum(range.duration, closeupLength)), of: aAudio, at: .zero)
-            let p = AVMutableAudioMixInputParameters(track: track)
-            p.setVolumeRamp(fromStartVolume: 1, toEndVolume: 0, timeRange: overlap)
             audioTracks.append(track)
-            mixParams.append(p)
+            mixParams.append(AVMutableAudioMixInputParameters(track: track))
         }
         if let bAudio, let track = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
             try track.insertTimeRange(bRange, of: bAudio, at: bAt)
@@ -73,7 +78,7 @@ enum FieldViewRenderer {
         var instructions = [
             LayerInstruction(timeRange: CMTimeRange(start: .zero, duration: bAt), layers: [closeupLayer]),
             LayerInstruction(timeRange: overlap, layers: [closeupLayer, .init(trackID: videoB.trackID, orientation: bOrientation, fadeIn: true)]),
-            LayerInstruction(timeRange: CMTimeRange(start: closeupLength, end: end), layers: [fieldLayer]),
+            LayerInstruction(timeRange: CMTimeRange(start: overlap.end, end: end), layers: [fieldLayer]),
         ]
         instructions.removeAll { $0.timeRange.duration.seconds <= 0 }
 
@@ -85,8 +90,9 @@ enum FieldViewRenderer {
         return RenderedFieldView(duration: end.seconds, fieldViewAt: bAt.seconds, bytes: bytes(out))
     }
 
-    /// An at-bat that's only the field view: the title card, then the clip.
-    static func alone(card: TitleCard, cardSeconds: Double, fieldView: URL, start: Double, end: Double, to out: URL) async throws -> RenderedFieldView {
+    /// An at-bat that's only the field view: the title card (when there is
+    /// one), then the clip.
+    static func alone(card: TitleCard?, cardSeconds: Double, fieldView: URL, start: Double, end: Double, to out: URL) async throws -> RenderedFieldView {
         let b = AVURLAsset(url: fieldView)
         guard let bVideo = try await b.loadTracks(withMediaType: .video).first else { throw RenderError.noVideo }
         let bAudio = try await b.loadTracks(withMediaType: .audio).first
@@ -98,23 +104,26 @@ enum FieldViewRenderer {
             throw RenderError.failed("composition")
         }
         let audio = bAudio == nil ? nil : composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
-        // The card stands on one frame stretched out (a track can't start with
-        // nothing); the compositor draws the card over it.
+        let cardSeconds = card == nil ? 0 : max(0, cardSeconds)
         let cardLength = EditRenderer.time(cardSeconds)
-        let oneFrame = CMTimeRange(start: bRange.start, duration: CMTime(value: 1, timescale: 600))
-        try video.insertTimeRange(oneFrame, of: bVideo, at: .zero)
-        video.scaleTimeRange(CMTimeRange(start: .zero, duration: oneFrame.duration), toDuration: cardLength)
+        var instructions: [LayerInstruction] = []
+        if let card, cardSeconds > 0 {
+            // The card stands on one frame stretched out (a track can't start
+            // with nothing); the compositor draws the card over it.
+            let oneFrame = CMTimeRange(start: bRange.start, duration: CMTime(value: 1, timescale: 600))
+            try video.insertTimeRange(oneFrame, of: bVideo, at: .zero)
+            video.scaleTimeRange(CMTimeRange(start: .zero, duration: oneFrame.duration), toDuration: cardLength)
+            audio?.insertEmptyTimeRange(CMTimeRange(start: .zero, duration: cardLength))
+            instructions.append(LayerInstruction(timeRange: CMTimeRange(start: .zero, duration: cardLength), layers: [],
+                                                 overlay: CaptionArt.titleCard(card)))
+        }
         try video.insertTimeRange(bRange, of: bVideo, at: cardLength)
         if let audio, let bAudio {
-            audio.insertEmptyTimeRange(CMTimeRange(start: .zero, duration: cardLength))
             try audio.insertTimeRange(bRange, of: bAudio, at: cardLength)
         }
         let end = CMTimeAdd(cardLength, bRange.duration)
-        let instructions = [
-            LayerInstruction(timeRange: CMTimeRange(start: .zero, duration: cardLength), layers: [], overlay: CaptionArt.titleCard(card)),
-            LayerInstruction(timeRange: CMTimeRange(start: cardLength, end: end),
-                             layers: [.init(trackID: video.trackID, orientation: bOrientation, fadeIn: false)]),
-        ]
+        instructions.append(LayerInstruction(timeRange: CMTimeRange(start: cardLength, end: end),
+                                             layers: [.init(trackID: video.trackID, orientation: bOrientation, fadeIn: false)]))
 
         try? FileManager.default.removeItem(at: out)
         try await EditRenderer.encode(
