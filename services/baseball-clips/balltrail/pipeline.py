@@ -571,7 +571,12 @@ def build(clip: video.Clip, sk: Skim, lk: Look, tapped: bool, dbg: dict | None, 
     if not landed:
         land_s = float(fr_t[-1])
 
-    conf = conf_track * (0.5 + 0.5 * conf_cal) if sol is not None else conf_track * 0.55
+    if sol is not None:
+        # the more of the flight the camera actually saw, the less rides on the fit
+        seen = (float(t_pts[-1]) - float(t_pts[0])) / max(1e-3, land_s - contact_s)
+        conf = conf_track * (0.5 + 0.5 * conf_cal) * (0.75 + 0.25 * min(1.0, 2 * seen))
+    else:
+        conf = conf_track * 0.55
     _log(dbg, "confidence_parts", {"track": round(conf_track, 2), "cal": conf_cal, "arc_rms": round(arc_rms, 2)})
     status = "ready"
     if not tapped and conf < 0.5:

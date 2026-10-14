@@ -25,16 +25,17 @@ from balltrail import trace  # noqa: E402
 
 HOME = os.path.expanduser("~")
 # Frame numbers are 0-based decode order; pixels are in that frame at its native size.
+# trim: a plausible kept stretch (clip seconds), as the phone would send (--trim).
 CASES = [
-    dict(name="cardinals", path=f"{HOME}/Desktop/Sebastian double Cardinals Game 1.mov",
+    dict(name="cardinals", path=f"{HOME}/Desktop/Sebastian double Cardinals Game 1.mov", trim=(4.5, 14.0),
          contact=196, land=268, land_ref=(488, 242), tap=(199, 945, 441), fixture="cardinals.json"),
-    dict(name="mustangs", path=f"{HOME}/Desktop/Double vs. Mustangs Navy 12U.mp4",
+    dict(name="mustangs", path=f"{HOME}/Desktop/Double vs. Mustangs Navy 12U.mp4", trim=(23.5, 36.0),
          contact=787, land=888, land_ref=(302, 250), tap=(789, 572, 289)),
-    dict(name="falcon-double", path=f"{HOME}/Downloads/Double @ Falcon Prospects 13U.mp4",
+    dict(name="falcon-double", path=f"{HOME}/Downloads/Double @ Falcon Prospects 13U.mp4", trim=(4.2, 12.0),
          contact=158, land=204, land_ref=(439, 354), tap=(163, 607, 341), stats=(67, 14, 132), fixture="falcon.json"),
-    dict(name="falcon-single", path=f"{HOME}/Downloads/Single @ Falcon Prospects 13U.mp4"),
-    dict(name="falcon-hr", path=f"{HOME}/Downloads/Home Run @ Falcon Prospects 13U.mp4"),
-    dict(name="alameda-double", path=f"{HOME}/Downloads/Double vs. Alameda Merchants 13U.mp4"),
+    dict(name="falcon-single", path=f"{HOME}/Downloads/Single @ Falcon Prospects 13U.mp4", trim=(23.0, 31.0)),
+    dict(name="falcon-hr", path=f"{HOME}/Downloads/Home Run @ Falcon Prospects 13U.mp4", trim=(4.2, 14.0)),
+    dict(name="alameda-double", path=f"{HOME}/Downloads/Double vs. Alameda Merchants 13U.mp4", trim=(4.2, 14.0)),
 ]
 
 
@@ -148,6 +149,7 @@ def main() -> None:
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--no-tap", action="store_true")
     ap.add_argument("--no-auto", action="store_true")
+    ap.add_argument("--trim", action="store_true", help="analyse only each case's kept stretch, like production")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     rows = []
@@ -170,7 +172,8 @@ def main() -> None:
             dbg: dict = {}
             t0 = time.time()
             try:
-                res = trace(case["path"], None, None, tap, dbg)
+                t0_, t1_ = case["trim"] if args.trim else (None, None)
+                res = trace(case["path"], t0_, t1_, tap, dbg)
             except Exception as e:  # noqa: BLE001
                 import traceback
                 traceback.print_exc()
