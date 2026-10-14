@@ -11,7 +11,9 @@ import UIKit
 // card, if any, and then the field view.
 //
 // The GameChanger clip can be any size or frame rate; it's fitted into the
-// 1080p60 frame with black bars rather than stretched.
+// 1080p60 frame with black bars rather than stretched. In a vertical video it's
+// either the whole wide shot over a blurred, enlarged copy of itself, or
+// cropped to fill the frame around a chosen spot.
 
 struct RenderedFieldView {
     var duration: Double
@@ -20,11 +22,23 @@ struct RenderedFieldView {
     var bytes: Int64
 }
 
+/// How a picture is laid into a frame of another shape.
+enum LayerFill: Equatable {
+    /// Whole, with black bars.
+    case fit
+    /// Whole, over a blurred copy of itself enlarged to fill the frame.
+    case fitOverBlur
+    /// Cropped to fill the frame around this point (a fraction of the width).
+    case crop(center: Double)
+}
+
 enum FieldViewRenderer {
     static let dissolve = 0.5
 
     /// The close-up, then the field view: the kept stretch of `fieldView`.
-    static func append(closeup: URL, fieldView: URL, start: Double, end: Double, to out: URL) async throws -> RenderedFieldView {
+    /// The close-up is already the finished video's shape.
+    static func append(closeup: URL, fieldView: URL, start: Double, end: Double,
+                       shape: VideoShape = .landscape, fieldFill: LayerFill = .fit, to out: URL) async throws -> RenderedFieldView {
         let a = AVURLAsset(url: closeup)
         let b = AVURLAsset(url: fieldView)
         guard let aVideo = try await a.loadTracks(withMediaType: .video).first,
@@ -74,10 +88,10 @@ enum FieldViewRenderer {
         mix.inputParameters = mixParams
 
         let closeupLayer = LayerInstruction.Layer(trackID: videoA.trackID, orientation: .up, fadeIn: false)
-        let fieldLayer = LayerInstruction.Layer(trackID: videoB.trackID, orientation: bOrientation, fadeIn: false)
+        let fieldLayer = LayerInstruction.Layer(trackID: videoB.trackID, orientation: bOrientation, fadeIn: false, fill: fieldFill)
         var instructions = [
             LayerInstruction(timeRange: CMTimeRange(start: .zero, duration: bAt), layers: [closeupLayer]),
-            LayerInstruction(timeRange: overlap, layers: [closeupLayer, .init(trackID: videoB.trackID, orientation: bOrientation, fadeIn: true)]),
+            LayerInstruction(timeRange: overlap, layers: [closeupLayer, .init(trackID: videoB.trackID, orientation: bOrientation, fadeIn: true, fill: fieldFill)]),
             LayerInstruction(timeRange: CMTimeRange(start: overlap.end, end: end), layers: [fieldLayer]),
         ]
         instructions.removeAll { $0.timeRange.duration.seconds <= 0 }
@@ -85,14 +99,15 @@ enum FieldViewRenderer {
         try? FileManager.default.removeItem(at: out)
         try await EditRenderer.encode(
             composition: composition, videoTracks: [videoA, videoB], audioTracks: audioTracks, audioMix: mix,
-            videoComposition: videoComposition(instructions), intro: intro, to: out
+            videoComposition: videoComposition(instructions, shape: shape), intro: intro, to: out
         )
         return RenderedFieldView(duration: end.seconds, fieldViewAt: bAt.seconds, bytes: bytes(out))
     }
 
     /// An at-bat that's only the field view: the title card (when there is
     /// one), then the clip.
-    static func alone(card: TitleCard?, cardSeconds: Double, fieldView: URL, start: Double, end: Double, to out: URL) async throws -> RenderedFieldView {
+    static func alone(card: TitleCard?, cardSeconds: Double, fieldView: URL, start: Double, end: Double,
+                      shape: VideoShape = .landscape, fieldFill: LayerFill = .fit, to out: URL) async throws -> RenderedFieldView {
         let b = AVURLAsset(url: fieldView)
         guard let bVideo = try await b.loadTracks(withMediaType: .video).first else { throw RenderError.noVideo }
         let bAudio = try await b.loadTracks(withMediaType: .audio).first
@@ -115,7 +130,7 @@ enum FieldViewRenderer {
             video.scaleTimeRange(CMTimeRange(start: .zero, duration: oneFrame.duration), toDuration: cardLength)
             audio?.insertEmptyTimeRange(CMTimeRange(start: .zero, duration: cardLength))
             instructions.append(LayerInstruction(timeRange: CMTimeRange(start: .zero, duration: cardLength), layers: [],
-                                                 overlay: CaptionArt.titleCard(card)))
+                                                 overlay: CaptionArt.titleCard(card, size: shape.size)))
         }
         try video.insertTimeRange(bRange, of: bVideo, at: cardLength)
         if let audio, let bAudio {
@@ -123,12 +138,12 @@ enum FieldViewRenderer {
         }
         let end = CMTimeAdd(cardLength, bRange.duration)
         instructions.append(LayerInstruction(timeRange: CMTimeRange(start: cardLength, end: end),
-                                             layers: [.init(trackID: video.trackID, orientation: bOrientation, fadeIn: false)]))
+                                             layers: [.init(trackID: video.trackID, orientation: bOrientation, fadeIn: false, fill: fieldFill)]))
 
         try? FileManager.default.removeItem(at: out)
         try await EditRenderer.encode(
             composition: composition, videoTracks: [video], audioTracks: audio.map { [$0] } ?? [],
-            videoComposition: videoComposition(instructions), intro: cardSeconds, to: out
+            videoComposition: videoComposition(instructions, shape: shape), intro: cardSeconds, to: out
         )
         return RenderedFieldView(duration: end.seconds, fieldViewAt: cardSeconds, bytes: bytes(out))
     }
@@ -142,11 +157,11 @@ enum FieldViewRenderer {
         return CMTimeRange(start: EditRenderer.time(s), end: EditRenderer.time(e))
     }
 
-    private static func videoComposition(_ instructions: [LayerInstruction]) -> AVVideoComposition {
+    private static func videoComposition(_ instructions: [LayerInstruction], shape: VideoShape) -> AVVideoComposition {
         var config = AVVideoComposition.Configuration()
         config.customVideoCompositorClass = LayerCompositor.self
         config.frameDuration = CMTime(value: 1, timescale: EditRenderer.fps)
-        config.renderSize = EditRenderer.size
+        config.renderSize = shape.size
         config.instructions = instructions
         return AVVideoComposition(configuration: config)
     }
@@ -170,14 +185,15 @@ enum FieldViewRenderer {
 // MARK: - Compositor
 
 /// One stretch of the finished video: source frames stacked bottom to top
-/// (each fitted to the frame), the top one optionally fading in across the
-/// stretch, and art drawn over them.
+/// (each laid into the frame by its fill), the top one optionally fading in
+/// across the stretch, and art drawn over them.
 final class LayerInstruction: NSObject, AVVideoCompositionInstructionProtocol {
     struct Layer {
         let trackID: CMPersistentTrackID
         let orientation: CGImagePropertyOrientation
         /// Opacity rises from 0 to 1 over the instruction.
         let fadeIn: Bool
+        var fill: LayerFill = .fit
     }
 
     let timeRange: CMTimeRange
@@ -215,31 +231,24 @@ final class LayerCompositor: NSObject, AVVideoCompositing {
             request.finish(with: RenderError.failed("compositor setup"))
             return
         }
-        let frame = CGRect(origin: .zero, size: EditRenderer.size)
+        let frame = CGRect(origin: .zero, size: request.renderContext.size)
         var image = CIImage(color: .black).cropped(to: frame)
         for layer in instruction.layers {
             guard let source = request.sourceFrame(byTrackID: layer.trackID) else { continue }
             var src = CIImage(cvPixelBuffer: source).oriented(layer.orientation)
             src = src.transformed(by: CGAffineTransform(translationX: -src.extent.minX, y: -src.extent.minY))
-            let e = src.extent
-            if e.size != frame.size {
-                let scale = min(frame.width / e.width, frame.height / e.height)
-                src = src
-                    .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-                    .transformed(by: CGAffineTransform(translationX: (frame.width - e.width * scale) / 2,
-                                                       y: (frame.height - e.height * scale) / 2))
-            }
+            var laid = Self.lay(src, into: frame, fill: layer.fill)
             if layer.fadeIn {
                 let range = instruction.timeRange
                 let a = CGFloat(max(0, min(1, (request.compositionTime - range.start).seconds / range.duration.seconds)))
-                src = src.applyingFilter("CIColorMatrix", parameters: [
+                laid = laid.applyingFilter("CIColorMatrix", parameters: [
                     "inputRVector": CIVector(x: a, y: 0, z: 0, w: 0),
                     "inputGVector": CIVector(x: 0, y: a, z: 0, w: 0),
                     "inputBVector": CIVector(x: 0, y: 0, z: a, w: 0),
                     "inputAVector": CIVector(x: 0, y: 0, z: 0, w: a),
                 ])
             }
-            image = src.composited(over: image)
+            image = laid.composited(over: image)
         }
         if let overlay = instruction.overlay {
             image = overlay.composited(over: image)
@@ -249,4 +258,43 @@ final class LayerCompositor: NSObject, AVVideoCompositing {
     }
 
     func cancelAllPendingVideoCompositionRequests() {}
+
+    /// A picture (origin at zero) laid into the frame.
+    static func lay(_ src: CIImage, into frame: CGRect, fill: LayerFill) -> CIImage {
+        let e = src.extent
+        switch fill {
+        case .crop(let center):
+            let box = VideoShape.fillBox(extent: e, frame: frame.size, centerX: center)
+            let scale = frame.width / box.width
+            return src.cropped(to: box)
+                .transformed(by: CGAffineTransform(translationX: -box.minX, y: -box.minY))
+                .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+                .cropped(to: frame)
+        case .fit, .fitOverBlur:
+            var fitted = src
+            if e.size != frame.size {
+                let scale = min(frame.width / e.width, frame.height / e.height)
+                fitted = src
+                    .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+                    .transformed(by: CGAffineTransform(translationX: (frame.width - e.width * scale) / 2,
+                                                       y: (frame.height - e.height * scale) / 2))
+            }
+            guard fill == .fitOverBlur else { return fitted }
+            // Behind it, the picture enlarged to fill the frame, blurred and
+            // dimmed. Blurred small, then enlarged, to keep it quick.
+            let small: CGFloat = 0.125
+            let cover = max(frame.width / e.width, frame.height / e.height) * small
+            let blurred = src
+                .transformed(by: CGAffineTransform(scaleX: cover, y: cover))
+                .clampedToExtent()
+                .applyingGaussianBlur(sigma: 6)
+                .transformed(by: CGAffineTransform(scaleX: 1 / small, y: 1 / small))
+            let w = e.width * cover / small, h = e.height * cover / small
+            let background = blurred
+                .transformed(by: CGAffineTransform(translationX: (frame.width - w) / 2, y: (frame.height - h) / 2))
+                .applyingFilter("CIColorControls", parameters: [kCIInputBrightnessKey: -0.15])
+                .cropped(to: frame)
+            return fitted.composited(over: background)
+        }
+    }
 }
