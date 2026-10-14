@@ -9,6 +9,20 @@ must be in Supabase's allowed redirect URLs), files at-bats under a kid + game,
 uploads the finished edit on a background URLSession, then writes the game,
 at-bat (`source = 'camera'`) and pitches into Clips. Needs migration 00199 in prod.
 
+## Watch-only (no sign-in)
+
+Released builds open without a sign-in: anyone not signed in (a coach on
+TestFlight) sees the kids' at-bats and can play and share them, but can't film,
+start games, relabel, add field views or delete. Those reads go through
+family.mason.io/clips/api/viewer, authorized by a viewer key generated in the
+database (migration 00203, never in the repo); `scripts/release.sh` reads it
+with the service role and builds it in as `CLIPS_VIEWER_KEY`. Family members
+tap "Sign in" for everything else. Builds without the key (Xcode, the install
+script) still show the sign-in screen. To cut off watch-only, give the row a
+new key and release: `UPDATE clips_viewer_keys SET key = DEFAULT`. Simulator
+against a local server: build with `CLIPS_VIEWER_KEY=<local key>` and launch
+with `-viewerAPI http://localhost:PORT/clips/api/viewer`.
+
 ## GameChanger field view
 
 A GameChanger clip (the wide stream camera's look at the whole play) can go on

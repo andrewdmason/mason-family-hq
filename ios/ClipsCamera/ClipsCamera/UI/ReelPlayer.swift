@@ -254,8 +254,8 @@ final class ReelPlayerModel {
 
 struct ReelPlayerScreen: View {
     let item: ReelItem
-    /// New labels, all pitches at their reel times.
-    let onRelabel: ([Pitch]) -> Void
+    /// New labels, all pitches at their reel times; nil when watching only.
+    let onRelabel: (([Pitch]) -> Void)?
     /// Render and hand to the share sheet (with replays or not).
     let onShare: (_ replays: Bool, _ pitches: [Pitch]) async -> Void
 
@@ -267,7 +267,7 @@ struct ReelPlayerScreen: View {
     @State private var jogFrom: Double?
     @State private var controlsShown = true
 
-    init(item: ReelItem, onRelabel: @escaping ([Pitch]) -> Void, onShare: @escaping (Bool, [Pitch]) async -> Void) {
+    init(item: ReelItem, onRelabel: (([Pitch]) -> Void)?, onShare: @escaping (Bool, [Pitch]) async -> Void) {
         self.item = item
         self.onRelabel = onRelabel
         self.onShare = onShare
@@ -314,7 +314,7 @@ struct ReelPlayerScreen: View {
         .sheet(item: Binding(get: { relabeling.map(PitchRef.init) }, set: { relabeling = $0?.index })) { ref in
             RelabelSheet(title: "Pitch \(ref.index + 1)", pitch: model.pitches[ref.index]) { outcome, battedBall, playResult in
                 model.relabel(ref.index, outcome: outcome, battedBall: battedBall, playResult: playResult)
-                onRelabel(model.pitches)
+                onRelabel?(model.pitches)
             }
             .presentationDetents([.medium, .large])
         }
@@ -358,19 +358,27 @@ struct ReelPlayerScreen: View {
 
     @ViewBuilder private var captionPill: some View {
         if let i = model.currentPitch {
-            Button { model.pause(); relabeling = i } label: {
-                HStack(spacing: 6) {
-                    Text(model.caption(i))
-                    Image(systemName: "pencil").font(.caption2.weight(.bold)).opacity(0.7)
+            if onRelabel == nil {
+                pill(Text(model.caption(i)))
+            } else {
+                Button { model.pause(); relabeling = i } label: {
+                    pill(HStack(spacing: 6) {
+                        Text(model.caption(i))
+                        Image(systemName: "pencil").font(.caption2.weight(.bold)).opacity(0.7)
+                    })
                 }
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color.black.opacity(0.6), in: Capsule())
+                .accessibilityLabel("Relabel pitch \(i + 1)")
             }
-            .accessibilityLabel("Relabel pitch \(i + 1)")
         }
+    }
+
+    private func pill(_ content: some View) -> some View {
+        content
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.black.opacity(0.6), in: Capsule())
     }
 
     /// Title on the left; Share, then Close, on the right.

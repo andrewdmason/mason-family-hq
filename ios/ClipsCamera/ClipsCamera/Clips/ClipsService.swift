@@ -6,6 +6,7 @@ import Supabase
 // Talks to Baseball Clips: Google sign-in, the kid and game lists, and the
 // final step of an upload — the game, the at-bat and its pitches, written once
 // the video is safely in storage so the feed never shows a half-sent at-bat.
+// Signed out, the lists and videos come watch-only from the website instead.
 
 struct Kid: Codable, Identifiable, Hashable {
     let id: UUID
@@ -77,6 +78,12 @@ final class ClipsService {
     private(set) var checkedSession = false
 
     var isSignedIn: Bool { userID != nil }
+    /// Not signed in, but this build can show Clips watch-only.
+    var isWatching: Bool { !isSignedIn && Config.viewerKey != nil }
+    /// Signed in or watching: the kids' at-bats can be listed and played.
+    var canWatch: Bool { isSignedIn || isWatching }
+    /// Thumbnail links that came with a watch-only kid list, by storage path.
+    private var watchPosters: [String: URL] = [:]
 
     private init() {
         Task { await watchAuth() }
@@ -102,6 +109,11 @@ final class ClipsService {
 
     func kids() async throws -> [Kid] {
         struct Row: Decodable { let id: UUID; let display_name: String }
+        if isWatching {
+            struct Body: Decodable { let kids: [Row] }
+            let body: Body = try await viewer([])
+            return body.kids.map { Kid(id: $0.id, displayName: $0.display_name) }
+        }
         let rows: [Row] = try await client.from("baseball_people")
             .select("id, display_name")
             .eq("kind", value: "kid")
@@ -115,6 +127,12 @@ final class ClipsService {
 
     /// A kid's games in Clips, newest first, each with its at-bats in order.
     func history(for kid: Kid) async throws -> [HistoryGame] {
+        if isWatching {
+            struct Body: Decodable { let games: [HistoryGame]; let posters: [String: URL] }
+            let body: Body = try await viewer([URLQueryItem(name: "kid", value: kid.id.uuidString.lowercased())])
+            watchPosters.merge(body.posters) { _, new in new }
+            return body.games.filter { !$0.atBats.isEmpty }
+        }
         let base = "id, source, status, result, poster_path, playback_path, duration_s, recorded_at, created_at"
         let fieldView = "closeup_path, field_view_path, field_view_start_s, field_view_end_s, field_view_at_s"
         func fetch(_ columns: String) async throws -> [HistoryGame] {
@@ -144,6 +162,7 @@ final class ClipsService {
 
     /// Short-lived links for feed thumbnails, by storage path.
     func posterURLs(_ paths: [String]) async -> [String: URL] {
+        if isWatching { return watchPosters.filter { paths.contains($0.key) } }
         guard !paths.isEmpty,
               let results: [SignedURLResult] = try? await client.storage.from(Config.bucket).createSignedURLs(paths: paths, expiresIn: 3600)
         else { return [:] }
@@ -215,7 +234,40 @@ final class ClipsService {
     }
 
     func videoURL(_ path: String) async throws -> URL {
-        try await client.storage.from(Config.bucket).createSignedURL(path: path, expiresIn: 3600)
+        if isWatching {
+            struct Body: Decodable { let url: URL }
+            let body: Body = try await viewer([URLQueryItem(name: "path", value: path)])
+            return body.url
+        }
+        return try await client.storage.from(Config.bucket).createSignedURL(path: path, expiresIn: 3600)
+    }
+
+    /// A watch-only read from the website.
+    private func viewer<T: Decodable>(_ query: [URLQueryItem]) async throws -> T {
+        guard let key = Config.viewerKey else { throw StoreError("Sign in to see Clips.") }
+        var request = URLRequest(url: Config.viewerAPI.appending(queryItems: query))
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw StoreError("Couldn't load from Clips (\(http.statusCode)).")
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom(Self.decodeDate)
+        return try decoder.decode(T.self, from: data)
+    }
+
+    /// Postgres timestamps ("2026-10-12T16:02:00.123456+00:00"), with or
+    /// without fractional seconds.
+    nonisolated private static func decodeDate(_ decoder: Decoder) throws -> Date {
+        let text = try decoder.singleValueContainer().decode(String.self)
+        let plain = ISO8601DateFormatter()
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        // Down to milliseconds, which the formatter always reads.
+        let trimmed = text.replacingOccurrences(of: #"(\.\d{3})\d+"#, with: "$1", options: .regularExpression)
+        if let d = fractional.date(from: trimmed) ?? plain.date(from: trimmed) { return d }
+        throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Not a date: \(text)"))
     }
 
     // MARK: Upload

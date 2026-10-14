@@ -8,7 +8,9 @@
 #
 # Signs with Xcode's signed-in account (automatic). The build number is the
 # release time, so it always increases. Publishing reads the Supabase secret
-# key at run time through the Supabase CLI's login; nothing is stored.
+# key at run time through the Supabase CLI's login; nothing is stored. The
+# same key reads the watch-only viewer key (migration 00203) that's built into
+# the app, so people who aren't signed in (a coach) can still watch.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -19,11 +21,18 @@ PREFIX=clips-camera
 BUILD=$(date +%Y%m%d%H%M)
 ARCHIVE=build/ClipsCamera.xcarchive
 
+TOKEN=$(security find-generic-password -s "Supabase CLI" -w)
+TOKEN=$(echo "${TOKEN#go-keyring-base64:}" | base64 -d)
+KEY=$(curl -fsS -H "Authorization: Bearer $TOKEN" "https://api.supabase.com/v1/projects/$PROJECT_REF/api-keys?reveal=true" |
+  python3 -c "import json,sys; print(next(k['api_key'] for k in json.load(sys.stdin) if k['name']=='service_role'))")
+VIEWER_KEY=$(curl -fsS "$SUPABASE_URL/rest/v1/clips_viewer_keys?select=key&id=eq.1" -H "apikey: $KEY" -H "Authorization: Bearer $KEY" |
+  python3 -c "import json,sys; print(json.load(sys.stdin)[0]['key'])")
+
 xcodegen generate --quiet
 rm -rf "$ARCHIVE" build/export build/adhoc
 xcodebuild -project ClipsCamera.xcodeproj -scheme ClipsCamera -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" \
-  -allowProvisioningUpdates CURRENT_PROJECT_VERSION="$BUILD" -quiet archive
+  -allowProvisioningUpdates CURRENT_PROJECT_VERSION="$BUILD" CLIPS_VIEWER_KEY="$VIEWER_KEY" -quiet archive
 
 if [[ "${1:-}" != "--adhoc-only" ]]; then
   xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportPath build/export \
@@ -36,11 +45,6 @@ xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportPath build/adhoc \
   -exportOptionsPlist scripts/ExportOptions-adhoc.plist -allowProvisioningUpdates -quiet
 IPA=$(ls build/adhoc/*.ipa)
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleShortVersionString" "$ARCHIVE/Info.plist")
-
-TOKEN=$(security find-generic-password -s "Supabase CLI" -w)
-TOKEN=$(echo "${TOKEN#go-keyring-base64:}" | base64 -d)
-KEY=$(curl -fsS -H "Authorization: Bearer $TOKEN" "https://api.supabase.com/v1/projects/$PROJECT_REF/api-keys?reveal=true" |
-  python3 -c "import json,sys; print(next(k['api_key'] for k in json.load(sys.stdin) if k['name']=='service_role'))")
 
 upload() { # <file> <path in bucket> <content type>
   curl -fsS -X POST "$SUPABASE_URL/storage/v1/object/$BUCKET/$2" \

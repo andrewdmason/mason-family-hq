@@ -14,6 +14,9 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+    # Watch-only Clips for anyone not signed in; scripts/release.sh passes the
+    # key from the database. Empty means everyone has to sign in.
+    CLIPS_VIEWER_KEY: ""
 packages:
   Supabase:
     url: https://github.com/supabase/supabase-swift
@@ -42,6 +45,7 @@ targets:
             CFBundleURLSchemes: [io.mason.clipscamera]
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ClipsViewerKey: $(CLIPS_VIEWER_KEY)
         UILaunchScreen:
           UIColorName: ""
         UISupportedInterfaceOrientations:
