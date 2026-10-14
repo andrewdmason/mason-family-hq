@@ -205,8 +205,10 @@ enum ShareRenderer {
         }
         parts += r.pitches.sorted { $0.t < $1.t }.map { "\($0.outcome?.rawValue ?? "-")/\($0.battedBall?.rawValue ?? "-")" }
         if let fv = r.fieldView { parts.append("\(fv.key)@\(fv.start)-\(fv.end)") }
-        // The way the close-up meets the field view.
+        // How the video is laid out: the close-up meeting the field view, and
+        // where a vertical caption sits (copies from earlier layouts aren't reused).
         parts.append("hold-dissolve")
+        if o.vertical { parts.append("captions-top") }
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         if let t = try? encoder.encode(r.timings) { parts.append(t.base64EncodedString()) }
