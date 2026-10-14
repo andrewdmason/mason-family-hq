@@ -102,8 +102,9 @@ final class VerticalTests: XCTestCase {
         let closeup = tmp.appendingPathComponent("v-closeup-\(UUID().uuidString).mp4")
         let out = tmp.appendingPathComponent("v-out-\(UUID().uuidString).mp4")
         defer { for u in [raw, gc, closeup, out] { try? FileManager.default.removeItem(at: u) } }
-        try await EditRendererTests.makeClip(at: raw, seconds: 3, fps: 60, level: 60)
-        try await EditRendererTests.makeClip(at: gc, seconds: 3, fps: 30, width: 1280, height: 720, level: 200)
+        renderSmall()
+        try await EditRendererTests.makeClip(at: raw, seconds: 3, fps: 60, width: 480, height: 270, level: 60)
+        try await EditRendererTests.makeClip(at: gc, seconds: 3, fps: 30, width: 320, height: 180, level: 200)
 
         let plan = [PlanSegment(start: 0, end: 3, rate: 1, muted: false, caption: "Pitch 4 · 1-2 · Ball in play · 2B",
                                 pitchIndex: 0, replay: false)]
@@ -116,7 +117,7 @@ final class VerticalTests: XCTestCase {
         let asset = AVURLAsset(url: out)
         let tracks = try await asset.loadTracks(withMediaType: .video)
         let size = try await XCTUnwrap(tracks.first).load(.naturalSize)
-        XCTAssertEqual(size, CGSize(width: 1080, height: 1920))
+        XCTAssertEqual(size, VideoShape.vertical.size)
         let gen = AVAssetImageGenerator(asset: asset)
         gen.requestedTimeToleranceBefore = .zero
         gen.requestedTimeToleranceAfter = .zero

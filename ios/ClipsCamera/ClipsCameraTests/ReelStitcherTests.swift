@@ -84,8 +84,9 @@ final class ReelStitcherTests: XCTestCase {
         let b = tmp.appendingPathComponent("stitch-b-\(UUID().uuidString).mov")
         let out = tmp.appendingPathComponent("stitch-\(UUID().uuidString).mp4")
         defer { for u in [a, b, out] { try? FileManager.default.removeItem(at: u) } }
-        try await EditRendererTests.makeClip(at: a, seconds: 2, fps: 60, width: 1080, height: 1920, level: 40)
-        try await EditRendererTests.makeClip(at: b, seconds: 3, fps: 60, width: 1080, height: 1920, level: 200)
+        renderSmall()
+        try await EditRendererTests.makeClip(at: a, seconds: 2, fps: 60, width: 270, height: 480, level: 40)
+        try await EditRendererTests.makeClip(at: b, seconds: 3, fps: 60, width: 270, height: 480, level: 200)
 
         let card = ReelStitcher.card(kid: "Sebastian", games: [("Merchants", "2026-09-26"), ("vs Kabuki", "2026-10-14")])
         let length = try await ReelStitcher.render(
@@ -98,7 +99,7 @@ final class ReelStitcherTests: XCTestCase {
         XCTAssertEqual(duration, 7, accuracy: 0.1)
         let tracks = try await asset.loadTracks(withMediaType: .video)
         let size = try await XCTUnwrap(tracks.first).load(.naturalSize)
-        XCTAssertEqual(size, CGSize(width: 1080, height: 1920))
+        XCTAssertEqual(size, VideoShape.vertical.size)
         let audio = try await asset.loadTracks(withMediaType: .audio)
         XCTAssertEqual(audio.count, 1)
 
@@ -119,8 +120,9 @@ final class ReelStitcherTests: XCTestCase {
     static func grey(_ gen: AVAssetImageGenerator, at seconds: Double) async throws -> Double {
         let (image, _) = try await gen.image(at: CMTime(seconds: seconds, preferredTimescale: 600))
         var pixel = [UInt8](repeating: 0, count: 4)
-        CIContext().render(CIImage(cgImage: image), toBitmap: &pixel, rowBytes: 4,
-                           bounds: CGRect(x: 540, y: 600, width: 1, height: 1), format: .RGBA8, colorSpace: nil)
+        let ci = CIImage(cgImage: image)
+        CIContext().render(ci, toBitmap: &pixel, rowBytes: 4,
+                           bounds: EditRendererTests.spot(in: ci.extent, x: 0.5, y: 0.3125), format: .RGBA8, colorSpace: nil)
         return Double(pixel[0])
     }
 }
