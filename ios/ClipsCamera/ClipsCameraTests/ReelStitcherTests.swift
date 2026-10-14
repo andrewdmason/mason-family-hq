@@ -52,7 +52,7 @@ final class ReelStitcherTests: XCTestCase {
         let frame = CGRect(x: 0, y: 0, width: 400, height: 200)
         let white = CIImage(color: .white).cropped(to: CGRect(x: 10, y: 50, width: 100, height: 20))
         let orange = CIImage(color: CIColor(red: 1, green: 0.5, blue: 0)).cropped(to: white.extent)
-        let caption = AnimatedCaption(normal: white, replay: orange, appear: 10, replays: [12 ... 13])
+        let caption = AnimatedCaption(normal: white, replay: orange, appear: 10, gone: 15, replays: [12 ... 13])
         func alpha(_ t: Double, at p: CGPoint) -> Double {
             var pixel = [UInt8](repeating: 0, count: 4)
             CIContext().render(caption.image(at: t).cropped(to: frame), toBitmap: &pixel, rowBytes: 4,
@@ -62,10 +62,13 @@ final class ReelStitcherTests: XCTestCase {
         let place = CGPoint(x: 50, y: 60)
         XCTAssertEqual(alpha(10, at: place), 0, "not in yet")
         // A tenth of a second in: partly faded in, and lower than its place.
-        XCTAssertGreaterThan(alpha(10.1, at: CGPoint(x: 50, y: 45)), 0, "coming in from below")
+        XCTAssertGreaterThan(alpha(10.1, at: CGPoint(x: 50, y: 35)), 0, "coming in from below")
         XCTAssertEqual(alpha(11, at: CGPoint(x: 50, y: 45)), 0, "then risen to its place")
         XCTAssertEqual(alpha(11, at: place), 255, "settled")
         XCTAssertEqual(caption.image(at: 11).extent, white.extent)
+        let leaving = alpha(14.85, at: CGPoint(x: 50, y: 45))
+        XCTAssertTrue(leaving > 0 && leaving < 255, "dropping and fading as its at-bat ends (\(leaving))")
+        XCTAssertEqual(alpha(15, at: place), 0, "gone")
         XCTAssertEqual(caption.image(at: 12.5).extent, orange.extent)
         var pixel = [UInt8](repeating: 0, count: 4)
         CIContext().render(caption.image(at: 12.5), toBitmap: &pixel, rowBytes: 4, bounds: CGRect(origin: place, size: CGSize(width: 1, height: 1)),
@@ -108,7 +111,8 @@ final class ReelStitcherTests: XCTestCase {
         XCTAssertLessThan(first, 90, "the first at-bat to its end")
         XCTAssertGreaterThan(second, 130)
         XCTAssertTrue(blend > first + 20 && blend < second - 20, "dissolving (\(first) → \(blend) → \(second))")
-        FieldViewRendererTests.snapshot(gen, ["reel-card": 1, "reel-first": 3, "reel-entering": 4.15, "reel-second": 4.8, "reel-replay": 5.5])
+        FieldViewRendererTests.snapshot(gen, ["reel-card": 1, "reel-first": 3, "reel-leaving": 3.85, "reel-beat": 4.3,
+                                              "reel-entering": 4.65, "reel-second": 5.3, "reel-replay": 5.6])
     }
 
     /// A pixel well clear of the caption.

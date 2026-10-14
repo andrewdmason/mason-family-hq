@@ -6,7 +6,8 @@ import CoreImage
 // order they happened. Each plays out in full, then its last frame holds while
 // the next dissolves in over it, as the close-up meets the field view. Each
 // at-bat's caption ("AB 2 · Double") shows for the whole of it — field view
-// too — sliding in as it starts and turning orange during slow motion.
+// too — like a lower third: in a beat after the at-bat starts, out as it ends,
+// orange during slow motion.
 
 /// One at-bat's finished video, and what to caption it with.
 struct StitchClip {
@@ -18,6 +19,9 @@ struct StitchClip {
 }
 
 enum ReelStitcher {
+    /// The beat of nothing at the start of each at-bat before its caption comes in.
+    static let captionBeat = 0.5
+
     /// The finished reel's length.
     @discardableResult
     static func render(clips: [StitchClip], card: TitleCard?, cardSeconds: Double, shape: VideoShape, to out: URL) async throws -> Double {
@@ -97,7 +101,9 @@ enum ReelStitcher {
             let caption = clip.caption.flatMap { text -> AnimatedCaption? in
                 guard let normal = CaptionArt.caption(text, replay: false, size: shape.size),
                       let replay = CaptionArt.caption(text, replay: true, size: shape.size) else { return nil }
-                return AnimatedCaption(normal: normal, replay: replay, appear: start,
+                // The last at-bat keeps its caption to the end.
+                return AnimatedCaption(normal: normal, replay: replay, appear: start + captionBeat,
+                                       gone: i < clips.count - 1 ? CMTimeAdd(p.start, p.length).seconds : nil,
                                        replays: clip.replays.map { (start + $0.lowerBound) ... (start + $0.upperBound) })
             }
             let layer = LayerInstruction.Layer(trackID: videoTracks[p.track].trackID, orientation: .up, fadeIn: false)

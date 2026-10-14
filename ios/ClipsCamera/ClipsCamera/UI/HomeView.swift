@@ -110,13 +110,21 @@ struct HomeView: View {
                         Button { showingSettings = true } label: { Image(systemName: "gearshape") }
                     }
                 }
+                // Share: pick at-bats for a highlight reel (Done leaves).
                 if currentKid != nil && kidID != Self.unfiledTab {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button(selecting ? "Done" : "Select") {
+                        Button {
                             selecting.toggle()
                             selected = []
+                        } label: {
+                            if selecting { Text("Done") } else { Image(systemName: "square.and.arrow.up") }
                         }
                         .disabled(batchProgress != nil)
+                        .accessibilityLabel(selecting ? "Done" : "Share at-bats")
+                    }
+                    // Its own pill, apart from +.
+                    if !watching && !selecting {
+                        ToolbarSpacer(.fixed, placement: .topBarTrailing)
                     }
                 }
                 if !watching && !selecting {

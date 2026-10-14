@@ -214,31 +214,50 @@ final class LayerInstruction: NSObject, AVVideoCompositionInstructionProtocol {
     }
 }
 
-/// A caption pill that slides up and fades in when it first appears (with a
-/// little overshoot), and turns orange during slow-motion replays.
+/// A caption pill that comes in like a lower third — rising and fading in
+/// with an overshoot — and goes out the same way, dropping and fading, by
+/// the end of its at-bat; orange during slow-motion replays.
 struct AnimatedCaption {
     /// Full-frame overlays, already placed.
     let normal: CIImage
     let replay: CIImage
     /// Composition time it starts coming in.
     let appear: Double
+    /// Composition time it's gone by; nil to stay to the end.
+    var gone: Double? = nil
     /// Composition times of the replays.
     let replays: [ClosedRange<Double>]
 
-    static let inSeconds = 0.45
-    /// How far below its place it starts.
-    static let rise: CGFloat = 36
+    static let inSeconds = 0.6
+    static let outSeconds = 0.35
+    /// How far below its place it comes in from.
+    static let rise: CGFloat = 80
+    /// How far it drops going out.
+    static let drop: CGFloat = 50
 
     func image(at t: Double) -> CIImage {
         let pill = replays.contains { $0.contains(t) } ? replay : normal
+        var dy: CGFloat = 0
+        var alpha: CGFloat = 1
         let p = max(0, min(1, (t - appear) / Self.inSeconds))
-        guard p < 1 else { return pill }
-        // Ease out with a slight overshoot ("back").
-        let c1 = 1.4, c3 = c1 + 1
-        let eased = 1 + c3 * pow(p - 1, 3) + c1 * pow(p - 1, 2)
-        let alpha = CGFloat(min(1, p * 2))
+        if p < 1 {
+            // Ease out with an overshoot ("back").
+            let c1 = 2.0, c3 = c1 + 1
+            let eased = 1 + c3 * pow(p - 1, 3) + c1 * pow(p - 1, 2)
+            dy = -Self.rise * CGFloat(1 - eased)
+            alpha = CGFloat(min(1, p * 2.5))
+        }
+        if let gone {
+            let q = max(0, min(1, (t - (gone - Self.outSeconds)) / Self.outSeconds))
+            if q > 0 {
+                // Ease in: slow to leave, then away.
+                dy -= Self.drop * CGFloat(q * q)
+                alpha *= CGFloat(1 - q)
+            }
+        }
+        guard dy != 0 || alpha < 1 else { return pill }
         return pill
-            .transformed(by: CGAffineTransform(translationX: 0, y: -Self.rise * CGFloat(1 - eased)))
+            .transformed(by: CGAffineTransform(translationX: 0, y: dy))
             .applyingFilter("CIColorMatrix", parameters: [
                 "inputRVector": CIVector(x: alpha, y: 0, z: 0, w: 0),
                 "inputGVector": CIVector(x: 0, y: alpha, z: 0, w: 0),
