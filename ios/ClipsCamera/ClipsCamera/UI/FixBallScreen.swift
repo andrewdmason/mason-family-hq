@@ -60,6 +60,7 @@ struct FixBallScreen: View {
             VStack(spacing: 0) {
                 topBar
                 Spacer(minLength: 0)
+                hint
                 controls
             }
         }
@@ -76,9 +77,6 @@ struct FixBallScreen: View {
         HStack {
             Button("Cancel") { dismiss() }
             Spacer()
-            Text(tap == nil ? "Tap the ball" : "Got it — Use this, or tap again")
-                .font(.headline)
-            Spacer()
             Button("Use this") {
                 guard let tap else { return }
                 onUse(tap)
@@ -91,6 +89,19 @@ struct FixBallScreen: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom))
+    }
+
+    // Above the scrubber rather than in the top bar, where it would sit on
+    // GameChanger's watermark.
+    private var hint: some View {
+        Text(tap == nil ? "Tap the ball" : "Got it — Use this, or tap again")
+            .font(.headline)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.black.opacity(0.55), in: Capsule())
+            .padding(.bottom, 8)
+            .allowsHitTesting(false)
     }
 
     private var controls: some View {
