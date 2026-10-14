@@ -16,8 +16,9 @@ final class FieldViewRendererTests: XCTestCase {
         let closeup = temp("closeup").deletingPathExtension().appendingPathExtension("mp4")
         let out = temp("combined").deletingPathExtension().appendingPathExtension("mp4")
         defer { for u in [raw, gc, closeup, out] { try? FileManager.default.removeItem(at: u) } }
-        try await EditRendererTests.makeClip(at: raw, seconds: 6, fps: 240, level: 40)
-        try await EditRendererTests.makeClip(at: gc, seconds: 20, fps: 30, width: 1280, height: 720, level: 200)
+        renderSmall()
+        try await EditRendererTests.makeClip(at: raw, seconds: 6, fps: 240, width: 480, height: 270, level: 40)
+        try await EditRendererTests.makeClip(at: gc, seconds: 20, fps: 30, width: 320, height: 180, level: 200)
 
         let edit = try await EditRenderer.render(
             raw: raw, rotation: 0, pitches: [Pitch(t: 3, outcome: .calledStrike)], result: nil,
@@ -32,7 +33,7 @@ final class FieldViewRendererTests: XCTestCase {
         XCTAssertEqual(duration, combined.duration, accuracy: 0.1)
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         let size = try await XCTUnwrap(videoTracks.first).load(.naturalSize)
-        XCTAssertEqual(size, CGSize(width: 1920, height: 1080))
+        XCTAssertEqual(size, EditRenderer.size)
         let audio = try await asset.loadTracks(withMediaType: .audio)
         XCTAssertEqual(audio.count, 1)
 
@@ -57,7 +58,8 @@ final class FieldViewRendererTests: XCTestCase {
         let gc = temp("gc")
         let out = temp("alone").deletingPathExtension().appendingPathExtension("mp4")
         defer { for u in [gc, out] { try? FileManager.default.removeItem(at: u) } }
-        try await EditRendererTests.makeClip(at: gc, seconds: 10, fps: 30, width: 1280, height: 720, level: 200)
+        renderSmall()
+        try await EditRendererTests.makeClip(at: gc, seconds: 10, fps: 30, width: 320, height: 180, level: 200)
 
         let card = TitleCard.make(number: 3, result: .double, game: "vs Kabuki", playedOn: "2026-10-11")
         let rendered = try await FieldViewRenderer.alone(card: card, cardSeconds: 2, fieldView: gc, start: 2, end: 8, to: out)
@@ -67,7 +69,7 @@ final class FieldViewRendererTests: XCTestCase {
         let gen = AVAssetImageGenerator(asset: asset)
         gen.requestedTimeToleranceBefore = .zero
         gen.requestedTimeToleranceAfter = .zero
-        let card0 = try await Self.grey(gen, at: 1)
+        let card0 = try await Self.grey(gen, at: 1, x: 0.03, y: 0.05) // a corner, clear of the text
         let field = try await Self.grey(gen, at: 4)
         XCTAssertLessThan(card0, 20) // the card is black around its text
         XCTAssertGreaterThan(field, 130)
@@ -81,11 +83,12 @@ final class FieldViewRendererTests: XCTestCase {
     }
 
     /// The grey level just left of centre, high enough to miss captions and the card's text.
-    static func grey(_ gen: AVAssetImageGenerator, at seconds: Double) async throws -> Double {
+    static func grey(_ gen: AVAssetImageGenerator, at seconds: Double, x: Double = 0.156, y: Double = 0.833) async throws -> Double {
         let (image, _) = try await gen.image(at: CMTime(seconds: seconds, preferredTimescale: 600))
         var pixel = [UInt8](repeating: 0, count: 4)
-        CIContext().render(CIImage(cgImage: image), toBitmap: &pixel, rowBytes: 4,
-                           bounds: CGRect(x: 300, y: 900, width: 1, height: 1), format: .RGBA8, colorSpace: nil)
+        let ci = CIImage(cgImage: image)
+        CIContext().render(ci, toBitmap: &pixel, rowBytes: 4,
+                           bounds: EditRendererTests.spot(in: ci.extent, x: x, y: y), format: .RGBA8, colorSpace: nil)
         return Double(pixel[0])
     }
 

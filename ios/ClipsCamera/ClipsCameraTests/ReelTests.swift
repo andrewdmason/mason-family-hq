@@ -102,27 +102,65 @@ final class ReelTests: XCTestCase {
     }
 
     // MARK: Rendering
+    //
+    // One generated 240fps recording becomes a reel once per test run; the
+    // share tests below build on it. Shares render at EditRendererTests.small.
 
-    func testBuildsAReelAndSharesIt() async throws {
+    private static let reelFixture = Task { () throws -> (url: URL, reel: RenderedReel) in
         let tmp = FileManager.default.temporaryDirectory
         let raw = tmp.appendingPathComponent("reel-raw-\(UUID().uuidString).mov")
-        try await EditRendererTests.makeClip(at: raw, seconds: 8, fps: 240)
+        try await EditRendererTests.makeClip(at: raw, seconds: 8, fps: 240,
+                                             width: EditRendererTests.small.width, height: EditRendererTests.small.height)
         defer { try? FileManager.default.removeItem(at: raw) }
-
         let out = tmp.appendingPathComponent("reel-\(UUID().uuidString).mp4")
-        defer { try? FileManager.default.removeItem(at: out) }
+        let pitches = [
+            Pitch(t: 2.5, outcome: .ball),
+            Pitch(t: 5.5, outcome: .inPlay, battedBall: .lineDrive, playResult: .single),
+        ]
         let reel = try await ReelRenderer.render(raw: raw, rotation: 180, pitches: pitches, timings: .standard, to: out)
+        return (out, reel)
+    }
+
+    private static let fieldFixture = Task { () throws -> URL in
+        let field = FileManager.default.temporaryDirectory.appendingPathComponent("reel-field-\(UUID().uuidString).mov")
+        try await EditRendererTests.makeClip(at: field, seconds: 4, fps: 30, width: 320, height: 180, level: 200)
+        return field
+    }
+
+    /// A share of the fixture reel: card, both pitches, all options at their defaults.
+    private func shareRequest() async throws -> ShareRequest {
+        let (out, reel) = try await Self.reelFixture.value
+        let card = TitleCard.make(number: 2, result: .single, game: "vs Kabuki", playedOn: "2026-10-11")
+        let reelPitches = [Pitch(t: 2, outcome: .ball), Pitch(t: 5, outcome: .inPlay, battedBall: .lineDrive, playResult: .single)]
+        return ShareRequest(atBatID: UUID(), reel: out, segments: reel.segments, pitches: reelPitches, result: .single,
+                            card: card, options: ShareOptions(), reelKey: out.lastPathComponent, timings: .standard)
+    }
+
+    /// Real speed only, with the fixture field view (1–3s of it) running on after.
+    private func fieldShareRequest() async throws -> ShareRequest {
+        var plain = try await shareRequest()
+        plain.options.slowMo = false
+        plain.fieldView = (try await Self.fieldFixture.value, 1, 3, "g/a/gamechanger.mov")
+        return plain
+    }
+
+    private func duration(_ url: URL) async throws -> Double {
+        try await AVURLAsset(url: url).load(.duration).seconds
+    }
+
+    func testBuildsAReel() async throws {
+        let (out, reel) = try await Self.reelFixture.value
         XCTAssertEqual(reel.duration, 7.5, accuracy: 0.01)
         XCTAssertEqual(reel.pitchTimes[0], 2, accuracy: 0.01)
         XCTAssertEqual(reel.pitchTimes[1], 5, accuracy: 0.01)
         XCTAssertEqual(reel.segments.map(\.fps), [60, 240])
 
-        // HEVC, full size, with sound, and the take thinned to 60fps.
+        // HEVC, the recording's size, with sound, and the take thinned to 60fps.
         let asset = AVURLAsset(url: out)
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         let video = try XCTUnwrap(videoTracks.first)
         let size = try await video.load(.naturalSize)
-        XCTAssertEqual(size, CGSize(width: 1920, height: 1080))
+        XCTAssertEqual(size, CGSize(width: EditRendererTests.small.width, height: EditRendererTests.small.height))
         let formats = try await video.load(.formatDescriptions)
         let format = try XCTUnwrap(formats.first)
         XCTAssertEqual(CMFormatDescriptionGetMediaSubType(format), kCMVideoCodecType_HEVC)
@@ -133,16 +171,16 @@ final class ReelTests: XCTestCase {
         let swing = times.filter { $0 >= 3 }.count
         XCTAssertEqual(Double(take), 3 * 60, accuracy: 3)
         XCTAssertEqual(Double(swing), 4.5 * 240, accuracy: 3)
+    }
 
-        // Shared with replays: card, both pitches, the in-play replay at ¼.
-        let card = TitleCard.make(number: 2, result: .single, game: "vs Kabuki", playedOn: "2026-10-11")
-        let reelPitches = [Pitch(t: 2, outcome: .ball), Pitch(t: 5, outcome: .inPlay, battedBall: .lineDrive, playResult: .single)]
-        let request = ShareRequest(atBatID: UUID(), reel: out, segments: reel.segments, pitches: reelPitches, result: .single,
-                                   card: card, options: ShareOptions(), reelKey: out.lastPathComponent, timings: .standard)
+    func testSharesWithReplays() async throws {
+        renderSmall()
+        // Card, both pitches, the in-play replay at ¼.
+        let request = try await shareRequest()
         let shared = try await ShareRenderer.render(request)
         let sharedAsset = AVURLAsset(url: shared)
         let replayStart = 2 + 3 + 4.5
-        let sharedDuration = try await sharedAsset.load(.duration).seconds
+        let sharedDuration = try await duration(shared)
         XCTAssertEqual(sharedDuration, replayStart + 4.8, accuracy: 0.1)
         let gen = AVAssetImageGenerator(asset: sharedAsset)
         gen.requestedTimeToleranceBefore = .zero
@@ -153,62 +191,59 @@ final class ReelTests: XCTestCase {
         // Asked again, it's the same file.
         let again = try await ShareRenderer.render(request)
         XCTAssertEqual(again, shared)
+    }
 
-        // Real speed only, with a field view running on after.
-        let field = tmp.appendingPathComponent("reel-field-\(UUID().uuidString).mov")
-        try await EditRendererTests.makeClip(at: field, seconds: 4, fps: 30, width: 1280, height: 720, level: 200)
-        defer { try? FileManager.default.removeItem(at: field) }
-        var plain = request
-        plain.options.slowMo = false
-        plain.fieldView = (field, 1, 3, "g/a/gamechanger.mov")
+    func testShareContentChoices() async throws {
+        renderSmall()
+        let plain = try await fieldShareRequest()
         let withField = try await ShareRenderer.render(plain)
-        let fieldDuration = try await AVURLAsset(url: withField).load(.duration).seconds
+        let fieldDuration = try await duration(withField)
         XCTAssertEqual(fieldDuration, 2 + 7.5 + 2, accuracy: 0.1)
 
         // Just the hit, no title card: the in-play window, its replay, then the field view.
         var hit = plain
         hit.options = ShareOptions(content: .hit, slowMo: true, titleCard: false, captions: false)
-        let hitFile = try await ShareRenderer.render(hit)
-        let hitDuration = try await AVURLAsset(url: hitFile).load(.duration).seconds
+        let hitDuration = try await duration(try await ShareRenderer.render(hit))
         XCTAssertEqual(hitDuration, 4.5 + 4.8 + 2, accuracy: 0.1)
 
         // Pitches only drops the field view.
         var closeOnly = plain
         closeOnly.options.content = .pitches
-        let closeFile = try await ShareRenderer.render(closeOnly)
-        let closeDuration = try await AVURLAsset(url: closeFile).load(.duration).seconds
+        let closeDuration = try await duration(try await ShareRenderer.render(closeOnly))
         XCTAssertEqual(closeDuration, 2 + 7.5, accuracy: 0.1)
 
         // GameChanger only, with and without its card.
         var gcOnly = plain
         gcOnly.options.content = .fieldView
-        let gcFile = try await ShareRenderer.render(gcOnly)
-        let gcDuration = try await AVURLAsset(url: gcFile).load(.duration).seconds
+        let gcDuration = try await duration(try await ShareRenderer.render(gcOnly))
         XCTAssertEqual(gcDuration, 2 + 2, accuracy: 0.1)
         gcOnly.options.titleCard = false
-        let bareFile = try await ShareRenderer.render(gcOnly)
-        let bareDuration = try await AVURLAsset(url: bareFile).load(.duration).seconds
+        let bareDuration = try await duration(try await ShareRenderer.render(gcOnly))
         XCTAssertEqual(bareDuration, 2, accuracy: 0.1)
+    }
 
-        // Vertical: the hit cropped, the field view cropped too; then the
-        // field view alone, whole over its blurred fill.
-        var tall = hit
+    func testVerticalShares() async throws {
+        renderSmall()
+        let plain = try await fieldShareRequest()
+        // The hit, cropped, the field view cropped too.
+        var tall = plain
+        tall.options = ShareOptions(content: .hit, slowMo: true, titleCard: false, captions: false)
         tall.options.vertical = true
         tall.options.cropFieldView = true
         tall.framing = Framing(closeup: 0.2, fieldView: 0.8)
         let tallFile = try await ShareRenderer.render(tall)
-        let tallAsset = AVURLAsset(url: tallFile)
-        let tallDuration = try await tallAsset.load(.duration).seconds
-        XCTAssertEqual(tallDuration, hitDuration, accuracy: 0.1)
-        let tallTracks = try await tallAsset.loadTracks(withMediaType: .video)
+        let tallDuration = try await duration(tallFile)
+        XCTAssertEqual(tallDuration, 4.5 + 4.8 + 2, accuracy: 0.1)
+        let tallTracks = try await AVURLAsset(url: tallFile).loadTracks(withMediaType: .video)
         let tallSize = try await XCTUnwrap(tallTracks.first).load(.naturalSize)
-        XCTAssertEqual(tallSize, CGSize(width: 1080, height: 1920))
-        var tallField = gcOnly
+        XCTAssertEqual(tallSize, VideoShape.vertical.size)
+        // The field view alone, whole over its blurred fill.
+        var tallField = plain
+        tallField.options.content = .fieldView
         tallField.options.vertical = true
-        let tallFieldFile = try await ShareRenderer.render(tallField)
-        let tallFieldTracks = try await AVURLAsset(url: tallFieldFile).loadTracks(withMediaType: .video)
+        let tallFieldTracks = try await AVURLAsset(url: try await ShareRenderer.render(tallField)).loadTracks(withMediaType: .video)
         let tallFieldSize = try await XCTUnwrap(tallFieldTracks.first).load(.naturalSize)
-        XCTAssertEqual(tallFieldSize, CGSize(width: 1080, height: 1920))
+        XCTAssertEqual(tallFieldSize, VideoShape.vertical.size)
         // A different framing is a different video.
         var moved = tall
         moved.framing.closeup = 0.6

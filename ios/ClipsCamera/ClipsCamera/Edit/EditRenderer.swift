@@ -41,7 +41,10 @@ struct TitleCard: Equatable {
 enum VideoShape: String, Codable {
     case landscape, vertical
 
-    var size: CGSize { self == .landscape ? EditRenderer.size : CGSize(width: 1080, height: 1920) }
+    var size: CGSize {
+        let s = EditRenderer.size
+        return self == .landscape ? s : CGSize(width: s.height, height: s.width)
+    }
 
     /// The part of a picture of `extent` that fills a frame of this shape:
     /// full height (or full width, for a picture narrower than the frame),
@@ -84,7 +87,9 @@ enum RenderError: LocalizedError {
 }
 
 enum EditRenderer {
-    static let size = CGSize(width: 1920, height: 1080)
+    /// 1080p. Only tests change it — rendering at a fraction of the size keeps
+    /// the render tests quick while exercising the same code.
+    static var size = CGSize(width: 1920, height: 1080)
     static let fps: Int32 = 60
     private static let timescale: CMTimeScale = 24_000 // divides evenly by 240 and 60
 

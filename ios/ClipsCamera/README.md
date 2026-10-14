@@ -45,13 +45,19 @@ clip; add `-demoPick` for the at-bat picker.
 ```sh
 cd ios/ClipsCamera
 xcodegen generate                      # project is generated, not committed
-xcodebuild -project ClipsCamera.xcodeproj -scheme ClipsCamera \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build/dd test
+scripts/test.sh                        # fast: logic only, ~40s with the build — use while working
+scripts/test.sh render                 # tests that render and encode real video, ~5 min
+scripts/test.sh full                   # everything, before a release
 ```
 
-The renderer test builds a real edit from a generated 240fps clip (about a
-minute on the simulator). Create `/tmp/clipscamera-snapshots` first to get PNGs
-of a caption frame, a replay frame and the result card.
+`SIM="<simulator name>"` picks the simulator (default iPhone 17 Pro) — use your
+own when another session may be testing on the shared one. Extra arguments go
+to xcodebuild (e.g. `-only-testing:ClipsCameraTests/ReelTests`).
+
+Render tests build real videos from generated clips, at a quarter of 1080p
+(`renderSmall()`) so they stay quick. A new test that renders video goes in
+`RENDER` in `scripts/test.sh`, or it slows the fast tier. Create
+`/tmp/clipscamera-snapshots` first to get PNGs of caption, replay and card frames.
 
 The simulator has no camera or sign-in. Launch with `-demoHome` to see the home
 screen with made-up games, or `-demo` (`-demo -demoCountdown`) with the camera
