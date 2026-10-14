@@ -203,12 +203,48 @@ final class LayerInstruction: NSObject, AVVideoCompositionInstructionProtocol {
     let passthroughTrackID = kCMPersistentTrackID_Invalid
     let layers: [Layer]
     let overlay: CIImage?
+    let caption: AnimatedCaption?
 
-    init(timeRange: CMTimeRange, layers: [Layer], overlay: CIImage? = nil) {
+    init(timeRange: CMTimeRange, layers: [Layer], overlay: CIImage? = nil, caption: AnimatedCaption? = nil) {
         self.timeRange = timeRange
         self.layers = layers
         self.overlay = overlay
+        self.caption = caption
         self.requiredSourceTrackIDs = layers.map { NSNumber(value: $0.trackID) }
+    }
+}
+
+/// A caption pill that slides up and fades in when it first appears (with a
+/// little overshoot), and turns orange during slow-motion replays.
+struct AnimatedCaption {
+    /// Full-frame overlays, already placed.
+    let normal: CIImage
+    let replay: CIImage
+    /// Composition time it starts coming in.
+    let appear: Double
+    /// Composition times of the replays.
+    let replays: [ClosedRange<Double>]
+
+    static let inSeconds = 0.45
+    /// How far below its place it starts.
+    static let rise: CGFloat = 36
+
+    func image(at t: Double) -> CIImage {
+        let pill = replays.contains { $0.contains(t) } ? replay : normal
+        let p = max(0, min(1, (t - appear) / Self.inSeconds))
+        guard p < 1 else { return pill }
+        // Ease out with a slight overshoot ("back").
+        let c1 = 1.4, c3 = c1 + 1
+        let eased = 1 + c3 * pow(p - 1, 3) + c1 * pow(p - 1, 2)
+        let alpha = CGFloat(min(1, p * 2))
+        return pill
+            .transformed(by: CGAffineTransform(translationX: 0, y: -Self.rise * CGFloat(1 - eased)))
+            .applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": CIVector(x: alpha, y: 0, z: 0, w: 0),
+                "inputGVector": CIVector(x: 0, y: alpha, z: 0, w: 0),
+                "inputBVector": CIVector(x: 0, y: 0, z: alpha, w: 0),
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: alpha),
+            ])
     }
 }
 
@@ -252,6 +288,9 @@ final class LayerCompositor: NSObject, AVVideoCompositing {
         }
         if let overlay = instruction.overlay {
             image = overlay.composited(over: image)
+        }
+        if let caption = instruction.caption {
+            image = caption.image(at: request.compositionTime.seconds).composited(over: image)
         }
         context.render(image.cropped(to: frame), to: output)
         request.finish(withComposedVideoFrame: output)

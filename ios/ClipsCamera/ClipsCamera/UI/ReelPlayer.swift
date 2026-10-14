@@ -349,8 +349,9 @@ struct ReelPlayerScreen: View {
             pendingShare = nil
         }) {
             let sources = FramingSources(reel: item.reel, segments: item.segments, pitches: model.pitches, fieldView: item.fieldView)
-            ShareOptionsSheet(availability: ShareAvailability(pitches: model.pitches, hasFieldView: item.fieldView != nil),
-                              atBatID: item.id, gameID: gameID, sources: { sources }) {
+            let share = ShareItem(id: item.id, gameID: gameID, segments: item.segments, pitches: model.pitches,
+                                  fieldViewLength: item.fieldView.map { max(0, $0.end - $0.start) })
+            ShareOptionsSheet(items: [share], sources: { sources }) {
                 pendingShare = ($0, $1)
             }
         }

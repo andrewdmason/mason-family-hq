@@ -1,16 +1,17 @@
 import SwiftUI
 
-/// Share was tapped on a pitch reel: what goes in the video, and its shape.
-/// Opens on the last share's choices (fitted to this at-bat), and Share
-/// remembers them. A vertical video is framed per camera; the framing is
-/// remembered for the at-bat and as the starting point for its game.
+/// Share was tapped on a pitch reel (or on several, for a highlight reel):
+/// what goes in the video, and its shape. Opens on the last share's choices
+/// (fitted to these at-bats), and Share remembers them. A vertical video is
+/// framed per camera — one framing for all of them — remembered for each
+/// at-bat and as the starting point for its game.
 struct ShareOptionsSheet: View {
-    let availability: ShareAvailability
-    let atBatID: UUID
-    let gameID: UUID?
-    /// The footage to frame from (fetched when the sheet opens).
+    let items: [ShareItem]
+    /// The footage to frame from — the first at-bat's (fetched when the sheet opens).
     let sources: () async -> FramingSources?
     let onShare: (ShareOptions, Framing) -> Void
+
+    private let availability: ShareAvailability
 
     @Environment(\.dismiss) private var dismiss
     @State private var options: ShareOptions
@@ -20,18 +21,36 @@ struct ShareOptionsSheet: View {
     /// even when this at-bat couldn't offer it.
     @State private var pickedContent = false
 
-    init(availability: ShareAvailability, atBatID: UUID, gameID: UUID?,
-         sources: @escaping () async -> FramingSources?, onShare: @escaping (ShareOptions, Framing) -> Void) {
-        self.availability = availability
-        self.atBatID = atBatID
-        self.gameID = gameID
+    init(items: [ShareItem], sources: @escaping () async -> FramingSources?, onShare: @escaping (ShareOptions, Framing) -> Void) {
+        self.items = items
         self.sources = sources
         self.onShare = onShare
+        let availability = ShareAvailability(items: items)
+        self.availability = availability
         _options = State(initialValue: AppSettings.shared.shareOptions.fitted(to: availability))
-        _framing = State(initialValue: AppSettings.shared.framing(atBat: atBatID, game: gameID))
+        let first = items.first
+        _framing = State(initialValue: first.map { AppSettings.shared.framing(atBat: $0.id, game: $0.gameID) } ?? Framing())
     }
 
     private var defaults: ShareOptions { ShareOptions.standard.fitted(to: availability) }
+    private var included: [ShareItem] { items.filter { $0.isIncluded(options) } }
+
+    /// "About 1:40": the at-bats and the card (each dissolve plays over the
+    /// start of what follows it, adding nothing).
+    private var lengthText: String {
+        let timings = AppSettings.shared.timings
+        let total = included.map { $0.length(options, timings: timings) }.reduce(0, +)
+            + (options.titleCard ? timings.titleCard : 0)
+        let seconds = Int(total.rounded())
+        return "About \(seconds / 60):\(String(format: "%02d", seconds % 60))"
+    }
+
+    /// "4 of 6 at-bats have a ball in play", when some are left out.
+    private var leftOutText: String? {
+        guard items.count > 1, included.count < items.count else { return nil }
+        let what = options.content == .hit ? "a ball in play" : "a GameChanger clip"
+        return "\(included.count) of \(items.count) at-bats \(included.count == 1 ? "has" : "have") \(what)"
+    }
     private var framesFieldView: Bool { options.showsFieldView && availability.hasFieldView }
 
     var body: some View {
@@ -41,6 +60,8 @@ struct ShareOptionsSheet: View {
                     ForEach(availability.choices) { choice in
                         contentRow(choice)
                     }
+                } footer: {
+                    Text([leftOutText, lengthText].compactMap { $0 }.joined(separator: " · "))
                 }
                 Section {
                     Picker("Shape", selection: $options.vertical) {
@@ -82,12 +103,12 @@ struct ShareOptionsSheet: View {
                     }
                 }
             }
-            .navigationTitle("Share this at-bat")
+            .navigationTitle(items.count == 1 ? "Share this at-bat" : "Share \(items.count) at-bats")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Share") { share() }.fontWeight(.semibold)
+                    Button("Share") { share() }.fontWeight(.semibold).disabled(included.isEmpty)
                 }
             }
             .task { footage = await sources() }
@@ -102,7 +123,7 @@ struct ShareOptionsSheet: View {
             // Only the cameras this video frames.
             let used = Framing(closeup: options.showsCloseup ? framing.closeup : nil,
                                fieldView: framesFieldView && options.cropFieldView ? framing.fieldView : nil)
-            AppSettings.shared.saveFraming(used, atBat: atBatID, game: gameID)
+            for item in included { AppSettings.shared.saveFraming(used, atBat: item.id, game: item.gameID) }
         }
         onShare(options, framing)
         dismiss()
