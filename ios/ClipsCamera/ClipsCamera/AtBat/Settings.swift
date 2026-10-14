@@ -67,6 +67,31 @@ final class AppSettings {
         didSet { defaults.set(trailOn, forKey: "trailOn") }
     }
 
+    /// Vertical framing, by at-bat id, and by "game:<id>" for the last
+    /// framing used in each game.
+    private var framings: [String: Framing] {
+        didSet { save(framings, key: "framings") }
+    }
+
+    /// An at-bat's framing: its own, else the last one used in its game.
+    func framing(atBat: UUID, game: UUID?) -> Framing {
+        let own = framings[atBat.uuidString] ?? Framing()
+        let last = game.flatMap { framings["game:\($0.uuidString)"] } ?? Framing()
+        return Framing(closeup: own.closeup ?? last.closeup, fieldView: own.fieldView ?? last.fieldView)
+    }
+
+    /// Keep what was set (unset cameras are left as they were).
+    func saveFraming(_ f: Framing, atBat: UUID, game: UUID?) {
+        var keys = [atBat.uuidString]
+        if let game { keys.append("game:\(game.uuidString)") }
+        for key in keys {
+            var saved = framings[key] ?? Framing()
+            if let x = f.closeup { saved.closeup = x }
+            if let x = f.fieldView { saved.fieldView = x }
+            framings[key] = saved
+        }
+    }
+
     private init() {
         timings = (defaults.data(forKey: "timings")).flatMap { try? JSONDecoder().decode(EditTimings.self, from: $0) } ?? .standard
         saveRawToPhotos = defaults.bool(forKey: "saveRawToPhotos")
@@ -83,6 +108,7 @@ final class AppSettings {
         shareOptions = defaults.data(forKey: "shareOptions").flatMap { try? JSONDecoder().decode(ShareOptions.self, from: $0) } ?? .standard
         trailStyle = defaults.string(forKey: "trailStyle").flatMap(TrailStyle.init(rawValue:)) ?? .neon
         trailOn = defaults.object(forKey: "trailOn") as? Bool ?? true
+        framings = defaults.data(forKey: "framings").flatMap { try? JSONDecoder().decode([String: Framing].self, from: $0) } ?? [:]
     }
 
     private func save<T: Encodable>(_ value: T, key: String) {
