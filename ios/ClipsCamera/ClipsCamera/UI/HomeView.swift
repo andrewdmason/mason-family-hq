@@ -5,7 +5,8 @@ import SwiftUI
 /// Home: held upright. A tab per kid with their at-bats from Clips as a
 /// two-wide card grid per game, newest game first; anything still building or
 /// uploading on this phone joins its game. Film opens from the last card of
-/// the most recent game.
+/// the most recent game. Not signed in (a coach), it's watch-only: play and
+/// share, nothing else.
 struct HomeView: View {
     @State private var model = RecordModel()
     @State private var update = AppUpdate()
@@ -15,6 +16,7 @@ struct HomeView: View {
     @State private var loadError: String?
     @State private var cameraOpen = false
     @State private var showingSettings = false
+    @State private var showingSignIn = false
     @State private var playing: PlayItem?
     /// A pitch reel open in the live player.
     @State private var reelPlaying: ReelItem?
@@ -50,6 +52,8 @@ struct HomeView: View {
     @State private var importError: String?
 
     private var store: AtBatStore { model.store }
+    /// Watch-only: nobody's signed in on this phone.
+    private var watching: Bool { model.clips.isWatching }
     private var currentKid: Kid? { kids.first { $0.id == kidID } }
     private var kids: [Kid] { model.settings.cachedKids }
     private var unfiled: [AtBatJob] { store.jobs.filter { $0.game == nil } }
@@ -90,22 +94,28 @@ struct HomeView: View {
             .navigationTitle("Baseball Clips")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { showingSettings = true } label: { Image(systemName: "gearshape") }
+                    if watching {
+                        Button("Sign in") { showingSignIn = true }
+                    } else {
+                        Button { showingSettings = true } label: { Image(systemName: "gearshape") }
+                    }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button { newGameFor = currentKid } label: { Label("New game", systemImage: "baseball.diamond.bases") }
-                        Button { pickingFor = nil; choosingVideo = true } label: {
-                            Label("Add GameChanger video", systemImage: "film.stack")
-                        }
-                    } label: { Image(systemName: "plus") }
-                        .disabled(currentKid == nil)
-                        .accessibilityLabel("Add")
+                if !watching {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Button { newGameFor = currentKid } label: { Label("New game", systemImage: "baseball.diamond.bases") }
+                            Button { pickingFor = nil; choosingVideo = true } label: {
+                                Label("Add GameChanger video", systemImage: "film.stack")
+                            }
+                        } label: { Image(systemName: "plus") }
+                            .disabled(currentKid == nil)
+                            .accessibilityLabel("Add")
+                    }
                 }
             }
             .refreshable { await load() }
             .overlay {
-                if kids.isEmpty && model.clips.isSignedIn && loadError == nil {
+                if kids.isEmpty && model.clips.canWatch && loadError == nil {
                     ProgressView()
                 }
             }
@@ -128,8 +138,13 @@ struct HomeView: View {
         .onChange(of: store.jobs.filter { $0.upload == .uploaded }.count) { Task { await load() } }
         .onChange(of: model.clips.isSignedIn) { _, signedIn in
             // (A demo run keeps its made-up kids even if the simulator is signed in.)
-            if signedIn && !Self.demo { store.resume(); Task { await loadKids() } }
+            guard !Self.demo else { return }
+            if signedIn { store.resume() }
+            // Signing in or out switches between the family's Clips and watch-only.
+            Task { await loadKids() }
         }
+        // The stored sign-in has been checked: now it's known whose Clips to show.
+        .onChange(of: model.clips.checkedSession) { Task { await loadKids() } }
         .fullScreenCover(isPresented: $cameraOpen, onDismiss: {
             model.cameraClosed()
             Orientation.lock(.portrait)
@@ -151,7 +166,7 @@ struct HomeView: View {
         .fullScreenCover(item: $reelPlaying, onDismiss: { Orientation.lock(.portrait); showPendingImport() }) { item in
             ReelPlayerScreen(
                 item: item,
-                onRelabel: { pitches in applyLabels(item.id, pitches) },
+                onRelabel: watching ? nil : { pitches in applyLabels(item.id, pitches) },
                 onShare: { replays, pitches in await shareReel(item.id, replays: replays, pitches: pitches) }
             )
             .onAppear {
@@ -189,7 +204,11 @@ struct HomeView: View {
         .sheet(isPresented: $showingSettings) {
             SettingsView(settings: model.settings, clips: model.clips, formatDescription: model.capture.formatDescription)
         }
-        .fullScreenCover(isPresented: .constant(model.clips.checkedSession && !model.clips.isSignedIn && !Self.demo)) {
+        // Builds without watch-only (development) need a sign-in to show anything.
+        .fullScreenCover(isPresented: .constant(model.clips.checkedSession && !model.clips.canWatch && !Self.demo)) {
+            SignInView(clips: model.clips)
+        }
+        .sheet(isPresented: Binding(get: { showingSignIn && !model.clips.isSignedIn }, set: { showingSignIn = $0 })) {
             SignInView(clips: model.clips)
         }
     }
@@ -254,7 +273,8 @@ struct HomeView: View {
     /// most recent game ends with its Film row — the only place to film.
     private var sections: [GameSection] {
         guard let kid = currentKid else { return [] }
-        let current = currentGame
+        // Watching, there's no filming.
+        let current = watching ? nil : currentGame
         let fromClips = history[kid.id] ?? []
         let inClips = Set(fromClips.flatMap(\.atBats).map(\.id))
         let local = store.jobs.filter { $0.game?.kid.id == kid.id && !inClips.contains($0.id) }
@@ -304,11 +324,11 @@ struct HomeView: View {
                                         onRetry: { store.retry(ab.id) },
                                         onOpen: { open(ab) },
                                         onShare: { share(ab, game: section, number: number) },
-                                        onEdit: ab.isCamera && !ab.isFieldOnly && !isRebuilding(ab.id) ? { edit(ab, title: "AB \(number) · \(section.name)") } : nil,
-                                        onAddFieldView: canChange && !ab.hasFieldView ? { pickingFor = target; choosingVideo = true } : nil,
-                                        onTrimFieldView: canChange && ab.hasFieldView ? { retrim(target) } : nil,
-                                        onRemoveFieldView: canChange && ab.hasFieldView && !ab.isFieldOnly ? { removingFieldView = target } : nil,
-                                        onDelete: { deleting = (ab, section, number) })
+                                        onEdit: !watching && ab.isCamera && !ab.isFieldOnly && !isRebuilding(ab.id) ? { edit(ab, title: "AB \(number) · \(section.name)") } : nil,
+                                        onAddFieldView: !watching && canChange && !ab.hasFieldView ? { pickingFor = target; choosingVideo = true } : nil,
+                                        onTrimFieldView: !watching && canChange && ab.hasFieldView ? { retrim(target) } : nil,
+                                        onRemoveFieldView: !watching && canChange && ab.hasFieldView && !ab.isFieldOnly ? { removingFieldView = target } : nil,
+                                        onDelete: watching ? nil : { deleting = (ab, section, number) })
                         case .local(let job):
                             localCard(job)
                         case .film(let game):
@@ -322,7 +342,7 @@ struct HomeView: View {
             }
         }
         if sections.isEmpty {
-            Text(loadError ?? (kidID == nil ? "Loading…" : "No games yet — tap + to start one."))
+            Text(loadError ?? (kidID == nil ? "Loading…" : watching ? "No at-bats yet." : "No games yet — tap + to start one."))
                 .foregroundStyle(.secondary)
         }
     }
@@ -469,7 +489,8 @@ struct HomeView: View {
             return
         }
         guard ab.isCamera, let path = ab.playbackPath else {
-            openURL(ab.webURL)
+            // The website needs a sign-in, so watching there's nowhere to go.
+            if !watching { openURL(ab.webURL) }
             return
         }
         if let file = store.jobs.first(where: { $0.id == ab.id })?.editFile,
@@ -503,7 +524,7 @@ struct HomeView: View {
             defer { sharing = nil }
             let path = ab.isCamera ? ab.playbackPath : await model.clips.latestExportPath(atBatID: ab.id)
             guard let path else {
-                openURL(ab.webURL) // no export yet — make one in Clips
+                if !watching { openURL(ab.webURL) } // no export yet — make one in Clips
                 return
             }
             do {
@@ -823,6 +844,11 @@ struct HomeView: View {
     private func takeShared() {
         let waiting = SharedInbox.waiting()
         guard let newest = waiting.last else { return }
+        // Watching can't add videos to Clips.
+        guard !watching else {
+            for file in waiting { try? FileManager.default.removeItem(at: file) }
+            return
+        }
         defer { for file in waiting { try? FileManager.default.removeItem(at: file) } }
         do {
             present(FieldViewRequest(file: try store.importClip(from: newest)))
@@ -904,16 +930,20 @@ struct HomeView: View {
     }
 
     private func loadKids() async {
-        guard model.clips.isSignedIn else { return }
+        guard !Self.demo, model.clips.checkedSession, model.clips.canWatch else { return }
         if let kids = try? await model.clips.kids(), !kids.isEmpty {
             model.settings.cachedKids = kids
         }
-        if kidID == nil { kidID = model.settings.game?.kid.id ?? kids.first?.id }
+        // (Also when the tab's kid isn't in the list: signing out leaves only
+        // the kids with at-bats.)
+        if kidID != Self.unfiledTab, kidID == nil || !kids.contains(where: { $0.id == kidID }) {
+            kidID = model.settings.game?.kid.id ?? kids.first?.id
+        }
         await load()
     }
 
     private func load() async {
-        guard !Self.demo, model.clips.isSignedIn, let kidID, let kid = kids.first(where: { $0.id == kidID }) else { return }
+        guard !Self.demo, model.clips.canWatch, let kidID, let kid = kids.first(where: { $0.id == kidID }) else { return }
         do {
             let games = try await model.clips.history(for: kid)
             history[kidID] = games
@@ -964,7 +994,7 @@ private struct HistoryCard: View {
     let onAddFieldView: (() -> Void)?
     let onTrimFieldView: (() -> Void)?
     let onRemoveFieldView: (() -> Void)?
-    let onDelete: () -> Void
+    let onDelete: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -1022,7 +1052,9 @@ private struct HistoryCard: View {
             if let onRemoveFieldView {
                 Button(role: .destructive, action: onRemoveFieldView) { Label("Remove field view", systemImage: "rectangle.badge.minus") }
             }
-            Button(role: .destructive, action: onDelete) { Label("Delete from Clips", systemImage: "trash") }
+            if let onDelete {
+                Button(role: .destructive, action: onDelete) { Label("Delete from Clips", systemImage: "trash") }
+            }
         }
     }
 

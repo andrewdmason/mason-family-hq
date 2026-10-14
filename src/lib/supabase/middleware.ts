@@ -73,6 +73,10 @@ export async function updateSession(request: NextRequest) {
     // Same for the baseball clips worker's callback — see
     // src/app/(clips)/clips/api/callback/route.ts.
     !request.nextUrl.pathname.startsWith("/clips/api/callback") &&
+    // The Clips Camera app's watch-only mode (no one signed in) authenticates
+    // with the viewer key it's built with — see
+    // src/app/(clips)/clips/api/viewer/route.ts.
+    !request.nextUrl.pathname.startsWith("/clips/api/viewer") &&
     // The Clips Camera iPhone app's install page is shareable without an
     // account; the app it installs only runs on registered iPhones.
     !request.nextUrl.pathname.startsWith("/clips/install")
