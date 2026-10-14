@@ -189,6 +189,31 @@ final class ReelTests: XCTestCase {
         let bareFile = try await ShareRenderer.render(gcOnly)
         let bareDuration = try await AVURLAsset(url: bareFile).load(.duration).seconds
         XCTAssertEqual(bareDuration, 2, accuracy: 0.1)
+
+        // Vertical: the hit cropped, the field view cropped too; then the
+        // field view alone, whole over its blurred fill.
+        var tall = hit
+        tall.options.vertical = true
+        tall.options.cropFieldView = true
+        tall.framing = Framing(closeup: 0.2, fieldView: 0.8)
+        let tallFile = try await ShareRenderer.render(tall)
+        let tallAsset = AVURLAsset(url: tallFile)
+        let tallDuration = try await tallAsset.load(.duration).seconds
+        XCTAssertEqual(tallDuration, hitDuration, accuracy: 0.1)
+        let tallTracks = try await tallAsset.loadTracks(withMediaType: .video)
+        let tallSize = try await XCTUnwrap(tallTracks.first).load(.naturalSize)
+        XCTAssertEqual(tallSize, CGSize(width: 1080, height: 1920))
+        var tallField = gcOnly
+        tallField.options.vertical = true
+        let tallFieldFile = try await ShareRenderer.render(tallField)
+        let tallFieldTracks = try await AVURLAsset(url: tallFieldFile).loadTracks(withMediaType: .video)
+        let tallFieldSize = try await XCTUnwrap(tallFieldTracks.first).load(.naturalSize)
+        XCTAssertEqual(tallFieldSize, CGSize(width: 1080, height: 1920))
+        // A different framing is a different video.
+        var moved = tall
+        moved.framing.closeup = 0.6
+        let movedFile = try await ShareRenderer.render(moved)
+        XCTAssertNotEqual(movedFile, tallFile)
     }
 
     /// Presentation times of every frame in a track, without decoding.

@@ -23,15 +23,22 @@ enum TrailRenderer {
     /// The trail at clip time `t`, positioned in a picture occupying
     /// `videoRect` (Core Image coordinates: origin bottom left, pixels), or nil
     /// when there's nothing to draw. Its extent is just the trail's surroundings.
-    static func image(_ geometry: TrailGeometry, at t: Double, style: TrailStyle, videoRect: CGRect) -> CIImage? {
-        guard videoRect.width > 1, videoRect.height > 1,
+    ///
+    /// Sizes follow the picture: lengths are at 1280 px across *the picture*,
+    /// so a trail over a picture enlarged past the frame (a vertical crop) is
+    /// as thick, for the picture, as in landscape. Only what's inside
+    /// `visible` (the frame), and inside the picture, is drawn.
+    static func image(_ geometry: TrailGeometry, at t: Double, style: TrailStyle, videoRect: CGRect,
+                      visible: CGRect? = nil) -> CIImage? {
+        let clip = visible.map { videoRect.intersection($0) } ?? videoRect
+        guard videoRect.width > 1, videoRect.height > 1, !clip.isNull, clip.width > 1, clip.height > 1,
               let m = geometry.moment(at: t, style: style) else { return nil }
         let sc = videoRect.width / 1280
         let pts = m.points.map { pixel($0, in: videoRect) }
         switch style {
-        case .neon: return neon(m, pts, sc: sc, rect: videoRect)
-        case .vapor: return vapor(m, geometry, sc: sc, rect: videoRect)
-        case .broadcast: return broadcast(m, pts, sc: sc, rect: videoRect)
+        case .neon: return neon(m, pts, sc: sc, clip: clip)
+        case .vapor: return vapor(m, geometry, sc: sc, rect: videoRect, clip: clip)
+        case .broadcast: return broadcast(m, pts, sc: sc, clip: clip)
         }
     }
 
@@ -44,9 +51,9 @@ enum TrailRenderer {
 
     /// Electric-blue streak tapering from the ball, a white-hot core on its
     /// front half, and a soft two-level glow.
-    private static func neon(_ m: TrailMoment, _ pts: [CGPoint], sc: Double, rect: CGRect) -> CIImage? {
+    private static func neon(_ m: TrailMoment, _ pts: [CGPoint], sc: Double, clip: CGRect) -> CIImage? {
         let glowSigma = (near: 4 * sc, far: 14 * sc)
-        guard let canvas = Canvas(around: pts, pad: 10 * sc + 3 * glowSigma.far, clip: rect, gray: false) else { return nil }
+        guard let canvas = Canvas(around: pts, pad: 10 * sc + 3 * glowSigma.far, clip: clip, gray: false) else { return nil }
         let ctx = canvas.ctx
         for i in 0..<(pts.count - 1) {
             let u = m.u[i]
@@ -75,7 +82,7 @@ enum TrailRenderer {
 
     /// A white contrail: puffs laid three per source frame along the path,
     /// each growing, drifting up and thinning as it ages; softly blurred.
-    private static func vapor(_ m: TrailMoment, _ g: TrailGeometry, sc: Double, rect: CGRect) -> CIImage? {
+    private static func vapor(_ m: TrailMoment, _ g: TrailGeometry, sc: Double, rect: CGRect, clip: CGRect) -> CIImage? {
         let fps = g.fps
         let headF = m.head * fps
         let first = Int((m.tailStart * fps * 3).rounded(.up))
@@ -98,7 +105,7 @@ enum TrailRenderer {
         guard !puffs.isEmpty else { return nil }
         let blur = 2.5 * sc
         let maxR = puffs.map(\.r).max() ?? 0
-        guard let canvas = Canvas(around: puffs.map(\.c), pad: maxR + 3 * blur + 2, clip: rect, gray: true) else { return nil }
+        guard let canvas = Canvas(around: puffs.map(\.c), pad: maxR + 3 * blur + 2, clip: clip, gray: true) else { return nil }
         for puff in puffs {
             canvas.ctx.setFillColor(gray: puff.op, alpha: 1)
             canvas.ctx.fillEllipse(in: CGRect(x: puff.c.x - puff.r, y: puff.c.y - puff.r, width: puff.r * 2, height: puff.r * 2))
@@ -111,10 +118,10 @@ enum TrailRenderer {
 
     /// A crisp TV tracer: a red line with a thin white core, fading toward the
     /// tail, and a white ring around the ball while it's in the air.
-    private static func broadcast(_ m: TrailMoment, _ pts: [CGPoint], sc: Double, rect: CGRect) -> CIImage? {
+    private static func broadcast(_ m: TrailMoment, _ pts: [CGPoint], sc: Double, clip: CGRect) -> CIImage? {
         let ringR = 8 * sc
-        guard let red = Canvas(around: pts, pad: ringR + 4 * sc + 2, clip: rect, gray: true),
-              let white = Canvas(around: pts, pad: ringR + 4 * sc + 2, clip: rect, gray: true) else { return nil }
+        guard let red = Canvas(around: pts, pad: ringR + 4 * sc + 2, clip: clip, gray: true),
+              let white = Canvas(around: pts, pad: ringR + 4 * sc + 2, clip: clip, gray: true) else { return nil }
         for i in 0..<(pts.count - 1) {
             red.ctx.setStrokeColor(gray: pow(1 - m.u[i], 0.7) * m.fade, alpha: 1)
             red.line(pts[i], pts[i + 1], width: max(1, 4.5 * sc))
