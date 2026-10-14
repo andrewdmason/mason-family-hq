@@ -44,7 +44,7 @@ struct ShareOptionsSheet: View {
                     }
                 }
             }
-            .navigationTitle("Share")
+            .navigationTitle("Share this at-bat")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -78,7 +78,9 @@ struct ShareOptionsSheet: View {
                 }
             }
             .contentShape(Rectangle())
+            .opacity(availability.offers(choice) ? 1 : 0.4)
         }
+        .buttonStyle(.plain)
         .disabled(!availability.offers(choice))
     }
 
