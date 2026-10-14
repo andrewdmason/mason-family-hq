@@ -109,24 +109,43 @@ enum ReelPlan {
 
     /// The shared video's plan, in reel time: every window at real speed with
     /// its caption, each swing followed by its ¼-speed replay when asked for.
-    /// `pitches` are at their reel times.
-    static func sharePlan(segments: [ReelSegment], pitches: [Pitch], result: AtBatResult?, replays: Bool, timings: EditTimings = .standard) -> [PlanSegment] {
+    /// With `only`, just the window showing that pitch, and only its replay
+    /// ("Just the hit"). `pitches` are at their reel times.
+    static func sharePlan(segments: [ReelSegment], pitches: [Pitch], result: AtBatResult?, replays: Bool,
+                          only: Int? = nil, timings: EditTimings = .standard) -> [PlanSegment] {
         let sorted = pitches.sorted { $0.t < $1.t }
         let counts = Scorebook.countsBefore(sorted)
         let times = sorted.map(\.t)
         func caption(_ i: Int) -> String {
             QuickPlan.caption(sorted[i], n: i + 1, count: counts[i], isLast: i == sorted.count - 1, result: result)
         }
+        func shows(_ i: Int, _ seg: ReelSegment) -> Bool { times[i] >= seg.start && times[i] <= seg.end }
         var plan: [PlanSegment] = []
         for seg in segments where seg.pitch < sorted.count {
+            if let only, only < sorted.count {
+                guard shows(only, seg) else { continue }
+                plan.append(PlanSegment(start: seg.start, end: seg.end, rate: 1, muted: false, caption: caption(only), pitchIndex: only, replay: false))
+                if replays, sorted[only].outcome?.isSwing ?? false,
+                   let w = replayWindow(pitch: only, segments: [seg], pitchTimes: times, timings: timings) {
+                    plan.append(PlanSegment(start: w.lowerBound, end: w.upperBound, rate: timings.replayRate, muted: true,
+                                            caption: "\(caption(only)) · Replay", pitchIndex: only, replay: true))
+                }
+                break
+            }
             plan.append(PlanSegment(start: seg.start, end: seg.end, rate: 1, muted: false, caption: caption(seg.pitch), pitchIndex: seg.pitch, replay: false))
             guard replays else { continue }
-            for i in sorted.indices where (sorted[i].outcome?.isSwing ?? false) && times[i] >= seg.start && times[i] <= seg.end {
+            for i in sorted.indices where (sorted[i].outcome?.isSwing ?? false) && shows(i, seg) {
                 guard let w = replayWindow(pitch: i, segments: [seg], pitchTimes: times, timings: timings) else { continue }
                 plan.append(PlanSegment(start: w.lowerBound, end: w.upperBound, rate: timings.replayRate, muted: true,
                                         caption: "\(caption(i)) · Replay", pitchIndex: i, replay: true))
             }
         }
         return plan
+    }
+
+    /// The ball in play "Just the hit" shows: the last one, as an index into
+    /// the pitches sorted by time.
+    static func hitPitch(_ pitches: [Pitch]) -> Int? {
+        pitches.sorted { $0.t < $1.t }.lastIndex { $0.outcome == .inPlay }
     }
 }

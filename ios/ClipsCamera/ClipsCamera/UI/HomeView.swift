@@ -20,8 +20,10 @@ struct HomeView: View {
     @State private var playing: PlayItem?
     /// A pitch reel open in the live player.
     @State private var reelPlaying: ReelItem?
-    /// Share was tapped on a reel: replays or real speed?
+    /// Share was tapped on a reel: the options sheet is open.
     @State private var shareChoice: ReelShareTarget?
+    /// Chosen there; made once the sheet has closed.
+    @State private var pendingShare: (id: UUID, options: ShareOptions)?
     /// The at-bat whose video is being fetched for the share sheet.
     @State private var sharing: UUID?
     @State private var shareError: String?
@@ -167,17 +169,18 @@ struct HomeView: View {
             ReelPlayerScreen(
                 item: item,
                 onRelabel: watching ? nil : { pitches in applyLabels(item.id, pitches) },
-                onShare: { replays, pitches in await shareReel(item.id, replays: replays, pitches: pitches) }
+                onShare: { options, pitches in await shareReel(item.id, options: options, pitches: pitches) }
             )
             .onAppear {
                 Orientation.lock(.allButUpsideDown)
                 TrimView.playWithSound()
             }
         }
-        .confirmationDialog("Share this at-bat", isPresented: Binding(get: { shareChoice != nil }, set: { if !$0 { shareChoice = nil } }),
-                            titleVisibility: .visible, presenting: shareChoice) { target in
-            Button("With slow-mo replays") { Task { await shareReel(target.id, replays: true, pitches: nil) } }
-            Button("Real speed only") { Task { await shareReel(target.id, replays: false, pitches: nil) } }
+        .sheet(item: $shareChoice, onDismiss: {
+            if let p = pendingShare { Task { await shareReel(p.id, options: p.options, pitches: nil) } }
+            pendingShare = nil
+        }) { target in
+            ShareOptionsSheet(availability: shareAvailability(target.id)) { pendingShare = (target.id, $0) }
         }
         .alert("Can't share", isPresented: .constant(shareError != nil), presenting: shareError) { _ in
             Button("OK") { shareError = nil }
@@ -667,7 +670,7 @@ struct HomeView: View {
     private func localReelItem(_ job: AtBatJob, labels: [Pitch]?) -> ReelItem? {
         guard let file = job.editFile, FileManager.default.fileExists(atPath: store.url(file).path),
               let segments = job.reelSegments else { return nil }
-        let request = store.shareRequest(job.id, replays: false)
+        let request = store.shareRequest(job.id, options: .standard)
         var pitches = request.pitches
         if let labels {
             for i in pitches.indices {
@@ -710,9 +713,20 @@ struct HomeView: View {
         return nil
     }
 
-    /// Render a reel for sharing (with or without slow-mo replays) and open
-    /// the share sheet. `pitches` are the player's labels, if it's open.
-    private func shareReel(_ id: UUID, replays: Bool, pitches: [Pitch]?) async {
+    /// What a reel has to share: a field view, a ball in play.
+    private func shareAvailability(_ id: UUID) -> ShareAvailability {
+        let job = store.jobs.first { $0.id == id }
+        if let (ab, _, _) = findAtBat(id) {
+            let pitches = ab.pitchList.isEmpty ? (job?.pitches ?? []) : ab.pitchList
+            return ShareAvailability(pitches: pitches, hasFieldView: ab.fieldViewPath != nil && ab.fieldViewStart != nil && ab.fieldViewEnd != nil)
+        }
+        guard let job else { return ShareAvailability(hasFieldView: false, hasHit: false) }
+        return ShareAvailability(pitches: job.pitches, hasFieldView: job.fieldView?.file != nil)
+    }
+
+    /// Render a reel for sharing with the chosen options and open the share
+    /// sheet. `pitches` are the player's labels, if it's open.
+    private func shareReel(_ id: UUID, options: ShareOptions, pitches: [Pitch]?) async {
         sharing = id
         defer { sharing = nil }
         do {
@@ -722,12 +736,12 @@ struct HomeView: View {
                 let job = store.jobs.first { $0.id == id }
                 if let job, job.isFilmed, let file = job.editFile, FileManager.default.fileExists(atPath: store.url(file).path),
                    job.reelSegments != nil {
-                    request = store.shareRequest(id, replays: replays)
+                    request = store.shareRequest(id, options: options)
                 } else {
                     guard let path = ab.playbackPath else { return }
                     request = ShareRequest(atBatID: id, reel: try await cachedDownload(path), segments: segments,
                                            pitches: ab.pitchList, result: ab.result,
-                                           card: TitleCard(title: "", subtitle: ""), replays: replays, reelKey: path)
+                                           card: TitleCard(title: "", subtitle: ""), options: options, reelKey: path)
                 }
                 let labels = pitches ?? (ab.pitchList.isEmpty ? request.pitches : ab.pitchList)
                 for i in request.pitches.indices {
@@ -746,7 +760,7 @@ struct HomeView: View {
                 let kid = kids.first { $0.id == kidID }?.firstName
                 name = Self.fileName(kid: kid, game: game.name, number: number, result: request.result, day: game.playedOn)
             } else if let job = store.jobs.first(where: { $0.id == id }) {
-                request = store.shareRequest(id, replays: replays)
+                request = store.shareRequest(id, options: options)
                 if let pitches {
                     for i in request.pitches.indices {
                         guard let l = pitches.first(where: { $0.id == request.pitches[i].id }) else { continue }
@@ -1147,7 +1161,7 @@ struct UploadStatus: View {
 
 // MARK: - Player
 
-/// A reel whose Share was tapped, waiting on the replays choice.
+/// A reel whose Share was tapped, waiting on the share options.
 struct ReelShareTarget: Identifiable {
     let id: UUID
 }

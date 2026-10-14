@@ -4,7 +4,8 @@ import SwiftUI
 // The at-bat player for pitch reels. Nothing is baked into the reel, so speed
 // and captions happen here: Play runs at real speed, Slow at ¼ (smooth on
 // swings, which keep every 240fps frame), switchable mid-play. The GameChanger
-// field view, a file of its own, is the last stretch of the same timeline.
+// field view, a file of its own, is the last stretch of the same timeline;
+// played into, it dissolves in over the reel's last frame, as shared videos do.
 // Controls lie over the video; a tap shows or hides them.
 
 /// An at-bat to play: its reel and pitches (at their reel times), and the
@@ -43,6 +44,8 @@ final class ReelPlayerModel {
     var fieldLength: Double { fieldView.map { max(0, $0.end - $0.start) } ?? 0 }
     var total: Double { reelLength + fieldLength }
     private(set) var onField = false
+    /// The field view is dissolving in after the reel played out (not a seek).
+    private(set) var dissolving = false
     /// 0 when paused.
     private(set) var rate: Float = 0
 
@@ -118,13 +121,29 @@ final class ReelPlayerModel {
     private func reelEnded() {
         guard !onField else { return }
         if rate > 0, let fieldPlayer, let fv = fieldView {
+            dissolving = true
             onField = true
             time = reelLength
             fieldPlayer.seek(to: CMTime(seconds: fv.start, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
             fieldPlayer.isMuted = rate != 1
+            fieldPlayer.volume = 0
             fieldPlayer.rate = rate
+            fadeInSound(fieldPlayer)
         } else {
             finished()
+        }
+    }
+
+    /// The field view's sound rises with its picture.
+    private func fadeInSound(_ player: AVPlayer) {
+        Task { [weak self] in
+            let steps = 10
+            for i in 1 ... steps {
+                try? await Task.sleep(for: .seconds(FieldViewRenderer.dissolve / Double(steps)))
+                guard self?.dissolving == true else { break }
+                player.volume = Float(i) / Float(steps)
+            }
+            player.volume = 1
         }
     }
 
@@ -209,6 +228,7 @@ final class ReelPlayerModel {
         seeking = true
         let field = fieldView != nil && t >= reelLength
         if field != onField {
+            dissolving = false
             active.pause()
             onField = field
             if rate > 0 {
@@ -256,18 +276,20 @@ struct ReelPlayerScreen: View {
     let item: ReelItem
     /// New labels, all pitches at their reel times; nil when watching only.
     let onRelabel: (([Pitch]) -> Void)?
-    /// Render and hand to the share sheet (with replays or not).
-    let onShare: (_ replays: Bool, _ pitches: [Pitch]) async -> Void
+    /// Render with the chosen options and hand to the share sheet.
+    let onShare: (_ options: ShareOptions, _ pitches: [Pitch]) async -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var model: ReelPlayerModel
     @State private var relabeling: Int?
     @State private var choosingShare = false
+    /// Chosen in the options sheet; made once the sheet has closed.
+    @State private var pendingShare: ShareOptions?
     @State private var sharing = false
     @State private var jogFrom: Double?
     @State private var controlsShown = true
 
-    init(item: ReelItem, onRelabel: (([Pitch]) -> Void)?, onShare: @escaping (Bool, [Pitch]) async -> Void) {
+    init(item: ReelItem, onRelabel: (([Pitch]) -> Void)?, onShare: @escaping (ShareOptions, [Pitch]) async -> Void) {
         self.item = item
         self.onRelabel = onRelabel
         self.onShare = onShare
@@ -318,17 +340,20 @@ struct ReelPlayerScreen: View {
             }
             .presentationDetents([.medium, .large])
         }
-        .confirmationDialog("Share this at-bat", isPresented: $choosingShare, titleVisibility: .visible) {
-            Button("With slow-mo replays") { share(replays: true) }
-            Button("Real speed only") { share(replays: false) }
+        .sheet(isPresented: $choosingShare, onDismiss: {
+            if let options = pendingShare { share(options) }
+            pendingShare = nil
+        }) {
+            ShareOptionsSheet(availability: ShareAvailability(pitches: model.pitches, hasFieldView: item.fieldView != nil)) {
+                pendingShare = $0
+            }
         }
     }
 
-    private func share(replays: Bool) {
-        model.pause()
+    private func share(_ options: ShareOptions) {
         sharing = true
         Task {
-            await onShare(replays, model.pitches)
+            await onShare(options, model.pitches)
             sharing = false
         }
     }
@@ -337,9 +362,13 @@ struct ReelPlayerScreen: View {
     /// controls; drag sideways to jog (the full width is two seconds).
     private var picture: some View {
         ZStack {
-            PlayerLayerView(player: model.reelPlayer).opacity(model.onField ? 0 : 1)
+            PlayerLayerView(player: model.reelPlayer)
             if let field = model.fieldPlayer {
-                PlayerLayerView(player: field).opacity(model.onField ? 1 : 0)
+                // On black, so the reel doesn't show around a field view of another shape.
+                PlayerLayerView(player: field)
+                    .background(Color.black)
+                    .opacity(model.onField ? 1 : 0)
+                    .animation(model.dissolving ? .linear(duration: FieldViewRenderer.dissolve) : nil, value: model.onField)
             }
             GeometryReader { geo in
                 Color.clear.contentShape(Rectangle())
@@ -389,7 +418,7 @@ struct ReelPlayerScreen: View {
             if sharing {
                 ProgressView().tint(.white).frame(width: 44, height: 44)
             } else {
-                Button { choosingShare = true } label: {
+                Button { model.pause(); choosingShare = true } label: {
                     Image(systemName: "square.and.arrow.up").frame(width: 44, height: 44).contentShape(Rectangle())
                 }
                 .accessibilityLabel("Share")

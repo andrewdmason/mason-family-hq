@@ -63,6 +63,44 @@ final class ReelTests: XCTestCase {
         XCTAssertEqual(QuickPlan.duration(plain), 7.5, accuracy: 0.001)
     }
 
+    func testSharePlanJustTheHit() {
+        let segments = [ReelSegment(start: 0, end: 3, fps: 60, pitch: 0), ReelSegment(start: 3, end: 7.5, fps: 240, pitch: 1)]
+        let reelPitches = [Pitch(t: 2, outcome: .foul), Pitch(t: 5, outcome: .inPlay, battedBall: .lineDrive, playResult: .single)]
+        XCTAssertEqual(ReelPlan.hitPitch(reelPitches), 1)
+        let plan = ReelPlan.sharePlan(segments: segments, pitches: reelPitches, result: .single, replays: true, only: 1)
+        XCTAssertEqual(plan.map(\.replay), [false, true], "the foul's replay is left out")
+        XCTAssertEqual(plan.map(\.pitchIndex), [1, 1])
+        XCTAssertEqual(plan[0].start, 3)
+        XCTAssertEqual(QuickPlan.duration(plan), 4.5 + 4.8, accuracy: 0.001)
+        let plain = ReelPlan.sharePlan(segments: segments, pitches: reelPitches, result: .single, replays: false, only: 1)
+        XCTAssertEqual(QuickPlan.duration(plain), 4.5, accuracy: 0.001)
+    }
+
+    func testShareChoicesFitTheAtBat() {
+        let strikeout = [Pitch(t: 1, outcome: .swingingStrike), Pitch(t: 2, outcome: .foul)]
+        let single = [Pitch(t: 1, outcome: .ball), Pitch(t: 2, outcome: .inPlay)]
+
+        let full = ShareAvailability(pitches: single, hasFieldView: true)
+        XCTAssertEqual(full.choices, [.whole, .hit, .pitches, .fieldView])
+        XCTAssertTrue(ShareContent.allCases.allSatisfy(full.offers))
+
+        // No ball in play: "Just the hit" is shown but can't be picked.
+        let noHit = ShareAvailability(pitches: strikeout, hasFieldView: true)
+        XCTAssertTrue(noHit.choices.contains(.hit))
+        XCTAssertFalse(noHit.offers(.hit))
+
+        // No field view: only the whole at-bat and the hit.
+        let noField = ShareAvailability(pitches: single, hasFieldView: false)
+        XCTAssertEqual(noField.choices, [.whole, .hit])
+        XCTAssertTrue(noField.offers(.hit), "the swing alone still makes a clip")
+
+        // A remembered choice that doesn't fit falls back to the whole at-bat, the rest kept.
+        let remembered = ShareOptions(content: .fieldView, slowMo: false, titleCard: false, captions: false)
+        XCTAssertEqual(remembered.fitted(to: noField), ShareOptions(content: .whole, slowMo: false, titleCard: false, captions: false))
+        XCTAssertEqual(ShareOptions(content: .hit).fitted(to: noHit).content, .whole)
+        XCTAssertEqual(remembered.fitted(to: full), remembered)
+    }
+
     // MARK: Rendering
 
     func testBuildsAReelAndSharesIt() async throws {
@@ -100,7 +138,7 @@ final class ReelTests: XCTestCase {
         let card = TitleCard.make(number: 2, result: .single, game: "vs Kabuki", playedOn: "2026-10-11")
         let reelPitches = [Pitch(t: 2, outcome: .ball), Pitch(t: 5, outcome: .inPlay, battedBall: .lineDrive, playResult: .single)]
         let request = ShareRequest(atBatID: UUID(), reel: out, segments: reel.segments, pitches: reelPitches, result: .single,
-                                   card: card, replays: true, reelKey: out.lastPathComponent, timings: .standard)
+                                   card: card, options: ShareOptions(), reelKey: out.lastPathComponent, timings: .standard)
         let shared = try await ShareRenderer.render(request)
         let sharedAsset = AVURLAsset(url: shared)
         let replayStart = 2 + 3 + 4.5
@@ -121,11 +159,36 @@ final class ReelTests: XCTestCase {
         try await EditRendererTests.makeClip(at: field, seconds: 4, fps: 30, width: 1280, height: 720, level: 200)
         defer { try? FileManager.default.removeItem(at: field) }
         var plain = request
-        plain.replays = false
+        plain.options.slowMo = false
         plain.fieldView = (field, 1, 3, "g/a/gamechanger.mov")
         let withField = try await ShareRenderer.render(plain)
         let fieldDuration = try await AVURLAsset(url: withField).load(.duration).seconds
-        XCTAssertEqual(fieldDuration, 2 + 7.5 + 2 - FieldViewRenderer.dissolve, accuracy: 0.1)
+        XCTAssertEqual(fieldDuration, 2 + 7.5 + 2, accuracy: 0.1)
+
+        // Just the hit, no title card: the in-play window, its replay, then the field view.
+        var hit = plain
+        hit.options = ShareOptions(content: .hit, slowMo: true, titleCard: false, captions: false)
+        let hitFile = try await ShareRenderer.render(hit)
+        let hitDuration = try await AVURLAsset(url: hitFile).load(.duration).seconds
+        XCTAssertEqual(hitDuration, 4.5 + 4.8 + 2, accuracy: 0.1)
+
+        // Pitches only drops the field view.
+        var closeOnly = plain
+        closeOnly.options.content = .pitches
+        let closeFile = try await ShareRenderer.render(closeOnly)
+        let closeDuration = try await AVURLAsset(url: closeFile).load(.duration).seconds
+        XCTAssertEqual(closeDuration, 2 + 7.5, accuracy: 0.1)
+
+        // GameChanger only, with and without its card.
+        var gcOnly = plain
+        gcOnly.options.content = .fieldView
+        let gcFile = try await ShareRenderer.render(gcOnly)
+        let gcDuration = try await AVURLAsset(url: gcFile).load(.duration).seconds
+        XCTAssertEqual(gcDuration, 2 + 2, accuracy: 0.1)
+        gcOnly.options.titleCard = false
+        let bareFile = try await ShareRenderer.render(gcOnly)
+        let bareDuration = try await AVURLAsset(url: bareFile).load(.duration).seconds
+        XCTAssertEqual(bareDuration, 2, accuracy: 0.1)
     }
 
     /// Presentation times of every frame in a track, without decoding.
