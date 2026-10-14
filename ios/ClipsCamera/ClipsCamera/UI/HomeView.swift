@@ -23,7 +23,7 @@ struct HomeView: View {
     /// Share was tapped on a reel: the options sheet is open.
     @State private var shareChoice: ReelShareTarget?
     /// Chosen there; made once the sheet has closed.
-    @State private var pendingShare: (id: UUID, options: ShareOptions)?
+    @State private var pendingShare: (id: UUID, options: ShareOptions, framing: Framing)?
     /// The at-bat whose video is being fetched for the share sheet.
     @State private var sharing: UUID?
     @State private var shareError: String?
@@ -168,8 +168,11 @@ struct HomeView: View {
         .fullScreenCover(item: $reelPlaying, onDismiss: { Orientation.lock(.portrait); showPendingImport() }) { item in
             ReelPlayerScreen(
                 item: item,
+                gameID: gameID(of: item.id),
                 onRelabel: watching ? nil : { pitches in applyLabels(item.id, pitches) },
-                onShare: { options, pitches in await shareReel(item.id, options: options, pitches: pitches) }
+                onShare: { options, framing, pitches in
+                    await shareReel(item.id, options: options, framing: framing, pitches: pitches)
+                }
             )
             .onAppear {
                 Orientation.lock(.allButUpsideDown)
@@ -177,10 +180,11 @@ struct HomeView: View {
             }
         }
         .sheet(item: $shareChoice, onDismiss: {
-            if let p = pendingShare { Task { await shareReel(p.id, options: p.options, pitches: nil) } }
+            if let p = pendingShare { Task { await shareReel(p.id, options: p.options, framing: p.framing, pitches: nil) } }
             pendingShare = nil
         }) { target in
-            ShareOptionsSheet(availability: shareAvailability(target.id)) { pendingShare = (target.id, $0) }
+            ShareOptionsSheet(availability: shareAvailability(target.id), atBatID: target.id, gameID: gameID(of: target.id),
+                              sources: { await framingSources(target.id) }) { pendingShare = (target.id, $0, $1) }
         }
         .alert("Can't share", isPresented: .constant(shareError != nil), presenting: shareError) { _ in
             Button("OK") { shareError = nil }
@@ -643,26 +647,28 @@ struct HomeView: View {
 
     /// Play a reel: from this phone when it's still here, else from Clips.
     private func openReel(_ ab: HistoryAtBat) {
-        let title = atBatTitle(ab.id)
-        if let job = store.jobs.first(where: { $0.id == ab.id }), job.isFilmed,
-           var item = localReelItem(job, labels: ab.pitchList) {
-            item.title = title
-            Task {
-                item.fieldView = await fieldViewPlayback(ab)
-                reelPlaying = item
-            }
-            return
-        }
-        guard let path = ab.playbackPath, let segments = ab.reel else { return }
         Task {
             do {
-                let url = try await model.clips.videoURL(path)
-                reelPlaying = ReelItem(id: ab.id, title: title, reel: url, segments: segments, pitches: ab.pitchList,
-                                       result: ab.result, fieldView: await fieldViewPlayback(ab))
+                if let item = try await reelItem(ab) { reelPlaying = item }
             } catch {
                 shareError = "Couldn't load the video — check your signal."
             }
         }
+    }
+
+    /// A Clips at-bat's reel, from this phone when it's still here.
+    private func reelItem(_ ab: HistoryAtBat) async throws -> ReelItem? {
+        let title = atBatTitle(ab.id)
+        if let job = store.jobs.first(where: { $0.id == ab.id }), job.isFilmed,
+           var item = localReelItem(job, labels: ab.pitchList) {
+            item.title = title
+            item.fieldView = await fieldViewPlayback(ab)
+            return item
+        }
+        guard let path = ab.playbackPath, let segments = ab.reel else { return nil }
+        let url = try await model.clips.videoURL(path)
+        return ReelItem(id: ab.id, title: title, reel: url, segments: segments, pitches: ab.pitchList,
+                        result: ab.result, fieldView: await fieldViewPlayback(ab))
     }
 
     /// A reel built on this phone, at its reel times; labels from Clips when
@@ -724,9 +730,28 @@ struct HomeView: View {
         return ShareAvailability(pitches: job.pitches, hasFieldView: job.fieldView?.file != nil)
     }
 
+    /// The game an at-bat is filed under.
+    private func gameID(of id: UUID) -> UUID? {
+        findAtBat(id)?.1.id ?? store.jobs.first { $0.id == id }?.game?.id
+    }
+
+    /// The footage a vertical share is framed from: the reel as the player
+    /// would play it.
+    private func framingSources(_ id: UUID) async -> FramingSources? {
+        let item: ReelItem?
+        if let (ab, _, _) = findAtBat(id) {
+            item = try? await reelItem(ab)
+        } else if let job = store.jobs.first(where: { $0.id == id }) {
+            item = localReelItem(job, labels: nil)
+        } else {
+            item = nil
+        }
+        return item.map { FramingSources(reel: $0.reel, segments: $0.segments, pitches: $0.pitches, fieldView: $0.fieldView) }
+    }
+
     /// Render a reel for sharing with the chosen options and open the share
     /// sheet. `pitches` are the player's labels, if it's open.
-    private func shareReel(_ id: UUID, options: ShareOptions, pitches: [Pitch]?) async {
+    private func shareReel(_ id: UUID, options: ShareOptions, framing: Framing, pitches: [Pitch]?) async {
         sharing = id
         defer { sharing = nil }
         do {
@@ -775,6 +800,7 @@ struct HomeView: View {
             } else {
                 return
             }
+            request.framing = framing
             let file = try await ShareRenderer.render(request)
             presentShare(copying: file, as: name)
         } catch {

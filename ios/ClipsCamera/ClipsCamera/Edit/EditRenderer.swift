@@ -36,6 +36,34 @@ struct TitleCard: Equatable {
     }
 }
 
+/// The finished video's shape: landscape as filmed, or vertical for Reels
+/// and Stories (the picture cropped to fill it).
+enum VideoShape: String, Codable {
+    case landscape, vertical
+
+    var size: CGSize { self == .landscape ? EditRenderer.size : CGSize(width: 1080, height: 1920) }
+
+    /// The part of a picture of `extent` that fills a frame of this shape:
+    /// full height (or full width, for a picture narrower than the frame),
+    /// slid sideways to sit around `centerX` (a fraction of the width) and
+    /// kept inside the picture.
+    static func fillBox(extent e: CGRect, frame: CGSize, centerX: Double) -> CGRect {
+        let aspect = frame.width / frame.height
+        if e.width / e.height <= aspect {
+            let h = e.width / aspect
+            return CGRect(x: e.minX, y: e.minY + (e.height - h) / 2, width: e.width, height: h)
+        }
+        let w = e.height * aspect
+        let x = min(max(e.minX, e.minX + CGFloat(centerX) * e.width - w / 2), e.maxX - w)
+        return CGRect(x: x, y: e.minY, width: w, height: e.height)
+    }
+
+    /// How wide a vertical crop is, as a fraction of a picture this shape.
+    static func verticalWidth(aspect: CGFloat) -> CGFloat {
+        min(1, (9.0 / 16.0) / aspect)
+    }
+}
+
 struct RenderedEdit {
     var url: URL
     var duration: Double
@@ -93,6 +121,10 @@ enum EditRenderer {
         card: TitleCard?,
         timings: EditTimings,
         replayCrop: CGRect? = nil,
+        shape: VideoShape = .landscape,
+        /// Where the picture sits in a vertical crop: the middle of the kept
+        /// strip, as a fraction of the width.
+        cropCenter: Double = 0.5,
         to out: URL
     ) async throws -> (duration: Double, cardLength: Double, bytes: Int64) {
         let asset = AVURLAsset(url: source)
@@ -117,8 +149,8 @@ enum EditRenderer {
             video.scaleTimeRange(CMTimeRange(start: .zero, duration: oneFrame.duration), toDuration: range.duration)
             audio?.insertEmptyTimeRange(range)
             instructions.append(CaptionInstruction(
-                timeRange: range, sourceTrackID: nil, rotate180: false, crop: nil,
-                overlay: CaptionArt.titleCard(card)
+                timeRange: range, sourceTrackID: nil, rotate180: false, crop: nil, fillCenter: nil,
+                overlay: CaptionArt.titleCard(card, size: shape.size)
             ))
             cursor = range.duration
         }
@@ -143,8 +175,9 @@ enum EditRenderer {
                 sourceTrackID: video.trackID,
                 rotate180: rotation == 180,
                 crop: seg.replay ? replayCrop : nil,
+                fillCenter: shape == .vertical ? cropCenter : nil,
                 // No caption, no pill (a shared video with captions off).
-                overlay: seg.caption.isEmpty ? nil : CaptionArt.caption(seg.caption, replay: seg.replay)
+                overlay: seg.caption.isEmpty ? nil : CaptionArt.caption(seg.caption, replay: seg.replay, size: shape.size)
             ))
             cursor = CMTimeAdd(cursor, played)
         }
@@ -152,7 +185,7 @@ enum EditRenderer {
         var config = AVVideoComposition.Configuration()
         config.customVideoCompositorClass = CaptionCompositor.self
         config.frameDuration = CMTime(value: 1, timescale: fps)
-        config.renderSize = size
+        config.renderSize = shape.size
         config.instructions = instructions
         let videoComposition = AVVideoComposition(configuration: config)
 
@@ -194,7 +227,7 @@ enum EditRenderer {
     }
 
     /// Draws the composition through its compositor and writes the 1080p60
-    /// file, with the title card's length marked in it. Several audio tracks
+    /// file (the composition's size), with the title card's length marked in it. Several audio tracks
     /// are mixed down (with `audioMix`'s fades).
     static func encode(
         composition: AVComposition,
@@ -235,8 +268,8 @@ enum EditRenderer {
         writer.metadata = [IntroMark.item(seconds: intro)]
         let videoIn = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: Int(size.width),
-            AVVideoHeightKey: Int(size.height),
+            AVVideoWidthKey: Int(videoComposition.renderSize.width),
+            AVVideoHeightKey: Int(videoComposition.renderSize.height),
             AVVideoCompressionPropertiesKey: [
                 AVVideoAverageBitRateKey: 12_000_000,
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
@@ -325,14 +358,19 @@ final class CaptionInstruction: NSObject, AVVideoCompositionInstructionProtocol 
     /// Zoom box as fractions of the picture, origin top-left (website-uploaded
     /// at-bats' replay zoom).
     let crop: CGRect?
+    /// Crop to the frame's shape around this point (a fraction of the width)
+    /// rather than stretching to it: a vertical video.
+    let fillCenter: Double?
     let overlay: CIImage?
 
-    init(timeRange: CMTimeRange, sourceTrackID: CMPersistentTrackID?, rotate180: Bool, crop: CGRect?, overlay: CIImage?) {
+    init(timeRange: CMTimeRange, sourceTrackID: CMPersistentTrackID?, rotate180: Bool, crop: CGRect?,
+         fillCenter: Double? = nil, overlay: CIImage?) {
         self.timeRange = timeRange
         self.sourceTrackID = sourceTrackID
         self.requiredSourceTrackIDs = sourceTrackID.map { [NSNumber(value: $0)] } ?? []
         self.rotate180 = rotate180
         self.crop = crop
+        self.fillCenter = fillCenter
         self.overlay = overlay
     }
 }
@@ -356,7 +394,7 @@ final class CaptionCompositor: NSObject, AVVideoCompositing {
             request.finish(with: RenderError.failed("compositor setup"))
             return
         }
-        let frame = CGRect(origin: .zero, size: EditRenderer.size)
+        let frame = CGRect(origin: .zero, size: request.renderContext.size)
         var image = CIImage(color: .black).cropped(to: frame)
         if let id = instruction.sourceTrackID, let source = request.sourceFrame(byTrackID: id) {
             var src = CIImage(cvPixelBuffer: source)
@@ -368,6 +406,10 @@ final class CaptionCompositor: NSObject, AVVideoCompositing {
             if let c = instruction.crop {
                 let e = src.extent
                 let box = CGRect(x: c.minX * e.width, y: (1 - c.maxY) * e.height, width: c.width * e.width, height: c.height * e.height)
+                src = src.cropped(to: box).transformed(by: CGAffineTransform(translationX: -box.minX, y: -box.minY))
+            }
+            if let center = instruction.fillCenter {
+                let box = VideoShape.fillBox(extent: src.extent, frame: frame.size, centerX: center)
                 src = src.cropped(to: box).transformed(by: CGAffineTransform(translationX: -box.minX, y: -box.minY))
             }
             let e = src.extent
@@ -390,9 +432,15 @@ final class CaptionCompositor: NSObject, AVVideoCompositing {
 
 enum CaptionArt {
     /// The caption pill, bottom-left, as a full-frame transparent overlay;
-    /// orange during a replay.
-    static func caption(_ text: String, replay: Bool) -> CIImage? {
-        let font = UIFont.systemFont(ofSize: 40, weight: .semibold)
+    /// orange during a replay. In a vertical video it sits a quarter of the
+    /// way up, clear of what Instagram lays over the bottom of a Reel.
+    static func caption(_ text: String, replay: Bool, size: CGSize = EditRenderer.size) -> CIImage? {
+        let tall = size.height > size.width
+        var font = UIFont.systemFont(ofSize: tall ? 46 : 40, weight: .semibold)
+        // In a vertical video, clear of Instagram's buttons down the right.
+        let room = size.width - 48 - 56 - (tall ? 140 : 0)
+        let wide = (text as NSString).size(withAttributes: [.font: font]).width
+        if wide > room { font = UIFont.systemFont(ofSize: (font.pointSize * room / wide).rounded(.down), weight: .semibold) }
         let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.white]
         let textSize = (text as NSString).size(withAttributes: attrs)
         let pad = CGSize(width: 28, height: 14)
@@ -404,25 +452,41 @@ enum CaptionArt {
             (text as NSString).draw(at: CGPoint(x: pill.minX + pad.width, y: pad.height), withAttributes: attrs)
         }
         // CIImage's origin is bottom-left: lift the pill off the bottom edge.
-        return image.map { CIImage(cgImage: $0).transformed(by: CGAffineTransform(translationX: 0, y: 48)) }
+        let lift: CGFloat = tall ? (size.height * 0.25).rounded() : 48
+        return image.map { CIImage(cgImage: $0).transformed(by: CGAffineTransform(translationX: 0, y: lift)) }
     }
 
     /// The opening card, laid out like the website's exports (same sizes and
-    /// spacing) so both kinds of clip open the same way.
-    static func titleCard(_ card: TitleCard) -> CIImage? {
-        let size = EditRenderer.size
-        let titleAttrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 110), .foregroundColor: UIColor.white]
-        let subAttrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 52), .foregroundColor: UIColor(white: 1, alpha: 170 / 255)]
+    /// spacing) so both kinds of clip open the same way. A subtitle too wide
+    /// for the frame (a vertical one, a long game name) breaks into its parts,
+    /// game over date; any line still too wide is set smaller to fit.
+    static func titleCard(_ card: TitleCard, size: CGSize = EditRenderer.size) -> CIImage? {
+        let room = size.width - 120
+        func width(_ text: String, _ font: UIFont) -> CGFloat { (text as NSString).size(withAttributes: [.font: font]).width }
+        func attrs(_ text: String, size points: CGFloat, alpha: CGFloat) -> [NSAttributedString.Key: Any] {
+            var font = UIFont.systemFont(ofSize: points)
+            let w = width(text, font)
+            if w > room { font = UIFont.systemFont(ofSize: (points * room / w).rounded(.down)) }
+            return [.font: font, .foregroundColor: UIColor(white: 1, alpha: alpha)]
+        }
+        let subPoints: CGFloat = 52
+        var subLines = card.subtitle.isEmpty ? [] : [card.subtitle]
+        if width(card.subtitle, .systemFont(ofSize: subPoints)) > room {
+            subLines = card.subtitle.components(separatedBy: " · ")
+        }
+        let lines = [(card.title, attrs(card.title, size: 110, alpha: 1))]
+            + subLines.map { ($0, attrs($0, size: subPoints, alpha: 170 / 255)) }
         let image = draw(size) { _ in
             UIColor.black.setFill()
             UIRectFill(CGRect(origin: .zero, size: size))
-            let t = (card.title as NSString).size(withAttributes: titleAttrs)
-            let s = card.subtitle.isEmpty ? .zero : (card.subtitle as NSString).size(withAttributes: subAttrs)
-            let gap: CGFloat = card.subtitle.isEmpty ? 0 : 36
-            let top = (size.height - t.height - gap - s.height) / 2
-            (card.title as NSString).draw(at: CGPoint(x: (size.width - t.width) / 2, y: top), withAttributes: titleAttrs)
-            if !card.subtitle.isEmpty {
-                (card.subtitle as NSString).draw(at: CGPoint(x: (size.width - s.width) / 2, y: top + t.height + gap), withAttributes: subAttrs)
+            let sizes = lines.map { ($0.0 as NSString).size(withAttributes: $0.1) }
+            // 36 between the title and the subtitle, 12 between subtitle lines.
+            let gaps = lines.indices.dropFirst().map { $0 == 1 ? CGFloat(36) : 12 }
+            var y = (size.height - sizes.map(\.height).reduce(0, +) - gaps.reduce(0, +)) / 2
+            for (i, line) in lines.enumerated() {
+                if i > 0 { y += gaps[i - 1] }
+                (line.0 as NSString).draw(at: CGPoint(x: (size.width - sizes[i].width) / 2, y: y), withAttributes: line.1)
+                y += sizes[i].height
             }
         }
         return image.map { CIImage(cgImage: $0) }
