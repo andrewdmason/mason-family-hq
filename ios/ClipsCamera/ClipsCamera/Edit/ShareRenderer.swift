@@ -82,7 +82,40 @@ struct ShareOptions: Codable, Equatable {
     }
 }
 
-/// What an at-bat has to share.
+/// One at-bat a share is made from, as the share sheet sees it.
+struct ShareItem: Equatable {
+    var id: UUID
+    var gameID: UUID?
+    var segments: [ReelSegment]
+    /// At their reel times.
+    var pitches: [Pitch]
+    /// The kept stretch of the GameChanger clip; nil without one.
+    var fieldViewLength: Double?
+
+    var hasHit: Bool { ReelPlan.hitPitch(pitches) != nil }
+    var hasFieldView: Bool { fieldViewLength != nil }
+
+    /// Whether these options use this at-bat: "Just the hit" and
+    /// "GameChanger only" leave out at-bats without one.
+    func isIncluded(_ o: ShareOptions) -> Bool {
+        switch o.content {
+        case .hit: hasHit
+        case .fieldView: hasFieldView
+        case .whole, .pitches: true
+        }
+    }
+
+    /// Its stretch of the finished video (no title card), in seconds.
+    func length(_ o: ShareOptions, timings: EditTimings = AppSettings.shared.timings) -> Double {
+        let plan = o.showsCloseup ? ShareRenderer.closeupPlan(segments: segments, pitches: pitches, result: nil,
+                                                              options: o, timings: timings) : []
+        let closeup = QuickPlan.duration(plan)
+        // The dissolve into the field view plays over its start, adding nothing.
+        return closeup + (o.showsFieldView ? (fieldViewLength ?? 0) : 0)
+    }
+}
+
+/// What an at-bat (or a set of them) has to share.
 struct ShareAvailability: Equatable {
     var hasFieldView: Bool
     var hasHit: Bool
@@ -94,6 +127,11 @@ struct ShareAvailability: Equatable {
 
     init(pitches: [Pitch], hasFieldView: Bool) {
         self.init(hasFieldView: hasFieldView, hasHit: ReelPlan.hitPitch(pitches) != nil)
+    }
+
+    /// Any of them has it.
+    init(items: [ShareItem]) {
+        self.init(hasFieldView: items.contains(where: \.hasFieldView), hasHit: items.contains(where: \.hasHit))
     }
 
     /// The choices shown: without a field view, "Pitches only" would be the
@@ -165,16 +203,10 @@ enum ShareRenderer {
             _ = try await FieldViewRenderer.alone(card: card, cardSeconds: r.timings.titleCard, fieldView: fv.url,
                                                   start: fv.start, end: fv.end, shape: shape, fieldFill: fieldFill, to: partial)
         } else {
-            var only: Int?
-            if r.options.content == .hit {
-                guard let hit = ReelPlan.hitPitch(r.pitches) else { throw RenderError.failed("this at-bat has no ball in play") }
-                only = hit
+            if r.options.content == .hit, ReelPlan.hitPitch(r.pitches) == nil {
+                throw RenderError.failed("this at-bat has no ball in play")
             }
-            var plan = ReelPlan.sharePlan(segments: r.segments, pitches: r.pitches, result: r.result,
-                                          replays: r.options.slowMo, only: only, timings: r.timings)
-            if !r.options.captions {
-                for i in plan.indices { plan[i].caption = "" }
-            }
+            let plan = closeupPlan(segments: r.segments, pitches: r.pitches, result: r.result, options: r.options, timings: r.timings)
             if let fv = fieldView {
                 let closeup = folder.appendingPathComponent("closeup-\(UUID().uuidString).mp4")
                 defer { try? FileManager.default.removeItem(at: closeup) }
@@ -188,6 +220,32 @@ enum ShareRenderer {
             }
         }
         try FileManager.default.moveItem(at: partial, to: out)
+        return out
+    }
+
+    /// The close-up's plan for these options, in reel time: every pitch, or
+    /// just the ball in play, with or without slow-mo and captions.
+    static func closeupPlan(segments: [ReelSegment], pitches: [Pitch], result: AtBatResult?,
+                            options o: ShareOptions, timings: EditTimings) -> [PlanSegment] {
+        let only = o.content == .hit ? ReelPlan.hitPitch(pitches) : nil
+        var plan = ReelPlan.sharePlan(segments: segments, pitches: pitches, result: result,
+                                      replays: o.slowMo, only: only, timings: timings)
+        if !o.captions {
+            for i in plan.indices { plan[i].caption = "" }
+        }
+        return plan
+    }
+
+    /// Where the slow-motion replays fall in the shared video (no title
+    /// card), so a reel of several at-bats can tint their captions.
+    static func replayTimes(_ r: ShareRequest) -> [ClosedRange<Double>] {
+        guard r.options.showsCloseup else { return [] }
+        var at = 0.0
+        var out: [ClosedRange<Double>] = []
+        for seg in closeupPlan(segments: r.segments, pitches: r.pitches, result: r.result, options: r.options, timings: r.timings) {
+            if seg.replay { out.append(at ... at + seg.playLength) }
+            at += seg.playLength
+        }
         return out
     }
 

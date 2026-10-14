@@ -24,6 +24,14 @@ struct HomeView: View {
     @State private var shareChoice: ReelShareTarget?
     /// Chosen there; made once the sheet has closed.
     @State private var pendingShare: (id: UUID, options: ShareOptions, framing: Framing)?
+    /// Picking at-bats for a highlight reel (Select mode).
+    @State private var selecting = false
+    @State private var selected: Set<UUID> = []
+    /// The picked at-bats' share sheet is open.
+    @State private var choosingBatch = false
+    @State private var pendingBatch: (options: ShareOptions, framing: Framing)?
+    /// "Making 2 of 6…" while a highlight reel is made.
+    @State private var batchProgress: String?
     /// The at-bat whose video is being fetched for the share sheet.
     @State private var sharing: UUID?
     @State private var shareError: String?
@@ -102,7 +110,24 @@ struct HomeView: View {
                         Button { showingSettings = true } label: { Image(systemName: "gearshape") }
                     }
                 }
-                if !watching {
+                // Share: pick at-bats for a highlight reel (Done leaves).
+                if currentKid != nil && kidID != Self.unfiledTab {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            selecting.toggle()
+                            selected = []
+                        } label: {
+                            if selecting { Text("Done") } else { Image(systemName: "square.and.arrow.up") }
+                        }
+                        .disabled(batchProgress != nil)
+                        .accessibilityLabel(selecting ? "Done" : "Share at-bats")
+                    }
+                    // Its own pill, apart from +.
+                    if !watching && !selecting {
+                        ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                    }
+                }
+                if !watching && !selecting {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
                             Button { newGameFor = currentKid } label: { Label("New game", systemImage: "baseball.diamond.bases") }
@@ -116,6 +141,9 @@ struct HomeView: View {
                 }
             }
             .refreshable { await load() }
+            .safeAreaInset(edge: .bottom) {
+                if selecting { selectionBar }
+            }
             .overlay {
                 if kids.isEmpty && model.clips.canWatch && loadError == nil {
                     ProgressView()
@@ -131,7 +159,11 @@ struct HomeView: View {
             await update.check()
             await loadKids()
         }
-        .onChange(of: kidID) { Task { await load() } }
+        .onChange(of: kidID) {
+            selecting = false
+            selected = []
+            Task { await load() }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { store.resume(); takeShared(); Task { await load(); await update.check() } }
             if phase == .background && cameraOpen { model.wentToBackground() }
@@ -179,11 +211,21 @@ struct HomeView: View {
                 TrimView.playWithSound()
             }
         }
+        .sheet(isPresented: $choosingBatch, onDismiss: {
+            if let p = pendingBatch { Task { await shareBatch(options: p.options, framing: p.framing) } }
+            pendingBatch = nil
+        }) {
+            let entries = batchEntries
+            ShareOptionsSheet(items: entries.map(\.item), sources: {
+                guard let first = entries.first else { return nil }
+                return await framingSources(first.atBat.id)
+            }) { pendingBatch = ($0, $1) }
+        }
         .sheet(item: $shareChoice, onDismiss: {
             if let p = pendingShare { Task { await shareReel(p.id, options: p.options, framing: p.framing, pitches: nil) } }
             pendingShare = nil
         }) { target in
-            ShareOptionsSheet(availability: shareAvailability(target.id), atBatID: target.id, gameID: gameID(of: target.id),
+            ShareOptionsSheet(items: shareItem(target.id).map { [$0] } ?? [],
                               sources: { await framingSources(target.id) }) { pendingShare = (target.id, $0, $1) }
         }
         .alert("Can't share", isPresented: .constant(shareError != nil), presenting: shareError) { _ in
@@ -316,7 +358,17 @@ struct HomeView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(section.name).font(.title3).fontDesign(.serif).lineLimit(1)
                     Spacer(minLength: 8)
-                    Text(formatDay(section.playedOn)).font(.footnote).foregroundStyle(.secondary)
+                    let pickable = Set(section.atBats.filter(\.isReel).map(\.id))
+                    if selecting && !pickable.isEmpty {
+                        let all = pickable.isSubset(of: selected)
+                        Button(all ? "Deselect all" : "Select all") {
+                            if all { selected.subtract(pickable) } else { selected.formUnion(pickable) }
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .disabled(batchProgress != nil)
+                    } else {
+                        Text(formatDay(section.playedOn)).font(.footnote).foregroundStyle(.secondary)
+                    }
                 }
                 CardGrid {
                     ForEach(section.cards) { card in
@@ -328,8 +380,9 @@ struct HomeView: View {
                                         sharing: sharing == ab.id || fetchingFieldView == ab.id,
                                         rebuilding: isRebuilding(ab.id),
                                         updateFailed: updateFailure(ab.id) != nil,
+                                        mark: !selecting ? .none : !ab.isReel ? .unavailable : selected.contains(ab.id) ? .on : .off,
                                         onRetry: { store.retry(ab.id) },
-                                        onOpen: { open(ab) },
+                                        onOpen: { selecting ? toggle(ab) : open(ab) },
                                         onShare: { share(ab, game: section, number: number) },
                                         onEdit: !watching && ab.isCamera && !ab.isFieldOnly && !isRebuilding(ab.id) ? { edit(ab, title: "AB \(number) · \(section.name)") } : nil,
                                         onAddFieldView: !watching && canChange && !ab.hasFieldView ? { pickingFor = target; choosingVideo = true } : nil,
@@ -338,8 +391,12 @@ struct HomeView: View {
                                         onDelete: watching ? nil : { deleting = (ab, section, number) })
                         case .local(let job):
                             localCard(job)
+                                .opacity(selecting ? 0.4 : 1)
+                                .allowsHitTesting(!selecting)
                         case .film(let game):
                             FilmCard { film(game) }
+                                .opacity(selecting ? 0.4 : 1)
+                                .allowsHitTesting(!selecting)
                         }
                     }
                 }
@@ -414,9 +471,9 @@ struct HomeView: View {
         kidID = sebastian.id
         let json = """
         [{"id":"\(UUID())","name":"vs Kabuki","played_on":"2026-10-11","clip_at_bats":[
-          {"id":"\(UUID())","source":"camera","status":"ready","result":"1B","recorded_at":"2026-10-11T16:02:00Z","created_at":"2026-10-11T16:02:00Z","clip_pitches":[{"outcome":"ball"},{"outcome":"foul"},{"outcome":"in_play"}]},
-          {"id":"\(UUID())","source":"camera","status":"ready","result":"KL","recorded_at":"2026-10-11T16:40:00Z","created_at":"2026-10-11T16:40:00Z","clip_pitches":[{"outcome":"called_strike"},{"outcome":"swinging_strike"},{"outcome":"ball"},{"outcome":"called_strike"}]},
-          {"id":"\(UUID())","source":"camera","status":"ready","result":"2B","recorded_at":"2026-10-11T17:20:00Z","created_at":"2026-10-11T17:20:00Z","field_view_path":"g/a/gamechanger-1.mp4","closeup_path":"g/a/closeup.mp4","clip_pitches":[{"outcome":"foul"},{"outcome":"in_play"}]},
+          {"id":"\(UUID())","source":"camera","status":"ready","result":"1B","reel":{"segments":[{"start":0,"end":3,"fps":60,"pitch":0},{"start":3,"end":7.5,"fps":240,"pitch":1}]},"recorded_at":"2026-10-11T16:02:00Z","created_at":"2026-10-11T16:02:00Z","clip_pitches":[{"outcome":"ball"},{"outcome":"foul"},{"outcome":"in_play"}]},
+          {"id":"\(UUID())","source":"camera","status":"ready","result":"KL","reel":{"segments":[{"start":0,"end":3,"fps":60,"pitch":0},{"start":3,"end":7.5,"fps":240,"pitch":1}]},"recorded_at":"2026-10-11T16:40:00Z","created_at":"2026-10-11T16:40:00Z","clip_pitches":[{"outcome":"called_strike"},{"outcome":"swinging_strike"},{"outcome":"ball"},{"outcome":"called_strike"}]},
+          {"id":"\(UUID())","source":"camera","status":"ready","result":"2B","reel":{"segments":[{"start":0,"end":3,"fps":60,"pitch":0},{"start":3,"end":7.5,"fps":240,"pitch":1}]},"field_view_start_s":1,"field_view_end_s":5,"recorded_at":"2026-10-11T17:20:00Z","created_at":"2026-10-11T17:20:00Z","field_view_path":"g/a/gamechanger-1.mp4","closeup_path":"g/a/closeup.mp4","clip_pitches":[{"outcome":"foul"},{"outcome":"in_play"}]},
           {"id":"\(UUID())","source":"camera","status":"ready","result":"GO","recorded_at":"2026-10-11T17:50:00Z","created_at":"2026-10-11T17:50:00Z","field_view_path":"g/b/gamechanger-2.mp4","clip_pitches":[]}]},
          {"id":"\(UUID())","name":"Merchants Scrimmage","played_on":"2026-09-26","clip_at_bats":[
           {"id":"\(UUID())","source":"upload","status":"ready","result":"FO","recorded_at":"2026-09-26T17:00:00Z","created_at":"2026-09-26T17:00:00Z","clip_pitches":[{"outcome":"ball"},{"outcome":"in_play"}]}]}]
@@ -426,6 +483,20 @@ struct HomeView: View {
         history[sebastian.id] = (try? decoder.decode([HistoryGame].self, from: Data(json.utf8))) ?? []
         if let g = history[sebastian.id]?.first {
             model.settings.setCurrentGame(GameChoice(id: g.id, kid: sebastian, name: g.name, playedOn: GameChoice.day(Date()), priorAtBats: 2))
+        }
+        // `-demoHome -demoSelect`: Select mode with the first game's reels
+        // picked (add `-demoBatchSheet` for their share sheet).
+        if ProcessInfo.processInfo.arguments.contains("-demoSelect"), let g = history[sebastian.id]?.first {
+            // After the kid's tab has settled (switching tabs clears a selection).
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                selecting = true
+                selected = Set(g.atBats.filter(\.isReel).map(\.id))
+                if ProcessInfo.processInfo.arguments.contains("-demoBatchSheet") {
+                    try? await Task.sleep(for: .seconds(1))
+                    choosingBatch = true
+                }
+            }
         }
         // `-demoHome -demo`: straight into the camera, mid-at-bat.
         if ProcessInfo.processInfo.arguments.contains("-demo") { cameraOpen = true }
@@ -719,15 +790,22 @@ struct HomeView: View {
         return nil
     }
 
-    /// What a reel has to share: a field view, a ball in play.
-    private func shareAvailability(_ id: UUID) -> ShareAvailability {
-        let job = store.jobs.first { $0.id == id }
-        if let (ab, _, _) = findAtBat(id) {
-            let pitches = ab.pitchList.isEmpty ? (job?.pitches ?? []) : ab.pitchList
-            return ShareAvailability(pitches: pitches, hasFieldView: ab.fieldViewPath != nil && ab.fieldViewStart != nil && ab.fieldViewEnd != nil)
-        }
-        guard let job else { return ShareAvailability(hasFieldView: false, hasHit: false) }
-        return ShareAvailability(pitches: job.pitches, hasFieldView: job.fieldView?.file != nil)
+    /// A reel as the share sheet sees it.
+    private func shareItem(_ id: UUID) -> ShareItem? {
+        if let (ab, game, _) = findAtBat(id) { return shareItem(ab, game: game) }
+        guard let job = store.jobs.first(where: { $0.id == id }), let segments = job.reelSegments else { return nil }
+        let fv = job.fieldView.flatMap { $0.file == nil ? nil : $0.end - $0.start }
+        return ShareItem(id: id, gameID: job.game?.id, segments: segments,
+                         pitches: store.shareRequest(id, options: .standard).pitches, fieldViewLength: fv)
+    }
+
+    private func shareItem(_ ab: HistoryAtBat, game: GameSection) -> ShareItem? {
+        guard let segments = ab.reel else { return nil }
+        let job = store.jobs.first { $0.id == ab.id }
+        let pitches = ab.pitchList.isEmpty ? (job?.pitches ?? []) : ab.pitchList
+        var fv: Double?
+        if ab.fieldViewPath != nil, let start = ab.fieldViewStart, let end = ab.fieldViewEnd { fv = max(0, end - start) }
+        return ShareItem(id: ab.id, gameID: game.id, segments: segments, pitches: pitches, fieldViewLength: fv)
     }
 
     /// The game an at-bat is filed under.
@@ -755,57 +833,162 @@ struct HomeView: View {
         sharing = id
         defer { sharing = nil }
         do {
-            var request: ShareRequest
-            var name: String
-            if let (ab, game, number) = findAtBat(id), let segments = ab.reel {
-                let job = store.jobs.first { $0.id == id }
-                if let job, job.isFilmed, let file = job.editFile, FileManager.default.fileExists(atPath: store.url(file).path),
-                   job.reelSegments != nil {
-                    request = store.shareRequest(id, options: options)
-                } else {
-                    guard let path = ab.playbackPath else { return }
-                    request = ShareRequest(atBatID: id, reel: try await cachedDownload(path), segments: segments,
-                                           pitches: ab.pitchList, result: ab.result,
-                                           card: TitleCard(title: "", subtitle: ""), options: options, reelKey: path)
-                }
-                let labels = pitches ?? (ab.pitchList.isEmpty ? request.pitches : ab.pitchList)
-                for i in request.pitches.indices {
-                    guard let l = labels.first(where: { $0.id == request.pitches[i].id }) else { continue }
-                    request.pitches[i].outcome = l.outcome
-                    request.pitches[i].battedBall = l.battedBall
-                    request.pitches[i].playResult = l.playResult
-                }
-                request.result = Scorebook.outcome(request.pitches)?.result ?? ab.result
-                request.card = TitleCard.make(number: number, result: request.result, game: game.name, playedOn: game.playedOn)
-                if let fvPath = ab.fieldViewPath, let start = ab.fieldViewStart, let end = ab.fieldViewEnd {
-                    var clip = store.fieldViewFile(id)
-                    if clip == nil { clip = try await cachedDownload(fvPath) }
-                    request.fieldView = (clip!, start, end, fvPath)
-                }
-                let kid = kids.first { $0.id == kidID }?.firstName
-                name = Self.fileName(kid: kid, game: game.name, number: number, result: request.result, day: game.playedOn)
-            } else if let job = store.jobs.first(where: { $0.id == id }) {
-                request = store.shareRequest(id, options: options)
-                if let pitches {
-                    for i in request.pitches.indices {
-                        guard let l = pitches.first(where: { $0.id == request.pitches[i].id }) else { continue }
-                        request.pitches[i].outcome = l.outcome
-                        request.pitches[i].battedBall = l.battedBall
-                        request.pitches[i].playResult = l.playResult
-                    }
-                    request.result = Scorebook.outcome(request.pitches)?.result ?? job.result
-                }
-                name = Self.fileName(kid: job.game?.kid.firstName, game: job.game?.name, number: store.number(of: job) ?? 1,
-                                     result: request.result, day: job.game?.playedOn)
-            } else {
-                return
-            }
-            request.framing = framing
+            guard let (request, name) = try await shareRequest(id, options: options, framing: framing, pitches: pitches) else { return }
             let file = try await ShareRenderer.render(request)
             presentShare(copying: file, as: name)
         } catch {
             shareError = "Couldn't make the video: \(error.localizedDescription)"
         }
+    }
+
+    /// Everything a reel's shared video is made from (fetching the reel and
+    /// field view from Clips when they're not on this phone), and its file name.
+    private func shareRequest(_ id: UUID, options: ShareOptions, framing: Framing, pitches: [Pitch]?) async throws -> (ShareRequest, String)? {
+        var request: ShareRequest
+        var name: String
+        if let (ab, game, number) = findAtBat(id), let segments = ab.reel {
+            let job = store.jobs.first { $0.id == id }
+            if let job, job.isFilmed, let file = job.editFile, FileManager.default.fileExists(atPath: store.url(file).path),
+               job.reelSegments != nil {
+                request = store.shareRequest(id, options: options)
+            } else {
+                guard let path = ab.playbackPath else { return nil }
+                request = ShareRequest(atBatID: id, reel: try await cachedDownload(path), segments: segments,
+                                       pitches: ab.pitchList, result: ab.result,
+                                       card: TitleCard(title: "", subtitle: ""), options: options, reelKey: path)
+            }
+            let labels = pitches ?? (ab.pitchList.isEmpty ? request.pitches : ab.pitchList)
+            for i in request.pitches.indices {
+                guard let l = labels.first(where: { $0.id == request.pitches[i].id }) else { continue }
+                request.pitches[i].outcome = l.outcome
+                request.pitches[i].battedBall = l.battedBall
+                request.pitches[i].playResult = l.playResult
+            }
+            request.result = Scorebook.outcome(request.pitches)?.result ?? ab.result
+            request.card = TitleCard.make(number: number, result: request.result, game: game.name, playedOn: game.playedOn)
+            if let fvPath = ab.fieldViewPath, let start = ab.fieldViewStart, let end = ab.fieldViewEnd {
+                var clip = store.fieldViewFile(id)
+                if clip == nil { clip = try await cachedDownload(fvPath) }
+                request.fieldView = (clip!, start, end, fvPath)
+            }
+            let kid = kids.first { $0.id == kidID }?.firstName
+            name = Self.fileName(kid: kid, game: game.name, number: number, result: request.result, day: game.playedOn)
+        } else if let job = store.jobs.first(where: { $0.id == id }) {
+            request = store.shareRequest(id, options: options)
+            if let pitches {
+                for i in request.pitches.indices {
+                    guard let l = pitches.first(where: { $0.id == request.pitches[i].id }) else { continue }
+                    request.pitches[i].outcome = l.outcome
+                    request.pitches[i].battedBall = l.battedBall
+                    request.pitches[i].playResult = l.playResult
+                }
+                request.result = Scorebook.outcome(request.pitches)?.result ?? job.result
+            }
+            name = Self.fileName(kid: job.game?.kid.firstName, game: job.game?.name, number: store.number(of: job) ?? 1,
+                                 result: request.result, day: job.game?.playedOn)
+        } else {
+            return nil
+        }
+        request.framing = framing
+        return (request, name)
+    }
+
+    // MARK: Highlight reels
+
+    private struct BatchEntry {
+        let atBat: HistoryAtBat
+        let game: GameSection
+        let number: Int
+        let item: ShareItem
+    }
+
+    /// The picked at-bats, in the order they happened.
+    private var batchEntries: [BatchEntry] {
+        var out: [BatchEntry] = []
+        for section in sections {
+            for (i, ab) in section.atBats.enumerated() where selected.contains(ab.id) {
+                if let item = shareItem(ab, game: section) {
+                    out.append(BatchEntry(atBat: ab, game: section, number: i + 1, item: item))
+                }
+            }
+        }
+        return out.sorted { ($0.game.playedOn, $0.number) < ($1.game.playedOn, $1.number) }
+    }
+
+    private func toggle(_ ab: HistoryAtBat) {
+        guard ab.isReel, batchProgress == nil else { return }
+        if selected.contains(ab.id) { selected.remove(ab.id) } else { selected.insert(ab.id) }
+    }
+
+    /// The bar along the bottom in Select mode: how many are picked, and Share.
+    private var selectionBar: some View {
+        HStack(spacing: 10) {
+            if let batchProgress {
+                ProgressView()
+                Text(batchProgress).font(.subheadline.weight(.semibold))
+            } else {
+                Text(selected.isEmpty ? "Tap at-bats to pick them" : "\(selected.count) at-bat\(selected.count == 1 ? "" : "s") picked")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button { choosingBatch = true } label: { Label("Share", systemImage: "square.and.arrow.up") }
+                .buttonStyle(.borderedProminent)
+                .disabled(selected.isEmpty || batchProgress != nil)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 12)
+        .background(.bar)
+    }
+
+    /// One video of the picked at-bats: each made on its own (no card, no
+    /// captions), then put together under one title card with a caption per
+    /// at-bat.
+    private func shareBatch(options: ShareOptions, framing: Framing) async {
+        let entries = batchEntries.filter { $0.item.isIncluded(options) }
+        guard !entries.isEmpty else { return }
+        defer { batchProgress = nil }
+        let multiGame = Set(entries.map(\.game.id)).count > 1
+        var each = options
+        each.titleCard = false
+        each.captions = false
+        do {
+            var clips: [StitchClip] = []
+            for (i, entry) in entries.enumerated() {
+                batchProgress = "Making \(i + 1) of \(entries.count)…"
+                guard let (request, _) = try await shareRequest(entry.atBat.id, options: each, framing: framing, pitches: nil) else { continue }
+                let file = try await ShareRenderer.render(request)
+                let caption = options.captions
+                    ? ReelStitcher.caption(number: entry.number, result: request.result, day: multiGame ? entry.game.playedOn : nil)
+                    : nil
+                clips.append(StitchClip(url: file, caption: caption, replays: ShareRenderer.replayTimes(request)))
+            }
+            batchProgress = "Putting it together…"
+            let kid = currentKid?.firstName
+            let games = entries.map { (name: $0.game.name, playedOn: $0.game.playedOn) }
+            let card = options.titleCard ? ReelStitcher.card(kid: kid, games: games) : nil
+            let out = FileManager.default.temporaryDirectory.appendingPathComponent("reel-\(UUID().uuidString).mp4")
+            defer { try? FileManager.default.removeItem(at: out) }
+            try await ReelStitcher.render(clips: clips, card: card, cardSeconds: AppSettings.shared.timings.titleCard,
+                                          shape: options.vertical ? .vertical : .landscape, to: out)
+            presentShare(copying: out, as: Self.reelFileName(kid: kid, games: games, count: clips.count))
+            selecting = false
+            selected = []
+        } catch {
+            shareError = "Couldn't make the video: \(error.localizedDescription)"
+        }
+    }
+
+    /// "Sebastian - vs Kabuki - 4 at-bats - 2026-10-11.mp4", or across games
+    /// "Sebastian - 6 at-bats - 2026-09-26 to 2026-10-14.mp4".
+    static func reelFileName(kid: String?, games: [(name: String, playedOn: String)], count: Int) -> String {
+        let days = games.map(\.playedOn).sorted()
+        let names = Set(games.map(\.name))
+        let span = days.first == days.last ? days.first : days.first.flatMap { a in days.last.map { "\(a) to \($0)" } }
+        let parts = [kid, names.count == 1 ? names.first : nil, "\(count) at-bat\(count == 1 ? "" : "s")", span]
+            .compactMap { $0 }.filter { !$0.isEmpty }
+        let name = parts.joined(separator: " - ").components(separatedBy: CharacterSet(charactersIn: "/\\:*?\"<>|")).joined()
+        return name + ".mp4"
     }
 
     /// A file from Clips, kept in the caches folder for next time.
@@ -1027,6 +1210,8 @@ private struct HistoryCard: View {
     let rebuilding: Bool
     /// The changed video didn't make it into Clips; this phone still has it.
     let updateFailed: Bool
+    /// Its check mark in Select mode.
+    var mark: SelectMark = .none
     let onRetry: () -> Void
     let onOpen: () -> Void
     let onShare: () -> Void
@@ -1040,6 +1225,18 @@ private struct HistoryCard: View {
         VStack(alignment: .leading, spacing: 4) {
             Thumbnail(url: poster)
                 .overlay(alignment: .topLeading) { if let r = atBat.result { ResultBadge(result: r) } }
+                .overlay(alignment: .bottomLeading) {
+                    switch mark {
+                    case .on:
+                        Image(systemName: "checkmark.circle.fill").font(.title2)
+                            .foregroundStyle(.white, Color.accentColor).padding(8)
+                    case .off:
+                        Image(systemName: "circle").font(.title2).foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.5), radius: 2).padding(8)
+                    case .none, .unavailable:
+                        EmptyView()
+                    }
+                }
                 .overlay(alignment: .topTrailing) { if atBat.hasFieldView { FieldViewBadge() } }
                 // Fetching the video for Share (or a field view to re-trim).
                 .overlay(alignment: .bottomTrailing) {
@@ -1077,24 +1274,30 @@ private struct HistoryCard: View {
             Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
         .contentShape(Rectangle())
+        .opacity(mark == .unavailable ? 0.4 : 1)
         .onTapGesture(perform: onOpen)
+        .accessibilityAddTraits(mark == .on ? .isSelected : [])
         .contextMenu {
-            Button(action: onShare) { Label("Share", systemImage: "square.and.arrow.up") }
-            if let onEdit {
-                Button(action: onEdit) { Label("Edit pitches", systemImage: "pencil") }
-            }
-            if let onAddFieldView {
-                Button(action: onAddFieldView) { Label("Add GameChanger video", systemImage: "film.stack") }
-            }
-            if let onTrimFieldView {
-                Button(action: onTrimFieldView) { Label("Trim field view", systemImage: "timeline.selection") }
-            }
-            if let onRemoveFieldView {
-                Button(role: .destructive, action: onRemoveFieldView) { Label("Remove field view", systemImage: "rectangle.badge.minus") }
-            }
-            if let onDelete {
-                Button(role: .destructive, action: onDelete) { Label("Delete from Clips", systemImage: "trash") }
-            }
+            if mark == .none { menu }
+        }
+    }
+
+    @ViewBuilder private var menu: some View {
+        Button(action: onShare) { Label("Share", systemImage: "square.and.arrow.up") }
+        if let onEdit {
+            Button(action: onEdit) { Label("Edit pitches", systemImage: "pencil") }
+        }
+        if let onAddFieldView {
+            Button(action: onAddFieldView) { Label("Add GameChanger video", systemImage: "film.stack") }
+        }
+        if let onTrimFieldView {
+            Button(action: onTrimFieldView) { Label("Trim field view", systemImage: "timeline.selection") }
+        }
+        if let onRemoveFieldView {
+            Button(role: .destructive, action: onRemoveFieldView) { Label("Remove field view", systemImage: "rectangle.badge.minus") }
+        }
+        if let onDelete {
+            Button(role: .destructive, action: onDelete) { Label("Delete from Clips", systemImage: "trash") }
         }
     }
 
@@ -1104,6 +1307,12 @@ private struct HistoryCard: View {
         if atBat.swings > 0 { parts.append("\(atBat.swings) swing\(atBat.swings == 1 ? "" : "s")") }
         return parts.joined(separator: " · ")
     }
+}
+
+/// An at-bat card in Select mode: picked, not picked, or not a pitch reel
+/// (so it can't go in a highlight reel).
+enum SelectMark {
+    case none, off, on, unavailable
 }
 
 /// The result in the thumbnail's corner, as on the website ("1B", "BB", "ꓘ").
