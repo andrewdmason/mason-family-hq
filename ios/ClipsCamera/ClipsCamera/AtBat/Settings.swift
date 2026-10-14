@@ -57,6 +57,16 @@ final class AppSettings {
         didSet { save(shareOptions, key: "shareOptions") }
     }
 
+    /// The ball trail's look in the player and in shares (the last one picked).
+    var trailStyle: TrailStyle {
+        didSet { defaults.set(trailStyle.rawValue, forKey: "trailStyle") }
+    }
+
+    /// Ball trails drawn in the player.
+    var trailOn: Bool {
+        didSet { defaults.set(trailOn, forKey: "trailOn") }
+    }
+
     /// Vertical framing, by at-bat id, and by "game:<id>" for the last
     /// framing used in each game.
     private var framings: [String: Framing] {
@@ -96,6 +106,8 @@ final class AppSettings {
         autoStopSeconds = defaults.object(forKey: "autoStopSeconds") as? Int ?? 3
         railOnRight = defaults.bool(forKey: "railOnRight")
         shareOptions = defaults.data(forKey: "shareOptions").flatMap { try? JSONDecoder().decode(ShareOptions.self, from: $0) } ?? .standard
+        trailStyle = defaults.string(forKey: "trailStyle").flatMap(TrailStyle.init(rawValue:)) ?? .neon
+        trailOn = defaults.object(forKey: "trailOn") as? Bool ?? true
         framings = defaults.data(forKey: "framings").flatMap { try? JSONDecoder().decode([String: Framing].self, from: $0) } ?? [:]
     }
 

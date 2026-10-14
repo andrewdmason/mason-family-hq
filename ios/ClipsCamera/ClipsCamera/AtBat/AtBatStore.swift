@@ -118,6 +118,9 @@ struct AtBatJob: Codable, Identifiable, Equatable {
     /// Only the field view changed on a reel already in Clips: filing it
     /// touches just those columns, not labels changed elsewhere.
     var fieldViewOnly: Bool?
+    /// The field view (clip and trim) a ball trail was last asked for, so a
+    /// rebuild that leaves it alone doesn't trace it again.
+    var tracedFieldView: String?
 
     var isFilmed: Bool { (kind ?? .filmed) == .filmed }
     var isReel: Bool { reel == true }
@@ -775,8 +778,28 @@ final class AtBatStore {
                 $0.uploadedAt = Date()
                 $0.fieldViewOnly = nil
             }
+            traceIfNew(id)
         } catch {
             update(id) { $0.upload = .failed(error.localizedDescription) }
+        }
+    }
+
+    /// A reel's field view that's new in Clips (added, replaced or re-trimmed)
+    /// gets its ball trail traced. (Only reels: the live player and reel
+    /// shares are what draw trails.) In the background: the at-bat is filed
+    /// either way, and a trail that couldn't be asked for can be added from
+    /// the player.
+    private func traceIfNew(_ id: UUID) {
+        guard let job = jobs.first(where: { $0.id == id }), job.isReel, let fv = job.fieldView, clips.isSignedIn else { return }
+        let key = "\(fv.path)@\(fv.start)-\(fv.end)"
+        guard job.tracedFieldView != key else { return }
+        Task {
+            do {
+                try await clips.requestTrace(atBatID: id)
+                update(id) { $0.tracedFieldView = key }
+            } catch {
+                print("ball trail: couldn't ask for a trace of \(id): \(error.localizedDescription)")
+            }
         }
     }
 

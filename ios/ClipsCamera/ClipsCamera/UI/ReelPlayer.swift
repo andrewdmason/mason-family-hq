@@ -6,6 +6,7 @@ import SwiftUI
 // swings, which keep every 240fps frame), switchable mid-play. The GameChanger
 // field view, a file of its own, is the last stretch of the same timeline;
 // played into, it dissolves in over the reel's last frame, as shared videos do.
+// Its ball trail, once traced, is drawn live over it (see TrailPlayerView).
 // Controls lie over the video; a tap shows or hides them.
 
 /// An at-bat to play: its reel and pitches (at their reel times), and the
@@ -18,6 +19,10 @@ struct ReelItem: Identifiable {
     var pitches: [Pitch]
     var result: AtBatResult?
     var fieldView: FieldViewPlayback?
+    /// The field view's ball trail as Clips has it.
+    var trail: BallTrailInfo = .none
+    /// Signed in: the trail can be asked for (and fixed).
+    var canTrace = false
 }
 
 struct FieldViewPlayback {
@@ -34,7 +39,10 @@ final class ReelPlayerModel {
     let reelPlayer = AVPlayer()
     let fieldPlayer: AVPlayer?
     let segments: [ReelSegment]
-    private let fieldView: FieldViewPlayback?
+    let fieldView: FieldViewPlayback?
+    /// The field view's ball trail, and ready to draw when there is one.
+    private(set) var trail: BallTrailInfo
+    private(set) var trailGeometry: TrailGeometry?
 
     private(set) var pitches: [Pitch]
     private(set) var result: AtBatResult?
@@ -59,6 +67,8 @@ final class ReelPlayerModel {
         pitches = item.pitches.sorted { $0.t < $1.t }
         result = item.result
         fieldView = item.fieldView
+        trail = item.trail
+        trailGeometry = item.trail.ready.map(TrailGeometry.init)
         reelLength = item.segments.last?.end ?? 0
         let reelItem = AVPlayerItem(url: item.reel)
         reelPlayer.replaceCurrentItem(with: reelItem)
@@ -115,6 +125,7 @@ final class ReelPlayerModel {
     private func ticked(_ local: Double, field: Bool) {
         guard field == onField, !seeking, seekTarget == nil else { return }
         time = field ? reelLength + local - (fieldView?.start ?? 0) : local
+        if let loop, field, time >= loop.end { seek(to: loop.start) }
     }
 
     /// The reel ran out: on into the field view while playing, else stop there.
@@ -148,8 +159,45 @@ final class ReelPlayerModel {
     }
 
     private func finished() {
+        if let loop, onField {
+            let r = rate > 0 ? rate : 1
+            seek(to: loop.start)
+            play(r)
+            return
+        }
         rate = 0
         active.pause()
+    }
+
+    // MARK: Ball trail
+
+    func setTrail(_ info: BallTrailInfo) {
+        guard info != trail else { return }
+        if info.ready != trail.ready { trailGeometry = info.ready.map(TrailGeometry.init) }
+        trail = info
+    }
+
+    /// While the trail panel is open, the hit plays over and over: from a
+    /// second before contact to a little after the ball lands (the whole
+    /// field view when there's no trail yet). Timeline times.
+    private var loop: (start: Double, end: Double)?
+
+    func loopHit() {
+        guard let fv = fieldView else { return }
+        var start = fv.start, end = fv.end
+        if let g = trailGeometry {
+            start = max(fv.start, min(fv.end, g.contact - 1))
+            end = min(fv.end, max(start + 0.5, g.land + 1.2))
+        }
+        let range = (start: reelLength + start - fv.start, end: reelLength + end - fv.start)
+        loop = range
+        let r = rate > 0 ? rate : 1
+        seek(to: range.start)
+        play(r)
+    }
+
+    func endLoop() {
+        loop = nil
     }
 
     // MARK: Transport
@@ -280,6 +328,8 @@ struct ReelPlayerScreen: View {
     let onRelabel: (([Pitch]) -> Void)?
     /// Render with the chosen options and hand to the share sheet.
     let onShare: (_ options: ShareOptions, _ framing: Framing, _ pitches: [Pitch]) async -> Void
+    /// The ball trail changed in Clips while open (traced, or asked for again).
+    let onTrailUpdate: ((BallTrailInfo) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var model: ReelPlayerModel
@@ -290,13 +340,20 @@ struct ReelPlayerScreen: View {
     @State private var sharing = false
     @State private var jogFrom: Double?
     @State private var controlsShown = true
+    @State private var showingTrail = false
+    @State private var trailError: String?
+    /// Bumped by each ask for a trace, so the watch for it starts over.
+    @State private var traceRound = 0
+    private let settings = AppSettings.shared
 
     init(item: ReelItem, gameID: UUID?, onRelabel: (([Pitch]) -> Void)?,
-         onShare: @escaping (ShareOptions, Framing, [Pitch]) async -> Void) {
+         onShare: @escaping (ShareOptions, Framing, [Pitch]) async -> Void,
+         onTrailUpdate: ((BallTrailInfo) -> Void)? = nil) {
         self.item = item
         self.gameID = gameID
         self.onRelabel = onRelabel
         self.onShare = onShare
+        self.onTrailUpdate = onTrailUpdate
         _model = State(initialValue: ReelPlayerModel(item))
     }
 
@@ -350,9 +407,59 @@ struct ReelPlayerScreen: View {
         }) {
             let sources = FramingSources(reel: item.reel, segments: item.segments, pitches: model.pitches, fieldView: item.fieldView)
             let share = ShareItem(id: item.id, gameID: gameID, segments: item.segments, pitches: model.pitches,
-                                  fieldViewLength: item.fieldView.map { max(0, $0.end - $0.start) })
+                                  fieldViewLength: item.fieldView.map { max(0, $0.end - $0.start) },
+                                  hasTrail: model.trail.ready != nil)
             ShareOptionsSheet(items: [share], sources: { sources }) {
                 pendingShare = ($0, $1)
+            }
+        }
+        .sheet(isPresented: $showingTrail, onDismiss: { model.endLoop() }) {
+            TrailPanel(info: model.trail, canTrace: item.canTrace, onAddTrail: { askForTrail() })
+                .presentationDetents([.height(TrailPanel.height)])
+                .presentationBackgroundInteraction(.enabled)
+                .presentationDragIndicator(.visible)
+                .onAppear { model.loopHit() }
+        }
+        .alert("Ball trail", isPresented: .constant(trailError != nil), presenting: trailError) { _ in
+            Button("OK") { trailError = nil }
+        } message: { Text($0) }
+        // While Clips is tracing, check back every few seconds (for two
+        // minutes from the latest ask).
+        .task(id: TraceWatch(status: model.trail.status, round: traceRound)) { await waitForTrail() }
+    }
+
+    private func waitForTrail() async {
+        guard model.trail.status == .pending, item.canTrace else { return }
+        let until = Date().addingTimeInterval(120)
+        while !Task.isCancelled, Date() < until {
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled, let info = try? await ClipsService.shared.ballTrail(atBatID: item.id) else { continue }
+            if info.status != .pending {
+                model.setTrail(info)
+                onTrailUpdate?(info)
+                return
+            }
+        }
+    }
+
+    /// Trace this at-bat's field view (one that never was).
+    private func askForTrail(tap: TrailTap? = nil) {
+        var pending = model.trail
+        pending.status = .pending
+        if let tap { pending.tap = tap }
+        let before = model.trail
+        model.setTrail(pending)
+        onTrailUpdate?(pending)
+        // Clips drops a result a newer ask supersedes: watch afresh until
+        // the status leaves pending.
+        traceRound += 1
+        Task {
+            do {
+                try await ClipsService.shared.requestTrace(atBatID: item.id, tap: tap)
+            } catch {
+                model.setTrail(before)
+                onTrailUpdate?(before)
+                trailError = "Couldn't reach Clips — check your signal and try again."
             }
         }
     }
@@ -372,7 +479,7 @@ struct ReelPlayerScreen: View {
             PlayerLayerView(player: model.reelPlayer)
             if let field = model.fieldPlayer {
                 // On black, so the reel doesn't show around a field view of another shape.
-                PlayerLayerView(player: field)
+                TrailPlayerView(player: field, trail: settings.trailOn ? model.trailGeometry : nil, style: settings.trailStyle)
                     .background(Color.black)
                     .opacity(model.onField ? 1 : 0)
                     .animation(model.dissolving ? .linear(duration: FieldViewRenderer.dissolve) : nil, value: model.onField)
@@ -417,11 +524,19 @@ struct ReelPlayerScreen: View {
             .background(Color.black.opacity(0.6), in: Capsule())
     }
 
-    /// Title on the left; Share, then Close, on the right.
+    /// Title on the left; the ball trail (with a field view), Share, then Close, on the right.
     private var topBar: some View {
         HStack(spacing: 4) {
             Text(item.title).font(.headline).foregroundStyle(.white).lineLimit(1)
             Spacer(minLength: 12)
+            if item.fieldView != nil {
+                Button { showingTrail = true } label: {
+                    Image(systemName: "sparkles")
+                        .opacity(settings.trailOn && model.trail.ready != nil ? 1 : 0.6)
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .accessibilityLabel("Ball trail")
+            }
             if sharing {
                 ProgressView().tint(.white).frame(width: 44, height: 44)
             } else {
@@ -441,6 +556,11 @@ struct ReelPlayerScreen: View {
         .padding(.leading, 16)
         .padding(.trailing, 4)
     }
+}
+
+private struct TraceWatch: Equatable {
+    let status: BallTrailStatus?
+    let round: Int
 }
 
 private struct PitchRef: Identifiable {

@@ -18,6 +18,9 @@ enum Config {
         #endif
         return URL(string: "https://family.mason.io/clips/api/viewer")!
     }()
+    /// Asks the worker to trace an at-bat's ball trail (signed in only); on
+    /// the same site as the viewer.
+    static var traceAPI: URL { viewerAPI.deletingLastPathComponent().appendingPathComponent("trace") }
     /// The key for it, built in by scripts/release.sh from the database (it's
     /// not in the repo). Builds without one ask everyone to sign in.
     static let viewerKey: String? = {

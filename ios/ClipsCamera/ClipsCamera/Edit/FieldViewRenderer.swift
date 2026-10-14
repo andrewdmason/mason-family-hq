@@ -13,7 +13,10 @@ import UIKit
 // The GameChanger clip can be any size or frame rate; it's fitted into the
 // 1080p60 frame with black bars rather than stretched. In a vertical video it's
 // either the whole wide shot over a blurred, enlarged copy of itself, or
-// cropped to fill the frame around a chosen spot.
+// cropped to fill the frame around a chosen spot. A ball trail, when asked
+// for, is drawn over the field view frame by frame by the same TrailRenderer
+// the player uses, laid out exactly as the picture is (fitted, or cropped
+// and enlarged), so it stays on the ball in any shape.
 
 struct RenderedFieldView {
     var duration: Double
@@ -32,13 +35,20 @@ enum LayerFill: Equatable {
     case crop(center: Double)
 }
 
+/// A ball trail to burn into the field view.
+struct ShareTrail {
+    let geometry: TrailGeometry
+    let style: TrailStyle
+}
+
 enum FieldViewRenderer {
     static let dissolve = 0.5
 
     /// The close-up, then the field view: the kept stretch of `fieldView`.
     /// The close-up is already the finished video's shape.
     static func append(closeup: URL, fieldView: URL, start: Double, end: Double,
-                       shape: VideoShape = .landscape, fieldFill: LayerFill = .fit, to out: URL) async throws -> RenderedFieldView {
+                       shape: VideoShape = .landscape, fieldFill: LayerFill = .fit, trail: ShareTrail? = nil,
+                       to out: URL) async throws -> RenderedFieldView {
         let a = AVURLAsset(url: closeup)
         let b = AVURLAsset(url: fieldView)
         guard let aVideo = try await a.loadTracks(withMediaType: .video).first,
@@ -89,10 +99,12 @@ enum FieldViewRenderer {
 
         let closeupLayer = LayerInstruction.Layer(trackID: videoA.trackID, orientation: .up, fadeIn: false)
         let fieldLayer = LayerInstruction.Layer(trackID: videoB.trackID, orientation: bOrientation, fadeIn: false, fill: fieldFill)
+        let fieldTrail = trail.map { TrailLayer($0, trackID: videoB.trackID, clipOffset: bRange.start.seconds - bAt.seconds) }
         var instructions = [
             LayerInstruction(timeRange: CMTimeRange(start: .zero, duration: bAt), layers: [closeupLayer]),
-            LayerInstruction(timeRange: overlap, layers: [closeupLayer, .init(trackID: videoB.trackID, orientation: bOrientation, fadeIn: true, fill: fieldFill)]),
-            LayerInstruction(timeRange: CMTimeRange(start: overlap.end, end: end), layers: [fieldLayer]),
+            LayerInstruction(timeRange: overlap, layers: [closeupLayer, .init(trackID: videoB.trackID, orientation: bOrientation, fadeIn: true, fill: fieldFill)],
+                             trail: fieldTrail),
+            LayerInstruction(timeRange: CMTimeRange(start: overlap.end, end: end), layers: [fieldLayer], trail: fieldTrail),
         ]
         instructions.removeAll { $0.timeRange.duration.seconds <= 0 }
 
@@ -107,7 +119,8 @@ enum FieldViewRenderer {
     /// An at-bat that's only the field view: the title card (when there is
     /// one), then the clip.
     static func alone(card: TitleCard?, cardSeconds: Double, fieldView: URL, start: Double, end: Double,
-                      shape: VideoShape = .landscape, fieldFill: LayerFill = .fit, to out: URL) async throws -> RenderedFieldView {
+                      shape: VideoShape = .landscape, fieldFill: LayerFill = .fit, trail: ShareTrail? = nil,
+                      to out: URL) async throws -> RenderedFieldView {
         let b = AVURLAsset(url: fieldView)
         guard let bVideo = try await b.loadTracks(withMediaType: .video).first else { throw RenderError.noVideo }
         let bAudio = try await b.loadTracks(withMediaType: .audio).first
@@ -138,7 +151,9 @@ enum FieldViewRenderer {
         }
         let end = CMTimeAdd(cardLength, bRange.duration)
         instructions.append(LayerInstruction(timeRange: CMTimeRange(start: cardLength, end: end),
-                                             layers: [.init(trackID: video.trackID, orientation: bOrientation, fadeIn: false, fill: fieldFill)]))
+                                             layers: [.init(trackID: video.trackID, orientation: bOrientation, fadeIn: false, fill: fieldFill)],
+                                             trail: trail.map { TrailLayer($0, trackID: video.trackID,
+                                                                           clipOffset: bRange.start.seconds - cardLength.seconds) }))
 
         try? FileManager.default.removeItem(at: out)
         try await EditRenderer.encode(
@@ -184,9 +199,26 @@ enum FieldViewRenderer {
 
 // MARK: - Compositor
 
+/// A ball trail over one layer: the trail at the clip time showing, fitted to
+/// where that layer's picture sits.
+struct TrailLayer {
+    let geometry: TrailGeometry
+    let style: TrailStyle
+    let trackID: CMPersistentTrackID
+    /// Clip time = composition time + this.
+    let clipOffset: Double
+
+    init(_ trail: ShareTrail, trackID: CMPersistentTrackID, clipOffset: Double) {
+        geometry = trail.geometry
+        style = trail.style
+        self.trackID = trackID
+        self.clipOffset = clipOffset
+    }
+}
+
 /// One stretch of the finished video: source frames stacked bottom to top
 /// (each laid into the frame by its fill), the top one optionally fading in
-/// across the stretch, and art drawn over them.
+/// across the stretch, a ball trail over the field view, and art drawn over them.
 final class LayerInstruction: NSObject, AVVideoCompositionInstructionProtocol {
     struct Layer {
         let trackID: CMPersistentTrackID
@@ -204,16 +236,18 @@ final class LayerInstruction: NSObject, AVVideoCompositionInstructionProtocol {
     let layers: [Layer]
     let overlay: CIImage?
     let caption: AnimatedCaption?
+    let trail: TrailLayer?
     /// The title card, drawn over the first layer's frames (its swing) as
     /// they are, or over its graphic with no layers.
     let card: CardAnimator?
 
     init(timeRange: CMTimeRange, layers: [Layer], overlay: CIImage? = nil, caption: AnimatedCaption? = nil,
-         card: CardAnimator? = nil) {
+         trail: TrailLayer? = nil, card: CardAnimator? = nil) {
         self.timeRange = timeRange
         self.layers = layers
         self.overlay = overlay
         self.caption = caption
+        self.trail = trail
         self.card = card
         self.requiredSourceTrackIDs = layers.map { NSNumber(value: $0.trackID) }
     }
@@ -300,14 +334,21 @@ final class LayerCompositor: NSObject, AVVideoCompositing {
             return
         }
         var image = CIImage(color: .black).cropped(to: frame)
+        // Where the trail's layer landed, and how far it has faded in.
+        var trailRect: CGRect?
+        var trailOpacity: CGFloat = 1
         for layer in instruction.layers {
             guard let source = request.sourceFrame(byTrackID: layer.trackID) else { continue }
             var src = CIImage(cvPixelBuffer: source).oriented(layer.orientation)
             src = src.transformed(by: CGAffineTransform(translationX: -src.extent.minX, y: -src.extent.minY))
             var laid = Self.lay(src, into: frame, fill: layer.fill)
+            if layer.trackID == instruction.trail?.trackID {
+                trailRect = Self.placement(of: src.extent.size, into: frame, fill: layer.fill)
+            }
             if layer.fadeIn {
                 let range = instruction.timeRange
                 let a = CGFloat(max(0, min(1, (request.compositionTime - range.start).seconds / range.duration.seconds)))
+                if layer.trackID == instruction.trail?.trackID { trailOpacity = a }
                 laid = laid.applyingFilter("CIColorMatrix", parameters: [
                     "inputRVector": CIVector(x: a, y: 0, z: 0, w: 0),
                     "inputGVector": CIVector(x: 0, y: a, z: 0, w: 0),
@@ -316,6 +357,15 @@ final class LayerCompositor: NSObject, AVVideoCompositing {
                 ])
             }
             image = laid.composited(over: image)
+        }
+        if let trail = instruction.trail, let rect = trailRect, trailOpacity > 0,
+           var drawn = TrailRenderer.image(trail.geometry, at: request.compositionTime.seconds + trail.clipOffset,
+                                           style: trail.style, videoRect: rect, visible: frame) {
+            if trailOpacity < 1 { drawn = TrailRenderer.faded(drawn, by: trailOpacity) }
+            // The trail's colours are gamma-encoded and blend the way the
+            // player's layers do: onto the picture in gamma, then back.
+            image = TrailRenderer.composite(drawn, style: trail.style, onto: image.applyingFilter("CILinearToSRGBToneCurve"))
+                .applyingFilter("CISRGBToneCurveToLinear")
         }
         if let overlay = instruction.overlay {
             image = overlay.composited(over: image)
@@ -329,26 +379,37 @@ final class LayerCompositor: NSObject, AVVideoCompositing {
 
     func cancelAllPendingVideoCompositionRequests() {}
 
+    /// Where the whole of a picture of `size` (origin at zero) lands in the
+    /// frame for a fill — scaled and moved; for a crop, partly outside the
+    /// frame. The picture and its ball trail are both placed by this.
+    static func placement(of size: CGSize, into frame: CGRect, fill: LayerFill) -> CGRect {
+        switch fill {
+        case .crop(let center):
+            let box = VideoShape.fillBox(extent: CGRect(origin: .zero, size: size), frame: frame.size, centerX: center)
+            let scale = frame.width / box.width
+            return CGRect(x: frame.minX - box.minX * scale, y: frame.minY - box.minY * scale,
+                          width: size.width * scale, height: size.height * scale)
+        case .fit, .fitOverBlur:
+            guard size != frame.size else { return frame }
+            let scale = min(frame.width / size.width, frame.height / size.height)
+            return CGRect(x: frame.minX + (frame.width - size.width * scale) / 2, y: frame.minY + (frame.height - size.height * scale) / 2,
+                          width: size.width * scale, height: size.height * scale)
+        }
+    }
+
     /// A picture (origin at zero) laid into the frame.
     static func lay(_ src: CIImage, into frame: CGRect, fill: LayerFill) -> CIImage {
         let e = src.extent
+        let place = placement(of: e.size, into: frame, fill: fill)
+        let scale = place.width / e.width
+        let moved = src
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            .transformed(by: CGAffineTransform(translationX: place.minX, y: place.minY))
         switch fill {
-        case .crop(let center):
-            let box = VideoShape.fillBox(extent: e, frame: frame.size, centerX: center)
-            let scale = frame.width / box.width
-            return src.cropped(to: box)
-                .transformed(by: CGAffineTransform(translationX: -box.minX, y: -box.minY))
-                .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-                .cropped(to: frame)
+        case .crop:
+            return moved.cropped(to: frame)
         case .fit, .fitOverBlur:
-            var fitted = src
-            if e.size != frame.size {
-                let scale = min(frame.width / e.width, frame.height / e.height)
-                fitted = src
-                    .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-                    .transformed(by: CGAffineTransform(translationX: (frame.width - e.width * scale) / 2,
-                                                       y: (frame.height - e.height * scale) / 2))
-            }
+            let fitted = e.size == frame.size ? src : moved
             guard fill == .fitOverBlur else { return fitted }
             // Behind it, the picture enlarged to fill the frame, blurred and
             // dimmed. Blurred small, then enlarged, to keep it quick.

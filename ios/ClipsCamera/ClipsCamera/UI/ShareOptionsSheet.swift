@@ -52,6 +52,11 @@ struct ShareOptionsSheet: View {
         return "\(included.count) of \(items.count) at-bats \(included.count == 1 ? "has" : "have") \(what)"
     }
     private var framesFieldView: Bool { options.showsFieldView && availability.hasFieldView }
+    /// The Ball trail switch: when the video has a GameChanger part with a
+    /// trail to draw — for several at-bats, any of those included.
+    private var offersTrail: Bool {
+        options.showsFieldView && included.contains { $0.hasFieldView && $0.hasTrail }
+    }
 
     var body: some View {
         NavigationStack {
@@ -93,6 +98,9 @@ struct ShareOptionsSheet: View {
                     Toggle("Captions", isOn: $options.captions)
                         .disabled(options.content == .fieldView)
                     Toggle("Title card", isOn: $options.titleCard)
+                    if offersTrail {
+                        Toggle("Ball trail", isOn: $options.ballTrail)
+                    }
                 }
                 if options != defaults {
                     Section {
