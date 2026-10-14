@@ -5,36 +5,10 @@ import UIKit
 // Turns a raw 240fps recording plus its pitch log into the finished at-bat:
 // the quick-version plan laid out on a composition (replays slowed by
 // stretching time, so a ¼-speed replay shows every captured frame at 60fps),
-// the title card (laid out like the website's exports) and captions drawn by a
-// small Core Image compositor, then
+// the title card (see TitleCard) and captions drawn by a small Core Image
+// compositor, then
 // re-encoded as 1080p60 H.264 with a keyframe every half second so Clips can
 // scrub and frame-step it instantly.
-
-/// The card the video opens on, as the website's exports have it:
-/// "AB 2 · Single" big, "vs Kabuki · Sat, Oct 11, 2026" beneath.
-struct TitleCard: Equatable {
-    var title: String
-    var subtitle: String
-
-    static func make(number: Int?, result: AtBatResult?, game: String?, playedOn: String?) -> TitleCard {
-        var title = number.map { "AB \($0)" } ?? "At-bat"
-        if let result { title += " · \(result.name)" }
-        let parts = [game, playedOn.map(formatGameDate)].compactMap { $0 }.filter { !$0.isEmpty }
-        return TitleCard(title: title, subtitle: parts.joined(separator: " · "))
-    }
-
-    /// "2026-10-11" → "Sat, Oct 11, 2026", the website's long game date.
-    static func formatGameDate(_ ymd: String) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd"
-        guard let d = f.date(from: ymd) else { return ymd }
-        let out = DateFormatter()
-        out.locale = Locale(identifier: "en_US")
-        out.dateFormat = "EEE, MMM d, yyyy"
-        return out.string(from: d)
-    }
-}
 
 /// The finished video's shape: landscape as filmed, or vertical for Reels
 /// and Stories (the picture cropped to fill it).
@@ -141,16 +115,20 @@ enum EditRenderer {
         var instructions: [CaptionInstruction] = []
         var cursor = CMTime.zero
         if let card, timings.titleCard > 0 {
-            // The card stands on one source frame stretched out (a track can't
-            // start with nothing); the compositor ignores it and draws the card.
             let range = CMTimeRange(start: .zero, duration: time(timings.titleCard))
-            let oneFrame = CMTimeRange(start: .zero, duration: CMTime(value: 1, timescale: 240))
-            try video.insertTimeRange(oneFrame, of: sourceVideo, at: .zero)
-            video.scaleTimeRange(CMTimeRange(start: .zero, duration: oneFrame.duration), toDuration: range.duration)
+            let animator = CardAnimator(card: card, size: shape.size, length: timings.titleCard)
+            let swing = try await insertSwing(card.swing, into: video, length: range.duration)
+            if !swing {
+                // The card stands on one source frame stretched out (a track
+                // can't start with nothing); the compositor draws the card.
+                let oneFrame = CMTimeRange(start: .zero, duration: CMTime(value: 1, timescale: 240))
+                try video.insertTimeRange(oneFrame, of: sourceVideo, at: .zero)
+                video.scaleTimeRange(CMTimeRange(start: .zero, duration: oneFrame.duration), toDuration: range.duration)
+            }
             audio?.insertEmptyTimeRange(range)
             instructions.append(CaptionInstruction(
-                timeRange: range, sourceTrackID: nil, rotate180: false, crop: nil, fillCenter: nil,
-                overlay: CaptionArt.titleCard(card, size: shape.size)
+                timeRange: range, sourceTrackID: swing ? video.trackID : nil, rotate180: false, crop: nil, fillCenter: nil,
+                overlay: nil, card: animator
             ))
             cursor = range.duration
         }
@@ -199,6 +177,24 @@ enum EditRenderer {
 
     static func time(_ seconds: Double) -> CMTime {
         CMTime(seconds: seconds, preferredTimescale: timescale)
+    }
+
+    /// The card's slow-motion swing, stretched over the card at the start of
+    /// `track`. False when there's none (or it can't be read): the card then
+    /// draws its graphic.
+    static func insertSwing(_ swing: CardSwing?, into track: AVMutableCompositionTrack, length: CMTime) async throws -> Bool {
+        guard let swing, swing.end > swing.start else { return false }
+        // Held for the insert: a track whose asset is gone can't be read.
+        let asset = AVURLAsset(url: swing.url)
+        guard let source = try? await asset.loadTracks(withMediaType: .video).first else { return false }
+        let range = CMTimeRange(start: time(swing.start), end: time(swing.end))
+        do {
+            try track.insertTimeRange(range, of: source, at: .zero)
+        } catch {
+            return false
+        }
+        track.scaleTimeRange(CMTimeRange(start: .zero, duration: range.duration), toDuration: length)
+        return true
     }
 
     // MARK: Encoding
@@ -362,9 +358,12 @@ final class CaptionInstruction: NSObject, AVVideoCompositionInstructionProtocol 
     /// rather than stretching to it: a vertical video.
     let fillCenter: Double?
     let overlay: CIImage?
+    /// The title card, drawn over its swing (the source frames, as they are).
+    let card: CardAnimator?
 
     init(timeRange: CMTimeRange, sourceTrackID: CMPersistentTrackID?, rotate180: Bool, crop: CGRect?,
-         fillCenter: Double? = nil, overlay: CIImage?) {
+         fillCenter: Double? = nil, overlay: CIImage?, card: CardAnimator? = nil) {
+        self.card = card
         self.timeRange = timeRange
         self.sourceTrackID = sourceTrackID
         self.requiredSourceTrackIDs = sourceTrackID.map { [NSNumber(value: $0)] } ?? []
@@ -395,6 +394,13 @@ final class CaptionCompositor: NSObject, AVVideoCompositing {
             return
         }
         let frame = CGRect(origin: .zero, size: request.renderContext.size)
+        if let card = instruction.card {
+            let swing = instruction.sourceTrackID.flatMap { request.sourceFrame(byTrackID: $0) }.map { CIImage(cvPixelBuffer: $0) }
+            let t = (request.compositionTime - instruction.timeRange.start).seconds
+            context.render(card.frame(at: t, swing: swing), to: output)
+            request.finish(withComposedVideoFrame: output)
+            return
+        }
         var image = CIImage(color: .black).cropped(to: frame)
         if let id = instruction.sourceTrackID, let source = request.sourceFrame(byTrackID: id) {
             var src = CIImage(cvPixelBuffer: source)
@@ -457,42 +463,6 @@ enum CaptionArt {
             ? CGPoint(x: ((size.width - pill.width) / 2).rounded(), y: size.height - (size.height * 0.15).rounded() - pill.height)
             : CGPoint(x: margin, y: 48)
         return image.map { CIImage(cgImage: $0).transformed(by: CGAffineTransform(translationX: at.x, y: at.y)) }
-    }
-
-    /// The opening card, laid out like the website's exports (same sizes and
-    /// spacing) so both kinds of clip open the same way. A subtitle too wide
-    /// for the frame (a vertical one, a long game name) breaks into its parts,
-    /// game over date; any line still too wide is set smaller to fit.
-    static func titleCard(_ card: TitleCard, size: CGSize = EditRenderer.size) -> CIImage? {
-        let room = size.width - 120
-        func width(_ text: String, _ font: UIFont) -> CGFloat { (text as NSString).size(withAttributes: [.font: font]).width }
-        func attrs(_ text: String, size points: CGFloat, alpha: CGFloat) -> [NSAttributedString.Key: Any] {
-            var font = UIFont.systemFont(ofSize: points)
-            let w = width(text, font)
-            if w > room { font = UIFont.systemFont(ofSize: (points * room / w).rounded(.down)) }
-            return [.font: font, .foregroundColor: UIColor(white: 1, alpha: alpha)]
-        }
-        let subPoints: CGFloat = 52
-        var subLines = card.subtitle.isEmpty ? [] : [card.subtitle]
-        if width(card.subtitle, .systemFont(ofSize: subPoints)) > room {
-            subLines = card.subtitle.components(separatedBy: " · ")
-        }
-        let lines = [(card.title, attrs(card.title, size: 110, alpha: 1))]
-            + subLines.map { ($0, attrs($0, size: subPoints, alpha: 170 / 255)) }
-        let image = draw(size) { _ in
-            UIColor.black.setFill()
-            UIRectFill(CGRect(origin: .zero, size: size))
-            let sizes = lines.map { ($0.0 as NSString).size(withAttributes: $0.1) }
-            // 36 between the title and the subtitle, 12 between subtitle lines.
-            let gaps = lines.indices.dropFirst().map { $0 == 1 ? CGFloat(36) : 12 }
-            var y = (size.height - sizes.map(\.height).reduce(0, +) - gaps.reduce(0, +)) / 2
-            for (i, line) in lines.enumerated() {
-                if i > 0 { y += gaps[i - 1] }
-                (line.0 as NSString).draw(at: CGPoint(x: (size.width - sizes[i].width) / 2, y: y), withAttributes: line.1)
-                y += sizes[i].height
-            }
-        }
-        return image.map { CIImage(cgImage: $0) }
     }
 
     private static func draw(_ size: CGSize, _ body: (UIGraphicsImageRendererContext) -> Void) -> CGImage? {

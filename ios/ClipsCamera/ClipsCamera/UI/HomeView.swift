@@ -855,7 +855,7 @@ struct HomeView: View {
                 guard let path = ab.playbackPath else { return nil }
                 request = ShareRequest(atBatID: id, reel: try await cachedDownload(path), segments: segments,
                                        pitches: ab.pitchList, result: ab.result,
-                                       card: TitleCard(title: "", subtitle: ""), options: options, reelKey: path)
+                                       card: TitleCard(name: "", meta: ""), options: options, reelKey: path)
             }
             let labels = pitches ?? (ab.pitchList.isEmpty ? request.pitches : ab.pitchList)
             for i in request.pitches.indices {
@@ -865,14 +865,15 @@ struct HomeView: View {
                 request.pitches[i].playResult = l.playResult
             }
             request.result = Scorebook.outcome(request.pitches)?.result ?? ab.result
-            request.card = TitleCard.make(number: number, result: request.result, game: game.name, playedOn: game.playedOn)
+            let kid = kids.first { $0.id == kidID }
+            request.card = TitleCard.make(kid: kid?.displayName, result: request.result, game: game.name, playedOn: game.playedOn,
+                                          style: CardStyleStore.shared.style(for: kid?.id))
             if let fvPath = ab.fieldViewPath, let start = ab.fieldViewStart, let end = ab.fieldViewEnd {
                 var clip = store.fieldViewFile(id)
                 if clip == nil { clip = try await cachedDownload(fvPath) }
                 request.fieldView = (clip!, start, end, fvPath)
             }
-            let kid = kids.first { $0.id == kidID }?.firstName
-            name = Self.fileName(kid: kid, game: game.name, number: number, result: request.result, day: game.playedOn)
+            name = Self.fileName(kid: kid?.firstName, game: game.name, number: number, result: request.result, day: game.playedOn)
         } else if let job = store.jobs.first(where: { $0.id == id }) {
             request = store.shareRequest(id, options: options)
             if let pitches {
@@ -954,10 +955,20 @@ struct HomeView: View {
         each.captions = false
         do {
             var clips: [StitchClip] = []
+            var results: [AtBatResult?] = []
+            // The card's swing: the biggest hit's.
+            var swing: (rank: Int, swing: CardSwing)?
             for (i, entry) in entries.enumerated() {
                 batchProgress = "Making \(i + 1) of \(entries.count)…"
                 guard let (request, _) = try await shareRequest(entry.atBat.id, options: each, framing: framing, pitches: nil) else { continue }
                 let file = try await ShareRenderer.render(request)
+                results.append(request.result)
+                if options.titleCard, options.showsCloseup,
+                   let s = CardSwing.make(reel: request.reel, segments: request.segments, pitches: request.pitches,
+                                          cardSeconds: AppSettings.shared.timings.titleCard, focus: framing.closeup),
+                   CardSwing.rank(request.result) >= (swing?.rank ?? -1) {
+                    swing = (CardSwing.rank(request.result), s)
+                }
                 let caption = options.captions
                     ? ReelStitcher.caption(number: entry.number, result: request.result, day: multiGame ? entry.game.playedOn : nil)
                     : nil
@@ -966,7 +977,14 @@ struct HomeView: View {
             batchProgress = "Putting it together…"
             let kid = currentKid?.firstName
             let games = entries.map { (name: $0.game.name, playedOn: $0.game.playedOn) }
-            let card = options.titleCard ? ReelStitcher.card(kid: kid, games: games) : nil
+            var card = options.titleCard
+                ? ReelStitcher.card(kid: currentKid?.displayName, games: games, results: results,
+                                    style: CardStyleStore.shared.style(for: currentKid?.id))
+                : nil
+            if var s = swing?.swing {
+                if s.focus == nil { s.focus = await CardSwing.findBatter(in: s.url, from: s.start, to: s.end) }
+                card?.swing = s
+            }
             let out = FileManager.default.temporaryDirectory.appendingPathComponent("reel-\(UUID().uuidString).mp4")
             defer { try? FileManager.default.removeItem(at: out) }
             try await ReelStitcher.render(clips: clips, card: card, cardSeconds: AppSettings.shared.timings.titleCard,
@@ -1157,6 +1175,9 @@ struct HomeView: View {
         if let kids = try? await model.clips.kids(), !kids.isEmpty {
             model.settings.cachedKids = kids
         }
+        // Each kid's title-card look, in the background.
+        let all = kids
+        Task { await CardStyleStore.shared.refresh(all) }
         // (Also when the tab's kid isn't in the list: signing out leaves only
         // the kids with at-bats.)
         if kidID != Self.unfiledTab, kidID == nil || !kids.contains(where: { $0.id == kidID }) {

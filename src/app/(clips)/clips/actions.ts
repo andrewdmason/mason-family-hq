@@ -360,13 +360,27 @@ export async function setReplayZoom(atBatId: string, on: boolean): Promise<void>
   if (error) throw new Error(error.message);
 }
 
-/** "AB 2 · Flyout" over "Merchants Scrimmage · Sat, Sep 26, 2026" — who's watching knows what they're seeing. */
-function titleCard(game: { name: string; playedOn: string }, index: number, result: AtBatResult | null) {
+/**
+ * "Sebastian Mason" over "AB 2 · Flyout · Merchants Scrimmage · Sat, Sep 26,
+ * 2026" — who's watching knows whose at-bat it is and what they're seeing.
+ * Without the kid's name, the at-bat leads as before.
+ */
+function titleCard(
+  game: { name: string; playedOn: string },
+  index: number,
+  result: AtBatResult | null,
+  kid: string | null,
+) {
   const name = resultName(result);
-  return {
-    title: `AB ${index + 1}${name ? ` · ${name}` : ""}`,
-    subtitle: `${game.name} · ${formatGameDate(game.playedOn, true)}`,
-  };
+  const ab = `AB ${index + 1}${name ? ` · ${name}` : ""}`;
+  const where = `${game.name} · ${formatGameDate(game.playedOn, true)}`;
+  return kid ? { title: kid, subtitle: `${ab} · ${where}` } : { title: ab, subtitle: where };
+}
+
+/** The kid's full name ("Sebastian Mason"), for the title cards. */
+async function kidFullName(sb: Awaited<ReturnType<typeof createClient>>, kidId: string): Promise<string | null> {
+  const { data } = await sb.from("baseball_people").select("display_name").eq("id", kidId).maybeSingle();
+  return (data?.display_name as string | undefined)?.trim() || null;
 }
 
 /**
@@ -514,10 +528,11 @@ export async function exportAtBat(
   if (ab.reel) {
     const game = await getGame(ab.gameId);
     const index = game?.atBats.findIndex((x) => x.id === atBatId) ?? 0;
+    const kid = game ? await kidFullName(sb, game.kidId) : null;
     const parts = reelParts(
       ab,
       { reel: row!.playback_path ?? row!.original_path, fieldView: row!.field_view_path },
-      game ? titleCard(game, index, ab.result) : null,
+      game ? titleCard(game, index, ab.result, kid) : null,
       opts.replays ?? true,
     );
     const ready = await readyExport(atBatId, parts);
@@ -526,9 +541,10 @@ export async function exportAtBat(
   if (ab.source === "camera") return shareFinishedEdit(atBatId, row!.original_path);
   const game = await getGame(ab.gameId);
   const index = game?.atBats.findIndex((x) => x.id === atBatId) ?? 0;
+  const kid = game ? await kidFullName(sb, game.kidId) : null;
   const segments = withReplayZoom(buildQuickPlan(ab.pitches, ab.durationS ?? Infinity, ab.result), ab);
   return beginExport({ atBatId }, [
-    { card: game ? titleCard(game, index, ab.result) : null, originalPath: row!.original_path, segments },
+    { card: game ? titleCard(game, index, ab.result, kid) : null, originalPath: row!.original_path, segments },
   ]);
 }
 
@@ -541,12 +557,13 @@ export async function exportGame(gameId: string): Promise<{ exportId: string }> 
     .select("id, original_path, playback_path, field_view_path")
     .eq("game_id", gameId);
   const rowById = new Map((rows ?? []).map((r) => [r.id as string, r]));
+  const kid = await kidFullName(sb, game.kidId);
   // Cards number at-bats by their place in the game, even when an unmarked
   // one is skipped. A reel brings its replays and its field view.
   const parts: ExportPart[] = game.atBats
     .flatMap((ab, i): ExportPart[] => {
       const row = rowById.get(ab.id)!;
-      const card = titleCard(game, i, ab.result);
+      const card = titleCard(game, i, ab.result, kid);
       if (ab.reel) {
         return reelParts(ab, { reel: row.playback_path ?? row.original_path, fieldView: row.field_view_path }, card, true);
       }

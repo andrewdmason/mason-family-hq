@@ -135,7 +135,7 @@ final class ReelTests: XCTestCase {
         XCTAssertEqual(Double(swing), 4.5 * 240, accuracy: 3)
 
         // Shared with replays: card, both pitches, the in-play replay at ¼.
-        let card = TitleCard.make(number: 2, result: .single, game: "vs Kabuki", playedOn: "2026-10-11")
+        let card = TitleCard.make(kid: "Sebastian Mason", result: .single, game: "vs Kabuki", playedOn: "2026-10-11")
         let reelPitches = [Pitch(t: 2, outcome: .ball), Pitch(t: 5, outcome: .inPlay, battedBall: .lineDrive, playResult: .single)]
         let request = ShareRequest(atBatID: UUID(), reel: out, segments: reel.segments, pitches: reelPitches, result: .single,
                                    card: card, options: ShareOptions(), reelKey: out.lastPathComponent, timings: .standard)

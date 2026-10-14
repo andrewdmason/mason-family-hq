@@ -13,12 +13,19 @@ final class ReelStitcherTests: XCTestCase {
     }
 
     func testOneTitleCard() {
-        let one = ReelStitcher.card(kid: "Sebastian", games: [("vs Kabuki", "2026-10-11"), ("vs Kabuki", "2026-10-11")])
-        XCTAssertEqual(one, TitleCard(title: "Sebastian", subtitle: "vs Kabuki · Sun, Oct 11, 2026"))
-        let span = ReelStitcher.card(kid: "Sebastian", games: [("Merchants", "2026-09-26"), ("vs Kabuki", "2026-10-14")])
-        XCTAssertEqual(span, TitleCard(title: "Sebastian", subtitle: "Sep 26 – Oct 14, 2026"))
+        let one = ReelStitcher.card(kid: "Sebastian Mason", games: [("vs Kabuki", "2026-10-11"), ("vs Kabuki", "2026-10-11")],
+                                    results: [.double, .strikeoutLooking])
+        XCTAssertEqual(one, TitleCard(name: "Sebastian Mason", chip: "Highlights", meta: "vs Kabuki · Sun, Oct 11, 2026",
+                                      badges: [CardBadge(text: "2B", hit: true), CardBadge(text: "K", hit: false, mirrored: true)]))
+        let span = ReelStitcher.card(kid: "Sebastian Mason", games: [("Merchants", "2026-09-26"), ("vs Kabuki", "2026-10-14")])
+        XCTAssertEqual(span.meta, "2 games · Sep 26 – Oct 14, 2026")
         XCTAssertEqual(ReelStitcher.dateRange("2026-12-30", "2027-01-02"), "Dec 30, 2026 – Jan 2, 2027")
-        XCTAssertEqual(ReelStitcher.card(kid: nil, games: [("A", "2026-10-11")]).title, "Highlights")
+        XCTAssertEqual(ReelStitcher.card(kid: nil, games: [("A", "2026-10-11")]).name, "Highlights")
+        // Ten or more at-bats: a tally instead of badges.
+        let long = ReelStitcher.card(kid: "Oscar Mason", games: [("A", "2026-10-11")],
+                                     results: [.single, .walk, .groundout, .double, .strikeoutSwinging, .flyout, .single, .hitByPitch, .popout, .lineout])
+        XCTAssertEqual(long.badges, [])
+        XCTAssertEqual(long.tally, "10 at-bats · 3 hits · 2 walks")
     }
 
     func testReelFileName() {
@@ -87,7 +94,7 @@ final class ReelStitcherTests: XCTestCase {
         try await EditRendererTests.makeClip(at: a, seconds: 2, fps: 60, width: 1080, height: 1920, level: 40)
         try await EditRendererTests.makeClip(at: b, seconds: 3, fps: 60, width: 1080, height: 1920, level: 200)
 
-        let card = ReelStitcher.card(kid: "Sebastian", games: [("Merchants", "2026-09-26"), ("vs Kabuki", "2026-10-14")])
+        let card = ReelStitcher.card(kid: "Sebastian Mason", games: [("Merchants", "2026-09-26"), ("vs Kabuki", "2026-10-14")], results: [.walk, .double])
         let length = try await ReelStitcher.render(
             clips: [StitchClip(url: a, caption: "Sep 26 · AB 1 · Walk"),
                     StitchClip(url: b, caption: "Oct 14 · AB 3 · Double", replays: [1 ... 2])],

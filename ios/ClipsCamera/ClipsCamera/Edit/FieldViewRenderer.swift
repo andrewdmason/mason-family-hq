@@ -130,7 +130,7 @@ enum FieldViewRenderer {
             video.scaleTimeRange(CMTimeRange(start: .zero, duration: oneFrame.duration), toDuration: cardLength)
             audio?.insertEmptyTimeRange(CMTimeRange(start: .zero, duration: cardLength))
             instructions.append(LayerInstruction(timeRange: CMTimeRange(start: .zero, duration: cardLength), layers: [],
-                                                 overlay: CaptionArt.titleCard(card, size: shape.size)))
+                                                 card: CardAnimator(card: card, size: shape.size, length: cardSeconds)))
         }
         try video.insertTimeRange(bRange, of: bVideo, at: cardLength)
         if let audio, let bAudio {
@@ -204,12 +204,17 @@ final class LayerInstruction: NSObject, AVVideoCompositionInstructionProtocol {
     let layers: [Layer]
     let overlay: CIImage?
     let caption: AnimatedCaption?
+    /// The title card, drawn over the first layer's frames (its swing) as
+    /// they are, or over its graphic with no layers.
+    let card: CardAnimator?
 
-    init(timeRange: CMTimeRange, layers: [Layer], overlay: CIImage? = nil, caption: AnimatedCaption? = nil) {
+    init(timeRange: CMTimeRange, layers: [Layer], overlay: CIImage? = nil, caption: AnimatedCaption? = nil,
+         card: CardAnimator? = nil) {
         self.timeRange = timeRange
         self.layers = layers
         self.overlay = overlay
         self.caption = caption
+        self.card = card
         self.requiredSourceTrackIDs = layers.map { NSNumber(value: $0.trackID) }
     }
 }
@@ -287,6 +292,13 @@ final class LayerCompositor: NSObject, AVVideoCompositing {
             return
         }
         let frame = CGRect(origin: .zero, size: request.renderContext.size)
+        if let card = instruction.card {
+            let swing = instruction.layers.first.flatMap { request.sourceFrame(byTrackID: $0.trackID) }.map { CIImage(cvPixelBuffer: $0) }
+            let t = (request.compositionTime - instruction.timeRange.start).seconds
+            context.render(card.frame(at: t, swing: swing), to: output)
+            request.finish(withComposedVideoFrame: output)
+            return
+        }
         var image = CIImage(color: .black).cropped(to: frame)
         for layer in instruction.layers {
             guard let source = request.sourceFrame(byTrackID: layer.trackID) else { continue }
