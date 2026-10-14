@@ -34,6 +34,9 @@ struct ShareOptionsSheet: View {
                     Toggle("Captions", isOn: $options.captions)
                         .disabled(options.content == .fieldView)
                     Toggle("Title card", isOn: $options.titleCard)
+                    if availability.offersTrail(options.content) {
+                        Toggle("Ball trail", isOn: $options.ballTrail)
+                    }
                 }
                 if options != defaults {
                     Section {

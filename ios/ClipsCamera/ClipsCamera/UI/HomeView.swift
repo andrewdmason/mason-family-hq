@@ -169,7 +169,8 @@ struct HomeView: View {
             ReelPlayerScreen(
                 item: item,
                 onRelabel: watching ? nil : { pitches in applyLabels(item.id, pitches) },
-                onShare: { options, pitches in await shareReel(item.id, options: options, pitches: pitches) }
+                onShare: { options, pitches in await shareReel(item.id, options: options, pitches: pitches) },
+                onTrailUpdate: { info in setTrail(item.id, info) }
             )
             .onAppear {
                 Orientation.lock(.allButUpsideDown)
@@ -432,9 +433,21 @@ struct HomeView: View {
             let segments = (0..<3).map { ReelSegment(start: Double($0) * 3, end: Double($0 + 1) * 3, fps: $0 == 0 ? 60 : 240, pitch: $0) }
             let pitches = [Pitch(t: 2, outcome: .ball), Pitch(t: 5, outcome: .foul),
                            Pitch(t: 8, outcome: .inPlay, battedBall: .lineDrive, playResult: .double)]
-            let item = ReelItem(id: UUID(), title: "AB 2 · vs Kabuki", reel: URL(fileURLWithPath: args[i + 1]), segments: segments,
+            var item = ReelItem(id: UUID(), title: "AB 2 · vs Kabuki", reel: URL(fileURLWithPath: args[i + 1]), segments: segments,
                                 pitches: pitches, result: .double,
                                 fieldView: FieldViewPlayback(url: URL(fileURLWithPath: args[i + 1]), start: 1, end: 4))
+            // `-demoField /path/gc.mp4 START END`: that GameChanger clip as
+            // the field view; `-demoTrail /path/trail.json`: its ball trail
+            // (`-demoTrailStatus needs_tap` etc. for the other states).
+            if let f = args.firstIndex(of: "-demoField"), f + 3 < args.count,
+               let start = Double(args[f + 2]), let end = Double(args[f + 3]) {
+                item.fieldView = FieldViewPlayback(url: URL(fileURLWithPath: args[f + 1]), start: start, end: end)
+            }
+            if let f = args.firstIndex(of: "-demoTrail"), f + 1 < args.count,
+               let data = try? Data(contentsOf: URL(fileURLWithPath: args[f + 1])) {
+                let status = args.firstIndex(of: "-demoTrailStatus").flatMap { $0 + 1 < args.count ? BallTrailStatus(rawValue: args[$0 + 1]) : nil }
+                item.trail = BallTrailInfo(trail: try? JSONDecoder().decode(BallTrail.self, from: data), status: status ?? .ready)
+            }
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(1))
                 reelPlaying = item
@@ -649,6 +662,8 @@ struct HomeView: View {
             item.title = title
             Task {
                 item.fieldView = await fieldViewPlayback(ab)
+                item.trail = ab.trail
+                item.canTrace = !watching
                 reelPlaying = item
             }
             return
@@ -658,7 +673,8 @@ struct HomeView: View {
             do {
                 let url = try await model.clips.videoURL(path)
                 reelPlaying = ReelItem(id: ab.id, title: title, reel: url, segments: segments, pitches: ab.pitchList,
-                                       result: ab.result, fieldView: await fieldViewPlayback(ab))
+                                       result: ab.result, fieldView: await fieldViewPlayback(ab),
+                                       trail: ab.trail, canTrace: !watching)
             } catch {
                 shareError = "Couldn't load the video — check your signal."
             }
@@ -693,6 +709,19 @@ struct HomeView: View {
         return FieldViewPlayback(url: url, start: start, end: end)
     }
 
+    /// The ball trail changed (the player saw it traced, or asked again):
+    /// the card and shares pick it up without waiting for a reload.
+    private func setTrail(_ id: UUID, _ info: BallTrailInfo) {
+        for (kid, games) in history {
+            for g in games.indices {
+                if let a = games[g].atBats.firstIndex(where: { $0.id == id }) {
+                    history[kid]?[g].atBats[a].trail = info
+                    return
+                }
+            }
+        }
+    }
+
     /// "AB 2 · vs Kabuki"
     private func atBatTitle(_ id: UUID) -> String {
         if let (_, game, number) = findAtBat(id) {
@@ -718,7 +747,8 @@ struct HomeView: View {
         let job = store.jobs.first { $0.id == id }
         if let (ab, _, _) = findAtBat(id) {
             let pitches = ab.pitchList.isEmpty ? (job?.pitches ?? []) : ab.pitchList
-            return ShareAvailability(pitches: pitches, hasFieldView: ab.fieldViewPath != nil && ab.fieldViewStart != nil && ab.fieldViewEnd != nil)
+            return ShareAvailability(pitches: pitches, hasFieldView: ab.fieldViewPath != nil && ab.fieldViewStart != nil && ab.fieldViewEnd != nil,
+                                     hasTrail: ab.trail.ready != nil)
         }
         guard let job else { return ShareAvailability(hasFieldView: false, hasHit: false) }
         return ShareAvailability(pitches: job.pitches, hasFieldView: job.fieldView?.file != nil)
@@ -756,6 +786,7 @@ struct HomeView: View {
                     var clip = store.fieldViewFile(id)
                     if clip == nil { clip = try await cachedDownload(fvPath) }
                     request.fieldView = (clip!, start, end, fvPath)
+                    request.trail = ab.trail.ready
                 }
                 let kid = kids.first { $0.id == kidID }?.firstName
                 name = Self.fileName(kid: kid, game: game.name, number: number, result: request.result, day: game.playedOn)

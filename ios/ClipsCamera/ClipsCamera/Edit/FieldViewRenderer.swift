@@ -11,7 +11,9 @@ import UIKit
 // card, if any, and then the field view.
 //
 // The GameChanger clip can be any size or frame rate; it's fitted into the
-// 1080p60 frame with black bars rather than stretched.
+// 1080p60 frame with black bars rather than stretched. A ball trail, when
+// asked for, is drawn over the field view frame by frame by the same
+// TrailRenderer the player uses.
 
 struct RenderedFieldView {
     var duration: Double
@@ -20,11 +22,18 @@ struct RenderedFieldView {
     var bytes: Int64
 }
 
+/// A ball trail to burn into the field view.
+struct ShareTrail {
+    let geometry: TrailGeometry
+    let style: TrailStyle
+}
+
 enum FieldViewRenderer {
     static let dissolve = 0.5
 
     /// The close-up, then the field view: the kept stretch of `fieldView`.
-    static func append(closeup: URL, fieldView: URL, start: Double, end: Double, to out: URL) async throws -> RenderedFieldView {
+    static func append(closeup: URL, fieldView: URL, start: Double, end: Double, trail: ShareTrail? = nil,
+                       to out: URL) async throws -> RenderedFieldView {
         let a = AVURLAsset(url: closeup)
         let b = AVURLAsset(url: fieldView)
         guard let aVideo = try await a.loadTracks(withMediaType: .video).first,
@@ -75,10 +84,12 @@ enum FieldViewRenderer {
 
         let closeupLayer = LayerInstruction.Layer(trackID: videoA.trackID, orientation: .up, fadeIn: false)
         let fieldLayer = LayerInstruction.Layer(trackID: videoB.trackID, orientation: bOrientation, fadeIn: false)
+        let fieldTrail = trail.map { TrailLayer($0, trackID: videoB.trackID, clipOffset: bRange.start.seconds - bAt.seconds) }
         var instructions = [
             LayerInstruction(timeRange: CMTimeRange(start: .zero, duration: bAt), layers: [closeupLayer]),
-            LayerInstruction(timeRange: overlap, layers: [closeupLayer, .init(trackID: videoB.trackID, orientation: bOrientation, fadeIn: true)]),
-            LayerInstruction(timeRange: CMTimeRange(start: overlap.end, end: end), layers: [fieldLayer]),
+            LayerInstruction(timeRange: overlap, layers: [closeupLayer, .init(trackID: videoB.trackID, orientation: bOrientation, fadeIn: true)],
+                             trail: fieldTrail),
+            LayerInstruction(timeRange: CMTimeRange(start: overlap.end, end: end), layers: [fieldLayer], trail: fieldTrail),
         ]
         instructions.removeAll { $0.timeRange.duration.seconds <= 0 }
 
@@ -92,7 +103,8 @@ enum FieldViewRenderer {
 
     /// An at-bat that's only the field view: the title card (when there is
     /// one), then the clip.
-    static func alone(card: TitleCard?, cardSeconds: Double, fieldView: URL, start: Double, end: Double, to out: URL) async throws -> RenderedFieldView {
+    static func alone(card: TitleCard?, cardSeconds: Double, fieldView: URL, start: Double, end: Double, trail: ShareTrail? = nil,
+                      to out: URL) async throws -> RenderedFieldView {
         let b = AVURLAsset(url: fieldView)
         guard let bVideo = try await b.loadTracks(withMediaType: .video).first else { throw RenderError.noVideo }
         let bAudio = try await b.loadTracks(withMediaType: .audio).first
@@ -123,7 +135,9 @@ enum FieldViewRenderer {
         }
         let end = CMTimeAdd(cardLength, bRange.duration)
         instructions.append(LayerInstruction(timeRange: CMTimeRange(start: cardLength, end: end),
-                                             layers: [.init(trackID: video.trackID, orientation: bOrientation, fadeIn: false)]))
+                                             layers: [.init(trackID: video.trackID, orientation: bOrientation, fadeIn: false)],
+                                             trail: trail.map { TrailLayer($0, trackID: video.trackID,
+                                                                           clipOffset: bRange.start.seconds - cardLength.seconds) }))
 
         try? FileManager.default.removeItem(at: out)
         try await EditRenderer.encode(
@@ -169,9 +183,26 @@ enum FieldViewRenderer {
 
 // MARK: - Compositor
 
+/// A ball trail over one layer: the trail at the clip time showing, fitted to
+/// where that layer's picture sits.
+struct TrailLayer {
+    let geometry: TrailGeometry
+    let style: TrailStyle
+    let trackID: CMPersistentTrackID
+    /// Clip time = composition time + this.
+    let clipOffset: Double
+
+    init(_ trail: ShareTrail, trackID: CMPersistentTrackID, clipOffset: Double) {
+        geometry = trail.geometry
+        style = trail.style
+        self.trackID = trackID
+        self.clipOffset = clipOffset
+    }
+}
+
 /// One stretch of the finished video: source frames stacked bottom to top
 /// (each fitted to the frame), the top one optionally fading in across the
-/// stretch, and art drawn over them.
+/// stretch, a ball trail over the field view, and art drawn over them.
 final class LayerInstruction: NSObject, AVVideoCompositionInstructionProtocol {
     struct Layer {
         let trackID: CMPersistentTrackID
@@ -187,11 +218,13 @@ final class LayerInstruction: NSObject, AVVideoCompositionInstructionProtocol {
     let passthroughTrackID = kCMPersistentTrackID_Invalid
     let layers: [Layer]
     let overlay: CIImage?
+    let trail: TrailLayer?
 
-    init(timeRange: CMTimeRange, layers: [Layer], overlay: CIImage? = nil) {
+    init(timeRange: CMTimeRange, layers: [Layer], overlay: CIImage? = nil, trail: TrailLayer? = nil) {
         self.timeRange = timeRange
         self.layers = layers
         self.overlay = overlay
+        self.trail = trail
         self.requiredSourceTrackIDs = layers.map { NSNumber(value: $0.trackID) }
     }
 }
@@ -217,6 +250,9 @@ final class LayerCompositor: NSObject, AVVideoCompositing {
         }
         let frame = CGRect(origin: .zero, size: EditRenderer.size)
         var image = CIImage(color: .black).cropped(to: frame)
+        // Where the trail's layer landed, and how far it has faded in.
+        var trailRect: CGRect?
+        var trailOpacity: CGFloat = 1
         for layer in instruction.layers {
             guard let source = request.sourceFrame(byTrackID: layer.trackID) else { continue }
             var src = CIImage(cvPixelBuffer: source).oriented(layer.orientation)
@@ -229,9 +265,11 @@ final class LayerCompositor: NSObject, AVVideoCompositing {
                     .transformed(by: CGAffineTransform(translationX: (frame.width - e.width * scale) / 2,
                                                        y: (frame.height - e.height * scale) / 2))
             }
+            if layer.trackID == instruction.trail?.trackID { trailRect = src.extent }
             if layer.fadeIn {
                 let range = instruction.timeRange
                 let a = CGFloat(max(0, min(1, (request.compositionTime - range.start).seconds / range.duration.seconds)))
+                if layer.trackID == instruction.trail?.trackID { trailOpacity = a }
                 src = src.applyingFilter("CIColorMatrix", parameters: [
                     "inputRVector": CIVector(x: a, y: 0, z: 0, w: 0),
                     "inputGVector": CIVector(x: 0, y: a, z: 0, w: 0),
@@ -240,6 +278,15 @@ final class LayerCompositor: NSObject, AVVideoCompositing {
                 ])
             }
             image = src.composited(over: image)
+        }
+        if let trail = instruction.trail, let rect = trailRect, trailOpacity > 0,
+           var drawn = TrailRenderer.image(trail.geometry, at: request.compositionTime.seconds + trail.clipOffset,
+                                           style: trail.style, videoRect: rect) {
+            if trailOpacity < 1 { drawn = TrailRenderer.faded(drawn, by: trailOpacity) }
+            // The trail's colours are gamma-encoded and blend the way the
+            // player's layers do: onto the picture in gamma, then back.
+            image = TrailRenderer.composite(drawn, style: trail.style, onto: image.applyingFilter("CILinearToSRGBToneCurve"))
+                .applyingFilter("CISRGBToneCurveToLinear")
         }
         if let overlay = instruction.overlay {
             image = overlay.composited(over: image)

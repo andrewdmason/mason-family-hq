@@ -145,16 +145,18 @@ final class ClipsService {
                 .execute()
                 .value
         }
-        let games: [HistoryGame]
-        do {
-            games = try await fetch("\(base), \(fieldView), reel")
-        } catch is PostgrestError {
-            // Clips without the reel column yet (migration 00202), or the
-            // field-view columns (00201).
+        // Newest columns first; Clips without the ball-trail columns yet, the
+        // reel column (migration 00202) or the field-view columns (00201) get
+        // asked again with fewer.
+        let trail = "ball_trail, ball_trail_status, ball_trail_tap"
+        let attempts = ["\(base), \(fieldView), reel, \(trail)", "\(base), \(fieldView), reel", "\(base), \(fieldView)", base]
+        var games: [HistoryGame] = []
+        for (i, columns) in attempts.enumerated() {
             do {
-                games = try await fetch("\(base), \(fieldView)")
-            } catch is PostgrestError {
-                games = try await fetch(base)
+                games = try await fetch(columns)
+                break
+            } catch is PostgrestError where i < attempts.count - 1 {
+                continue
             }
         }
         return games.filter { !$0.atBats.isEmpty }
@@ -240,6 +242,36 @@ final class ClipsService {
             return body.url
         }
         return try await client.storage.from(Config.bucket).createSignedURL(path: path, expiresIn: 3600)
+    }
+
+    // MARK: Ball trail
+
+    /// Ask for the at-bat's ball trail to be traced (again), optionally from
+    /// a tap on the ball. Clips marks it pending; the worker fills it in.
+    func requestTrace(atBatID: UUID, tap: TrailTap? = nil) async throws {
+        guard isSignedIn else { throw StoreError("Sign in to add a ball trail.") }
+        let session = try await client.auth.session // refreshes an expired token first
+        struct Body: Encodable { let atBatId: String; let tap: TrailTap? }
+        var request = URLRequest(url: Config.traceAPI)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(Body(atBatId: atBatID.uuidString.lowercased(), tap: tap))
+        request.timeoutInterval = 30
+        let (_, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw StoreError("Couldn't start the ball trail (\(http.statusCode)).")
+        }
+    }
+
+    /// An at-bat's trail columns as Clips has them now.
+    func ballTrail(atBatID: UUID) async throws -> BallTrailInfo {
+        let rows: [TrailRow] = try await client.from("clip_at_bats")
+            .select("ball_trail, ball_trail_status, ball_trail_tap")
+            .eq("id", value: atBatID)
+            .execute()
+            .value
+        return rows.first?.info ?? .none
     }
 
     /// A watch-only read from the website.
@@ -524,6 +556,8 @@ struct HistoryAtBat: Decodable, Identifiable {
     /// Sorted, at their times in the video, the deciding ball in play with
     /// the at-bat's result.
     let pitchList: [Pitch]
+    /// The field view's ball trail (none before Clips has the columns).
+    var trail: BallTrailInfo
 
     /// Filmed with this app: the file is the finished video, or a pitch reel.
     var isCamera: Bool { source == "camera" }
@@ -537,6 +571,7 @@ struct HistoryAtBat: Decodable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id, source, status, result, poster_path, playback_path, duration_s, recorded_at, created_at, clip_pitches
         case closeup_path, field_view_path, field_view_start_s, field_view_end_s, reel
+        case ball_trail, ball_trail_status, ball_trail_tap
     }
     private struct PitchRow: Decodable { let id: UUID?; let t: Double?; let outcome: PitchOutcome?; let batted_ball: BattedBall? }
 
@@ -563,6 +598,28 @@ struct HistoryAtBat: Decodable, Identifiable {
         fieldViewStart = try c.decodeIfPresent(Double.self, forKey: .field_view_start_s)
         fieldViewEnd = try c.decodeIfPresent(Double.self, forKey: .field_view_end_s)
         closeupPath = try c.decodeIfPresent(String.self, forKey: .closeup_path)
+        trail = TrailRow.decode(c, trail: .ball_trail, status: .ball_trail_status, tap: .ball_trail_tap)
+    }
+}
+
+/// The ball-trail columns. A trail that doesn't read (a newer version, say)
+/// is left out rather than losing the at-bat.
+struct TrailRow: Decodable {
+    let info: BallTrailInfo
+
+    enum CodingKeys: String, CodingKey { case ball_trail, ball_trail_status, ball_trail_tap }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        info = Self.decode(c, trail: .ball_trail, status: .ball_trail_status, tap: .ball_trail_tap)
+    }
+
+    static func decode<K: CodingKey>(_ c: KeyedDecodingContainer<K>, trail: K, status: K, tap: K) -> BallTrailInfo {
+        BallTrailInfo(
+            trail: (try? c.decodeIfPresent(BallTrail.self, forKey: trail)) ?? nil,
+            status: ((try? c.decodeIfPresent(String.self, forKey: status)) ?? nil).flatMap(BallTrailStatus.init(rawValue:)),
+            tap: (try? c.decodeIfPresent(TrailTap.self, forKey: tap)) ?? nil
+        )
     }
 }
 
