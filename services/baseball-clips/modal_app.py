@@ -18,8 +18,10 @@ import modal
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("ffmpeg")
-    .pip_install("fastapi", "pillow")
-    .add_local_python_source("job")
+    # opencv/numpy/scipy: the ball-trail tracer (balltrail/); headless OpenCV
+    # brings its own FFmpeg for decoding, no GUI libraries needed
+    .pip_install("fastapi", "pillow", "opencv-python-headless==5.0.0.93", "numpy==2.4.6", "scipy==1.17.1")
+    .add_local_python_source("job", "balltrail")
 )
 
 app = modal.App("baseball-clips", image=image)

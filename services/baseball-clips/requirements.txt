@@ -1,4 +1,8 @@
 fastapi
 uvicorn[standard]
 pillow
+# the ball-trail tracer (balltrail/) — same pins as the Modal image
+opencv-python-headless==5.0.0.93
+numpy==2.4.6
+scipy==1.17.1
 # ffmpeg (with libzimg for HDR tone-mapping) must be on PATH.
