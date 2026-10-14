@@ -6,7 +6,8 @@ import Foundation
 // share options say: the title card, each pitch at real speed with its caption,
 // a ¼-speed replay after each swing, then the GameChanger field view — or just
 // the ball in play, just the close-up, or just the field view, with the slow-mo,
-// card and captions each switchable. Finished copies are kept in the caches
+// card and captions each switchable, landscape or vertical (each camera's
+// picture cropped where it was framed). Finished copies are kept in the caches
 // folder, so sharing the same version again is instant.
 
 /// What goes in the shared video.
@@ -39,8 +40,38 @@ struct ShareOptions: Codable, Equatable {
     var slowMo = true
     var titleCard = true
     var captions = true
+    /// 9:16 for Reels and Stories, rather than landscape.
+    var vertical = false
+    /// In a vertical video, crop the GameChanger clip rather than showing the
+    /// whole field over a blurred fill.
+    var cropFieldView = false
 
     static let standard = ShareOptions()
+
+    init(content: ShareContent = .whole, slowMo: Bool = true, titleCard: Bool = true, captions: Bool = true,
+         vertical: Bool = false, cropFieldView: Bool = false) {
+        self.content = content
+        self.slowMo = slowMo
+        self.titleCard = titleCard
+        self.captions = captions
+        self.vertical = vertical
+        self.cropFieldView = cropFieldView
+    }
+
+    // Options saved before a choice existed take its default.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = ShareOptions()
+        content = try c.decodeIfPresent(ShareContent.self, forKey: .content) ?? d.content
+        slowMo = try c.decodeIfPresent(Bool.self, forKey: .slowMo) ?? d.slowMo
+        titleCard = try c.decodeIfPresent(Bool.self, forKey: .titleCard) ?? d.titleCard
+        captions = try c.decodeIfPresent(Bool.self, forKey: .captions) ?? d.captions
+        vertical = try c.decodeIfPresent(Bool.self, forKey: .vertical) ?? d.vertical
+        cropFieldView = try c.decodeIfPresent(Bool.self, forKey: .cropFieldView) ?? d.cropFieldView
+    }
+
+    var showsCloseup: Bool { content != .fieldView }
+    var showsFieldView: Bool { content != .pitches }
 
     /// These options for an at-bat, with a content choice it can't make
     /// (no field view, no ball in play) back to the whole at-bat.
@@ -51,7 +82,40 @@ struct ShareOptions: Codable, Equatable {
     }
 }
 
-/// What an at-bat has to share.
+/// One at-bat a share is made from, as the share sheet sees it.
+struct ShareItem: Equatable {
+    var id: UUID
+    var gameID: UUID?
+    var segments: [ReelSegment]
+    /// At their reel times.
+    var pitches: [Pitch]
+    /// The kept stretch of the GameChanger clip; nil without one.
+    var fieldViewLength: Double?
+
+    var hasHit: Bool { ReelPlan.hitPitch(pitches) != nil }
+    var hasFieldView: Bool { fieldViewLength != nil }
+
+    /// Whether these options use this at-bat: "Just the hit" and
+    /// "GameChanger only" leave out at-bats without one.
+    func isIncluded(_ o: ShareOptions) -> Bool {
+        switch o.content {
+        case .hit: hasHit
+        case .fieldView: hasFieldView
+        case .whole, .pitches: true
+        }
+    }
+
+    /// Its stretch of the finished video (no title card), in seconds.
+    func length(_ o: ShareOptions, timings: EditTimings = AppSettings.shared.timings) -> Double {
+        let plan = o.showsCloseup ? ShareRenderer.closeupPlan(segments: segments, pitches: pitches, result: nil,
+                                                              options: o, timings: timings) : []
+        let closeup = QuickPlan.duration(plan)
+        // The dissolve into the field view plays over its start, adding nothing.
+        return closeup + (o.showsFieldView ? (fieldViewLength ?? 0) : 0)
+    }
+}
+
+/// What an at-bat (or a set of them) has to share.
 struct ShareAvailability: Equatable {
     var hasFieldView: Bool
     var hasHit: Bool
@@ -65,6 +129,11 @@ struct ShareAvailability: Equatable {
         self.init(hasFieldView: hasFieldView, hasHit: ReelPlan.hitPitch(pitches) != nil)
     }
 
+    /// Any of them has it.
+    init(items: [ShareItem]) {
+        self.init(hasFieldView: items.contains(where: \.hasFieldView), hasHit: items.contains(where: \.hasHit))
+    }
+
     /// The choices shown: without a field view, "Pitches only" would be the
     /// whole at-bat again and "GameChanger only" nothing.
     var choices: [ShareContent] {
@@ -74,6 +143,13 @@ struct ShareAvailability: Equatable {
     func offers(_ c: ShareContent) -> Bool {
         choices.contains(c) && (c != .hit || hasHit)
     }
+}
+
+/// Where each camera's picture sits in a vertical crop: the middle of the
+/// kept strip, as a fraction of the picture's width. Unset is the middle.
+struct Framing: Codable, Equatable {
+    var closeup: Double?
+    var fieldView: Double?
 }
 
 /// Everything that decides how a shared at-bat looks.
@@ -86,6 +162,7 @@ struct ShareRequest {
     var result: AtBatResult?
     var card: TitleCard
     var options: ShareOptions
+    var framing = Framing()
     /// The GameChanger clip; `key` names it (its storage path).
     var fieldView: (url: URL, start: Double, end: Double, key: String)?
     /// What identifies the reel's contents (its storage path, or file name).
@@ -113,35 +190,62 @@ enum ShareRenderer {
             for url in mine.dropFirst(3) { try? FileManager.default.removeItem(at: url) }
         }
         let card = r.options.titleCard ? r.card : nil
-        let fieldView = r.options.content == .pitches ? nil : r.fieldView
+        let fieldView = r.options.showsFieldView ? r.fieldView : nil
+        let shape: VideoShape = r.options.vertical ? .vertical : .landscape
+        let fieldFill: LayerFill = !r.options.vertical ? .fit
+            : r.options.cropFieldView ? .crop(center: r.framing.fieldView ?? 0.5) : .fitOverBlur
+        let closeupCenter = r.framing.closeup ?? 0.5
         let partial = folder.appendingPathComponent("partial-\(UUID().uuidString).mp4")
         defer { try? FileManager.default.removeItem(at: partial) }
 
         if r.options.content == .fieldView {
             guard let fv = fieldView else { throw RenderError.failed("this at-bat has no GameChanger video") }
             _ = try await FieldViewRenderer.alone(card: card, cardSeconds: r.timings.titleCard, fieldView: fv.url,
-                                                  start: fv.start, end: fv.end, to: partial)
+                                                  start: fv.start, end: fv.end, shape: shape, fieldFill: fieldFill, to: partial)
         } else {
-            var only: Int?
-            if r.options.content == .hit {
-                guard let hit = ReelPlan.hitPitch(r.pitches) else { throw RenderError.failed("this at-bat has no ball in play") }
-                only = hit
+            if r.options.content == .hit, ReelPlan.hitPitch(r.pitches) == nil {
+                throw RenderError.failed("this at-bat has no ball in play")
             }
-            var plan = ReelPlan.sharePlan(segments: r.segments, pitches: r.pitches, result: r.result,
-                                          replays: r.options.slowMo, only: only, timings: r.timings)
-            if !r.options.captions {
-                for i in plan.indices { plan[i].caption = "" }
-            }
+            let plan = closeupPlan(segments: r.segments, pitches: r.pitches, result: r.result, options: r.options, timings: r.timings)
             if let fv = fieldView {
                 let closeup = folder.appendingPathComponent("closeup-\(UUID().uuidString).mp4")
                 defer { try? FileManager.default.removeItem(at: closeup) }
-                _ = try await EditRenderer.render(source: r.reel, rotation: 0, plan: plan, card: card, timings: r.timings, to: closeup)
-                _ = try await FieldViewRenderer.append(closeup: closeup, fieldView: fv.url, start: fv.start, end: fv.end, to: partial)
+                _ = try await EditRenderer.render(source: r.reel, rotation: 0, plan: plan, card: card, timings: r.timings,
+                                                  shape: shape, cropCenter: closeupCenter, to: closeup)
+                _ = try await FieldViewRenderer.append(closeup: closeup, fieldView: fv.url, start: fv.start, end: fv.end,
+                                                       shape: shape, fieldFill: fieldFill, to: partial)
             } else {
-                _ = try await EditRenderer.render(source: r.reel, rotation: 0, plan: plan, card: card, timings: r.timings, to: partial)
+                _ = try await EditRenderer.render(source: r.reel, rotation: 0, plan: plan, card: card, timings: r.timings,
+                                                  shape: shape, cropCenter: closeupCenter, to: partial)
             }
         }
         try FileManager.default.moveItem(at: partial, to: out)
+        return out
+    }
+
+    /// The close-up's plan for these options, in reel time: every pitch, or
+    /// just the ball in play, with or without slow-mo and captions.
+    static func closeupPlan(segments: [ReelSegment], pitches: [Pitch], result: AtBatResult?,
+                            options o: ShareOptions, timings: EditTimings) -> [PlanSegment] {
+        let only = o.content == .hit ? ReelPlan.hitPitch(pitches) : nil
+        var plan = ReelPlan.sharePlan(segments: segments, pitches: pitches, result: result,
+                                      replays: o.slowMo, only: only, timings: timings)
+        if !o.captions {
+            for i in plan.indices { plan[i].caption = "" }
+        }
+        return plan
+    }
+
+    /// Where the slow-motion replays fall in the shared video (no title
+    /// card), so a reel of several at-bats can tint their captions.
+    static func replayTimes(_ r: ShareRequest) -> [ClosedRange<Double>] {
+        guard r.options.showsCloseup else { return [] }
+        var at = 0.0
+        var out: [ClosedRange<Double>] = []
+        for seg in closeupPlan(segments: r.segments, pitches: r.pitches, result: r.result, options: r.options, timings: r.timings) {
+            if seg.replay { out.append(at ... at + seg.playLength) }
+            at += seg.playLength
+        }
         return out
     }
 
@@ -153,10 +257,16 @@ enum ShareRenderer {
         let o = r.options
         var parts = [r.reelKey, o.content.rawValue, o.slowMo ? "replays" : "realspeed", o.titleCard ? "card" : "nocard",
                      o.captions ? "captions" : "nocaptions", r.card.title, r.card.subtitle, r.result?.rawValue ?? "-"]
+        if o.vertical {
+            let f = { (x: Double?) in String(format: "%.3f", x ?? 0.5) }
+            parts += ["vertical", f(r.framing.closeup), o.cropFieldView ? "gc-crop-\(f(r.framing.fieldView))" : "gc-whole"]
+        }
         parts += r.pitches.sorted { $0.t < $1.t }.map { "\($0.outcome?.rawValue ?? "-")/\($0.battedBall?.rawValue ?? "-")" }
         if let fv = r.fieldView { parts.append("\(fv.key)@\(fv.start)-\(fv.end)") }
-        // The way the close-up meets the field view.
+        // How the video is laid out: the close-up meeting the field view, and
+        // where a vertical caption sits (copies from earlier layouts aren't reused).
         parts.append("hold-dissolve")
+        if o.vertical { parts.append("captions-top") }
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         if let t = try? encoder.encode(r.timings) { parts.append(t.base64EncodedString()) }

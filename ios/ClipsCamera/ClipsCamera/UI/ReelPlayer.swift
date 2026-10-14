@@ -274,23 +274,27 @@ final class ReelPlayerModel {
 
 struct ReelPlayerScreen: View {
     let item: ReelItem
+    /// The at-bat's game, for remembering its framing.
+    let gameID: UUID?
     /// New labels, all pitches at their reel times; nil when watching only.
     let onRelabel: (([Pitch]) -> Void)?
     /// Render with the chosen options and hand to the share sheet.
-    let onShare: (_ options: ShareOptions, _ pitches: [Pitch]) async -> Void
+    let onShare: (_ options: ShareOptions, _ framing: Framing, _ pitches: [Pitch]) async -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var model: ReelPlayerModel
     @State private var relabeling: Int?
     @State private var choosingShare = false
     /// Chosen in the options sheet; made once the sheet has closed.
-    @State private var pendingShare: ShareOptions?
+    @State private var pendingShare: (options: ShareOptions, framing: Framing)?
     @State private var sharing = false
     @State private var jogFrom: Double?
     @State private var controlsShown = true
 
-    init(item: ReelItem, onRelabel: (([Pitch]) -> Void)?, onShare: @escaping (ShareOptions, [Pitch]) async -> Void) {
+    init(item: ReelItem, gameID: UUID?, onRelabel: (([Pitch]) -> Void)?,
+         onShare: @escaping (ShareOptions, Framing, [Pitch]) async -> Void) {
         self.item = item
+        self.gameID = gameID
         self.onRelabel = onRelabel
         self.onShare = onShare
         _model = State(initialValue: ReelPlayerModel(item))
@@ -341,19 +345,22 @@ struct ReelPlayerScreen: View {
             .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $choosingShare, onDismiss: {
-            if let options = pendingShare { share(options) }
+            if let p = pendingShare { share(p.options, p.framing) }
             pendingShare = nil
         }) {
-            ShareOptionsSheet(availability: ShareAvailability(pitches: model.pitches, hasFieldView: item.fieldView != nil)) {
-                pendingShare = $0
+            let sources = FramingSources(reel: item.reel, segments: item.segments, pitches: model.pitches, fieldView: item.fieldView)
+            let share = ShareItem(id: item.id, gameID: gameID, segments: item.segments, pitches: model.pitches,
+                                  fieldViewLength: item.fieldView.map { max(0, $0.end - $0.start) })
+            ShareOptionsSheet(items: [share], sources: { sources }) {
+                pendingShare = ($0, $1)
             }
         }
     }
 
-    private func share(_ options: ShareOptions) {
+    private func share(_ options: ShareOptions, _ framing: Framing) {
         sharing = true
         Task {
-            await onShare(options, model.pitches)
+            await onShare(options, framing, model.pitches)
             sharing = false
         }
     }
