@@ -6,7 +6,7 @@ struct HomeView: View {
         ContentUnavailableView(
             "Home",
             systemImage: "house",
-            description: Text("The family's home base is coming. Open the sidebar for your apps.")
+            description: Text("The family's home base is coming. Swipe right for your apps.")
         )
         .navigationTitle("Home")
         .navigationBarTitleDisplayMode(.inline)

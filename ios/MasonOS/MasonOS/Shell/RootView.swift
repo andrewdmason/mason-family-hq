@@ -47,15 +47,15 @@ struct RootView: View {
     }
 }
 
-/// The current app full screen, with the app list in a sidebar that slides in
-/// from the left: the menu button, or a swipe from the left edge.
+/// The current app full screen, with the app list in a sidebar underneath it,
+/// like the ChatGPT and Claude apps: swipe right anywhere to slide the app
+/// aside and show the list, swipe left or tap the app to put it back. The menu
+/// button opens it too.
 struct ShellView: View {
     @State private var session = Session.shared
     @AppStorage("shell.currentApp") private var currentRaw = FamilyApp.home.rawValue
     @State private var sidebarOpen = false
     @State private var drag: CGFloat = 0
-
-    private let sidebarWidth: CGFloat = 300
 
     private var apps: [FamilyApp] { FamilyApp.allCases.filter { $0.isOpen(to: session.role) } }
 
@@ -64,53 +64,57 @@ struct ShellView: View {
         return app.isOpen(to: session.role) ? app : .home
     }
 
-    /// How far open the sidebar is, 0…1, following a finger mid-drag.
-    private var openness: CGFloat {
-        let base: CGFloat = sidebarOpen ? sidebarWidth : 0
-        return min(max((base + drag) / sidebarWidth, 0), 1)
-    }
-
     var body: some View {
-        ZStack(alignment: .leading) {
-            NavigationStack {
-                content
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button {
-                                withAnimation(.snappy) { sidebarOpen = true }
-                            } label: {
-                                Image(systemName: "line.3.horizontal")
+        GeometryReader { geo in
+            // The app stays in view as a strip on the right while the list is open.
+            let width = max(geo.size.width - 72, 240)
+            let openness = min(max(((sidebarOpen ? width : 0) + drag) / width, 0), 1)
+
+            ZStack(alignment: .leading) {
+                SidebarView(apps: apps, current: current, email: session.email) { app in
+                    currentRaw = app.rawValue
+                    withAnimation(.snappy) { sidebarOpen = false }
+                }
+                .frame(width: width)
+                .offset(x: (openness - 1) * 60)
+                .opacity(0.4 + 0.6 * openness)
+
+                NavigationStack {
+                    content
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button {
+                                    withAnimation(.snappy) { sidebarOpen = true }
+                                } label: {
+                                    Image(systemName: "line.3.horizontal")
+                                }
+                                .accessibilityLabel("Apps")
                             }
-                            .accessibilityLabel("Apps")
                         }
+                }
+                .overlay {
+                    Color.black.opacity(0.2 * openness)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(sidebarOpen)
+                        .onTapGesture { withAnimation(.snappy) { sidebarOpen = false } }
+                }
+                .clipShape(.rect(cornerRadius: 24 * openness))
+                .shadow(color: .black.opacity(0.15 * openness), radius: 12)
+                .offset(x: openness * width)
+            }
+            .gesture(
+                SidebarPan(isOpen: sidebarOpen) { dx in
+                    drag = dx
+                } ended: { dx, velocity in
+                    let projected = (sidebarOpen ? width : 0) + dx + velocity * 0.15
+                    withAnimation(.snappy) {
+                        sidebarOpen = projected > width / 2
+                        drag = 0
                     }
-            }
-            .offset(x: openness * sidebarWidth)
-            .overlay {
-                Color.black.opacity(0.25 * openness)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(openness > 0)
-                    .onTapGesture { withAnimation(.snappy) { sidebarOpen = false } }
-                    .offset(x: openness * sidebarWidth)
-            }
-
-            SidebarView(apps: apps, current: current, email: session.email) { app in
-                currentRaw = app.rawValue
-                withAnimation(.snappy) { sidebarOpen = false }
-            }
-            .frame(width: sidebarWidth)
-            .offset(x: (openness - 1) * sidebarWidth)
-
-            // A strip along the left edge to swipe the sidebar open from.
-            if !sidebarOpen {
-                Color.clear
-                    .frame(width: 20)
-                    .contentShape(Rectangle())
-                    .ignoresSafeArea()
-                    .gesture(dragGesture)
-            }
+                }
+            )
+            .sensoryFeedback(.impact(weight: .light), trigger: sidebarOpen)
         }
-        .gesture(dragGesture, isEnabled: sidebarOpen)
     }
 
     @ViewBuilder
@@ -120,17 +124,47 @@ struct ShellView: View {
         case .practice: QuickLogView()
         }
     }
+}
 
-    private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 10)
-            .onChanged { drag = $0.translation.width }
-            .onEnded { value in
-                let projected = (sidebarOpen ? sidebarWidth : 0) + value.predictedEndTranslation.width
-                withAnimation(.snappy) {
-                    sidebarOpen = projected > sidebarWidth / 2
-                    drag = 0
-                }
-            }
+/// A horizontal pan anywhere on screen that moves the sidebar. It only starts
+/// on a sideways swipe (rightward when closed), so up-and-down scrolling and
+/// taps go through to the app as usual.
+struct SidebarPan: UIGestureRecognizerRepresentable {
+    let isOpen: Bool
+    let changed: (CGFloat) -> Void
+    let ended: (_ dx: CGFloat, _ velocity: CGFloat) -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let pan = UIPanGestureRecognizer()
+        pan.delegate = context.coordinator
+        return pan
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        context.coordinator.isOpen = isOpen
+    }
+
+    func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        let dx = recognizer.translation(in: recognizer.view).x
+        switch recognizer.state {
+        case .began, .changed: changed(dx)
+        case .ended: ended(dx, recognizer.velocity(in: recognizer.view).x)
+        case .cancelled, .failed: ended(0, 0)
+        default: break
+        }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var isOpen = false
+
+        func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = recognizer as? UIPanGestureRecognizer else { return false }
+            let v = pan.velocity(in: pan.view)
+            guard abs(v.x) > abs(v.y) * 1.2 else { return false }
+            return isOpen ? true : v.x > 0
+        }
     }
 }
 
