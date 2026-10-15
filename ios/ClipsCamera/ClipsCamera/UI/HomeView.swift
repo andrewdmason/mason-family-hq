@@ -1443,7 +1443,9 @@ private struct PlayerScreen: View {
             Button { dismiss() } label: {
                 Image(systemName: "xmark.circle.fill").font(.largeTitle).foregroundStyle(.white.opacity(0.85))
             }
-            .padding()
+            // Level with the player's own buttons, just left of its mute button.
+            .padding(.top, 9)
+            .padding(.trailing, 60)
         }
         .task {
             let asset = AVURLAsset(url: url)
