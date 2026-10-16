@@ -1,0 +1,90 @@
+# MasonOS — the family apps, native. Generate the Xcode project with
+# `xcodegen` from this folder (the .xcodeproj is gitignored); see README.md for
+# build and install steps.
+name: MasonOS
+options:
+  bundleIdPrefix: io.mason
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: S4AV4J8F99
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: 2.55.0
+targets:
+  MasonOS:
+    type: application
+    platform: iOS
+    sources: [MasonOS, Shared]
+    dependencies:
+      - package: Supabase
+        product: Supabase
+      - target: MasonOSWidgets
+    entitlements:
+      path: MasonOS/MasonOS.entitlements
+      properties:
+        # Shared with the widget extension: the running practice timer.
+        com.apple.security.application-groups: [group.io.mason.masonos]
+    info:
+      path: MasonOS/Info.plist
+      properties:
+        CFBundleDisplayName: MasonOS
+        CFBundleURLTypes:
+          - CFBundleURLName: io.mason.masonos
+            CFBundleURLSchemes: [io.mason.masonos]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSSupportsLiveActivities: true
+        UILaunchScreen:
+          UIColorName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.mason.masonos
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+    scheme:
+      testTargets: [MasonOSTests]
+  # The practice timer's Live Activity (Lock Screen and Dynamic Island).
+  MasonOSWidgets:
+    type: app-extension
+    platform: iOS
+    sources: [MasonOSWidgets, Shared]
+    entitlements:
+      path: MasonOSWidgets/MasonOSWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.io.mason.masonos]
+    info:
+      path: MasonOSWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: MasonOS
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.mason.masonos.widgets
+        TARGETED_DEVICE_FAMILY: "1"
+        # Shared/ code that only the app can run (the Stop button's write)
+        # is behind `#if !WIDGET_EXTENSION`.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WIDGET_EXTENSION
+  MasonOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [MasonOSTests]
+    dependencies:
+      - target: MasonOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true

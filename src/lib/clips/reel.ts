@@ -2,8 +2,8 @@
 // on). The reel is just the real-speed window around each pitch, back to back —
 // swings at every 240fps frame, takes at 60fps — with nothing burned in. The
 // player adds slow motion and captions as it plays, and a shared video is
-// rendered from the reel on request. A port of the phone's ReelPlan
-// (ios/ClipsCamera/ClipsCamera/Edit/ReelPlan.swift); keep the two in step.
+// rendered from the reel on request. A port of the phone's ReelPlan (now in
+// the standalone bbcam app's repo); keep the two in step.
 
 import { QUICK, pitchCaption, type PlanSegment } from "./plan";
 import { countsBefore, isSwing, outcomeLabel, resultLabel, type AtBatResult, type BattedBall, type ClipPitch } from "./types";
