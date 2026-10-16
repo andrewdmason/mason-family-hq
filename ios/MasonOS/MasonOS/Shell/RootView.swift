@@ -92,14 +92,16 @@ struct ShellView: View {
                             }
                         }
                 }
+                // Full height, under the status bar and home indicator, so the
+                // whole screen slides over rather than a floating card.
+                .background(Color(.systemBackground).ignoresSafeArea())
                 .overlay {
                     Color.black.opacity(0.2 * openness)
                         .ignoresSafeArea()
                         .allowsHitTesting(sidebarOpen)
                         .onTapGesture { withAnimation(.snappy) { sidebarOpen = false } }
                 }
-                .clipShape(.rect(cornerRadius: 24 * openness))
-                .shadow(color: .black.opacity(0.15 * openness), radius: 12)
+                .shadow(color: .black.opacity(0.12 * openness), radius: 8)
                 .offset(x: openness * width)
             }
             .gesture(
