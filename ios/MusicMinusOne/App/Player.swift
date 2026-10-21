@@ -1,0 +1,260 @@
+import AVFoundation
+import MediaPlayer
+import Observation
+
+/// The count-in's arithmetic, kept apart from the audio so it can be tested.
+struct CountIn: Equatable {
+    /// Where the recording starts (seconds in), and how long to wait first
+    /// when the pre-roll would reach back before the start of the recording.
+    let startAt: Double
+    let silentLead: Double
+    /// One beat of wall-clock time at the current speed.
+    let beatSeconds: Double
+    let beats: Int
+
+    /// `beats` beats of the recording before `target`, at the song's tempo
+    /// and the current speed. Pre-roll that would start before 0 is silence.
+    init(target: Double, beats: Int, tempo: Double, speed: Double) {
+        let beatInRecording = 60 / tempo
+        let start = target - Double(beats) * beatInRecording
+        startAt = max(0, start)
+        silentLead = max(0, -start) / speed
+        beatSeconds = beatInRecording / speed
+        self.beats = beats
+    }
+
+    /// The big number on screen `elapsed` seconds into the count-in: beats,
+    /// beats−1… 1, then nil when the target arrives.
+    func number(at elapsed: Double) -> Int? {
+        let n = beats - Int((elapsed / beatSeconds).rounded(.down))
+        return n >= 1 ? n : nil
+    }
+}
+
+/// Plays a song's tracks together, sample-locked: one player per track into
+/// a submix (where each track's volume and pan apply), then a time-pitch unit
+/// (speed without changing pitch), then the main mixer (overall volume).
+@MainActor
+@Observable
+final class Player {
+    static let shared = Player()
+
+    private(set) var songID: UUID?
+    private(set) var duration: Double = 0
+    private(set) var isPlaying = false
+    /// Seconds into the recording, updated while playing.
+    private(set) var position: Double = 0
+    /// The count-in's big number, while one is running.
+    private(set) var countdown: Int?
+    /// Tracks whose audio isn't on the phone yet.
+    private(set) var missing: Set<UUID> = []
+
+    private let engine = AVAudioEngine()
+    private let submix = AVAudioMixerNode()
+    private let timePitch = AVAudioUnitTimePitch()
+    private var players: [UUID: (node: AVAudioPlayerNode, file: AVAudioFile)] = [:]
+    /// Where the current run started in the recording; the players' clocks
+    /// count from there.
+    private var segmentStart: Double = 0
+    private var countIn: (plan: CountIn, began: Date)?
+    private var ticker: Timer?
+    private var title = ""
+
+    private init() {
+        engine.attach(submix)
+        engine.attach(timePitch)
+        engine.connect(submix, to: timePitch, format: nil)
+        engine.connect(timePitch, to: engine.mainMixerNode, format: nil)
+        let center = NotificationCenter.default
+        center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+            let began = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue
+            MainActor.assumeIsolated { if began { self?.pause() } }
+        }
+        // Headphones in or out: the engine stops itself; pick up where it was.
+        center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.isPlaying else { return }
+                self.play(from: self.position)
+            }
+        }
+        setUpRemoteCommands()
+    }
+
+    // MARK: Loading
+
+    /// Loads a song's tracks (the ones whose audio is here) and its mix.
+    /// Reloading the same song keeps the playhead.
+    func load(_ song: Song, library: Library) {
+        let same = song.id == songID
+        let resume = same && isPlaying
+        let at = same ? position : 0
+        stopPlayers()
+        isPlaying = false
+        countIn = nil
+        countdown = nil
+        for (_, p) in players { engine.detach(p.node) }
+        players = [:]
+        missing = []
+        for track in song.tracks {
+            guard let file = try? AVAudioFile(forReading: library.audioURL(track)) else {
+                missing.insert(track.id)
+                continue
+            }
+            let node = AVAudioPlayerNode()
+            engine.attach(node)
+            engine.connect(node, to: submix, fromBus: 0, toBus: submix.nextAvailableInputBus, format: file.processingFormat)
+            players[track.id] = (node, file)
+        }
+        duration = players.values.map { Double($0.file.length) / $0.file.processingFormat.sampleRate }.max() ?? 0
+        songID = song.id
+        title = song.name
+        position = min(at, duration)
+        apply(song)
+        if resume { play(from: position) }
+        updateNowPlaying()
+    }
+
+    /// The mix, speed and volume, live.
+    func apply(_ song: Song) {
+        for track in song.tracks {
+            guard let node = players[track.id]?.node else { continue }
+            node.volume = track.enabled ? Float(track.volume) : 0
+            node.pan = Float(track.pan)
+        }
+        timePitch.rate = Float(song.speed)
+        engine.mainMixerNode.outputVolume = Float(song.volume)
+    }
+
+    // MARK: Transport
+
+    /// Starts playing at `time`, every track at the same instant, optionally
+    /// after `delay` seconds of silence.
+    func play(from time: Double, delay: Double = 0) {
+        guard !players.isEmpty else { return }
+        stopPlayers()
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(true)
+            if !engine.isRunning { try engine.start() }
+        } catch {
+            print("audio start: \(error)")
+            return
+        }
+        let start = min(max(0, time), duration)
+        segmentStart = start
+        position = start
+        // A shared start time a moment ahead, so the tracks start together.
+        let when = AVAudioTime(hostTime: mach_absolute_time() + AVAudioTime.hostTime(forSeconds: 0.05 + delay))
+        for (_, p) in players {
+            let rate = p.file.processingFormat.sampleRate
+            let first = AVAudioFramePosition(start * rate)
+            guard first < p.file.length else { continue }
+            p.node.scheduleSegment(p.file, startingFrame: first, frameCount: AVAudioFrameCount(p.file.length - first), at: nil)
+            p.node.play(at: when)
+        }
+        isPlaying = true
+        startTicker()
+        updateNowPlaying()
+    }
+
+    /// Plays into `target` with `beats` beats of the recording before it,
+    /// counting down on screen.
+    func countIn(to target: Double, beats: Int, tempo: Double, speed: Double) {
+        let plan = CountIn(target: target, beats: beats, tempo: tempo, speed: speed)
+        play(from: plan.startAt, delay: plan.silentLead)
+        guard isPlaying else { return }
+        countIn = (plan, Date.now.addingTimeInterval(0.05))
+        countdown = plan.beats
+    }
+
+    func pause() {
+        guard isPlaying else { return }
+        position = currentPosition()
+        stopPlayers()
+        isPlaying = false
+        countIn = nil
+        countdown = nil
+        engine.pause()
+        ticker?.invalidate()
+        updateNowPlaying()
+    }
+
+    /// Moves the playhead; keeps playing if it was.
+    func seek(to time: Double) {
+        let t = min(max(0, time), duration)
+        if isPlaying {
+            countIn = nil
+            countdown = nil
+            play(from: t)
+        } else {
+            position = t
+            updateNowPlaying()
+        }
+    }
+
+    private func stopPlayers() {
+        for (_, p) in players { p.node.stop() }
+    }
+
+    /// The recording's position by the first track's clock (the players
+    /// count source samples, so speed is already accounted for).
+    private func currentPosition() -> Double {
+        guard isPlaying, let p = players.values.first,
+              let nodeTime = p.node.lastRenderTime,
+              let playerTime = p.node.playerTime(forNodeTime: nodeTime)
+        else { return position }
+        return segmentStart + max(0, Double(playerTime.sampleTime) / playerTime.sampleRate)
+    }
+
+    private func startTicker() {
+        ticker?.invalidate()
+        let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        ticker = timer
+    }
+
+    private func tick() {
+        guard isPlaying else { return }
+        position = currentPosition()
+        if let (plan, began) = countIn {
+            countdown = plan.number(at: Date.now.timeIntervalSince(began))
+            if countdown == nil { countIn = nil }
+        }
+        if position >= duration - 0.02 {
+            pause()
+            position = duration
+        }
+    }
+
+    // MARK: Lock screen
+
+    private func setUpRemoteCommands() {
+        let center = MPRemoteCommandCenter.shared()
+        center.playCommand.addTarget { [weak self] _ in
+            MainActor.assumeIsolated { self?.play(from: self?.position ?? 0) }
+            return .success
+        }
+        center.pauseCommand.addTarget { [weak self] _ in
+            MainActor.assumeIsolated { self?.pause() }
+            return .success
+        }
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if self.isPlaying { self.pause() } else { self.play(from: self.position) }
+            }
+            return .success
+        }
+    }
+
+    private func updateNowPlaying() {
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = songID == nil ? nil : [
+            MPMediaItemPropertyTitle: title,
+            MPMediaItemPropertyPlaybackDuration: duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? Double(timePitch.rate) : 0,
+        ]
+    }
+}

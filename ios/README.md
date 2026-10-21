@@ -34,6 +34,24 @@ in step. Everything else about practice is set up on the website.
   the app), logged as stopping at that hour. The Live Activity's clocks stop
   there too; the stop is written the next time the app runs.
 
+## Music Minus One
+
+Andrew's play-along app: a song's instruments are separate, time-aligned audio
+tracks (the clarinet, cello and piano of a trio); mute your part and play along.
+Installed straight to his phone (`scripts/install-on-phone.sh MusicMinusOne`),
+no TestFlight. Bundle id and URL scheme `io.mason.music-minus-one`.
+
+- The phone is the source of truth and works offline: the library is a JSON
+  file with the audio beside it. Changes go to `music_songs` (one row per song,
+  tracks and markers as JSON, last write wins) and the audio to the private
+  `music-minus-one` bucket whenever there's signal; another phone pulls both.
+- Playback is one player per track into a submix (track volume and pan), then a
+  time-pitch unit (speed in 5% steps, pitch kept), all started at one shared
+  instant so the parts stay locked together.
+- Markers carry a measure number, entered as they're dropped. Tapping one plays
+  from there (auto-play), optionally after a count-in: the recording starts that
+  many beats early (at the song's one tempo) under a big countdown.
+
 ## Adding an app
 
 A new folder beside `Practice/` and a target in `project.yml` that depends on
