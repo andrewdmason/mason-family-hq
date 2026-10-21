@@ -62,9 +62,9 @@ struct SongView: View {
         .sheet(isPresented: $showMixer) { MixerView(songID: currentID) }
         .sheet(isPresented: $showDetails) { SongDetailsView(song: song) }
         .sheet(item: $adding) { pending in
-            AddMarkerSheet(time: pending.time) { measure in
-                if let measure {
-                    library.update(currentID) { $0.markers.append(Marker(time: pending.time, measure: measure)) }
+            AddMarkerSheet(time: pending.time) { label in
+                if let label {
+                    library.update(currentID) { $0.markers.append(Marker(time: pending.time, label: label)) }
                 }
                 if pending.resume { player.play(from: pending.time) }
             }
@@ -152,7 +152,7 @@ struct SongView: View {
                 } description: {
                     Text(song.tracks.isEmpty
                         ? "Add tracks in the mixer to start."
-                        : "Play, then tap the marker button to drop one at that spot with its measure number.")
+                        : "Play, then tap the marker button to drop one at that spot with its measure number or letter.")
                 }
             }
         }

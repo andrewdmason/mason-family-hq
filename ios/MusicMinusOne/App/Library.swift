@@ -59,7 +59,39 @@ struct Marker: Codable, Identifiable, Equatable {
     var id = UUID()
     /// Seconds into the recording.
     var time: Double
-    var measure: Int
+    /// A measure number ("143"), a rehearsal letter ("A"), or empty until
+    /// it's filled in.
+    var label: String
+
+    /// "Measure 143", "A", or "Unlabeled".
+    var title: String {
+        if label.isEmpty { return "Unlabeled" }
+        return label.allSatisfy(\.isNumber) ? "Measure \(label)" : label
+    }
+
+    init(id: UUID = UUID(), time: Double, label: String) {
+        self.id = id
+        self.time = time
+        self.label = label
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, time, label, measure }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        time = try c.decode(Double.self, forKey: .time)
+        // Markers saved before labels were text carry a measure number.
+        label = try c.decodeIfPresent(String.self, forKey: .label)
+            ?? c.decodeIfPresent(Int.self, forKey: .measure).map(String.init) ?? ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(time, forKey: .time)
+        try c.encode(label, forKey: .label)
+    }
 }
 
 enum Speed {

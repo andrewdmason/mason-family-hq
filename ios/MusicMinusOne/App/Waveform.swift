@@ -103,7 +103,7 @@ struct MiniWaveform: View {
                     ctx.fill(path, with: .color(Color(white: 0.82)))
                 }
                 ForEach(markers) { m in
-                    MarkerFlag(measure: m.measure)
+                    MarkerFlag(label: m.label)
                         .frame(height: h)
                         .position(x: x(m.time), y: h / 2)
                 }
@@ -129,12 +129,12 @@ struct MiniWaveform: View {
 /// A thin blue line with a flag on top carrying the measure number, its
 /// digits stacked, as Anytune draws them.
 private struct MarkerFlag: View {
-    let measure: Int
+    let label: String
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: -2) {
-                ForEach(Array(String(measure).enumerated()), id: \.offset) { _, digit in
+                ForEach(Array(label.enumerated()), id: \.offset) { _, digit in
                     Text(String(digit))
                 }
             }

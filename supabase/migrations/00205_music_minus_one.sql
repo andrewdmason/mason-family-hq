@@ -6,7 +6,8 @@
 -- sends a song's whole state when it changes (last write wins on updated_at,
 -- which the phone sets). Tracks and markers ride along as JSON:
 --   tracks:  [{id, name, file, uploaded, enabled, volume, pan}]
---   markers: [{id, time, measure}]   time in seconds into the recording
+--   markers: [{id, time, label}]   time in seconds into the recording; label
+--            is a measure number, a rehearsal letter, or empty
 -- A deleted song keeps its row with deleted_at set, so other devices drop it.
 --
 -- Each person's songs are their own.

@@ -1,12 +1,12 @@
 import SwiftUI
 
-/// Anytune's blue note-flag icon, with the measure number on it (up to three
-/// digits).
+/// Anytune's blue note-flag icon, with the measure number (up to three
+/// digits) or letter on it; a dash until it has one.
 struct MeasureBadge: View {
-    let measure: Int
+    let label: String
 
     var body: some View {
-        Text("\(measure)")
+        Text(label.isEmpty ? "–" : label)
             .font(.system(size: 22, weight: .bold).monospacedDigit())
             .minimumScaleFactor(0.6)
             .lineLimit(1)
@@ -39,10 +39,11 @@ struct MarkerRow: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            MeasureBadge(measure: marker.measure)
+            MeasureBadge(label: marker.label)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Measure \(marker.measure)")
+                Text(marker.title)
                     .font(.title3.weight(current ? .bold : .regular))
+                    .foregroundStyle(marker.label.isEmpty ? .secondary : .primary)
                 Text(formatTime(marker.time))
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -57,54 +58,77 @@ struct MarkerRow: View {
     }
 }
 
-/// The measure number for a marker just dropped. Cancel drops nothing.
+/// A marker's label field: the number pad, with a switch to letters for
+/// rehearsal marks.
+struct LabelField: View {
+    @Binding var text: String
+    var big = false
+    @State private var letters = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack {
+            TextField(letters ? "Letter" : "Measure", text: $text)
+                .keyboardType(letters ? .asciiCapable : .numberPad)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .font(big ? .system(size: 44, weight: .bold).monospacedDigit() : .title2.bold().monospacedDigit())
+                .multilineTextAlignment(big ? .center : .leading)
+                .focused($focused)
+                .onChange(of: text) { _, new in
+                    let cleaned = String(new.trimmingCharacters(in: .whitespaces).prefix(6))
+                    if cleaned != new { text = cleaned }
+                }
+            Button(letters ? "123" : "ABC") {
+                letters.toggle()
+                // The keyboard only changes when the field is focused afresh.
+                focused = false
+                DispatchQueue.main.async { focused = true }
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel(letters ? "Numbers" : "Letters")
+        }
+        .onAppear {
+            letters = !text.isEmpty && !text.allSatisfy(\.isNumber)
+            focused = big
+        }
+    }
+}
+
+/// The label for a marker just dropped. Cancel drops nothing.
 struct AddMarkerSheet: View {
     let time: Double
-    /// The measure, or nil if cancelled.
-    let onDone: (Int?) -> Void
+    /// The label, or nil if cancelled.
+    let onDone: (String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
-    @FocusState private var focused: Bool
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
                 Text("Marker at \(formatTime(time))").foregroundStyle(.secondary)
-                TextField("Measure", text: $text)
-                    .keyboardType(.numberPad)
-                    .font(.system(size: 44, weight: .bold).monospacedDigit())
-                    .multilineTextAlignment(.center)
-                    .focused($focused)
-                    .onSubmit(save)
+                LabelField(text: $text, big: true)
                 Spacer()
             }
             .padding()
-            .navigationTitle("Measure")
+            .navigationTitle("Marker")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { finish(nil) }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add", action: save).disabled(measure == nil)
+                    Button("Add") { finish(text) }.disabled(text.isEmpty)
                 }
             }
-            .onAppear { focused = true }
         }
         .interactiveDismissDisabled()
     }
 
-    private var measure: Int? { Int(text).flatMap { $0 >= 0 && $0 < 10_000 ? $0 : nil } }
-
-    private func save() {
-        guard let measure else { return }
-        finish(measure)
-    }
-
-    private func finish(_ measure: Int?) {
+    private func finish(_ label: String?) {
         dismiss()
-        onDone(measure)
+        onDone(label)
     }
 }
 
@@ -121,10 +145,8 @@ struct MarkerEditor: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Measure") {
-                    TextField("Measure", text: $text)
-                        .keyboardType(.numberPad)
-                        .font(.title2.bold().monospacedDigit())
+                Section("Measure or letter") {
+                    LabelField(text: $text)
                 }
                 Section {
                     HStack {
@@ -155,19 +177,17 @@ struct MarkerEditor: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        guard let measure = Int(text) else { return }
                         Library.shared.update(songID) { song in
                             guard let i = song.markers.firstIndex(where: { $0.id == marker.id }) else { return }
-                            song.markers[i].measure = measure
+                            song.markers[i].label = text
                             song.markers[i].time = time
                         }
                         dismiss()
                     }
-                    .disabled(Int(text) == nil)
                 }
             }
             .onAppear {
-                text = "\(marker.measure)"
+                text = marker.label
                 time = marker.time
             }
         }

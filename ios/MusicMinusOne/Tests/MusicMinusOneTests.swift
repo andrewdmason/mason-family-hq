@@ -115,3 +115,17 @@ import Testing
         #expect(library.siblings(of: first).map(\.name) == ["I. Allegro", "IV. Allegro"])
     }
 }
+
+@Suite struct MarkerTests {
+    @Test func readsMarkersSavedWithMeasureNumbers() throws {
+        let json = #"{"id":"2F1D3C1E-2E32-4B2C-9B0E-5D7C9A1B0C11","time":12.5,"measure":143}"#
+        let marker = try JSONDecoder().decode(Marker.self, from: Data(json.utf8))
+        #expect(marker.label == "143")
+        #expect(marker.title == "Measure 143")
+    }
+
+    @Test func titles() {
+        #expect(Marker(time: 0, label: "A").title == "A")
+        #expect(Marker(time: 0, label: "").title == "Unlabeled")
+    }
+}
