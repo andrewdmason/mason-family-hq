@@ -62,6 +62,11 @@ final class Player {
     private var ticker: Timer?
     /// Shuts the engine down after a while paused (see pause()).
     private var idleTimer: Timer?
+    /// When the playhead last moved (or is due to start moving), to catch an
+    /// engine that says it's playing but makes no sound.
+    private var lastAdvance = Date.distantFuture
+    private var lastTickPosition: Double = -1
+    private var stallRetried = false
     private var title = ""
     private var artist: String?
 
@@ -201,6 +206,8 @@ final class Player {
             p.node.play(at: when)
         }
         isPlaying = true
+        lastAdvance = Date.now.addingTimeInterval(0.05 + delay)
+        lastTickPosition = start
         startTicker()
         updateNowPlaying()
     }
@@ -218,6 +225,7 @@ final class Player {
     func pause() {
         guard isPlaying else { return }
         position = currentPosition()
+        stallRetried = false
         stopPlayers()
         isPlaying = false
         countIn = nil
@@ -239,7 +247,15 @@ final class Player {
     func sleep() {
         guard !isPlaying else { return }
         idleTimer?.invalidate()
-        engine.pause()
+        engine.stop()
+    }
+
+    /// Back from another app. iOS may have taken the audio away meanwhile
+    /// and left the engine claiming to run without making sound, so start
+    /// from a fresh one.
+    func wake() {
+        guard !isPlaying, loaded != nil else { return }
+        rebuild(reason: "back in the foreground")
     }
 
     /// Moves the playhead; keeps playing if it was.
@@ -281,6 +297,19 @@ final class Player {
     private func tick() {
         guard isPlaying else { return }
         position = currentPosition()
+        // Playing, but the playhead hasn't moved for a second: the engine is
+        // dead. Start over on a fresh one, once per press of Play.
+        let now = Date.now
+        if position != lastTickPosition {
+            lastTickPosition = position
+            lastAdvance = now
+            stallRetried = false
+        } else if now.timeIntervalSince(lastAdvance) > 1, !stallRetried {
+            PlayerLog.write("stalled at \(position) (engine running: \(engine.isRunning)); rebuilding")
+            stallRetried = true
+            rebuild(reason: "stalled")
+            return
+        }
         if let (plan, began) = countIn {
             countdown = plan.number(at: Date.now.timeIntervalSince(began))
             if countdown == nil { countIn = nil }

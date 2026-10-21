@@ -12,7 +12,10 @@ struct MusicMinusOneApp: App {
                 .preferredColorScheme(.dark)
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await Library.shared.syncNow() } }
+            if phase == .active {
+                Player.shared.wake()
+                Task { await Library.shared.syncNow() }
+            }
             if phase == .background { Player.shared.sleep() }
         }
     }
