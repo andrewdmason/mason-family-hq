@@ -238,6 +238,7 @@ struct SongView: View {
 
     private func transport(_ song: Song) -> some View {
         HStack(spacing: 8) {
+            TransportButton(systemImage: "backward.end.alt.fill", label: "Back to the beginning") { player.seek(to: 0) }
             TransportButton(systemImage: "backward.end.fill", label: "Previous marker") {
                 let back = player.isPlaying ? 1.0 : 0.05
                 if let m = song.markers.last(where: { $0.time < player.position - back }) { go(to: m, in: song) }
