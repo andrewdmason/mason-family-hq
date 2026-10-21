@@ -16,6 +16,8 @@ struct SongRow: Codable {
     let id: UUID
     let name: String
     let artist: String?
+    let album: String?
+    let album_number: Int?
     let tempo_bpm: Double
     let speed: Double
     let volume: Double
@@ -29,6 +31,8 @@ struct SongRow: Codable {
         id = song.id
         name = song.name
         artist = song.artist
+        album = song.album
+        album_number = song.albumNumber
         tempo_bpm = song.tempo
         speed = song.speed
         volume = song.volume
@@ -41,7 +45,7 @@ struct SongRow: Codable {
 
     var song: Song {
         Song(
-            id: id, name: name, artist: artist, tempo: tempo_bpm, speed: speed, volume: volume,
+            id: id, name: name, artist: artist, album: album, albumNumber: album_number, tempo: tempo_bpm, speed: speed, volume: volume,
             tracks: tracks, markers: markers.sorted { $0.time < $1.time },
             createdAt: created_at, updatedAt: updated_at, dirty: false, deleted: deleted_at != nil
         )
@@ -108,7 +112,7 @@ extension Library {
 
             // Down.
             let rows: [SongRow] = try await db.from("music_songs")
-                .select("id, name, artist, tempo_bpm, speed, volume, tracks, markers, created_at, updated_at, deleted_at")
+                .select("id, name, artist, album, album_number, tempo_bpm, speed, volume, tracks, markers, created_at, updated_at, deleted_at")
                 .execute().value
             let before = Set(all.flatMap(\.tracks).map(\.file))
             replaceAll(SyncMerge.merge(local: all, remote: rows))

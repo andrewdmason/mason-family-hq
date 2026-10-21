@@ -79,7 +79,7 @@ struct SongView: View {
     // MARK: Header
 
     private func header(_ song: Song) -> some View {
-        let list = library.songs
+        let list = library.siblings(of: song)
         let index = list.firstIndex { $0.id == song.id }
         return HStack(spacing: 12) {
             Button { player.pause(); dismiss() } label: {
@@ -91,7 +91,7 @@ struct SongView: View {
                 .accessibilityLabel("Previous song")
             VStack(spacing: 2) {
                 Text(song.name).font(.headline).lineLimit(1)
-                Text([song.artist, "\(Int(song.tempo.rounded())) BPM", "\((index ?? 0) + 1) of \(list.count)"]
+                Text([song.album ?? song.artist, "\(Int(song.tempo.rounded())) BPM", "\((index ?? 0) + 1) of \(list.count)"]
                     .compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(.secondary)
             }

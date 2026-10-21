@@ -17,6 +17,10 @@ CREATE TABLE IF NOT EXISTS music_songs (
   name text NOT NULL,
   -- Composer or performer, optional.
   artist text,
+  -- The album or work it's part of (a trio, for its movements), and its
+  -- place there. Both optional.
+  album text,
+  album_number integer,
   -- The recording's tempo at 1.0x, entered by hand.
   tempo_bpm double precision NOT NULL DEFAULT 120 CHECK (tempo_bpm > 0),
   -- Playback speed (pitch kept) and overall volume, remembered per song.

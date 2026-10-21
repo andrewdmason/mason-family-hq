@@ -48,6 +48,8 @@ no TestFlight. Bundle id and URL scheme `io.mason.music-minus-one`.
 - Playback is one player per track into a submix (track volume and pan), then a
   time-pitch unit (speed in 5% steps, pitch kept), all started at one shared
   instant so the parts stay locked together.
+- Songs can be grouped into an album or work (a trio's movements), listed
+  together in movement order; previous/next on a song moves within it.
 - Markers carry a measure number, entered as they're dropped. Tapping one plays
   from there (auto-play), optionally after a count-in: the recording starts that
   many beats early (at the song's one tempo) under a big countdown.

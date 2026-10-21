@@ -12,17 +12,31 @@ struct LibraryView: View {
     var body: some View {
         NavigationStack {
             List {
-                ForEach(library.songs) { song in
-                    Button { open = song.id } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(song.name).font(.headline)
-                            Text(summary(song)).font(.subheadline).foregroundStyle(.secondary)
+                ForEach(library.shelf) { shelf in
+                    Section {
+                        ForEach(shelf.songs) { song in
+                            Button { open = song.id } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(song.name).font(.headline)
+                                    Text(summary(song, in: shelf)).font(.subheadline).foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 4)
+                            }
+                            .tint(.primary)
+                            .swipeActions {
+                                Button("Delete", role: .destructive) { confirmDelete = song }
+                            }
                         }
-                        .padding(.vertical, 4)
-                    }
-                    .tint(.primary)
-                    .swipeActions {
-                        Button("Delete", role: .destructive) { confirmDelete = song }
+                    } header: {
+                        if let album = shelf.album {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(album).font(.title3.bold()).foregroundStyle(.primary)
+                                if let artist = shelf.artist { Text(artist).font(.subheadline) }
+                            }
+                            .textCase(nil)
+                        } else if library.shelf.count > 1 {
+                            Text("Songs")
+                        }
                     }
                 }
             }
@@ -69,9 +83,10 @@ struct LibraryView: View {
         }
     }
 
-    private func summary(_ song: Song) -> String {
+    private func summary(_ song: Song, in shelf: Shelf) -> String {
         var parts = [String]()
-        if let artist = song.artist, !artist.isEmpty { parts.append(artist) }
+        // In an album, the artist is in its heading unless this one differs.
+        if let artist = song.artist, !artist.isEmpty, shelf.album == nil || artist != shelf.artist { parts.append(artist) }
         parts.append("\(Int(song.tempo.rounded())) BPM")
         parts.append(song.tracks.count == 1 ? "1 track" : "\(song.tracks.count) tracks")
         if !song.markers.isEmpty { parts.append(song.markers.count == 1 ? "1 marker" : "\(song.markers.count) markers") }
@@ -114,6 +129,8 @@ struct SongDetailsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var artist = ""
+    @State private var album = ""
+    @State private var number = ""
     @State private var tempo = ""
     @State private var files: [URL] = []
     @State private var picking = false
@@ -126,6 +143,32 @@ struct SongDetailsView: View {
                     TextField("Name", text: $name)
                         .focused($nameFocused)
                     TextField("Artist", text: $artist)
+                }
+                Section {
+                    HStack {
+                        TextField("Album or work", text: $album)
+                        let others = Library.shared.albums.filter { $0 != album }
+                        if !others.isEmpty {
+                            Menu {
+                                ForEach(others, id: \.self) { name in Button(name) { pick(name) } }
+                            } label: {
+                                Image(systemName: "chevron.up.chevron.down")
+                            }
+                            .accessibilityLabel("Choose an album")
+                        }
+                    }
+                    if !album.trimmingCharacters(in: .whitespaces).isEmpty {
+                        HStack {
+                            Text("Movement")
+                            TextField("Number", text: $number)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                } footer: {
+                    Text("Optional. Songs in the same album are listed together, in movement order.")
+                }
+                Section {
                     HStack {
                         TextField("Tempo", text: $tempo)
                             .keyboardType(.decimalPad)
@@ -163,11 +206,23 @@ struct SongDetailsView: View {
                 if let song {
                     name = song.name
                     artist = song.artist ?? ""
+                    album = song.album ?? ""
+                    number = song.albumNumber.map(String.init) ?? ""
                     tempo = String(format: "%g", song.tempo)
                 } else {
                     nameFocused = true
                 }
             }
+        }
+    }
+
+    /// An existing album: its artist, and the next movement number.
+    private func pick(_ name: String) {
+        album = name
+        let songs = Library.shared.shelf.first { $0.album == name }
+        if artist.isEmpty, let a = songs?.artist { artist = a }
+        if number.isEmpty || song == nil {
+            number = String((songs?.songs.compactMap(\.albumNumber).max() ?? 0) + 1)
         }
     }
 
@@ -179,16 +234,22 @@ struct SongDetailsView: View {
         let library = Library.shared
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         let by = artist.trimmingCharacters(in: .whitespaces)
+        let work = album.trimmingCharacters(in: .whitespaces)
+        let place = work.isEmpty ? nil : Int(number)
         guard let bpm else { return }
         if let song {
             library.update(song.id) {
                 $0.name = trimmed
                 $0.artist = by.isEmpty ? nil : by
+                $0.album = work.isEmpty ? nil : work
+                $0.albumNumber = place
                 $0.tempo = bpm
             }
             dismiss()
         } else {
-            let new = Song(name: trimmed, artist: by.isEmpty ? nil : by, tempo: bpm, tracks: library.importTracks(files))
+            let new = Song(
+                name: trimmed, artist: by.isEmpty ? nil : by,
+                album: work.isEmpty ? nil : work, albumNumber: place, tempo: bpm, tracks: library.importTracks(files))
             library.add(new)
             dismiss()
             onCreate(new.id)

@@ -9,6 +9,10 @@ struct Song: Codable, Identifiable, Equatable {
     var name: String
     /// Composer or performer; optional.
     var artist: String?
+    /// The album or work it belongs to (a trio, for its movements); optional.
+    var album: String?
+    /// Its place in the album: the movement number.
+    var albumNumber: Int?
     /// The recording's tempo at 1.0x, entered by hand.
     var tempo: Double
     /// Playback speed, pitch kept: 0.5…1.5 in 5% steps.
@@ -27,6 +31,14 @@ struct Song: Codable, Identifiable, Equatable {
 
     /// The tempo you're hearing at the current speed.
     var currentBPM: Int { Int((tempo * speed).rounded()) }
+}
+
+struct Shelf: Identifiable {
+    /// Nil for the songs that aren't in an album.
+    let album: String?
+    let songs: [Song]
+    var id: String { album ?? "" }
+    var artist: String? { songs.lazy.compactMap(\.artist).first { !$0.isEmpty } }
 }
 
 struct Track: Codable, Identifiable, Equatable {
@@ -84,8 +96,38 @@ final class Library {
     let audioFolder: URL
     private var syncTask: Task<Void, Never>?
 
-    var songs: [Song] {
-        all.filter { !$0.deleted }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    var songs: [Song] { shelf.flatMap(\.songs) }
+
+    /// The library as it's listed: each album (A–Z) with its songs in
+    /// movement order, then the songs that aren't in one.
+    var shelf: [Shelf] {
+        let live = all.filter { !$0.deleted }
+        let byAlbum = Dictionary(grouping: live) { $0.album?.isEmpty == false ? $0.album : nil }
+        var out = byAlbum.compactMap { album, songs in
+            album.map { Shelf(album: $0, songs: songs.sorted(by: Self.albumOrder)) }
+        }
+        .sorted { $0.album!.localizedStandardCompare($1.album!) == .orderedAscending }
+        if let loose = byAlbum[nil] {
+            out.append(Shelf(album: nil, songs: loose.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }))
+        }
+        return out
+    }
+
+    /// The songs listed with this one: its album, or the loose songs.
+    func siblings(of song: Song) -> [Song] {
+        shelf.first { $0.songs.contains { $0.id == song.id } }?.songs ?? [song]
+    }
+
+    /// Every album name in use, for picking one.
+    var albums: [String] { shelf.compactMap(\.album) }
+
+    static func albumOrder(_ a: Song, _ b: Song) -> Bool {
+        switch (a.albumNumber, b.albumNumber) {
+        case let (x?, y?) where x != y: x < y
+        case (_?, nil): true
+        case (nil, _?): false
+        default: a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
     }
 
     init(folder: URL? = nil) {

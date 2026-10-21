@@ -98,3 +98,20 @@ import Testing
         #expect(merged.count == 1)
     }
 }
+
+@Suite @MainActor struct ShelfTests {
+    @Test func albumsListTogetherInMovementOrderThenLooseSongs() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let library = Library(folder: folder)
+        library.all = [
+            Song(name: "Solo", tempo: 90),
+            Song(name: "IV. Allegro", album: "Brahms Trio", albumNumber: 4, tempo: 120),
+            Song(name: "I. Allegro", album: "Brahms Trio", albumNumber: 1, tempo: 120),
+            Song(name: "Mozart I", album: "Mozart Quintet", tempo: 100),
+        ]
+        #expect(library.shelf.map(\.album) == ["Brahms Trio", "Mozart Quintet", nil])
+        #expect(library.songs.map(\.name) == ["I. Allegro", "IV. Allegro", "Mozart I", "Solo"])
+        let first = try #require(library.songs.first)
+        #expect(library.siblings(of: first).map(\.name) == ["I. Allegro", "IV. Allegro"])
+    }
+}
