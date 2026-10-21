@@ -59,6 +59,7 @@ final class Player {
     private var countIn: (plan: CountIn, began: Date)?
     private var ticker: Timer?
     private var title = ""
+    private var artist: String?
 
     private init() {
         engine.attach(submix)
@@ -108,6 +109,7 @@ final class Player {
         duration = players.values.map { Double($0.file.length) / $0.file.processingFormat.sampleRate }.max() ?? 0
         songID = song.id
         title = song.name
+        artist = song.artist
         position = min(at, duration)
         apply(song)
         if resume { play(from: position) }
@@ -252,6 +254,7 @@ final class Player {
     private func updateNowPlaying() {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = songID == nil ? nil : [
             MPMediaItemPropertyTitle: title,
+            MPMediaItemPropertyArtist: artist ?? "",
             MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? Double(timePitch.rate) : 0,

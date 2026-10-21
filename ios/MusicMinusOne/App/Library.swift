@@ -7,6 +7,8 @@ import UniformTypeIdentifiers
 struct Song: Codable, Identifiable, Equatable {
     var id = UUID()
     var name: String
+    /// Composer or performer; optional.
+    var artist: String?
     /// The recording's tempo at 1.0x, entered by hand.
     var tempo: Double
     /// Playback speed, pitch kept: 0.5…1.5 in 5% steps.

@@ -70,7 +70,9 @@ struct LibraryView: View {
     }
 
     private func summary(_ song: Song) -> String {
-        var parts = ["\(Int(song.tempo.rounded())) BPM"]
+        var parts = [String]()
+        if let artist = song.artist, !artist.isEmpty { parts.append(artist) }
+        parts.append("\(Int(song.tempo.rounded())) BPM")
         parts.append(song.tracks.count == 1 ? "1 track" : "\(song.tracks.count) tracks")
         if !song.markers.isEmpty { parts.append(song.markers.count == 1 ? "1 marker" : "\(song.markers.count) markers") }
         return parts.joined(separator: " · ")
@@ -111,6 +113,7 @@ struct SongDetailsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
+    @State private var artist = ""
     @State private var tempo = ""
     @State private var files: [URL] = []
     @State private var picking = false
@@ -122,6 +125,7 @@ struct SongDetailsView: View {
                 Section {
                     TextField("Name", text: $name)
                         .focused($nameFocused)
+                    TextField("Artist", text: $artist)
                     HStack {
                         TextField("Tempo", text: $tempo)
                             .keyboardType(.decimalPad)
@@ -158,6 +162,7 @@ struct SongDetailsView: View {
             .onAppear {
                 if let song {
                     name = song.name
+                    artist = song.artist ?? ""
                     tempo = String(format: "%g", song.tempo)
                 } else {
                     nameFocused = true
@@ -173,15 +178,17 @@ struct SongDetailsView: View {
     private func save() {
         let library = Library.shared
         let trimmed = name.trimmingCharacters(in: .whitespaces)
+        let by = artist.trimmingCharacters(in: .whitespaces)
         guard let bpm else { return }
         if let song {
             library.update(song.id) {
                 $0.name = trimmed
+                $0.artist = by.isEmpty ? nil : by
                 $0.tempo = bpm
             }
             dismiss()
         } else {
-            let new = Song(name: trimmed, tempo: bpm, tracks: library.importTracks(files))
+            let new = Song(name: trimmed, artist: by.isEmpty ? nil : by, tempo: bpm, tracks: library.importTracks(files))
             library.add(new)
             dismiss()
             onCreate(new.id)

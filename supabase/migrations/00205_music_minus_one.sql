@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS music_songs (
   id uuid PRIMARY KEY,
   owner_id uuid NOT NULL DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE,
   name text NOT NULL,
+  -- Composer or performer, optional.
+  artist text,
   -- The recording's tempo at 1.0x, entered by hand.
   tempo_bpm double precision NOT NULL DEFAULT 120 CHECK (tempo_bpm > 0),
   -- Playback speed (pitch kept) and overall volume, remembered per song.

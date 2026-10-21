@@ -8,7 +8,7 @@ import SwiftUI
 @Observable
 final class Waveforms {
     static let shared = Waveforms()
-    static let slices = 1000
+    nonisolated static let slices = 1000
 
     private(set) var peaks: [String: [Float]] = [:]
     @ObservationIgnored private var working: Set<String> = []
@@ -37,13 +37,11 @@ final class Waveforms {
         working.insert(track.file)
         let file = track.file
         Task.detached(priority: .utility) {
-            var p = (try? Data(contentsOf: cache)).map { data in
+            let cached = (try? Data(contentsOf: cache)).map { data in
                 data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
             }
-            if p == nil {
-                p = Self.measure(audio)
-                if let p { try? p.withUnsafeBytes { Data($0) }.write(to: cache) }
-            }
+            let p = cached ?? Self.measure(audio)
+            if cached == nil, let p { try? p.withUnsafeBytes { Data($0) }.write(to: cache) }
             await MainActor.run {
                 self.working.remove(file)
                 if let p { self.peaks[file] = p }

@@ -91,7 +91,8 @@ struct SongView: View {
                 .accessibilityLabel("Previous song")
             VStack(spacing: 2) {
                 Text(song.name).font(.headline).lineLimit(1)
-                Text("\(Int(song.tempo.rounded())) BPM · \((index ?? 0) + 1) of \(list.count)")
+                Text([song.artist, "\(Int(song.tempo.rounded())) BPM", "\((index ?? 0) + 1) of \(list.count)"]
+                    .compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity)
