@@ -15,6 +15,8 @@ struct SongView: View {
     @State private var showDetails = false
     @State private var adding: PendingMarker?
     @State private var editing: Marker?
+    /// Marker rows fully on screen, for following playback down the list.
+    @State private var visibleMarkers: Set<UUID> = []
 
     init(songID: UUID) {
         _currentID = State(initialValue: songID)
@@ -128,24 +130,21 @@ struct SongView: View {
 
     private func markerList(_ song: Song) -> some View {
         let current = song.markers.lastIndex { $0.time <= player.position + 0.01 }
-        return List {
+        let currentMarker = current.map { song.markers[$0].id }
+        return ScrollViewReader { proxy in
+        List {
             ForEach(Array(song.markers.enumerated()), id: \.element.id) { i, marker in
-                MarkerRow(marker: marker, current: i == current)
-                .contentShape(Rectangle())
-                .onTapGesture { go(to: marker, in: song) }
-                .onLongPressGesture { editing = marker }
-                .swipeActions {
-                    Button("Delete", role: .destructive) {
-                        library.update(currentID) { $0.markers.removeAll { $0.id == marker.id } }
-                    }
-                    Button("Edit") { editing = marker }.tint(.badgeBlue)
-                }
-                .accessibilityAction(named: "Edit marker") { editing = marker }
-                .listRowBackground(i == current ? Color.white.opacity(0.08) : Color.clear)
-                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                markerRow(marker, current: i == current, in: song)
             }
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        // Playback reaching a marker that's off screen brings it to the top.
+        .onChange(of: currentMarker) { _, id in
+            guard player.isPlaying, let id, !visibleMarkers.contains(id) else { return }
+            withAnimation { proxy.scrollTo(id, anchor: .top) }
+        }
+        }
         .overlay {
             if song.markers.isEmpty {
                 ContentUnavailableView {
@@ -157,6 +156,25 @@ struct SongView: View {
                 }
             }
         }
+    }
+
+    private func markerRow(_ marker: Marker, current: Bool, in song: Song) -> some View {
+        MarkerRow(marker: marker, current: current)
+        .contentShape(Rectangle())
+        .onTapGesture { go(to: marker, in: song) }
+        .onLongPressGesture { editing = marker }
+        .swipeActions {
+            Button("Delete", role: .destructive) {
+                library.update(currentID) { $0.markers.removeAll { $0.id == marker.id } }
+            }
+            Button("Edit") { editing = marker }.tint(.badgeBlue)
+        }
+        .accessibilityAction(named: "Edit marker") { editing = marker }
+        .onScrollVisibilityChange(threshold: 0.9) { visible in
+            if visible { visibleMarkers.insert(marker.id) } else { visibleMarkers.remove(marker.id) }
+        }
+        .listRowBackground(current ? Color.white.opacity(0.08) : Color.clear)
+        .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
     }
 
     /// A marker tapped (or reached with previous/next): jump there, and with
