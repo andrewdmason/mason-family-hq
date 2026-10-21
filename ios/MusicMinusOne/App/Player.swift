@@ -152,7 +152,7 @@ final class Player {
         duration = players.values.map { Double($0.file.length) / $0.file.processingFormat.sampleRate }.max() ?? 0
         songID = song.id
         loaded = (song, library)
-        title = song.name
+        title = song.displayName
         artist = song.artist
         position = min(at, duration)
         apply(song)

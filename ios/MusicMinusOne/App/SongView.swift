@@ -89,10 +89,10 @@ struct SongView: View {
                 .disabled((index ?? 0) == 0)
                 .accessibilityLabel("Previous song")
             VStack(spacing: 2) {
-                Text(song.name).font(.headline).lineLimit(1)
-                Text([song.album ?? song.artist, "\(Int(song.tempo.rounded())) BPM", "\((index ?? 0) + 1) of \(list.count)"]
-                    .compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · "))
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(song.displayName).font(.headline).lineLimit(1)
+                if let artist = song.artist, !artist.isEmpty {
+                    Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity)
             Button { step(list, index, by: 1) } label: { Image(systemName: "forward.fill") }

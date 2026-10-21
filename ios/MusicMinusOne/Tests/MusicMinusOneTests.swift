@@ -129,3 +129,12 @@ import Testing
         #expect(Marker(time: 0, label: "").title == "Unlabeled")
     }
 }
+
+@Suite struct DisplayNameTests {
+    @Test func movementNumberInRomanNumerals() {
+        #expect(Song(name: "Allegro", album: "Brahms Trio", albumNumber: 1, tempo: 100).displayName == "I. Allegro")
+        #expect(Song(name: "Andantino", album: "Brahms Trio", albumNumber: 4, tempo: 100).displayName == "IV. Andantino")
+        #expect(Song(name: "Solo", tempo: 100).displayName == "Solo")
+        #expect(roman(1994) == "MCMXCIV")
+    }
+}

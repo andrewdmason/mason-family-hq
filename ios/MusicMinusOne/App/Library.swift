@@ -29,6 +29,13 @@ struct Song: Codable, Identifiable, Equatable {
     /// Deleted here; kept until the backend knows.
     var deleted = false
 
+    /// "I. Allegro": the movement number, in Roman numerals, before the name
+    /// when it's part of an album.
+    var displayName: String {
+        guard album?.isEmpty == false, let n = albumNumber, n > 0 else { return name }
+        return "\(roman(n)). \(name)"
+    }
+
     /// The tempo you're hearing at the current speed.
     var currentBPM: Int { Int((tempo * speed).rounded()) }
 }
@@ -301,4 +308,18 @@ func formatTime(_ seconds: Double) -> String {
     let minutes = Int(s) / 60
     let rest = s - Double(minutes * 60)
     return String(format: "%02d:%06.3f", minutes, rest)
+}
+
+func roman(_ n: Int) -> String {
+    let table: [(Int, String)] = [(1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"),
+                                  (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
+    var n = n
+    var out = ""
+    for (value, numeral) in table {
+        while n >= value {
+            out += numeral
+            n -= value
+        }
+    }
+    return out
 }

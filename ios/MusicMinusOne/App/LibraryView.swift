@@ -17,7 +17,7 @@ struct LibraryView: View {
                         ForEach(shelf.songs) { song in
                             Button { open = song.id } label: {
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(song.name).font(.headline)
+                                    Text(song.displayName).font(.headline)
                                     Text(summary(song, in: shelf)).font(.subheadline).foregroundStyle(.secondary)
                                 }
                                 .padding(.vertical, 4)
@@ -85,9 +85,7 @@ struct LibraryView: View {
 
     private func summary(_ song: Song, in shelf: Shelf) -> String {
         var parts = [String]()
-        // In an album, the artist is in its heading unless this one differs.
-        if let artist = song.artist, !artist.isEmpty, shelf.album == nil || artist != shelf.artist { parts.append(artist) }
-        parts.append("\(Int(song.tempo.rounded())) BPM")
+        if let artist = song.artist, !artist.isEmpty { parts.append(artist) }
         parts.append(song.tracks.count == 1 ? "1 track" : "\(song.tracks.count) tracks")
         if !song.markers.isEmpty { parts.append(song.markers.count == 1 ? "1 marker" : "\(song.markers.count) markers") }
         return parts.joined(separator: " · ")
