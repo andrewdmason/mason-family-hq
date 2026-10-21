@@ -60,6 +60,8 @@ final class Player {
     private var segmentStart: Double = 0
     private var countIn: (plan: CountIn, began: Date)?
     private var ticker: Timer?
+    /// Shuts the engine down after a while paused (see pause()).
+    private var idleTimer: Timer?
     private var title = ""
     private var artist: String?
 
@@ -171,6 +173,7 @@ final class Player {
     /// after `delay` seconds of silence.
     func play(from time: Double, delay: Double = 0, retry: Bool = true) {
         guard !players.isEmpty else { return }
+        idleTimer?.invalidate()
         stopPlayers()
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
@@ -219,9 +222,24 @@ final class Player {
         isPlaying = false
         countIn = nil
         countdown = nil
-        engine.pause()
         ticker?.invalidate()
+        // The engine keeps running, silent, so Play answers at once (waking
+        // the audio output, Bluetooth especially, takes a second or two).
+        // After a few minutes paused it shuts down to save battery.
+        idleTimer?.invalidate()
+        let timer = Timer(timeInterval: 300, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.sleep() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        idleTimer = timer
         updateNowPlaying()
+    }
+
+    /// Paused and out of sight: stop the engine so the app can sleep too.
+    func sleep() {
+        guard !isPlaying else { return }
+        idleTimer?.invalidate()
+        engine.pause()
     }
 
     /// Moves the playhead; keeps playing if it was.

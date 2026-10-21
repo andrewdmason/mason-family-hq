@@ -13,6 +13,7 @@ struct MusicMinusOneApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await Library.shared.syncNow() } }
+            if phase == .background { Player.shared.sleep() }
         }
     }
 }
