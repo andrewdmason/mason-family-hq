@@ -241,13 +241,13 @@ struct SongView: View {
 
     private func transport(_ song: Song) -> some View {
         HStack(spacing: 8) {
-            TransportButton(systemImage: "backward.end.alt.fill", label: "Back to the beginning") { player.seek(to: 0) }
             TransportButton(systemImage: "backward.end.fill", label: "Previous marker") {
                 let back = player.isPlaying ? 1.0 : 0.05
                 if let m = song.markers.last(where: { $0.time < player.position - back }) { go(to: m, in: song) }
                 else { player.seek(to: 0) }
             }
             TransportButton(systemImage: "gobackward.5", label: "Back 5 seconds") { player.seek(to: player.position - 5) }
+            TransportButton(systemImage: "arrow.left.to.line", label: "Back to the beginning") { player.seek(to: 0) }
             Button { togglePlay(song) } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.title)
