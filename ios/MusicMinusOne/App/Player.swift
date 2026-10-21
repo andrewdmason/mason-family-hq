@@ -33,7 +33,13 @@ struct CountIn: Equatable {
 
 /// Plays a song's tracks together, sample-locked: one player per track into
 /// a submix (where each track's volume and pan apply), then a time-pitch unit
-/// (speed without changing pitch), then the main mixer (overall volume).
+/// (speed without changing pitch), a peak limiter, then the main mixer
+/// (overall volume).
+///
+/// Separately recorded parts are each mastered near full scale, so together
+/// they add up to well over it (the Brahms Allegro's three parts peak at
+/// nearly 2×) and clip. The submix gives back headroom for the number of
+/// tracks, and the limiter catches what still pokes over.
 @MainActor
 @Observable
 final class Player {
@@ -52,6 +58,7 @@ final class Player {
     private var engine = AVAudioEngine()
     private var submix = AVAudioMixerNode()
     private var timePitch = AVAudioUnitTimePitch()
+    private var limiter = Player.makeLimiter()
     /// What's loaded, to rebuild from.
     private var loaded: (song: Song, library: Library)?
     private var players: [UUID: (node: AVAudioPlayerNode, file: AVAudioFile)] = [:]
@@ -95,8 +102,19 @@ final class Player {
     private func connectGraph() {
         engine.attach(submix)
         engine.attach(timePitch)
+        engine.attach(limiter)
         engine.connect(submix, to: timePitch, format: nil)
-        engine.connect(timePitch, to: engine.mainMixerNode, format: nil)
+        engine.connect(timePitch, to: limiter, format: nil)
+        engine.connect(limiter, to: engine.mainMixerNode, format: nil)
+    }
+
+    private static func makeLimiter() -> AVAudioUnitEffect {
+        AVAudioUnitEffect(audioComponentDescription: AudioComponentDescription(
+            componentType: kAudioUnitType_Effect,
+            componentSubType: kAudioUnitSubType_PeakLimiter,
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0, componentFlagsMask: 0
+        ))
     }
 
     /// A brand-new engine with the loaded song in it, at the same spot,
@@ -115,6 +133,7 @@ final class Player {
         engine = AVAudioEngine()
         submix = AVAudioMixerNode()
         timePitch = AVAudioUnitTimePitch()
+        limiter = Player.makeLimiter()
         connectGraph()
         if let (song, library) = loaded {
             songID = nil
@@ -149,6 +168,8 @@ final class Player {
             engine.connect(node, to: submix, fromBus: 0, toBus: submix.nextAvailableInputBus, format: file.processingFormat)
             players[track.id] = (node, file)
         }
+        // Headroom for summing full-scale parts: −4.8 dB for three tracks.
+        submix.outputVolume = players.isEmpty ? 1 : Float(1 / Double(players.count).squareRoot())
         duration = players.values.map { Double($0.file.length) / $0.file.processingFormat.sampleRate }.max() ?? 0
         songID = song.id
         loaded = (song, library)
