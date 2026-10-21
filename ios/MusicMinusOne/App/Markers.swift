@@ -35,7 +35,6 @@ private struct FlagShape: Shape {
 struct MarkerRow: View {
     let marker: Marker
     let current: Bool
-    let onInfo: () -> Void
 
     var body: some View {
         HStack(spacing: 14) {
@@ -49,11 +48,6 @@ struct MarkerRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button(action: onInfo) {
-                Image(systemName: "info.circle").font(.title2)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("Edit marker")
         }
     }
 }

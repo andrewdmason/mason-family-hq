@@ -130,17 +130,19 @@ struct SongView: View {
         let current = song.markers.lastIndex { $0.time <= player.position + 0.01 }
         return List {
             ForEach(Array(song.markers.enumerated()), id: \.element.id) { i, marker in
-                MarkerRow(marker: marker, current: i == current) {
-                    editing = marker
-                }
+                MarkerRow(marker: marker, current: i == current)
                 .contentShape(Rectangle())
                 .onTapGesture { go(to: marker, in: song) }
+                .onLongPressGesture { editing = marker }
+                .swipeActions {
+                    Button("Delete", role: .destructive) {
+                        library.update(currentID) { $0.markers.removeAll { $0.id == marker.id } }
+                    }
+                    Button("Edit") { editing = marker }.tint(.badgeBlue)
+                }
+                .accessibilityAction(named: "Edit marker") { editing = marker }
                 .listRowBackground(i == current ? Color.white.opacity(0.08) : Color.clear)
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
-            }
-            .onDelete { offsets in
-                let ids = offsets.map { song.markers[$0].id }
-                library.update(currentID) { $0.markers.removeAll { ids.contains($0.id) } }
             }
         }
         .listStyle(.plain)
