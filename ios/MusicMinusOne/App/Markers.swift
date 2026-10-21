@@ -43,7 +43,7 @@ struct MarkerRow: View {
                 Text(marker.title)
                     .font(.title3.weight(current ? .bold : .regular))
                     .foregroundStyle(marker.label.isEmpty ? .secondary : .primary)
-                Text(formatTime(marker.time))
+                Text(String(format: "%d:%02d", Int(marker.time) / 60, Int(marker.time) % 60))
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
             }

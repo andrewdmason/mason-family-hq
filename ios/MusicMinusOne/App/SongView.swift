@@ -6,7 +6,6 @@ struct SongView: View {
     @State private var currentID: UUID
     @State private var library = Library.shared
     @State private var player = Player.shared
-    @AppStorage("autoPlay") private var autoPlay = true
     @AppStorage("countIn") private var countInOn = false
     @AppStorage("countInBeats") private var countInBeats = 4
     @Environment(\.dismiss) private var dismiss
@@ -177,13 +176,9 @@ struct SongView: View {
         .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
     }
 
-    /// A marker tapped (or reached with previous/next): jump there, and with
-    /// auto-play on, play, after the count-in if that's on.
+    /// A marker tapped (or reached with previous/next): jump there and play,
+    /// after the count-in if that's on.
     private func go(to marker: Marker, in song: Song) {
-        guard autoPlay else {
-            player.seek(to: marker.time)
-            return
-        }
         if countInOn {
             player.countIn(to: marker.time, beats: countInBeats, tempo: song.tempo, speed: song.speed)
         } else {
@@ -196,7 +191,6 @@ struct SongView: View {
     private var buttonBar: some View {
         HStack(spacing: 14) {
             RoundButton(systemImage: "slider.vertical.3", label: "Mixer") { showMixer = true }
-            RoundButton(systemImage: "play.circle", label: "Auto-play", on: autoPlay) { autoPlay.toggle() }
             Menu {
                 Picker("Count-in", selection: $countInBeats) {
                     ForEach(1...8, id: \.self) { n in Text(n == 1 ? "1 beat" : "\(n) beats").tag(n) }
@@ -207,7 +201,16 @@ struct SongView: View {
                 countInOn.toggle()
             }
             .accessibilityLabel("Count-in, \(countInBeats) beats")
-            RoundButton(systemImage: "bookmark.fill", label: "Add marker") { addMarker() }
+            Button { addMarker() } label: {
+                // A bookmark with a plus cut into it.
+                ZStack {
+                    Capsule().fill(Color(white: 0.2)).frame(width: 56, height: 56)
+                    Image(systemName: "bookmark.fill").font(.system(size: 28)).foregroundStyle(.white)
+                    Image(systemName: "plus").font(.system(size: 14, weight: .heavy))
+                        .foregroundStyle(Color(white: 0.2)).offset(y: -3)
+                }
+            }
+            .accessibilityLabel("Add marker")
                 .disabled(player.duration == 0)
         }
         .padding(.vertical, 10)
@@ -265,7 +268,7 @@ struct SongView: View {
                 else { player.seek(to: 0) }
             }
             TransportButton(systemImage: "gobackward.5", label: "Back 5 seconds") { player.seek(to: player.position - 5) }
-            TransportButton(systemImage: "arrow.left.to.line", label: "Back to the beginning") { player.seek(to: 0) }
+            TransportButton(systemImage: "backward.end.alt.fill", label: "Back to the beginning") { player.seek(to: 0) }
             Button { togglePlay(song) } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.title)
