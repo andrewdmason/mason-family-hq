@@ -85,8 +85,11 @@ struct LibraryView: View {
 
     private func summary(_ song: Song, in shelf: Shelf) -> String {
         var parts = [String]()
-        if let artist = song.artist, !artist.isEmpty { parts.append(artist) }
-        parts.append(song.tracks.count == 1 ? "1 track" : "\(song.tracks.count) tracks")
+        // In an album the artist is in its heading.
+        if shelf.album == nil, let artist = song.artist, !artist.isEmpty { parts.append(artist) }
+        if let seconds = library.duration(of: song) {
+            parts.append(String(format: "%d:%02d", Int(seconds) / 60, Int(seconds) % 60))
+        }
         if !song.markers.isEmpty { parts.append(song.markers.count == 1 ? "1 marker" : "\(song.markers.count) markers") }
         return parts.joined(separator: " · ")
     }

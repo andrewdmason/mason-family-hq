@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Observation
 import UniformTypeIdentifiers
@@ -133,6 +134,7 @@ final class Library {
 
     let folder: URL
     let audioFolder: URL
+    @ObservationIgnored private var durations: [String: Double] = [:]
     private var syncTask: Task<Void, Never>?
 
     var songs: [Song] { shelf.flatMap(\.songs) }
@@ -185,6 +187,17 @@ final class Library {
     func song(_ id: UUID) -> Song? { all.first { $0.id == id && !$0.deleted } }
 
     func audioURL(_ track: Track) -> URL { audioFolder.appending(path: track.file) }
+
+    /// How long the song runs: its longest track on this phone.
+    func duration(of song: Song) -> Double? {
+        song.tracks.compactMap { track -> Double? in
+            if let d = durations[track.file] { return d }
+            guard let file = try? AVAudioFile(forReading: audioURL(track)) else { return nil }
+            let d = Double(file.length) / file.processingFormat.sampleRate
+            durations[track.file] = d
+            return d
+        }.max()
+    }
 
     func hasAudio(_ track: Track) -> Bool {
         FileManager.default.fileExists(atPath: audioURL(track).path)
