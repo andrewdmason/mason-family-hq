@@ -49,9 +49,11 @@ final class Player {
     /// Tracks whose audio isn't on the phone yet.
     private(set) var missing: Set<UUID> = []
 
-    private let engine = AVAudioEngine()
-    private let submix = AVAudioMixerNode()
-    private let timePitch = AVAudioUnitTimePitch()
+    private var engine = AVAudioEngine()
+    private var submix = AVAudioMixerNode()
+    private var timePitch = AVAudioUnitTimePitch()
+    /// What's loaded, to rebuild from.
+    private var loaded: (song: Song, library: Library)?
     private var players: [UUID: (node: AVAudioPlayerNode, file: AVAudioFile)] = [:]
     /// Where the current run started in the recording; the players' clocks
     /// count from there.
@@ -62,23 +64,57 @@ final class Player {
     private var artist: String?
 
     private init() {
-        engine.attach(submix)
-        engine.attach(timePitch)
-        engine.connect(submix, to: timePitch, format: nil)
-        engine.connect(timePitch, to: engine.mainMixerNode, format: nil)
+        connectGraph()
         let center = NotificationCenter.default
         center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
             let began = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue
             MainActor.assumeIsolated { if began { self?.pause() } }
         }
-        // Headphones in or out: the engine stops itself; pick up where it was.
-        center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+        // Headphones or AirPods in or out, a sample-rate change, or the audio
+        // system restarting: the engine stops itself and can refuse to start
+        // again as it was. Start over with a fresh one and pick up where it was.
+        center.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: .main) { [weak self] note in
             MainActor.assumeIsolated {
-                guard let self, self.isPlaying else { return }
-                self.play(from: self.position)
+                guard let self, (note.object as? AVAudioEngine) === self.engine else { return }
+                self.rebuild(reason: "configuration change")
             }
         }
+        center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.rebuild(reason: "media services reset") }
+        }
         setUpRemoteCommands()
+    }
+
+    private func connectGraph() {
+        engine.attach(submix)
+        engine.attach(timePitch)
+        engine.connect(submix, to: timePitch, format: nil)
+        engine.connect(timePitch, to: engine.mainMixerNode, format: nil)
+    }
+
+    /// A brand-new engine with the loaded song in it, at the same spot,
+    /// still playing if it was.
+    private func rebuild(reason: String) {
+        PlayerLog.write("rebuilding engine: \(reason)")
+        let wasPlaying = isPlaying
+        let at = wasPlaying ? currentPosition() : position
+        ticker?.invalidate()
+        stopPlayers()
+        engine.stop()
+        isPlaying = false
+        countIn = nil
+        countdown = nil
+        players = [:]
+        engine = AVAudioEngine()
+        submix = AVAudioMixerNode()
+        timePitch = AVAudioUnitTimePitch()
+        connectGraph()
+        if let (song, library) = loaded {
+            songID = nil
+            load(song, library: library)
+        }
+        position = min(at, duration)
+        if wasPlaying { play(from: position) }
     }
 
     // MARK: Loading
@@ -108,6 +144,7 @@ final class Player {
         }
         duration = players.values.map { Double($0.file.length) / $0.file.processingFormat.sampleRate }.max() ?? 0
         songID = song.id
+        loaded = (song, library)
         title = song.name
         artist = song.artist
         position = min(at, duration)
@@ -118,6 +155,7 @@ final class Player {
 
     /// The mix, speed and volume, live.
     func apply(_ song: Song) {
+        if song.id == loaded?.song.id { loaded?.song = song }
         for track in song.tracks {
             guard let node = players[track.id]?.node else { continue }
             node.volume = track.enabled ? Float(track.volume) : 0
@@ -131,7 +169,7 @@ final class Player {
 
     /// Starts playing at `time`, every track at the same instant, optionally
     /// after `delay` seconds of silence.
-    func play(from time: Double, delay: Double = 0) {
+    func play(from time: Double, delay: Double = 0, retry: Bool = true) {
         guard !players.isEmpty else { return }
         stopPlayers()
         do {
@@ -139,7 +177,12 @@ final class Player {
             try AVAudioSession.sharedInstance().setActive(true)
             if !engine.isRunning { try engine.start() }
         } catch {
-            print("audio start: \(error)")
+            PlayerLog.write("audio start failed: \(error)")
+            // An engine left stale by the audio system: once more on a new one.
+            guard retry else { return }
+            position = time
+            rebuild(reason: "start failed")
+            play(from: time, delay: delay, retry: false)
             return
         }
         let start = min(max(0, time), duration)
@@ -259,5 +302,22 @@ final class Player {
             MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? Double(timePitch.rate) : 0,
         ]
+    }
+}
+
+/// Audio errors, kept in a small file in the app's folder so they can be read
+/// off the phone after the fact.
+enum PlayerLog {
+    static func write(_ message: String) {
+        print("player: \(message)")
+        let url = URL.applicationSupportDirectory.appending(path: "MusicMinusOne/player-log.txt")
+        let line = "\(ISO8601DateFormatter().string(from: .now)) \(message)\n"
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            try? handle.close()
+        } else {
+            try? Data(line.utf8).write(to: url)
+        }
     }
 }
