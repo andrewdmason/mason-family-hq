@@ -90,8 +90,9 @@ struct SongView: View {
                 .accessibilityLabel("Previous song")
             VStack(spacing: 2) {
                 Text(song.displayName).font(.headline).lineLimit(1)
-                if let artist = song.artist, !artist.isEmpty {
-                    Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                let byline = [song.artist, song.album].compactMap { $0?.isEmpty == false ? $0 : nil }
+                if !byline.isEmpty {
+                    Text(byline.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity)
