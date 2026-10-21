@@ -8,7 +8,10 @@ struct MixerView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var library = Library.shared
-    @State private var importing: ImportTarget?
+    /// What the file picker is for. Kept after the picker closes: its result
+    /// arrives after that.
+    @State private var importing = ImportTarget.add
+    @State private var picking = false
     @State private var renaming: Track?
     @State private var newName = ""
 
@@ -40,6 +43,7 @@ struct MixerView: View {
                             }
                             Button("Replace Audio File…", systemImage: "arrow.triangle.2.circlepath") {
                                 importing = .replace(track.id)
+                                picking = true
                             }
                         }
                     }
@@ -50,7 +54,10 @@ struct MixerView: View {
                     }
                 }
                 Section {
-                    Button("Add Tracks…", systemImage: "plus") { importing = .add }
+                    Button("Add Tracks…", systemImage: "plus") {
+                        importing = .add
+                        picking = true
+                    }
                 } footer: {
                     Text("Touch and hold a track to rename it or replace its file. Swipe to remove it.")
                 }
@@ -61,11 +68,12 @@ struct MixerView: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .fileImporter(
-                isPresented: Binding(get: { importing != nil }, set: { if !$0 { importing = nil } }),
+                isPresented: $picking,
                 allowedContentTypes: [.audio],
                 allowsMultipleSelection: true
             ) { result in
-                guard case let .success(urls) = result, let target = importing else { return }
+                guard case let .success(urls) = result else { return }
+                let target = importing
                 let tracks: [Track]
                 if case .replace = target { tracks = library.importTracks(Array(urls.prefix(1))) } else { tracks = library.importTracks(urls) }
                 switch target {
