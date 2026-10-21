@@ -11,7 +11,6 @@ struct SongView: View {
     @AppStorage("countInBeats") private var countInBeats = 4
     @Environment(\.dismiss) private var dismiss
 
-    @State private var editMode = EditMode.inactive
     @State private var showMixer = false
     @State private var showDetails = false
     @State private var adding: PendingMarker?
@@ -144,7 +143,6 @@ struct SongView: View {
             }
         }
         .listStyle(.plain)
-        .environment(\.editMode, $editMode)
         .overlay {
             if song.markers.isEmpty {
                 ContentUnavailableView {
@@ -188,9 +186,8 @@ struct SongView: View {
                 countInOn.toggle()
             }
             .accessibilityLabel("Count-in, \(countInBeats) beats")
-            RoundButton(text: editMode.isEditing ? "Done" : "Edit", label: "Edit markers") {
-                withAnimation { editMode = editMode.isEditing ? .inactive : .active }
-            }
+            RoundButton(systemImage: "bookmark.fill", label: "Add marker") { addMarker() }
+                .disabled(player.duration == 0)
         }
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity)
@@ -241,8 +238,6 @@ struct SongView: View {
 
     private func transport(_ song: Song) -> some View {
         HStack(spacing: 8) {
-            TransportButton(systemImage: "bookmark.fill", label: "Add marker") { addMarker() }
-                .disabled(player.duration == 0)
             TransportButton(systemImage: "backward.end.fill", label: "Previous marker") {
                 let back = player.isPlaying ? 1.0 : 0.05
                 if let m = song.markers.last(where: { $0.time < player.position - back }) { go(to: m, in: song) }
