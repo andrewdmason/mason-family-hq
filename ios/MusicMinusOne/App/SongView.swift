@@ -251,6 +251,18 @@ struct SongView: View {
         HStack {
             Text(formatTime(player.position))
             Spacer()
+            // A/B switch for the higher-quality slow-down (see Player.enhanced).
+            Button { player.enhanced.toggle() } label: {
+                Text("HQ")
+                    .font(.caption.bold())
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .foregroundStyle(player.enhanced ? Color.black : Color.secondary)
+                    .background(Capsule().fill(player.enhanced ? Color.anytuneOrange : Color(white: 0.2)))
+            }
+            .accessibilityLabel("Higher-quality slow-down")
+            .accessibilityValue(player.enhanced ? "On" : "Off")
+            Spacer()
             Text("-" + formatTime(player.duration - player.position))
         }
         .font(.callout.monospacedDigit())

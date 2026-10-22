@@ -54,6 +54,16 @@ final class Player {
     private(set) var countdown: Int?
     /// Tracks whose audio isn't on the phone yet.
     private(set) var missing: Set<UUID> = []
+    /// Higher-quality slowing: each part stretched on its own, before the
+    /// mix, at the time-pitch unit's finest setting. Off is the original
+    /// single stretch of the whole mix. An A/B switch for now.
+    var enhanced = UserDefaults.standard.bool(forKey: "enhancedStretch") {
+        didSet {
+            guard enhanced != oldValue else { return }
+            UserDefaults.standard.set(enhanced, forKey: "enhancedStretch")
+            rebuild(reason: enhanced ? "enhanced stretch on" : "enhanced stretch off")
+        }
+    }
 
     private var engine = AVAudioEngine()
     private var submix = AVAudioMixerNode()
@@ -61,7 +71,19 @@ final class Player {
     private var limiter = Player.makeLimiter()
     /// What's loaded, to rebuild from.
     private var loaded: (song: Song, library: Library)?
-    private var players: [UUID: (node: AVAudioPlayerNode, file: AVAudioFile)] = [:]
+    private var players: [UUID: Voice] = [:]
+
+    /// One track's chain: its player, and with enhanced stretching its own
+    /// time-pitch unit and a strip that carries its volume and pan into the
+    /// submix.
+    private struct Voice {
+        let node: AVAudioPlayerNode
+        let file: AVAudioFile
+        var stretch: AVAudioUnitTimePitch?
+        var strip: AVAudioMixerNode?
+        /// The node feeding the submix, where volume and pan apply.
+        var mixing: AVAudioMixing { strip ?? node }
+    }
     /// Where the current run started in the recording; the players' clocks
     /// count from there.
     private var segmentStart: Double = 0
@@ -101,10 +123,14 @@ final class Player {
 
     private func connectGraph() {
         engine.attach(submix)
-        engine.attach(timePitch)
         engine.attach(limiter)
-        engine.connect(submix, to: timePitch, format: nil)
-        engine.connect(timePitch, to: limiter, format: nil)
+        if enhanced {
+            engine.connect(submix, to: limiter, format: nil)
+        } else {
+            engine.attach(timePitch)
+            engine.connect(submix, to: timePitch, format: nil)
+            engine.connect(timePitch, to: limiter, format: nil)
+        }
         engine.connect(limiter, to: engine.mainMixerNode, format: nil)
     }
 
@@ -155,7 +181,11 @@ final class Player {
         isPlaying = false
         countIn = nil
         countdown = nil
-        for (_, p) in players { engine.detach(p.node) }
+        for (_, v) in players {
+            engine.detach(v.node)
+            v.stretch.map(engine.detach)
+            v.strip.map(engine.detach)
+        }
         players = [:]
         missing = []
         for track in song.tracks {
@@ -165,8 +195,22 @@ final class Player {
             }
             let node = AVAudioPlayerNode()
             engine.attach(node)
-            engine.connect(node, to: submix, fromBus: 0, toBus: submix.nextAvailableInputBus, format: file.processingFormat)
-            players[track.id] = (node, file)
+            var voice = Voice(node: node, file: file)
+            if enhanced {
+                let stretch = AVAudioUnitTimePitch()
+                stretch.overlap = 32
+                let strip = AVAudioMixerNode()
+                engine.attach(stretch)
+                engine.attach(strip)
+                engine.connect(node, to: stretch, format: file.processingFormat)
+                engine.connect(stretch, to: strip, format: nil)
+                engine.connect(strip, to: submix, fromBus: 0, toBus: submix.nextAvailableInputBus, format: nil)
+                voice.stretch = stretch
+                voice.strip = strip
+            } else {
+                engine.connect(node, to: submix, fromBus: 0, toBus: submix.nextAvailableInputBus, format: file.processingFormat)
+            }
+            players[track.id] = voice
         }
         // Headroom for summing full-scale parts: −4.8 dB for three tracks.
         submix.outputVolume = players.isEmpty ? 1 : Float(1 / Double(players.count).squareRoot())
@@ -185,9 +229,10 @@ final class Player {
     func apply(_ song: Song) {
         if song.id == loaded?.song.id { loaded?.song = song }
         for track in song.tracks {
-            guard let node = players[track.id]?.node else { continue }
-            node.volume = track.enabled ? Float(track.volume) : 0
-            node.pan = Float(track.pan)
+            guard let voice = players[track.id] else { continue }
+            voice.mixing.volume = track.enabled ? Float(track.volume) : 0
+            voice.mixing.pan = Float(track.pan)
+            voice.stretch?.rate = Float(song.speed)
         }
         timePitch.rate = Float(song.speed)
         engine.mainMixerNode.outputVolume = Float(song.volume)
