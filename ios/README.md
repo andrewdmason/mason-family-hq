@@ -50,6 +50,10 @@ no TestFlight. Bundle id and URL scheme `io.mason.music-minus-one`.
   instant so the parts stay locked together.
 - Songs can be grouped into an album or work (a trio's movements), listed
   together in movement order; previous/next on a song moves within it.
+- Slowing down has a test switch (the label between the times above the
+  waveform) cycling three engines: Apple's time-pitch on the mix, Apple's on
+  each part at its finest setting, and Signalsmith Stretch (vendored, MIT) fed
+  by a background thread into a short buffer. One will win and the switch go.
 - Markers carry a measure number, entered as they're dropped. Tapping one plays
   from there (auto-play), optionally after a count-in: the recording starts that
   many beats early (at the song's one tempo) under a big countdown.

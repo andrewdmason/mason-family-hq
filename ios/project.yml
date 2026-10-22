@@ -102,7 +102,15 @@ targets:
   MusicMinusOne:
     type: application
     platform: iOS
-    sources: [MusicMinusOne/App]
+    sources:
+      - path: MusicMinusOne/App
+        excludes: [Stretch/StretchBridge.cpp]
+      # The stretcher is optimized even in Debug (the phone installs run
+      # Debug), or it can't keep up in real time.
+      - path: MusicMinusOne/App/Stretch/StretchBridge.cpp
+        compilerFlags: [-O3]
+      - path: MusicMinusOne/Vendor
+        buildPhase: none
     dependencies:
       - package: MasonKit
       - package: Supabase
@@ -130,6 +138,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.mason.music-minus-one
+        # Signalsmith Stretch (Vendor/) through a small C bridge, on Apple's FFT.
+        SWIFT_OBJC_BRIDGING_HEADER: MusicMinusOne/App/MusicMinusOne-Bridging-Header.h
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
+        GCC_PREPROCESSOR_DEFINITIONS: $(inherited) SIGNALSMITH_USE_ACCELERATE=1
+        OTHER_LDFLAGS: $(inherited) -framework Accelerate
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true

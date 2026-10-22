@@ -54,14 +54,29 @@ final class Player {
     private(set) var countdown: Int?
     /// Tracks whose audio isn't on the phone yet.
     private(set) var missing: Set<UUID> = []
-    /// Higher-quality slowing: each part stretched on its own, before the
-    /// mix, at the time-pitch unit's finest setting. Off is the original
-    /// single stretch of the whole mix. An A/B switch for now.
-    var enhanced = UserDefaults.standard.bool(forKey: "enhancedStretch") {
+    /// How slowing down is done. A test switch for now, to compare by ear.
+    enum Stretcher: String, CaseIterable {
+        /// Apple's time-pitch unit, once, on the whole mix.
+        case apple
+        /// Apple's, on each part before the mix, at its finest setting.
+        case appleHQ
+        /// Signalsmith Stretch, on the mix (see StretchSource).
+        case signalsmith
+
+        var label: String {
+            switch self {
+            case .apple: "Apple"
+            case .appleHQ: "Apple HQ"
+            case .signalsmith: "Signalsmith"
+            }
+        }
+    }
+
+    var stretcher = Stretcher(rawValue: UserDefaults.standard.string(forKey: "stretcher") ?? "") ?? .apple {
         didSet {
-            guard enhanced != oldValue else { return }
-            UserDefaults.standard.set(enhanced, forKey: "enhancedStretch")
-            rebuild(reason: enhanced ? "enhanced stretch on" : "enhanced stretch off")
+            guard stretcher != oldValue else { return }
+            UserDefaults.standard.set(stretcher.rawValue, forKey: "stretcher")
+            rebuild(reason: "stretcher \(stretcher.rawValue)")
         }
     }
 
@@ -72,8 +87,12 @@ final class Player {
     /// What's loaded, to rebuild from.
     private var loaded: (song: Song, library: Library)?
     private var players: [UUID: Voice] = [:]
+    /// With Signalsmith, the one source that plays every part.
+    private var source: StretchSource?
+    /// Its parts' order, for passing the mix.
+    private var sourceTracks: [UUID] = []
 
-    /// One track's chain: its player, and with enhanced stretching its own
+    /// One track's chain: its player, and with Apple HQ stretching its own
     /// time-pitch unit and a strip that carries its volume and pan into the
     /// submix.
     private struct Voice {
@@ -124,9 +143,12 @@ final class Player {
     private func connectGraph() {
         engine.attach(submix)
         engine.attach(limiter)
-        if enhanced {
+        switch stretcher {
+        case .signalsmith:
+            break // the source connects to the limiter when a song loads
+        case .appleHQ:
             engine.connect(submix, to: limiter, format: nil)
-        } else {
+        case .apple:
             engine.attach(timePitch)
             engine.connect(submix, to: timePitch, format: nil)
             engine.connect(timePitch, to: limiter, format: nil)
@@ -156,6 +178,7 @@ final class Player {
         countIn = nil
         countdown = nil
         players = [:]
+        dropSource()
         engine = AVAudioEngine()
         submix = AVAudioMixerNode()
         timePitch = AVAudioUnitTimePitch()
@@ -187,8 +210,12 @@ final class Player {
             v.strip.map(engine.detach)
         }
         players = [:]
+        dropSource()
         missing = []
-        for track in song.tracks {
+        if stretcher == .signalsmith {
+            loadSource(song, library: library)
+        }
+        for track in song.tracks where stretcher != .signalsmith {
             guard let file = try? AVAudioFile(forReading: library.audioURL(track)) else {
                 missing.insert(track.id)
                 continue
@@ -196,7 +223,7 @@ final class Player {
             let node = AVAudioPlayerNode()
             engine.attach(node)
             var voice = Voice(node: node, file: file)
-            if enhanced {
+            if stretcher == .appleHQ {
                 let stretch = AVAudioUnitTimePitch()
                 stretch.overlap = 32
                 let strip = AVAudioMixerNode()
@@ -214,7 +241,8 @@ final class Player {
         }
         // Headroom for summing full-scale parts: −4.8 dB for three tracks.
         submix.outputVolume = players.isEmpty ? 1 : Float(1 / Double(players.count).squareRoot())
-        duration = players.values.map { Double($0.file.length) / $0.file.processingFormat.sampleRate }.max() ?? 0
+        duration = source.map { Double($0.length) / $0.sampleRate }
+            ?? players.values.map { Double($0.file.length) / $0.file.processingFormat.sampleRate }.max() ?? 0
         songID = song.id
         loaded = (song, library)
         title = song.displayName
@@ -235,7 +263,35 @@ final class Player {
             voice.stretch?.rate = Float(song.speed)
         }
         timePitch.rate = Float(song.speed)
+        if let source {
+            let byID = Dictionary(song.tracks.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            source.set(parts: sourceTracks.map { id in
+                let t = byID[id]
+                return (gain: t.map { $0.enabled ? Float($0.volume) : 0 } ?? 0, pan: Float(t?.pan ?? 0))
+            })
+            source.set(speed: song.speed)
+        }
         engine.mainMixerNode.outputVolume = Float(song.volume)
+    }
+
+    private func loadSource(_ song: Song, library: Library) {
+        let here = song.tracks.filter { library.hasAudio($0) }
+        for track in song.tracks where !library.hasAudio(track) { missing.insert(track.id) }
+        guard !here.isEmpty, let made = StretchSource(parts: here.map {
+            StretchSource.Part(file: library.audioURL($0), gain: $0.enabled ? Float($0.volume) : 0, pan: Float($0.pan))
+        }) else { return }
+        source = made
+        sourceTracks = here.map(\.id)
+        engine.attach(made.node)
+        engine.connect(made.node, to: limiter, format: made.node.outputFormat(forBus: 0))
+    }
+
+    private func dropSource() {
+        guard let source else { return }
+        source.shutDown()
+        engine.detach(source.node)
+        self.source = nil
+        sourceTracks = []
     }
 
     // MARK: Transport
@@ -243,7 +299,7 @@ final class Player {
     /// Starts playing at `time`, every track at the same instant, optionally
     /// after `delay` seconds of silence.
     func play(from time: Double, delay: Double = 0, retry: Bool = true) {
-        guard !players.isEmpty else { return }
+        guard !players.isEmpty || source != nil else { return }
         idleTimer?.invalidate()
         stopPlayers()
         do {
@@ -262,6 +318,10 @@ final class Player {
         let start = min(max(0, time), duration)
         segmentStart = start
         position = start
+        if let source {
+            source.set(speed: loaded?.song.speed ?? 1)
+            source.start(at: Int64(start * source.sampleRate), leadFrames: Int(delay * source.sampleRate))
+        }
         // A shared start time a moment ahead, so the tracks start together.
         let when = AVAudioTime(hostTime: mach_absolute_time() + AVAudioTime.hostTime(forSeconds: 0.05 + delay))
         for (_, p) in players {
@@ -284,7 +344,7 @@ final class Player {
         let plan = CountIn(target: target, beats: beats, tempo: tempo, speed: speed)
         play(from: plan.startAt, delay: plan.silentLead)
         guard isPlaying else { return }
-        countIn = (plan, Date.now.addingTimeInterval(0.05))
+        countIn = (plan, Date.now.addingTimeInterval(source?.startDelay ?? 0.05))
         countdown = plan.beats
     }
 
@@ -339,11 +399,13 @@ final class Player {
 
     private func stopPlayers() {
         for (_, p) in players { p.node.stop() }
+        source?.pause()
     }
 
     /// The recording's position by the first track's clock (the players
     /// count source samples, so speed is already accounted for).
     private func currentPosition() -> Double {
+        if let source { return isPlaying ? min(source.position(), duration) : position }
         guard isPlaying, let p = players.values.first,
               let nodeTime = p.node.lastRenderTime,
               let playerTime = p.node.playerTime(forNodeTime: nodeTime)

@@ -251,17 +251,21 @@ struct SongView: View {
         HStack {
             Text(formatTime(player.position))
             Spacer()
-            // A/B switch for the higher-quality slow-down (see Player.enhanced).
-            Button { player.enhanced.toggle() } label: {
-                Text("HQ")
+            // Test switch for the slow-down engine (see Player.Stretcher):
+            // tap to cycle while listening.
+            Button {
+                let all = Player.Stretcher.allCases
+                player.stretcher = all[(all.firstIndex(of: player.stretcher)! + 1) % all.count]
+            } label: {
+                Text(player.stretcher.label)
                     .font(.caption.bold())
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .foregroundStyle(player.enhanced ? Color.black : Color.secondary)
-                    .background(Capsule().fill(player.enhanced ? Color.anytuneOrange : Color(white: 0.2)))
+                    .foregroundStyle(player.stretcher == .apple ? Color.secondary : Color.black)
+                    .background(Capsule().fill(player.stretcher == .apple ? Color(white: 0.2) : Color.anytuneOrange))
             }
-            .accessibilityLabel("Higher-quality slow-down")
-            .accessibilityValue(player.enhanced ? "On" : "Off")
+            .accessibilityLabel("Slow-down engine")
+            .accessibilityValue(player.stretcher.label)
             Spacer()
             Text("-" + formatTime(player.duration - player.position))
         }
