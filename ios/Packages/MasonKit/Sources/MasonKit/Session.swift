@@ -17,7 +17,10 @@ public final class Session {
         options: SupabaseClientOptions(auth: .init(
             storage: KeychainLocalStorage(accessGroup: Config.sharedKeychainGroup),
             redirectToURL: Config.authRedirect,
-            flowType: .pkce
+            flowType: .pkce,
+            // Open on the keychain's sign-in straight away; an expired one is
+            // renewed in the background rather than on the launch screen.
+            emitLocalSessionAsInitialSession: true
         ))
     )
 
@@ -38,23 +41,40 @@ public final class Session {
     private func watchAuth() async {
         for await (_, session) in client.auth.authStateChanges {
             let user = session?.user
-            if user?.id != userID { role = nil }
+            if user?.id != userID { role = user.flatMap { Self.savedRole(for: $0.id) } }
             userID = user?.id
             email = user?.email
-            if let id = user?.id { await loadRole(id) }
+            guard let id = user?.id else {
+                checked = true
+                continue
+            }
+            // The role last seen on this phone lets the app open at once; the
+            // server's answer follows. Only a first sign-in waits for it.
+            if role != nil { checked = true }
+            await loadRole(id)
             checked = true
         }
     }
 
+    private static func roleKey(_ id: UUID) -> String { "session.role.\(id.uuidString.lowercased())" }
+
+    private static func savedRole(for id: UUID) -> String? {
+        UserDefaults.standard.string(forKey: roleKey(id))
+    }
+
     private func loadRole(_ id: UUID) async {
         struct Row: Decodable { let role: String? }
-        let rows: [Row]? = try? await client.from("family_members")
+        // No answer (no signal) keeps the role we had.
+        guard let rows: [Row] = try? await client.from("family_members")
             .select("role")
             .eq("user_id", value: id.uuidString.lowercased())
             .limit(1)
             .execute()
-            .value
-        role = rows?.first?.role
+            .value,
+            id == userID
+        else { return }
+        role = rows.first?.role
+        UserDefaults.standard.set(role, forKey: Self.roleKey(id))
     }
 
     public func signIn() async throws {
