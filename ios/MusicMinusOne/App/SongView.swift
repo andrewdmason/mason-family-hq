@@ -278,7 +278,7 @@ struct SongView: View {
 
     private func transport(_ song: Song) -> some View {
         HStack(spacing: 8) {
-            TransportButton(systemImage: "backward.end.fill", label: "Previous marker") {
+            TransportButton(symbols: ["arrow.left", "bookmark.fill"], label: "Previous marker") {
                 let back = player.isPlaying ? 1.0 : 0.05
                 if let m = song.markers.last(where: { $0.time < player.position - back }) { go(to: m, in: song) }
                 else { player.seek(to: 0) }
@@ -294,7 +294,7 @@ struct SongView: View {
             .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
             .disabled(player.duration == 0)
             TransportButton(systemImage: "goforward.5", label: "Forward 5 seconds") { player.seek(to: player.position + 5) }
-            TransportButton(systemImage: "forward.end.fill", label: "Next marker") {
+            TransportButton(symbols: ["bookmark.fill", "arrow.right"], label: "Next marker") {
                 if let m = song.markers.first(where: { $0.time > player.position + 0.05 }) { go(to: m, in: song) }
             }
         }
@@ -411,13 +411,27 @@ private struct StepperPill<Label: View>: View {
 }
 
 private struct TransportButton: View {
-    let systemImage: String
+    /// Drawn side by side: one symbol, or a marker with an arrow as Anytune
+    /// draws previous and next marker.
+    let symbols: [String]
     let label: String
     let action: () -> Void
 
+    init(systemImage: String, label: String, action: @escaping () -> Void) {
+        self.init(symbols: [systemImage], label: label, action: action)
+    }
+
+    init(symbols: [String], label: String, action: @escaping () -> Void) {
+        self.symbols = symbols
+        self.label = label
+        self.action = action
+    }
+
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemImage)
+            HStack(spacing: 1) {
+                ForEach(symbols, id: \.self) { Image(systemName: $0) }
+            }
                 .font(.title3)
                 .frame(maxWidth: .infinity, minHeight: 52)
                 .background(RoundedRectangle(cornerRadius: 12).fill(Color(white: 0.2)))
