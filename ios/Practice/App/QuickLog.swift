@@ -175,6 +175,21 @@ enum QuickLog {
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec) : String(format: "%d:%02d", m, sec)
     }
 
+    /// "1d ago", "12d ago", "Never": the card's corner when it's not been
+    /// played today.
+    static func sinceShort(_ lastPracticed: String?, today: String) -> String {
+        guard let lastPracticed else { return "Never" }
+        let days = PracticeDay.daysBetween(lastPracticed, today)
+        return days <= 0 ? "Today" : "\(days)d ago"
+    }
+
+    /// A movement's segment says just its number: "II" from "II. Adagio",
+    /// "3" from "3. Finale", else its place on the card.
+    static func movementLabel(_ name: String, index: Int) -> String {
+        if let match = name.firstMatch(of: /^\s*([IVXLC]+|\d+)[.:)]/) { return String(match.1) }
+        return "\(index + 1)"
+    }
+
     /// "Yesterday", "12 days ago", "Never played": for a card not played today.
     static func daysSince(_ lastPracticed: String?, today: String) -> String {
         guard let lastPracticed else { return "Never played" }

@@ -129,7 +129,7 @@ private struct CardView: View {
                 HStack(spacing: 0) {
                     ForEach(Array(card.pieces.enumerated()), id: \.element.id) { i, piece in
                         if i > 0 { Divider() }
-                        PieceButton(label: piece.name, piece: piece, size: size, store: store, now: now, due: dueID == piece.id, onSettings: onSettings)
+                        PieceButton(label: QuickLog.movementLabel(piece.name, index: i), piece: piece, size: size, store: store, now: now, due: dueID == piece.id, onSettings: onSettings)
                     }
                 }
             }
@@ -172,11 +172,16 @@ private struct PieceButton: View {
                     .lineLimit(1)
                     .foregroundStyle(.primary)
                 Spacer(minLength: 4)
-                if state.running {
-                    Text(QuickLog.clock(state.elapsedSeconds))
-                        .font((size == .large ? Font.subheadline : .caption).monospacedDigit().weight(.medium))
-                        .foregroundStyle(.red)
-                }
+                // One or the other: time in today, or how long since.
+                Text(state.running
+                     ? QuickLog.clock(state.elapsedSeconds)
+                     : state.playedToday
+                        ? QuickLog.total(state.elapsedSeconds)
+                        : QuickLog.sinceShort(state.lastPracticed, today: store.today))
+                    .font((size == .large ? Font.subheadline : .caption).monospacedDigit())
+                    .fontWeight(state.running || state.playedToday ? .medium : .regular)
+                    .foregroundStyle(state.running ? Color.red : state.playedToday ? Color.primary.opacity(0.8) : Color.secondary)
+                    .fixedSize()
             }
             if !note.isEmpty {
                 Text(note)
