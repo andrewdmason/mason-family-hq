@@ -146,8 +146,8 @@ private struct CardView: View {
     }
 }
 
-/// Tap to time it, long-press for its settings. Shows the name, the goal
-/// under it, and the live clock while it runs.
+/// Tap to time it, long-press for its settings. Shows the name, what today's
+/// entry for it says, and the live clock while it runs.
 private struct PieceButton: View {
     let label: String
     let piece: Piece
@@ -163,7 +163,7 @@ private struct PieceButton: View {
         let state = store.state(for: piece, at: now)
         let progress = state.goalSeconds > 0 ? min(1, Double(state.elapsedSeconds) / Double(state.goalSeconds)) : 0
         let goalReached = state.goalSeconds > 0 && state.elapsedSeconds >= state.goalSeconds
-        let goal = store.goals[piece.id]?.text
+        let note = store.firstTask(for: piece)?.text ?? ""
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
@@ -178,8 +178,8 @@ private struct PieceButton: View {
                         .foregroundStyle(.red)
                 }
             }
-            if let goal {
-                Text(goal)
+            if !note.isEmpty {
+                Text(note)
                     .font(size == .large ? .subheadline : .caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -225,22 +225,31 @@ private struct PieceButton: View {
 }
 
 /// The long-press sheet: move the piece between active, the maintenance
-/// rotation, and the archive, and write its goal.
+/// rotation, and the archive, and set what today's entry for it says and how
+/// long it's for.
 private struct PieceSettingsView: View {
     let piece: Piece
     let store: PracticeStore
 
     @Environment(\.dismiss) private var dismiss
     @State private var listing: PieceListing
-    @State private var goal: String
+    @State private var text: String
+    @State private var minutes: Int
+    /// The duration as it was, kept exact when the picker isn't touched.
+    private let originalSeconds: Int
     @State private var saving = false
     @State private var error: String?
+
+    private static let durations = [5, 10, 15, 20, 25, 30, 45, 60, 90]
 
     init(piece: Piece, store: PracticeStore) {
         self.piece = piece
         self.store = store
+        let task = store.firstTask(for: piece)
         _listing = State(initialValue: PieceListing(piece))
-        _goal = State(initialValue: store.goals[piece.id]?.text ?? "")
+        _text = State(initialValue: task?.text ?? "")
+        originalSeconds = task?.timerSeconds ?? 0
+        _minutes = State(initialValue: originalSeconds / 60)
     }
 
     var body: some View {
@@ -253,9 +262,16 @@ private struct PieceSettingsView: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                 }
-                Section("Goal") {
-                    TextField("What you're working toward", text: $goal, axis: .vertical)
+                Section("Today") {
+                    TextField("What to work on", text: $text, axis: .vertical)
                         .lineLimit(3...8)
+                    Picker("Duration", selection: $minutes) {
+                        Text("None").tag(0)
+                        // An odd length set on the website stays selectable.
+                        ForEach((Self.durations + [minutes]).filter { $0 > 0 }.uniqued().sorted(), id: \.self) {
+                            Text("\($0) min").tag($0)
+                        }
+                    }
                 }
                 if let error {
                     Text(error).font(.footnote).foregroundStyle(.red)
@@ -284,10 +300,17 @@ private struct PieceSettingsView: View {
         saving = true
         defer { saving = false }
         do {
-            try await store.save(piece, status: listing, goal: goal)
+            try await store.save(piece, status: listing, text: text, seconds: minutes == originalSeconds / 60 ? originalSeconds : minutes * 60)
             dismiss()
         } catch {
             self.error = "Couldn't save. Check your connection and try again."
         }
+    }
+}
+
+private extension Array where Element: Hashable {
+    func uniqued() -> [Element] {
+        var seen = Set<Element>()
+        return filter { seen.insert($0).inserted }
     }
 }

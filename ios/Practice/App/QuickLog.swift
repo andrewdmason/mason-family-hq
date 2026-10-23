@@ -36,18 +36,6 @@ enum PieceListing: String, CaseIterable, Identifiable {
     }
 }
 
-/// A piece's goal: one of its open focus items (the assignments table).
-struct PieceGoal: Codable, Identifiable, Hashable {
-    let id: UUID
-    let pieceID: UUID?
-    let text: String
-
-    enum CodingKeys: String, CodingKey {
-        case id, text
-        case pieceID = "piece_id"
-    }
-}
-
 /// The columns of a practice_tasks row the quick logger reads.
 struct PracticeTask: Codable, Identifiable, Hashable {
     let id: UUID
@@ -59,9 +47,11 @@ struct PracticeTask: Codable, Identifiable, Hashable {
     var endedAt: Date?
     var createdAt: Date
     var sessionNumber: Int
+    /// What it says to work on, shown under the piece's name.
+    var text: String = ""
 
     enum CodingKeys: String, CodingKey {
-        case id, completed
+        case id, completed, text
         case pieceID = "piece_id"
         case timerSeconds = "timer_seconds"
         case timerRemainingSeconds = "timer_remaining_seconds"

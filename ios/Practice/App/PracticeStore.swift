@@ -23,9 +23,6 @@ final class PracticeStore {
     private(set) var tasks: [PracticeTask] = []
     /// Last day real practice went into each piece, as of today.
     private(set) var lastPracticed: [UUID: String] = [:]
-    /// Each piece's goal: the first of its open focus items, as the website's
-    /// piece page lists them.
-    private(set) var goals: [UUID: PieceGoal] = [:]
     private(set) var today = PracticeDay.today()
     private(set) var loaded = false
     private(set) var loadError: String?
@@ -74,25 +71,18 @@ final class PracticeStore {
                 .execute().value
             async let worksQuery: [Work] = db.from("works").select("id, name").execute().value
             async let tasksQuery: [PracticeTask] = db.from("practice_tasks")
-                .select("id, piece_id, timer_seconds, timer_remaining_seconds, completed, started_at, ended_at, created_at, session_number")
+                .select("id, piece_id, text, timer_seconds, timer_remaining_seconds, completed, started_at, ended_at, created_at, session_number")
                 .eq("date", value: today)
                 .order("session_number")
                 .order("sort_order")
                 .execute().value
             async let lastQuery: [LastPracticed] = db.rpc("piece_last_practiced", params: ["as_of_dates": [today]])
                 .execute().value
-            async let goalsQuery: [PieceGoal] = db.from("assignments")
-                .select("id, piece_id, text")
-                .eq("completed", value: false)
-                .order("sort_order")
-                .order("created_at", ascending: false)
-                .execute().value
-            let (p, w, t, l, g) = try await (piecesQuery, worksQuery, tasksQuery, lastQuery, goalsQuery)
+            let (p, w, t, l) = try await (piecesQuery, worksQuery, tasksQuery, lastQuery)
             pieces = p
             worksByID = Dictionary(w.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
             tasks = writes.apply(to: t, date: today)
             lastPracticed = Dictionary(l.map { ($0.piece_id, $0.last_practiced) }, uniquingKeysWith: { a, _ in a })
-            goals = Dictionary(g.compactMap { goal in goal.pieceID.map { ($0, goal) } }, uniquingKeysWith: { a, _ in a })
             loadError = nil
         } catch {
             loadError = "Couldn't load today's practice. Pull to try again."
@@ -107,49 +97,39 @@ final class PracticeStore {
 
     // MARK: Settings
 
-    /// The long-press sheet's save: where the piece sits, and its goal. The
-    /// same rows the website's repertoire writes. Clearing the goal's text
-    /// removes it.
-    func save(_ piece: Piece, status: PieceListing, goal: String) async throws {
-        let id = piece.id.uuidString.lowercased()
-        if status != PieceListing(piece) {
-            struct Update: Encodable { let status: String; let maintenance: Bool }
-            let update = switch status {
-            case .active: Update(status: "active", maintenance: false)
-            case .maintenance: Update(status: "active", maintenance: true)
-            // Archiving leaves the rotation flag alone, as the website does.
-            case .archived: Update(status: "archived", maintenance: piece.maintenance)
-            }
-            try await db.from("pieces").update(update).eq("id", value: id).execute()
+    /// The entry a long press edits: the one a tap would time.
+    func firstTask(for piece: Piece) -> PracticeTask? {
+        QuickLog.taskToTime(tasks.filter { $0.pieceID == piece.id })
+    }
+
+    /// The long-press sheet's save: where the piece sits, and today's first
+    /// entry for it (made if there's none yet). `seconds` of 0 is no duration.
+    func save(_ piece: Piece, status: PieceListing, text: String, seconds: Int) async throws {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var task = firstTask(for: piece)
+        if task == nil, !text.isEmpty || seconds > 0 {
+            task = newTask(for: piece, at: .now)
+        }
+        if let task, let i = tasks.firstIndex(where: { $0.id == task.id }),
+           text != task.text || seconds != task.timerSeconds {
+            let delta = seconds - task.timerSeconds
+            let remaining = task.timerRemainingSeconds + delta
+            tasks[i].text = text
+            tasks[i].timerSeconds = seconds
+            tasks[i].timerRemainingSeconds = remaining
+            timer.changeGoal(taskID: task.id, by: delta)
+            writes.enqueue(.edit(taskID: task.id, text: text, timerSeconds: seconds, remainingSeconds: remaining))
         }
 
-        let text = goal.trimmingCharacters(in: .whitespacesAndNewlines)
-        let now = ISO8601DateFormatter().string(from: .now)
-        if let existing = goals[piece.id] {
-            let goalID = existing.id.uuidString.lowercased()
-            if text.isEmpty {
-                try await db.from("assignments").delete().eq("id", value: goalID).execute()
-            } else if text != existing.text {
-                try await db.from("assignments")
-                    .update(["text": text, "updated_at": now])
-                    .eq("id", value: goalID)
-                    .execute()
-            }
-        } else if !text.isEmpty {
-            // At the end of the piece's list, as the website's createAssignment
-            // places it.
-            struct Order: Decodable { let sort_order: Int }
-            let last: [Order] = try await db.from("assignments")
-                .select("sort_order")
-                .eq("piece_id", value: id)
-                .order("sort_order", ascending: false)
-                .limit(1)
-                .execute().value
-            struct Row: Encodable { let piece_id: String; let text: String; let sort_order: Int }
-            try await db.from("assignments")
-                .insert(Row(piece_id: id, text: text, sort_order: (last.first?.sort_order ?? -1) + 1))
-                .execute()
+        guard status != PieceListing(piece) else { return }
+        struct Update: Encodable { let status: String; let maintenance: Bool }
+        let update = switch status {
+        case .active: Update(status: "active", maintenance: false)
+        case .maintenance: Update(status: "active", maintenance: true)
+        // Archiving leaves the rotation flag alone, as the website does.
+        case .archived: Update(status: "archived", maintenance: piece.maintenance)
         }
+        try await db.from("pieces").update(update).eq("id", value: piece.id.uuidString.lowercased()).execute()
         await load()
     }
 
@@ -189,15 +169,8 @@ final class PracticeStore {
             target = existing
         } else {
             // Nothing for this piece today: put an entry on the day and time it
-            // in the same moment. The row follows when there's signal.
-            let session = tasks.map(\.sessionNumber).max() ?? 1
-            let created = PracticeTask(
-                id: UUID(), pieceID: piece.id, timerSeconds: 0, timerRemainingSeconds: 0,
-                completed: false, startedAt: nil, endedAt: nil, createdAt: now, sessionNumber: session
-            )
-            tasks.append(created)
-            writes.enqueue(.create(id: created.id, pieceID: piece.id, date: today, sessionNumber: session, createdAt: now))
-            target = created
+            // in the same moment.
+            target = newTask(for: piece, at: now)
         }
 
         // Stop the old run first so its time is in the day's total.
@@ -205,6 +178,19 @@ final class PracticeStore {
         let before = tasks.reduce(0) { $0 + $1.elapsedSeconds }
         timer.start(task: target, piece: piece, date: today, todayBeforeSeconds: before)
         if let i = tasks.firstIndex(where: { $0.id == target.id }) { tasks[i].startedAt = now }
+    }
+
+    /// A new entry for the piece at the end of today. The row follows when
+    /// there's signal.
+    private func newTask(for piece: Piece, at now: Date) -> PracticeTask {
+        let session = tasks.map(\.sessionNumber).max() ?? 1
+        let created = PracticeTask(
+            id: UUID(), pieceID: piece.id, timerSeconds: 0, timerRemainingSeconds: 0,
+            completed: false, startedAt: nil, endedAt: nil, createdAt: now, sessionNumber: session
+        )
+        tasks.append(created)
+        writes.enqueue(.create(id: created.id, pieceID: piece.id, date: today, sessionNumber: session, createdAt: now))
+        return created
     }
 
     /// Today's total, a running timer included.
