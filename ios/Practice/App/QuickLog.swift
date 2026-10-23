@@ -12,10 +12,47 @@ struct Piece: Codable, Identifiable, Hashable {
     /// technique · sight_reading · piece
     let kind: String
     let maintenance: Bool
+    /// Stands for its whole work while the work isn't tracked by movement
+    /// (migration 00206).
+    var wholeWork = false
 
     enum CodingKeys: String, CodingKey {
         case id, name, composer, kind, maintenance
         case workID = "work_id"
+        case wholeWork = "whole_work"
+    }
+}
+
+extension Piece {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        workID = try c.decodeIfPresent(UUID.self, forKey: .workID)
+        name = try c.decode(String.self, forKey: .name)
+        composer = try c.decodeIfPresent(String.self, forKey: .composer)
+        kind = try c.decode(String.self, forKey: .kind)
+        maintenance = try c.decode(Bool.self, forKey: .maintenance)
+        // Absent until the migration is in.
+        wholeWork = try c.decodeIfPresent(Bool.self, forKey: .wholeWork) ?? false
+    }
+}
+
+/// A multi-movement work, and whether it's logged movement by movement.
+struct Work: Decodable, Identifiable {
+    let id: UUID
+    let name: String
+    let trackByMovement: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case trackByMovement = "track_by_movement"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        trackByMovement = try c.decodeIfPresent(Bool.self, forKey: .trackByMovement) ?? true
     }
 }
 
@@ -76,6 +113,16 @@ struct QuickCard: Identifiable, Hashable {
 }
 
 enum QuickLog {
+    /// The active pieces to show, following each work's "Track by movement"
+    /// switch: a work tracked by movement shows its movements; one that isn't
+    /// shows its whole-work piece instead. visibleActivePieces on the website.
+    static func visiblePieces(_ pieces: [Piece], wholeWorkIDs: Set<UUID>) -> [Piece] {
+        pieces.filter { piece in
+            if let work = piece.workID, wholeWorkIDs.contains(work) { return piece.wholeWork }
+            return !piece.wholeWork
+        }
+    }
+
     private static let kindOrder = ["technique": 0, "sight_reading": 1, "piece": 2]
 
     /// JavaScript's `localeCompare(b, undefined, { numeric: true })`, near

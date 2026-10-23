@@ -238,6 +238,7 @@ private struct PieceSettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var listing: PieceListing
+    @State private var trackByMovement: Bool
     @State private var text: String
     @State private var minutes: Int
     /// The duration as it was, kept exact when the picker isn't touched.
@@ -252,6 +253,7 @@ private struct PieceSettingsView: View {
         self.store = store
         let task = store.firstTask(for: piece)
         _listing = State(initialValue: PieceListing(piece))
+        _trackByMovement = State(initialValue: !piece.wholeWork)
         _text = State(initialValue: task?.text ?? "")
         originalSeconds = task?.timerSeconds ?? 0
         _minutes = State(initialValue: originalSeconds / 60)
@@ -267,6 +269,18 @@ private struct PieceSettingsView: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                 }
+                if store.hasMovements(piece) {
+                    Section {
+                        Toggle("Track by movement", isOn: $trackByMovement)
+                    } footer: {
+                        Text(switching
+                             ? (trackByMovement
+                                ? "Each movement gets its own card again, with its items as you left them."
+                                : "The movements fold into one card for the whole piece. Their items are kept for when you switch back.")
+                             : "")
+                    }
+                }
+                if !switching {
                 Section("Today") {
                     TextField("What to work on", text: $text, axis: .vertical)
                         .lineLimit(3...8)
@@ -277,6 +291,7 @@ private struct PieceSettingsView: View {
                             Text("\($0) min").tag($0)
                         }
                     }
+                }
                 }
                 if let error {
                     Text(error).font(.footnote).foregroundStyle(.red)
@@ -301,10 +316,21 @@ private struct PieceSettingsView: View {
         .presentationDetents([.medium, .large])
     }
 
+    /// The switch is being flipped: today's item belongs to a card that's
+    /// about to go, so it's set on the new card afterwards.
+    private var switching: Bool { trackByMovement == piece.wholeWork }
+
     private func save() async {
         saving = true
         defer { saving = false }
         do {
+            if switching {
+                let task = store.firstTask(for: piece)
+                try await store.save(piece, status: listing, text: task?.text ?? "", seconds: task?.timerSeconds ?? 0)
+                try await store.setTrackByMovement(piece, trackByMovement)
+                dismiss()
+                return
+            }
             try await store.save(piece, status: listing, text: text, seconds: minutes == originalSeconds / 60 ? originalSeconds : minutes * 60)
             dismiss()
         } catch {
