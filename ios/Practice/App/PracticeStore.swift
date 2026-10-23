@@ -23,6 +23,9 @@ final class PracticeStore {
     private(set) var tasks: [PracticeTask] = []
     /// Last day real practice went into each piece, as of today.
     private(set) var lastPracticed: [UUID: String] = [:]
+    /// Each piece's goal: the first of its open focus items, as the website's
+    /// piece page lists them.
+    private(set) var goals: [UUID: PieceGoal] = [:]
     private(set) var today = PracticeDay.today()
     private(set) var loaded = false
     private(set) var loadError: String?
@@ -78,11 +81,18 @@ final class PracticeStore {
                 .execute().value
             async let lastQuery: [LastPracticed] = db.rpc("piece_last_practiced", params: ["as_of_dates": [today]])
                 .execute().value
-            let (p, w, t, l) = try await (piecesQuery, worksQuery, tasksQuery, lastQuery)
+            async let goalsQuery: [PieceGoal] = db.from("assignments")
+                .select("id, piece_id, text")
+                .eq("completed", value: false)
+                .order("sort_order")
+                .order("created_at", ascending: false)
+                .execute().value
+            let (p, w, t, l, g) = try await (piecesQuery, worksQuery, tasksQuery, lastQuery, goalsQuery)
             pieces = p
             worksByID = Dictionary(w.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
             tasks = writes.apply(to: t, date: today)
             lastPracticed = Dictionary(l.map { ($0.piece_id, $0.last_practiced) }, uniquingKeysWith: { a, _ in a })
+            goals = Dictionary(g.compactMap { goal in goal.pieceID.map { ($0, goal) } }, uniquingKeysWith: { a, _ in a })
             loadError = nil
         } catch {
             loadError = "Couldn't load today's practice. Pull to try again."
@@ -93,6 +103,54 @@ final class PracticeStore {
     /// A new day while the app was open: start the cards over.
     func checkDayChange() async {
         if PracticeDay.today() != today { await load() }
+    }
+
+    // MARK: Settings
+
+    /// The long-press sheet's save: where the piece sits, and its goal. The
+    /// same rows the website's repertoire writes. Clearing the goal's text
+    /// removes it.
+    func save(_ piece: Piece, status: PieceListing, goal: String) async throws {
+        let id = piece.id.uuidString.lowercased()
+        if status != PieceListing(piece) {
+            struct Update: Encodable { let status: String; let maintenance: Bool }
+            let update = switch status {
+            case .active: Update(status: "active", maintenance: false)
+            case .maintenance: Update(status: "active", maintenance: true)
+            // Archiving leaves the rotation flag alone, as the website does.
+            case .archived: Update(status: "archived", maintenance: piece.maintenance)
+            }
+            try await db.from("pieces").update(update).eq("id", value: id).execute()
+        }
+
+        let text = goal.trimmingCharacters(in: .whitespacesAndNewlines)
+        let now = ISO8601DateFormatter().string(from: .now)
+        if let existing = goals[piece.id] {
+            let goalID = existing.id.uuidString.lowercased()
+            if text.isEmpty {
+                try await db.from("assignments").delete().eq("id", value: goalID).execute()
+            } else if text != existing.text {
+                try await db.from("assignments")
+                    .update(["text": text, "updated_at": now])
+                    .eq("id", value: goalID)
+                    .execute()
+            }
+        } else if !text.isEmpty {
+            // At the end of the piece's list, as the website's createAssignment
+            // places it.
+            struct Order: Decodable { let sort_order: Int }
+            let last: [Order] = try await db.from("assignments")
+                .select("sort_order")
+                .eq("piece_id", value: id)
+                .order("sort_order", ascending: false)
+                .limit(1)
+                .execute().value
+            struct Row: Encodable { let piece_id: String; let text: String; let sort_order: Int }
+            try await db.from("assignments")
+                .insert(Row(piece_id: id, text: text, sort_order: (last.first?.sort_order ?? -1) + 1))
+                .execute()
+        }
+        await load()
     }
 
     // MARK: Cards

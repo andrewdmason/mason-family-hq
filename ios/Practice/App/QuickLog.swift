@@ -19,6 +19,35 @@ struct Piece: Codable, Identifiable, Hashable {
     }
 }
 
+/// Where a piece sits, as the long-press sheet offers it. Maintenance is an
+/// active piece with the rotation flag on (migration 00194), not a status.
+enum PieceListing: String, CaseIterable, Identifiable {
+    case active, maintenance, archived
+    var id: String { rawValue }
+
+    init(_ piece: Piece) { self = piece.maintenance ? .maintenance : .active }
+
+    var label: String {
+        switch self {
+        case .active: "Active"
+        case .maintenance: "Maintenance"
+        case .archived: "Archive"
+        }
+    }
+}
+
+/// A piece's goal: one of its open focus items (the assignments table).
+struct PieceGoal: Codable, Identifiable, Hashable {
+    let id: UUID
+    let pieceID: UUID?
+    let text: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, text
+        case pieceID = "piece_id"
+    }
+}
+
 /// The columns of a practice_tasks row the quick logger reads.
 struct PracticeTask: Codable, Identifiable, Hashable {
     let id: UUID
