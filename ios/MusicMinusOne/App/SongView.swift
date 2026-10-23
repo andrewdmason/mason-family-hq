@@ -284,7 +284,6 @@ struct SongView: View {
                 else { player.seek(to: 0) }
             }
             TransportButton(systemImage: "gobackward.5", label: "Back 5 seconds") { player.seek(to: player.position - 5) }
-            TransportButton(systemImage: "backward.end.alt.fill", label: "Back to the beginning") { player.seek(to: 0) }
             Button { togglePlay(song) } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.title)
