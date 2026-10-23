@@ -31,6 +31,7 @@ const piece = (id: string, name: string, maintenance = true): Piece => ({
   status: "active",
   kind: "piece",
   maintenance,
+  whole_work: false,
   notes: null,
   target_tempo: null,
   created_at: "2026-01-01T00:00:00Z",
