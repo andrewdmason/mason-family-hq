@@ -83,7 +83,14 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith("/clips/api/trace") &&
     // The Clips Camera iPhone app's install page is shareable without an
     // account; the app it installs only runs on registered iPhones.
-    !request.nextUrl.pathname.startsWith("/clips/install")
+    !request.nextUrl.pathname.startsWith("/clips/install") &&
+    // Book conversion asked for by the Reader iOS app's Share extension, with
+    // its access token as a bearer header (no cookies), which the route
+    // validates itself — see src/lib/reading/bearer-scope.ts.
+    !(
+      request.nextUrl.pathname === "/reader/api/convert" &&
+      request.headers.get("authorization")?.startsWith("Bearer ")
+    )
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
@@ -145,7 +152,10 @@ export async function updateSession(request: NextRequest) {
   if (
     userId &&
     request.method === "GET" &&
-    !request.headers.has("Next-Router-Prefetch")
+    !request.headers.has("Next-Router-Prefetch") &&
+    // The Reader iOS app storing a book's page for offline (public/sw.js
+    // keepPages), not you opening it.
+    !request.headers.has("X-Reader-Keep")
   ) {
     const place = readerPlaceForPath(request.nextUrl.pathname);
     if (place) {
