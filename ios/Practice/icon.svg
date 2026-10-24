@@ -1,32 +1,21 @@
-<!-- Practice app icon source. Render to Assets.xcassets/AppIcon.appiconset/icon-1024.png at 1024x1024 (iOS rounds the corners). -->
+<!-- Practice app icon source: the website Practice icon (src/app/practice/icon0.svg) inside a stopwatch. Render to Assets.xcassets/AppIcon.appiconset/icon-1024.png at 1024x1024 (iOS rounds the corners). -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#a8623f"/>
-      <stop offset="1" stop-color="#7f4327"/>
+      <stop offset="0" stop-color="#8475a6"/>
+      <stop offset="1" stop-color="#524673"/>
     </linearGradient>
   </defs>
   <rect width="1024" height="1024" fill="url(#bg)"/>
-  <!-- stopwatch: crown, side button, case -->
-  <rect x="452" y="150" width="120" height="58" rx="18" fill="#f7f1e5"/>
-  <rect x="490" y="196" width="44" height="70" fill="#f7f1e5"/>
-  <g transform="rotate(45 512 580)">
-    <rect x="486" y="214" width="52" height="64" rx="12" fill="#f7f1e5"/>
+  <g fill="none" stroke="#f7f1e5" stroke-width="42" stroke-linecap="round" stroke-linejoin="round">
+    <!-- stopwatch: crown, side button, case -->
+    <line x1="452" y1="170" x2="572" y2="170"/>
+    <line x1="512" y1="170" x2="512" y2="270"/>
+    <line x1="745" y1="330" x2="790" y2="285"/>
+    <circle cx="512" cy="590" r="300"/>
   </g>
-  <circle cx="512" cy="580" r="318" fill="#f7f1e5"/>
-  <!-- the elapsed sweep -->
-  <path d="M512 580 L512 316 A264 264 0 0 1 740.6 712 Z" fill="#ead9c0"/>
-  <!-- ticks at 12, 3, 6, 9 -->
-  <g stroke="#c9a888" stroke-width="16" stroke-linecap="round">
-    <line x1="512" y1="290" x2="512" y2="318"/>
-    <line x1="802" y1="580" x2="774" y2="580"/>
-    <line x1="512" y1="870" x2="512" y2="842"/>
-    <line x1="222" y1="580" x2="250" y2="580"/>
-  </g>
-  <!-- eighth note -->
-  <g fill="#7f4327">
-    <ellipse cx="470" cy="700" rx="84" ry="62" transform="rotate(-22 470 700)"/>
-    <rect x="525" y="400" width="32" height="300" rx="8"/>
-    <path d="M541 400 C 560 480, 700 500, 668 660 C 670 570, 620 530, 557 515 Z"/>
+  <!-- the website's Practice symbol (lucide "music") -->
+  <g transform="translate(338 426) scale(14.5)" fill="none" stroke="#f7f1e5" stroke-width="2.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
   </g>
 </svg>
