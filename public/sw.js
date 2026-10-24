@@ -43,6 +43,9 @@
 const VERSION = "v3";
 const STATIC_CACHE = `static-${VERSION}`;
 const PAGES_CACHE = `pages-${VERSION}`;
+// The read-aloud's chapter list and sentence timings, so a chapter already on
+// the device (the Reader iOS app keeps the audio itself) plays with no signal.
+const AUDIO_META_CACHE = "reader-audio-meta-v1";
 
 // New worker takes over on next launch without waiting for old tabs to close.
 self.addEventListener("install", () => {
@@ -56,7 +59,7 @@ self.addEventListener("activate", (event) => {
       // books. Those aren't versioned with the worker and aren't ours to throw
       // away: they're the user's library, and re-downloading them needs exactly
       // the network they may not have.
-      const keep = new Set([STATIC_CACHE, PAGES_CACHE, "reader-content-v1"]);
+      const keep = new Set([STATIC_CACHE, PAGES_CACHE, "reader-content-v1", AUDIO_META_CACHE]);
       const names = await caches.keys();
       await Promise.all(names.map((n) => (keep.has(n) ? null : caches.delete(n))));
       await self.clients.claim();
@@ -203,6 +206,10 @@ async function staleWhileRevalidate(request, event) {
 // launch's business, not this one's.
 self.addEventListener("message", (event) => {
   const data = event.data;
+  if (data && data.type === "hq:keep-pages") {
+    event.waitUntil(keepPages(data.urls || []));
+    return;
+  }
   if (!data || data.type !== "hq:status") return;
   const port = event.ports && event.ports[0];
   if (!port) return;
@@ -210,6 +217,46 @@ self.addEventListener("message", (event) => {
   const recent = entry && Date.now() - entry.at < 2 * 60 * 1000;
   port.postMessage(recent ? { fromCache: entry.fromCache, fresh: entry.fresh } : null);
 });
+
+// Store reading pages without opening them (the Reader iOS app keeping recent
+// books offline, src/app/(reading)/reader/keep-offline). The header tells the
+// middleware this isn't you going there, so your place on the shelf stays put.
+async function keepPages(urls) {
+  const cache = await caches.open(PAGES_CACHE);
+  for (const url of urls) {
+    if (new URL(url).origin !== self.location.origin) continue;
+    try {
+      const response = await fetch(url, {
+        credentials: "same-origin",
+        headers: { "X-Reader-Keep": "1" },
+      });
+      if (response.status !== 200 || response.redirected) continue;
+      await cache.put(url, response.clone());
+      await prefetchAssets(await response.text());
+    } catch {
+      // Offline: whatever was cached stays.
+    }
+  }
+}
+
+// /reader/api/audio/{book} (the chapter list) and …/{chapter}/timings.
+function isAudioMeta(pathname) {
+  return /^\/reader\/api\/audio\/[^/]+(\/\d+\/timings)?$/.test(pathname);
+}
+
+// Network first, the last copy when there's no network.
+async function networkFirst(request, cacheName) {
+  const cache = await caches.open(cacheName);
+  try {
+    const response = await fetch(request);
+    if (response.ok) await cache.put(request, response.clone());
+    return response;
+  } catch (err) {
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    throw err;
+  }
+}
 
 function isReaderPath(pathname) {
   return pathname === "/reader" || pathname.startsWith("/reader/");
@@ -248,6 +295,11 @@ self.addEventListener("fetch", (event) => {
 
   if (isStaticAsset(url)) {
     event.respondWith(cacheFirst(request));
+    return;
+  }
+
+  if (isAudioMeta(url.pathname)) {
+    event.respondWith(networkFirst(request, AUDIO_META_CACHE));
     return;
   }
 

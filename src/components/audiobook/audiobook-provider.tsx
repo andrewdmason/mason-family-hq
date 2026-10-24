@@ -25,6 +25,7 @@ import {
   SKIP_BACK_MS,
   type SleepMode,
 } from "@/lib/reading/audio/listen-settings";
+import { adoptedChapter, NativeAudio, nativeAudioAvailable } from "./native-audio";
 
 /**
  * The voice, and everything that keeps it in step with the book.
@@ -199,7 +200,10 @@ export function AudiobookProvider({ children }: { children: React.ReactNode }) {
 
   const audio = useCallback((): HTMLAudioElement => {
     if (audioRef.current) return audioRef.current;
-    const element = new Audio();
+    // Inside the Reader iOS app, its own player (see native-audio.ts).
+    const element = nativeAudioAvailable()
+      ? (new NativeAudio() as unknown as HTMLAudioElement)
+      : new Audio();
     element.preload = "auto";
     // Stops iOS Safari from taking a book over into its fullscreen video player.
     element.setAttribute("playsinline", "");
@@ -598,7 +602,9 @@ export function AudiobookProvider({ children }: { children: React.ReactNode }) {
       }
       const { chapterIndex, chapters } = stateRef.current;
       if (chapterIndex == null) return;
-      const next = chapters.find((c) => c.index === chapterIndex + 1);
+      // The app's player may have gone on by itself while the phone was locked.
+      const target = adoptedChapter(element) ?? chapterIndex + 1;
+      const next = chapters.find((c) => c.index === target);
       if (next) goToChapter(next.index);
       else setState((s) => ({ ...s, status: "paused" }));
     };
