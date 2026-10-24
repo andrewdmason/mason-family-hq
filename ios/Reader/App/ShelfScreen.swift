@@ -242,6 +242,14 @@ struct ReadingScreen: View {
         ReadingWebView(path: "/reader/\(id.uuidString.lowercased())/read", onShelf: onShelf)
             .background(Theme.paper)
             .toolbar(.hidden, for: .navigationBar)
+            .overlay(alignment: .topLeading) {
+                // An error page has no website back control.
+                if ReadingWeb.shared.failed {
+                    Button("Shelf", systemImage: "chevron.left", action: onShelf)
+                        .buttonStyle(.glass)
+                        .padding()
+                }
+            }
             .task { await Offline.shared.keepRecentBooks() }
     }
 }

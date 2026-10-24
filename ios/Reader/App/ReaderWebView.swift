@@ -1,3 +1,4 @@
+import Observation
 import SafariServices
 import SwiftUI
 import WebKit
@@ -60,6 +61,9 @@ class WebNavigator: NSObject, WKNavigationDelegate, WKUIDelegate {
     private var handedOff = false
     var interceptsShelf = false
     var onShelf: () -> Void = {}
+    /// Whether the page showing is an error (a 404, no connection): the
+    /// reading screen then offers its own way back to the shelf.
+    var onFailure: (Bool) -> Void = { _ in }
     var onTitle: (String) -> Void = { _ in }
 
     func load(_ path: String, in webView: WKWebView) {
@@ -95,6 +99,19 @@ class WebNavigator: NSObject, WKNavigationDelegate, WKUIDelegate {
             return .cancel
         }
         return .allow
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse) async -> WKNavigationResponsePolicy {
+        if response.isForMainFrame, let http = response.response as? HTTPURLResponse {
+            // The site answers some missing pages with a 200, so anywhere
+            // outside the Reader counts too.
+            onFailure(http.statusCode >= 400 || http.url?.path().hasPrefix("/reader") != true)
+        }
+        return .allow
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        if (error as NSError).code != NSURLErrorCancelled { onFailure(true) }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -137,16 +154,20 @@ class WebNavigator: NSObject, WKNavigationDelegate, WKUIDelegate {
 
 /// The reading screen's one web view.
 @MainActor
+@Observable
 final class ReadingWeb {
     static let shared = ReadingWeb()
 
-    private(set) var webView = WebPool.makeWebView()
-    private let navigator = WebNavigator()
+    @ObservationIgnored private(set) var webView = WebPool.makeWebView()
+    @ObservationIgnored private let navigator = WebNavigator()
+    /// The page showing is an error, so there's no website back control.
+    private(set) var failed = false
 
     private init() { attach() }
 
     private func attach() {
         navigator.interceptsShelf = true
+        navigator.onFailure = { [weak self] failed in self?.failed = failed }
         webView.navigationDelegate = navigator
         webView.uiDelegate = navigator
         AudioBridge.shared.attach(webView)
@@ -154,9 +175,9 @@ final class ReadingWeb {
 
     /// The page last asked for, so SwiftUI redrawing the screen doesn't ask
     /// again. Cleared on the way back to the shelf.
-    private var requested: String?
+    @ObservationIgnored private var requested: String?
 
-    var onShelf: () -> Void = {} {
+    @ObservationIgnored var onShelf: () -> Void = {} {
         didSet {
             navigator.onShelf = { [weak self] in
                 self?.requested = nil
