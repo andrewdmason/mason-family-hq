@@ -8,6 +8,7 @@ const {
   formatQuickClock,
   formatQuickTotal,
   parseLogMode,
+  visibleActivePieces,
   pickQuickLogTask,
 } = await import("../src/lib/practice/quick-log");
 type Piece = import("../src/lib/types").Piece;
@@ -30,6 +31,7 @@ const piece = (
   status: "active",
   kind: "piece",
   maintenance: false,
+  whole_work: false,
   notes: null,
   target_tempo: null,
   created_at: "",
@@ -113,6 +115,28 @@ check("hours", formatQuickTotal(76 * 60) === "1h 16m");
 check("whole hours", formatQuickTotal(120 * 60) === "2h");
 check("live clock", formatQuickClock(247) === "4:07");
 check("live clock past an hour", formatQuickClock(4565) === "1:16:05");
+
+console.log("\nTrack by movement");
+{
+  const all = [
+    piece("allegro", "I. Allegro", { work_id: "trio" }),
+    piece("adagio", "II. Adagio", { work_id: "trio" }),
+    piece("trio-whole", "Clarinet Trio", { work_id: "trio", whole_work: true }),
+    piece("rev", "Revolutionary Etude"),
+  ];
+  const ids = (ps: Piece[]) => ps.map((p) => p.id).join(",");
+  check(
+    "tracked by movement: movements, no whole-work piece",
+    ids(visibleActivePieces(all, new Set())) === "allegro,adagio,rev"
+  );
+  const folded = visibleActivePieces(all, new Set(["trio"]));
+  check("not tracked: just the whole-work piece", ids(folded) === "trio-whole,rev");
+  const cards = buildQuickCards(folded, { trio: "Clarinet Trio" }).current;
+  check(
+    "the whole work is one unsegmented card",
+    cards.some((c) => c.title === "Clarinet Trio" && c.pieces.length === 1)
+  );
+}
 
 console.log("\nMode cookie");
 check("quick reads as quick", parseLogMode("quick") === "quick");

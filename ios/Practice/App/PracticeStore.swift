@@ -18,8 +18,12 @@ struct PieceState: Equatable {
 @MainActor
 @Observable
 final class PracticeStore {
+    /// The active pieces on show, after each work's "Track by movement" switch.
     private(set) var pieces: [Piece] = []
-    private(set) var worksByID: [UUID: String] = [:]
+    /// Every active piece, the hidden side of a switched work included.
+    private(set) var allPieces: [Piece] = []
+    private(set) var works: [UUID: Work] = [:]
+    var worksByID: [UUID: String] { works.mapValues(\.name) }
     private(set) var tasks: [PracticeTask] = []
     /// Last day real practice went into each piece, as of today.
     private(set) var lastPracticed: [UUID: String] = [:]
@@ -62,16 +66,16 @@ final class PracticeStore {
         let today = self.today
         _ = try? await db.rpc("practice_rollover", params: ["cutoff": PracticeDay.rolloverCutoff()]).execute()
         do {
-            struct Work: Decodable { let id: UUID; let name: String }
             struct LastPracticed: Decodable { let piece_id: UUID; let last_practiced: String }
             async let piecesQuery: [Piece] = db.from("pieces")
-                .select("id, work_id, name, composer, kind, maintenance")
+                // Everything, so the build reads either side of migration 00206.
+                .select("*")
                 .eq("status", value: "active")
                 .order("name")
                 .execute().value
-            async let worksQuery: [Work] = db.from("works").select("id, name").execute().value
+            async let worksQuery: [Work] = db.from("works").select("*").execute().value
             async let tasksQuery: [PracticeTask] = db.from("practice_tasks")
-                .select("id, piece_id, timer_seconds, timer_remaining_seconds, completed, started_at, ended_at, created_at, session_number")
+                .select("id, piece_id, text, timer_seconds, timer_remaining_seconds, completed, started_at, ended_at, created_at, session_number")
                 .eq("date", value: today)
                 .order("session_number")
                 .order("sort_order")
@@ -79,8 +83,10 @@ final class PracticeStore {
             async let lastQuery: [LastPracticed] = db.rpc("piece_last_practiced", params: ["as_of_dates": [today]])
                 .execute().value
             let (p, w, t, l) = try await (piecesQuery, worksQuery, tasksQuery, lastQuery)
-            pieces = p
-            worksByID = Dictionary(w.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
+            allPieces = p
+            works = Dictionary(w.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            let whole = Set(w.filter { !$0.trackByMovement }.map(\.id))
+            pieces = QuickLog.visiblePieces(p, wholeWorkIDs: whole)
             tasks = writes.apply(to: t, date: today)
             lastPracticed = Dictionary(l.map { ($0.piece_id, $0.last_practiced) }, uniquingKeysWith: { a, _ in a })
             loadError = nil
@@ -93,6 +99,66 @@ final class PracticeStore {
     /// A new day while the app was open: start the cards over.
     func checkDayChange() async {
         if PracticeDay.today() != today { await load() }
+    }
+
+    // MARK: Settings
+
+    /// The entry a long press edits: the one a tap would time.
+    func firstTask(for piece: Piece) -> PracticeTask? {
+        QuickLog.taskToTime(tasks.filter { $0.pieceID == piece.id })
+    }
+
+    /// Whether the long-press sheet offers "Track by movement": the card is a
+    /// work's whole-work piece, or one of a work's several movements.
+    func hasMovements(_ piece: Piece) -> Bool {
+        guard let work = piece.workID else { return false }
+        return piece.wholeWork || allPieces.filter { $0.workID == work && !$0.wholeWork }.count > 1
+    }
+
+    /// Flip a work between a segment per movement and one card for the whole.
+    func setTrackByMovement(_ piece: Piece, _ track: Bool) async throws {
+        guard let work = piece.workID else { return }
+        _ = try await db.rpc("set_work_track_by_movement", params: TrackParams(target_work_id: work.uuidString.lowercased(), track: track)).execute()
+        await load()
+    }
+
+    private struct TrackParams: Encodable { let target_work_id: String; let track: Bool }
+
+    /// The long-press sheet's save: where the piece sits, and today's first
+    /// entry for it (made if there's none yet). `seconds` of 0 is no duration.
+    /// A whole-work card's status goes to the movements too, so they're where
+    /// it left them if tracking goes back on.
+    func save(_ piece: Piece, status: PieceListing, text: String, seconds: Int) async throws {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var task = firstTask(for: piece)
+        if task == nil, !text.isEmpty || seconds > 0 {
+            task = newTask(for: piece, at: .now)
+        }
+        if let task, let i = tasks.firstIndex(where: { $0.id == task.id }),
+           text != task.text || seconds != task.timerSeconds {
+            let delta = seconds - task.timerSeconds
+            let remaining = task.timerRemainingSeconds + delta
+            tasks[i].text = text
+            tasks[i].timerSeconds = seconds
+            tasks[i].timerRemainingSeconds = remaining
+            timer.changeGoal(taskID: task.id, by: delta)
+            writes.enqueue(.edit(taskID: task.id, text: text, timerSeconds: seconds, remainingSeconds: remaining))
+        }
+
+        guard status != PieceListing(piece) else { return }
+        struct Update: Encodable { let status: String; let maintenance: Bool }
+        let update = switch status {
+        case .active: Update(status: "active", maintenance: false)
+        case .maintenance: Update(status: "active", maintenance: true)
+        // Archiving leaves the rotation flag alone, as the website does.
+        case .archived: Update(status: "archived", maintenance: piece.maintenance)
+        }
+        if piece.wholeWork, let work = piece.workID {
+            try await db.from("pieces").update(update).eq("work_id", value: work.uuidString.lowercased()).execute()
+        } else {
+            try await db.from("pieces").update(update).eq("id", value: piece.id.uuidString.lowercased()).execute()
+        }
+        await load()
     }
 
     // MARK: Cards
@@ -131,15 +197,8 @@ final class PracticeStore {
             target = existing
         } else {
             // Nothing for this piece today: put an entry on the day and time it
-            // in the same moment. The row follows when there's signal.
-            let session = tasks.map(\.sessionNumber).max() ?? 1
-            let created = PracticeTask(
-                id: UUID(), pieceID: piece.id, timerSeconds: 0, timerRemainingSeconds: 0,
-                completed: false, startedAt: nil, endedAt: nil, createdAt: now, sessionNumber: session
-            )
-            tasks.append(created)
-            writes.enqueue(.create(id: created.id, pieceID: piece.id, date: today, sessionNumber: session, createdAt: now))
-            target = created
+            // in the same moment.
+            target = newTask(for: piece, at: now)
         }
 
         // Stop the old run first so its time is in the day's total.
@@ -147,6 +206,19 @@ final class PracticeStore {
         let before = tasks.reduce(0) { $0 + $1.elapsedSeconds }
         timer.start(task: target, piece: piece, date: today, todayBeforeSeconds: before)
         if let i = tasks.firstIndex(where: { $0.id == target.id }) { tasks[i].startedAt = now }
+    }
+
+    /// A new entry for the piece at the end of today. The row follows when
+    /// there's signal.
+    private func newTask(for piece: Piece, at now: Date) -> PracticeTask {
+        let session = tasks.map(\.sessionNumber).max() ?? 1
+        let created = PracticeTask(
+            id: UUID(), pieceID: piece.id, timerSeconds: 0, timerRemainingSeconds: 0,
+            completed: false, startedAt: nil, endedAt: nil, createdAt: now, sessionNumber: session
+        )
+        tasks.append(created)
+        writes.enqueue(.create(id: created.id, pieceID: piece.id, date: today, sessionNumber: session, createdAt: now))
+        return created
     }
 
     /// Today's total, a running timer included.

@@ -12,10 +12,64 @@ struct Piece: Codable, Identifiable, Hashable {
     /// technique · sight_reading · piece
     let kind: String
     let maintenance: Bool
+    /// Stands for its whole work while the work isn't tracked by movement
+    /// (migration 00206).
+    var wholeWork = false
 
     enum CodingKeys: String, CodingKey {
         case id, name, composer, kind, maintenance
         case workID = "work_id"
+        case wholeWork = "whole_work"
+    }
+}
+
+extension Piece {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        workID = try c.decodeIfPresent(UUID.self, forKey: .workID)
+        name = try c.decode(String.self, forKey: .name)
+        composer = try c.decodeIfPresent(String.self, forKey: .composer)
+        kind = try c.decode(String.self, forKey: .kind)
+        maintenance = try c.decode(Bool.self, forKey: .maintenance)
+        // Absent until the migration is in.
+        wholeWork = try c.decodeIfPresent(Bool.self, forKey: .wholeWork) ?? false
+    }
+}
+
+/// A multi-movement work, and whether it's logged movement by movement.
+struct Work: Decodable, Identifiable {
+    let id: UUID
+    let name: String
+    let trackByMovement: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case trackByMovement = "track_by_movement"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        trackByMovement = try c.decodeIfPresent(Bool.self, forKey: .trackByMovement) ?? true
+    }
+}
+
+/// Where a piece sits, as the long-press sheet offers it. Maintenance is an
+/// active piece with the rotation flag on (migration 00194), not a status.
+enum PieceListing: String, CaseIterable, Identifiable {
+    case active, maintenance, archived
+    var id: String { rawValue }
+
+    init(_ piece: Piece) { self = piece.maintenance ? .maintenance : .active }
+
+    var label: String {
+        switch self {
+        case .active: "Active"
+        case .maintenance: "Maintenance"
+        case .archived: "Archive"
+        }
     }
 }
 
@@ -30,9 +84,11 @@ struct PracticeTask: Codable, Identifiable, Hashable {
     var endedAt: Date?
     var createdAt: Date
     var sessionNumber: Int
+    /// What it says to work on, shown under the piece's name.
+    var text: String = ""
 
     enum CodingKeys: String, CodingKey {
-        case id, completed
+        case id, completed, text
         case pieceID = "piece_id"
         case timerSeconds = "timer_seconds"
         case timerRemainingSeconds = "timer_remaining_seconds"
@@ -57,6 +113,16 @@ struct QuickCard: Identifiable, Hashable {
 }
 
 enum QuickLog {
+    /// The active pieces to show, following each work's "Track by movement"
+    /// switch: a work tracked by movement shows its movements; one that isn't
+    /// shows its whole-work piece instead. visibleActivePieces on the website.
+    static func visiblePieces(_ pieces: [Piece], wholeWorkIDs: Set<UUID>) -> [Piece] {
+        pieces.filter { piece in
+            if let work = piece.workID, wholeWorkIDs.contains(work) { return piece.wholeWork }
+            return !piece.wholeWork
+        }
+    }
+
     private static let kindOrder = ["technique": 0, "sight_reading": 1, "piece": 2]
 
     /// JavaScript's `localeCompare(b, undefined, { numeric: true })`, near
@@ -154,6 +220,21 @@ enum QuickLog {
         let s = max(0, seconds)
         let (h, m, sec) = (s / 3600, (s % 3600) / 60, s % 60)
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, sec) : String(format: "%d:%02d", m, sec)
+    }
+
+    /// "1d ago", "12d ago", "Never": the card's corner when it's not been
+    /// played today.
+    static func sinceShort(_ lastPracticed: String?, today: String) -> String {
+        guard let lastPracticed else { return "Never" }
+        let days = PracticeDay.daysBetween(lastPracticed, today)
+        return days <= 0 ? "Today" : "\(days)d ago"
+    }
+
+    /// A movement's segment says just its number: "II" from "II. Adagio",
+    /// "3" from "3. Finale", else its place on the card.
+    static func movementLabel(_ name: String, index: Int) -> String {
+        if let match = name.firstMatch(of: /^\s*([IVXLC]+|\d+)[.:)]/) { return String(match.1) }
+        return "\(index + 1)"
     }
 
     /// "Yesterday", "12 days ago", "Never played": for a card not played today.
