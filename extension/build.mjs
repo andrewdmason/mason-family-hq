@@ -17,6 +17,17 @@ await esbuild.build({
   logLevel: "info",
 });
 
+// The Reader iOS app's Share extension carries the same extractor.
+await esbuild.build({
+  entryPoints: ["src/ios-share.ts"],
+  bundle: true,
+  outfile: "../ios/Reader/Share/GetArticle.js",
+  format: "iife",
+  target: "safari17",
+  legalComments: "none",
+  logLevel: "info",
+});
+
 copyFileSync("manifest.json", "dist/manifest.json");
 copyFileSync("options.html", "dist/options.html");
 

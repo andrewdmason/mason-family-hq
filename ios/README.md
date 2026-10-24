@@ -58,6 +58,31 @@ no TestFlight. Bundle id and URL scheme `io.mason.music-minus-one`.
   from there (auto-play), optionally after a count-in: the recording starts that
   many beats early (at the song's one tempo) under a big countdown.
 
+## Reader
+
+The website's Reader as an iPhone and iPad app (bundle id `io.mason.reader`),
+for the owner and parents as on the website. Native: the shelf, offline
+copies, the read-aloud player and the Share menu. The reading screen and the
+rarely used pages (add a book, Discover, settings) are the website in a web
+view; it says it's the app in its user agent (`MasonReaderApp`).
+
+- The web views sign in through the website's `/auth/native-handoff`: the app
+  posts its access token and gets a website session of the web views' own.
+- The reading screen is one web view for the life of the app, so the
+  read-aloud keeps going on the shelf. The website's way back to its shelf goes
+  to the native one.
+- Offline: an invisible web view loads `/reader/keep-offline` with the books
+  being read and the five most recent, which keeps them the way opening them
+  would (the website's own offline store), and reports which are on the device.
+- Listening: the website's audiobook player plays through the app's
+  (`AudioPlayer`, over the `readerAudio` bridge): background audio, Lock
+  Screen and AirPods, chapters kept on disk. In the background it moves on to
+  the next chapter itself and tells the website when the app comes back.
+- Share menu (`ReaderShare`): a web page becomes an article through the
+  Chrome extension's extractor (`Share/GetArticle.js`, built by `npm run build`
+  in `extension/`) and the website's article ingest; an EPUB goes into the
+  Queue and is converted by the website, which then takes the book's own title.
+
 ## Adding an app
 
 A new folder beside `Practice/` and a target in `project.yml` that depends on
