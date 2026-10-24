@@ -1,0 +1,99 @@
+# The family apps, native: one app per job, like the website's home-screen
+# apps, all built from this one project on the shared MasonKit package
+# (Packages/MasonKit: Supabase, sign-in, theme). Generate the Xcode project with
+# `xcodegen` from this folder (the .xcodeproj is gitignored); see README.md for
+# build and install steps.
+name: MasonApps
+options:
+  bundleIdPrefix: io.mason
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: S4AV4J8F99
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+packages:
+  MasonKit:
+    path: Packages/MasonKit
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: 2.55.0
+targets:
+  # Practice: Andrew's quick log, with a Live Activity.
+  Practice:
+    type: application
+    platform: iOS
+    sources: [Practice/App, Practice/Shared]
+    dependencies:
+      - package: MasonKit
+      - package: Supabase
+        product: Supabase
+      - target: PracticeWidgets
+    entitlements:
+      path: Practice/App/Practice.entitlements
+      properties:
+        # Shared with the widget extension: the running practice timer.
+        com.apple.security.application-groups: [group.io.mason.practice]
+        # Shared by every family app: one sign-in for all of them (MasonKit's
+        # Config.sharedKeychainGroup).
+        keychain-access-groups: [$(AppIdentifierPrefix)io.mason.shared]
+    info:
+      path: Practice/App/Info.plist
+      properties:
+        CFBundleDisplayName: Practice
+        CFBundleURLTypes:
+          - CFBundleURLName: io.mason.practice
+            CFBundleURLSchemes: [io.mason.practice]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSSupportsLiveActivities: true
+        UILaunchScreen:
+          UIColorName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.mason.practice
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+    scheme:
+      testTargets: [PracticeTests]
+  # The practice timer's Live Activity (Lock Screen and Dynamic Island).
+  PracticeWidgets:
+    type: app-extension
+    platform: iOS
+    sources: [Practice/Widgets, Practice/Shared]
+    entitlements:
+      path: Practice/Widgets/Widgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.io.mason.practice]
+    info:
+      path: Practice/Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: Practice
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.mason.practice.widgets
+        TARGETED_DEVICE_FAMILY: "1"
+        # Shared/ code that only the app can run (the Stop button's write)
+        # is behind `#if !WIDGET_EXTENSION`.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WIDGET_EXTENSION
+  PracticeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Practice/Tests]
+    dependencies:
+      - target: Practice
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
