@@ -29,11 +29,14 @@ final class PracticeStore {
 
     let timer: PracticeTimer
     private let writes: PracticeWrites
+    private let defaults: UserDefaults
     private var db: SupabaseClient { Session.shared.client }
 
-    init(timer: PracticeTimer = .shared, writes: PracticeWrites = .shared) {
+    init(timer: PracticeTimer = .shared, writes: PracticeWrites = .shared, defaults: UserDefaults = .standard) {
         self.timer = timer
         self.writes = writes
+        self.defaults = defaults
+        restore()
         NotificationCenter.default.addObserver(forName: .practiceRunStopped, object: nil, queue: .main) { [weak self] note in
             guard let run = note.userInfo?["run"] as? StoppedRun else { return }
             MainActor.assumeIsolated { self?.record(run) }
@@ -84,10 +87,44 @@ final class PracticeStore {
             tasks = writes.apply(to: t, date: today)
             lastPracticed = Dictionary(l.map { ($0.piece_id, $0.last_practiced) }, uniquingKeysWith: { a, _ in a })
             loadError = nil
+            save()
         } catch {
             loadError = "Couldn't load today's practice. Pull to try again."
         }
         loaded = true
+    }
+
+    // MARK: Last seen
+
+    /// What the screen showed last, kept on the phone so the app opens on it
+    /// while the log loads behind.
+    private struct Snapshot: Codable {
+        var day: String
+        var pieces: [Piece]
+        var worksByID: [UUID: String]
+        var tasks: [PracticeTask]
+        var lastPracticed: [UUID: String]
+    }
+
+    private static let snapshotKey = "practice.lastSeen"
+
+    private func restore() {
+        guard let data = defaults.data(forKey: Self.snapshotKey),
+              let saved = try? JSONDecoder().decode(Snapshot.self, from: data)
+        else { return }
+        pieces = saved.pieces
+        worksByID = saved.worksByID
+        lastPracticed = saved.lastPracticed
+        // Yesterday's entries aren't today's.
+        tasks = writes.apply(to: saved.day == today ? saved.tasks : [], date: today)
+        loaded = true
+    }
+
+    private func save() {
+        let snapshot = Snapshot(day: today, pieces: pieces, worksByID: worksByID, tasks: tasks, lastPracticed: lastPracticed)
+        if let data = try? JSONEncoder().encode(snapshot) {
+            defaults.set(data, forKey: Self.snapshotKey)
+        }
     }
 
     /// A new day while the app was open: start the cards over.
@@ -147,6 +184,7 @@ final class PracticeStore {
         let before = tasks.reduce(0) { $0 + $1.elapsedSeconds }
         timer.start(task: target, piece: piece, date: today, todayBeforeSeconds: before)
         if let i = tasks.firstIndex(where: { $0.id == target.id }) { tasks[i].startedAt = now }
+        save()
     }
 
     /// Today's total, a running timer included.
@@ -161,5 +199,6 @@ final class PracticeStore {
         guard let i = tasks.firstIndex(where: { $0.id == run.taskID }) else { return }
         tasks[i].timerRemainingSeconds = run.remainingSeconds
         tasks[i].endedAt = run.endedAt
+        save()
     }
 }
