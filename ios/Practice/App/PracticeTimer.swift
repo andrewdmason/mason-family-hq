@@ -88,6 +88,16 @@ final class PracticeTimer {
         LiveActivity.start(timer)
     }
 
+    /// The running entry's duration changed: move its goal and remaining by
+    /// the same amount, so the time already counted stays counted.
+    func changeGoal(taskID: UUID, by delta: Int) {
+        guard var timer = running, timer.taskID == taskID, delta != 0 else { return }
+        timer.goalSeconds += delta
+        timer.remainingAtStart += delta
+        running = timer
+        save()
+    }
+
     @discardableResult
     func stop(reason: StopReason) -> StoppedRun? {
         guard let timer = running else { return nil }
