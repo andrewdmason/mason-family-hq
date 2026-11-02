@@ -13,6 +13,10 @@ enum PracticeWrite: Codable, Equatable {
     case create(id: UUID, pieceID: UUID, date: String, sessionNumber: Int, createdAt: Date)
     case start(taskID: UUID, at: Date)
     case stop(taskID: UUID, remainingSeconds: Int, endedAt: Date)
+    /// The long-press sheet: what the entry says and how long it's for. The
+    /// remaining time moves with the duration, so time already in stays in,
+    /// as the website's goal edit does.
+    case edit(taskID: UUID, text: String, timerSeconds: Int, remainingSeconds: Int)
 }
 
 /// The queue of writes not yet in the log. Kept on disk, so nothing is lost to
@@ -84,6 +88,12 @@ final class PracticeWrites {
                     tasks[i].timerRemainingSeconds = remaining
                     tasks[i].endedAt = endedAt
                 }
+            case let .edit(taskID, text, seconds, remaining):
+                if let i = tasks.firstIndex(where: { $0.id == taskID }) {
+                    tasks[i].text = text
+                    tasks[i].timerSeconds = seconds
+                    tasks[i].timerRemainingSeconds = remaining
+                }
             }
         }
         return tasks
@@ -135,6 +145,12 @@ final class PracticeWrites {
             struct Stop: Encodable { let timer_remaining_seconds: Int; let ended_at: String }
             try await db.from("practice_tasks")
                 .update(Stop(timer_remaining_seconds: remaining, ended_at: Self.iso.string(from: endedAt)))
+                .eq("id", value: taskID.uuidString.lowercased())
+                .execute()
+        case let .edit(taskID, text, seconds, remaining):
+            struct Edit: Encodable { let text: String; let timer_seconds: Int; let timer_remaining_seconds: Int }
+            try await db.from("practice_tasks")
+                .update(Edit(text: text, timer_seconds: seconds, timer_remaining_seconds: remaining))
                 .eq("id", value: taskID.uuidString.lowercased())
                 .execute()
         }
