@@ -93,6 +93,11 @@ final class PracticeStore {
             tasks = writes.apply(to: t, date: today)
             lastPracticed = Dictionary(l.map { ($0.piece_id, $0.last_practiced) }, uniquingKeysWith: { a, _ in a })
             loadError = nil
+            PracticeToday(
+                date: today,
+                loggedSeconds: tasks.reduce(0) { $0 + $1.elapsedSeconds },
+                run: timer.running.flatMap { $0.date == today ? $0.widgetRun : nil }
+            ).publish()
             save()
         } catch {
             loadError = "Couldn't load today's practice. Pull to try again."

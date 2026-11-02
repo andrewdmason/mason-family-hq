@@ -64,15 +64,25 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
     scheme:
       testTargets: [PracticeTests]
-  # The practice timer's Live Activity (Lock Screen and Dynamic Island).
+  # The practice timer's Live Activity (Lock Screen and Dynamic Island) and the
+  # home screen widget with today's total.
   PracticeWidgets:
     type: app-extension
     platform: iOS
-    sources: [Practice/Widgets, Practice/Shared]
+    sources:
+      - Practice/Widgets
+      - Practice/Shared
+      - Practice/App/QuickLog.swift
+    dependencies:
+      - package: MasonKit
+      - package: Supabase
+        product: Supabase
     entitlements:
       path: Practice/Widgets/Widgets.entitlements
       properties:
         com.apple.security.application-groups: [group.io.mason.practice]
+        # The home screen widget reads today's log with the family sign-in.
+        keychain-access-groups: [$(AppIdentifierPrefix)io.mason.shared]
     info:
       path: Practice/Widgets/Info.plist
       properties:

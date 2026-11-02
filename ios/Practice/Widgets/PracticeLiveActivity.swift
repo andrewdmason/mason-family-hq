@@ -7,6 +7,7 @@ import WidgetKit
 struct PracticeWidgets: WidgetBundle {
     var body: some Widget {
         PracticeLiveActivity()
+        PracticeTodayWidget()
     }
 }
 
