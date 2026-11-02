@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        app: [Practice]
+        app: [Practice, MusicMinusOne]
     defaults:
       run:
         working-directory: ios

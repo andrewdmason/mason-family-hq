@@ -23,6 +23,21 @@ export type QuickCard = {
   pieces: Piece[];
 };
 
+/**
+ * The active pieces to offer, following each work's "Track by movement"
+ * switch (migration 00206): a work tracked by movement shows its movements;
+ * one that isn't shows its whole-work piece instead. Mirrored in the iOS app's
+ * QuickLog.visiblePieces.
+ */
+export function visibleActivePieces(
+  pieces: Piece[],
+  wholeWorkIds: Set<string>
+): Piece[] {
+  return pieces.filter((p) =>
+    p.work_id && wholeWorkIds.has(p.work_id) ? p.whole_work : !p.whole_work
+  );
+}
+
 const KIND_ORDER: Record<Piece["kind"], number> = {
   technique: 0,
   sight_reading: 1,

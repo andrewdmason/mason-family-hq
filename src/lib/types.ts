@@ -29,6 +29,11 @@ export type Piece = {
   kind: PieceKind;
   /** In the keep-it-warm rotation. Independent of status — still active. */
   maintenance: boolean;
+  /**
+   * Stands for its whole work while the work isn't tracked by movement
+   * (migration 00206). Shown instead of the movements then, hidden otherwise.
+   */
+  whole_work: boolean;
   notes: string | null;
   target_tempo: number | null;
   created_at: string;

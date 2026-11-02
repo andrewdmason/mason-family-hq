@@ -21,8 +21,25 @@ export async function authenticateReadingToken(
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (!token) return null;
 
-  const tokenHash = createHash("sha256").update(token).digest("hex");
   const admin = createAdminClient();
+
+  // The Reader iOS app's Share extension signs in through the app, so it
+  // sends the member's Supabase access token rather than a personal token.
+  if (!token.startsWith("reading_")) {
+    const {
+      data: { user },
+    } = await admin.auth.getUser(token);
+    if (!user?.email) return null;
+    const { data: member } = await admin
+      .from("family_members")
+      .select("email, user_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (!member?.user_id) return null;
+    return { memberEmail: member.email as string, userId: member.user_id as string };
+  }
+
+  const tokenHash = createHash("sha256").update(token).digest("hex");
 
   const { data: tokenRow } = await admin
     .from("reading_api_tokens")

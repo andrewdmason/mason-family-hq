@@ -11,6 +11,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { createClient } from "@/lib/supabase/server";
 import { getTodaySummary } from "@/app/practice/timer/actions";
 import type { Piece } from "@/lib/types";
+import { visibleActivePieces } from "@/lib/practice/quick-log";
 import { appMetadata } from "@/lib/pwa/apps";
 
 export const metadata = appMetadata("practice");
@@ -27,16 +28,19 @@ export default async function AppLayout({
       supabase
         .from("pieces")
         .select(
-          "id, work_id, name, composer, status, kind, maintenance, notes, target_tempo, created_at, updated_at"
+          "id, work_id, name, composer, status, kind, maintenance, whole_work, notes, target_tempo, created_at, updated_at"
         )
         .eq("status", "active")
         .order("name"),
-      supabase.from("works").select("id, name"),
+      supabase.from("works").select("id, name, track_by_movement"),
       getTodaySummary(),
     ]);
 
   const worksById: Record<string, string> = {};
   for (const w of works ?? []) worksById[w.id] = w.name;
+  const wholeWorkIds = new Set(
+    (works ?? []).filter((w) => !w.track_by_movement).map((w) => w.id)
+  );
 
   const initialDailySeconds = todaySummary.reduce(
     (sum, e) => sum + e.total_seconds,
@@ -55,7 +59,10 @@ export default async function AppLayout({
           <div className="flex min-h-full flex-1 flex-col">
             <VideoProvider>
               <TaskTimerProvider
-                activePieces={(activePieces as Piece[]) ?? []}
+                activePieces={visibleActivePieces(
+                  (activePieces as Piece[]) ?? [],
+                  wholeWorkIds
+                )}
                 worksById={worksById}
                 initialDailySeconds={initialDailySeconds}
               >
