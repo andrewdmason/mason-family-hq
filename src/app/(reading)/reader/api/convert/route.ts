@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
+import { categorizeBook } from "@/lib/reading/categorize";
 import { resolveReadingScope } from "@/lib/reading/scope";
 import { convertBookFile, ConversionError } from "@/lib/reading/convert";
 import { ensureStretchQuiz } from "@/lib/reading/ensure-stretch-quiz";
@@ -14,6 +15,8 @@ import { getUserTimezone, localDate } from "@/lib/date-utils";
 import { createHash } from "node:crypto";
 import { READING_BOOKS_BUCKET } from "@/lib/reading/constants";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { bearerReadingScope } from "@/lib/reading/bearer-scope";
+import { epubMetadata } from "@/lib/reading/epub-metadata";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -23,11 +26,17 @@ export const maxDuration = 300;
  * from the browser after upload, so it authenticates via the session cookies and
  * scopes to the right member (owner-on-behalf included). Always leaves the
  * content row in a terminal state (ready/failed) and returns JSON.
+ *
+ * The Reader iOS app's Share extension calls it too, with the member's access
+ * token as a bearer header instead of cookies (the middleware lets that
+ * through to here), and `titleFromFile` for a book added from a file alone:
+ * the EPUB's own title and author replace the file name it was saved under.
  */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as {
     bookId?: string;
     memberEmail?: string | null;
+    titleFromFile?: boolean;
   } | null;
   const bookId = body?.bookId;
   if (!bookId) {
@@ -36,7 +45,9 @@ export async function POST(req: NextRequest) {
 
   let scope;
   try {
-    scope = await resolveReadingScope(body?.memberEmail ?? null);
+    scope =
+      (await bearerReadingScope(req)) ??
+      (await resolveReadingScope(body?.memberEmail ?? null));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Not authorized.";
     return NextResponse.json({ error: message }, { status: 401 });
@@ -104,6 +115,19 @@ export async function POST(req: NextRequest) {
     log("downloaded", { bytes: buffer.byteLength });
 
     const result = await convertBookFile(format, buffer);
+
+    if (body?.titleFromFile && format === "epub") {
+      const { title, author } = await epubMetadata(buffer);
+      if (title) {
+        await client
+          .from("reading_books")
+          .update(author ? { title, author } : { title })
+          .eq("id", bookId)
+          .eq("user_id", userId);
+        // Fiction and genre, as adding a book on the website does.
+        after(() => categorizeBook(client, { id: bookId, title, author }));
+      }
+    }
     log("converted", {
       pageCount: result.pageCount,
       hasRealPages: result.hasRealPages,

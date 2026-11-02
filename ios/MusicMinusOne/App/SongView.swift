@@ -16,6 +16,8 @@ struct SongView: View {
     @State private var editing: Marker?
     /// Marker rows fully on screen, for following playback down the list.
     @State private var visibleMarkers: Set<UUID> = []
+    /// The bar under the markers: 0 count-in and marker, 1 track switches.
+    @State private var barPage = 0
 
     init(songID: UUID) {
         _currentID = State(initialValue: songID)
@@ -29,7 +31,7 @@ struct SongView: View {
                 header(song)
                 if !player.missing.isEmpty { downloadingNote }
                 markerList(song)
-                buttonBar
+                buttonBar(song)
                 speedAndVolume(song)
                 timeRow
                 MiniWaveform(
@@ -188,7 +190,20 @@ struct SongView: View {
 
     // MARK: Button bar
 
-    private var buttonBar: some View {
+    /// Two pages to swipe between: mixer, count-in and add marker; or one
+    /// on/off button per track.
+    private func buttonBar(_ song: Song) -> some View {
+        TabView(selection: $barPage) {
+            mixerCountInAndMarker.tag(0)
+            trackToggles(song).tag(1)
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .frame(height: 76)
+        .frame(maxWidth: .infinity)
+        .background(Color(white: 0.06))
+    }
+
+    private var mixerCountInAndMarker: some View {
         HStack(spacing: 14) {
             RoundButton(systemImage: "slider.vertical.3", label: "Mixer") { showMixer = true }
             Menu {
@@ -213,9 +228,22 @@ struct SongView: View {
             .accessibilityLabel("Add marker")
                 .disabled(player.duration == 0)
         }
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity)
-        .background(Color(white: 0.06))
+    }
+
+    private func trackToggles(_ song: Song) -> some View {
+        HStack(spacing: song.tracks.count > 4 ? 6 : 12) {
+            if song.tracks.isEmpty {
+                Text("No tracks yet").font(.callout).foregroundStyle(.secondary)
+            }
+            ForEach(song.tracks) { track in
+                TrackToggle(track: track, compact: song.tracks.count > 4) {
+                    library.update(currentID) { song in
+                        if let i = song.tracks.firstIndex(where: { $0.id == track.id }) { song.tracks[i].enabled.toggle() }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 10)
     }
 
     // MARK: Tempo and volume
@@ -385,6 +413,53 @@ private struct RoundButton: View {
         Button(action: action) { RoundButtonFace(systemImage: systemImage, text: text, on: on) }
             .accessibilityLabel(label)
             .accessibilityValue(on ? "On" : "")
+    }
+}
+
+/// One track on or off: an instrument picked from its name (or its
+/// initials), orange when it's playing.
+private struct TrackToggle: View {
+    let track: Track
+    var compact = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Group {
+                if let symbol = Self.symbol(for: track.name) {
+                    Image(systemName: symbol).font(compact ? .title3 : .title2)
+                } else {
+                    Text(Self.initials(track.name)).font(compact ? .subheadline.bold() : .headline)
+                }
+            }
+            .foregroundStyle(track.enabled ? Color.black : Color(white: 0.55))
+            .frame(width: compact ? 44 : 56, height: compact ? 44 : 56)
+            .background(Circle().fill(track.enabled ? Color.anytuneOrange : Color(white: 0.2)))
+        }
+        .accessibilityLabel(track.name)
+        .accessibilityValue(track.enabled ? "On" : "Off")
+        .accessibilityAddTraits(track.enabled ? .isSelected : [])
+    }
+
+    static func symbol(for name: String) -> String? {
+        let n = name.lowercased()
+        let table: [([String], String)] = [
+            (["piano", "keys", "keyboard", "organ", "synth"], "pianokeys"),
+            (["vocal", "voice", "sing", "vox", "choir", "soprano", "alto", "tenor"], "music.mic"),
+            (["guitar", "bass"], "guitars"),
+            (["drum", "perc", "kit"], "circle.circle"),
+            (["click", "metronome"], "metronome"),
+            (["orch", "string", "violin", "cello", "viola", "band", "accomp"], "music.note.list"),
+            (["solo", "melody", "lead"], "music.note"),
+        ]
+        return table.first { words, _ in words.contains { n.contains($0) } }?.1
+    }
+
+    /// "Left Hand" → "LH", "Flute" → "Flu".
+    static func initials(_ name: String) -> String {
+        let words = name.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+        if words.count > 1 { return String(words.prefix(2).compactMap(\.first)).uppercased() }
+        return String(name.prefix(3)).capitalized
     }
 }
 
