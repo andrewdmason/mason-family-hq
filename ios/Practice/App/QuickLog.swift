@@ -38,7 +38,7 @@ extension Piece {
 }
 
 /// A multi-movement work, and whether it's logged movement by movement.
-struct Work: Decodable, Identifiable {
+struct Work: Codable, Identifiable {
     let id: UUID
     let name: String
     let trackByMovement: Bool

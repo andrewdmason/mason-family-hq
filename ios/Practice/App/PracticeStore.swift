@@ -107,7 +107,8 @@ final class PracticeStore {
     private struct Snapshot: Codable {
         var day: String
         var pieces: [Piece]
-        var worksByID: [UUID: String]
+        var allPieces: [Piece]
+        var works: [UUID: Work]
         var tasks: [PracticeTask]
         var lastPracticed: [UUID: String]
     }
@@ -119,7 +120,8 @@ final class PracticeStore {
               let saved = try? JSONDecoder().decode(Snapshot.self, from: data)
         else { return }
         pieces = saved.pieces
-        worksByID = saved.worksByID
+        allPieces = saved.allPieces
+        works = saved.works
         lastPracticed = saved.lastPracticed
         // Yesterday's entries aren't today's.
         tasks = writes.apply(to: saved.day == today ? saved.tasks : [], date: today)
@@ -127,7 +129,7 @@ final class PracticeStore {
     }
 
     private func save() {
-        let snapshot = Snapshot(day: today, pieces: pieces, worksByID: worksByID, tasks: tasks, lastPracticed: lastPracticed)
+        let snapshot = Snapshot(day: today, pieces: pieces, allPieces: allPieces, works: works, tasks: tasks, lastPracticed: lastPracticed)
         if let data = try? JSONEncoder().encode(snapshot) {
             defaults.set(data, forKey: Self.snapshotKey)
         }
