@@ -99,7 +99,7 @@ import {
   readCollapsedSections,
   writeCollapsedSections,
 } from "@/lib/todos/section-collapse";
-import { snoozePresets } from "@/lib/todos/snooze";
+import { snoozePresets, startOfNextWeek } from "@/lib/todos/snooze";
 import { needsRenormalize, sortBetween } from "@/lib/sort-order";
 import type {
   TodoBucket,
@@ -470,9 +470,15 @@ export function TaskList({
       run(deleteTask(task.id));
     },
     onSnooze: (task, when) => {
-      // Views that show snoozed tasks in place just update the chip; bucket
-      // views drop the row (it hides until it wakes).
-      if (inProject || view === "snoozed" || view === "delegated") {
+      // Views that show snoozed tasks in place just update the chip (This Week
+      // only while the wake is before Monday); bucket views drop the row (it
+      // hides until it wakes).
+      if (
+        inProject ||
+        view === "snoozed" ||
+        view === "delegated" ||
+        (view === "week" && when < startOfNextWeek())
+      ) {
         patchLocally(task.id, { snoozedUntil: when.toISOString() });
         if (view === "snoozed") {
           setTasks((prev) =>
@@ -500,6 +506,10 @@ export function TaskList({
         patchLocally(task.id, { bucket, snoozedUntil: null });
       } else if (view === "snoozed" || bucket !== view) {
         removeLocally(task.id);
+      } else {
+        // Filing a snoozed row where it's already showing (This Week) keeps it
+        // here, minus the snooze.
+        patchLocally(task.id, { bucket, snoozedUntil: null });
       }
       run(setTaskBucket(task.id, bucket));
     },

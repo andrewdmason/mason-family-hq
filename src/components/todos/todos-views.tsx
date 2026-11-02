@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { Crosshair } from "lucide-react";
 import { acknowledgeInbox } from "@/app/(todos)/todos/actions";
@@ -14,10 +14,10 @@ import { QuickAddButton } from "@/components/todos/quick-add";
 import { TaskList } from "@/components/todos/task-list";
 import { TodosSidebar } from "@/components/todos/todos-sidebar";
 import { ViewingBanner } from "@/components/todos/viewing-banner";
-import { WeekSnoozed } from "@/components/todos/week-snoozed";
 import {
   deriveProjectTasks,
   deriveViewTasks,
+  deriveWeekTasks,
   localSnoozeSweep,
 } from "@/lib/todos/derive";
 import { withAs } from "@/lib/todos/member-context";
@@ -39,6 +39,8 @@ import {
   registerViewSwitcher,
   requestFocusSwitch,
 } from "@/lib/todos/view-switch";
+
+const subscribeNever = () => () => {};
 
 /**
  * The client shell for the sidebar views *and* projects. The server page hands
@@ -153,10 +155,21 @@ export function TodosViews(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeTasks, view]
   );
-  const viewTasks = useMemo(
-    () => (view === "logbook" ? [] : deriveViewTasks(swept, view, viewed.email)),
-    [swept, view, viewed.email]
+  // This Week's snoozed rows join once hydrated: the week ends at the browser's
+  // midnight, which the server can't know — its render would disagree on Sunday
+  // evenings.
+  const hydrated = useSyncExternalStore(
+    subscribeNever,
+    () => true,
+    () => false
   );
+  const viewTasks = useMemo(() => {
+    if (view === "logbook") return [];
+    if (view === "week" && hydrated) {
+      return deriveWeekTasks(swept, viewed.email, new Date());
+    }
+    return deriveViewTasks(swept, view, viewed.email);
+  }, [swept, view, viewed.email, hydrated]);
 
   // Focus mode always walks Today, whichever view you pressed `f` from — the
   // URL names no view on that path, so `view` can't be trusted here.
@@ -304,10 +317,6 @@ export function TodosViews(props: {
                   viewedEmail={viewed.email}
                   selfEmail={selfEmail}
                 />
-              )}
-
-              {view === "week" && (
-                <WeekSnoozed tasks={swept} viewedEmail={viewed.email} />
               )}
             </>
           )}

@@ -170,13 +170,14 @@ export function TaskRow({
   const inDelegated = context.mode === "view" && context.view === "delegated";
   const fromSomeoneElse =
     task.creatorEmail !== task.assigneeEmail && !inDelegated;
-  // Status lenses (snoozed, delegated) and project pages show where the task
-  // sits: its wake time, or its bucket.
+  // Status lenses (snoozed, delegated), This Week, and project pages show where
+  // the task sits: its wake time, or its bucket.
   const showSnoozeChip =
     !!task.snoozedUntil &&
     (inProjectMode ||
       inDelegated ||
-      (context.mode === "view" && context.view === "snoozed"));
+      (context.mode === "view" &&
+        (context.view === "snoozed" || context.view === "week")));
   const showBucketChip =
     (inProjectMode || inDelegated) &&
     !task.snoozedUntil &&

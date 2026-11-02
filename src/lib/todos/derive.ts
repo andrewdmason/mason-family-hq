@@ -65,19 +65,29 @@ export function deriveViewTasks(
 }
 
 /**
- * One member's snoozed tasks that wake before Monday, soonest first — what the
- * This Week view offers to reveal. `now` should be the browser's clock: the week
- * ends at midnight local time. Expects a swept set (see localSnoozeSweep).
+ * What the This Week view lists: the tasks filed there, plus anything snoozed to
+ * wake before Monday, wherever it's filed — all in manual order. `now` should be
+ * the browser's clock: the week ends at midnight local time. Expects a swept set
+ * (see localSnoozeSweep).
  */
-export function deriveWeekSnoozedTasks(
+export function deriveWeekTasks(
   tasks: TodoTask[],
   viewedEmail: string,
   now: Date
 ): TodoTask[] {
   const weekEnd = startOfNextWeek(now);
-  return deriveViewTasks(tasks, "snoozed", viewedEmail).filter(
-    (t) => new Date(t.snoozedUntil!) < weekEnd
-  );
+  return tasks
+    .filter(
+      (t) =>
+        t.assigneeEmail === viewedEmail &&
+        (t.snoozedUntil
+          ? new Date(t.snoozedUntil) < weekEnd
+          : t.bucket === "week")
+    )
+    .sort(
+      (a, b) =>
+        a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt)
+    );
 }
 
 /**

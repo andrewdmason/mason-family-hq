@@ -150,6 +150,8 @@ and deleting projects stay in the app — ask a parent to do those there.
   app's bell tells her there's something new from them.
 - **"What's on my plate today?"** → `view=today` for them; mention snoozed
   tasks waking today if relevant.
+- **"What's on my plate this week?"** → `view=week` for them, plus their
+  `view=snoozed` tasks waking before Monday (the app lists both together).
 - **"Remind me about X on Friday"** → if it's a task, create it snoozed
   until Friday morning — that's what snooze is for. Use the calendar only
   for real time-and-place events.

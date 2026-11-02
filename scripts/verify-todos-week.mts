@@ -2,7 +2,7 @@
  * This Week: where the week ends, and what the When box's type-ahead offers.
  *
  * Neither of these throws when it breaks. A wrong week boundary shows up as next
- * Monday's snoozes appearing in the reveal under This Week; a greedy suggestion
+ * Monday's snoozes appearing in the This Week list; a greedy suggestion
  * shows up as "th" + Enter filing a task under This Week instead of snoozing it
  * to Thursday.
  *
@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert/strict";
-import { deriveViewTasks, deriveWeekSnoozedTasks } from "@/lib/todos/derive";
+import { deriveViewTasks, deriveWeekTasks } from "@/lib/todos/derive";
 import { snoozePresets, startOfNextWeek } from "@/lib/todos/snooze";
 import type { TodoTask } from "@/lib/todos/types";
 import { suggestWhen } from "@/lib/todos/when-suggest";
@@ -54,31 +54,40 @@ assert.equal(nextWeekPreset(sunday), undefined);
 
 const iso = (d: Date) => d.toISOString();
 const tasks = [
-  task("friday", { snoozedUntil: iso(new Date(2026, 10, 6)) }),
-  task("thursday", { snoozedUntil: iso(new Date(2026, 10, 5)) }),
-  task("sunday-night", { snoozedUntil: iso(new Date(2026, 10, 8, 23, 59)) }),
+  task("friday", { sortOrder: 4, snoozedUntil: iso(new Date(2026, 10, 6)) }),
+  task("thursday", { sortOrder: 2, snoozedUntil: iso(new Date(2026, 10, 5)) }),
+  task("sunday-night", {
+    sortOrder: 6,
+    snoozedUntil: iso(new Date(2026, 10, 8, 23, 59)),
+  }),
   // "Next week" wakes at exactly Monday midnight — that's next week's.
   task("next-monday", { snoozedUntil: iso(followingMonday) }),
   task("someone-elses", {
     assigneeEmail: "other@example.com",
     snoozedUntil: iso(new Date(2026, 10, 5)),
   }),
-  task("filed", { bucket: "week" }),
+  task("filed", { sortOrder: 3, bucket: "week" }),
   task("filed-then-snoozed", {
+    sortOrder: 1,
     bucket: "week",
     snoozedUntil: iso(new Date(2026, 10, 7)),
+  }),
+  // Snoozed past Monday: gone from the list even though it's filed here.
+  task("filed-snoozed-later", {
+    bucket: "week",
+    snoozedUntil: iso(new Date(2026, 10, 12)),
   }),
   task("anytime", { bucket: "anytime" }),
 ];
 
-// The reveal: mine, soonest first, stopping at Sunday night.
+// The list: mine, filed or waking by Sunday night, in manual order so dragging
+// a row between its neighbors lands where it's dropped.
 assert.deepEqual(
-  deriveWeekSnoozedTasks(tasks, ME, wednesday).map((t) => t.id),
-  ["thursday", "friday", "filed-then-snoozed", "sunday-night"]
+  deriveWeekTasks(tasks, ME, wednesday).map((t) => t.id),
+  ["filed-then-snoozed", "thursday", "filed", "friday", "sunday-night"]
 );
 
-// The list itself: only what's filed there and awake, so the sidebar count
-// never includes the snoozed tasks.
+// The sidebar count: only what's filed there and awake.
 assert.deepEqual(
   deriveViewTasks(tasks, "week", ME).map((t) => t.id),
   ["filed"]
