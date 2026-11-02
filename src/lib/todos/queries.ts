@@ -8,6 +8,7 @@ import {
   taskFromRow,
   type SidebarCounts,
   type TodoArea,
+  type TodoBucket,
   type TodoMember,
   type TodoProject,
   type TodoSection,
@@ -95,30 +96,32 @@ export async function getSidebarCounts(
       .select("id", { count: "exact", head: true })
       .is("completed_at", null)
       .is("deleted_at", null);
-  const bucketCount = (bucket: "inbox" | "today") =>
+  const bucketCount = (bucket: "inbox" | "today" | "week") =>
     open()
       .eq("assignee_email", memberEmail)
       .eq("bucket", bucket)
       .is("snoozed_until", null);
-  const [inbox, today, snoozed, delegated] = await Promise.all([
+  const [inbox, today, week, snoozed, delegated] = await Promise.all([
     bucketCount("inbox"),
     bucketCount("today"),
+    bucketCount("week"),
     open().eq("assignee_email", memberEmail).not("snoozed_until", "is", null),
     open().eq("creator_email", memberEmail).neq("assignee_email", memberEmail),
   ]);
   return {
     inbox: inbox.count ?? 0,
     today: today.count ?? 0,
+    week: week.count ?? 0,
     snoozed: snoozed.count ?? 0,
     delegated: delegated.count ?? 0,
   };
 }
 
-/** Active tasks for one of the four bucket views, in manual order. */
+/** Active tasks for one of the bucket views, in manual order. */
 async function getBucketTasks(
   supabase: Supabase,
   memberEmail: string,
-  bucket: "inbox" | "today" | "anytime" | "someday"
+  bucket: TodoBucket
 ): Promise<TodoTask[]> {
   const { data } = await supabase
     .from("todo_tasks")

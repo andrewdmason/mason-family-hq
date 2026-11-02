@@ -2,6 +2,7 @@
 
 import {
   Archive,
+  CalendarDays,
   Check,
   CircleDashed,
   Copy,
@@ -39,6 +40,7 @@ import { cn } from "@/lib/utils";
 // Project submenu's Inbox (which also clears the project).
 const BUCKETS: { bucket: TodoBucket; label: string; icon: typeof Star; iconClass: string }[] = [
   { bucket: "today", label: "Today", icon: Star, iconClass: "text-amber-500" },
+  { bucket: "week", label: "This Week", icon: CalendarDays, iconClass: "text-orange-600" },
   { bucket: "anytime", label: "Anytime", icon: Layers, iconClass: "text-teal-700" },
   { bucket: "someday", label: "Someday", icon: Archive, iconClass: "text-stone-500" },
 ];

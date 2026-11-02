@@ -24,6 +24,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Archive,
   BookCheck,
+  CalendarDays,
   CircleDashed,
   Inbox,
   KeyRound,
@@ -78,6 +79,7 @@ type ViewItem = {
 const VIEW_ITEMS: ViewItem[] = [
   { view: "inbox", label: "Inbox", icon: Inbox, iconClass: "text-sky-700", chord: "g i" },
   { view: "today", label: "Today", icon: Star, iconClass: "text-amber-500", chord: "g t" },
+  { view: "week", label: "This Week", icon: CalendarDays, iconClass: "text-orange-600", chord: "g w" },
   { view: "snoozed", label: "Snoozed", icon: Moon, iconClass: "text-indigo-500", chord: "g z" },
   { view: "anytime", label: "Anytime", icon: Layers, iconClass: "text-teal-700", chord: "g a" },
   { view: "someday", label: "Someday", icon: Archive, iconClass: "text-stone-500", chord: "g s" },

@@ -25,7 +25,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Archive, CircleDashed, Inbox, Layers, Moon, Send, Star } from "lucide-react";
+import { Archive, CalendarDays, CircleDashed, Inbox, Layers, Moon, Send, Star } from "lucide-react";
 import {
   completeTask,
   createSection,
@@ -99,7 +99,7 @@ import {
   readCollapsedSections,
   writeCollapsedSections,
 } from "@/lib/todos/section-collapse";
-import { snoozePresets } from "@/lib/todos/snooze";
+import { snoozePresets, startOfNextWeek } from "@/lib/todos/snooze";
 import { needsRenormalize, sortBetween } from "@/lib/sort-order";
 import type {
   TodoBucket,
@@ -120,6 +120,7 @@ const UNDO_WINDOW_MS = 6_000;
 const EMPTY_STATES: Record<string, { icon: typeof Star; text: string }> = {
   inbox: { icon: Inbox, text: "Inbox zero. New captures and tasks from others land here." },
   today: { icon: Star, text: "Nothing on the plate today. Enjoy it — or pull something in from Anytime." },
+  week: { icon: CalendarDays, text: "Nothing lined up. Tasks you want to get to soon, on no particular day, live here." },
   anytime: { icon: Layers, text: "Nothing queued. Tasks you could do whenever live here." },
   someday: { icon: Archive, text: "No someday-maybes parked here yet." },
   snoozed: { icon: Moon, text: "Nothing snoozed. Snoozed tasks wait here, then pop into Today." },
@@ -339,7 +340,7 @@ export function TaskList({
   // Mirrors the header button split (see [view]/page.tsx): bucket views and
   // project pages create in place; the status lenses (Snoozed, Delegated)
   // keep the global capture modal — including for the `c` key.
-  const canInlineNew = inProject || view === "inbox" || view === "today" || view === "anytime" || view === "someday";
+  const canInlineNew = inProject || view === "inbox" || view === "today" || view === "week" || view === "anytime" || view === "someday";
 
   const removeLocally = (taskId: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
@@ -469,9 +470,15 @@ export function TaskList({
       run(deleteTask(task.id));
     },
     onSnooze: (task, when) => {
-      // Views that show snoozed tasks in place just update the chip; bucket
-      // views drop the row (it hides until it wakes).
-      if (inProject || view === "snoozed" || view === "delegated") {
+      // Views that show snoozed tasks in place just update the chip (This Week
+      // only while the wake is before Monday); bucket views drop the row (it
+      // hides until it wakes).
+      if (
+        inProject ||
+        view === "snoozed" ||
+        view === "delegated" ||
+        (view === "week" && when < startOfNextWeek())
+      ) {
         patchLocally(task.id, { snoozedUntil: when.toISOString() });
         if (view === "snoozed") {
           setTasks((prev) =>
@@ -499,6 +506,10 @@ export function TaskList({
         patchLocally(task.id, { bucket, snoozedUntil: null });
       } else if (view === "snoozed" || bucket !== view) {
         removeLocally(task.id);
+      } else {
+        // Filing a snoozed row where it's already showing (This Week) keeps it
+        // here, minus the snooze.
+        patchLocally(task.id, { bucket, snoozedUntil: null });
       }
       run(setTaskBucket(task.id, bucket));
     },
@@ -726,10 +737,10 @@ export function TaskList({
     }
   };
 
-  // Anytime and Someday group by project (loose tasks first), like Things;
-  // Delegated groups by who holds the task; a project page groups by section
-  // (unsectioned to-dos first, in the top area).
-  const grouped = view === "anytime" || view === "someday";
+  // This Week, Anytime and Someday group by project (loose tasks first), like
+  // Things; Delegated groups by who holds the task; a project page groups by
+  // section (unsectioned to-dos first, in the top area).
+  const grouped = view === "week" || view === "anytime" || view === "someday";
   const groups = useMemo<TaskGroup[]>(() => {
     if (inProject) {
       const unsectioned = tasks.filter((t) => !t.sectionId);
@@ -1373,8 +1384,8 @@ export function TaskList({
   // selected task, e completes, c creates an inline draft below the
   // selection, s drops the snooze/When menu from the row (without opening the
   // editor), m/a summon the project/assignee
-  // menus, t pulls the selection into Today, y moves it to Anytime,
-  // Delete/⌫/# asks then removes, w wakes a snoozed task, z undoes a
+  // menus, t pulls the selection into Today, ⇧W moves it to This Week, y moves
+  // it to Anytime, Delete/⌫/# asks then removes, w wakes a snoozed task, z undoes a
   // delete, ⌘Z/⇧⌘Z undo/redo check-offs, ⌘A selects every task in the view,
   // and Escape closes the open task before clearing the selection. All of them stay quiet while typing
   // or while a menu/dialog is open; the ref keeps one stable window listener
@@ -1531,6 +1542,23 @@ export function TaskList({
         const staysPut = inProject || view === "delegated" || view === "today";
         const landing = staysPut ? null : nextSurvivor();
         affected.forEach((t) => handlers.onSetBucket(t, "today"));
+        if (landing) selectOnly(landing);
+        return;
+      }
+      case "W": {
+        // File the selection under This Week (clearing any snooze). Skips tasks
+        // already there so it can't no-op churn.
+        const affected = tasks.filter(
+          (t) =>
+            selectedIds.has(t.id) && (t.bucket !== "week" || t.snoozedUntil)
+        );
+        if (affected.length === 0) return;
+        e.preventDefault();
+        // Rows leave bucket/status views but stay (patched) in project,
+        // delegated, and This Week views — only move the highlight when they go.
+        const staysPut = inProject || view === "delegated" || view === "week";
+        const landing = staysPut ? null : nextSurvivor();
+        affected.forEach((t) => handlers.onSetBucket(t, "week"));
         if (landing) selectOnly(landing);
         return;
       }
@@ -1802,6 +1830,7 @@ export function TaskList({
         dragTasks.forEach((t) => handlers.onMoveToInbox(t));
         return;
       case "today":
+      case "week":
       case "anytime":
       case "someday": {
         const bucket = parsed.view;

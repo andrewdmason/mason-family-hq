@@ -29,6 +29,7 @@ const HINT_DELAY_MS = 450;
 const GO_TARGETS: Record<string, TodoView> = {
   i: "inbox",
   t: "today",
+  w: "week",
   a: "anytime",
   s: "someday",
   z: "snoozed", // s is taken; z as in zzz
@@ -166,6 +167,7 @@ const SECTIONS: { title: string; rows: ShortcutRow[] }[] = [
     rows: [
       { keys: ["g", "i"], label: "Inbox" },
       { keys: ["g", "t"], label: "Today" },
+      { keys: ["g", "w"], label: "This Week" },
       { keys: ["g", "a"], label: "Anytime" },
       { keys: ["g", "s"], label: "Someday" },
       { keys: ["g", "z"], label: "Snoozed" },
@@ -203,6 +205,7 @@ const SECTIONS: { title: string; rows: ShortcutRow[] }[] = [
       { keys: ["s"], label: "Snooze…" },
       { keys: ["w"], label: "Wake now" },
       { keys: ["t"], label: "Move to Today (clears snooze)" },
+      { keys: ["⇧", "W"], label: "Move to This Week (clears snooze)" },
       { keys: ["y"], label: "Move to Anytime (clears snooze)" },
       { keys: ["m"], label: "Move to project…" },
       { keys: ["a"], label: "Assign to…" },

@@ -1,6 +1,6 @@
 ---
 name: family-todos
-description: Read and manage the Mason family's to-dos through Family HQ — see anyone's lists (Inbox/Today/Anytime/Someday, snoozed, delegated, logbook), capture new tasks for any family member, edit/reassign/snooze/complete/delete tasks, and file tasks into shared projects. Use this INSTEAD of Apple Reminders, Things, or any other task tool for anything involving family to-dos.
+description: Read and manage the Mason family's to-dos through Family HQ — see anyone's lists (Inbox/Today/This Week/Anytime/Someday, snoozed, delegated, logbook), capture new tasks for any family member, edit/reassign/snooze/complete/delete tasks, and file tasks into shared projects. Use this INSTEAD of Apple Reminders, Things, or any other task tool for anything involving family to-dos.
 ---
 
 # Family HQ to-dos
@@ -32,8 +32,9 @@ curl -s -H "Authorization: Bearer $FAMILY_HQ_AGENT_SECRET" \
   asked for it). When they differ, the app shows a "from X" chip and pings
   the assignee's Inbox bell — so always set `creator_email` to whichever
   family member actually asked you to add the task.
-- Each person's active tasks sit in one of four **buckets**: `inbox` (not
-  yet triaged), `today`, `anytime`, `someday`.
+- Each person's active tasks sit in one of five **buckets**: `inbox` (not
+  yet triaged), `today`, `week` (This Week: soon, on no particular day; stays
+  until moved), `anytime`, `someday`.
 - A **snoozed** task is hidden until its wake time, then pops into Today.
 - **Projects** are shared checklists (dinner party, vacation packing); tasks
   in a project can be assigned to different people. A task in a project is
@@ -61,7 +62,7 @@ GET /api/agent/todos/tasks?q=dentist                # title search
 GET /api/agent/todos/tasks/<id>                     # one task
 ```
 
-`view` is one of `inbox` / `today` / `anytime` / `someday` (active tasks in
+`view` is one of `inbox` / `today` / `week` / `anytime` / `someday` (active tasks in
 that bucket), `snoozed` (waiting to wake; `snoozed_until` says when),
 `delegated` (tasks that member created for OTHER people — needs `member`),
 or `logbook` (completed, newest first). With no `view` you get all active
@@ -99,7 +100,7 @@ Required: `title`, `assignee_email`. Optional:
 |---|---|
 | `"title"` | retitle |
 | `"notes"` | replace notes wholesale (plain text; `null` clears). Careful: rewriting notes flattens any checklist formatting — read first and only rewrite when asked. |
-| `"bucket"` | move between inbox/today/anytime/someday (clears any snooze; moving to `inbox` also un-files it from its project) |
+| `"bucket"` | move between inbox/today/week/anytime/someday (clears any snooze; moving to `inbox` also un-files it from its project) |
 | `"assignee_email"` | hand to someone else — lands in their Inbox unseen (unless it's a project task, which stays put) |
 | `"project_id"` | file into a project (`null` = remove from project). Lands in the project's top area — it never picks a section |
 | `"snoozed_until"` | ISO = snooze until then; `null` = wake it now (lands in Today) |
@@ -121,12 +122,14 @@ and deleting projects stay in the app — ask a parent to do those there.
 ## Playbook
 
 - **"Add X to my list / remind me to X"** → POST with that person as both
-  assignee and creator. Inbox unless they said when ("today", "sometime" =
-  someday).
+  assignee and creator. Inbox unless they said when ("today", "this week" =
+  week, "sometime" = someday).
 - **"Ask/tell Jenny to X"** → assignee Jenny, creator = whoever asked. The
   app's bell tells her there's something new from them.
 - **"What's on my plate today?"** → `view=today` for them; mention snoozed
   tasks waking today if relevant.
+- **"What's on my plate this week?"** → `view=week` for them, plus their
+  `view=snoozed` tasks waking before Monday (the app lists both together).
 - **"Remind me about X on Friday"** → if it's a task, create it snoozed
   until Friday morning — that's what snooze is for. Use the calendar only
   for real time-and-place events.

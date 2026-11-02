@@ -5,8 +5,9 @@
  * "6/24", a bare day-of-month, each optionally carrying a time of day
  * ("today 10am", "fri 9:30", "tomorrow evening"). Pure function of (input, now)
  * so it's testable; day-level results are midnight timestamps (matching the
- * snooze presets) and bucket names ("today", "anytime", "someday") resolve to
- * buckets, not dates — unless a time is attached, which makes them real wakes.
+ * snooze presets) and bucket names ("today", "this week", "anytime", "someday")
+ * resolve to buckets, not dates — unless a time is attached, which makes them
+ * real wakes.
  */
 
 import type { TodoBucket } from "@/lib/todos/types";
@@ -293,6 +294,16 @@ export function suggestWhen(
 
   // Buckets by name — "today" is the Today list, not a date.
   bucket("today", "Today");
+
+  // This Week, once it's spelled far enough ("this", "wee") that it can't steal
+  // Enter from what a shorter prefix already means ("th" = Thursday, "we" =
+  // Wednesday).
+  if (
+    (q.length >= 4 && "this week".startsWith(q)) ||
+    (q.length >= 3 && "week".startsWith(q))
+  ) {
+    out.push({ kind: "bucket", bucket: "week", label: "This Week" });
+  }
 
   for (const day of matchDays(q, now, false)) {
     out.push({

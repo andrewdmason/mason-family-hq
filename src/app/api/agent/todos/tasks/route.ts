@@ -25,6 +25,7 @@ export const dynamic = "force-dynamic";
 const VIEWS = [
   "inbox",
   "today",
+  "week",
   "anytime",
   "someday",
   "snoozed",
@@ -139,7 +140,7 @@ export async function POST(req: NextRequest) {
   }
   if ("bucket" in body && !isTodoBucket(body.bucket)) {
     return NextResponse.json(
-      { error: "bucket must be inbox, today, anytime, or someday." },
+      { error: "bucket must be inbox, today, week, anytime, or someday." },
       { status: 400 },
     );
   }

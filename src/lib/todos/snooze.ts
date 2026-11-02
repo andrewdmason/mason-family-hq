@@ -35,6 +35,13 @@ function addDays(date: Date, days: number): Date {
 const weekday = (d: Date) =>
   d.toLocaleDateString("en-US", { weekday: "short" });
 
+const daysToMonday = (d: Date) => (1 - d.getDay() + 7) % 7 || 7;
+
+/** The coming Monday at midnight — where this week ends and next week starts. */
+export function startOfNextWeek(now: Date = new Date()): Date {
+  return at(addDays(now, daysToMonday(now)), DAY_START_HOUR);
+}
+
 /** The quick-snooze options for "now". Presets already in the past drop out. */
 export function snoozePresets(now: Date = new Date()): SnoozePreset[] {
   const presets: SnoozePreset[] = [];
@@ -70,9 +77,8 @@ export function snoozePresets(now: Date = new Date()): SnoozePreset[] {
   }
 
   // Next Monday.
-  const daysToMonday = (1 - now.getDay() + 7) % 7 || 7;
-  const nextWeek = at(addDays(now, daysToMonday), DAY_START_HOUR);
-  if (daysToMonday > 1) {
+  const nextWeek = startOfNextWeek(now);
+  if (daysToMonday(now) > 1) {
     presets.push({
       key: "next-week",
       label: "Next week",

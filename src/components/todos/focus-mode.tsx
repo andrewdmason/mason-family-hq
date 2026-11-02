@@ -25,7 +25,12 @@ import { setPendingSelection } from "@/lib/todos/pending-selection";
 import type { TodoTaskAttachment } from "@/lib/todos/queries";
 import { useReconciler } from "@/lib/todos/reconcile";
 import { formatWake } from "@/lib/todos/snooze";
-import type { TodoBucket, TodoProject, TodoTask } from "@/lib/todos/types";
+import {
+  viewLabel,
+  type TodoBucket,
+  type TodoProject,
+  type TodoTask,
+} from "@/lib/todos/types";
 import { requestViewSwitch } from "@/lib/todos/view-switch";
 
 const UNDO_WINDOW_MS = 6_000;
@@ -120,12 +125,12 @@ export function FocusMode({
     void run(snoozeTask(task.id, when.toISOString()));
   };
 
-  /** Not today, no date either — the Anytime / Someday parks in the menu. */
+  /** Not today, no date either — the This Week / Anytime / Someday parks in the menu. */
   const park = (task: TodoTask, bucket: TodoBucket) => {
     advancePast(task);
     setUndo({
       task,
-      message: `Moved “${task.title}” to ${bucket === "anytime" ? "Anytime" : "Someday"}`,
+      message: `Moved “${task.title}” to ${viewLabel(bucket)}`,
       restore: () => setTaskBucket(task.id, "today"),
       counted: false,
     });

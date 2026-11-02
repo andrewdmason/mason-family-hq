@@ -75,7 +75,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   if ("bucket" in body && !isTodoBucket(body.bucket)) {
     return NextResponse.json(
-      { error: "bucket must be inbox, today, anytime, or someday." },
+      { error: "bucket must be inbox, today, week, anytime, or someday." },
       { status: 400 },
     );
   }

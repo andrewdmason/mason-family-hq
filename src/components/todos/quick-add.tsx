@@ -94,7 +94,7 @@ export function QuickAddHost({
       // `c` on /todos/anytime preselects Anytime; the ?as= member carries
       // over too. Anywhere else falls back to Inbox capture.
       const match = window.location.pathname.match(
-        /^\/todos\/(inbox|today|anytime|someday)$/
+        /^\/todos\/(inbox|today|week|anytime|someday)$/
       );
       const as = new URLSearchParams(window.location.search).get("as");
       setDefaults({

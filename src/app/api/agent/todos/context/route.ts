@@ -84,6 +84,6 @@ export async function GET(req: NextRequest) {
       sections: sectionsByProject.get(p.id) ?? [],
     })),
     areas: areas ?? [],
-    buckets: ["inbox", "today", "anytime", "someday"],
+    buckets: ["inbox", "today", "week", "anytime", "someday"],
   });
 }
