@@ -6,5 +6,9 @@
 	<array>
 		<string>group.io.mason.practice</string>
 	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)io.mason.shared</string>
+	</array>
 </dict>
 </plist>

@@ -36,6 +36,9 @@ struct RunningTimer: Codable, Equatable {
 
     /// The task's whole practice so far, this run included.
     func taskElapsed(at now: Date) -> Int { max(0, goalSeconds - remaining(at: now)) }
+
+    /// The run, the way the home screen widget counts it.
+    var widgetRun: PracticeToday.Run { .init(startedAt: startedAt, endsBy: endsBy) }
 }
 
 /// A run that just ended, for the screen to update its copy of the day.
@@ -86,6 +89,7 @@ final class PracticeTimer {
         save()
         writes.enqueue(.start(taskID: task.id, at: at))
         LiveActivity.start(timer)
+        PracticeToday(date: date, loggedSeconds: todayBeforeSeconds, run: timer.widgetRun).publish()
     }
 
     @discardableResult
@@ -98,6 +102,9 @@ final class PracticeTimer {
         save()
         writes.enqueue(.stop(taskID: run.taskID, remainingSeconds: run.remainingSeconds, endedAt: run.endedAt))
         LiveActivity.end()
+        // Here and not in the store: the Live Activity's Stop button can run
+        // this with no screen open.
+        PracticeToday(date: timer.date, loggedSeconds: timer.todayBeforeSeconds + timer.elapsed(at: at)).publish()
         NotificationCenter.default.post(name: .practiceRunStopped, object: nil, userInfo: ["run": run])
         return run
     }
@@ -114,6 +121,7 @@ final class PracticeTimer {
         running = timer
         save()
         LiveActivity.update(timer)
+        PracticeToday(date: timer.date, loggedSeconds: timer.todayBeforeSeconds, run: timer.widgetRun).publish()
     }
 
     /// Stops a timer that has run an hour since anyone touched it. Called on

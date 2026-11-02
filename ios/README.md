@@ -33,6 +33,11 @@ in step. Everything else about practice is set up on the website.
 - A timer stops itself an hour after the last interaction (a tap, or opening
   the app), logged as stopping at that hour. The Live Activity's clocks stop
   there too; the stop is written the next time the app runs.
+- A home screen widget shows today's total, climbing by the minute while a timer
+  runs. The app hands it what the phone knows through the app group; every 30
+  minutes or so (iOS decides) it also reads the log itself with the shared
+  sign-in, to pick up practice on the website. The larger of the two wins, so
+  time removed on the website shows once the app has next opened.
 
 ## Music Minus One
 
