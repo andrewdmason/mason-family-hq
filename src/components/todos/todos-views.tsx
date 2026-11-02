@@ -14,6 +14,7 @@ import { QuickAddButton } from "@/components/todos/quick-add";
 import { TaskList } from "@/components/todos/task-list";
 import { TodosSidebar } from "@/components/todos/todos-sidebar";
 import { ViewingBanner } from "@/components/todos/viewing-banner";
+import { WeekSnoozed } from "@/components/todos/week-snoozed";
 import {
   deriveProjectTasks,
   deriveViewTasks,
@@ -189,7 +190,7 @@ export function TodosViews(props: {
   const counts = useMemo<SidebarCounts>(
     () =>
       Object.fromEntries(
-        (["inbox", "today", "snoozed", "delegated"] as const).map((badged) => [
+        (["inbox", "today", "week", "snoozed", "delegated"] as const).map((badged) => [
           badged,
           deriveViewTasks(swept, badged, viewed.email).length,
         ])
@@ -303,6 +304,10 @@ export function TodosViews(props: {
                   viewedEmail={viewed.email}
                   selfEmail={selfEmail}
                 />
+              )}
+
+              {view === "week" && (
+                <WeekSnoozed tasks={swept} viewedEmail={viewed.email} />
               )}
             </>
           )}

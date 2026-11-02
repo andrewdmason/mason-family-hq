@@ -12,6 +12,7 @@ type AdminClient = ReturnType<typeof createAdminClient>;
 export const TODO_BUCKETS: TodoBucket[] = [
   "inbox",
   "today",
+  "week",
   "anytime",
   "someday",
 ];

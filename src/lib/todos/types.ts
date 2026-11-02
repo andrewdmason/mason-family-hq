@@ -1,10 +1,11 @@
-export type TodoBucket = "inbox" | "today" | "anytime" | "someday";
+export type TodoBucket = "inbox" | "today" | "week" | "anytime" | "someday";
 
-/** The sidebar views. The first four map 1:1 to buckets; snoozed and
+/** The sidebar views. The first five map 1:1 to buckets; snoozed and
  * delegated are status lenses; logbook is history. */
 export type TodoView =
   | "inbox"
   | "today"
+  | "week"
   | "anytime"
   | "someday"
   | "snoozed"
@@ -14,6 +15,7 @@ export type TodoView =
 export const TODO_VIEWS: TodoView[] = [
   "inbox",
   "today",
+  "week",
   "anytime",
   "someday",
   "snoozed",
@@ -28,6 +30,7 @@ export function isTodoView(value: string): value is TodoView {
 const VIEW_LABELS: Record<TodoView, string> = {
   inbox: "Inbox",
   today: "Today",
+  week: "This Week",
   anytime: "Anytime",
   someday: "Someday",
   snoozed: "Snoozed",

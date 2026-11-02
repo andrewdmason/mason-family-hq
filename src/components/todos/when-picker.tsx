@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import {
   Archive,
   CalendarClock,
+  CalendarDays,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -28,6 +29,7 @@ const BUCKET_META: Record<
 > = {
   inbox: { label: "Inbox", icon: Inbox, iconClass: "text-sky-700" },
   today: { label: "Today", icon: Star, iconClass: "text-amber-500" },
+  week: { label: "This Week", icon: CalendarDays, iconClass: "text-orange-600" },
   anytime: { label: "Anytime", icon: Layers, iconClass: "text-teal-700" },
   someday: { label: "Someday", icon: Archive, iconClass: "text-stone-500" },
 };
@@ -37,7 +39,7 @@ const itemClass =
 
 /**
  * Things' "When" control, one chip + one picker. The chip always names the
- * task's current state (Today, Anytime, Someday, Inbox, or its wake time when
+ * task's current state (Today, This Week, Anytime, Someday, Inbox, or its wake time when
  * snoozed); the picker opens to the shared {@link WhenMenu}. Inbox is
  * deliberately NOT a destination here — it's the absence of triage, a
  * location: a task leaves it by getting a When (or a project), and returns
@@ -116,8 +118,8 @@ export function WhenPicker({
  * The picker body, shared by the chip's popover and the keyboard `s` popover
  * (which anchors it to the row without opening the editor). A focused
  * type-ahead ("tom", "fri", "in 3 days", "today 10am"…) sits above the quick rows; empty,
- * it shows Gmail-style snooze shortcuts — Today, then This evening / Tomorrow
- * / This weekend / Next week, a "Pick date & time" reveal for the mini
+ * it shows Today and This Week, then Gmail-style snooze shortcuts — This evening
+ * / Tomorrow / This weekend / Next week, a "Pick date & time" reveal for the mini
  * calendar, then the Anytime and Someday parks. Mount it only while the
  * popover is open so the query and calendar reset on every summon.
  */
@@ -162,6 +164,7 @@ export function WhenMenu({
   return (
     <WhenTypeahead onPick={pickSuggestion}>
       {bucketRow("today")}
+      {bucketRow("week")}
       {/* Gmail-style snooze shortcuts (This evening, Tomorrow, This weekend,
           Next week — whichever still lie ahead). */}
       {presets.map((preset) => (

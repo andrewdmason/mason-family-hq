@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Archive,
+  CalendarDays,
   Check,
   CircleDashed,
   FileText,
@@ -48,6 +49,7 @@ import { cn } from "@/lib/utils";
 const BUCKET_OPTIONS: { bucket: TodoBucket; label: string; icon: typeof Star; iconClass: string }[] = [
   { bucket: "inbox", label: "Inbox", icon: Inbox, iconClass: "text-sky-700" },
   { bucket: "today", label: "Today", icon: Star, iconClass: "text-amber-500" },
+  { bucket: "week", label: "This Week", icon: CalendarDays, iconClass: "text-orange-600" },
   { bucket: "anytime", label: "Anytime", icon: Layers, iconClass: "text-teal-700" },
   { bucket: "someday", label: "Someday", icon: Archive, iconClass: "text-stone-500" },
 ];
@@ -179,12 +181,14 @@ export function TaskRow({
     (inProjectMode || inDelegated) &&
     !task.snoozedUntil &&
     task.bucket !== "anytime";
-  // Views that don't group by project (Anytime and Someday do, and a project
-  // page *is* the project) name the task's project under the title, like
-  // Things' Today view.
+  // Views that don't group by project (This Week, Anytime and Someday do, and a
+  // project page *is* the project) name the task's project under the title,
+  // like Things' Today view.
   const groupedByProject =
     context.mode === "view" &&
-    (context.view === "anytime" || context.view === "someday");
+    (context.view === "week" ||
+      context.view === "anytime" ||
+      context.view === "someday");
   const project = projects.find((p) => p.id === task.projectId);
   const showProjectLine = !inProjectMode && !groupedByProject && !!project;
   const BucketIcon = bucketIcon(task.bucket);

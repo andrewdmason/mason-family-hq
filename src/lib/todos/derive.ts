@@ -1,3 +1,4 @@
+import { startOfNextWeek } from "@/lib/todos/snooze";
 import type { TodoTask, TodoView } from "@/lib/todos/types";
 
 /** The views the shell derives client-side (logbook is its own fetch). */
@@ -48,7 +49,7 @@ export function deriveViewTasks(
             a.sortOrder - b.sortOrder
         );
     default:
-      // The four buckets, in manual order.
+      // The buckets, in manual order.
       return tasks
         .filter(
           (t) =>
@@ -61,6 +62,22 @@ export function deriveViewTasks(
             a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt)
         );
   }
+}
+
+/**
+ * One member's snoozed tasks that wake before Monday, soonest first — what the
+ * This Week view offers to reveal. `now` should be the browser's clock: the week
+ * ends at midnight local time. Expects a swept set (see localSnoozeSweep).
+ */
+export function deriveWeekSnoozedTasks(
+  tasks: TodoTask[],
+  viewedEmail: string,
+  now: Date
+): TodoTask[] {
+  const weekEnd = startOfNextWeek(now);
+  return deriveViewTasks(tasks, "snoozed", viewedEmail).filter(
+    (t) => new Date(t.snoozedUntil!) < weekEnd
+  );
 }
 
 /**
