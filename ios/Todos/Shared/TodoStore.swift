@@ -98,6 +98,8 @@ struct TodoLibrary: Codable {
     var projects: [TodoProject]
     var sections: [TodoSection]
     var areas: [TodoArea]? = nil
+    /// On the base: this device has had its first sync.
+    var firstSyncDone: Bool? = nil
 }
 
 @MainActor
@@ -148,7 +150,10 @@ final class TodoStore {
     /// Where to return if a brand-new project never gets a name.
     private var returnFromNewProject: Destination?
 
-    let me = "andrew@mason.io"
+    /// Who's signed in, once sync says so.
+    var me = "andrew@mason.io"
+    /// A change was made here, for sync to send.
+    @ObservationIgnored var onLocalChange: (() -> Void)?
     /// What to go back to: the list, and which rows were selected in it.
     private typealias Snapshot = (todos: [Todo], sections: [TodoSection], selection: Set<String>)
     private var undoStack: [Snapshot] = []
@@ -169,10 +174,17 @@ final class TodoStore {
             todos[index].bucket = .anytime
             corrected = true
         }
-        // Every project sits in a group. Lists saved before groups existed start
-        // with one, called Projects, which can be renamed.
+        if ensureProjectsHaveGroups() { corrected = true }
+        if normalizeIDs() { corrected = true }
+        if corrected { scheduleSave() }
+    }
+
+    /// Every project sits in a group. Lists saved before groups existed start with
+    /// one, called Projects, which can be renamed.
+    private func ensureProjectsHaveGroups() -> Bool {
+        var corrected = false
         if areas.isEmpty {
-            areas = [TodoArea(id: UUID().uuidString, name: "Projects", sortOrder: 1)]
+            areas = [TodoArea(id: UUID().uuidString.lowercased(), name: "Projects", sortOrder: 1)]
             corrected = true
         }
         let known = Set(areas.map(\.id))
@@ -181,7 +193,121 @@ final class TodoStore {
             projects[index].areaId = home
             corrected = true
         }
-        if corrected { scheduleSave() }
+        return corrected
+    }
+
+    /// The database hands back ids in lowercase; earlier versions of this app made
+    /// them in capitals, and the two wouldn't match.
+    private func normalizeIDs() -> Bool {
+        let lower: (String) -> String = { $0.lowercased() }
+        let isLower = { (id: String) in id == id.lowercased() }
+        guard !(todos.allSatisfy { isLower($0.id) && isLower($0.projectId ?? "") && isLower($0.sectionId ?? "") }
+            && projects.allSatisfy { isLower($0.id) && isLower($0.areaId ?? "") }
+            && sections.allSatisfy { isLower($0.id) && isLower($0.projectId) }
+            && areas.allSatisfy { isLower($0.id) })
+        else { return false }
+        for index in todos.indices {
+            todos[index].id = lower(todos[index].id)
+            todos[index].projectId = todos[index].projectId.map(lower)
+            todos[index].sectionId = todos[index].sectionId.map(lower)
+        }
+        for index in projects.indices {
+            projects[index].id = lower(projects[index].id)
+            projects[index].areaId = projects[index].areaId.map(lower)
+        }
+        for index in sections.indices {
+            sections[index].id = lower(sections[index].id)
+            sections[index].projectId = lower(sections[index].projectId)
+        }
+        for index in areas.indices { areas[index].id = lower(areas[index].id) }
+        return true
+    }
+
+    // MARK: Sync
+
+    struct PendingChanges {
+        let tasks: SyncChanges
+        let projects: SyncChanges
+        let sections: SyncChanges
+        let areas: SyncChanges
+    }
+
+    func pendingChanges(against base: TodoLibrary) -> PendingChanges {
+        PendingChanges(
+            tasks: TodoMerge.changes(local: todos, base: base.tasks) { !$0.title.isEmpty && $0.id != self.editingID },
+            projects: TodoMerge.changes(local: projects, base: base.projects) {
+                !$0.name.isEmpty && $0.id != self.renamingProjectID
+            },
+            sections: TodoMerge.changes(local: sections, base: base.sections) {
+                !$0.name.isEmpty && $0.id != self.namingSectionID
+            },
+            areas: TodoMerge.changes(local: areas, base: base.areas ?? []) {
+                !$0.name.isEmpty && $0.id != self.namingAreaID
+            })
+    }
+
+    /// The first sync: this list is the one that's right, so anything different on
+    /// the database gets overwritten, and to-dos removed here get removed there. Two
+    /// things aren't this list's to decide. Notes never came down in the first copy,
+    /// so a to-do with none here keeps what the website has. And to-dos it has never
+    /// seen (other people's, older history) still arrive. A new device, with no list
+    /// of its own, just reads.
+    func prepareFirstSync(server: TodoLibrary, base: inout TodoLibrary) {
+        defer { base.firstSyncDone = true }
+        guard !todos.isEmpty, !base.tasks.isEmpty else { return }
+        let serverNotes = Dictionary(server.tasks.map { ($0.id, $0.notes) }, uniquingKeysWith: { a, _ in a })
+        for index in todos.indices {
+            todos[index].snoozedUntil = todos[index].snoozedUntil.map(TodoMerge.canonicalStamp)
+            todos[index].completedAt = todos[index].completedAt.map(TodoMerge.canonicalStamp)
+            todos[index].createdAt = TodoMerge.canonicalStamp(todos[index].createdAt)
+            if todos[index].notes == nil, let notes = serverNotes[todos[index].id] { todos[index].notes = notes }
+        }
+        undoStack.removeAll()
+        redoStack.removeAll()
+        base = TodoLibrary(
+            tasks: TodoMerge.adoptLocal(local: todos, base: base.tasks, server: server.tasks),
+            projects: TodoMerge.adoptLocal(local: projects, base: base.projects, server: server.projects),
+            sections: TodoMerge.adoptLocal(local: sections, base: base.sections, server: server.sections),
+            areas: TodoMerge.adoptLocal(local: areas, base: base.areas ?? [], server: server.areas ?? [], claimAll: true),
+            firstSyncDone: true)
+        writeToDisk()
+    }
+
+    /// Takes in what the database says, and moves the base along to match.
+    func applyServer(_ server: TodoLibrary, base: inout TodoLibrary) {
+        let mergedTasks = TodoMerge.merge(local: todos, base: base.tasks, server: server.tasks)
+        let mergedProjects = TodoMerge.merge(local: projects, base: base.projects, server: server.projects)
+        let mergedSections = TodoMerge.merge(local: sections, base: base.sections, server: server.sections)
+        let mergedAreas = TodoMerge.merge(local: areas, base: base.areas ?? [], server: server.areas ?? [])
+        base = TodoLibrary(
+            tasks: mergedTasks.base, projects: mergedProjects.base, sections: mergedSections.base, areas: mergedAreas.base,
+            firstSyncDone: base.firstSyncDone)
+        guard mergedTasks.changed || mergedProjects.changed || mergedSections.changed || mergedAreas.changed else { return }
+
+        todos = mergedTasks.local
+        projects = mergedProjects.local
+        sections = mergedSections.local
+        areas = mergedAreas.local
+        // Undo steps were saved before this arrived, and would take it back out.
+        undoStack.removeAll()
+        redoStack.removeAll()
+        if ensureProjectsHaveGroups() { onLocalChange?() }
+
+        if case .project(let id) = destination, !projects.contains(where: { $0.id == id }) {
+            destination = .view(.today)
+        }
+        if let id = newestSectionID, !sections.contains(where: { $0.id == id }) { newestSectionID = nil }
+        if let id = openID, !todos.contains(where: { $0.id == id }) { openID = nil }
+        let onScreen = Set(visible.map(\.id))
+        let remaining = selectedIDs.intersection(onScreen)
+        if remaining != selectedIDs {
+            if remaining.isEmpty {
+                selectedID = visible.first?.id
+            } else {
+                select(remaining)
+            }
+        }
+        writeToDisk()
     }
 
     nonisolated static func decode(_ data: Data) throws -> TodoLibrary {
@@ -442,6 +568,8 @@ final class TodoStore {
     func completeSelected() {
         changeSelected {
             $0.completedAt = $0.completedAt == nil ? Self.stamp(Date()) : nil
+            // As on the website, finishing a to-do ends its snooze.
+            if $0.completedAt != nil { $0.snoozedUntil = nil }
         }
     }
 
@@ -538,7 +666,7 @@ final class TodoStore {
         let sectionId = sectionForNewTodos()
         let first = visible.first { $0.sectionId == sectionId }?.sortOrder ?? 0
         let todo = Todo(
-            id: UUID().uuidString, title: "", notes: nil, bucket: bucket, assigneeEmail: me, creatorEmail: me,
+            id: UUID().uuidString.lowercased(), title: "", notes: nil, bucket: bucket, assigneeEmail: me, creatorEmail: me,
             projectId: projectId, sectionId: sectionId, snoozedUntil: nil, completedAt: nil,
             sortOrder: first - 1, createdAt: Self.stamp(Date()))
         change { todos.append(todo) }
@@ -587,7 +715,7 @@ final class TodoStore {
         let now = Self.stamp(Date())
         let pasted = titles.enumerated().map { index, title in
             Todo(
-                id: UUID().uuidString, title: title, notes: nil, bucket: bucket, assigneeEmail: me, creatorEmail: me,
+                id: UUID().uuidString.lowercased(), title: title, notes: nil, bucket: bucket, assigneeEmail: me, creatorEmail: me,
                 projectId: projectId, sectionId: sectionId, snoozedUntil: nil, completedAt: nil,
                 sortOrder: first - Double(titles.count - index), createdAt: now)
         }
@@ -727,7 +855,7 @@ final class TodoStore {
         guard !text.isEmpty else { return }
         let first = todos.filter { $0.bucket == .inbox }.map(\.sortOrder).min() ?? 0
         let todo = Todo(
-            id: UUID().uuidString, title: text, notes: nil, bucket: .inbox, assigneeEmail: me, creatorEmail: me,
+            id: UUID().uuidString.lowercased(), title: text, notes: nil, bucket: .inbox, assigneeEmail: me, creatorEmail: me,
             projectId: nil, sectionId: nil, snoozedUntil: nil, completedAt: nil,
             sortOrder: first - 1, createdAt: Self.stamp(Date()))
         change { todos.append(todo) }
@@ -743,7 +871,7 @@ final class TodoStore {
         finishRenamingProject()
         commitEdit()
         var own = sections.filter { $0.projectId == projectId }.sorted { $0.sortOrder < $1.sortOrder }
-        let section = TodoSection(id: UUID().uuidString, projectId: projectId, name: "", sortOrder: 0)
+        let section = TodoSection(id: UUID().uuidString.lowercased(), projectId: projectId, name: "", sortOrder: 0)
         let rows = visible
         var position = own.count
         var moving: [Todo] = []
@@ -876,7 +1004,7 @@ final class TodoStore {
             area = own
         }
         let last = area.map { projects(in: $0) }?.map(\.sortOrder).max() ?? 0
-        let project = TodoProject(id: UUID().uuidString, name: "", sortOrder: last + 1, areaId: area)
+        let project = TodoProject(id: UUID().uuidString.lowercased(), name: "", sortOrder: last + 1, areaId: area)
         if let area, let index = areas.firstIndex(where: { $0.id == area }) { areas[index].isCollapsed = false }
         returnFromNewProject = destination
         nameBeforeRenaming = ""
@@ -918,7 +1046,7 @@ final class TodoStore {
         commitEdit()
         finishRenamingProject()
         let last = areas.map(\.sortOrder).max() ?? 0
-        let area = TodoArea(id: UUID().uuidString, name: "", sortOrder: last + 1)
+        let area = TodoArea(id: UUID().uuidString.lowercased(), name: "", sortOrder: last + 1)
         areas.append(area)
         areaDraft = ""
         isNewArea = true
@@ -1041,6 +1169,11 @@ final class TodoStore {
     }
 
     private func scheduleSave() {
+        onLocalChange?()
+        writeToDisk()
+    }
+
+    private func writeToDisk() {
         guard let saveFile else { return }
         saveTask?.cancel()
         let library = TodoLibrary(tasks: todos, projects: projects, sections: sections, areas: areas)

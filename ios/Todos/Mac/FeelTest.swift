@@ -57,6 +57,82 @@ struct FeelTest {
             "opened_ms": launchMilliseconds,
         ]
 
+        if CommandLine.arguments.contains("signintest") {
+            // Starts the real sign-in sheet, then cancels it. Reaches no account.
+            try? await Task.sleep(for: .seconds(1))
+            var log = ["before \(model.sync.map { "\($0.status)" } ?? "no sync")"]
+            model.sync?.signIn()
+            try? await Task.sleep(for: .seconds(4))
+            log.append("4s after starting \(model.sync.map { "\($0.status)" } ?? "no sync"), ended early: \(model.sync?.signInEnded ?? "no, still open")")
+            model.sync?.cancelSignIn()
+            try? await Task.sleep(for: .seconds(2))
+            log.append("after cancelling \(model.sync.map { "\($0.status)" } ?? "no sync"), ended: \(model.sync?.signInEnded ?? "-")")
+            try? (log.joined(separator: "\n") + "\n").write(to: results, atomically: true, encoding: .utf8)
+            NSApp.terminate(nil)
+            return
+        }
+
+        if CommandLine.arguments.contains("syncstatus") {
+            try? await Task.sleep(for: .seconds(2))
+            capture(window, "sync-signedout")
+            try? "status \(model.sync.map { "\($0.status)" } ?? "no sync")\n".write(to: results, atomically: true, encoding: .utf8)
+            NSApp.terminate(nil)
+            return
+        }
+
+        if CommandLine.arguments.contains("preview") {
+            // What the first sync would do, from saved copies, sending nothing.
+            let at = CommandLine.arguments.firstIndex(of: "preview")!
+            func file(_ offset: Int) -> Data { (try? Data(contentsOf: URL(filePath: CommandLine.arguments[at + offset]))) ?? Data() }
+            struct Server: Decodable {
+                let tasks: [ServerTodo]
+                let projects: [TodoProject]
+                let sections: [TodoSection]
+                let areas: [TodoArea]
+            }
+            var log: [String] = []
+            do {
+                let server = try TodoMerge.decoder().decode(Server.self, from: file(1))
+                var base = try TodoStore.decode(file(2))
+                let seed = base
+                let serverLibrary = TodoLibrary(
+                    tasks: server.tasks.map(\.todo), projects: server.projects, sections: server.sections, areas: server.areas)
+                log.append("LOCAL \(store.todos.count) to-dos, \(store.todos.filter { $0.completedAt == nil }.count) open, \(store.projects.count) projects, \(store.sections.count) sections, \(store.areas.count) groups")
+                log.append("SERVER \(server.tasks.count) to-dos, \(server.projects.count) projects, \(server.sections.count) sections, \(server.areas.count) groups")
+                store.prepareFirstSync(server: serverLibrary, base: &base)
+                let pending = store.pendingChanges(against: base)
+                let title = { (id: String) in serverLibrary.tasks.first { $0.id == id }?.title ?? id }
+                func line(_ name: String, _ c: SyncChanges) -> String {
+                    "\(name): add \(c.inserts.count), update \(c.updates.count), delete \(c.deletes.count)"
+                }
+                log.append("SEND \(line("to-dos", pending.tasks))")
+                log.append("SEND \(line("projects", pending.projects))")
+                log.append("SEND \(line("sections", pending.sections))")
+                log.append("SEND \(line("groups", pending.areas))")
+                var fields: [String: Int] = [:]
+                for (_, changed) in pending.tasks.updates { for key in changed.keys { fields[key, default: 0] += 1 } }
+                log.append("UPDATED FIELDS \(fields.sorted { $0.key < $1.key })")
+                log.append("REMOVED TITLES \(pending.tasks.deletes.map(title))")
+                log.append("GROUPS REMOVED \(pending.areas.deletes.map { id in serverLibrary.areas?.first { $0.id == id }?.name ?? id })")
+                let seen = Set(seed.tasks.map(\.id))
+                let mine = Set(store.todos.map(\.id))
+                let arriving = server.tasks.filter { !seen.contains($0.id) && !mine.contains($0.id) }
+                let openArriving = arriving.filter { $0.completedAt == nil }
+                log.append("ARRIVING \(arriving.count): completed \(arriving.count - openArriving.count), open \(openArriving.map { "\($0.assigneeEmail.prefix(6)): \($0.title)" })")
+                log.append("ARRIVING BY PERSON \(Dictionary(grouping: arriving, by: \.assigneeEmail).mapValues(\.count))")
+                // As if everything sent had landed, then read back.
+                var sent = base
+                for todo in store.todos { TodoMerge.markSent(todo.id, fields: todo.syncFields, local: store.todos, base: &sent.tasks) }
+                sent.tasks.removeAll { pending.tasks.deletes.contains($0.id) }
+                log.append("MAC ENDS WITH \(store.todos.count + arriving.count) to-dos, \(store.todos.filter { $0.notes != nil }.count) with notes")
+            } catch {
+                log.append("FAILED \(error)")
+            }
+            try? (log.joined(separator: "\n") + "\n").write(to: results, atomically: true, encoding: .utf8)
+            NSApp.terminate(nil)
+            return
+        }
+
         if CommandLine.arguments.contains("hotkey") {
             var log = ["register status \(model.quickAdd.registerHotKey())"]
             var event: EventRef?

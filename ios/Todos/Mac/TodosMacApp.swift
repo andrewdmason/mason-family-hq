@@ -21,6 +21,11 @@ enum AppStart {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder.appending(path: "todos.json")
     }
+
+    /// What the family database last said (see TodoMerge).
+    static var baseFile: URL {
+        libraryFile.deletingLastPathComponent().appending(path: "synced.json")
+    }
 }
 
 @main
@@ -54,6 +59,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sidebarItem.minimumThickness = 200
         sidebarItem.maximumThickness = 320
         split.addSplitViewItem(sidebarItem)
+        let syncStatus = SyncStatusController()
+        sidebarItem.addBottomAlignedAccessoryViewController(syncStatus)
         let listController = TodoListController(store: model.store)
         sidebarController.focusList = { [weak listController] in listController?.focus() }
         let listItem = NSSplitViewItem(viewController: listController)
@@ -101,6 +108,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try SMAppService.mainApp.register()
             } catch {
                 fputs("todos: open at login failed: \(error)\n", stderr)
+            }
+        }
+        // After the first frame: opening never waits on sign-in or the network.
+        let checkingStatus = model.test != nil && CommandLine.arguments.contains("syncstatus")
+        if model.test == nil || checkingStatus {
+            DispatchQueue.main.async {
+                let base = checkingStatus ? URL.temporaryDirectory.appending(path: "todos-base.json") : AppStart.baseFile
+                let sync = TodoSync(store: model.store, baseFile: base)
+                model.sync = sync
+                sync.start()
+                syncStatus.attach(sync)
             }
         }
 
@@ -169,6 +187,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         quick.keyEquivalentModifierMask = [.command, .shift]
         file.addItem(quick)
         file.addItem(.separator())
+        file.addItem(ClosureMenuItem(title: "Sync Now") { model.sync?.kick() })
+        file.addItem(ClosureMenuItem(title: "Sign In to Sync") { model.sync?.signIn() })
+        file.addItem(ClosureMenuItem(title: "Sign Out") { model.sync?.signOut() })
+        file.addItem(.separator())
         let commands = ClosureMenuItem(title: "Commands…") { model.palette.toggle() }
         commands.keyEquivalent = "k"
         file.addItem(commands)
@@ -232,6 +254,7 @@ final class AppModel {
     let keys: KeyRouter
     let quickAdd: QuickAddController
     let palette: CommandPalette
+    var sync: TodoSync?
 
     init() {
         let test = FeelTest.fromArguments()

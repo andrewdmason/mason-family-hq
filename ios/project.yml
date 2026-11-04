@@ -35,10 +35,18 @@ targets:
         type: file
         buildPhase: resources
       - path: Todos/Shared
+      - path: Todos/Sync
+    dependencies:
+      - package: MasonKit
+      - package: Supabase
+        product: Supabase
     info:
       path: Todos/Mac/Info.plist
       properties:
         CFBundleDisplayName: Todos
+        CFBundleURLTypes:
+          - CFBundleURLName: io.mason.todos
+            CFBundleURLSchemes: [io.mason.todos]
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.productivity
@@ -47,9 +55,21 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.mason.todos
         PRODUCT_NAME: Todos
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Built and run on this Mac, with no Apple account needed to sign it. That
+        # rules out the shared keychain; see Session.
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "-"
         DEVELOPMENT_TEAM: ""
+    scheme:
+      testTargets: [TodosMacTests]
+  # The sync rules, which need no app or network to test.
+  TodosMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Todos/Tests, Todos/Shared]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
   # Practice: Andrew's quick log, with a Live Activity.
   Practice:
     type: application
