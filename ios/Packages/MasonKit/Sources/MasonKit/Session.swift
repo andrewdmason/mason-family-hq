@@ -15,7 +15,7 @@ public final class Session {
         supabaseURL: Config.supabaseURL,
         supabaseKey: Config.supabaseKey,
         options: SupabaseClientOptions(auth: .init(
-            storage: KeychainLocalStorage(accessGroup: Config.sharedKeychainGroup),
+            storage: Session.storage,
             redirectToURL: Config.authRedirect,
             flowType: .pkce,
             // Open on the keychain's sign-in straight away; an expired one is
@@ -23,6 +23,14 @@ public final class Session {
             emitLocalSessionAsInitialSession: true
         ))
     )
+
+    #if os(macOS)
+    /// A Mac app built here isn't signed with the Apple account the shared keychain
+    /// needs, so its sign-in sits in a file only this user account can read.
+    private static let storage: any AuthLocalStorage = SessionFile()
+    #else
+    private static let storage: any AuthLocalStorage = KeychainLocalStorage(accessGroup: Config.sharedKeychainGroup)
+    #endif
 
     public private(set) var userID: UUID?
     public private(set) var email: String?
@@ -85,3 +93,28 @@ public final class Session {
         try? await client.auth.signOut()
     }
 }
+
+#if os(macOS)
+private struct SessionFile: AuthLocalStorage {
+    private func url(_ key: String) throws -> URL {
+        let folder = URL.applicationSupportDirectory.appending(path: Bundle.main.bundleIdentifier ?? "io.mason")
+        try FileManager.default.createDirectory(
+            at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        return folder.appending(path: "session-\(key).json")
+    }
+
+    func store(key: String, value: Data) throws {
+        let file = try url(key)
+        try value.write(to: file, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    }
+
+    func retrieve(key: String) throws -> Data? {
+        try? Data(contentsOf: url(key))
+    }
+
+    func remove(key: String) throws {
+        try? FileManager.default.removeItem(at: url(key))
+    }
+}
+#endif

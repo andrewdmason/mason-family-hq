@@ -63,6 +63,17 @@ no TestFlight. Bundle id and URL scheme `io.mason.music-minus-one`.
   from there (auto-play), optionally after a count-in: the recording starts that
   many beats early (at the song's one tempo) under a big countdown.
 
+## Todos (Mac)
+
+A native to-do app for the Mac, in `Todos/` (scheme `TodosMac`). The to-do list
+lives on the Mac in a file, so opening it and every action are instant; the
+website stays as it is for the rest of the family. iPhone comes later, on the
+shared code in `Todos/Shared`. It isn't in the CI matrix, which builds for the
+iPhone simulator.
+
+`--feel-test <rows> <results file> [mode]` drives the app with real key and mouse
+events (`Mac/FeelTest.swift`), never touching the saved list.
+
 ## Adding an app
 
 A new folder beside `Practice/` and a target in `project.yml` that depends on

@@ -5,7 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "MasonKit",
-    platforms: [.iOS(.v26)],
+    platforms: [.iOS(.v26), .macOS(.v26)],
     products: [.library(name: "MasonKit", targets: ["MasonKit"])],
     dependencies: [.package(url: "https://github.com/supabase/supabase-swift", from: "2.55.0")],
     targets: [
