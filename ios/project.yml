@@ -44,6 +44,7 @@ targets:
       path: Todos/Mac/Info.plist
       properties:
         CFBundleDisplayName: Todos
+        NSRemindersFullAccessUsageDescription: Moves what you ask Siri to remember from your default Reminders list to your Todos Inbox.
         CFBundleURLTypes:
           - CFBundleURLName: io.mason.todos
             CFBundleURLSchemes: [io.mason.todos]
@@ -62,6 +63,46 @@ targets:
         DEVELOPMENT_TEAM: ""
     scheme:
       testTargets: [TodosMacTests]
+  # Todos on the iPhone: the same list and sync as the Mac.
+  Todos:
+    type: application
+    platform: iOS
+    sources:
+      - path: Todos/iPhone
+      - path: Todos/Mac/AppIcon.icon
+        type: file
+        buildPhase: resources
+      - path: Todos/Shared
+      - path: Todos/Sync
+    dependencies:
+      - package: MasonKit
+      - package: Supabase
+        product: Supabase
+    entitlements:
+      path: Todos/iPhone/Todos.entitlements
+      properties:
+        keychain-access-groups: [$(AppIdentifierPrefix)io.mason.shared]
+    info:
+      path: Todos/iPhone/Info.plist
+      properties:
+        CFBundleDisplayName: Todos
+        CFBundleURLTypes:
+          - CFBundleURLName: io.mason.todos
+            CFBundleURLSchemes: [io.mason.todos]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        NSRemindersFullAccessUsageDescription: Moves what you ask Siri to remember from your default Reminders list to your Todos Inbox.
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.mason.todos
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
   # The sync rules, which need no app or network to test.
   TodosMacTests:
     type: bundle.unit-test

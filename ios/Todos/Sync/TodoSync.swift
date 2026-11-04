@@ -1,9 +1,13 @@
-import AppKit
-import AuthenticationServices
 import Foundation
 import MasonKit
 import Observation
 import Supabase
+#if os(macOS)
+import AppKit
+import AuthenticationServices
+#else
+import UIKit
+#endif
 
 // Keeps the list in step with the family database, in the background. The list on
 // screen never waits for this: changes are sent a moment after they're made, and
@@ -29,7 +33,9 @@ final class TodoSync {
     @ObservationIgnored private var pendingKick: Task<Void, Never>?
     @ObservationIgnored private var ticks = 0
     @ObservationIgnored private var timer: Timer?
+    #if os(macOS)
     @ObservationIgnored private var webSignIn: WebSignIn?
+    #endif
     /// Why the last sign-in sheet closed, for the feel test.
     @ObservationIgnored private(set) var signInEnded: String?
 
@@ -46,7 +52,7 @@ final class TodoSync {
     func start() {
         store.onLocalChange = { [weak self] in self?.kick(after: .seconds(1)) }
         NotificationCenter.default.addObserver(
-            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+            forName: Self.becameActive, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.kick() }
         }
@@ -54,11 +60,19 @@ final class TodoSync {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.ticks += 1
-                if NSApp.isActive || self.ticks % 5 == 0 { self.kick() }
+                if Self.isActive || self.ticks % 5 == 0 { self.kick() }
             }
         }
         Task { await followSignIn() }
     }
+
+    #if os(macOS)
+    private static let becameActive = NSApplication.didBecomeActiveNotification
+    private static var isActive: Bool { NSApp.isActive }
+    #else
+    private static let becameActive = UIApplication.didBecomeActiveNotification
+    private static var isActive: Bool { UIApplication.shared.applicationState == .active }
+    #endif
 
     private func followSignIn() async {
         for await (_, session) in client.auth.authStateChanges {
@@ -71,6 +85,7 @@ final class TodoSync {
         }
     }
 
+    #if os(macOS)
     func signIn() {
         Task {
             do {
@@ -95,6 +110,17 @@ final class TodoSync {
     func cancelSignIn() {
         webSignIn?.cancel()
     }
+    #else
+    func signIn() {
+        Task {
+            do {
+                try await session.signIn()
+            } catch {
+                status = .failing("Sign-in didn't finish: \(error.localizedDescription)")
+            }
+        }
+    }
+    #endif
 
     func signOut() {
         Task { await session.signOut() }
@@ -347,88 +373,5 @@ final class TodoSync {
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
         try? encoder.encode(base).write(to: baseFile, options: .atomic)
-    }
-}
-
-/// The Google sign-in sheet. Not the sign-in library's own: its callback assumes the
-/// main thread, but on the Mac it can arrive on another one, which crashes the app.
-/// Nothing in here is tied to the main thread for that reason.
-final class WebSignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
-    private let window: NSWindow?
-    private var session: ASWebAuthenticationSession?
-
-    init(window: NSWindow?) {
-        self.window = window
-    }
-
-    func start(url: URL, scheme: String, done: @escaping @Sendable (Result<URL, Error>) -> Void) {
-        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: scheme) { callback, error in
-            if let callback {
-                done(.success(callback))
-            } else {
-                done(.failure(error ?? URLError(.unknown)))
-            }
-        }
-        session.presentationContextProvider = self
-        self.session = session
-        session.start()
-    }
-
-    func cancel() {
-        session?.cancel()
-    }
-
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        window ?? ASPresentationAnchor()
-    }
-}
-
-/// A quiet line at the foot of the sidebar, only when there's something to do about
-/// syncing. All's well shows nothing at all.
-@MainActor
-final class SyncStatusController: NSSplitViewItemAccessoryViewController {
-    private let button = NSButton(title: "", target: nil, action: nil)
-    private var sync: TodoSync?
-
-    override func loadView() {
-        button.isBordered = false
-        button.font = .systemFont(ofSize: 12)
-        button.contentTintColor = .secondaryLabelColor
-        button.target = self
-        button.action = #selector(clicked)
-        button.frame = NSRect(x: 0, y: 0, width: 200, height: 36)
-        view = button
-        isHidden = true
-    }
-
-    func attach(_ sync: TodoSync) {
-        self.sync = sync
-        follow()
-    }
-
-    private func follow() {
-        guard let sync else { return }
-        let status = withObservationTracking {
-            sync.status
-        } onChange: { [weak self] in
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.follow() } }
-        }
-        switch status {
-        case .working:
-            isHidden = true
-        case .signedOut:
-            button.title = "Sign in to sync"
-            button.toolTip = nil
-            isHidden = false
-        case .failing(let reason):
-            button.title = "Can't sync right now"
-            button.toolTip = reason
-            isHidden = false
-        }
-    }
-
-    @objc private func clicked() {
-        guard let sync else { return }
-        if sync.status == .signedOut { sync.signIn() } else { sync.kick() }
     }
 }

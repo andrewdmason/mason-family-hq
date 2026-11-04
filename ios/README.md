@@ -67,9 +67,20 @@ no TestFlight. Bundle id and URL scheme `io.mason.music-minus-one`.
 
 A native to-do app for the Mac, in `Todos/` (scheme `TodosMac`). The to-do list
 lives on the Mac in a file, so opening it and every action are instant; the
-website stays as it is for the rest of the family. iPhone comes later, on the
-shared code in `Todos/Shared`. It isn't in the CI matrix, which builds for the
-iPhone simulator.
+website stays as it is for the rest of the family. `TodosMac` isn't in the CI
+matrix, which builds for the iPhone simulator.
+
+## Todos (iPhone)
+
+The same list and sync (`Todos/Shared`, `Todos/Sync`) with its own screens in
+`Todos/iPhone`, scheme `Todos`. Installed with `scripts/install-on-phone.sh Todos`.
+It isn't in the CI matrix yet, which runs each scheme's tests; the shared rules
+are tested under `TodosMac`.
+
+No app can take over Siri's "Remind me", so both apps collect from Reminders
+instead (`Todos/Sync/RemindersImport.swift`): plain reminders in the default list
+move to the Inbox. Anything with a date, a place or a repeat stays, since Todos
+doesn't send alerts.
 
 `--feel-test <rows> <results file> [mode]` drives the app with real key and mouse
 events (`Mac/FeelTest.swift`), never touching the saved list.
