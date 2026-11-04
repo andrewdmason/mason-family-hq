@@ -158,6 +158,38 @@ final class TodoMergeTests: XCTestCase {
             TodoMerge.canonicalStamp("2026-10-02T15:01:33.67+00:00"), TodoMerge.canonicalStamp("2026-10-02T15:01:33Z"))
     }
 
+    // MARK: Collecting reminders
+
+    func testOnlyPlainRemindersMove() {
+        XCTAssertTrue(ReminderRules.shouldMove(title: "Get the milk", hasDate: false, hasAlarm: false, repeats: false))
+        XCTAssertFalse(ReminderRules.shouldMove(title: "Call Sam", hasDate: true, hasAlarm: false, repeats: false))
+        XCTAssertFalse(ReminderRules.shouldMove(title: "At the store", hasDate: false, hasAlarm: true, repeats: false))
+        XCTAssertFalse(ReminderRules.shouldMove(title: "Every week", hasDate: false, hasAlarm: false, repeats: true))
+        XCTAssertFalse(ReminderRules.shouldMove(title: "  ", hasDate: false, hasAlarm: false, repeats: false))
+        XCTAssertFalse(ReminderRules.shouldMove(title: nil, hasDate: false, hasAlarm: false, repeats: false))
+    }
+
+    func testAReminderHasOneIDOnEveryDevice() {
+        let id = ReminderRules.todoID(forReminder: "ABC-123")
+        XCTAssertEqual(id, ReminderRules.todoID(forReminder: "ABC-123"))
+        XCTAssertNotEqual(id, ReminderRules.todoID(forReminder: "ABC-124"))
+        XCTAssertNotNil(UUID(uuidString: id), "the database needs a real uuid")
+        XCTAssertEqual(id, id.lowercased())
+    }
+
+    @MainActor
+    func testCollectingTheSameReminderTwiceMakesOneToDo() {
+        let store = TodoStore(library: TodoLibrary(tasks: [todo("a", bucket: .inbox)], projects: [], sections: []), saveFile: nil)
+        store.addFromReminder(id: "r", title: " Get the milk ", notes: " 2% ", createdAt: Date())
+        store.addFromReminder(id: "r", title: "Get the milk", notes: nil, createdAt: Date())
+        XCTAssertEqual(store.todos.filter { $0.id == "r" }.count, 1)
+        let added = store.todos.first { $0.id == "r" }
+        XCTAssertEqual(added?.title, "Get the milk")
+        XCTAssertEqual(added?.notes, "2%")
+        XCTAssertEqual(added?.bucket, .inbox)
+        XCTAssertEqual(store.tasks(for: .view(.inbox)).first?.id, "r", "newest on top")
+    }
+
     // MARK: Safety
 
     func testASuddenLossOfMostOfAListStops() {

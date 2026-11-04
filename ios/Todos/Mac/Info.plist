@@ -33,5 +33,7 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Moves what you ask Siri to remember from your default Reminders list to your Todos Inbox.</string>
 </dict>
 </plist>

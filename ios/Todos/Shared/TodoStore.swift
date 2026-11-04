@@ -386,7 +386,7 @@ final class TodoStore {
     }
 
     /// The quiet text at the end of a row.
-    private func detail(for todo: Todo) -> String? {
+    func detail(for todo: Todo) -> String? {
         switch destination {
         case .project, .view(.week), .view(.anytime), .view(.someday):
             return todo.snoozedUntil.flatMap(Self.shortDate)
@@ -768,6 +768,23 @@ final class TodoStore {
         }
     }
 
+    /// Saves a name and notes edited elsewhere than the open card. A name left blank
+    /// keeps the old one.
+    func edit(_ id: String, title: String, notes: String) {
+        guard let todo = todos.first(where: { $0.id == id }) else { return }
+        let newTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalTitle = newTitle.isEmpty ? todo.title : newTitle
+        let finalNotes = newNotes.isEmpty ? nil : newNotes
+        guard finalTitle != todo.title || finalNotes != todo.notes else { return }
+        change {
+            update(id) {
+                $0.title = finalTitle
+                $0.notes = finalNotes
+            }
+        }
+    }
+
     // MARK: Reordering
 
     /// Which group of the list on screen a to-do sits in.
@@ -994,6 +1011,23 @@ final class TodoStore {
     }
 
     /// A new project opens straight away, with the cursor in its header.
+    /// A reminder collected from Apple's Reminders. Not an undo step, or ⌘Z could
+    /// take it back out with the reminder already gone. Same id, nothing new.
+    func addFromReminder(id: String, title: String, notes: String?, createdAt: Date) {
+        guard !todos.contains(where: { $0.id == id }) else { return }
+        let text = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        let first = todos.filter { $0.bucket == .inbox }.map(\.sortOrder).min() ?? 0
+        let trimmedNotes = notes?.trimmingCharacters(in: .whitespacesAndNewlines)
+        todos.append(Todo(
+            id: id, title: text, notes: trimmedNotes?.isEmpty == false ? trimmedNotes : nil, bucket: .inbox,
+            assigneeEmail: me, creatorEmail: me, projectId: nil, sectionId: nil, snoozedUntil: nil, completedAt: nil,
+            sortOrder: first - 1, createdAt: Self.stamp(createdAt)))
+        undoStack.removeAll()
+        redoStack.removeAll()
+        onLocalChange?()
+    }
+
     func startNewProject() {
         finishNamingSection()
         finishRenamingProject()
@@ -1160,6 +1194,10 @@ final class TodoStore {
         finishNamingSection()
         finishRenamingProject()
         commitEdit()
+        saveToDiskNow()
+    }
+
+    func saveToDiskNow() {
         guard let saveFile else { return }
         saveTask?.cancel()
         let encoder = JSONEncoder()

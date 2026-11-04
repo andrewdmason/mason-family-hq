@@ -119,6 +119,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 model.sync = sync
                 sync.start()
                 syncStatus.attach(sync)
+                if model.test == nil {
+                    let reminders = RemindersImport(store: model.store)
+                    model.reminders = reminders
+                    reminders.start()
+                }
             }
         }
 
@@ -255,6 +260,7 @@ final class AppModel {
     let quickAdd: QuickAddController
     let palette: CommandPalette
     var sync: TodoSync?
+    var reminders: RemindersImport?
 
     init() {
         let test = FeelTest.fromArguments()
