@@ -104,6 +104,8 @@ final class QuickAddController: NSObject, NSTextFieldDelegate, NSWindowDelegate 
         panel.isFloatingPanel = true
         panel.level = .modalPanel
         panel.hidesOnDeactivate = false
+        // Otherwise showing it while the app is hidden unhides the app and its window.
+        panel.canHide = false
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false
         panel.backgroundColor = .clear

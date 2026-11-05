@@ -147,6 +147,22 @@ struct FeelTest {
             return
         }
 
+        if CommandLine.arguments.contains("quickhidden") {
+            let panel = model.quickAdd.window
+            NSApp.hide(nil)
+            try? await Task.sleep(for: .milliseconds(400))
+            var log = ["hidden: app hidden \(NSApp.isHidden), window visible \(window.isVisible)"]
+            model.quickAdd.toggle()
+            try? await Task.sleep(for: .milliseconds(400))
+            log.append("open: app hidden \(NSApp.isHidden), window visible \(window.isVisible), bar visible \(panel.isVisible), key \(panel.isKeyWindow), in field \(panel.firstResponder is NSText)")
+            model.quickAdd.toggle()
+            try? await Task.sleep(for: .milliseconds(400))
+            log.append("closed: app hidden \(NSApp.isHidden), window visible \(window.isVisible), bar visible \(panel.isVisible)")
+            try? (log.joined(separator: "\n") + "\n").write(to: results, atomically: true, encoding: .utf8)
+            NSApp.terminate(nil)
+            return
+        }
+
         if CommandLine.arguments.contains("sections") {
             func press(_ text: String, _ code: UInt16, command: Bool = false) async {
                 let event = NSEvent.keyEvent(
