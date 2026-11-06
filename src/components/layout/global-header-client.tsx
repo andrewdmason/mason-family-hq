@@ -149,7 +149,7 @@ function BucksBalanceBadge({ balance }: { balance: number }) {
  * assumes non-owner until the real header replaces it — the only difference is
  * an extra dropdown item, visible only if the menu is opened in that moment.
  * The exceptions are the role-gated routes: anyone seeing this shell on
- * /practice is an owner, and anyone seeing it on /reader is a parent, so we say
+ * /practice is an owner, and anyone seeing it on /reader or /tuttles is a parent, so we say
  * so up front — otherwise the switcher would name the fallback's first app
  * ("Home") for a frame before resolving to the real one.
  */
@@ -158,7 +158,10 @@ export function GlobalHeaderShell() {
   if (hidesGlobalChrome(pathname)) return null;
 
   const ownerByRoute = pathname?.startsWith("/practice") ?? false;
-  const adultByRoute = ownerByRoute || (pathname?.startsWith("/reader") ?? false);
+  const adultByRoute =
+    ownerByRoute ||
+    (pathname?.startsWith("/reader") ?? false) ||
+    (pathname?.startsWith("/tuttles") ?? false);
 
   return (
     <header

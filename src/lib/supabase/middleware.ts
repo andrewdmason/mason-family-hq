@@ -90,6 +90,13 @@ export async function updateSession(request: NextRequest) {
     !(
       request.nextUrl.pathname === "/reader/api/convert" &&
       request.headers.get("authorization")?.startsWith("Bearer ")
+    ) &&
+    // The Tuttles iPhone app's chat turns carry its access token as a bearer
+    // header (no cookies), which the route validates itself — see
+    // src/app/(tuttles)/tuttles/api/chat/route.ts.
+    !(
+      request.nextUrl.pathname.startsWith("/tuttles/api/") &&
+      request.headers.get("authorization")?.startsWith("Bearer ")
     )
   ) {
     const url = request.nextUrl.clone();
@@ -115,13 +122,14 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  // Two role-gated apps: the practice book is owner-only, and Reader is the
+  // Three role-gated apps: the practice book is owner-only, Reader is the
   // parents' e-reader (the kids' reading lives in Bookshelf, which is open to
-  // everyone). Resolve the role from the membership table (authoritative, and
+  // everyone), and the website's Tuttles is where parents read the kids' tutor
+  // chats (the kids use the iPhone app, whose chat route is bearer-only). Resolve the role from the membership table (authoritative, and
   // both are low-traffic so the extra lookup is negligible). RLS scopes the
   // read to the caller's own row.
   const gated = userId
-    ? (["/practice", "/reader"] as const).find((prefix) =>
+    ? (["/practice", "/reader", "/tuttles"] as const).find((prefix) =>
         request.nextUrl.pathname.startsWith(prefix)
       )
     : undefined;

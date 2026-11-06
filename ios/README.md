@@ -85,6 +85,29 @@ doesn't send alerts.
 `--feel-test <rows> <results file> [mode]` drives the app with real key and mouse
 events (`Mac/FeelTest.swift`), never touching the saved list.
 
+## Tuttles
+
+The kids' homework tutor (Sebastian's for now), in `Tuttles/`. Bundle id and
+URL scheme `io.mason.tuttles`. It opens on a new chat; earlier ones are a step
+back. The tutor's rules are in `src/lib/tuttles/prompt.ts`.
+
+- A turn goes to the website (`/tuttles/api/chat`) with the phone's access
+  token; the website holds the model key, streams the reply back as plain text,
+  and saves the turn once it's finished. A failed turn saves nothing and comes
+  back to the message box to send again. The phone reads its threads and
+  messages straight from Supabase (`tutor_threads`, `tutor_messages`).
+- Photos go to the private `tuttles` bucket (`{student}/{thread}/{photo}.jpg`)
+  before the message that carries them. The camera stays open for as many
+  pictures as it takes and closes on Done.
+- Replies are Markdown with LaTeX and ```visual blocks of JSON (mapping
+  diagrams, graphs, number lines, SVG). `MessageBlocks` splits them, SwiftMath
+  typesets the math, and `VisualView` draws the pictures; the website's parent
+  view draws the same format, so keep the two in step.
+- Archiving tidies a chat out of the list; parents still read every chat at
+  family.mason.io/tuttles.
+- `--demo` runs on canned chats with no sign-in (`--open <n>` opens one), for
+  the simulator. `--website <url>` points the chat at another server.
+
 ## Adding an app
 
 A new folder beside `Practice/` and a target in `project.yml` that depends on

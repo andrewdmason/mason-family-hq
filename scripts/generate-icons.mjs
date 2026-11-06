@@ -17,7 +17,7 @@
 // in sync.
 //
 // Run: node scripts/generate-icons.mjs
-import { createCanvas, Path2D } from "@napi-rs/canvas";
+import { createCanvas, loadImage, Path2D } from "@napi-rs/canvas";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -61,6 +61,9 @@ const TILE_GLYPH_STROKE = 2;
 // Each app's tile: a per-hue gradient (kept warm/muted so the set reads as one
 // family) plus its switcher glyph. `group` is the route-group folder that gets
 // the apple-touch-icon; `glyph: null` means the master house mark (home).
+// `photo` swaps the glyph tile for a photograph (scripts/icon-art/), drawn
+// full-bleed: Tuttles' icon is the family's red fire hydrant, the same art as
+// the iPhone app's icon.
 const APPS = [
   { key: "home", group: "(home)", glyph: null, top: TERRA_TOP, bottom: TERRA_BOTTOM },
   { key: "family", group: "(family)", glyph: Users, top: "#b5746e", bottom: "#8a4a42" },
@@ -76,7 +79,12 @@ const APPS = [
   { key: "practice", group: "practice", glyph: Music, top: "#8475a6", bottom: "#524673" },
   { key: "games", group: "(games)", glyph: Brain, top: "#b5617e", bottom: "#83405a" },
   { key: "clips", group: "(clips)", glyph: Clapperboard, top: "#6b8f5e", bottom: "#41613a" },
+  { key: "tuttles", group: "(tuttles)", photo: "scripts/icon-art/tuttles.jpg", top: "#d7261e", bottom: "#9e1a14" },
 ];
+
+for (const app of APPS) {
+  if (app.photo) app.image = await loadImage(join(root, app.photo));
+}
 
 // --- Background --------------------------------------------------------------
 /** Fill a square canvas with the corner-to-corner gradient + soft top glow. */
@@ -267,7 +275,8 @@ function appCanvas(size, app, { rounded = false, favicon = false } = {}) {
     ctx.clip();
   }
   drawBackground(ctx, size, app.top, app.bottom);
-  if (app.glyph)
+  if (app.image) ctx.drawImage(app.image, 0, 0, size, size);
+  else if (app.glyph)
     drawGlyph(
       ctx, size, app.glyph,
       favicon ? FAVICON_GLYPH_SCALE : TILE_GLYPH_SCALE,
@@ -296,6 +305,17 @@ function appPng(size, app, opts = {}) {
 // A crisp vector favicon: the app's tile art with rounded corners. Modern
 // browsers (Chrome, Firefox) prefer this over the .ico/.png fallbacks.
 function appSvg(app) {
+  // A photo tile embeds a small JPEG of itself; a favicon never draws bigger.
+  if (app.image) {
+    const c = createCanvas(128, 128);
+    c.getContext("2d").drawImage(app.image, 0, 0, 128, 128);
+    const data = c.toBuffer("image/jpeg", 85).toString("base64");
+    return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512">
+  <defs><clipPath id="r"><rect width="512" height="512" rx="${512 * CORNER}"/></clipPath></defs>
+  <image width="512" height="512" clip-path="url(#r)" href="data:image/jpeg;base64,${data}"/>
+</svg>
+`;
+  }
   // Favicon geometry (bigger than the PWA tiles): a 24×24 Lucide viewBox
   // scaled to FAVICON_GLYPH_SCALE of the tile, centred. We inline the icon's
   // rendered child elements (bare paths that inherit stroke styling from the
