@@ -16,6 +16,8 @@ struct ChatView: View {
     @State private var sendError: String?
     @State private var showingCamera = false
     @State private var viewing: PhotoRef?
+    /// Which costume Tuttles greets a new chat in (Tuttles1…Tuttles10).
+    @State private var pose = Int.random(in: 1...10)
     @FocusState private var typing: Bool
 
     var body: some View {
@@ -61,11 +63,10 @@ struct ChatView: View {
 
     private var emptyState: some View {
         VStack(spacing: 14) {
-            Image("Hydrant")
+            Image("Tuttles\(pose)")
                 .resizable()
-                .scaledToFill()
-                .frame(width: 88, height: 88)
-                .clipShape(.rect(cornerRadius: 22))
+                .scaledToFit()
+                .frame(height: 200)
             Text(loadError ?? "What are you working on?")
                 .font(.title3.weight(.semibold))
             if loadError == nil {
