@@ -12,9 +12,11 @@ struct TutorThread: Identifiable, Codable, Equatable {
     var archivedAt: Date?
     /// The class it's about (a Canvas course id), or nil.
     var courseId: Int?
+    /// "briefing" for a parent's chat about one of the kid's topics.
+    var kind: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, title
+        case id, title, kind
         case updatedAt = "updated_at"
         case archivedAt = "archived_at"
         case courseId = "course_id"
@@ -63,6 +65,41 @@ final class ChatStore {
     /// The student's classes, from Canvas; nil until loaded or when there's no Canvas.
     var classes: ClassesPayload?
 
+    /// The kid's chats (a parent's, while seeing the app as the kid), and a
+    /// parent's own briefings.
+    var kidThreads: [TutorThread] { threads.filter { $0.kind != "briefing" } }
+    var briefings: [TutorThread] { threads.filter { $0.kind == "briefing" } }
+
+    /// The signed-in member is a parent (or it's the demo).
+    var isParent: Bool { isDemo || ["owner", "parent"].contains(Session.shared.role ?? "") }
+
+    /// A parent's choice between seeing the app as the kid and their own view.
+    var parentView: Bool = UserDefaults.standard.bool(forKey: "tuttles.parentView") {
+        didSet { UserDefaults.standard.set(parentView, forKey: "tuttles.parentView") }
+    }
+    var showingParentView: Bool { isParent && parentView }
+
+    /// The parents' "This week" (ParentView.swift).
+    var week: WeekPayload?
+    private(set) var weekLoaded = false
+
+    func refreshWeek() async {
+        defer { weekLoaded = true }
+        if isDemo {
+            week = DemoChats.week
+            return
+        }
+        guard let token = try? await client.auth.session.accessToken else { return }
+        var request = URLRequest(url: Self.websiteURL.appending(path: "tuttles/api/parent/week"))
+        request.timeoutInterval = 120
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let payload = try? Self.decoder.decode(WeekPayload.self, from: data) else { return }
+        week = payload
+        save(data, as: "week")
+    }
+
     func classInfo(_ courseID: Int?) -> ClassInfo? {
         guard let courseID else { return nil }
         return classes?.classes.first { $0.id == courseID }
@@ -86,6 +123,11 @@ final class ChatStore {
            let saved = try? Self.decoder.decode([TutorThread].self, from: data) {
             threads = saved
             threadsLoaded = true
+        }
+        if week == nil, let data = try? Data(contentsOf: Self.savedFile("week", userID)),
+           let saved = try? Self.decoder.decode(WeekPayload.self, from: data) {
+            week = saved
+            weekLoaded = true
         }
         if classes == nil, let data = try? Data(contentsOf: Self.savedFile("classes", userID)),
            let saved = try? Self.decoder.decode(ClassesPayload.self, from: data) {
@@ -113,7 +155,7 @@ final class ChatStore {
         }
         do {
             let fresh: [TutorThread] = try await client.from("tutor_threads")
-                .select("id, title, updated_at, archived_at, course_id")
+                .select("id, title, updated_at, archived_at, course_id, kind")
                 .eq("student_id", value: Session.shared.userID?.uuidString.lowercased() ?? "")
                 .is("archived_at", value: nil)
                 .order("updated_at", ascending: false)
@@ -263,7 +305,7 @@ final class ChatStore {
     /// far as it streams in (at most every few frames). Throws if the turn
     /// failed; nothing is saved then, so it can be sent again.
     func send(
-        threadID: UUID, text: String, photos: [ChatPhoto], assignmentID: Int? = nil,
+        threadID: UUID, text: String, photos: [ChatPhoto], assignmentID: Int? = nil, briefing: BriefingTopic? = nil,
         onText: @escaping @MainActor (String) -> Void
     ) async throws {
         if isDemo {
@@ -290,6 +332,12 @@ final class ChatStore {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = ["threadId": threadID.uuidString.lowercased(), "text": text, "images": paths]
         if let assignmentID { body["assignmentId"] = assignmentID }
+        if let briefing {
+            body["briefing"] = [
+                "courseId": briefing.courseId, "title": briefing.title,
+                "summary": briefing.summary, "assignmentIds": briefing.assignmentIds,
+            ]
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)

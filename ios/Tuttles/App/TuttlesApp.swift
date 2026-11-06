@@ -52,8 +52,10 @@ struct RootView: View {
 enum Route: Hashable {
     /// `isNew`: a chat with nothing in it yet, whose id is made here. A new
     /// chat can be about an assignment (`start`) or begun from a class page.
-    case chat(UUID, isNew: Bool, start: ChatStart? = nil, courseID: Int? = nil)
+    case chat(UUID, isNew: Bool, start: ChatStart? = nil, courseID: Int? = nil, briefing: BriefingTopic? = nil)
     case classPage(Int)
+    /// Parent view: one of the kid's topics this week.
+    case topic(WeekPayload.Topic, WeekPayload.ClassWeek)
 }
 
 /// The chats, with a new one open on top.
@@ -77,17 +79,31 @@ struct ChatsView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            ThreadListView(path: $path)
+            Group {
+                if store.showingParentView {
+                    ParentHomeView(path: $path)
+                } else {
+                    ThreadListView(path: $path)
+                }
+            }
                 .navigationDestination(for: Route.self) { route in
                     switch route {
-                    case .chat(let id, let isNew, let start, let courseID):
-                        ChatView(threadID: id, isNew: isNew, title: store.threads.first { $0.id == id }?.title,
-                                 courseID: courseID, start: start)
+                    case .chat(let id, let isNew, let start, let courseID, let briefing):
+                        ChatView(threadID: id, isNew: isNew,
+                                 title: briefing?.title ?? store.threads.first { $0.id == id }?.title,
+                                 courseID: courseID, briefing: briefing, start: start)
+                    case .topic(let topic, let week):
+                        TopicView(topic: topic, week: week, path: $path)
                     case .classPage(let id):
                         ClassPageView(courseID: id, path: $path)
                     }
                 }
         }
+        .onChange(of: store.showingParentView) { _, parent in
+            // A view starts at its home: the parent's This week, or a new chat for the kid's.
+            path = parent ? [] : [.chat(UUID(), isNew: true)]
+        }
+        .onAppear { if store.showingParentView { path = [] } }
     }
 }
 
@@ -148,7 +164,7 @@ private struct ThreadListView: View {
                 if let error = store.listError {
                     Text(error).foregroundStyle(.secondary)
                 }
-                ForEach(store.threads) { thread in
+                ForEach(store.kidThreads) { thread in
                     NavigationLink(value: Route.chat(thread.id, isNew: false)) {
                         ThreadRow(thread: thread, info: store.classInfo(thread.courseId))
                     }
@@ -176,7 +192,7 @@ private struct ThreadListView: View {
             }
         }
         .overlay {
-            if store.threadsLoaded, store.classesLoaded, store.threads.isEmpty, store.classes == nil, store.listError == nil {
+            if store.threadsLoaded, store.classesLoaded, store.kidThreads.isEmpty, store.classes == nil, store.listError == nil {
                 ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.text.bubble.right",
                                        description: Text("Start one with the pencil button."))
             }
@@ -211,12 +227,22 @@ private struct ThreadListView: View {
 }
 
 /// Who's signed in, and the way out.
-private struct AccountMenu: View {
+struct AccountMenu: View {
     @Binding var showMemory: Bool
+    @Environment(ChatStore.self) private var store
 
     var body: some View {
+        @Bindable var store = store
         Menu {
-            Button("What Tuttles knows about you", systemImage: "brain.head.profile") { showMemory = true }
+            if store.isParent {
+                // Parents see the app as the kid does, or their own view of it.
+                Picker("View", selection: $store.parentView) {
+                    Label("See it as \(store.classes?.student.name ?? "the kid")", systemImage: "iphone").tag(false)
+                    Label("Parent view", systemImage: "person.2").tag(true)
+                }
+            }
+            Button(store.showingParentView ? "What Tuttles knows about \(store.classes?.student.name ?? "them")" : "What Tuttles knows about you",
+                   systemImage: "brain.head.profile") { showMemory = true }
             Section(Session.shared.email ?? "Signed in") {
                 Button("Sign out", role: .destructive) { Task { await Session.shared.signOut() } }
             }
