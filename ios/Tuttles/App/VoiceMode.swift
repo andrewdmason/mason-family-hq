@@ -32,6 +32,8 @@ final class VoiceCall {
     /// What the tutor is saying now, and what the student last said.
     private(set) var tutorCaption = ""
     private(set) var studentCaption = ""
+    /// The student is talking right now (from the server's voice detection).
+    private(set) var studentSpeaking = false
     /// 0…1, for the background.
     private(set) var inputLevel: Float = 0
     private(set) var outputLevel: Float = 0
@@ -68,8 +70,11 @@ final class VoiceCall {
             self.socket = socket
             socket.resume()
             Task { await receive() }
-            // The tutor opens with a short hello.
-            send(["type": "response.create"])
+            // The tutor picks up like a friend answering the phone: a word or
+            // two, then it waits.
+            send(["type": "response.create", "response": [
+                "instructions": "Say exactly \"\(Self.greeting(name: store.classes?.student.name))\" and nothing else.",
+            ]])
             state = .live
         } catch {
             state = .failed(error.localizedDescription)
@@ -139,6 +144,7 @@ final class VoiceCall {
     }
 
     private func handle(_ e: [String: Any]) {
+        if let type = e["type"] as? String, !type.hasSuffix(".delta") { VoiceLog.say("event \(type)") }
         switch e["type"] as? String {
         case "response.output_audio.delta":
             if let b64 = e["delta"] as? String, let pcm = Data(base64Encoded: b64) { play(pcm) }
@@ -158,7 +164,9 @@ final class VoiceCall {
             // cancels the rest of its reply).
             player.stop()
             player.play()
-            studentCaption = "…"
+            studentSpeaking = true
+        case "input_audio_buffer.speech_stopped":
+            studentSpeaking = false
         case "input_audio_buffer.committed":
             if let id = e["item_id"] as? String {
                 let after = (e["previous_item_id"] as? String).flatMap { p in turns.firstIndex { $0.id == p } }
@@ -192,6 +200,12 @@ final class VoiceCall {
         }
     }
 
+    static func greeting(name: String?) -> String {
+        var options = ["Hey!", "Hey, what's up?", "Hi!", "What's up?", "Hey there!"]
+        if let name, !name.isEmpty { options += ["Hey \(name)!", "Hi \(name)!"] }
+        return options.randomElement()!
+    }
+
     /// show_visual's argument: the visual's JSON, as a string or an object.
     static func visual(from arguments: String?) -> String? {
         guard let data = arguments?.data(using: .utf8),
@@ -213,32 +227,49 @@ final class VoiceCall {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
         try session.setActive(true)
-        // Echo cancellation, so the tutor doesn't hear itself.
+        // Echo cancellation, so the tutor doesn't hear itself. Must come before
+        // anything else touches the engine's nodes.
         try engine.inputNode.setVoiceProcessingEnabled(true)
 
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: playFormat)
 
+        // With echo cancellation on, the microphone can arrive as several
+        // channels; the first one is the voice. It's taken alone and then
+        // converted to what the realtime model wants (24 kHz, 16-bit, mono).
         let inFormat = engine.inputNode.outputFormat(forBus: 0)
-        guard let converter = AVAudioConverter(from: inFormat, to: sendFormat) else { throw VoiceError.audio }
+        guard let mono = AVAudioFormat(standardFormatWithSampleRate: inFormat.sampleRate, channels: 1),
+              let converter = AVAudioConverter(from: mono, to: sendFormat) else { throw VoiceError.audio }
+        VoiceLog.say("mic format \(inFormat)")
         let sendFormat = self.sendFormat
-        engine.inputNode.installTap(onBus: 0, bufferSize: 2400, format: inFormat) { [weak self] buffer, _ in
-            let level = Self.rms(buffer)
-            let frames = AVAudioFrameCount(Double(buffer.frameLength) * 24000 / inFormat.sampleRate) + 1
+        engine.inputNode.installTap(onBus: 0, bufferSize: 4800, format: inFormat) { [weak self] buffer, _ in
+            guard let channel = buffer.floatChannelData?[0], buffer.frameLength > 0,
+                  let single = AVAudioPCMBuffer(pcmFormat: mono, frameCapacity: buffer.frameLength) else { return }
+            single.frameLength = buffer.frameLength
+            single.floatChannelData![0].update(from: channel, count: Int(buffer.frameLength))
+            let level = Self.rms(single)
+
+            let frames = AVAudioFrameCount(Double(single.frameLength) * 24000 / mono.sampleRate) + 16
             guard let out = AVAudioPCMBuffer(pcmFormat: sendFormat, frameCapacity: frames) else { return }
             var fed = false
-            converter.convert(to: out, error: nil) { _, status in
-                if fed { status.pointee = .noDataNow; return nil }
+            var error: NSError?
+            let status = converter.convert(to: out, error: &error) { _, inputStatus in
+                if fed { inputStatus.pointee = .noDataNow; return nil }
                 fed = true
-                status.pointee = .haveData
-                return buffer
+                inputStatus.pointee = .haveData
+                return single
             }
-            guard let samples = out.int16ChannelData else { return }
-            let bytes = Data(bytes: samples[0], count: Int(out.frameLength) * 2)
+            if status == .error || out.frameLength == 0 {
+                VoiceLog.once("convert", "mic convert failed: \(status.rawValue) \(error?.localizedDescription ?? "")")
+                return
+            }
+            let bytes = Data(bytes: out.int16ChannelData![0], count: Int(out.frameLength) * 2)
             Task { @MainActor in
                 guard let self else { return }
                 self.inputLevel = self.inputLevel * 0.6 + level * 0.4
                 guard !self.muted, self.state == .live else { return }
+                self.sentChunks += 1
+                if self.sentChunks == 1 || self.sentChunks % 50 == 0 { VoiceLog.say("mic chunks sent: \(self.sentChunks)") }
                 self.send(["type": "input_audio_buffer.append", "audio": bytes.base64EncodedString()])
             }
         }
@@ -250,12 +281,36 @@ final class VoiceCall {
                 self.outputLevel = self.outputLevel * 0.6 + level * 0.4
             }
         }
+        // The system can stop the engine when the audio route changes (and
+        // turning echo cancellation on can be one of those); start it again.
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.restartAudio() }
+        }
         engine.prepare()
         try engine.start()
+        player.play()
+        VoiceLog.say("audio started; route \(session.currentRoute.outputs.map(\.portType.rawValue))")
+    }
+
+    private var sentChunks = 0
+    private var playedChunks = 0
+    private var configObserver: NSObjectProtocol?
+
+    private func restartAudio() {
+        guard state == .live || state == .connecting else { return }
+        VoiceLog.say("audio configuration changed; running: \(engine.isRunning)")
+        if !engine.isRunning {
+            engine.connect(player, to: engine.mainMixerNode, format: playFormat)
+            try? engine.start()
+        }
         player.play()
     }
 
     private func stopAudio() {
+        if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+        configObserver = nil
         engine.inputNode.removeTap(onBus: 0)
         engine.mainMixerNode.removeTap(onBus: 0)
         player.stop()
@@ -273,6 +328,10 @@ final class VoiceCall {
             for i in 0..<count { dst[i] = Float(Int16(littleEndian: src[i])) / 32768 }
         }
         player.scheduleBuffer(buffer)
+        playedChunks += 1
+        if playedChunks == 1 || playedChunks % 50 == 0 {
+            VoiceLog.say("voice chunks played: \(playedChunks), engine running: \(engine.isRunning), player playing: \(player.isPlaying)")
+        }
     }
 
     nonisolated private static func rms(_ buffer: AVAudioPCMBuffer) -> Float {
@@ -307,6 +366,7 @@ struct VoiceView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 16) {
+                studentArea
                 stage
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(.horizontal, 20)
@@ -370,6 +430,30 @@ struct VoiceView: View {
         .frame(height: 50)
     }
 
+    /// The top of the screen is the student's: a live waveform while they talk,
+    /// then what they said, written out.
+    private var studentArea: some View {
+        ZStack {
+            if call?.studentSpeaking == true {
+                ListeningWave(level: call?.inputLevel ?? 0)
+                    .transition(.opacity)
+            } else if let said = call?.studentCaption, !said.isEmpty {
+                Text(said)
+                    .font(.body)
+                    .foregroundStyle(.white.opacity(0.75))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 76)
+        .padding(.horizontal, 28)
+        .padding(.top, 8)
+        .animation(.easeOut(duration: 0.2), value: call?.studentSpeaking)
+        .animation(.easeOut(duration: 0.2), value: call?.studentCaption)
+    }
+
     private var captions: some View {
         VStack(spacing: 8) {
             switch call?.state ?? .connecting {
@@ -380,12 +464,6 @@ struct VoiceView: View {
             case .ending:
                 Text("Saving…").foregroundStyle(.white.opacity(0.7))
             case .live:
-                if let student = call?.studentCaption, !student.isEmpty {
-                    Text(student)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.55))
-                        .lineLimit(2)
-                }
                 Text(tail(call?.tutorCaption ?? ""))
                     .font(.title3.weight(.medium))
                     .foregroundStyle(.white)
@@ -436,12 +514,12 @@ struct VoiceView: View {
                     dismiss()
                 }
             } label: {
-                Image(systemName: "xmark").font(.title2.weight(.semibold)).frame(width: 64, height: 64)
+                Image(systemName: "phone.down.fill").font(.title2).frame(width: 64, height: 64)
             }
             .buttonStyle(.glassProminent)
             .buttonBorderShape(.circle)
             .tint(.red)
-            .accessibilityLabel("End")
+            .accessibilityLabel("Hang up")
         }
         .foregroundStyle(.white)
     }
@@ -482,5 +560,39 @@ struct VoiceBackground: View {
             )
             .animation(.easeOut(duration: 0.25), value: tutor)
         }
+    }
+}
+
+/// What voice mode is doing, printed for the Xcode or devicectl console.
+enum VoiceLog {
+    nonisolated(unsafe) private static var said = Set<String>()
+    static func say(_ message: String) { print("[voice] \(message)") }
+    static func once(_ key: String, _ message: String) {
+        guard !said.contains(key) else { return }
+        said.insert(key)
+        say(message)
+    }
+}
+
+/// Bars that move with the student's voice, so they can see they're heard.
+struct ListeningWave: View {
+    let level: Float
+
+    var body: some View {
+        TimelineView(.animation) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            let loud = CGFloat(min(1, level * 2.2))
+            HStack(spacing: 5) {
+                ForEach(0..<9, id: \.self) { i in
+                    let wobble = (sin(t * 9 + Double(i) * 0.8) + 1) / 2
+                    let center = 1 - abs(CGFloat(i) - 4) / 5
+                    Capsule()
+                        .fill(.white.opacity(0.9))
+                        .frame(width: 5, height: 6 + 44 * loud * center * (0.45 + 0.55 * CGFloat(wobble)))
+                }
+            }
+            .animation(.easeOut(duration: 0.08), value: loud)
+        }
+        .accessibilityLabel("Listening")
     }
 }

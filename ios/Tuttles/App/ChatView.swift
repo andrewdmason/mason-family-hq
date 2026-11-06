@@ -59,7 +59,7 @@ struct ChatView: View {
         .navigationTitle(title ?? "")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Talk with Tuttles", systemImage: "waveform") { showingVoice = true }
+                Button("Call Tuttles", systemImage: "phone.fill") { showingVoice = true }
                     .disabled(sending)
             }
         }
