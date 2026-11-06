@@ -2,9 +2,13 @@ import Link from "next/link";
 import { Archive, ChevronRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { formatActivity, getThreadsByStudent } from "@/lib/tuttles/queries";
+import { CANVAS_BASE_URL, getCanvasStatuses } from "@/lib/canvas/connections";
+import { CanvasConnections } from "@/components/tuttles/canvas-connections";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
+// Connecting a Canvas key syncs the kid's coursework before the action returns.
+export const maxDuration = 120;
 
 /**
  * The parents' view of Tuttles: every kid's tutor chats, newest first, grouped
@@ -13,7 +17,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function TuttlesPage() {
   const supabase = await createClient();
-  const students = await getThreadsByStudent(supabase);
+  const [students, canvas] = await Promise.all([getThreadsByStudent(supabase), getCanvasStatuses()]);
   const now = new Date();
 
   return (
@@ -24,6 +28,8 @@ export default async function TuttlesPage() {
           The kids’ homework chats with their tutor.
         </p>
       </header>
+
+      <CanvasConnections statuses={canvas} canvasUrl={CANVAS_BASE_URL} now={now.getTime()} />
 
       {students.length === 0 ? (
         <p className="rounded-xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
