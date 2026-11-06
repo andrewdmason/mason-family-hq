@@ -6,6 +6,12 @@ struct ChatView: View {
     let threadID: UUID
     let isNew: Bool
     let title: String?
+    /// For a new chat: the class page it was started from, to file it under.
+    var courseID: Int?
+
+    /// For a new chat: the assignment it's about. Set by tapping one, here or
+    /// on the list or a class page; the first message carries it.
+    @State var start: ChatStart?
 
     @Environment(ChatStore.self) private var store
     @State private var messages: [ChatMessage] = []
@@ -49,6 +55,12 @@ struct ChatView: View {
         .navigationTitle(title ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            if let text = start?.autoSend, messages.isEmpty {
+                start?.autoSend = nil
+                draft = text
+                send()
+                return
+            }
             guard !isNew, messages.isEmpty else { return }
             do { messages = try await store.messages(in: threadID) } catch { loadError = "Couldn't load this chat." }
         }
@@ -66,16 +78,35 @@ struct ChatView: View {
             Image("Tuttles\(pose)")
                 .resizable()
                 .scaledToFit()
-                .frame(height: 200)
-            Text(loadError ?? "What are you working on?")
-                .font(.title3.weight(.semibold))
-            if loadError == nil {
-                Text("Snap your homework or ask a question.")
+                .frame(height: start == nil ? 200 : 140)
+            if let start {
+                AssignmentBanner(assignment: start.assignment, info: store.classInfo(start.assignment.courseId))
+                Text("Snap the page, or say where you're stuck.")
                     .foregroundStyle(.secondary)
+            } else {
+                Text(loadError ?? "What are you working on?")
+                    .font(.title3.weight(.semibold))
+                if loadError == nil {
+                    Text("Snap your homework or ask a question.")
+                        .foregroundStyle(.secondary)
+                }
+                if isNew, let soon = store.classes?.dueSoon.prefix(3), !soon.isEmpty {
+                    VStack(spacing: 8) {
+                        ForEach(Array(soon)) { a in
+                            Button {
+                                withAnimation(.snappy) { start = ChatStart(assignment: a) }
+                            } label: {
+                                SuggestionRow(assignment: a, info: store.classInfo(a.courseId))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.top, 10)
+                    .padding(.horizontal, 24)
+                }
             }
         }
         .padding(.bottom, 40)
-        .allowsHitTesting(false)
     }
 
     // MARK: - Writing
@@ -172,10 +203,18 @@ struct ChatView: View {
 
         Task {
             do {
-                try await store.send(threadID: threadID, text: text, photos: sent) { soFar in
+                let isFirst = messages.count <= 2
+                try await store.send(
+                    threadID: threadID, text: text, photos: sent,
+                    assignmentID: isFirst ? start?.assignment.id : nil
+                ) { soFar in
                     if let at = messages.firstIndex(where: { $0.id == reply.id }) { messages[at].content = soFar }
                 }
                 if let at = messages.firstIndex(where: { $0.id == reply.id }) { messages[at].streaming = false }
+                // Started from a class page: file it there.
+                if isFirst, start == nil, let courseID {
+                    await store.setCourse(TutorThread(id: threadID, updatedAt: .now), to: courseID)
+                }
             } catch {
                 // Nothing was saved, so the turn comes back to the box to send again.
                 withAnimation {
@@ -187,6 +226,49 @@ struct ChatView: View {
             }
             sending = false
         }
+    }
+}
+
+// MARK: - Assignments
+
+/// What a chat opened from an assignment is about, above the first message.
+private struct AssignmentBanner: View {
+    let assignment: ClassAssignment
+    let info: ClassInfo?
+
+    var body: some View {
+        VStack(spacing: 6) {
+            if let info { ClassLabel(info: info) }
+            Text(assignment.name)
+                .font(.title3.weight(.semibold))
+                .multilineTextAlignment(.center)
+            Text(assignment.status == .missing ? "was due \(assignment.dueText)" : "due \(assignment.dueText)")
+                .font(.subheadline)
+                .foregroundStyle(assignment.status == .missing ? .red : .secondary)
+        }
+        .padding(.horizontal, 24)
+    }
+}
+
+/// One of the "working on this?" suggestions on a new chat.
+private struct SuggestionRow: View {
+    let assignment: ClassAssignment
+    let info: ClassInfo?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let info { ClassLabel(info: info) }
+            Text(assignment.name)
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Text(assignment.dueText)
+                .font(.caption)
+                .foregroundStyle(assignment.status == .missing ? .red : .secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .glassEffect(.regular.interactive(), in: .capsule)
     }
 }
 

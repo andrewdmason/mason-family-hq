@@ -77,3 +77,18 @@ export function tutorInstructions(student: { name: string; birthdate: string | n
 
 export const TITLE_INSTRUCTIONS =
   "Name this homework chat in 2 to 5 words, the way a chat app titles a conversation (\"Mapping diagrams\", \"Vasco da Gama's voyage\"). Reply with the title only, no quotes or period.";
+
+/** The title, plus which of the student's classes the chat is about. */
+export function titleAndClassInstructions(classNames: string[]): string {
+  return `${TITLE_INSTRUCTIONS.replace("Reply with the title only, no quotes or period.", "")}
+Also say which of the student's classes the chat is about: ${classNames.map((n) => `"${n}"`).join(", ")}, or "none" if it isn't schoolwork for one of them.
+Reply as two lines, exactly:
+Title: <the title>
+Class: <one class name exactly as written, or none>`;
+}
+
+export function parseTitleAndClass(text: string): { title: string; className: string | null } {
+  const title = text.match(/^\s*Title:\s*(.+)$/im)?.[1]?.trim() ?? text.split("\n")[0].trim();
+  const cls = text.match(/^\s*Class:\s*(.+)$/im)?.[1]?.trim().replace(/^["']|["']$/g, "") ?? null;
+  return { title, className: cls && cls.toLowerCase() !== "none" ? cls : null };
+}

@@ -19,7 +19,7 @@ const DETAIL_AHEAD = 10 * DAY;
 const LIST_BACK = 14 * DAY;
 const LIST_AHEAD = 21 * DAY;
 
-type Assignment = {
+export type Assignment = {
   id: number;
   course_id: number;
   name: string;
@@ -48,9 +48,7 @@ export async function canvasContext(db: SupabaseClient, studentId: string, now =
     db.from("canvas_courses").select("id, name").eq("student_id", studentId).order("name"),
     db
       .from("canvas_assignments")
-      .select(
-        "id, course_id, name, description, due_at, points_possible, is_quiz, module_name, rubric, files, workflow_state, submitted_at, graded_at, score, missing, late, excused, answer, comments, rubric_scores",
-      )
+      .select(ASSIGNMENT_FIELDS)
       .eq("student_id", studentId),
     db.from("canvas_modules").select("course_id, name, position, item_count").eq("student_id", studentId),
     db
@@ -106,7 +104,7 @@ export async function canvasContext(db: SupabaseClient, studentId: string, now =
 }
 
 /** The unit the latest work due by now (or the next work, early in a unit) sits in. */
-function currentUnit(
+export function currentUnit(
   assignments: Assignment[],
   modules: { name: string; position: number; item_count: number }[],
   t: number,
@@ -118,6 +116,39 @@ function currentUnit(
   // No dated work in modules: the last module with anything in it.
   const filled = modules.filter((m) => m.item_count > 0).sort((a, b) => b.position - a.position);
   return filled[0]?.name ?? null;
+}
+
+const ASSIGNMENT_FIELDS =
+  "id, course_id, name, description, due_at, points_possible, is_quiz, module_name, rubric, files, workflow_state, submitted_at, graded_at, score, missing, late, excused, answer, comments, rubric_scores";
+
+/**
+ * The assignment a chat was started from, in full, so the tutor keeps it in
+ * view however old it is.
+ */
+export async function focusAssignmentContext(
+  db: SupabaseClient,
+  studentId: string,
+  assignmentId: number,
+  now = new Date(),
+): Promise<string | null> {
+  const { data } = await db
+    .from("canvas_assignments")
+    .select(ASSIGNMENT_FIELDS)
+    .eq("student_id", studentId)
+    .eq("id", assignmentId)
+    .maybeSingle();
+  if (!data) return null;
+  const { data: course } = await db
+    .from("canvas_courses")
+    .select("name")
+    .eq("student_id", studentId)
+    .eq("id", data.course_id)
+    .maybeSingle();
+  return [
+    `## This chat is about one assignment${course ? ` in ${course.name}` : ""}`,
+    "The student opened this chat from it. Work from these instructions; don't make them explain the assignment.",
+    describe(data as Assignment, true, now.getTime()),
+  ].join("\n");
 }
 
 function describe(a: Assignment, detailed: boolean, t: number): string {
