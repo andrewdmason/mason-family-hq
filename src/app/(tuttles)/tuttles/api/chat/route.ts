@@ -2,6 +2,7 @@ import { after, NextResponse } from "next/server";
 import OpenAI from "openai";
 import type { ResponseInputItem } from "openai/resources/responses/responses";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { canvasContext } from "@/lib/canvas/tutor-context";
 import { TITLE_INSTRUCTIONS, TITLE_MODEL, TUTOR_MODEL, tutorInstructions } from "@/lib/tuttles/prompt";
 
 export const runtime = "nodejs";
@@ -119,7 +120,12 @@ export async function POST(request: Request) {
     ),
     studentTurn(text, images),
   ];
-  const instructions = tutorInstructions({ name: member.name ?? "the student", birthdate: member.birthdate });
+  // Their classes, when a parent has connected Canvas. Last, so the fixed
+  // tutoring rules ahead of it stay a cacheable prefix.
+  const classes = await canvasContext(db, user.id).catch(() => null);
+  const instructions = [tutorInstructions({ name: member.name ?? "the student", birthdate: member.birthdate }), classes]
+    .filter(Boolean)
+    .join("\n\n");
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
