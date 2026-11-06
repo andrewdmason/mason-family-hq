@@ -14,6 +14,15 @@ export const VOICE_MODEL = "gpt-realtime-2.1";
 export const VOICE = "marin";
 /** Writes out what the student says, for the captions and the saved chat. */
 export const VOICE_TRANSCRIBE_MODEL = "gpt-4o-transcribe";
+/**
+ * Left to guess, the transcriber heard "two, three" as Maori ("rua tūī").
+ * Saying it's English (with some Spanish) and that math is spoken keeps short
+ * fragments from being taken for another language. Only the captions and the
+ * saved chat use this; the tutor hears the audio itself.
+ */
+export const TRANSCRIBE_LANGUAGE = "en";
+export const TRANSCRIBE_PROMPT =
+  "A middle schooler talking with a homework tutor in English, sometimes using Spanish words from Spanish class. Math is spoken aloud: \"two, three\", \"x squared\".";
 
 const SPEAKING = (name: string) => `You're talking out loud with ${name} in a live voice call, not typing.
 - Keep each turn short: about 40 words at most, one point per turn, then stop and let ${name} talk. A long explanation is several turns with ${name} answering in between. Ask one question at a time.
