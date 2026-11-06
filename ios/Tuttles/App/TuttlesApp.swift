@@ -94,6 +94,7 @@ struct ChatsView: View {
 private struct ThreadListView: View {
     @Binding var path: [Route]
     @Environment(ChatStore.self) private var store
+    @State private var showingMemory = false
 
     var body: some View {
         List {
@@ -182,12 +183,15 @@ private struct ThreadListView: View {
         }
         .navigationTitle("Tuttles")
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { AccountMenu() }
+            ToolbarItem(placement: .topBarLeading) { AccountMenu(showMemory: $showingMemory) }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("New chat", systemImage: "square.and.pencil") {
                     path.append(.chat(UUID(), isNew: true))
                 }
             }
+        }
+        .sheet(isPresented: $showingMemory) {
+            MemorySheet(memory: store.classes?.memory, name: store.classes?.student.name ?? "")
         }
         .refreshable {
             async let threads: Void = store.refreshThreads()
@@ -208,8 +212,11 @@ private struct ThreadListView: View {
 
 /// Who's signed in, and the way out.
 private struct AccountMenu: View {
+    @Binding var showMemory: Bool
+
     var body: some View {
         Menu {
+            Button("What Tuttles knows about you", systemImage: "brain.head.profile") { showMemory = true }
             Section(Session.shared.email ?? "Signed in") {
                 Button("Sign out", role: .destructive) { Task { await Session.shared.signOut() } }
             }

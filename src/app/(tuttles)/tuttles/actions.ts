@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { canvasClient, CanvasAuthError, type CanvasUser } from "@/lib/canvas/canvas-api";
 import { syncCanvasForStudent } from "@/lib/canvas/sync";
 import { CANVAS_BASE_URL } from "@/lib/canvas/connections";
+import { restoreMemory, rewriteMemory } from "@/lib/tuttles/memory";
 
 export type CanvasActionResult = { ok: boolean; error?: string; assignments?: number };
 
@@ -74,4 +75,66 @@ export async function syncCanvasNow(studentId: string): Promise<CanvasActionResu
   const result = await syncCanvasForStudent(createAdminClient(), studentId);
   revalidatePath("/tuttles");
   return result.ok ? { ok: true, assignments: result.assignments } : { ok: false, error: result.error };
+}
+
+// --- Memory (src/lib/tuttles/memory.ts) -----------------------------------------
+
+export type MemoryActionResult = { ok: boolean; error?: string; message?: string };
+
+/** A note the tutor always sees and the nightly rewrite never touches. */
+export async function addParentNote(studentId: string, body: string): Promise<MemoryActionResult> {
+  const me = await parentId();
+  if (!me) return { ok: false, error: "Only a parent can do that." };
+  const text = body.trim().slice(0, 1000);
+  if (!text) return { ok: false, error: "Write the note first." };
+  if (!(await isKid(studentId))) return { ok: false, error: "That isn't one of the kids." };
+  const { error } = await createAdminClient()
+    .from("tutor_parent_notes")
+    .insert({ student_id: studentId, body: text, created_by: me });
+  revalidatePath(`/tuttles/memory/${studentId}`);
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+export async function deleteParentNote(studentId: string, noteId: string): Promise<MemoryActionResult> {
+  if (!(await parentId())) return { ok: false, error: "Only a parent can do that." };
+  const { error } = await createAdminClient()
+    .from("tutor_parent_notes")
+    .delete()
+    .eq("id", noteId)
+    .eq("student_id", studentId);
+  revalidatePath(`/tuttles/memory/${studentId}`);
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+/** Undo: an earlier version becomes the newest. */
+export async function restoreMemoryVersion(studentId: string, version: number): Promise<MemoryActionResult> {
+  const me = await parentId();
+  if (!me) return { ok: false, error: "Only a parent can do that." };
+  try {
+    await restoreMemory(createAdminClient(), studentId, version, me);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't restore." };
+  }
+  revalidatePath(`/tuttles/memory/${studentId}`);
+  return { ok: true };
+}
+
+/** The nightly rewrite, now, over the last two weeks of chats. */
+export async function rewriteMemoryNow(studentId: string): Promise<MemoryActionResult> {
+  if (!(await parentId())) return { ok: false, error: "Only a parent can do that." };
+  try {
+    const r = await rewriteMemory(createAdminClient(), studentId, { force: true });
+    revalidatePath(`/tuttles/memory/${studentId}`);
+    return {
+      ok: true,
+      message:
+        r.status === "no-chats"
+          ? "No chats in the last two weeks to learn from."
+          : r.status === "unchanged"
+            ? "Nothing changed."
+            : r.changes,
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Rewrite failed." };
+  }
 }

@@ -7,7 +7,21 @@ import SwiftUI
 
 struct ClassesPayload: Decodable {
     struct Student: Decodable { let name: String; let preview: Bool }
+    /// What Tuttles has noticed about the student (rewritten nightly on the
+    /// website, src/lib/tuttles/memory.ts), for them to read.
+    struct Memory: Decodable {
+        struct ClassNotes: Decodable, Hashable {
+            let courseId: Int?
+            let name: String
+            let strong: [String]
+            let workingOn: [String]
+        }
+        let learning: [String]
+        let classes: [ClassNotes]
+        var isEmpty: Bool { learning.isEmpty && classes.isEmpty }
+    }
     let student: Student
+    var memory: Memory? = nil
     let dueSoon: [ClassAssignment]
     let classes: [ClassInfo]
 }
@@ -181,6 +195,12 @@ struct ClassPageView: View {
                         .disabled(unit.overview == nil)
                     }
                 }
+                if let notes = store.classes?.memory?.classes.first(where: { $0.courseId == courseID }) {
+                    Section("Tuttles has noticed") {
+                        ForEach(notes.strong, id: \.self) { Label($0, systemImage: "checkmark.circle").foregroundStyle(.primary) }
+                        ForEach(notes.workingOn, id: \.self) { Label($0, systemImage: "arrow.up.right.circle").foregroundStyle(.primary) }
+                    }
+                }
                 if !info.missing.isEmpty {
                     Section("Missing") {
                         ForEach(info.missing) { a in assignmentRow(a) }
@@ -352,5 +372,40 @@ struct ClassesPlaceholder: View {
         .animation(.easeInOut(duration: 0.9).repeatForever(), value: pulse)
         .onAppear { pulse = true }
         .accessibilityLabel("Loading your classes")
+    }
+}
+
+/// What Tuttles has noticed about how the student learns, in plain words.
+/// Read-only: parents correct it on the website.
+struct MemorySheet: View {
+    let memory: ClassesPayload.Memory?
+    let name: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if memory == nil || memory?.isEmpty == true {
+                    Text("Nothing yet. As you work with Tuttles, it notices what helps you learn and what you're getting stronger at.")
+                        .foregroundStyle(.secondary)
+                }
+                if let memory {
+                    if !memory.learning.isEmpty {
+                        Section("How you learn best") {
+                            ForEach(memory.learning, id: \.self) { Text($0) }
+                        }
+                    }
+                    ForEach(memory.classes, id: \.self) { c in
+                        Section(c.name) {
+                            ForEach(c.strong, id: \.self) { Label($0, systemImage: "checkmark.circle") }
+                            ForEach(c.workingOn, id: \.self) { Label("Working on: \($0)", systemImage: "arrow.up.right.circle") }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("What Tuttles knows")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { Button("Done") { dismiss() } }
+        }
     }
 }

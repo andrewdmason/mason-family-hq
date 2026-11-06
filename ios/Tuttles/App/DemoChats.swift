@@ -136,6 +136,14 @@ extension DemoChats {
                                  comment: "Missing important parts of the final question.", new: true)]
         return ClassesPayload(
             student: .init(name: "Sebastian", preview: false),
+            memory: .init(
+                learning: ["Gets it faster from a worked example before trying one himself"],
+                classes: [
+                    .init(courseId: 12, name: "History 7", strong: ["Understanding Reformation content"],
+                          workingOn: ["Explaining why an event mattered, not just what happened"]),
+                    .init(courseId: 10, name: "Mathematics 7 (H)", strong: [],
+                          workingOn: ["Finding the range of a relation from a graph"]),
+                ]),
             dueSoon: mathMissing + [math[0], english[0], math[1], science[0]],
             classes: [
                 ClassInfo(id: 11, name: "English 7", shortName: "English", color: "#8a4fd6",

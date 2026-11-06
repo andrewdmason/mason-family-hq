@@ -45,6 +45,11 @@ export type ClassInfo = {
 export type ClassesPayload = {
   /** Whose classes these are (a parent trying the app sees a kid's). */
   student: { name: string; preview: boolean };
+  /** What Tuttles has noticed (src/lib/tuttles/memory.ts), for the student to read; no evidence, no parent notes. */
+  memory: {
+    learning: string[];
+    classes: { courseId: number | null; name: string; strong: string[]; workingOn: string[] }[];
+  } | null;
   dueSoon: ClassAssignment[];
   classes: ClassInfo[];
   syncedAt: string | null;
@@ -74,7 +79,7 @@ export async function classesFor(
   studentId: string,
   viewerId: string,
   now = new Date(),
-): Promise<Omit<ClassesPayload, "student">> {
+): Promise<Omit<ClassesPayload, "student" | "memory">> {
   const [{ data: conn }, { data: courses }, { data: assignments }, { data: modules }, { data: pages }, { data: seen }] =
     await Promise.all([
       db.from("canvas_connections").select("last_synced_at").eq("student_id", studentId).maybeSingle(),
