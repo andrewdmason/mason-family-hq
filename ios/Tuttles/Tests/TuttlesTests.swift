@@ -77,3 +77,24 @@ final class ReplyDecoderTests: XCTestCase {
         XCTAssertNil(d.error)
     }
 }
+
+final class SpokenCaptionTests: XCTestCase {
+    func testPagesBreakAtSentencesAndNeverSplitWords() {
+        let text = "Not quite. The domain should include every x value used on the graph. "
+            + "So that's the x values from the segment. What do you get when you list them?"
+        let words = SpokenCaption.words(text)
+        let pages = SpokenCaption.pages(words)
+        XCTAssertEqual(pages.first?.lowerBound, 0)
+        XCTAssertEqual(pages.last?.upperBound, words.count)
+        for (a, b) in zip(pages, pages.dropFirst()) { XCTAssertEqual(a.upperBound, b.lowerBound) }
+        for page in pages.dropLast() {
+            XCTAssertTrue(words[page.upperBound - 1].hasSuffix(".") || words[page].joined(separator: " ").count > 100)
+        }
+    }
+
+    func testVisualArgumentAsStringOrObject() {
+        XCTAssertEqual(VoiceCall.visual(from: #"{"visual":"{\"type\":\"math\",\"latex\":\"x\"}"}"#), #"{"type":"math","latex":"x"}"#)
+        XCTAssertNotNil(VoiceCall.visual(from: #"{"visual":{"type":"math","latex":"x"}}"#))
+        XCTAssertNil(VoiceCall.visual(from: "nonsense"))
+    }
+}

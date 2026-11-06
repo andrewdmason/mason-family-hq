@@ -31,6 +31,13 @@ final class VoiceCall {
     private(set) var shown: [Stage] = []
     /// What the tutor is saying now, and what the student last said.
     private(set) var tutorCaption = ""
+    /// How much of the current reply's voice has played, as a share of what's
+    /// arrived so far. Captions reveal words in step with it.
+    private(set) var spokenShare: Double = 0
+    /// A new reply started (captions start a fresh page).
+    private(set) var captionID = 0
+    private var receivedSamples = 0
+    private var playedSamples = 0
     private(set) var studentCaption = ""
     /// The student is talking right now (from the server's voice detection).
     private(set) var studentSpeaking = false
@@ -152,6 +159,10 @@ final class VoiceCall {
             if let item = e["item"] as? [String: Any], item["type"] as? String == "message", let id = item["id"] as? String {
                 turns.append(Turn(id: id, role: "assistant"))
                 tutorCaption = ""
+                receivedSamples = 0
+                playedSamples = 0
+                spokenShare = 0
+                captionID += 1
             }
         case "response.output_audio_transcript.delta":
             if let id = e["item_id"] as? String, let delta = e["delta"] as? String,
@@ -165,6 +176,8 @@ final class VoiceCall {
             player.stop()
             player.play()
             studentSpeaking = true
+            // Cut off: the caption stops where the voice did.
+            receivedSamples = playedSamples
         case "input_audio_buffer.speech_stopped":
             studentSpeaking = false
         case "input_audio_buffer.committed":
@@ -207,7 +220,7 @@ final class VoiceCall {
     }
 
     /// show_visual's argument: the visual's JSON, as a string or an object.
-    static func visual(from arguments: String?) -> String? {
+    nonisolated static func visual(from arguments: String?) -> String? {
         guard let data = arguments?.data(using: .utf8),
               let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         if let s = args["visual"] as? String { return s }
@@ -350,6 +363,8 @@ final class VoiceCall {
 
     private func play(_ pcm: Data) {
         let count = pcm.count / 2
+        receivedSamples += count
+        let reply = captionID
         guard count > 0, let buffer = AVAudioPCMBuffer(pcmFormat: playFormat, frameCapacity: AVAudioFrameCount(count)) else { return }
         buffer.frameLength = AVAudioFrameCount(count)
         pcm.withUnsafeBytes { raw in
@@ -363,6 +378,9 @@ final class VoiceCall {
                 guard let self else { return }
                 self.pendingPlayback = max(0, self.pendingPlayback - 1)
                 self.lastPlayback = Date()
+                guard reply == self.captionID else { return }
+                self.playedSamples = min(self.receivedSamples, self.playedSamples + count)
+                self.spokenShare = self.receivedSamples > 0 ? Double(self.playedSamples) / Double(self.receivedSamples) : 0
             }
         }
         playedChunks += 1
@@ -501,26 +519,12 @@ struct VoiceView: View {
             case .ending:
                 Text("Saving…").foregroundStyle(.white.opacity(0.7))
             case .live:
-                Text(tail(call?.tutorCaption ?? ""))
-                    .font(.title3.weight(.medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(3)
-                    .contentTransition(.opacity)
+                SpokenCaption(text: call?.tutorCaption ?? "", spokenShare: call?.spokenShare ?? 0, replyID: call?.captionID ?? 0)
             }
         }
         .multilineTextAlignment(.center)
         .padding(.horizontal, 28)
         .frame(minHeight: 110, alignment: .bottom)
-        .animation(.easeOut(duration: 0.2), value: call?.tutorCaption)
-    }
-
-    /// The last couple of sentences, so the caption keeps up with the voice.
-    private func tail(_ text: String) -> String {
-        guard text.count > 160 else { return text }
-        let cut = text.index(text.endIndex, offsetBy: -160)
-        let rest = text[cut...]
-        if let space = rest.firstIndex(of: " ") { return "…" + rest[rest.index(after: space)...] }
-        return "…" + rest
     }
 
     private var controls: some View {
@@ -631,5 +635,80 @@ struct ListeningWave: View {
             .animation(.easeOut(duration: 0.08), value: loud)
         }
         .accessibilityLabel("Listening")
+    }
+}
+
+/// The tutor's words, shown as they're spoken. The reply is split into pages
+/// of a sentence or two; a page is laid out in full with the words not yet
+/// spoken invisible, so nothing shifts as each word fades in where it sits.
+/// The reveal follows the voice actually playing, not the text (which arrives
+/// ahead of it), and only ever shows whole words.
+struct SpokenCaption: View {
+    let text: String
+    /// 0…1: how much of the voice received so far has played.
+    let spokenShare: Double
+    let replyID: Int
+
+    /// When each word (by index) first appeared, for its fade.
+    @State private var shownAt: [Int: Date] = [:]
+    @State private var lastReply = -1
+
+    private static let pageLength = 110
+
+    var body: some View {
+        let words = Self.words(text)
+        // Text arrives ahead of the voice, so the share of voice played maps
+        // onto the words received; the last word only counts once it's whole.
+        let complete = text.last.map { $0 == " " || ".,!?;:".contains($0) } ?? false
+        let usable = complete ? words.count : max(0, words.count - 1)
+        let spoken = min(usable, Int((Double(usable) * spokenShare).rounded(.up)))
+        let pages = Self.pages(words)
+        let current = pages.lastIndex { $0.lowerBound < max(spoken, 1) } ?? 0
+        let page = pages.isEmpty ? 0..<0 : pages[current]
+
+        TimelineView(.animation) { context in
+            let now = context.date
+            page.reduce(Text(verbatim: "")) { line, i in
+                let age = shownAt[i].map { now.timeIntervalSince($0) } ?? -1
+                let opacity = i < spoken ? (age < 0 ? 0 : min(1, age / 0.35)) : 0
+                return Text("\(line)\(Text(verbatim: words[i] + " ").foregroundStyle(.white.opacity(opacity)))")
+            }
+            .font(.title3.weight(.medium))
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+        }
+        .id("\(replyID)-\(current)")
+        .transition(.opacity)
+        .animation(.easeInOut(duration: 0.3), value: current)
+        .onChange(of: spoken, initial: true) { _, count in
+            if lastReply != replyID {
+                lastReply = replyID
+                shownAt = [:]
+            }
+            let now = Date()
+            for i in 0..<count where shownAt[i] == nil { shownAt[i] = now }
+        }
+    }
+
+    static func words(_ text: String) -> [String] {
+        text.split(whereSeparator: \.isWhitespace).map(String.init)
+    }
+
+    /// Word ranges of about two sentences each, breaking at sentence ends.
+    static func pages(_ words: [String]) -> [Range<Int>] {
+        var pages: [Range<Int>] = []
+        var start = 0
+        var length = 0
+        for (i, word) in words.enumerated() {
+            length += word.count + 1
+            let sentenceEnd = word.last.map { ".!?".contains($0) } ?? false
+            if (sentenceEnd && length > pageLength / 2) || length > pageLength {
+                pages.append(start..<(i + 1))
+                start = i + 1
+                length = 0
+            }
+        }
+        if start < words.count { pages.append(start..<words.count) }
+        return pages
     }
 }
