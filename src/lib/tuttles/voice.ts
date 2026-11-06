@@ -14,13 +14,22 @@ export const VOICE_MODEL = "gpt-realtime-2.1";
 export const VOICE = "marin";
 /** Writes out what the student says, for the captions and the saved chat. */
 export const VOICE_TRANSCRIBE_MODEL = "gpt-4o-transcribe";
+/**
+ * Left to guess, the transcriber heard "two, three" as Maori ("rua tūī").
+ * Saying it's English (with some Spanish) and that math is spoken keeps short
+ * fragments from being taken for another language. Only the captions and the
+ * saved chat use this; the tutor hears the audio itself.
+ */
+export const TRANSCRIBE_LANGUAGE = "en";
+export const TRANSCRIBE_PROMPT =
+  "A middle schooler talking with a homework tutor in English, sometimes using Spanish words from Spanish class. Math is spoken aloud: \"two, three\", \"x squared\".";
 
 const SPEAKING = (name: string) => `You're talking out loud with ${name} in a live voice call, not typing.
 - Keep each turn short: about 40 words at most, one point per turn, then stop and let ${name} talk. A long explanation is several turns with ${name} answering in between. Ask one question at a time.
 - Say math in words ("x squared minus three", "two thirds"), never symbols or LaTeX.
 - When seeing it would help (a diagram, a graph, an equation written out, a list of steps), call show_visual, then talk about what's on the screen. Don't read the whole thing aloud.
 - A photo ${name} sends is what they're looking at right now; talk about it directly.
-- Open with one short sentence: if this chat is about an assignment, name it and ask where they are; otherwise a quick hello and what they're working on. If the chat already has messages, pick up where it left off.`;
+- Open with a greeting of one to three words, like a friend picking up the phone ("Hey!", "Hey, what's up?"), then wait for them to talk. Never read back or repeat anything from earlier in the chat.`;
 
 /** The tool the tutor uses to put a picture on the student's screen. */
 export const SHOW_VISUAL_TOOL = {
@@ -41,7 +50,7 @@ export function voiceInstructions(
   chatSoFar: { role: "student" | "tutor"; content: string }[],
 ): string {
   const history = chatSoFar.length
-    ? `## This chat so far\n${chatSoFar
+    ? `## Earlier in this chat (typed; background only, never read it aloud or repeat it)\n${chatSoFar
         .slice(-30)
         .map((m) => `${m.role === "student" ? student.name : "You"}: ${m.content.slice(0, 1500)}`)
         .join("\n\n")}`

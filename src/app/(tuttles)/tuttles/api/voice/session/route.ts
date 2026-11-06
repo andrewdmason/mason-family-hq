@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { studentSections, tuttlesCaller } from "@/lib/tuttles/context";
-import { SHOW_VISUAL_TOOL, VOICE, VOICE_MODEL, VOICE_TRANSCRIBE_MODEL, voiceInstructions } from "@/lib/tuttles/voice";
+import {
+  SHOW_VISUAL_TOOL,
+  TRANSCRIBE_LANGUAGE,
+  TRANSCRIBE_PROMPT,
+  VOICE,
+  VOICE_MODEL,
+  VOICE_TRANSCRIBE_MODEL,
+  voiceInstructions,
+} from "@/lib/tuttles/voice";
 
 export const runtime = "nodejs";
 
@@ -60,7 +68,7 @@ export async function POST(request: Request) {
         audio: {
           input: {
             format: { type: "audio/pcm", rate: 24000 },
-            transcription: { model: VOICE_TRANSCRIBE_MODEL },
+            transcription: { model: VOICE_TRANSCRIBE_MODEL, language: TRANSCRIBE_LANGUAGE, prompt: TRANSCRIBE_PROMPT },
             turn_detection: { type: "semantic_vad", eagerness: "low" },
           },
           output: { format: { type: "audio/pcm", rate: 24000 }, voice: VOICE },
