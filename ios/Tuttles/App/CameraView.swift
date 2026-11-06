@@ -7,6 +7,8 @@ import SwiftUI
 /// only on Done. What it took goes to the message being written.
 struct CameraView: View {
     let onDone: ([ChatPhoto]) -> Void
+    /// Called with each photo as it's taken (voice mode sends them one by one).
+    var onShot: ((ChatPhoto) -> Void)? = nil
 
     @State private var camera = Camera()
     @State private var taken: [ChatPhoto] = []
@@ -54,6 +56,7 @@ struct CameraView: View {
                     if let data = try? await pick.loadTransferable(type: Data.self),
                        let image = UIImage(data: data), let photo = ChatPhoto(image) {
                         taken.append(photo)
+                        onShot?(photo)
                     }
                 }
                 libraryPicks = []
@@ -159,6 +162,7 @@ struct CameraView: View {
         Task {
             guard let image = await camera.capture(), let photo = ChatPhoto(image) else { return }
             withAnimation(.snappy) { taken.append(photo) }
+            onShot?(photo)
         }
     }
 

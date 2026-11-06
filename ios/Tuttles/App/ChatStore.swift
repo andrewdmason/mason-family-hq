@@ -71,7 +71,7 @@ final class ChatStore {
     /// Canned chats, with no sign-in or network: `--demo`, for the simulator.
     let isDemo = CommandLine.arguments.contains("--demo")
 
-    private var client: SupabaseClient { Session.shared.client }
+    var client: SupabaseClient { Session.shared.client }
 
     /// False until the list has something to show: what this phone saved last
     /// time, or the first answer from the server. Until then it shows placeholders.
@@ -236,6 +236,8 @@ final class ChatStore {
     // MARK: - Photos
 
     private var photoCache: [String: UIImage] = [:]
+
+    func rememberPhoto(_ image: UIImage, at path: String) { photoCache[path] = image }
 
     func photo(at path: String) async -> UIImage? {
         if let cached = photoCache[path] { return cached }

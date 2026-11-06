@@ -25,6 +25,10 @@ struct ChatView: View {
     /// Which costume Tuttles greets a new chat in (Tuttles1…Tuttles10).
     @State private var pose = Int.random(in: 1...10)
     @FocusState private var typing: Bool
+    @State private var talk = TalkRecorder()
+    @State private var cancelArmed = false
+    @State private var transcribing = false
+    @State private var showingVoice = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -53,6 +57,20 @@ struct ChatView: View {
         .overlay { if messages.isEmpty { emptyState } }
         .safeAreaInset(edge: .bottom) { composer }
         .navigationTitle(title ?? "")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Talk with Tuttles", systemImage: "waveform") { showingVoice = true }
+                    .disabled(sending)
+            }
+        }
+        .fullScreenCover(isPresented: $showingVoice) {
+            VoiceView(threadID: threadID, assignmentID: messages.isEmpty ? start?.assignment.id : nil) {
+                Task {
+                    if let saved = try? await store.messages(in: threadID) { messages = saved }
+                    await store.refreshThreads()
+                }
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .task {
             if let text = start?.autoSend, messages.isEmpty {
@@ -163,27 +181,60 @@ struct ChatView: View {
                 .accessibilityLabel("Camera")
 
                 HStack(alignment: .bottom, spacing: 6) {
-                    TextField("Ask Tuttles", text: $draft, axis: .vertical)
-                        .lineLimit(1...6)
-                        .focused($typing)
-                        .padding(.vertical, 10)
-                        .padding(.leading, 16)
-                    Button(action: send) {
-                        Image(systemName: "arrow.up")
-                            .font(.body.weight(.bold))
-                            .frame(width: 22, height: 22)
+                    if talk.isRecording {
+                        RecordingStrip(recorder: talk, cancelArmed: cancelArmed)
+                    } else if transcribing {
+                        Label("Writing it out…", systemImage: "waveform")
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 10)
+                            .padding(.leading, 16)
+                        Spacer()
+                    } else {
+                        TextField("Ask Tuttles", text: $draft, axis: .vertical)
+                            .lineLimit(1...6)
+                            .focused($typing)
+                            .padding(.vertical, 10)
+                            .padding(.leading, 16)
                     }
-                    .buttonStyle(.glassProminent)
-                    .buttonBorderShape(.circle)
-                    .disabled(!canSend)
-                    .padding(4)
-                    .accessibilityLabel("Send")
+                    // Nothing typed: hold to talk instead.
+                    if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !sending, !transcribing {
+                        TalkButton(recorder: talk, cancelArmed: $cancelArmed) { audio in sendSpoken(audio) }
+                    } else {
+                        Button(action: send) {
+                            Image(systemName: "arrow.up")
+                                .font(.body.weight(.bold))
+                                .frame(width: 22, height: 22)
+                        }
+                        .buttonStyle(.glassProminent)
+                        .buttonBorderShape(.circle)
+                        .disabled(!canSend)
+                        .padding(4)
+                        .accessibilityLabel("Send")
+                    }
                 }
                 .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24))
             }
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 6)
+    }
+
+    /// Push to talk: write out what was said and send it, with any photos queued.
+    private func sendSpoken(_ audio: Data) {
+        transcribing = true
+        sendError = nil
+        Task {
+            do {
+                let text = try await store.transcribe(audio)
+                transcribing = false
+                guard !text.isEmpty else { return }
+                draft = text
+                send()
+            } catch {
+                transcribing = false
+                sendError = "Didn't catch that: \(error.localizedDescription)"
+            }
+        }
     }
 
     private func send() {

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import katex from "katex";
 import { compileExpression } from "@/lib/tuttles/expr";
 import {
   parseVisual,
@@ -285,6 +286,16 @@ function draw(v: Visual, uid: string): ReactNode {
       // Sanitized in parseVisual: drawing elements only, no scripts, handlers,
       // foreignObject or external references.
       return <div dangerouslySetInnerHTML={{ __html: v.svg }} />;
+    case "math":
+      // KaTeX escapes what it's given; a formula it can't read shows as an error in place.
+      return (
+        <div
+          className="overflow-x-auto py-2 text-center text-lg"
+          dangerouslySetInnerHTML={{
+            __html: katex.renderToString(v.latex, { displayMode: true, throwOnError: false }),
+          }}
+        />
+      );
   }
 }
 

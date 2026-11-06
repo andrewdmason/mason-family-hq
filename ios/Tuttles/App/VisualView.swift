@@ -15,6 +15,7 @@ struct VisualView: View {
             case .graph(let g)?: GraphView(g)
             case .numberLine(let n)?: NumberLineView(n)
             case .svg(let svg)?: SVGView(svg: svg)
+            case .math(let latex)?: DisplayMath(latex: latex)
             case nil:
                 Label("Couldn't draw this picture.", systemImage: "exclamationmark.triangle")
                     .font(.footnote)
@@ -64,6 +65,8 @@ enum Visual {
     case graph(Graph)
     case numberLine(NumberLine)
     case svg(SVG)
+    /// An equation written out (the voice tutor shows these while it talks).
+    case math(String)
 
     init?(json: String) {
         guard let data = json.data(using: .utf8),
@@ -106,6 +109,9 @@ enum Visual {
                     guard let a = Self.number(iv["from"]), let b = Self.number(iv["to"]) else { return nil }
                     return (a, b)
                 }))
+        case "math":
+            guard let latex = o["latex"] as? String, !latex.isEmpty else { return nil }
+            self = .math(latex)
         case "svg":
             guard let markup = o["svg"] as? String, markup.contains("<svg") else { return nil }
             self = .svg(.init(title: o["title"] as? String, markup: markup))
