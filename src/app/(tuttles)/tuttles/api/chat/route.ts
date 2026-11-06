@@ -4,6 +4,7 @@ import type { ResponseInputItem } from "openai/resources/responses/responses";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canvasContext } from "@/lib/canvas/tutor-context";
 import { TITLE_INSTRUCTIONS, TITLE_MODEL, TUTOR_MODEL, tutorInstructions } from "@/lib/tuttles/prompt";
+import { tutoredStudent } from "@/lib/tuttles/tutoring-as";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -49,12 +50,10 @@ export async function POST(request: Request) {
     data: { user },
   } = await db.auth.getUser(token);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const { data: member } = await db
-    .from("family_members")
-    .select("name, birthdate")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  if (!member) return NextResponse.json({ error: "not a family member" }, { status: 403 });
+  // A parent is tutored as a kid (src/lib/tuttles/tutoring-as.ts); the thread
+  // and its messages are still the parent's own.
+  const student = await tutoredStudent(db, user.id);
+  if (!student) return NextResponse.json({ error: "not a family member" }, { status: 403 });
 
   let body: { threadId?: unknown; text?: unknown; images?: unknown };
   try {
@@ -122,8 +121,8 @@ export async function POST(request: Request) {
   ];
   // Their classes, when a parent has connected Canvas. Last, so the fixed
   // tutoring rules ahead of it stay a cacheable prefix.
-  const classes = await canvasContext(db, user.id).catch(() => null);
-  const instructions = [tutorInstructions({ name: member.name ?? "the student", birthdate: member.birthdate }), classes]
+  const classes = await canvasContext(db, student.studentId).catch(() => null);
+  const instructions = [tutorInstructions({ name: student.name, birthdate: student.birthdate }), classes]
     .filter(Boolean)
     .join("\n\n");
 
