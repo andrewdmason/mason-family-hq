@@ -312,3 +312,45 @@ struct ThreadRow: View {
         .padding(.vertical, 2)
     }
 }
+
+/// Stand-ins for the "Due soon" strip and the classes while they load the
+/// first time, so they don't pop in out of nowhere.
+struct ClassesPlaceholder: View {
+    @State private var pulse = false
+
+    var body: some View {
+        Group {
+            Section {
+                HStack(spacing: 10) {
+                    ForEach(0..<2, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 18)
+                            .fill(.quaternary)
+                            .frame(width: 168, height: 104)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 20)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            } header: {
+                Text("Due soon")
+            }
+            Section("Classes") {
+                ForEach(0..<4, id: \.self) { _ in
+                    HStack(spacing: 12) {
+                        RoundedRectangle(cornerRadius: 3).fill(.quaternary).frame(width: 6, height: 28)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Class name")
+                            Text("The current unit").font(.footnote)
+                        }
+                        .redacted(reason: .placeholder)
+                    }
+                }
+            }
+        }
+        .opacity(pulse ? 0.45 : 1)
+        .animation(.easeInOut(duration: 0.9).repeatForever(), value: pulse)
+        .onAppear { pulse = true }
+        .accessibilityLabel("Loading your classes")
+    }
+}
