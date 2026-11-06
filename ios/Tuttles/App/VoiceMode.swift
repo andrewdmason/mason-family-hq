@@ -270,7 +270,10 @@ final class VoiceCall {
                 guard !self.muted, self.state == .live else { return }
                 self.sentChunks += 1
                 if self.sentChunks == 1 || self.sentChunks % 50 == 0 { VoiceLog.say("mic chunks sent: \(self.sentChunks)") }
-                self.send(["type": "input_audio_buffer.append", "audio": bytes.base64EncodedString()])
+                let heard = self.passesEchoGate(level)
+                // Silence in place of the echo, so the server's sense of time holds.
+                let audio = heard ? bytes : Data(count: bytes.count)
+                self.send(["type": "input_audio_buffer.append", "audio": audio.base64EncodedString()])
             }
         }
         // What's actually coming out of the speaker, for the background.
@@ -291,8 +294,35 @@ final class VoiceCall {
         engine.prepare()
         try engine.start()
         player.play()
-        VoiceLog.say("audio started; route \(session.currentRoute.outputs.map(\.portType.rawValue))")
+        VoiceLog.say("audio started; route \(session.currentRoute.outputs.map(\.portType.rawValue)); echo cancelling: \(engine.inputNode.isVoiceProcessingEnabled)")
     }
+
+    /// The tutor's voice still queued to play, in buffers.
+    private var pendingPlayback = 0
+    private var lastPlayback = Date.distantPast
+    private var loudRun = 0
+    private var echoPeak: Float = 0
+
+    /// Echo guard. The phone's echo cancelling lets some of the tutor's own
+    /// voice back into the microphone, which the server then takes for the
+    /// student and interrupts itself. While the tutor is talking (and a beat
+    /// after), the microphone only counts when it's clearly louder than that
+    /// echo for a few chunks running: the student talking over it.
+    private func passesEchoGate(_ level: Float) -> Bool {
+        let tutorTalking = pendingPlayback > 0 || Date().timeIntervalSince(lastPlayback) < 0.4
+        guard tutorTalking else {
+            loudRun = 0
+            if echoPeak > 0 { VoiceLog.say("echo peak while tutor talked: \(echoPeak)"); echoPeak = 0 }
+            return true
+        }
+        echoPeak = max(echoPeak, level)
+        loudRun = level > Self.bargeIn ? loudRun + 1 : 0
+        if loudRun >= 3 { VoiceLog.say("barge-in at level \(level)") }
+        return loudRun >= 3
+    }
+
+    /// Microphone level (0…1, as `rms` scales it) that counts as talking over the tutor.
+    static let bargeIn: Float = 0.45
 
     private var sentChunks = 0
     private var playedChunks = 0
@@ -300,7 +330,7 @@ final class VoiceCall {
 
     private func restartAudio() {
         guard state == .live || state == .connecting else { return }
-        VoiceLog.say("audio configuration changed; running: \(engine.isRunning)")
+        VoiceLog.say("audio configuration changed; running: \(engine.isRunning); echo cancelling: \(engine.inputNode.isVoiceProcessingEnabled)")
         if !engine.isRunning {
             engine.connect(player, to: engine.mainMixerNode, format: playFormat)
             try? engine.start()
@@ -327,7 +357,14 @@ final class VoiceCall {
             let dst = buffer.floatChannelData![0]
             for i in 0..<count { dst[i] = Float(Int16(littleEndian: src[i])) / 32768 }
         }
-        player.scheduleBuffer(buffer)
+        pendingPlayback += 1
+        player.scheduleBuffer(buffer) { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.pendingPlayback = max(0, self.pendingPlayback - 1)
+                self.lastPlayback = Date()
+            }
+        }
         playedChunks += 1
         if playedChunks == 1 || playedChunks % 50 == 0 {
             VoiceLog.say("voice chunks played: \(playedChunks), engine running: \(engine.isRunning), player playing: \(player.isPlaying)")
