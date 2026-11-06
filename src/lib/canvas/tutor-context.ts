@@ -149,7 +149,7 @@ function describe(a: Assignment, detailed: boolean, t: number): string {
     if (a.files.length) extra.push(`  Attached: ${a.files.map((f) => f.name).join(", ")}`);
   }
   // What was turned in, when it lost points: that's what to learn from.
-  if (lostPoints) {
+  if (lostPoints && a.answer) {
     extra.push(`  The student's submitted answer:\n${indent(clip(a.answer, 1200))}`);
   }
   return [head, ...extra].join("\n");
