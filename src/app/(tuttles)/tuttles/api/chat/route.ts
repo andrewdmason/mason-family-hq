@@ -2,7 +2,7 @@ import { after, NextResponse } from "next/server";
 import OpenAI from "openai";
 import type { ResponseInputItem } from "openai/resources/responses/responses";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { TUTOR_MODEL, tutorInstructions } from "@/lib/tuttles/prompt";
+import { briefingInstructions, TUTOR_MODEL, tutorInstructions, type Briefing } from "@/lib/tuttles/prompt";
 import { nameThread } from "@/lib/tuttles/naming";
 import { tutoredStudent } from "@/lib/tuttles/tutoring-as";
 import { studentSections } from "@/lib/tuttles/context";
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
   const student = await tutoredStudent(db, user.id);
   if (!student) return NextResponse.json({ error: "not a family member" }, { status: 403 });
 
-  let body: { threadId?: unknown; text?: unknown; images?: unknown; assignmentId?: unknown };
+  let body: { threadId?: unknown; text?: unknown; images?: unknown; assignmentId?: unknown; briefing?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -79,7 +79,7 @@ export async function POST(request: Request) {
 
   const { data: thread } = await db
     .from("tutor_threads")
-    .select("id, student_id, title, course_id, assignment_id")
+    .select("id, student_id, title, course_id, assignment_id, kind, topic")
     .eq("id", threadId)
     .maybeSingle();
   if (thread && thread.student_id !== user.id) return NextResponse.json({ error: "not your thread" }, { status: 403 });
@@ -96,6 +96,11 @@ export async function POST(request: Request) {
           .maybeSingle()
       : { data: null };
   const assignmentId: number | null = thread?.assignment_id ?? opened?.id ?? null;
+
+  // A parent's "brief me" chat about one of the kid's topics: taught to the
+  // parent as an adult, without the tutoring rules (src/lib/tuttles/prompt.ts).
+  const newBriefing = !thread && student.preview ? parseBriefing(body.briefing) : null;
+  const briefing: Briefing | null = thread?.kind === "briefing" ? (thread.topic as Briefing) : newBriefing;
 
   const { data: earlier, error: historyErr } = thread
     ? await db
@@ -138,10 +143,15 @@ export async function POST(request: Request) {
   // What the tutor knows of them (src/lib/tuttles/memory.ts) and their classes,
   // when a parent has connected Canvas. After the fixed tutoring rules, so
   // those stay a cacheable prefix.
-  const instructions = [
-    tutorInstructions({ name: student.name, birthdate: student.birthdate }),
-    ...(await studentSections(db, student, assignmentId)),
-  ].join("\n\n");
+  const instructions = briefing
+    ? [
+        briefingInstructions(await parentName(db, user.id), { name: student.name, birthdate: student.birthdate }, briefing),
+        ...(await studentSections(db, student, briefing.assignmentIds[0] ?? null)),
+      ].join("\n\n")
+    : [
+        tutorInstructions({ name: student.name, birthdate: student.birthdate }),
+        ...(await studentSections(db, student, assignmentId)),
+      ].join("\n\n");
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -174,8 +184,9 @@ export async function POST(request: Request) {
             .insert({
               id: threadId,
               student_id: user.id,
-              course_id: opened?.course_id ?? null,
+              course_id: briefing ? briefing.courseId : (opened?.course_id ?? null),
               assignment_id: opened?.id ?? null,
+              ...(briefing ? { kind: "briefing", topic: briefing, title: briefing.title } : {}),
               created_at: now.toISOString(),
               updated_at: now.toISOString(),
             });
@@ -199,7 +210,7 @@ export async function POST(request: Request) {
         ]);
         if (saveErr) throw new Error(saveErr.message);
 
-        if (!thread?.title) {
+        if (!thread?.title && !briefing) {
           const classify = !thread?.course_id && !opened;
           after(() => nameThread(threadId, text, reply, classify ? student.studentId : null));
         }
@@ -215,4 +226,21 @@ export async function POST(request: Request) {
   return new Response(stream, {
     headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
   });
+}
+
+function parseBriefing(raw: unknown): Briefing | null {
+  if (!raw || typeof raw !== "object") return null;
+  const b = raw as Record<string, unknown>;
+  if (typeof b.courseId !== "number" || typeof b.title !== "string" || !b.title.trim()) return null;
+  return {
+    courseId: b.courseId,
+    title: b.title.trim().slice(0, 120),
+    summary: typeof b.summary === "string" ? b.summary.slice(0, 1000) : "",
+    assignmentIds: Array.isArray(b.assignmentIds) ? b.assignmentIds.filter((n): n is number => typeof n === "number").slice(0, 5) : [],
+  };
+}
+
+async function parentName(db: ReturnType<typeof createAdminClient>, userId: string): Promise<string> {
+  const { data } = await db.from("family_members").select("name").eq("user_id", userId).maybeSingle();
+  return data?.name ?? "the parent";
 }

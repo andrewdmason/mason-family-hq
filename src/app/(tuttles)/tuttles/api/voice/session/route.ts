@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { studentSections, tuttlesCaller } from "@/lib/tuttles/context";
+import { briefingInstructions, type Briefing } from "@/lib/tuttles/prompt";
 import {
   SHOW_VISUAL_TOOL,
   TRANSCRIBE_LANGUAGE,
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
 
   const { data: thread } = await db
     .from("tutor_threads")
-    .select("student_id, assignment_id")
+    .select("student_id, assignment_id, kind, topic")
     .eq("id", threadId)
     .maybeSingle();
   if (thread && thread.student_id !== userId) return NextResponse.json({ error: "not your thread" }, { status: 403 });
@@ -50,10 +51,17 @@ export async function POST(request: Request) {
   const { data: messages } = thread
     ? await db.from("tutor_messages").select("role, content").eq("thread_id", threadId).order("created_at")
     : { data: [] };
+  // A parent's briefing chat stays a briefing on the phone call too.
+  const briefing = thread?.kind === "briefing" ? (thread.topic as Briefing) : null;
+  const parent = briefing
+    ? ((await db.from("family_members").select("name").eq("user_id", userId).maybeSingle()).data?.name ?? "the parent")
+    : null;
   const instructions = voiceInstructions(
     student,
-    await studentSections(db, student, assignmentId),
+    await studentSections(db, student, briefing ? (briefing.assignmentIds[0] ?? null) : assignmentId),
     (messages ?? []) as { role: "student" | "tutor"; content: string }[],
+    briefing && parent ? briefingInstructions(parent, student, briefing) : undefined,
+    parent ?? undefined,
   );
 
   if (!process.env.OPENAI_API_KEY) return NextResponse.json({ error: "OPENAI_API_KEY is not set" }, { status: 500 });

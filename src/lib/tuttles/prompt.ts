@@ -92,3 +92,21 @@ export function parseTitleAndClass(text: string): { title: string; className: st
   const cls = text.match(/^\s*Class:\s*(.+)$/im)?.[1]?.trim().replace(/^["']|["']$/g, "") ?? null;
   return { title, className: cls && cls.toLowerCase() !== "none" ? cls : null };
 }
+
+/** What a parent's "brief me" chat is about: one of a kid's topics this week. */
+export type Briefing = { courseId: number; title: string; summary: string; assignmentIds: number[] };
+
+/**
+ * A parent learning what their kid is learning. No tutoring rules: the
+ * parent gets the real explanations and answers. The kid's memory and classes
+ * follow (as for the kid's own chats), so it can say what the kid's actually
+ * doing with it.
+ */
+export function briefingInstructions(parent: string, kid: { name: string; birthdate: string | null }, topic: Briefing): string {
+  const grade = gradeFor(kid.birthdate);
+  return [
+    `You're helping ${parent}, a parent, understand something their kid ${kid.name}${grade != null ? ` (${ordinal(grade)})` : ""} is learning in school this week: "${topic.title}". ${topic.summary}`,
+    `Teach ${parent} directly, as an adult. Give the real explanations, answers and worked examples; no hints-only tutoring here. Cover what it is, how it's usually taught at this grade, where kids commonly get stuck, and how it connects to what ${kid.name}'s class is doing (below). Start with a short, clear briefing: under about 200 words, a visual if it helps, ending with two or three directions you could go deeper. Then answer follow-ups. It's read on a phone. If ${parent} asks how to help ${kid.name}, suggest ways to support without doing the work for them.`,
+    VISUALS,
+  ].join("\n\n");
+}

@@ -162,3 +162,21 @@ extension DemoChats {
             ])
     }()
 }
+
+extension DemoChats {
+    /// A canned "This week" for `--demo` with the parent view on.
+    static let week: WeekPayload = {
+        let json = #"""
+        {"kid":{"id":"demo","name":"Sebastian"},"brief":{"comingUp":[
+          {"id":4,"courseId":11,"name":"Verbs Quiz","dueAt":"2026-11-07T07:59:00Z","points":10}],
+         "classes":[
+          {"courseId":10,"name":"Mathematics 7 (H)","shortName":"Math","color":"#2f6fdb","unit":"Relations and Functions","topics":[
+            {"id":"10-domain","title":"Domain and range of a relation","summary":"Finding every input (domain) and output (range) a relation uses, from lists, tables, mapping diagrams and graphs.","doing":"Quiz 2-3 was 3/6; still getting the hang of ranges on solid segments.","talk":["When you look at a graph, how do you tell the domain from the range?","What does a solid line tell you that dots don't?","Which kind of problem feels easiest right now: tables, diagrams or graphs?"],"assignmentIds":[1,2]}]},
+          {"courseId":12,"name":"History 7","shortName":"History","color":"#c46b1d","unit":"Reformation & Exploration","topics":[
+            {"id":"12-explore","title":"Why Europeans explored toward the East","summary":"God, glory and gold: the motives, the technology, and voyages like Vasco da Gama's.","doing":"6/8 on the homework; explaining why an event mattered is the growth area.","talk":["What were explorers really after: spices, fame or something else?","Which invention mattered most for those voyages, do you think?","Whose point of view is missing from how the explorers told it?"],"assignmentIds":[]}]},
+          {"courseId":11,"name":"English 7","shortName":"English","color":"#8a4fd6","unit":"Lord of the Flies","topics":[
+            {"id":"11-symbols","title":"Symbolism in Lord of the Flies","summary":"How the conch, the fire and the beast stand for bigger ideas, argued with evidence in a PCEAT paragraph.","doing":null,"talk":["What does the conch stand for by this point in the book?","Is the beast real, in a way?","Who do you trust most on the island right now?"],"assignmentIds":[]}]}]}}
+        """#
+        return try! ChatStore.decoder.decode(WeekPayload.self, from: Data(json.utf8))
+    }()
+}

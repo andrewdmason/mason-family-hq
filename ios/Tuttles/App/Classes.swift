@@ -217,7 +217,7 @@ struct ClassPageView: View {
                         ForEach(info.feedback) { a in FeedbackRow(assignment: a, path: $path) }
                     }
                 }
-                let chats = store.threads.filter { $0.courseId == courseID }
+                let chats = store.kidThreads.filter { $0.courseId == courseID }
                 if !chats.isEmpty {
                     Section("Chats") {
                         ForEach(chats) { thread in

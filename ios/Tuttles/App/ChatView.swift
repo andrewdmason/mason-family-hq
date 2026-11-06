@@ -8,6 +8,8 @@ struct ChatView: View {
     let title: String?
     /// For a new chat: the class page it was started from, to file it under.
     var courseID: Int?
+    /// For a new parent's chat: the kid's topic it briefs them on.
+    var briefing: BriefingTopic?
 
     /// For a new chat: the assignment it's about. Set by tapping one, here or
     /// on the list or a class page; the first message carries it.
@@ -73,6 +75,12 @@ struct ChatView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            // A briefing starts itself: the parent tapped "Brief me".
+            if let briefing, isNew, messages.isEmpty, !sending {
+                draft = "Brief me on \(briefing.title)."
+                send()
+                return
+            }
             if let text = start?.autoSend, messages.isEmpty {
                 start?.autoSend = nil
                 draft = text
@@ -257,7 +265,8 @@ struct ChatView: View {
                 let isFirst = messages.count <= 2
                 try await store.send(
                     threadID: threadID, text: text, photos: sent,
-                    assignmentID: isFirst ? start?.assignment.id : nil
+                    assignmentID: isFirst ? start?.assignment.id : nil,
+                    briefing: isFirst ? briefing : nil
                 ) { soFar in
                     if let at = messages.firstIndex(where: { $0.id == reply.id }) { messages[at].content = soFar }
                 }

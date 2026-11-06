@@ -48,14 +48,18 @@ export function voiceInstructions(
   student: { name: string; birthdate: string | null },
   sections: string[],
   chatSoFar: { role: "student" | "tutor"; content: string }[],
+  /** In place of the tutoring rules: a parent's briefing (briefingInstructions). */
+  base?: string,
+  /** Who's on the call, when it isn't the kid. */
+  caller?: string,
 ): string {
   const history = chatSoFar.length
     ? `## Earlier in this chat (typed; background only, never read it aloud or repeat it)\n${chatSoFar
         .slice(-30)
-        .map((m) => `${m.role === "student" ? student.name : "You"}: ${m.content.slice(0, 1500)}`)
+        .map((m) => `${m.role === "student" ? (caller ?? student.name) : "You"}: ${m.content.slice(0, 1500)}`)
         .join("\n\n")}`
     : null;
-  return [tutorInstructions(student), SPEAKING(student.name), ...sections, history].filter(Boolean).join("\n\n");
+  return [base ?? tutorInstructions(student), SPEAKING(caller ?? student.name), ...sections, history].filter(Boolean).join("\n\n");
 }
 
 /** Reads photos for the voice tutor (the voice model's own reading of a worksheet is shakier). */
