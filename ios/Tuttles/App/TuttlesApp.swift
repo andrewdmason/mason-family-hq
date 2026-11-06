@@ -37,6 +37,15 @@ struct RootView: View {
             }
         }
         .animation(.default, value: session.isSignedIn)
+        // The app opens on a new chat, so the list behind it loads now: it's
+        // ready by the time anyone goes back to it.
+        .task(id: session.userID) {
+            guard store.isDemo || session.userID != nil else { return }
+            store.loadSaved()
+            async let threads: Void = store.refreshThreads()
+            async let classes: Void = store.refreshClasses()
+            _ = await (threads, classes)
+        }
     }
 }
 
@@ -125,7 +134,16 @@ private struct ThreadListView: View {
                     }
                 }
             }
-            Section(store.classes == nil ? "" : "Chats") {
+            if !store.classesLoaded {
+                ClassesPlaceholder()
+            }
+            Section(store.classes == nil && store.classesLoaded ? "" : "Chats") {
+                if !store.threadsLoaded {
+                    ForEach(0..<3, id: \.self) { _ in
+                        ThreadRow(thread: TutorThread(id: UUID(), title: "Loading a chat title", updatedAt: .now), info: nil)
+                            .redacted(reason: .placeholder)
+                    }
+                }
                 if let error = store.listError {
                     Text(error).foregroundStyle(.secondary)
                 }
@@ -157,7 +175,7 @@ private struct ThreadListView: View {
             }
         }
         .overlay {
-            if store.threads.isEmpty, store.classes == nil, store.listError == nil {
+            if store.threadsLoaded, store.classesLoaded, store.threads.isEmpty, store.classes == nil, store.listError == nil {
                 ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.text.bubble.right",
                                        description: Text("Start one with the pencil button."))
             }
@@ -183,8 +201,8 @@ private struct ThreadListView: View {
                 await store.refreshClasses()
             }
         }
-        .task { await store.refreshThreads() }
-        .task { await store.refreshClasses() }
+        .animation(.default, value: store.classes?.classes.count)
+        .animation(.default, value: store.threads.count)
     }
 }
 

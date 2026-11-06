@@ -5,7 +5,7 @@ import Supabase
 import UIKit
 
 /// A chat in the list.
-struct TutorThread: Identifiable, Decodable, Equatable {
+struct TutorThread: Identifiable, Codable, Equatable {
     let id: UUID
     var title: String?
     var updatedAt: Date
@@ -73,13 +73,46 @@ final class ChatStore {
 
     private var client: SupabaseClient { Session.shared.client }
 
+    /// False until the list has something to show: what this phone saved last
+    /// time, or the first answer from the server. Until then it shows placeholders.
+    private(set) var threadsLoaded = false
+    private(set) var classesLoaded = false
+
+    /// Shows what this phone saw last time straight away, so the list doesn't
+    /// wait on the network to open; the refreshes replace it.
+    func loadSaved() {
+        guard !isDemo, let userID = Session.shared.userID else { return }
+        if threads.isEmpty, let data = try? Data(contentsOf: Self.savedFile("threads", userID)),
+           let saved = try? Self.decoder.decode([TutorThread].self, from: data) {
+            threads = saved
+            threadsLoaded = true
+        }
+        if classes == nil, let data = try? Data(contentsOf: Self.savedFile("classes", userID)),
+           let saved = try? Self.decoder.decode(ClassesPayload.self, from: data) {
+            classes = saved
+            classesLoaded = true
+        }
+    }
+
+    private static func savedFile(_ name: String, _ userID: UUID) -> URL {
+        URL.cachesDirectory.appending(path: "tuttles-\(name)-\(userID.uuidString.lowercased()).json")
+    }
+
+    private func save(_ data: Data, as name: String) {
+        guard let userID = Session.shared.userID else { return }
+        try? data.write(to: Self.savedFile(name, userID), options: .atomic)
+    }
+
     func refreshThreads() async {
+        defer { threadsLoaded = true }
         if isDemo {
+            // `--slow`: a first load that takes a while, to see the placeholders.
+            if CommandLine.arguments.contains("--slow") { try? await Task.sleep(for: .seconds(4)) }
             threads = DemoChats.threads
             return
         }
         do {
-            threads = try await client.from("tutor_threads")
+            let fresh: [TutorThread] = try await client.from("tutor_threads")
                 .select("id, title, updated_at, archived_at, course_id")
                 .eq("student_id", value: Session.shared.userID?.uuidString.lowercased() ?? "")
                 .is("archived_at", value: nil)
@@ -87,6 +120,8 @@ final class ChatStore {
                 .limit(200)
                 .execute()
                 .value
+            if fresh != threads { threads = fresh }
+            if let data = try? Self.encoder.encode(fresh) { save(data, as: "threads") }
             listError = nil
         } catch {
             listError = "Couldn't load your chats."
@@ -94,7 +129,10 @@ final class ChatStore {
     }
 
     func refreshClasses() async {
+        defer { classesLoaded = true }
         if isDemo {
+            // `--slow`: a first load that takes a while, to see the placeholders.
+            if CommandLine.arguments.contains("--slow") { try? await Task.sleep(for: .seconds(4)) }
             classes = DemoChats.classes
             return
         }
@@ -105,6 +143,7 @@ final class ChatStore {
               (response as? HTTPURLResponse)?.statusCode == 200,
               let payload = try? Self.decoder.decode(ClassesPayload.self, from: data) else { return }
         classes = payload
+        save(data, as: "classes")
     }
 
     /// Files a chat under another class (nil: none).
@@ -144,6 +183,12 @@ final class ChatStore {
                 .execute()
         }
     }
+
+    static let encoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        return e
+    }()
 
     /// ISO dates from the website, with or without fractions of a second.
     static let decoder: JSONDecoder = {
