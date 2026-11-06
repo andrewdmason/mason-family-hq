@@ -32,13 +32,6 @@ struct CameraView: View {
             Color.white.opacity(flash ? 0.7 : 0).ignoresSafeArea().allowsHitTesting(false)
 
             VStack {
-                HStack {
-                    Spacer()
-                    Button("Done") { finish() }
-                        .buttonStyle(.glassProminent)
-                        .controlSize(.large)
-                }
-                .padding(.horizontal)
                 Spacer()
                 if !taken.isEmpty { strip }
                 controls
@@ -90,16 +83,23 @@ struct CameraView: View {
         }
     }
 
+    /// Library on the left, shutter centred, Done (with the count) bottom right,
+    /// under the thumb.
     private var controls: some View {
-        HStack {
-            PhotosPicker(selection: $libraryPicks, maxSelectionCount: 10, matching: .images) {
-                Image(systemName: "photo.on.rectangle")
-                    .font(.title2)
-                    .frame(width: 56, height: 56)
+        ZStack {
+            HStack {
+                PhotosPicker(selection: $libraryPicks, maxSelectionCount: 10, matching: .images) {
+                    Image(systemName: "photo.on.rectangle")
+                        .font(.title2)
+                        .frame(width: 56, height: 56)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                Spacer()
+                Button(taken.isEmpty ? "Done" : "Done (\(taken.count))") { finish() }
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.large)
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-            Spacer()
             Button(action: shoot) {
                 Circle()
                     .fill(.white)
@@ -110,13 +110,8 @@ struct CameraView: View {
             .disabled(!camera.available)
             .opacity(camera.available ? 1 : 0.3)
             .accessibilityLabel("Take picture")
-            Spacer()
-            Text(taken.isEmpty ? "" : "\(taken.count)")
-                .font(.title3.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.white)
-                .frame(width: 56, height: 56)
         }
-        .padding(.horizontal, 28)
+        .padding(.horizontal, 20)
         .padding(.bottom, 12)
     }
 
