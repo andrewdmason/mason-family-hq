@@ -6,10 +6,10 @@ import UIKit
 /// visuals can be checked against what the tutor actually writes.
 enum DemoChats {
     static let threads: [TutorThread] = [
-        TutorThread(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, title: "Mapping diagrams", updatedAt: Date().addingTimeInterval(0), archivedAt: nil),
-        TutorThread(id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!, title: "Puppy weight graph", updatedAt: Date().addingTimeInterval(-5400), archivedAt: nil),
-        TutorThread(id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!, title: "Domain and range of 2a", updatedAt: Date().addingTimeInterval(-10800), archivedAt: nil),
-        TutorThread(id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!, title: "Vasco da Gama’s voyage", updatedAt: Date().addingTimeInterval(-16200), archivedAt: nil),
+        TutorThread(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, title: "Mapping diagrams", updatedAt: Date().addingTimeInterval(0), archivedAt: nil, courseId: 10),
+        TutorThread(id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!, title: "Puppy weight graph", updatedAt: Date().addingTimeInterval(-5400), archivedAt: nil, courseId: 10),
+        TutorThread(id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!, title: "Domain and range of 2a", updatedAt: Date().addingTimeInterval(-10800), archivedAt: nil, courseId: 10),
+        TutorThread(id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!, title: "Vasco da Gama’s voyage", updatedAt: Date().addingTimeInterval(-16200), archivedAt: nil, courseId: 12),
     ]
 
     static let messages: [UUID: [ChatMessage]] = [
@@ -115,4 +115,42 @@ enum DemoChats {
             try await Task.sleep(for: .milliseconds(40))
         }
     }
+}
+
+extension DemoChats {
+    /// Canned classes for `--demo`: a week of a 7th grader's coursework.
+    static let classes: ClassesPayload = {
+        let day: TimeInterval = 86400
+        func a(_ id: Int, _ course: Int, _ name: String, due: TimeInterval, _ status: ClassAssignment.Status,
+               score: Double? = nil, of points: Double? = nil, comment: String? = nil, new: Bool = false) -> ClassAssignment {
+            ClassAssignment(id: id, courseId: course, name: name, dueAt: Date().addingTimeInterval(due), status: status,
+                            score: score, pointsPossible: points, isQuiz: false,
+                            comments: comment.map { [.init(author: "Mr. Beaudin", comment: $0)] } ?? [],
+                            isNew: new, url: nil)
+        }
+        let math = [a(1, 10, "2-13 HW", due: 0.4 * day, .todo), a(2, 10, "2-14 HW", due: 1.4 * day, .todo)]
+        let mathMissing = [a(3, 10, "2-11 HW", due: -2 * day, .missing)]
+        let english = [a(4, 11, "Verbs Quiz", due: 0.5 * day, .todo)]
+        let science = [a(5, 13, "Unit 1 Come See Me", due: 7 * day, .todo)]
+        let historyFeedback = [a(6, 12, "3.8 Homework: Europeans Explore the East", due: -7 * day, .graded, score: 6, of: 8,
+                                 comment: "Missing important parts of the final question.", new: true)]
+        return ClassesPayload(
+            student: .init(name: "Sebastian", preview: false),
+            dueSoon: mathMissing + [math[0], english[0], math[1], science[0]],
+            classes: [
+                ClassInfo(id: 11, name: "English 7", shortName: "English", color: "#8a4fd6",
+                          unit: .init(name: "Lord of the Flies", overviewTitle: nil, overview: nil),
+                          due: english, missing: [], feedback: []),
+                ClassInfo(id: 12, name: "History 7", shortName: "History", color: "#c46b1d",
+                          unit: .init(name: "Reformation & Exploration", overviewTitle: "Unit 3 Overview",
+                                      overview: "How did the printing press change Europe? This unit follows the Reformation and the voyages it helped launch."),
+                          due: [], missing: [], feedback: historyFeedback),
+                ClassInfo(id: 10, name: "Mathematics 7 (H)", shortName: "Math", color: "#2f6fdb",
+                          unit: .init(name: "Relations and Functions", overviewTitle: nil, overview: nil),
+                          due: math, missing: mathMissing, feedback: []),
+                ClassInfo(id: 13, name: "Science 7", shortName: "Science", color: "#2e9d5b",
+                          unit: .init(name: "Unit 2: Cells", overviewTitle: "Unit 2 Vocabulary List", overview: "Cell, Cell Theory, Prokaryote, Eukaryote, Organelle, Nucleus…"),
+                          due: science, missing: [], feedback: []),
+            ])
+    }()
 }

@@ -2,8 +2,15 @@ import { after, NextResponse } from "next/server";
 import OpenAI from "openai";
 import type { ResponseInputItem } from "openai/resources/responses/responses";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { canvasContext } from "@/lib/canvas/tutor-context";
-import { TITLE_INSTRUCTIONS, TITLE_MODEL, TUTOR_MODEL, tutorInstructions } from "@/lib/tuttles/prompt";
+import { canvasContext, focusAssignmentContext } from "@/lib/canvas/tutor-context";
+import {
+  parseTitleAndClass,
+  TITLE_INSTRUCTIONS,
+  TITLE_MODEL,
+  titleAndClassInstructions,
+  TUTOR_MODEL,
+  tutorInstructions,
+} from "@/lib/tuttles/prompt";
 import { tutoredStudent } from "@/lib/tuttles/tutoring-as";
 
 export const runtime = "nodejs";
@@ -12,11 +19,13 @@ export const maxDuration = 120;
 /**
  * One turn of a Tuttles chat, from the iPhone app.
  *
- *   POST { threadId, text, images }   Authorization: Bearer <supabase access token>
+ *   POST { threadId, text, images, assignmentId? }   Authorization: Bearer <supabase access token>
  *   → the tutor's reply, streamed as plain text
  *
  * `threadId` is made on the phone, so the first message of a new chat creates
- * the thread. `images` are paths the phone has already uploaded to the tuttles
+ * the thread. `assignmentId`, on that first message, is the Canvas assignment
+ * the chat was opened from: the thread files under its class, and the tutor
+ * keeps its instructions in view. `images` are paths the phone has already uploaded to the tuttles
  * bucket, under {student_id}/{thread_id}/.
  *
  * The phone has a Supabase session but no website cookies, so it sends its
@@ -55,7 +64,7 @@ export async function POST(request: Request) {
   const student = await tutoredStudent(db, user.id);
   if (!student) return NextResponse.json({ error: "not a family member" }, { status: 403 });
 
-  let body: { threadId?: unknown; text?: unknown; images?: unknown };
+  let body: { threadId?: unknown; text?: unknown; images?: unknown; assignmentId?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -76,10 +85,23 @@ export async function POST(request: Request) {
 
   const { data: thread } = await db
     .from("tutor_threads")
-    .select("id, student_id, title")
+    .select("id, student_id, title, course_id, assignment_id")
     .eq("id", threadId)
     .maybeSingle();
   if (thread && thread.student_id !== user.id) return NextResponse.json({ error: "not your thread" }, { status: 403 });
+
+  // The assignment this chat was opened from, if it's one of the tutored kid's.
+  const requested = typeof body.assignmentId === "number" ? body.assignmentId : null;
+  const { data: opened } =
+    !thread && requested
+      ? await db
+          .from("canvas_assignments")
+          .select("id, course_id")
+          .eq("student_id", student.studentId)
+          .eq("id", requested)
+          .maybeSingle()
+      : { data: null };
+  const assignmentId: number | null = thread?.assignment_id ?? opened?.id ?? null;
 
   const { data: earlier, error: historyErr } = thread
     ? await db
@@ -121,8 +143,11 @@ export async function POST(request: Request) {
   ];
   // Their classes, when a parent has connected Canvas. Last, so the fixed
   // tutoring rules ahead of it stay a cacheable prefix.
-  const classes = await canvasContext(db, student.studentId).catch(() => null);
-  const instructions = [tutorInstructions({ name: student.name, birthdate: student.birthdate }), classes]
+  const [classes, focus] = await Promise.all([
+    canvasContext(db, student.studentId).catch(() => null),
+    assignmentId ? focusAssignmentContext(db, student.studentId, assignmentId).catch(() => null) : null,
+  ]);
+  const instructions = [tutorInstructions({ name: student.name, birthdate: student.birthdate }), classes, focus]
     .filter(Boolean)
     .join("\n\n");
 
@@ -154,7 +179,14 @@ export async function POST(request: Request) {
         if (!thread) {
           const { error } = await db
             .from("tutor_threads")
-            .insert({ id: threadId, student_id: user.id, created_at: now.toISOString(), updated_at: now.toISOString() });
+            .insert({
+              id: threadId,
+              student_id: user.id,
+              course_id: opened?.course_id ?? null,
+              assignment_id: opened?.id ?? null,
+              created_at: now.toISOString(),
+              updated_at: now.toISOString(),
+            });
           if (error) throw new Error(error.message);
         } else {
           await db.from("tutor_threads").update({ updated_at: now.toISOString() }).eq("id", threadId);
@@ -175,7 +207,10 @@ export async function POST(request: Request) {
         ]);
         if (saveErr) throw new Error(saveErr.message);
 
-        if (!thread?.title) after(() => nameThread(threadId, text, reply));
+        if (!thread?.title) {
+          const classify = !thread?.course_id && !opened;
+          after(() => nameThread(threadId, text, reply, classify ? student.studentId : null));
+        }
         controller.close();
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Something went wrong.";
@@ -190,18 +225,36 @@ export async function POST(request: Request) {
   });
 }
 
-/** Titles a new thread from its first exchange, after the reply has gone out. */
-async function nameThread(threadId: string, question: string, reply: string) {
+/**
+ * Titles a new thread from its first exchange, after the reply has gone out,
+ * and (given the student's id) files it under the class it's about.
+ */
+async function nameThread(threadId: string, question: string, reply: string, classifyFor: string | null) {
   try {
+    const db = createAdminClient();
+    const { data: courses } = classifyFor
+      ? await db.from("canvas_courses").select("id, name").eq("student_id", classifyFor)
+      : { data: null };
     const res = await openai().responses.create({
       model: TITLE_MODEL,
-      instructions: TITLE_INSTRUCTIONS,
+      instructions: courses?.length ? titleAndClassInstructions(courses.map((c) => c.name)) : TITLE_INSTRUCTIONS,
       input: `Student: ${question || "(sent a photo)"}\n\nTutor: ${reply.slice(0, 1500)}`,
       reasoning: { effort: "none" },
     });
-    const title = res.output_text.trim().replace(/^["']|["'.]$/g, "").slice(0, 80);
+    let title = res.output_text.trim();
+    let courseId: number | null = null;
+    if (courses?.length) {
+      const parsed = parseTitleAndClass(title);
+      title = parsed.title;
+      courseId = courses.find((c) => c.name === parsed.className)?.id ?? null;
+    }
+    title = title.replace(/^["']|["'.]$/g, "").slice(0, 80);
     if (!title) return;
-    await createAdminClient().from("tutor_threads").update({ title }).eq("id", threadId).is("title", null);
+    await db
+      .from("tutor_threads")
+      .update({ title, ...(courseId ? { course_id: courseId } : {}) })
+      .eq("id", threadId)
+      .is("title", null);
   } catch {
     // An untitled thread shows its first message instead.
   }

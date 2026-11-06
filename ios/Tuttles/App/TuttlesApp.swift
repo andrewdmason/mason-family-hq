@@ -41,8 +41,10 @@ struct RootView: View {
 }
 
 enum Route: Hashable {
-    /// `isNew`: a chat with nothing in it yet, whose id is made here.
-    case chat(UUID, isNew: Bool)
+    /// `isNew`: a chat with nothing in it yet, whose id is made here. A new
+    /// chat can be about an assignment (`start`) or begun from a class page.
+    case chat(UUID, isNew: Bool, start: ChatStart? = nil, courseID: Int? = nil)
+    case classPage(Int)
 }
 
 /// The chats, with a new one open on top.
@@ -57,6 +59,10 @@ struct ChatsView: View {
            DemoChats.threads.indices.contains(n) {
             return [.chat(DemoChats.threads[n].id, isNew: false)]
         }
+        if args.contains("--list") { return [] }
+        if let at = args.firstIndex(of: "--class"), args.count > at + 1, let id = Int(args[at + 1]) {
+            return [.classPage(id)]
+        }
         return [.chat(UUID(), isNew: true)]
     }
 
@@ -65,8 +71,11 @@ struct ChatsView: View {
             ThreadListView(path: $path)
                 .navigationDestination(for: Route.self) { route in
                     switch route {
-                    case .chat(let id, let isNew):
-                        ChatView(threadID: id, isNew: isNew, title: store.threads.first { $0.id == id }?.title)
+                    case .chat(let id, let isNew, let start, let courseID):
+                        ChatView(threadID: id, isNew: isNew, title: store.threads.first { $0.id == id }?.title,
+                                 courseID: courseID, start: start)
+                    case .classPage(let id):
+                        ClassPageView(courseID: id, path: $path)
                     }
                 }
         }
@@ -79,31 +88,76 @@ private struct ThreadListView: View {
 
     var body: some View {
         List {
-            if let error = store.listError {
-                Text(error).foregroundStyle(.secondary)
-            }
-            ForEach(store.threads) { thread in
-                NavigationLink(value: Route.chat(thread.id, isNew: false)) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(thread.title ?? "New chat")
-                            .font(.body.weight(.medium))
-                            .lineLimit(1)
-                        Text(thread.updatedAt, format: .relative(presentation: .named))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+            if let classes = store.classes, !classes.classes.isEmpty {
+                if !classes.dueSoon.isEmpty {
+                    Section {
+                        DueSoonStrip(items: classes.dueSoon, classes: classes.classes) { a in
+                            path.append(.chat(UUID(), isNew: true, start: ChatStart(assignment: a)))
+                        }
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                    } header: {
+                        Text("Due soon")
                     }
-                    .padding(.vertical, 2)
                 }
-                .swipeActions {
-                    Button("Archive", systemImage: "archivebox") {
-                        Task { await store.archive(thread) }
+                Section("Classes") {
+                    ForEach(classes.classes) { info in
+                        NavigationLink(value: Route.classPage(info.id)) {
+                            HStack(spacing: 12) {
+                                RoundedRectangle(cornerRadius: 3).fill(info.tint).frame(width: 6, height: 28)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(info.shortName).font(.body.weight(.medium))
+                                    if let unit = info.unit {
+                                        Text(unit.name).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                }
+                                Spacer()
+                                let newFeedback = info.feedback.filter(\.isNew).count
+                                if newFeedback > 0 {
+                                    Text("\(newFeedback) new")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 7).padding(.vertical, 2)
+                                        .background(TuttlesLook.accent, in: .capsule)
+                                }
+                            }
+                        }
                     }
-                    .tint(.indigo)
+                }
+            }
+            Section(store.classes == nil ? "" : "Chats") {
+                if let error = store.listError {
+                    Text(error).foregroundStyle(.secondary)
+                }
+                ForEach(store.threads) { thread in
+                    NavigationLink(value: Route.chat(thread.id, isNew: false)) {
+                        ThreadRow(thread: thread, info: store.classInfo(thread.courseId))
+                    }
+                    .contextMenu {
+                        if let classes = store.classes?.classes {
+                            Picker("Class", selection: Binding(
+                                get: { thread.courseId },
+                                set: { id in Task { await store.setCourse(thread, to: id) } }
+                            )) {
+                                Text("No class").tag(Int?.none)
+                                ForEach(classes) { Text($0.shortName).tag(Optional($0.id)) }
+                            }
+                        }
+                        Button("Archive", systemImage: "archivebox") {
+                            Task { await store.archive(thread) }
+                        }
+                    }
+                    .swipeActions {
+                        Button("Archive", systemImage: "archivebox") {
+                            Task { await store.archive(thread) }
+                        }
+                        .tint(.indigo)
+                    }
                 }
             }
         }
         .overlay {
-            if store.threads.isEmpty, store.listError == nil {
+            if store.threads.isEmpty, store.classes == nil, store.listError == nil {
                 ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.text.bubble.right",
                                        description: Text("Start one with the pencil button."))
             }
@@ -117,12 +171,20 @@ private struct ThreadListView: View {
                 }
             }
         }
-        .refreshable { await store.refreshThreads() }
+        .refreshable {
+            async let threads: Void = store.refreshThreads()
+            async let classes: Void = store.refreshClasses()
+            _ = await (threads, classes)
+        }
         .task(id: path.count) {
             // Back on the list: pick up the chat just had and its new title.
-            if path.isEmpty { await store.refreshThreads() }
+            if path.isEmpty {
+                await store.refreshThreads()
+                await store.refreshClasses()
+            }
         }
         .task { await store.refreshThreads() }
+        .task { await store.refreshClasses() }
     }
 }
 

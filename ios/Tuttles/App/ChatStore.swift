@@ -10,11 +10,14 @@ struct TutorThread: Identifiable, Decodable, Equatable {
     var title: String?
     var updatedAt: Date
     var archivedAt: Date?
+    /// The class it's about (a Canvas course id), or nil.
+    var courseId: Int?
 
     enum CodingKeys: String, CodingKey {
         case id, title
         case updatedAt = "updated_at"
         case archivedAt = "archived_at"
+        case courseId = "course_id"
     }
 }
 
@@ -57,6 +60,13 @@ struct ChatMessage: Identifiable, Equatable {
 final class ChatStore {
     var threads: [TutorThread] = []
     var listError: String?
+    /// The student's classes, from Canvas; nil until loaded or when there's no Canvas.
+    var classes: ClassesPayload?
+
+    func classInfo(_ courseID: Int?) -> ClassInfo? {
+        guard let courseID else { return nil }
+        return classes?.classes.first { $0.id == courseID }
+    }
 
     /// Canned chats, with no sign-in or network: `--demo`, for the simulator.
     let isDemo = CommandLine.arguments.contains("--demo")
@@ -70,7 +80,7 @@ final class ChatStore {
         }
         do {
             threads = try await client.from("tutor_threads")
-                .select("id, title, updated_at, archived_at")
+                .select("id, title, updated_at, archived_at, course_id")
                 .eq("student_id", value: Session.shared.userID?.uuidString.lowercased() ?? "")
                 .is("archived_at", value: nil)
                 .order("updated_at", ascending: false)
@@ -82,6 +92,73 @@ final class ChatStore {
             listError = "Couldn't load your chats."
         }
     }
+
+    func refreshClasses() async {
+        if isDemo {
+            classes = DemoChats.classes
+            return
+        }
+        guard let token = try? await client.auth.session.accessToken else { return }
+        var request = URLRequest(url: Self.websiteURL.appending(path: "tuttles/api/classes"))
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let payload = try? Self.decoder.decode(ClassesPayload.self, from: data) else { return }
+        classes = payload
+    }
+
+    /// Files a chat under another class (nil: none).
+    func setCourse(_ thread: TutorThread, to courseID: Int?) async {
+        if let at = threads.firstIndex(where: { $0.id == thread.id }) { threads[at].courseId = courseID }
+        guard !isDemo else { return }
+        struct Change: Encodable { let course_id: Int? }
+        _ = try? await client.from("tutor_threads")
+            .update(Change(course_id: courseID))
+            .eq("id", value: thread.id.uuidString.lowercased())
+            .execute()
+    }
+
+    /// Feedback opened in the app stops being marked new: on the page now
+    /// (`markSeen`), or the next time the page loads (`markSeenLater`).
+    func markSeen(_ assignment: ClassAssignment) {
+        markSeenLater(assignment)
+        guard let payload = classes else { return }
+        func clear(_ list: [ClassAssignment]) -> [ClassAssignment] {
+            list.map { $0.id == assignment.id ? $0.seen() : $0 }
+        }
+        classes = ClassesPayload(
+            student: payload.student,
+            dueSoon: payload.dueSoon,
+            classes: payload.classes.map { c in
+                ClassInfo(id: c.id, name: c.name, shortName: c.shortName, color: c.color, unit: c.unit,
+                          due: c.due, missing: c.missing, feedback: clear(c.feedback))
+            })
+    }
+
+    func markSeenLater(_ assignment: ClassAssignment) {
+        guard !isDemo, let userID = Session.shared.userID else { return }
+        struct Seen: Encodable { let user_id: String; let assignment_id: Int }
+        Task {
+            _ = try? await client.from("tutor_feedback_seen")
+                .upsert(Seen(user_id: userID.uuidString.lowercased(), assignment_id: assignment.id))
+                .execute()
+        }
+    }
+
+    /// ISO dates from the website, with or without fractions of a second.
+    static let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .custom { decoder in
+            let text = try decoder.singleValueContainer().decode(String.self)
+            for options in [ISO8601DateFormatter.Options.withInternetDateTime, [.withInternetDateTime, .withFractionalSeconds]] {
+                let f = ISO8601DateFormatter()
+                f.formatOptions = options
+                if let date = f.date(from: text) { return date }
+            }
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Bad date \(text)"))
+        }
+        return d
+    }()
 
     /// Tidies a thread out of the list. Parents still see it.
     func archive(_ thread: TutorThread) async {
@@ -138,7 +215,7 @@ final class ChatStore {
     /// far as it streams in (at most every few frames). Throws if the turn
     /// failed; nothing is saved then, so it can be sent again.
     func send(
-        threadID: UUID, text: String, photos: [ChatPhoto],
+        threadID: UUID, text: String, photos: [ChatPhoto], assignmentID: Int? = nil,
         onText: @escaping @MainActor (String) -> Void
     ) async throws {
         if isDemo {
@@ -163,9 +240,9 @@ final class ChatStore {
         request.timeoutInterval = 120
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "threadId": threadID.uuidString.lowercased(), "text": text, "images": paths,
-        ])
+        var body: [String: Any] = ["threadId": threadID.uuidString.lowercased(), "text": text, "images": paths]
+        if let assignmentID { body["assignmentId"] = assignmentID }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -188,14 +265,16 @@ final class ChatStore {
         onText(decoder.reply)
     }
 
-    /// The website's chat route. `--website <url>` points a simulator at a local
-    /// server.
-    static var chatURL: URL {
+    /// The website's chat route.
+    static var chatURL: URL { websiteURL.appending(path: "tuttles/api/chat") }
+
+    /// The website. `--website <url>` points a simulator at a local server.
+    static var websiteURL: URL {
         let args = CommandLine.arguments
         if let at = args.firstIndex(of: "--website"), args.count > at + 1, let url = URL(string: args[at + 1]) {
-            return url.appending(path: "tuttles/api/chat")
+            return url
         }
-        return Config.website.appending(path: "tuttles/api/chat")
+        return Config.website
     }
 }
 
