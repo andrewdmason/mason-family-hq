@@ -167,6 +167,7 @@ final class ChatStore {
         }
         classes = ClassesPayload(
             student: payload.student,
+            memory: payload.memory,
             dueSoon: payload.dueSoon,
             classes: payload.classes.map { c in
                 ClassInfo(id: c.id, name: c.name, shortName: c.shortName, color: c.color, unit: c.unit,

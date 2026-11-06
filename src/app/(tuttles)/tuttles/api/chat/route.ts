@@ -12,6 +12,7 @@ import {
   tutorInstructions,
 } from "@/lib/tuttles/prompt";
 import { tutoredStudent } from "@/lib/tuttles/tutoring-as";
+import { memoryContext } from "@/lib/tuttles/memory";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -141,13 +142,15 @@ export async function POST(request: Request) {
     ),
     studentTurn(text, images),
   ];
-  // Their classes, when a parent has connected Canvas. Last, so the fixed
-  // tutoring rules ahead of it stay a cacheable prefix.
-  const [classes, focus] = await Promise.all([
+  // What the tutor knows of them (src/lib/tuttles/memory.ts) and their classes,
+  // when a parent has connected Canvas. After the fixed tutoring rules, so
+  // those stay a cacheable prefix.
+  const [memory, classes, focus] = await Promise.all([
+    memoryContext(db, student.studentId, student.name).catch(() => null),
     canvasContext(db, student.studentId).catch(() => null),
     assignmentId ? focusAssignmentContext(db, student.studentId, assignmentId).catch(() => null) : null,
   ]);
-  const instructions = [tutorInstructions({ name: student.name, birthdate: student.birthdate }), classes, focus]
+  const instructions = [tutorInstructions({ name: student.name, birthdate: student.birthdate }), memory, classes, focus]
     .filter(Boolean)
     .join("\n\n");
 

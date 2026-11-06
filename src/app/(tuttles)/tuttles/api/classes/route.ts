@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { classesFor, type ClassesPayload } from "@/lib/tuttles/classes";
 import { tutoredStudent } from "@/lib/tuttles/tutoring-as";
+import { currentMemory } from "@/lib/tuttles/memory";
 
 export const runtime = "nodejs";
 
@@ -26,9 +27,22 @@ export async function GET(request: Request) {
   const student = await tutoredStudent(db, user.id);
   if (!student) return NextResponse.json({ error: "not a family member" }, { status: 403 });
 
+  const [classes, memory] = await Promise.all([
+    classesFor(db, student.studentId, user.id),
+    currentMemory(db, student.studentId),
+  ]);
   const payload: ClassesPayload = {
     student: { name: student.name, preview: student.preview },
-    ...(await classesFor(db, student.studentId, user.id)),
+    memory: memory && {
+      learning: memory.profile.learning.map((i) => i.text),
+      classes: memory.profile.classes.map((c) => ({
+        courseId: classes.classes.find((k) => k.name === c.name)?.id ?? null,
+        name: c.name,
+        strong: c.strengths.map((i) => i.text),
+        workingOn: c.shaky.map((i) => i.text),
+      })),
+    },
+    ...classes,
   };
   return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
 }

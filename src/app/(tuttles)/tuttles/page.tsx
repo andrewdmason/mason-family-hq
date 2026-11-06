@@ -31,6 +31,23 @@ export default async function TuttlesPage() {
 
       <CanvasConnections statuses={canvas} canvasUrl={CANVAS_BASE_URL} now={now.getTime()} />
 
+      <section className="mb-10">
+        <h2 className="mb-2 px-1 font-serif text-lg text-foreground">Memory</h2>
+        <ul className="divide-y divide-foreground/8 overflow-hidden rounded-xl border border-foreground/10 bg-card">
+          {canvas.map((kid) => (
+            <li key={kid.studentId}>
+              <Link
+                href={`/tuttles/memory/${kid.studentId}`}
+                className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-foreground/[0.03]"
+              >
+                <span className="flex-1 text-[0.95rem] text-foreground">What Tuttles knows about {kid.name}</span>
+                <ChevronRight className="size-4 text-muted-foreground" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
+
       {students.length === 0 ? (
         <p className="rounded-xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
           No chats yet. Chats from the Tuttles iPhone app show up here.
