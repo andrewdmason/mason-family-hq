@@ -2,17 +2,10 @@ import { after, NextResponse } from "next/server";
 import OpenAI from "openai";
 import type { ResponseInputItem } from "openai/resources/responses/responses";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { canvasContext, focusAssignmentContext } from "@/lib/canvas/tutor-context";
-import {
-  parseTitleAndClass,
-  TITLE_INSTRUCTIONS,
-  TITLE_MODEL,
-  titleAndClassInstructions,
-  TUTOR_MODEL,
-  tutorInstructions,
-} from "@/lib/tuttles/prompt";
+import { TUTOR_MODEL, tutorInstructions } from "@/lib/tuttles/prompt";
+import { nameThread } from "@/lib/tuttles/naming";
 import { tutoredStudent } from "@/lib/tuttles/tutoring-as";
-import { memoryContext } from "@/lib/tuttles/memory";
+import { studentSections } from "@/lib/tuttles/context";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -145,14 +138,10 @@ export async function POST(request: Request) {
   // What the tutor knows of them (src/lib/tuttles/memory.ts) and their classes,
   // when a parent has connected Canvas. After the fixed tutoring rules, so
   // those stay a cacheable prefix.
-  const [memory, classes, focus] = await Promise.all([
-    memoryContext(db, student.studentId, student.name).catch(() => null),
-    canvasContext(db, student.studentId).catch(() => null),
-    assignmentId ? focusAssignmentContext(db, student.studentId, assignmentId).catch(() => null) : null,
-  ]);
-  const instructions = [tutorInstructions({ name: student.name, birthdate: student.birthdate }), memory, classes, focus]
-    .filter(Boolean)
-    .join("\n\n");
+  const instructions = [
+    tutorInstructions({ name: student.name, birthdate: student.birthdate }),
+    ...(await studentSections(db, student, assignmentId)),
+  ].join("\n\n");
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -226,39 +215,4 @@ export async function POST(request: Request) {
   return new Response(stream, {
     headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
   });
-}
-
-/**
- * Titles a new thread from its first exchange, after the reply has gone out,
- * and (given the student's id) files it under the class it's about.
- */
-async function nameThread(threadId: string, question: string, reply: string, classifyFor: string | null) {
-  try {
-    const db = createAdminClient();
-    const { data: courses } = classifyFor
-      ? await db.from("canvas_courses").select("id, name").eq("student_id", classifyFor)
-      : { data: null };
-    const res = await openai().responses.create({
-      model: TITLE_MODEL,
-      instructions: courses?.length ? titleAndClassInstructions(courses.map((c) => c.name)) : TITLE_INSTRUCTIONS,
-      input: `Student: ${question || "(sent a photo)"}\n\nTutor: ${reply.slice(0, 1500)}`,
-      reasoning: { effort: "none" },
-    });
-    let title = res.output_text.trim();
-    let courseId: number | null = null;
-    if (courses?.length) {
-      const parsed = parseTitleAndClass(title);
-      title = parsed.title;
-      courseId = courses.find((c) => c.name === parsed.className)?.id ?? null;
-    }
-    title = title.replace(/^["']|["'.]$/g, "").slice(0, 80);
-    if (!title) return;
-    await db
-      .from("tutor_threads")
-      .update({ title, ...(courseId ? { course_id: courseId } : {}) })
-      .eq("id", threadId)
-      .is("title", null);
-  } catch {
-    // An untitled thread shows its first message instead.
-  }
 }

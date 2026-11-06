@@ -44,7 +44,10 @@ export type NumberLineVisual = {
 
 export type SvgVisual = { type: "svg"; title?: string; svg: string };
 
-export type Visual = MappingVisual | GraphVisual | NumberLineVisual | SvgVisual;
+/** An equation written out, shown by the voice tutor while it talks. */
+export type MathVisual = { type: "math"; title?: string; latex: string };
+
+export type Visual = MappingVisual | GraphVisual | NumberLineVisual | SvgVisual | MathVisual;
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const isValue = (v: unknown): v is Value => isNum(v) || (typeof v === "string" && v.length <= 40);
@@ -163,6 +166,10 @@ export function parseVisual(source: string): Visual {
       const svg = sanitizeSvg(v.svg);
       if (!/<svg[\s>]/.test(svg)) throw new Error("svg empty after cleaning");
       return { type: "svg", title, svg };
+    }
+    case "math": {
+      if (typeof v.latex !== "string" || !v.latex.trim()) throw new Error("math visual has no latex");
+      return { type: "math", title, latex: v.latex.slice(0, 2000) };
     }
     default:
       throw new Error(`unknown visual type ${JSON.stringify(v.type)}`);

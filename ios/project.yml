@@ -284,6 +284,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSCameraUsageDescription: Take pictures of your homework to show your tutor.
+        NSMicrophoneUsageDescription: Talk with your tutor out loud.
         NSPhotoLibraryUsageDescription: Show your tutor pictures you've already taken.
         UILaunchScreen:
           UIColorName: ""
