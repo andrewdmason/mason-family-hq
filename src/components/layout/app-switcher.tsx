@@ -20,6 +20,7 @@ import {
   Library,
   ListTodo,
   Menu,
+  MessagesSquare,
   Music,
   NotebookPen,
   Settings,
@@ -115,6 +116,13 @@ const APPS: App[] = [
     icon: CalendarRange,
   },
   {
+    href: "/tuttles",
+    label: "Tuttles",
+    match: "/tuttles",
+    description: "The kids' homework tutor chats",
+    icon: MessagesSquare,
+  },
+  {
     href: "/assignments",
     label: "Assignments",
     match: "/assignments",
@@ -150,6 +158,9 @@ const APPS: App[] = [
     icon: Brain,
   },
 ];
+
+// Apps only owner/parent see (the middleware turns everyone else away).
+const ADULT_ONLY = new Set(["/reader", "/tuttles"]);
 
 // The practice book is owner-only (gated in middleware), so it only joins the
 // list for the owner. It runs its own header, so picking it leaves this switcher
@@ -193,10 +204,11 @@ export function AppSwitcher({
   isAdult?: boolean;
 }) {
   const pathname = usePathname();
-  // Reader is the parents' e-reader (gated in middleware); the kids' reading
-  // lives in Bookshelf, which everyone gets.
+  // Reader is the parents' e-reader and Tuttles is where parents read the
+  // kids' tutor chats (both gated in middleware); the kids' reading lives in
+  // Bookshelf and their tutor is the iPhone app.
   const apps = [
-    ...APPS.filter((app) => app.match !== "/reader" || isAdult),
+    ...APPS.filter((app) => !ADULT_ONLY.has(app.match) || isAdult),
     ...(isOwner ? [PRACTICE_APP] : []),
   ];
   // Settings is a matchable destination too, so the trigger reads "Settings"

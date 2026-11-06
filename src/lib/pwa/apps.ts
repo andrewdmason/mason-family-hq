@@ -41,6 +41,7 @@ export const PWA_APPS: PwaApp[] = [
   { key: "bucks", name: "Mason Bucks", shortName: "Bucks", startUrl: "/bucks", pageTitle: "Mason Bucks" },
   { key: "timeline", name: "Timeline", shortName: "Timeline", startUrl: "/timeline", pageTitle: "Timeline" },
   { key: "calendar", name: "Calendar", shortName: "Calendar", startUrl: "/calendar", pageTitle: "Calendar" },
+  { key: "tuttles", name: "Tuttles", shortName: "Tuttles", startUrl: "/tuttles", pageTitle: "Tuttles" },
   { key: "assignments", name: "Assignments", shortName: "Assignments", startUrl: "/assignments", pageTitle: "Assignments" },
   { key: "workouts", name: "Workouts", shortName: "Workouts", startUrl: "/workouts", pageTitle: "Workouts" },
   { key: "practice", name: "Practice Log", shortName: "Practice", startUrl: "/practice", pageTitle: "Practice Log" },

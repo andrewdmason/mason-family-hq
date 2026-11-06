@@ -23,6 +23,10 @@ packages:
   Supabase:
     url: https://github.com/supabase/supabase-swift
     from: 2.55.0
+  # Typesets the tutor's LaTeX natively (Tuttles).
+  SwiftMath:
+    url: https://github.com/mgriebling/SwiftMath
+    from: 1.7.3
 targets:
   # Todos on the Mac: the native to-do app, reading a local file for now.
   TodosMac:
@@ -252,6 +256,54 @@ targets:
     sources: [MusicMinusOne/Tests]
     dependencies:
       - target: MusicMinusOne
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+  # Tuttles: the kids' homework tutor. Chats with the tutor go through the
+  # website (/tuttles/api/chat), which holds the model key.
+  Tuttles:
+    type: application
+    platform: iOS
+    sources: [Tuttles/App]
+    dependencies:
+      - package: MasonKit
+      - package: Supabase
+        product: Supabase
+      - package: SwiftMath
+    entitlements:
+      path: Tuttles/App/Tuttles.entitlements
+      properties:
+        keychain-access-groups: [$(AppIdentifierPrefix)io.mason.shared]
+    info:
+      path: Tuttles/App/Info.plist
+      properties:
+        CFBundleDisplayName: Tuttles
+        CFBundleURLTypes:
+          - CFBundleURLName: io.mason.tuttles
+            CFBundleURLSchemes: [io.mason.tuttles]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSCameraUsageDescription: Take pictures of your homework to show your tutor.
+        NSPhotoLibraryUsageDescription: Show your tutor pictures you've already taken.
+        UILaunchScreen:
+          UIColorName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.mason.tuttles
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+    scheme:
+      testTargets: [TuttlesTests]
+  TuttlesTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tuttles/Tests]
+    dependencies:
+      - target: Tuttles
     settings:
       base:
         GENERATE_INFOPLIST_FILE: true
