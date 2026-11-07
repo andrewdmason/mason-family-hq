@@ -300,6 +300,8 @@ private struct PieceTile: View {
     let now: Date
     let due: Bool
     let onSettings: (Piece) -> Void
+    /// The time's popover, to set today's practice by hand.
+    @State private var adjusting = false
 
     var body: some View {
         let state = store.state(for: piece, at: now)
@@ -322,6 +324,7 @@ private struct PieceTile: View {
         .accessibilityAddTraits(state.running ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { store.tap(piece) }
         .accessibilityAction(named: "Settings") { onSettings(piece) }
+        .accessibilityAction(named: "Change today's time") { adjusting = true }
     }
 
     private func glass(_ state: PieceState) -> Glass {
@@ -354,7 +357,18 @@ private struct PieceTile: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            TimeReadout(state: state, today: store.today, size: .large)
+            Button { adjusting = true } label: {
+                TimeReadout(state: state, today: store.today, size: .large)
+                    .padding(8)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .padding(-8)
+            .accessibilityLabel("Change today's time")
+            .popover(isPresented: $adjusting) {
+                TimeAdjuster(running: state.running, initial: state.elapsedSeconds) { store.setPracticed(piece, seconds: $0) }
+                    .presentationCompactAdaptation(.popover)
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, minHeight: 72, alignment: plain ? .leading : .topLeading)
@@ -441,6 +455,73 @@ private struct MovementTile: View {
     }
 }
 
+// MARK: - Setting the time
+
+/// Today's practice on a piece, set by hand in five-minute steps: for the
+/// session that wasn't timed, or the timer left running.
+private struct TimeAdjuster: View {
+    let running: Bool
+    let initial: Int
+    let onSave: (Int) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var seconds: Int
+
+    init(running: Bool, initial: Int, onSave: @escaping (Int) -> Void) {
+        self.running = running
+        self.initial = initial
+        self.onSave = onSave
+        _seconds = State(initialValue: initial)
+    }
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Text("Practiced today")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 16) {
+                step(up: false)
+                Text(QuickLog.total(seconds))
+                    .font(.system(size: 44, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .contentTransition(.numericText(value: Double(seconds)))
+                    .frame(minWidth: 128)
+                    .accessibilityLabel(QuickLog.total(seconds))
+                step(up: true)
+            }
+            Button {
+                onSave(seconds)
+                dismiss()
+            } label: {
+                Text(running ? "Save and stop the timer" : "Save")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.large)
+            .disabled(seconds == initial)
+        }
+        .padding(20)
+        .frame(width: 300)
+        .sensoryFeedback(.selection, trigger: seconds)
+    }
+
+    private func step(up: Bool) -> some View {
+        Button {
+            withAnimation(.snappy) { seconds = QuickLog.stepFive(seconds, up: up) }
+        } label: {
+            Image(systemName: up ? "plus" : "minus")
+                .font(.title2.weight(.bold))
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .buttonRepeatBehavior(.enabled)
+        .disabled(!up && seconds == 0)
+        .accessibilityLabel(up ? "Five minutes more" : "Five minutes less")
+    }
+}
+
 // MARK: - Now playing
 
 /// What's being timed, floating over the list: its live clock, today's
@@ -506,6 +587,10 @@ private struct PieceSettingsView: View {
     @State private var minutes: Int
     /// The duration as it was, kept exact when the picker isn't touched.
     private let originalSeconds: Int
+    /// Today's practice on it, set by hand in five-minute steps.
+    @State private var practiced: Int
+    private let originalPracticed: Int
+    private let running: Bool
     @State private var saving = false
     @State private var error: String?
 
@@ -520,6 +605,10 @@ private struct PieceSettingsView: View {
         _text = State(initialValue: task?.text ?? "")
         originalSeconds = task?.timerSeconds ?? 0
         _minutes = State(initialValue: originalSeconds / 60)
+        let state = store.state(for: piece, at: .now)
+        originalPracticed = state.elapsedSeconds
+        _practiced = State(initialValue: state.elapsedSeconds)
+        running = state.running
     }
 
     var body: some View {
@@ -557,7 +646,7 @@ private struct PieceSettingsView: View {
                     }
                 }
                 if !switching {
-                    Section("Today") {
+                    Section {
                         TextField("What to work on", text: $text, axis: .vertical)
                             .lineLimit(3...8)
                         Picker(selection: $minutes) {
@@ -570,6 +659,26 @@ private struct PieceSettingsView: View {
                             Label("Duration", systemImage: "timer")
                         }
                         .pickerStyle(.menu)
+                        Stepper {
+                            HStack {
+                                Label("Practiced", systemImage: "clock")
+                                Spacer()
+                                Text(QuickLog.total(practiced))
+                                    .monospacedDigit()
+                                    .foregroundStyle(practiced == originalPracticed ? .secondary : .primary)
+                                    .contentTransition(.numericText(value: Double(practiced)))
+                            }
+                        } onIncrement: {
+                            withAnimation(.snappy) { practiced = QuickLog.stepFive(practiced, up: true) }
+                        } onDecrement: {
+                            withAnimation(.snappy) { practiced = QuickLog.stepFive(practiced, up: false) }
+                        }
+                    } header: {
+                        Text("Today")
+                    } footer: {
+                        if running && practiced != originalPracticed {
+                            Text("Saving stops the timer.")
+                        }
                     }
                 }
                 if let error {
@@ -613,6 +722,7 @@ private struct PieceSettingsView: View {
                 return
             }
             try await store.save(piece, status: listing, text: text, seconds: minutes == originalSeconds / 60 ? originalSeconds : minutes * 60)
+            if practiced != originalPracticed { store.setPracticed(piece, seconds: practiced) }
             dismiss()
         } catch {
             self.error = "Couldn't save. Check your connection and try again."

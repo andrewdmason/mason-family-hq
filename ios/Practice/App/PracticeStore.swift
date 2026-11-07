@@ -313,6 +313,29 @@ final class PracticeStore {
         if let stopped = timer.stop(reason: .tap) { record(stopped) }
     }
 
+    /// Set today's practice on a piece by hand, for a session that wasn't
+    /// timed or was timed wrong. A timer running on it stops first, so the
+    /// time set is the time that stands.
+    func setPracticed(_ piece: Piece, seconds: Int) {
+        if timer.running?.pieceID == piece.id { stopRunning() }
+        var mine = tasks.filter { $0.pieceID == piece.id }
+        if mine.isEmpty {
+            guard seconds > 0 else { return }
+            mine = [newTask(for: piece, at: .now)]
+        }
+        for (id, remaining) in QuickLog.settingElapsed(mine, to: seconds) {
+            guard let i = tasks.firstIndex(where: { $0.id == id }) else { continue }
+            tasks[i].timerRemainingSeconds = remaining
+            writes.enqueue(.remaining(taskID: id, remainingSeconds: remaining))
+        }
+        PracticeToday(
+            date: today,
+            loggedSeconds: tasks.reduce(0) { $0 + $1.elapsedSeconds },
+            run: timer.running.flatMap { $0.date == today ? $0.widgetRun : nil }
+        ).publish()
+        save()
+    }
+
     /// Today's planned practice: the durations set on the day's entries.
     var todayGoal: Int {
         tasks.reduce(0) { $0 + max(0, $1.timerSeconds) }
