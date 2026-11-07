@@ -54,6 +54,12 @@ struct Work: Codable, Identifiable {
         name = try c.decode(String.self, forKey: .name)
         trackByMovement = try c.decodeIfPresent(Bool.self, forKey: .trackByMovement) ?? true
     }
+
+    init(id: UUID, name: String, trackByMovement: Bool = true) {
+        self.id = id
+        self.name = name
+        self.trackByMovement = trackByMovement
+    }
 }
 
 /// Where a piece sits, as the long-press sheet offers it. Maintenance is an

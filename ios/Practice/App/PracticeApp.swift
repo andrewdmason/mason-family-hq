@@ -8,7 +8,7 @@ struct PracticeApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
-                .tint(Theme.accent)
+                .tint(PracticeStyle.accent)
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }

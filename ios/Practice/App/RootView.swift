@@ -3,16 +3,24 @@ import SwiftUI
 
 struct RootView: View {
     @State private var session = Session.shared
+    @State private var store = PracticeStore.isDemoLaunch ? PracticeStore.demo() : PracticeStore()
 
     var body: some View {
         Group {
-            if !session.checked {
+            if store.isDemo {
+                NavigationStack {
+                    QuickLogView(store: store)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) { AccountMenu(email: "demo@mason.io") }
+                        }
+                }
+            } else if !session.checked {
                 ProgressView()
             } else if !session.isSignedIn {
                 SignInView(appName: "Practice", symbol: "music.note")
             } else if session.role == "owner" {
                 NavigationStack {
-                    QuickLogView()
+                    QuickLogView(store: store)
                         .toolbar {
                             ToolbarItem(placement: .topBarLeading) { AccountMenu(email: session.email) }
                         }
