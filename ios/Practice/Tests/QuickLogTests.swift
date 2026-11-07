@@ -151,3 +151,59 @@ private func task(_ key: String, completed: Bool, started: String? = nil, ended:
         #expect(QuickLog.dueMaintenance(pieces: all, lastPracticed: last, excluded: Set(all.map(\.id)), asOf: asOf) == nil)
     }
 }
+
+/// Setting today's time by hand.
+@Suite struct SettingTime {
+    private func entry(_ key: String, goal: Int, practiced: Int, completed: Bool = false, created: String = "2026-10-09T08:00:00Z") -> PracticeTask {
+        var t = task(key, completed: completed, created: created)
+        t.timerSeconds = goal
+        t.timerRemainingSeconds = goal - practiced
+        return t
+    }
+
+    @Test func addedTimeGoesOnTheEntryATapWouldTime() {
+        let done = entry("done", goal: 600, practiced: 600, completed: true)
+        let open = entry("open", goal: 1200, practiced: 300)
+        #expect(QuickLog.settingElapsed([done, open], to: 1800) == [id("open"): 1200 - 1200])
+    }
+
+    @Test func addingPastTheGoalRunsIntoOvertime() {
+        let open = entry("open", goal: 600, practiced: 0)
+        #expect(QuickLog.settingElapsed([open], to: 900) == [id("open"): -300])
+    }
+
+    @Test func anEntryWithNoGoalHoldsTimeAsNegativeRemaining() {
+        let open = entry("open", goal: 0, practiced: 0)
+        #expect(QuickLog.settingElapsed([open], to: 1500) == [id("open"): -1500])
+    }
+
+    @Test func cutsComeOffThatEntryFirstThenTheLatest() {
+        let first = entry("first", goal: 600, practiced: 600, completed: true)
+        let second = entry("second", goal: 600, practiced: 600, completed: true, created: "2026-10-09T09:00:00Z")
+        let open = entry("open", goal: 600, practiced: 120, created: "2026-10-09T10:00:00Z")
+        // 22m down to 5m: the open entry's 2m, then the latest's 10m, then 5m of the first.
+        #expect(QuickLog.settingElapsed([first, second, open], to: 300) == [
+            id("open"): 600, id("second"): 600, id("first"): 300,
+        ])
+    }
+
+    @Test func settingTheSameTimeChangesNothing() {
+        let open = entry("open", goal: 600, practiced: 240)
+        #expect(QuickLog.settingElapsed([open], to: 240).isEmpty)
+    }
+
+    @Test func zeroClearsItAll() {
+        let a = entry("a", goal: 600, practiced: 600, completed: true)
+        let b = entry("b", goal: 0, practiced: 300, completed: true)
+        #expect(QuickLog.settingElapsed([a, b], to: 0) == [id("a"): 600, id("b"): 0])
+    }
+
+    @Test func stepsSnapToFiveMinutes() {
+        #expect(QuickLog.stepFive(8 * 60 + 30, up: true) == 600)
+        #expect(QuickLog.stepFive(8 * 60 + 30, up: false) == 300)
+        #expect(QuickLog.stepFive(600, up: true) == 900)
+        #expect(QuickLog.stepFive(600, up: false) == 300)
+        #expect(QuickLog.stepFive(120, up: false) == 0)
+        #expect(QuickLog.stepFive(0, up: false) == 0)
+    }
+}

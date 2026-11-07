@@ -38,6 +38,11 @@ in step. Everything else about practice is set up on the website.
   minutes or so (iOS decides) it also reads the log itself with the shared
   sign-in, to pick up practice on the website. The larger of the two wins, so
   time removed on the website shows once the app has next opened.
+- The look is Liquid Glass on a warm mesh backdrop (`PracticeStyle.swift`):
+  glass tiles that fill with colour toward each piece's goal, a ring for the
+  day, and a floating bar with Stop while a timer runs.
+- `--demo` runs on a made-up day with no sign-in, for the simulator;
+  `--demo-running` also starts a timer.
 
 ## Music Minus One
 

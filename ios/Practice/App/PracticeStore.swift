@@ -30,6 +30,8 @@ final class PracticeStore {
     private(set) var today = PracticeDay.today()
     private(set) var loaded = false
     private(set) var loadError: String?
+    /// Canned pieces with no sign-in or network: `--demo`, for the simulator.
+    private(set) var isDemo = false
 
     let timer: PracticeTimer
     private let writes: PracticeWrites
@@ -63,6 +65,10 @@ final class PracticeStore {
 
     func load() async {
         today = PracticeDay.today()
+        if isDemo {
+            loadDemo()
+            return
+        }
         await writes.flush()
         // Archive days that have ended first, as the website does on load.
         let db = self.db
@@ -161,9 +167,39 @@ final class PracticeStore {
 
     /// Flip a work between a segment per movement and one card for the whole.
     func setTrackByMovement(_ piece: Piece, _ track: Bool) async throws {
+        guard !isDemo else { return }
         guard let work = piece.workID else { return }
         _ = try await db.rpc("set_work_track_by_movement", params: TrackParams(target_work_id: work.uuidString.lowercased(), track: track)).execute()
         await load()
+    }
+
+    /// The demo's pieces, on a timer and queue of their own that never reach
+    /// the log (nobody's signed in) and start over each launch.
+    static let isDemoLaunch = CommandLine.arguments.contains("--demo")
+
+    static func demo() -> PracticeStore {
+        let suite = "io.mason.practice.demo"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        let writes = PracticeWrites(defaults: defaults)
+        let store = PracticeStore(timer: PracticeTimer(writes: writes, defaults: defaults), writes: writes, defaults: defaults)
+        store.isDemo = true
+        return store
+    }
+
+    private func loadDemo() {
+        guard !loaded else { return }
+        let demo = DemoPractice.make(today: today)
+        allPieces = demo.pieces
+        pieces = demo.pieces
+        works = Dictionary(uniqueKeysWithValues: demo.works.map { ($0.id, $0) })
+        tasks = demo.tasks
+        lastPracticed = demo.lastPracticed
+        loaded = true
+        // `--demo-running`: open with the Bach timing, to see the running look.
+        if CommandLine.arguments.contains("--demo-running"), let piece = pieces.first(where: { $0.composer == "J. S. Bach" }) {
+            tap(piece)
+        }
     }
 
     private struct TrackParams: Encodable { let target_work_id: String; let track: Bool }
@@ -189,7 +225,7 @@ final class PracticeStore {
             writes.enqueue(.edit(taskID: task.id, text: text, timerSeconds: seconds, remainingSeconds: remaining))
         }
 
-        guard status != PieceListing(piece) else { return }
+        guard status != PieceListing(piece), !isDemo else { return }
         struct Update: Encodable { let status: String; let maintenance: Bool }
         let update = switch status {
         case .active: Update(status: "active", maintenance: false)
@@ -264,6 +300,45 @@ final class PracticeStore {
         tasks.append(created)
         writes.enqueue(.create(id: created.id, pieceID: piece.id, date: today, sessionNumber: session, createdAt: now))
         return created
+    }
+
+    /// The piece being timed, if any.
+    var runningPiece: Piece? {
+        guard let run = timer.running, run.date == today else { return nil }
+        return allPieces.first { $0.id == run.pieceID }
+    }
+
+    /// Stop whatever's running: the floating bar's Stop button.
+    func stopRunning() {
+        if let stopped = timer.stop(reason: .tap) { record(stopped) }
+    }
+
+    /// Set today's practice on a piece by hand, for a session that wasn't
+    /// timed or was timed wrong. A timer running on it stops first, so the
+    /// time set is the time that stands.
+    func setPracticed(_ piece: Piece, seconds: Int) {
+        if timer.running?.pieceID == piece.id { stopRunning() }
+        var mine = tasks.filter { $0.pieceID == piece.id }
+        if mine.isEmpty {
+            guard seconds > 0 else { return }
+            mine = [newTask(for: piece, at: .now)]
+        }
+        for (id, remaining) in QuickLog.settingElapsed(mine, to: seconds) {
+            guard let i = tasks.firstIndex(where: { $0.id == id }) else { continue }
+            tasks[i].timerRemainingSeconds = remaining
+            writes.enqueue(.remaining(taskID: id, remainingSeconds: remaining))
+        }
+        PracticeToday(
+            date: today,
+            loggedSeconds: tasks.reduce(0) { $0 + $1.elapsedSeconds },
+            run: timer.running.flatMap { $0.date == today ? $0.widgetRun : nil }
+        ).publish()
+        save()
+    }
+
+    /// Today's planned practice: the durations set on the day's entries.
+    var todayGoal: Int {
+        tasks.reduce(0) { $0 + max(0, $1.timerSeconds) }
     }
 
     /// Today's total, a running timer included.

@@ -54,6 +54,12 @@ struct Work: Codable, Identifiable {
         name = try c.decode(String.self, forKey: .name)
         trackByMovement = try c.decodeIfPresent(Bool.self, forKey: .trackByMovement) ?? true
     }
+
+    init(id: UUID, name: String, trackByMovement: Bool = true) {
+        self.id = id
+        self.name = name
+        self.trackByMovement = trackByMovement
+    }
 }
 
 /// Where a piece sits, as the long-press sheet offers it. Maintenance is an
@@ -205,6 +211,41 @@ enum QuickLog {
             }
         }
         return best
+    }
+
+    /// What a piece's entries' timer_remaining_seconds become so today adds
+    /// up to `target` seconds of practice, for the ones that change: setting
+    /// the time by hand. Time added goes on the entry a tap would time; time
+    /// taken off comes off that entry first, then the others, latest first.
+    /// Goals stay put, so remaining is the goal less the new practice, past
+    /// zero into overtime, as the website's session edit writes it.
+    static func settingElapsed(_ tasks: [PracticeTask], to target: Int) -> [UUID: Int] {
+        guard let main = taskToTime(tasks) else { return [:] }
+        var elapsed = Dictionary(tasks.map { ($0.id, $0.elapsedSeconds) }, uniquingKeysWith: { a, _ in a })
+        var delta = max(0, target) - elapsed.values.reduce(0, +)
+        if delta > 0 {
+            elapsed[main.id, default: 0] += delta
+        } else {
+            for task in [main] + tasks.reversed().filter({ $0.id != main.id }) where delta < 0 {
+                let cut = min(elapsed[task.id] ?? 0, -delta)
+                elapsed[task.id, default: 0] -= cut
+                delta += cut
+            }
+        }
+        var changed: [UUID: Int] = [:]
+        for task in tasks where elapsed[task.id] != task.elapsedSeconds {
+            changed[task.id] = task.timerSeconds - (elapsed[task.id] ?? 0)
+        }
+        return changed
+    }
+
+    /// The next whole five minutes up or down from a time: 8m to 10m or 5m,
+    /// 10m to 15m or 5m. Never below zero.
+    static func stepFive(_ seconds: Int, up: Bool) -> Int {
+        let step = 300
+        let s = max(0, seconds)
+        if up { return (s / step + 1) * step }
+        return s % step == 0 ? max(0, s - step) : s / step * step
     }
 
     /// "45m", "1h 16m": the quiet total under a stopped card.

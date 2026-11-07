@@ -17,6 +17,9 @@ enum PracticeWrite: Codable, Equatable {
     /// remaining time moves with the duration, so time already in stays in,
     /// as the website's goal edit does.
     case edit(taskID: UUID, text: String, timerSeconds: Int, remainingSeconds: Int)
+    /// Today's time set by hand: the practice an entry holds, written as its
+    /// remaining, as the website's session edit does.
+    case remaining(taskID: UUID, remainingSeconds: Int)
 }
 
 /// The queue of writes not yet in the log. Kept on disk, so nothing is lost to
@@ -94,6 +97,8 @@ final class PracticeWrites {
                     tasks[i].timerSeconds = seconds
                     tasks[i].timerRemainingSeconds = remaining
                 }
+            case let .remaining(taskID, remaining):
+                if let i = tasks.firstIndex(where: { $0.id == taskID }) { tasks[i].timerRemainingSeconds = remaining }
             }
         }
         return tasks
@@ -151,6 +156,11 @@ final class PracticeWrites {
             struct Edit: Encodable { let text: String; let timer_seconds: Int; let timer_remaining_seconds: Int }
             try await db.from("practice_tasks")
                 .update(Edit(text: text, timer_seconds: seconds, timer_remaining_seconds: remaining))
+                .eq("id", value: taskID.uuidString.lowercased())
+                .execute()
+        case let .remaining(taskID, remaining):
+            try await db.from("practice_tasks")
+                .update(["timer_remaining_seconds": remaining])
                 .eq("id", value: taskID.uuidString.lowercased())
                 .execute()
         }
