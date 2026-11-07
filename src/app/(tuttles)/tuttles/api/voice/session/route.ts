@@ -77,7 +77,9 @@ export async function POST(request: Request) {
           input: {
             format: { type: "audio/pcm", rate: 24000 },
             transcription: { model: VOICE_TRANSCRIBE_MODEL, language: TRANSCRIBE_LANGUAGE, prompt: TRANSCRIBE_PROMPT },
-            turn_detection: { type: "semantic_vad", eagerness: "low" },
+            // "low" let the model wait up to ~8s of silence before answering;
+            // "medium" caps it near 4s and still waits out a mid-thought pause.
+            turn_detection: { type: "semantic_vad", eagerness: "medium" },
           },
           output: { format: { type: "audio/pcm", rate: 24000 }, voice: VOICE },
         },

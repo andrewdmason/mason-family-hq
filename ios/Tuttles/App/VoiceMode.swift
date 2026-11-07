@@ -41,6 +41,9 @@ final class VoiceCall {
     private(set) var studentCaption = ""
     /// The student is talking right now (from the server's voice detection).
     private(set) var studentSpeaking = false
+    /// The student finished and the tutor hasn't started answering yet.
+    private(set) var thinking = false
+    private var stoppedAt: Date?
     /// 0…1, for the background.
     private(set) var inputLevel: Float = 0
     private(set) var outputLevel: Float = 0
@@ -154,6 +157,11 @@ final class VoiceCall {
         if let type = e["type"] as? String, !type.hasSuffix(".delta") { VoiceLog.say("event \(type)") }
         switch e["type"] as? String {
         case "response.output_audio.delta":
+            if thinking {
+                thinking = false
+                if let stoppedAt { VoiceLog.say("reply started \(Int(Date().timeIntervalSince(stoppedAt) * 1000))ms after the student stopped") }
+                stoppedAt = nil
+            }
             if let b64 = e["delta"] as? String, let pcm = Data(base64Encoded: b64) { play(pcm) }
         case "response.output_item.added":
             if let item = e["item"] as? [String: Any], item["type"] as? String == "message", let id = item["id"] as? String {
@@ -176,10 +184,13 @@ final class VoiceCall {
             player.stop()
             player.play()
             studentSpeaking = true
+            thinking = false
             // Cut off: the caption stops where the voice did.
             receivedSamples = playedSamples
         case "input_audio_buffer.speech_stopped":
             studentSpeaking = false
+            thinking = true
+            stoppedAt = Date()
         case "input_audio_buffer.committed":
             if let id = e["item_id"] as? String {
                 let after = (e["previous_item_id"] as? String).flatMap { p in turns.firstIndex { $0.id == p } }
@@ -208,6 +219,7 @@ final class VoiceCall {
         case "error":
             let message = (e["error"] as? [String: Any])?["message"] as? String ?? "Something went wrong."
             tutorCaption = message
+            thinking = false
         default:
             break
         }
@@ -519,12 +531,18 @@ struct VoiceView: View {
             case .ending:
                 Text("Saving…").foregroundStyle(.white.opacity(0.7))
             case .live:
-                SpokenCaption(text: call?.tutorCaption ?? "", spokenShare: call?.spokenShare ?? 0, replyID: call?.captionID ?? 0)
+                if call?.thinking == true {
+                    VoiceThinkingDots()
+                        .transition(.opacity)
+                } else {
+                    SpokenCaption(text: call?.tutorCaption ?? "", spokenShare: call?.spokenShare ?? 0, replyID: call?.captionID ?? 0)
+                }
             }
         }
         .multilineTextAlignment(.center)
         .padding(.horizontal, 28)
         .frame(minHeight: 110, alignment: .bottom)
+        .animation(.easeOut(duration: 0.2), value: call?.thinking)
     }
 
     private var controls: some View {
@@ -612,6 +630,27 @@ enum VoiceLog {
         guard !said.contains(key) else { return }
         said.insert(key)
         say(message)
+    }
+}
+
+/// Three dots pulsing in turn while the tutor works out what to say, so a
+/// pause after the student stops reads as "heard you" rather than nothing.
+struct VoiceThinkingDots: View {
+    var body: some View {
+        TimelineView(.animation) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 10) {
+                ForEach(0..<3) { i in
+                    let phase = (sin((t * 2 * .pi / 1.2) - Double(i) * 0.9) + 1) / 2
+                    Circle()
+                        .fill(.white.opacity(0.35 + 0.6 * phase))
+                        .frame(width: 10, height: 10)
+                        .scaleEffect(0.8 + 0.35 * phase)
+                }
+            }
+        }
+        .frame(height: 30)
+        .accessibilityLabel("Thinking")
     }
 }
 
