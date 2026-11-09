@@ -11,8 +11,6 @@ struct TodoListState {
     let destination: Destination
     let selectedID: String?
     let selectedIDs: Set<String>
-    let editingID: String?
-    let editingText: String
     let renamingProjectID: String?
     /// The cursor belongs in the header, not the sidebar's row.
     let renamingInHeader: Bool
@@ -122,8 +120,7 @@ final class TodoListController: NSViewController {
         let state = withObservationTracking {
             TodoListState(
                 rows: store.listRows, destination: store.destination, selectedID: store.selectedID,
-                selectedIDs: store.selectedIDs, editingID: store.editingID, editingText: store.editingText,
-                renamingProjectID: store.renamingProjectID,
+                selectedIDs: store.selectedIDs, renamingProjectID: store.renamingProjectID,
                 renamingInHeader: store.renamingProjectID != nil && !store.isRenamingInSidebar,
                 namingSectionID: store.namingSectionID, openID: store.openID)
         } onChange: { [weak self] in
@@ -133,7 +130,7 @@ final class TodoListController: NSViewController {
         // Keys and focus belong to the list, even just after a click in the sidebar.
         if shownDestination != state.destination {
             // Not while a new to-do's field has just taken the cursor.
-            if shownDestination != nil, state.editingID == nil, state.renamingProjectID == nil, state.namingSectionID == nil, state.openID == nil { focus() }
+            if shownDestination != nil, state.renamingProjectID == nil, state.namingSectionID == nil, state.openID == nil { focus() }
             shownDestination = state.destination
         }
     }
@@ -178,7 +175,6 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
     weak var table: NSTableView?
     private var rows: [TodoListRow] = []
     private var destination: Destination?
-    private var editingRowID: String?
     private var renamingProjectID: String?
     private var namingSectionID: String?
     private var openRowID: String?
@@ -219,7 +215,6 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
             if selected.count == 1, let row = selected.first { table.scrollRowToVisible(row) }
         }
 
-        syncEditing(list, in: table)
         syncRenaming(list, in: table)
         syncNamingSection(list, in: table)
         syncOpen(opening: opening, closing: closingRowID, in: table)
@@ -309,7 +304,7 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         let before = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         var changed = IndexSet()
         for (index, row) in new.enumerated()
-        where row.id != editingRowID && row.id != openRowID && row.id != closingRowID
+        where row.id != openRowID && row.id != closingRowID
             && !(row.id == "heading" && list.renamingInHeader)
             && (before[row.id].map { $0 != row } ?? false) {
             changed.insert(index)
@@ -317,21 +312,6 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         if !changed.isEmpty {
             table.reloadData(forRowIndexes: changed, columnIndexes: [0])
         }
-    }
-
-    private func syncEditing(_ list: TodoListState, in table: NSTableView) {
-        if editingRowID != list.editingID {
-            if let previous = editingRowID, let index = rows.firstIndex(where: { $0.id == previous }) {
-                editingRowID = nil
-                table.window?.makeFirstResponder(table)
-                table.reloadData(forRowIndexes: [index], columnIndexes: [0])
-            }
-            editingRowID = list.editingID
-        }
-        guard let id = editingRowID, let index = rows.firstIndex(where: { $0.id == id }) else { return }
-        table.scrollRowToVisible(index)
-        guard let cell = table.view(atColumn: 0, row: index, makeIfNecessary: true) as? TodoCell else { return }
-        cell.showEditing(text: list.editingText, delegate: self)
     }
 
     // MARK: Table
@@ -430,7 +410,7 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
             item.setString(section, forType: .sectionID)
             return item
         }
-        guard case .todo(let todo, _) = rows[row], todo.completedAt == nil, todo.id != editingRowID, todo.id != openRowID
+        guard case .todo(let todo, _) = rows[row], todo.completedAt == nil, todo.id != openRowID
         else { return nil }
         let item = NSPasteboardItem()
         item.setString(todo.id, forType: .todoID)
@@ -588,8 +568,6 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
             store.sectionDraft = field.stringValue
         } else if field is DetailTitleField {
             store.openTitle = field.stringValue
-        } else {
-            store.editingText = field.stringValue
         }
     }
 
@@ -601,15 +579,14 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
             if !applying { store.finishRenamingProject() }
         } else if notification.object is SectionNameField {
             if !applying { store.finishNamingSection() }
-        } else if !applying, store.editingID != nil, editingRowID == store.editingID {
-            store.commitEdit()
         }
     }
 
     /// Return and Esc in the project name. To-do rows get theirs from KeyRouter.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if control is DetailTitleField {
-            guard selector == #selector(NSResponder.insertTab(_:)) else { return false }
+            guard selector == #selector(NSResponder.insertTab(_:)) || selector == #selector(NSResponder.insertBacktab(_:))
+            else { return false }
             var view = control.superview
             while let current = view, !(current is TodoDetailCell) { view = current.superview }
             (view as? TodoDetailCell)?.focusNotes()
@@ -1074,7 +1051,7 @@ final class TodoCell: NSTableCellView {
         ])
         titleLeading = title.leadingAnchor.constraint(equalTo: circle.trailingAnchor, constant: 8)
         titleLeading?.isActive = true
-        // The field fills the row while typing; the row's detail stays out of its way.
+        // The name fills the row; the row's detail stays out of its way.
         title.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28).withPriority(.defaultLow).isActive = true
     }
 
@@ -1089,8 +1066,6 @@ final class TodoCell: NSTableCellView {
         }
         titleLeading?.constant = list == nil ? 8 : 30
         ticking = false
-        title.isEditable = false
-        title.delegate = nil
         title.stringValue = todo.title
         title.textColor = todo.completedAt == nil ? .labelColor : .secondaryLabelColor
         showCircle(done: todo.completedAt != nil, animated: false)
@@ -1119,30 +1094,6 @@ final class TodoCell: NSTableCellView {
         }
     }
 
-    func showEditing(text: String, delegate: NSTextFieldDelegate) {
-        detail.isHidden = true
-        if !title.isEditable {
-            title.isEditable = true
-            title.delegate = delegate
-            title.stringValue = text
-            focusField(text)
-        } else if title.currentEditor() == nil {
-            title.stringValue = text
-            focusField(text)
-        } else if title.stringValue != text {
-            title.stringValue = text
-        }
-    }
-
-    /// Focus selects everything; the next key must add to the text, not replace it.
-    private func focusField(_ text: String) {
-        window?.makeFirstResponder(title)
-        guard let editor = title.currentEditor() as? NSTextView else { return }
-        editor.selectedRange = NSRange(location: (text as NSString).length, length: 0)
-        // The row is the field: no white box inside the selection.
-        editor.drawsBackground = false
-        editor.insertionPointColor = TodosLook.accent
-    }
 }
 
 extension NSLayoutConstraint {

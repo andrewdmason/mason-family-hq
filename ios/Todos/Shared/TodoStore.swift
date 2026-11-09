@@ -110,6 +110,8 @@ final class TodoStore {
     var sections: [TodoSection]
     var areas: [TodoArea]
     var destination: Destination = .view(.today)
+    @ObservationIgnored private var backHistory: [Destination] = []
+    @ObservationIgnored private var forwardHistory: [Destination] = []
     var selectedID: String? {
         didSet {
             let only: Set<String> = selectedID.map { [$0] } ?? []
@@ -121,10 +123,6 @@ final class TodoStore {
     /// Every selected row. Usually just the current one; more after ⌘A or ⌘-clicks.
     /// Setting `selectedID` narrows it back down to that one row.
     private(set) var selectedIDs: Set<String> = []
-    /// The row being typed in, and what's been typed. A background change to
-    /// `todos` can't touch either, so it can't take a half-typed to-do away.
-    var editingID: String?
-    var editingText = ""
     /// A project group whose name is being typed in the sidebar.
     private(set) var namingAreaID: String?
     @ObservationIgnored var areaDraft = ""
@@ -134,6 +132,8 @@ final class TodoStore {
     private(set) var openID: String?
     @ObservationIgnored var openTitle = ""
     @ObservationIgnored var openNotes = ""
+    /// Whether the open to-do was only just added.
+    @ObservationIgnored private(set) var openIsNew = false
     /// The project whose name is being typed.
     private(set) var renamingProjectID: String?
     /// Whether that typing is in the sidebar's row rather than the header.
@@ -234,7 +234,7 @@ final class TodoStore {
 
     func pendingChanges(against base: TodoLibrary) -> PendingChanges {
         PendingChanges(
-            tasks: TodoMerge.changes(local: todos, base: base.tasks) { !$0.title.isEmpty && $0.id != self.editingID },
+            tasks: TodoMerge.changes(local: todos, base: base.tasks) { !$0.title.isEmpty },
             projects: TodoMerge.changes(local: projects, base: base.projects) {
                 !$0.name.isEmpty && $0.id != self.renamingProjectID
             },
@@ -491,6 +491,40 @@ final class TodoStore {
     // MARK: Moving around
 
     func go(_ destination: Destination) {
+        let from = self.destination
+        show(destination)
+        if self.destination != from { rememberLeaving(from) }
+    }
+
+    func goBack() {
+        guard let target = popLive(&backHistory) else { return }
+        forwardHistory.append(destination)
+        show(target)
+    }
+
+    func goForward() {
+        guard let target = popLive(&forwardHistory) else { return }
+        backHistory.append(destination)
+        show(target)
+    }
+
+    private func rememberLeaving(_ destination: Destination) {
+        backHistory.append(destination)
+        forwardHistory = []
+    }
+
+    /// The nearest place in this history that can still be shown: a project may
+    /// have been deleted since, which can also leave the same list twice in a row.
+    private func popLive(_ history: inout [Destination]) -> Destination? {
+        while let place = history.popLast() {
+            if place == destination { continue }
+            if case .project(let id) = place, !projects.contains(where: { $0.id == id }) { continue }
+            return place
+        }
+        return nil
+    }
+
+    private func show(_ destination: Destination) {
         guard destination != self.destination else { return }
         if case .project(let id) = destination { expandArea(ofProject: id) }
         finishNamingSection()
@@ -574,6 +608,9 @@ final class TodoStore {
     }
 
     func moveSelected(to bucket: Bucket) {
+        // A new to-do with nothing typed yet has nothing to move. One with something
+        // typed is saved as it closes, and moves with its name.
+        if hasBlankNewOpen { return }
         changeSelected {
             $0.bucket = bucket
             $0.snoozedUntil = nil
@@ -671,8 +708,8 @@ final class TodoStore {
             sortOrder: first - 1, createdAt: Self.stamp(Date()))
         change { todos.append(todo) }
         selectedID = todo.id
-        editingText = ""
-        editingID = todo.id
+        openSelected()
+        openIsNew = true
     }
 
     /// Which list new to-dos join: this one, or the Inbox from a list that can't
@@ -750,13 +787,39 @@ final class TodoStore {
         openID = id
     }
 
-    /// Saves what was typed. A name left blank keeps the old one.
+    /// A new to-do on screen with nothing typed in it, which closing will remove.
+    var hasBlankNewOpen: Bool {
+        openIsNew && openTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && openNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Saves what was typed. A name left blank keeps the old one. A new to-do with
+    /// nothing typed is removed.
     func closeOpen() {
         guard let id = openID else { return }
+        let isBlank = hasBlankNewOpen
+        let isNew = openIsNew
         openID = nil
+        openIsNew = false
         guard let todo = todos.first(where: { $0.id == id }) else { return }
         let title = openTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let notes = openNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isBlank {
+            todos.removeAll { $0.id == id }
+            if selectedID == id { selectedID = nil }
+            scheduleSave()
+            return
+        }
+        if isNew {
+            // Part of adding it, so one undo takes the whole to-do away. Sync skips
+            // to-dos with no name, so notes alone still need one.
+            update(id) {
+                $0.title = title.isEmpty ? "New To-Do" : title
+                $0.notes = notes.isEmpty ? nil : notes
+            }
+            scheduleSave()
+            return
+        }
         let newTitle = title.isEmpty ? todo.title : title
         let newNotes = notes.isEmpty ? nil : notes
         guard newTitle != todo.title || newNotes != todo.notes else { return }
@@ -846,23 +909,6 @@ final class TodoStore {
     func commitEdit() {
         finishNamingArea()
         closeOpen()
-        guard let id = editingID else { return }
-        let text = editingText.trimmingCharacters(in: .whitespacesAndNewlines)
-        editingID = nil
-        editingText = ""
-        if text.isEmpty {
-            todos.removeAll { $0.id == id && $0.title.isEmpty }
-        } else {
-            update(id) { $0.title = text }
-        }
-        scheduleSave()
-    }
-
-    func cancelEdit() {
-        guard let id = editingID else { return }
-        editingID = nil
-        editingText = ""
-        todos.removeAll { $0.id == id && $0.title.isEmpty }
     }
 
     /// From quick add: goes in at the top of the Inbox without touching what's
@@ -1043,6 +1089,7 @@ final class TodoStore {
         returnFromNewProject = destination
         nameBeforeRenaming = ""
         projects.append(project)
+        rememberLeaving(destination)
         destination = .project(project.id)
         selectedID = nil
         renamingProjectID = project.id

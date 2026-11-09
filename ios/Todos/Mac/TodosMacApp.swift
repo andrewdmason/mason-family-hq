@@ -199,9 +199,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let commands = ClosureMenuItem(title: "Commands…") { model.palette.toggle() }
         commands.keyEquivalent = "k"
         file.addItem(commands)
-        let anytime = ClosureMenuItem(title: "Move to Anytime") { store.moveSelected(to: .anytime) }
-        anytime.keyEquivalent = "r"
-        file.addItem(anytime)
+        for (title, key, bucket) in [
+            ("Move to Today", "t", Bucket.today), ("Move to This Week", "e", .week),
+            ("Move to Someday", "o", .someday), ("Move to Anytime", "r", .anytime),
+        ] {
+            let move = ClosureMenuItem(title: title) { store.moveSelected(to: bucket) }
+            move.keyEquivalent = key
+            file.addItem(move)
+        }
         fileItem.submenu = file
         let editItem = menu.addItem(withTitle: "Edit", action: nil, keyEquivalent: "")
         let edit = NSMenu(title: "Edit")
@@ -210,6 +215,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
+        let goItem = menu.addItem(withTitle: "Go", action: nil, keyEquivalent: "")
+        let go = NSMenu(title: "Go")
+        let back = ClosureMenuItem(title: "Back") { store.goBack() }
+        back.keyEquivalent = "["
+        go.addItem(back)
+        let forward = ClosureMenuItem(title: "Forward") { store.goForward() }
+        forward.keyEquivalent = "]"
+        go.addItem(forward)
+        goItem.submenu = go
         let windowItem = menu.addItem(withTitle: "Window", action: nil, keyEquivalent: "")
         let window = NSMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
@@ -385,13 +399,12 @@ final class KeyRouter {
 
     /// ⌘V as new to-dos. Text fields keep ordinary paste, except that several
     /// lines into a brand-new, empty to-do become several to-dos.
-    private func pasteTasks(typing: Bool) -> Bool {
+    private func pasteTasks(typing: Bool, inNotes: Bool) -> Bool {
         guard let text = pasteboard.string(forType: .string) else { return false }
         if store.renamingProjectID != nil { return false }
-        if store.editingID != nil {
-            let lines = text.split(whereSeparator: \.isNewline)
-            guard store.editingText.isEmpty, lines.count > 1 else { return false }
-            store.cancelEdit()
+        if store.hasBlankNewOpen, !inNotes {
+            guard text.split(whereSeparator: \.isNewline).count > 1 else { return false }
+            store.closeOpen()
         } else if typing {
             return false
         }
@@ -421,7 +434,19 @@ final class KeyRouter {
             return true
         }
 
-        if command, characters.lowercased() == "v", pasteTasks(typing: typing) { return true }
+        if command, !shift, characters == "[" {
+            store.goBack()
+            return true
+        }
+        if command, !shift, characters == "]" {
+            store.goForward()
+            return true
+        }
+
+        if command, characters.lowercased() == "v",
+            pasteTasks(typing: typing, inNotes: event.window?.firstResponder is DetailNotesView) {
+            return true
+        }
 
         // In the open to-do: Esc closes it, and so does Return in the name. In the
         // notes, Return is a new line and ⌘Return closes.
@@ -436,36 +461,31 @@ final class KeyRouter {
                     store.closeOpen()
                     return true
                 }
-            default: break
+            default:
+                // Keys that beat the cursor to a new to-do go into its name, not
+                // to a shortcut and not into nothing.
+                if store.openIsNew, !typing, !command, let text = event.characters, !text.isEmpty,
+                    text.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) {
+                    store.openTitle += text
+                    return true
+                }
             }
         }
 
-        if store.editingID != nil {
-            switch event.keyCode {
-            case 36, 76:  // return
-                store.commitEdit()
-                return true
-            case 53:  // escape
-                store.cancelEdit()
-                return true
-            default:
-                // Keys that beat the cursor to the new row go into the draft,
-                // not to a shortcut and not into nothing.
-                if !typing, !command, let text = event.characters, !text.isEmpty,
-                    text.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) {
-                    store.editingText += text
-                    return true
-                }
-                return false
-            }
+        // These reach the open to-do too. While naming a project or section they do
+        // nothing, rather than move whichever row is still selected.
+        let whenKeys: [String: Bucket] = ["t": .today, "e": .week, "o": .someday, "r": .anytime]
+        if command, !shift, let bucket = whenKeys[characters.lowercased()] {
+            if !typing || store.openID != nil { store.moveSelected(to: bucket) }
+            return true
         }
+
         if typing { return false }
 
         if command {
             switch characters.lowercased() {
             case "z": if shift { store.redo() } else { store.undo() }
             case "a": store.selectAll()
-            case "r": store.moveSelected(to: .anytime)
             default:
                 guard event.keyCode == 51 else { return false }  // ⌘delete
                 store.deleteSelected()

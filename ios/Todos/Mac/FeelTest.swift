@@ -728,6 +728,252 @@ struct FeelTest {
             return
         }
 
+        if CommandLine.arguments.contains("newcard") {
+            func press(_ text: String, _ code: UInt16, flags: NSEvent.ModifierFlags = []) async {
+                let event = NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: flags,
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                    context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false,
+                    keyCode: code)
+                if let event { NSApp.postEvent(event, atStart: false) }
+                try? await Task.sleep(for: .milliseconds(120))
+            }
+            func type(_ text: String) async {
+                for letter in text { await press(String(letter), 0) }
+            }
+            func new() async {
+                await press("n", 45, flags: [.command])
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+            func esc() async {
+                await press("\u{1B}", 53)
+                try? await Task.sleep(for: .milliseconds(400))
+            }
+            func field() -> String {
+                let responder = window.firstResponder
+                if responder is DetailNotesView { return "notes" }
+                if responder is NSText { return "name" }
+                return responder is NSTableView ? "list" : "other"
+            }
+            func describe(_ id: String?) -> String {
+                guard let t = store.todos.first(where: { $0.id == id }) else { return "gone" }
+                return "'\(t.title)' notes '\(t.notes ?? "")', selected \(store.selectedID == id), open \(store.openID != nil), focus \(field())"
+            }
+            var log: [String] = []
+            store.go(.view(.today))
+            try? await Task.sleep(for: .milliseconds(300))
+            let count = store.todos.count
+
+            await new()
+            var id = store.openID
+            log.append("cmd-N -> open \(id != nil), selected \(store.selectedID == id), focus \(field())")
+            capture(window, "newcard-open")
+            await esc()
+            log.append("esc with nothing typed -> \(describe(id)), count \(count) to \(store.todos.count), focus \(field())")
+
+            await new()
+            id = store.openID
+            await type("half typed")
+            await esc()
+            log.append("esc partway -> \(describe(id))")
+            capture(window, "newcard-closed")
+            await press("z", 6, flags: [.command])
+            log.append("one undo -> \(describe(id)), count \(store.todos.count)")
+
+            await new()
+            id = store.openID
+            await type("with notes")
+            await press("\t", 48)
+            log.append("tab from name -> \(field())")
+            await type("the details")
+            await press("\u{19}", 48, flags: [.shift])
+            log.append("shift-tab from notes -> \(field())")
+            await press("\t", 48)
+            log.append("tab from name -> \(field())")
+            await press("\t", 48)
+            log.append("tab from notes -> \(field())")
+            await press("\u{19}", 48, flags: [.shift])
+            log.append("shift-tab from name -> \(field())")
+            await esc()
+            log.append("esc from notes -> \(describe(id))")
+
+            await new()
+            id = store.openID
+            await press("\t", 48)
+            await type("only notes")
+            await esc()
+            log.append("notes with no name -> \(describe(id))")
+
+            await new()
+            id = store.openID
+            await type("return closes")
+            await press("\r", 36)
+            try? await Task.sleep(for: .milliseconds(400))
+            log.append("return -> \(describe(id))")
+
+            await new()
+            id = store.openID
+            await type("first")
+            await new()
+            let second = store.openID
+            log.append("cmd-N again -> first \(describe(id)); second open \(store.openID == second && second != id)")
+            await esc()
+            log.append("esc on second -> \(describe(second))")
+
+            store.selectedID = id
+            try? await Task.sleep(for: .milliseconds(200))
+            await press("\r", 36)
+            try? await Task.sleep(for: .milliseconds(300))
+            log.append("reopen an existing one -> open \(store.openID == id), focus \(field())")
+            for _ in 0..<5 { await press("\u{7F}", 51) }
+            await esc()
+            log.append("clear its name then esc -> \(describe(id))")
+            try? (log.joined(separator: "\n") + "\n").write(to: results, atomically: true, encoding: .utf8)
+            NSApp.terminate(nil)
+            return
+        }
+
+        if CommandLine.arguments.contains("history") {
+            func press(_ text: String, _ code: UInt16, flags: NSEvent.ModifierFlags = []) async {
+                let event = NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: flags,
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                    context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false,
+                    keyCode: code)
+                if let event { NSApp.postEvent(event, atStart: false) }
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            func back() async { await press("[", 33, flags: [.command]) }
+            func forward() async { await press("]", 30, flags: [.command]) }
+            func visit(_ letter: String) async {
+                await press("g", 5)
+                await press(letter, 0)
+            }
+            func here() -> String {
+                switch store.destination {
+                case .view(let view): view.rawValue
+                case .project: "project"
+                }
+            }
+            var log: [String] = []
+            try? await Task.sleep(for: .milliseconds(300))
+            log.append("start -> \(here())")
+            await back()
+            log.append("back with no history (want today) -> \(here())")
+            await forward()
+            log.append("forward with no history (want today) -> \(here())")
+            await visit("i")
+            await visit("w")
+            await visit("s")
+            log.append("visited inbox, week, someday -> \(here())")
+            await back()
+            log.append("back (want week) -> \(here())")
+            capture(window, "history-back")
+            await back()
+            log.append("back (want inbox) -> \(here())")
+            await forward()
+            log.append("forward (want week) -> \(here())")
+            await visit("l")
+            await forward()
+            log.append("new place clears forward (want logbook) -> \(here())")
+            await back()
+            log.append("back (want week) -> \(here())")
+
+            guard let project = store.projects.first else { return }
+            store.go(.project(project.id))
+            try? await Task.sleep(for: .milliseconds(200))
+            await visit("t")
+            store.projects.removeAll { $0.id == project.id }
+            try? await Task.sleep(for: .milliseconds(200))
+            await back()
+            log.append("deleted project skipped (want week) -> \(here())")
+
+            await press("n", 45, flags: [.command])
+            for letter in "typed before back" { await press(String(letter), 0) }
+            let draft = store.openID
+            await back()
+            let saved = store.todos.first { $0.id == draft }
+            log.append("back mid-typing -> \(here()), saved \"\(saved?.title ?? "-")\", still typing \(store.openID != nil)")
+
+            let selected = store.selectedID.flatMap { id in store.visible.contains { $0.id == id } }
+            log.append("row selected after back -> \(selected ?? store.visible.isEmpty)")
+            try? (log.joined(separator: "\n") + "\n").write(to: results, atomically: true, encoding: .utf8)
+            NSApp.terminate(nil)
+            return
+        }
+
+        if CommandLine.arguments.contains("when") {
+            func press(_ text: String, _ code: UInt16, flags: NSEvent.ModifierFlags = []) async {
+                let event = NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: flags,
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                    context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false,
+                    keyCode: code)
+                if let event { NSApp.postEvent(event, atStart: false) }
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+            var log: [String] = []
+            func stamp(_ title: String, _ bucket: Bucket, project: String? = nil, snoozed: String? = nil) -> Todo {
+                Todo(
+                    id: UUID().uuidString, title: title, notes: nil, bucket: bucket, assigneeEmail: store.me, creatorEmail: store.me,
+                    projectId: project, sectionId: nil, snoozedUntil: snoozed, completedAt: nil, sortOrder: -9999,
+                    createdAt: TodoStore.stamp(Date()))
+            }
+            func describe(_ id: String) -> String {
+                guard let t = store.todos.first(where: { $0.id == id }) else { return "gone" }
+                return "\(t.title): \(t.bucket.rawValue), snoozed \(t.snoozedUntil != nil)"
+            }
+            let keys: [(String, UInt16, Bucket)] = [("t", 17, .today), ("e", 14, .week), ("o", 31, .someday), ("r", 15, .anytime)]
+            for (key, code, bucket) in keys {
+                let todo = stamp("cmd-\(key)", .inbox, snoozed: "2099-01-01T00:00:00Z")
+                store.todos.append(todo)
+                store.go(.view(.snoozed))
+                try? await Task.sleep(for: .milliseconds(300))
+                store.selectedID = todo.id
+                await press(key, code, flags: [.command])
+                log.append("cmd-\(key) (want \(bucket.rawValue)) -> \(describe(todo.id))")
+            }
+            await press("z", 6, flags: [.command])
+            log.append("undo -> \(store.todos.first { $0.title == "cmd-r" }.map(\.bucket.rawValue) ?? "-")")
+
+            store.go(.view(.inbox))
+            try? await Task.sleep(for: .milliseconds(300))
+            await press("n", 45, flags: [.command])
+            let draft = store.openID
+            let before = store.todos.count
+            await press("t", 17, flags: [.command])
+            log.append("empty draft -> still typing \(store.openID == draft && draft != nil), count \(before) to \(store.todos.count)")
+            for letter in "typed then moved" { await press(String(letter), 0) }
+            log.append("typing -> draft text \"\(store.openTitle)\"")
+            await press("e", 14, flags: [.command])
+            log.append("typed draft -> \(draft.map(describe) ?? "-"), still typing \(store.openID != nil)")
+
+            let open = stamp("open one", .inbox)
+            store.todos.append(open)
+            try? await Task.sleep(for: .milliseconds(300))
+            store.selectedID = open.id
+            store.openSelected()
+            try? await Task.sleep(for: .milliseconds(300))
+            log.append("open -> in field \(window.firstResponder is NSText)")
+            await press("o", 31, flags: [.command])
+            log.append("open then cmd-o -> \(describe(open.id)), closed \(store.openID == nil)")
+
+            guard let project = store.projects.first else { return }
+            let row = stamp("while naming", .anytime, project: project.id)
+            store.todos.append(row)
+            store.go(.project(project.id))
+            try? await Task.sleep(for: .milliseconds(300))
+            await press("n", 45, flags: [.command, .option])
+            try? await Task.sleep(for: .milliseconds(300))
+            store.selectedID = row.id
+            log.append("naming section -> in field \(window.firstResponder is NSText), selected \(store.selectedID == row.id)")
+            await press("t", 17, flags: [.command])
+            log.append("naming then cmd-t -> \(describe(row.id))")
+            try? (log.joined(separator: "\n") + "\n").write(to: results, atomically: true, encoding: .utf8)
+            NSApp.terminate(nil)
+            return
+        }
+
         if CommandLine.arguments.contains("section") {
             func press(_ text: String, _ code: UInt16, flags: NSEvent.ModifierFlags = []) async {
                 let event = NSEvent.keyEvent(
@@ -883,12 +1129,12 @@ struct FeelTest {
             await press("c", 8)
             put("one\ntwo")
             await press("v", 9, command: true)
-            log.append("two lines into empty new to-do -> \(store.visible.count), editing \(store.editingID != nil)")
+            log.append("two lines into empty new to-do -> \(store.visible.count), editing \(store.openID != nil)")
             await press("z", 6, command: true)
             await press("c", 8)
             put("single line")
             await press("v", 9, command: true)
-            log.append("one line into new to-do -> draft '\(store.editingText)', editing \(store.editingID != nil)")
+            log.append("one line into new to-do -> draft '\(store.openTitle)', editing \(store.openID != nil)")
             await press("\u{1B}", 53)
             store.go(.view(.logbook))
             try? await Task.sleep(for: .milliseconds(200))
@@ -954,7 +1200,7 @@ struct FeelTest {
             store.go(.view(.logbook))
             try? await Task.sleep(for: .milliseconds(300))
             await key("n", 45, command: true)
-            log.append("cmd-N from logbook -> editing \(store.editingID != nil), in \(store.title)")
+            log.append("cmd-N from logbook -> editing \(store.openID != nil), in \(store.title)")
             for letter in "buy stamps" { await key(String(letter), 0) }
             capture(window, "new-todo")
             await key("\r", 36)
@@ -1044,9 +1290,9 @@ struct FeelTest {
             backgroundChange(store, round: round)
         }
         await settle()
-        report["typed_kept"] = store.editingText == typed
-        report["typed_text"] = store.editingText
-        report["still_editing"] = store.editingID != nil
+        report["typed_kept"] = store.openTitle == typed
+        report["typed_text"] = store.openTitle
+        report["still_editing"] = store.openID != nil
         report["cursor_in_field"] = window.firstResponder is NSText
         capture(window, "typing")
         report["lists_on_screen"] = tableSizes(in: window.contentView)
@@ -1139,10 +1385,10 @@ struct FeelTest {
 
     /// Another device or Norbert changing things: a row renamed, a row added at the top.
     private func backgroundChange(_ store: TodoStore, round: Int) {
-        if let index = store.todos.firstIndex(where: { $0.completedAt == nil && $0.id != store.editingID }) {
+        if let index = store.todos.firstIndex(where: { $0.completedAt == nil && $0.id != store.openID }) {
             store.todos[index].title += " •"
         }
-        var added = store.todos.first { $0.id != store.editingID } ?? store.todos[0]
+        var added = store.todos.first { $0.id != store.openID } ?? store.todos[0]
         added.id = "background-\(round)"
         added.title = "Added elsewhere \(round)"
         added.bucket = .today
