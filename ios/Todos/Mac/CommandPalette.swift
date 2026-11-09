@@ -65,14 +65,8 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSWindowDelegate, NST
     }
 
     private func show() {
-        // A new to-do with nothing typed goes; a half-typed name is kept.
-        if store.editingID != nil {
-            if store.editingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                store.cancelEdit()
-            } else {
-                store.commitEdit()
-            }
-        }
+        // A new to-do with nothing typed goes; a half-typed one stays open behind.
+        if store.hasBlankNewOpen { store.closeOpen() }
         store.finishNamingArea()
         store.finishNamingSection()
         store.finishRenamingProject()
