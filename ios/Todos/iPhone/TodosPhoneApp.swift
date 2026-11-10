@@ -355,7 +355,7 @@ struct TodoListScreen: View {
     private func row(_ todo: Todo) -> some View {
         PhoneTodoRow(
             todo: todo, marker: store.marker(for: todo), detail: store.detail(for: todo),
-            isTicked: ticked.contains(todo.id)
+            attachments: store.attachments.items(for: todo.id).count, isTicked: ticked.contains(todo.id)
         ) {
             tick(todo)
         }
@@ -439,6 +439,7 @@ struct PhoneTodoRow: View {
     let todo: Todo
     let marker: TodoView?
     let detail: String?
+    let attachments: Int
     let isTicked: Bool
     let onTick: () -> Void
 
@@ -465,11 +466,17 @@ struct PhoneTodoRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(todo.title)
                     .foregroundStyle(todo.completedAt == nil ? .primary : .secondary)
-                if let notes = todo.notes, let first = notes.split(whereSeparator: \.isNewline).first {
+                if let notes = TodoMerge.plainNotes(fromHTML: todo.notes), let first = notes.split(whereSeparator: \.isNewline).first {
                     Text(first).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             Spacer(minLength: 0)
+            if attachments > 0 {
+                Label("\(attachments)", systemImage: "paperclip")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
             if let detail {
                 Text(detail).font(.caption).foregroundStyle(.tertiary)
             }
@@ -543,6 +550,7 @@ struct TodoDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title: String
     @State private var notes: String
+    @State private var isChoosingAttachment = false
 
     init(store: TodoStore, todo: Todo) {
         self.store = store
@@ -558,10 +566,17 @@ struct TodoDetailSheet: View {
                     .font(.title3.weight(.semibold))
                 ZStack(alignment: .topLeading) {
                     if notes.isEmpty {
-                        Text("Notes").foregroundStyle(.tertiary).padding(.top, 8).padding(.leading, 5)
+                        Text("Notes").foregroundStyle(.tertiary).padding(.top, 8)
                     }
-                    TextEditor(text: $notes).scrollContentBackground(.hidden)
+                    RichNotesEditor(html: $notes) {
+                        isChoosingAttachment = true
+                    } onPasteImage: { image in
+                        if let data = image.pngData() {
+                            store.attachments.add(data: data, fileName: "Pasted Image.png", mimeType: "image/png", to: todo.id)
+                        }
+                    }
                 }
+                AttachmentStrip(store: store.attachments, todoID: todo.id)
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
@@ -571,6 +586,7 @@ struct TodoDetailSheet: View {
                 }
             }
         }
+        .modifier(AttachmentPicking(store: store.attachments, todoID: todo.id, isChoosing: $isChoosingAttachment))
         .presentationDetents([.medium, .large])
         .onDisappear { store.edit(todo.id, title: title, notes: notes) }
     }

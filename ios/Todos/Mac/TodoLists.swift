@@ -16,6 +16,7 @@ struct TodoListState {
     let renamingInHeader: Bool
     let namingSectionID: String?
     let openID: String?
+    let attachments: [String: [AttachmentItem]]
 }
 
 /// Lets a click go straight into the project name, which a table otherwise holds
@@ -40,6 +41,7 @@ final class TodoListController: NSViewController {
     private let store: TodoStore
     private let coordinator: TodoTableCoordinator
     private var shownDestination: Destination?
+    private var clickMonitor: Any?
 
     init(store: TodoStore) {
         self.store = store
@@ -66,7 +68,7 @@ final class TodoListController: NSViewController {
         table.setDraggingSourceOperationMask(.move, forLocal: true)
         table.setDraggingSourceOperationMask([], forLocal: false)
         table.draggingDestinationFeedbackStyle = .regular
-        table.registerForDraggedTypes([.todoID, .sectionID])
+        table.registerForDraggedTypes([.todoID, .sectionID, .fileURL])
         let menu = NSMenu()
         menu.delegate = coordinator
         table.menu = menu
@@ -104,6 +106,25 @@ final class TodoListController: NSViewController {
     override func viewDidAppear() {
         super.viewDidAppear()
         focus()
+        guard clickMonitor == nil else { return }
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            self?.collapseCardIfClickedOutside(event)
+            return event
+        }
+    }
+
+    /// A click anywhere in the list but the card, a to-do row or a control puts the
+    /// open to-do away. Other to-do rows do that themselves by taking the selection.
+    private func collapseCardIfClickedOutside(_ event: NSEvent) {
+        guard store.openID != nil, let window = view.window, event.windowNumber == window.windowNumber else { return }
+        let point = view.convert(event.locationInWindow, from: nil)
+        guard view.bounds.contains(point), !coordinator.keepsCardOpen(atWindowPoint: event.locationInWindow) else { return }
+        var hit = window.contentView?.superview?.hitTest(event.locationInWindow)
+        while let current = hit {
+            if current is NSButton || current is NSScroller { return }
+            hit = current.superview
+        }
+        store.closeOpen()
     }
 
     func focus() {
@@ -122,7 +143,8 @@ final class TodoListController: NSViewController {
                 rows: store.listRows, destination: store.destination, selectedID: store.selectedID,
                 selectedIDs: store.selectedIDs, renamingProjectID: store.renamingProjectID,
                 renamingInHeader: store.renamingProjectID != nil && !store.isRenamingInSidebar,
-                namingSectionID: store.namingSectionID, openID: store.openID)
+                namingSectionID: store.namingSectionID, openID: store.openID,
+                attachments: store.attachments.byTask)
         } onChange: { [weak self] in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.follow() } }
         }
@@ -180,6 +202,7 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
     private var openRowID: String?
     private var closingRowID: String?
     private var applying = false
+    private var attachments: [String: [AttachmentItem]] = [:]
 
     init(store: TodoStore) {
         self.store = store
@@ -219,6 +242,36 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         syncNamingSection(list, in: table)
         syncOpen(opening: opening, closing: closingRowID, in: table)
         closingRowID = nil
+        syncAttachments(list.attachments, in: table)
+    }
+
+    /// Only the rows whose files changed, and the open card in place, cursor and all.
+    private func syncAttachments(_ new: [String: [AttachmentItem]], in table: NSTableView) {
+        let previous = attachments
+        attachments = new
+        guard previous != new else { return }
+        for id in Set(previous.keys).union(new.keys) where previous[id] != new[id] {
+            guard let row = rows.firstIndex(where: { $0.id == id }) else { continue }
+            if id == openRowID {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0
+                    table.noteHeightOfRows(withIndexesChanged: [row])
+                }
+                (table.view(atColumn: 0, row: row, makeIfNecessary: false) as? TodoDetailCell)?.showAttachments(new[id] ?? [], store: store.attachments)
+            } else {
+                table.reloadData(forRowIndexes: [row], columnIndexes: [0])
+            }
+        }
+    }
+
+    /// Inside the open card, or on a to-do row, which has its own click behavior.
+    func keepsCardOpen(atWindowPoint windowPoint: NSPoint) -> Bool {
+        guard let table else { return false }
+        let point = table.convert(windowPoint, from: nil)
+        let row = table.row(at: point)
+        guard row >= 0, row < rows.count, case .todo(let todo, _) = rows[row] else { return false }
+        guard todo.id == openRowID else { return true }
+        return TodoDetailCell.cardRect(in: table.rect(ofRow: row)).contains(point)
     }
 
     func focusCard(inNotes: Bool, range: NSRange?) {
@@ -231,6 +284,7 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
     /// Swap the row for its card, or back, and put the cursor where it belongs.
     private func syncOpen(opening: String?, closing: String?, in table: NSTableView) {
         guard opening != nil || closing != nil else { return }
+        if closing != nil { TodoDetailCell.forgetMeasurement() }
         var changed = IndexSet()
         for id in [opening, closing].compactMap({ $0 }) {
             if let row = rows.firstIndex(where: { $0.id == id }) { changed.insert(row) }
@@ -324,7 +378,8 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         case .group: 38
         case .empty: 36
         case .todo(let todo, _):
-            todo.id == openRowID ? TodoDetailCell.height(notes: store.openNotes, width: tableView.bounds.width) : 36
+            todo.id == openRowID
+                ? TodoDetailCell.height(notes: store.openNotes, attachments: store.attachments.items(for: todo.id), width: tableView.bounds.width) : 36
         }
     }
 
@@ -362,7 +417,7 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
             if todo.id == openRowID {
                 let cell = reuse(tableView, "detail") { TodoDetailCell() }
                 let store = store
-                cell.configure(todo, title: store.openTitle, notes: store.openNotes, delegate: self) { [weak self, weak tableView] notes in
+                cell.configure(todo, title: store.openTitle, notes: store.openNotes, attachments: store.attachments, delegate: self) { [weak self, weak tableView] notes in
                     store.openNotes = notes
                     if let tableView, let row = self?.rows.firstIndex(where: { $0.id == todo.id }) {
                         NSAnimationContext.runAnimationGroup { context in
@@ -376,7 +431,7 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
                 return cell
             }
             let cell = reuse(tableView, "todo") { TodoCell() }
-            cell.configure(todo, detail: detail, marker: store.marker(for: todo)) { [weak self] in
+            cell.configure(todo, detail: detail, marker: store.marker(for: todo), attachments: store.attachments.items(for: todo.id).count) { [weak self] in
                 self?.store.toggleComplete(todo.id)
             }
             return cell
@@ -464,6 +519,12 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         proposedDropOperation dropOperation: NSTableView.DropOperation
     ) -> NSDragOperation {
         let point = tableView.convert(info.draggingLocation, from: nil)
+        if isFileDrag(info) {
+            let hovered = tableView.row(at: point)
+            guard hovered >= 0, case .todo = rows[hovered] else { return [] }
+            tableView.setDropRow(hovered, dropOperation: .on)
+            return .copy
+        }
         if info.draggingPasteboard.types?.contains(.sectionID) == true {
             // Sections land only between sections, never in among a section's to-dos.
             let tops = rows.indices.filter { sectionID(at: $0) != nil } + [rows.count]
@@ -494,6 +555,11 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         _ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int,
         dropOperation: NSTableView.DropOperation
     ) -> Bool {
+        if isFileDrag(info) {
+            guard case .todo(let todo, _) = rows[row] else { return false }
+            store.attachments.add(files: AttachmentPasteboard.fileURLs(on: info.draggingPasteboard), to: todo.id)
+            return true
+        }
         if let section = info.draggingPasteboard.string(forType: .sectionID) {
             store.moveSection(section, before: sectionID(at: row))
             return true
@@ -509,6 +575,11 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
         if row < rows.count, case .todo(let todo, _) = rows[row] { before = todo.id }
         store.move(ids, toGroup: group(atGap: row), before: before)
         return true
+    }
+
+    private func isFileDrag(_ info: NSDraggingInfo) -> Bool {
+        let types = info.draggingPasteboard.types ?? []
+        return types.contains(.fileURL) && !types.contains(.todoID) && !types.contains(.sectionID)
     }
 
     @objc func doubleClicked() {
@@ -585,11 +656,12 @@ final class TodoTableCoordinator: NSObject, NSTableViewDataSource, NSTableViewDe
     /// Return and Esc in the project name. To-do rows get theirs from KeyRouter.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if control is DetailTitleField {
-            guard selector == #selector(NSResponder.insertTab(_:)) || selector == #selector(NSResponder.insertBacktab(_:))
-            else { return false }
+            let isTab = selector == #selector(NSResponder.insertTab(_:)) || selector == #selector(NSResponder.insertBacktab(_:))
+            let isDown = selector == #selector(NSResponder.moveDown(_:))
+            guard isTab || isDown else { return false }
             var view = control.superview
             while let current = view, !(current is TodoDetailCell) { view = current.superview }
-            (view as? TodoDetailCell)?.focusNotes()
+            (view as? TodoDetailCell)?.focusNotes(atStart: isDown)
             return true
         }
         if control is SectionNameField {
@@ -817,14 +889,6 @@ final class TickView: NSImageView {
 }
 
 final class DetailTitleField: NSTextField {}
-/// Rich only so links can be live. Pasted text comes in plain, and what's saved
-/// is plain text.
-final class DetailNotesView: NSTextView {
-    override func paste(_ sender: Any?) {
-        pasteAsPlainText(sender)
-    }
-}
-
 /// The raised card. Drawn rather than a layer, so it follows light and dark mode.
 final class DetailCardBackground: NSView {
     var inset = NSSize.zero {
@@ -850,7 +914,7 @@ final class DetailCardBackground: NSView {
 
 /// An open to-do: its name and notes on a raised card, and nothing else. Actions
 /// stay out of the way, on the keyboard.
-final class TodoDetailCell: NSTableCellView, NSTextViewDelegate {
+final class TodoDetailCell: NSTableCellView {
     private enum Metrics {
         static let cardX: CGFloat = 12
         static let cardY: CGFloat = 6
@@ -861,13 +925,17 @@ final class TodoDetailCell: NSTableCellView, NSTextViewDelegate {
         static let gap: CGFloat = 10
         static let bottom: CGFloat = 20
         static let font = NSFont.systemFont(ofSize: 14)
+        static let noteStyle = NoteStyle(size: 14, accent: TodosLook.accent, indent: 22)
     }
 
     private let card = DetailCardBackground()
     private let circle = TickView()
     private let title = DetailTitleField()
-    private let notes = DetailNotesView()
+    private let notes = DetailNotesView.make(style: Metrics.noteStyle)
     private let placeholder = NSTextField(labelWithString: "Notes")
+    private let strip = AttachmentStripView()
+    private var todoID: String?
+    private var attachmentStore: AttachmentStore?
     private var onNotes: (String) -> Void = { _ in }
     private var onTick: () -> Void = {}
 
@@ -890,19 +958,9 @@ final class TodoDetailCell: NSTableCellView, NSTextViewDelegate {
         title.cell?.isScrollable = true
         title.placeholderString = "New To-Do"
         addSubview(title)
-        notes.font = Metrics.font
-        notes.textColor = .labelColor
-        notes.drawsBackground = false
-        notes.isRichText = true
-        notes.importsGraphics = false
-        notes.typingAttributes = [.font: Metrics.font, .foregroundColor: NSColor.labelColor]
-        notes.textContainerInset = .zero
-        notes.textContainer?.lineFragmentPadding = 0
-        notes.textContainer?.widthTracksTextView = true
-        notes.isAutomaticLinkDetectionEnabled = true
-        notes.enabledTextCheckingTypes = NSTextCheckingResult.CheckingType.link.rawValue
-        notes.insertionPointColor = TodosLook.accent
-        notes.delegate = self
+        notes.onChange = { [weak self] html in self?.notesChanged(html) }
+        notes.onTabOut = { [weak self] in self?.focusTitle() }
+        addSubview(strip)
         addSubview(notes)
         placeholder.font = Metrics.font
         placeholder.textColor = .tertiaryLabelColor
@@ -911,13 +969,37 @@ final class TodoDetailCell: NSTableCellView, NSTextViewDelegate {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    static func height(notes: String, width: CGFloat) -> CGFloat {
+    /// Rows are re-measured often, and usually for the same note.
+    private static var measured: (html: String, width: CGFloat, height: CGFloat)?
+
+    /// The white card within its row: the row's margins count as outside it.
+    static func cardRect(in row: NSRect) -> NSRect {
+        row.insetBy(dx: Metrics.cardX, dy: Metrics.cardY)
+    }
+
+    /// A closed note goes back to being measured from what was saved.
+    static func forgetMeasurement() { measured = nil }
+
+    private static func attachmentsHeight(_ items: [AttachmentItem], width: CGFloat) -> CGFloat {
+        items.isEmpty ? 0 : AttachmentStripView.arrange(items, width: width).height + Metrics.gap
+    }
+
+    static func height(notes html: String, attachments: [AttachmentItem], width: CGFloat) -> CGFloat {
         let available = max(width - Metrics.textX - Metrics.textRight, 100)
-        let text = notes.isEmpty ? " " : notes + (notes.hasSuffix("\n") ? " " : "")
-        let bounds = (text as NSString).boundingRect(
-            with: NSSize(width: available, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: Metrics.font])
-        return Metrics.cardY * 2 + Metrics.top + Metrics.titleHeight + Metrics.gap + ceil(bounds.height) + Metrics.bottom
+        var height: CGFloat
+        if let measured, measured.html == html, measured.width == available {
+            height = measured.height
+        } else {
+            let text = NoteEditing.display(html, style: Metrics.noteStyle).text
+            if text.length == 0 || text.string.hasSuffix("\n") {
+                text.append(Metrics.noteStyle.string(" ", .paragraph))
+            }
+            height = NoteLayoutManager.height(of: text, width: available, style: Metrics.noteStyle)
+            measured = (html, available, height)
+        }
+        height = max(height, 18)
+        return Metrics.cardY * 2 + Metrics.top + Metrics.titleHeight + Metrics.gap + height
+            + attachmentsHeight(attachments, width: available) + Metrics.bottom
     }
 
     override func layout() {
@@ -930,24 +1012,38 @@ final class TodoDetailCell: NSTableCellView, NSTextViewDelegate {
         // A text field's own padding is 2 points: this lines the name up with the notes.
         title.frame = NSRect(x: Metrics.textX - 2, y: titleY, width: width + 2, height: Metrics.titleHeight)
         let notesY = titleY + Metrics.titleHeight + Metrics.gap
-        let notesHeight = bounds.height - notesY - Metrics.cardY - Metrics.bottom
+        let items = attachmentStore.map { store in todoID.map { store.items(for: $0) } ?? [] } ?? []
+        let stripHeight = AttachmentStripView.arrange(items, width: width).height
+        let stripSpace = items.isEmpty ? 0 : stripHeight + Metrics.gap
+        let notesHeight = bounds.height - notesY - Metrics.cardY - Metrics.bottom - stripSpace
         notes.frame = NSRect(x: Metrics.textX, y: notesY, width: width, height: notesHeight)
+        strip.frame = NSRect(x: Metrics.textX, y: notesY + notesHeight + Metrics.gap, width: width, height: stripHeight)
         placeholder.frame = NSRect(x: Metrics.textX, y: notesY, width: width, height: 20)
     }
 
     func configure(
-        _ todo: Todo, title text: String, notes body: String, delegate: NSTextFieldDelegate,
+        _ todo: Todo, title text: String, notes body: String, attachments: AttachmentStore, delegate: NSTextFieldDelegate,
         onNotes: @escaping (String) -> Void, onTick: @escaping () -> Void
     ) {
         self.onNotes = onNotes
         self.onTick = onTick
         title.delegate = delegate
         title.stringValue = text
-        notes.string = body
-        notes.font = Metrics.font
-        notes.textColor = .labelColor
-        notes.checkTextInDocument(nil)
-        placeholder.isHidden = !body.isEmpty
+        notes.show(html: body)
+        todoID = todo.id
+        attachmentStore = attachments
+        strip.show(attachments.items(for: todo.id), store: attachments)
+        let id = todo.id
+        notes.onPasteFiles = { board in AttachmentPasteboard.attach(from: board, to: id, in: attachments) }
+        placeholder.isHidden = !notes.string.isEmpty
+        needsLayout = true
+    }
+
+    func showAttachments(_ items: [AttachmentItem], store: AttachmentStore) {
+        strip.show(items, store: store)
+        // As when the notes grow: keep the card exactly filling its new height.
+        enclosingScrollView?.documentView?.layoutSubtreeIfNeeded()
+        if let row = superview { frame = row.bounds }
         needsLayout = true
     }
 
@@ -959,8 +1055,9 @@ final class TodoDetailCell: NSTableCellView, NSTextViewDelegate {
         editor.insertionPointColor = TodosLook.accent
     }
 
-    func focusNotes() {
+    func focusNotes(atStart: Bool = false) {
         window?.makeFirstResponder(notes)
+        if atStart { notes.moveCaretToStart() }
     }
 
     func restoreCursor(inNotes: Bool, range: NSRange?) {
@@ -975,22 +1072,15 @@ final class TodoDetailCell: NSTableCellView, NSTextViewDelegate {
         }
     }
 
-    func textDidChange(_ notification: Notification) {
+    private func notesChanged(_ html: String) {
         placeholder.isHidden = !notes.string.isEmpty
-        onNotes(notes.string)
-        notes.checkTextInDocument(nil)
+        // From the text on screen: a blank last line takes up room, but isn't saved.
+        Self.measured = (html, notes.bounds.width, notes.usedTextHeight)
+        onNotes(html)
         // The row may have just grown or shrunk: keep the card exactly filling it.
         enclosingScrollView?.documentView?.layoutSubtreeIfNeeded()
         if let row = superview { frame = row.bounds }
         needsLayout = true
-    }
-
-    /// Tab goes between the name and the notes.
-    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        guard selector == #selector(NSResponder.insertTab(_:)) || selector == #selector(NSResponder.insertBacktab(_:))
-        else { return false }
-        focusTitle()
-        return true
     }
 
     private func tick() {
@@ -1009,6 +1099,8 @@ final class TodoCell: NSTableCellView {
     private let marker = NSImageView()
     private let title = NSTextField(labelWithString: "")
     private let detail = NSTextField(labelWithString: "")
+    private let paperclip = NSImageView()
+    private let paperclipCount = NSTextField(labelWithString: "")
     private var titleLeading: NSLayoutConstraint?
     private var onTick: () -> Void = {}
     private var ticking = false
@@ -1032,7 +1124,12 @@ final class TodoCell: NSTableCellView {
         detail.textColor = .tertiaryLabelColor
         detail.setContentCompressionResistancePriority(.required, for: .horizontal)
         detail.setContentHuggingPriority(.required, for: .horizontal)
-        for view in [circle, marker, title, detail] as [NSView] {
+        paperclip.image = NSImage(systemSymbolName: "paperclip", accessibilityDescription: "Attachments")
+        paperclip.symbolConfiguration = .init(pointSize: 11, weight: .regular)
+        paperclip.contentTintColor = .tertiaryLabelColor
+        paperclipCount.font = .systemFont(ofSize: 12)
+        paperclipCount.textColor = .tertiaryLabelColor
+        for view in [circle, marker, title, detail, paperclip, paperclipCount] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -1045,19 +1142,30 @@ final class TodoCell: NSTableCellView {
             marker.centerYAnchor.constraint(equalTo: centerYAnchor),
             marker.widthAnchor.constraint(equalToConstant: 16),
             title.centerYAnchor.constraint(equalTo: centerYAnchor),
-            detail.leadingAnchor.constraint(greaterThanOrEqualTo: title.trailingAnchor, constant: 12),
+            paperclip.leadingAnchor.constraint(greaterThanOrEqualTo: title.trailingAnchor, constant: 8),
+            paperclip.centerYAnchor.constraint(equalTo: centerYAnchor),
+            paperclipCount.leadingAnchor.constraint(equalTo: paperclip.trailingAnchor, constant: 2),
+            paperclipCount.firstBaselineAnchor.constraint(equalTo: title.firstBaselineAnchor),
+            detail.leadingAnchor.constraint(greaterThanOrEqualTo: paperclipCount.trailingAnchor, constant: 8),
             detail.firstBaselineAnchor.constraint(equalTo: title.firstBaselineAnchor),
             detail.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28),
         ])
         titleLeading = title.leadingAnchor.constraint(equalTo: circle.trailingAnchor, constant: 8)
         titleLeading?.isActive = true
+        for view in [paperclip, paperclipCount] {
+            view.setContentCompressionResistancePriority(.required, for: .horizontal)
+            view.setContentHuggingPriority(.required, for: .horizontal)
+        }
         // The name fills the row; the row's detail stays out of its way.
         title.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28).withPriority(.defaultLow).isActive = true
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(_ todo: Todo, detail text: String?, marker list: TodoView?, onTick: @escaping () -> Void) {
+    func configure(_ todo: Todo, detail text: String?, marker list: TodoView?, attachments: Int, onTick: @escaping () -> Void) {
+        paperclip.isHidden = attachments == 0
+        paperclipCount.isHidden = attachments == 0
+        paperclipCount.stringValue = attachments > 0 ? "\(attachments)" : ""
         self.onTick = onTick
         marker.isHidden = list == nil
         if let list {

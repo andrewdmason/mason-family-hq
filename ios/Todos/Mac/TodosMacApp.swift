@@ -411,7 +411,7 @@ final class KeyRouter {
         return store.pasteTodos(text) > 0
     }
 
-    private func perform(_ event: NSEvent) -> Bool {
+    func perform(_ event: NSEvent) -> Bool {
         let command = event.modifierFlags.contains(.command)
         let shift = event.modifierFlags.contains(.shift)
         let characters = event.charactersIgnoringModifiers ?? ""
@@ -443,10 +443,18 @@ final class KeyRouter {
             return true
         }
 
+        // Files pasted anywhere in an open to-do attach to it, before text gets a look.
+        if command, characters.lowercased() == "v", let open = store.openID,
+            AttachmentPasteboard.attach(from: pasteboard, to: open, in: store.attachments) {
+            return true
+        }
+
         if command, characters.lowercased() == "v",
             pasteTasks(typing: typing, inNotes: event.window?.firstResponder is DetailNotesView) {
             return true
         }
+
+        if let notes = event.window?.firstResponder as? DetailNotesView, notes.handleShortcut(event) { return true }
 
         // In the open to-do: Esc closes it, and so does Return in the name. In the
         // notes, Return is a new line and ⌘Return closes.

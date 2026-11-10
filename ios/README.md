@@ -90,6 +90,12 @@ doesn't send alerts.
 `--feel-test <rows> <results file> [mode]` drives the app with real key and mouse
 events (`Mac/FeelTest.swift`), never touching the saved list.
 
+Notes are the website's HTML (`Shared/NotesHTML.swift`), edited natively on both
+apps with the rules in `Shared/NoteEditing.swift`. A note outside the tags the
+website's editor writes is shown read-only rather than rewritten. Attachments
+share the website's table and bucket: files queue on the device and upload once
+their to-do has reached the database (`Shared/TodoAttachments.swift`).
+
 ## Tuttles
 
 The kids' homework tutor (Sebastian's for now), in `Tuttles/`. Bundle id and

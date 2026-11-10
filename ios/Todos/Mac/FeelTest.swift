@@ -232,7 +232,6 @@ struct FeelTest {
             log.append("esc -> \(outline()), list focused \(window.firstResponder is NSTableView)")
             store.startRenamingSection(first.id)
             try? await Task.sleep(for: .milliseconds(250))
-            await press("\u{7F}", 51)
             await press("\r", 36)
             try? await Task.sleep(for: .milliseconds(250))
             log.append("cleared, return -> \(outline())")
@@ -565,6 +564,208 @@ struct FeelTest {
             return
         }
 
+        if CommandLine.arguments.contains("richnotes") {
+            let board = NSPasteboard(name: .init("io.mason.todos.feel-test"))
+            model.keys.pasteboard = board
+            func press(_ text: String, _ code: UInt16, flags: NSEvent.ModifierFlags = []) async {
+                let event = NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: flags,
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                    context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false,
+                    keyCode: code)
+                // Straight to the window, so the run works while another app is in front.
+                if let event, !model.keys.perform(event) { window.sendEvent(event) }
+                try? await Task.sleep(for: .milliseconds(25))
+            }
+            func type(_ text: String) async {
+                guard let notes = window.firstResponder as? DetailNotesView else { return }
+                for letter in text {
+                    if letter == "\n" {
+                        notes.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+                    } else {
+                        notes.insertText(String(letter), replacementRange: notes.selectedRange())
+                    }
+                    try? await Task.sleep(for: .milliseconds(12))
+                }
+            }
+            func click(_ point: NSPoint, in view: NSView) async {
+                let spot = view.convert(point, to: nil)
+                for kind in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                    let event = NSEvent.mouseEvent(
+                        with: kind, location: spot, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                        windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+                    if let event, kind == .leftMouseDown { view.mouseDown(with: event) }
+                    try? await Task.sleep(for: .milliseconds(60))
+                }
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+            func shortcut(_ text: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags, _ notes: DetailNotesView) -> Bool {
+                guard let event = NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber,
+                    context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false, keyCode: code)
+                else { return false }
+                return notes.handleShortcut(event)
+            }
+            var log: [String] = []
+            store.go(.view(.anytime))
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let target = store.visible.first(where: { $0.id.hasPrefix("padding") }) else { return }
+            store.selectedID = target.id
+            try? await Task.sleep(for: .milliseconds(150))
+            await press("\r", 36)
+            try? await Task.sleep(for: .milliseconds(300))
+            await press("\t", 48)
+            log.append("in notes \(window.firstResponder is DetailNotesView)")
+            await type("# Plan\n")
+            await type("Some **bold** and *soft* and `code` here\n")
+            await type("- one\ntwo")
+            (window.firstResponder as? DetailNotesView)?.doCommand(by: #selector(NSResponder.insertTab(_:)))
+            await type("\n\n\n")
+            await type("1. first\nsecond\n\n")
+            await type("[] task\ndone one\n\n")
+            await type("> quoted\n\n")
+            await type("see https://example.com/a ok\n")
+            await type("## Section\nbody text\n> one\ntwo\n\n```\nlet a = 1\nlet b = 2\n\n\nafter code\n")
+            await type("---")
+            await type("after")
+            try? await Task.sleep(for: .milliseconds(200))
+            snapshot(window, "richnotes-typed")
+            log.append("html: \(store.openNotes)")
+            guard let notes = window.firstResponder as? DetailNotesView, let manager = notes.layoutManager as? NoteLayoutManager, let text = notes.textStorage else {
+                log.append("focus left the notes: \(String(describing: window.firstResponder)), active \(NSApp.isActive), key \(window.isKeyWindow)")
+                try? (log.joined(separator: "\n") + "\n").write(to: results, atomically: true, encoding: .utf8)
+                NSApp.terminate(nil)
+                return
+            }
+            // A blank last line needs room of its own, inside the card's padding.
+            let before = notes.frame.height
+            await type("\n")
+            try? await Task.sleep(for: .milliseconds(200))
+            log.append("blank last line grows the card: \(notes.frame.height > before), fits \(notes.frame.height >= notes.usedTextHeight)")
+            snapshot(window, "richnotes-trailing")
+            notes.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+            try? await Task.sleep(for: .milliseconds(200))
+            log.append("deleting it shrinks the card: \(notes.frame.height == before)")
+
+            // Up from the second line stays; up from the first goes to the name.
+            notes.setSelectedRange(NSRange(location: 8, length: 0))
+            notes.doCommand(by: #selector(NSResponder.moveUp(_:)))
+            log.append("up from line 2 stays in notes: \(window.firstResponder === notes)")
+            notes.setSelectedRange(NSRange(location: 2, length: 0))
+            notes.doCommand(by: #selector(NSResponder.moveUp(_:)))
+            try? await Task.sleep(for: .milliseconds(100))
+            log.append("up from line 1 -> name: \(window.firstResponder !== notes && window.firstResponder is NSText)")
+            (window.firstResponder as? NSTextView)?.doCommand(by: #selector(NSResponder.moveDown(_:)))
+            try? await Task.sleep(for: .milliseconds(100))
+            log.append("down from name -> notes start: \(window.firstResponder === notes), caret \(notes.selectedRange().location)")
+            notes.setSelectedRange(NSRange(location: text.length, length: 0))
+
+            // The checkbox on "task": click in its gutter.
+            let location = (text.string as NSString).range(of: "task").location
+            let glyph = manager.glyphIndexForCharacter(at: location)
+            let line = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            await click(NSPoint(x: 11, y: line.midY), in: notes)
+            log.append("ticked: \(store.openNotes.contains(#"data-checked="true""#))")
+            snapshot(window, "richnotes-ticked")
+
+            _ = shortcut("z", 6, [.command], notes)
+            try? await Task.sleep(for: .milliseconds(150))
+            log.append("undo unticks: \(!store.openNotes.contains(#"data-checked="true""#))")
+            _ = shortcut("z", 6, [.command, .shift], notes)
+            try? await Task.sleep(for: .milliseconds(150))
+            log.append("redo ticks: \(store.openNotes.contains(#"data-checked="true""#))")
+
+            // ⌘B on a selection.
+            let plan = (text.string as NSString).range(of: "Some")
+            notes.setSelectedRange(plan)
+            _ = shortcut("b", 11, [.command], notes)
+            try? await Task.sleep(for: .milliseconds(150))
+            log.append("bold selection: \(store.openNotes.contains("<strong>Some</strong>"))")
+            notes.setSelectedRange(NSRange(location: text.length, length: 0))
+
+            // A picture, then a file, pasted into the open card.
+            let picture = NSImage(size: NSSize(width: 400, height: 200), flipped: false) { rect in
+                NSColor.systemTeal.setFill()
+                rect.fill()
+                return true
+            }
+            board.clearContents()
+            board.setData(picture.tiffRepresentation, forType: .tiff)
+            _ = AttachmentPasteboard.attach(from: board, to: target.id, in: store.attachments)
+            try? await Task.sleep(for: .milliseconds(400))
+            let document = results.deletingLastPathComponent().appending(path: "Family Budget Spreadsheet 2026 Final.pdf")
+            try? Data("%PDF-1.1".utf8).write(to: document)
+            board.clearContents()
+            board.writeObjects([document as NSURL])
+            _ = AttachmentPasteboard.attach(from: board, to: target.id, in: store.attachments)
+            try? await Task.sleep(for: .milliseconds(400))
+            let items = store.attachments.items(for: target.id)
+            log.append("attachments: \(items.map { "\($0.name) image \($0.isImage) uploading \($0.isUploading)" })")
+            log.append("still in notes \(window.firstResponder is DetailNotesView)")
+            snapshot(window, "richnotes-attached")
+            let html = store.openNotes
+            store.closeOpen()
+            try? await Task.sleep(for: .milliseconds(300))
+            snapshot(window, "richnotes-closed")
+            log.append("saved same: \(store.todos.first { $0.id == target.id }?.notes == html)")
+
+            // Clicks: in the card keep it open; on the list's heading put it away.
+            func table(in view: NSView?) -> NSTableView? {
+                guard let view else { return nil }
+                if let found = view as? NSTableView { return found }
+                return view.subviews.lazy.compactMap { table(in: $0) }.first
+            }
+            func postClick(_ point: NSPoint, in view: NSView) async {
+                let spot = view.convert(point, to: nil)
+                let event = NSEvent.mouseEvent(
+                    with: .leftMouseDown, location: spot, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+                if let event { NSApp.postEvent(event, atStart: false) }
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+            store.selectedID = target.id
+            store.openSelected()
+            try? await Task.sleep(for: .milliseconds(300))
+            if let list = table(in: window.contentView), let row = (0..<list.numberOfRows).first(where: { list.rect(ofRow: $0).height > 60 && $0 > 0 }) {
+                list.scrollRowToVisible(0)
+                try? await Task.sleep(for: .milliseconds(200))
+                let card = list.rect(ofRow: row)
+                await postClick(NSPoint(x: card.midX, y: card.minY + 30), in: list)
+                log.append("click in card keeps it open: \(store.openID == target.id)")
+                await postClick(NSPoint(x: card.midX, y: list.rect(ofRow: 0).midY), in: list)
+                log.append("click on list heading collapses: \(store.openID == nil)")
+            }
+
+            // Reopened and closed untouched, a note must not change at all, even when
+            // it's in the website's slightly different spelling.
+            let web = #"<p>see <a href="https://a.com">a</a></p><ul><li>bare item</li></ul>"#
+            store.edit(target.id, title: target.title, notes: web)
+            try? await Task.sleep(for: .milliseconds(200))
+            store.selectedID = target.id
+            store.openSelected()
+            try? await Task.sleep(for: .milliseconds(300))
+            store.closeOpen()
+            try? await Task.sleep(for: .milliseconds(300))
+            log.append("untouched note unchanged: \(store.todos.first { $0.id == target.id }?.notes == web)")
+
+            // Something these apps can't represent is shown, read-only.
+            let odd = "<table><tr><td>cell</td></tr></table>"
+            store.edit(target.id, title: target.title, notes: odd)
+            try? await Task.sleep(for: .milliseconds(200))
+            store.selectedID = target.id
+            store.openSelected()
+            try? await Task.sleep(for: .milliseconds(300))
+            await press("\t", 48)
+            let readOnly = (window.firstResponder as? DetailNotesView)?.isEditable == false
+            store.closeOpen()
+            try? await Task.sleep(for: .milliseconds(300))
+            log.append("odd note read-only \(readOnly), unchanged \(store.todos.first { $0.id == target.id }?.notes == odd)")
+
+            try? (log.joined(separator: "\n") + "\n").write(to: results, atomically: true, encoding: .utf8)
+            NSApp.terminate(nil)
+            return
+        }
+
         if CommandLine.arguments.contains("detail") {
             func press(_ text: String, _ code: UInt16, flags: NSEvent.ModifierFlags = []) async {
                 let event = NSEvent.keyEvent(
@@ -825,7 +1026,6 @@ struct FeelTest {
             await press("\r", 36)
             try? await Task.sleep(for: .milliseconds(300))
             log.append("reopen an existing one -> open \(store.openID == id), focus \(field())")
-            for _ in 0..<5 { await press("\u{7F}", 51) }
             await esc()
             log.append("clear its name then esc -> \(describe(id))")
             try? (log.joined(separator: "\n") + "\n").write(to: results, atomically: true, encoding: .utf8)
@@ -1370,6 +1570,14 @@ struct FeelTest {
 
     /// The window as the window server composites it, glass included. An app may
     /// always capture its own windows; the call is gone from the headers, so look it up.
+    /// Drawn by the app itself, so it works without screen-recording permission.
+    private func snapshot(_ window: NSWindow, _ name: String) {
+        guard let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let file = results.deletingLastPathComponent().appending(path: "\(name).png")
+        try? rep.representation(using: .png, properties: [:])?.write(to: file)
+    }
+
     private func capture(_ window: NSWindow, _ name: String) {
         typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return }

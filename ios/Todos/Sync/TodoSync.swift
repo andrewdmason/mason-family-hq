@@ -16,7 +16,7 @@ import UIKit
 
 @MainActor
 @Observable
-final class TodoSync {
+final class TodoSync: AttachmentLoading {
     enum Status: Equatable {
         case signedOut
         case working
@@ -51,6 +51,8 @@ final class TodoSync {
 
     func start() {
         store.onLocalChange = { [weak self] in self?.kick(after: .seconds(1)) }
+        store.attachments.onLocalChange = { [weak self] in self?.kick(after: .seconds(1)) }
+        store.attachments.loader = self
         NotificationCenter.default.addObserver(
             forName: Self.becameActive, object: nil, queue: .main
         ) { [weak self] _ in
@@ -158,6 +160,7 @@ final class TodoSync {
                     saveBase()
                 }
                 try await send()
+                await sendAttachments()
                 try await receive()
                 status = .working
             } catch {
@@ -284,10 +287,6 @@ final class TodoSync {
     /// The same, in the to-do table's own terms.
     private func taskRow(_ fields: [String: SyncValue]) -> [String: AnyJSON] {
         var values = row(fields)
-        if let notes = fields["notes"] {
-            values["notes"] = nil
-            values["notes_html"] = TodoMerge.notesHTML(fromPlain: notes.string).map { .string($0) } ?? .null
-        }
         if let completed = fields["completed_at"] {
             values["completed_by_email"] = completed == .null ? .null : .string(store.me)
         }
@@ -313,6 +312,13 @@ final class TodoSync {
             throw SyncError.tooMuchMissing("most of this Mac's to-dos")
         }
         store.applyServer(server, base: &base)
+        // Only a mirror, so it can't hurt the list, and it mustn't stop the sync.
+        if let rows: [TodoAttachment] = try? await fetch({ client, offset in
+            client.from("todo_task_attachments").select("id, task_id, original_path, display_path, kind, file_name, mime_type")
+                .order("created_at").order("id").range(from: offset, to: offset + 999)
+        }) {
+            store.attachments.applyServer(rows)
+        }
     }
 
     private func fetchServer() async throws -> TodoLibrary {
@@ -336,6 +342,65 @@ final class TodoSync {
         }
         return TodoLibrary(
             tasks: serverTasks.map(\.todo), projects: serverProjects, sections: serverSections, areas: serverAreas)
+    }
+
+    // MARK: Attachments
+
+    func downloadAttachment(path: String) async throws -> Data {
+        try await client.storage.from(AttachmentRules.bucket).download(path: path)
+    }
+
+    /// Removals, then whatever's waiting whose to-do has now reached the database.
+    private func sendAttachments() async {
+        let attachments = store.attachments
+        for removal in attachments.removals {
+            guard (try? await client.from("todo_task_attachments").delete().eq("id", value: removal.id).execute()) != nil else { continue }
+            _ = try? await client.storage.from(AttachmentRules.bucket).remove(paths: removal.paths)
+            attachments.removalSent(removal.id)
+        }
+        attachments.dropOrphans(alive: Set(store.todos.map(\.id)).union(base.tasks.map(\.id)))
+        for item in attachments.uploadable(sentTaskIDs: Set(base.tasks.map(\.id))) {
+            do {
+                try await upload(item)
+            } catch {
+                attachments.uploadFailed(item, permanent: Self.isPermanent(error), reason: "Couldn't upload")
+            }
+        }
+    }
+
+    private func upload(_ item: PendingAttachment) async throws {
+        let attachments = store.attachments
+        guard let data = attachments.queuedData(item) else {
+            attachments.uploadFailed(item, permanent: true, reason: "The file is missing")
+            return
+        }
+        let storage = client.storage.from(AttachmentRules.bucket)
+        let originalPath = AttachmentRules.originalPath(item)
+        try await storage.upload(originalPath, data: data, options: FileOptions(contentType: item.mimeType, upsert: true))
+        var displayPath: String?
+        var display: Data?
+        if item.isImage {
+            let copy = await Task.detached(priority: .utility) { AttachmentImaging.displayCopy(of: data) }.value
+            let path = AttachmentRules.displayPath(item)
+            try await storage.upload(path, data: copy, options: FileOptions(contentType: "image/jpeg", upsert: true))
+            displayPath = path
+            display = copy
+        }
+        let row: [String: AnyJSON] = [
+            "id": .string(item.id), "task_id": .string(item.taskId), "original_path": .string(originalPath),
+            "display_path": displayPath.map { .string($0) } ?? .null, "kind": .string(item.isImage ? "image" : "file"),
+            "file_name": .string(item.fileName), "mime_type": item.mimeType.map { .string($0) } ?? .null,
+            "uploaded_by_email": .string(store.me),
+        ]
+        try await client.from("todo_task_attachments").upsert(row, onConflict: "id").execute()
+        attachments.uploaded(item, displayData: display)
+    }
+
+    /// The server turned it down, rather than the connection dropping or a sign-in
+    /// running out, so another try would only get the same answer.
+    private static func isPermanent(_ error: Error) -> Bool {
+        guard let status = (error as? StorageError)?.statusCode.flatMap(Int.init) else { return false }
+        return (400..<500).contains(status) && ![401, 408, 429].contains(status)
     }
 
     // MARK: The base
