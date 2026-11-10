@@ -33,6 +33,7 @@ enum Destination: Hashable {
 struct Todo: Codable, Identifiable, Equatable {
     var id: String
     var title: String
+    /// HTML, as the website stores it.
     var notes: String?
     var bucket: Bucket
     var assigneeEmail: String
@@ -100,6 +101,8 @@ struct TodoLibrary: Codable {
     var areas: [TodoArea]? = nil
     /// On the base: this device has had its first sync.
     var firstSyncDone: Bool? = nil
+    /// Absent from files saved before notes were HTML, which is how they're spotted.
+    var notesAreHtml: Bool? = true
 }
 
 @MainActor
@@ -158,10 +161,12 @@ final class TodoStore {
     private typealias Snapshot = (todos: [Todo], sections: [TodoSection], selection: Set<String>)
     private var undoStack: [Snapshot] = []
     private var redoStack: [Snapshot] = []
+    @ObservationIgnored let attachments: AttachmentStore
     private var saveFile: URL?
     private var saveTask: Task<Void, Never>?
 
     init(library: TodoLibrary, saveFile: URL?) {
+        attachments = AttachmentStore(folder: saveFile?.deletingLastPathComponent())
         todos = library.tasks
         projects = library.projects
         areas = library.areas ?? []
@@ -313,7 +318,16 @@ final class TodoStore {
     nonisolated static func decode(_ data: Data) throws -> TodoLibrary {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        return try decoder.decode(TodoLibrary.self, from: data)
+        var library = try decoder.decode(TodoLibrary.self, from: data)
+        // The list and the base convert alike, so nothing reads as an edit here,
+        // and the first sync brings each note's real formatting back down.
+        if library.notesAreHtml != true {
+            for index in library.tasks.indices {
+                library.tasks[index].notes = TodoMerge.notesHTML(fromPlain: library.tasks[index].notes)
+            }
+            library.notesAreHtml = true
+        }
+        return library
     }
 
     // MARK: What's on screen
@@ -791,6 +805,7 @@ final class TodoStore {
     var hasBlankNewOpen: Bool {
         openIsNew && openTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && openNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && openID.map { attachments.items(for: $0).isEmpty } != false
     }
 
     /// Saves what was typed. A name left blank keeps the old one. A new to-do with
@@ -1066,7 +1081,7 @@ final class TodoStore {
         let first = todos.filter { $0.bucket == .inbox }.map(\.sortOrder).min() ?? 0
         let trimmedNotes = notes?.trimmingCharacters(in: .whitespacesAndNewlines)
         todos.append(Todo(
-            id: id, title: text, notes: trimmedNotes?.isEmpty == false ? trimmedNotes : nil, bucket: .inbox,
+            id: id, title: text, notes: TodoMerge.notesHTML(fromPlain: trimmedNotes), bucket: .inbox,
             assigneeEmail: me, creatorEmail: me, projectId: nil, sectionId: nil, snoozedUntil: nil, completedAt: nil,
             sortOrder: first - 1, createdAt: Self.stamp(createdAt)))
         undoStack.removeAll()

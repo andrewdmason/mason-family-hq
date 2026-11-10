@@ -40,7 +40,7 @@ protocol SyncRecord: Identifiable where ID == String {
 extension Todo: SyncRecord {
     var syncFields: [String: SyncValue] {
         [
-            "title": .text(title), "notes": SyncValue(notes), "bucket": .text(bucket.rawValue),
+            "title": .text(title), "notes_html": SyncValue(notes), "bucket": .text(bucket.rawValue),
             "assignee_email": .text(assigneeEmail), "creator_email": .text(creatorEmail),
             "project_id": SyncValue(projectId), "section_id": SyncValue(sectionId),
             "snoozed_until": SyncValue(snoozedUntil), "completed_at": SyncValue(completedAt),
@@ -51,7 +51,7 @@ extension Todo: SyncRecord {
     mutating func setSyncField(_ name: String, to value: SyncValue) {
         switch name {
         case "title": title = value.string ?? title
-        case "notes": notes = value.string
+        case "notes_html": notes = value.string
         case "bucket": bucket = value.string.flatMap(Bucket.init(rawValue:)) ?? bucket
         case "assignee_email": assigneeEmail = value.string ?? assigneeEmail
         case "creator_email": creatorEmail = value.string ?? creatorEmail
@@ -217,8 +217,8 @@ enum TodoMerge {
 
     // MARK: Notes
 
-    /// The website stores notes as HTML; here they're plain text. Formatting only
-    /// changes on the website if the note is edited here.
+    /// A note's words alone, for one-line previews and for showing a note these
+    /// apps can't edit.
     static func plainNotes(fromHTML html: String?) -> String? {
         guard var text = html, !text.isEmpty else { return nil }
         // A link keeps its address, even when it shows other words.
@@ -282,7 +282,7 @@ struct ServerTodo: Decodable {
 
     var todo: Todo {
         Todo(
-            id: id, title: title, notes: TodoMerge.plainNotes(fromHTML: notesHtml), bucket: bucket,
+            id: id, title: title, notes: notesHtml?.isEmpty == true ? nil : notesHtml, bucket: bucket,
             assigneeEmail: assigneeEmail, creatorEmail: creatorEmail, projectId: projectId, sectionId: sectionId,
             snoozedUntil: snoozedUntil.map(TodoMerge.canonicalStamp), completedAt: completedAt.map(TodoMerge.canonicalStamp),
             sortOrder: sortOrder, createdAt: TodoMerge.canonicalStamp(createdAt))

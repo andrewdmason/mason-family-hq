@@ -33,6 +33,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a picture to attach to a to-do.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Moves what you ask Siri to remember from your default Reminders list to your Todos Inbox.</string>
 	<key>UILaunchScreen</key>

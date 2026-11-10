@@ -155,6 +155,12 @@ final class CommandPalette: NSObject, NSTextFieldDelegate, NSWindowDelegate, NST
                     title: "Open", symbol: "doc.text", hint: "Return",
                     effect: .run(keepsCard: false) { store.openSelected() }))
             }
+            if ids.count == 1, let id = ids.first {
+                let window = mainWindow
+                actions.append(PaletteRow(
+                    title: "Attach File…", symbol: "paperclip", hint: "",
+                    effect: .run(keepsCard: true) { AttachmentPasteboard.choose(for: id, in: store.attachments, window: window) }))
+            }
             actions.append(PaletteRow(
                 title: "Delete", symbol: "trash", hint: "⌫",
                 effect: .run(keepsCard: false) { store.deleteSelected() }))

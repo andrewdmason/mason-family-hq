@@ -185,7 +185,7 @@ final class TodoMergeTests: XCTestCase {
         XCTAssertEqual(store.todos.filter { $0.id == "r" }.count, 1)
         let added = store.todos.first { $0.id == "r" }
         XCTAssertEqual(added?.title, "Get the milk")
-        XCTAssertEqual(added?.notes, "2%")
+        XCTAssertEqual(added?.notes, "<p>2%</p>")
         XCTAssertEqual(added?.bucket, .inbox)
         XCTAssertEqual(store.tasks(for: .view(.inbox)).first?.id, "r", "newest on top")
     }
