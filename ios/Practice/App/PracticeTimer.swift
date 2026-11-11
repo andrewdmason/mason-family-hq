@@ -89,7 +89,7 @@ final class PracticeTimer {
         save()
         writes.enqueue(.start(taskID: task.id, at: at))
         LiveActivity.start(timer)
-        PracticeToday(date: date, loggedSeconds: todayBeforeSeconds, run: timer.widgetRun).publish()
+        PracticeToday(date: date, loggedSeconds: todayBeforeSeconds, run: timer.widgetRun, goalSeconds: PracticeToday.savedGoal(for: date)).publish()
     }
 
     /// The running entry's duration changed: move its goal and remaining by
@@ -114,7 +114,10 @@ final class PracticeTimer {
         LiveActivity.end()
         // Here and not in the store: the Live Activity's Stop button can run
         // this with no screen open.
-        PracticeToday(date: timer.date, loggedSeconds: timer.todayBeforeSeconds + timer.elapsed(at: at)).publish()
+        PracticeToday(
+            date: timer.date, loggedSeconds: timer.todayBeforeSeconds + timer.elapsed(at: at),
+            goalSeconds: PracticeToday.savedGoal(for: timer.date)
+        ).publish()
         NotificationCenter.default.post(name: .practiceRunStopped, object: nil, userInfo: ["run": run])
         return run
     }
@@ -131,7 +134,10 @@ final class PracticeTimer {
         running = timer
         save()
         LiveActivity.update(timer)
-        PracticeToday(date: timer.date, loggedSeconds: timer.todayBeforeSeconds, run: timer.widgetRun).publish()
+        PracticeToday(
+            date: timer.date, loggedSeconds: timer.todayBeforeSeconds, run: timer.widgetRun,
+            goalSeconds: PracticeToday.savedGoal(for: timer.date)
+        ).publish()
     }
 
     /// Stops a timer that has run an hour since anyone touched it. Called on
