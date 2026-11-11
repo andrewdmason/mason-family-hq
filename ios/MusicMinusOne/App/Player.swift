@@ -51,7 +51,11 @@ final class Player {
     /// Seconds into the recording, updated while playing.
     private(set) var position: Double = 0
     /// The count-in's big number, while one is running.
-    private(set) var countdown: Int?
+    private(set) var countdown: Int? {
+        didSet { if countdown == nil { countdownCaption = nil } }
+    }
+    /// Shown over the countdown when it leads into the next movement.
+    private(set) var countdownCaption: String?
     /// Tracks whose audio isn't on the phone yet.
     private(set) var missing: Set<UUID> = []
     /// How slowing down is done. A test switch for now, to compare by ear.
@@ -315,6 +319,8 @@ final class Player {
             play(from: time, delay: delay, retry: false)
             return
         }
+        countIn = nil
+        countdown = nil
         let start = min(max(0, time), duration)
         segmentStart = start
         position = start
@@ -445,7 +451,25 @@ final class Player {
         if position >= duration - 0.02 {
             pause()
             position = duration
+            playNextMovement()
         }
+    }
+
+    /// How long the countdown into the next movement runs.
+    nonisolated static let movementGap = 4
+
+    /// The end of a movement: on to the next one in its album, after a
+    /// visible four-second countdown. The last movement just stops.
+    private func playNextMovement() {
+        guard let (song, library) = loaded, song.album?.isEmpty == false else { return }
+        let list = library.siblings(of: song)
+        guard let i = list.firstIndex(where: { $0.id == song.id }), i + 1 < list.count else { return }
+        let next = list[i + 1]
+        load(next, library: library)
+        // A tempo of 60 at 1x makes each counted beat one second of silence
+        // before the start.
+        countIn(to: 0, beats: Self.movementGap, tempo: 60, speed: 1)
+        if countdown != nil { countdownCaption = "Up next: \(next.displayName)" }
     }
 
     // MARK: Lock screen
