@@ -100,4 +100,26 @@ private func timeline(_ saved: PracticeToday?, server: Int? = nil, serverGoal: I
         let saved = try JSONDecoder().decode(PracticeToday.self, from: Data(json.utf8))
         #expect(saved.goalSeconds == 0)
     }
+
+    @Test func onlyShownPiecesPlannedTimeCountsTowardTheGoal() {
+        // Movements I and III planned on the website, then the trio switched
+        // to whole-work tracking: their durations stop counting.
+        let whole = UUID(), allegro = UUID(), andante = UUID(), etude = UUID()
+        func task(_ piece: UUID?, _ minutes: Int) -> PracticeTask {
+            PracticeTask(
+                id: UUID(), pieceID: piece, timerSeconds: minutes * 60, timerRemainingSeconds: minutes * 60,
+                completed: false, startedAt: nil, endedAt: nil, createdAt: ten, sessionNumber: 1
+            )
+        }
+        let tasks = [task(whole, 90), task(allegro, 30), task(andante, 120), task(etude, 45), task(nil, 5)]
+        #expect(QuickLog.goal(tasks, hiddenPieceIDs: []) == 290 * 60)
+        #expect(QuickLog.goal(tasks, hiddenPieceIDs: [allegro, andante]) == 140 * 60)
+    }
+
+    @Test func theSwitchShowsTheWholeWorkOrItsMovements() {
+        #expect(QuickLog.isShown(wholeWork: true, workTrackedWhole: true))
+        #expect(!QuickLog.isShown(wholeWork: false, workTrackedWhole: true)) // a movement of a work tracked whole
+        #expect(QuickLog.isShown(wholeWork: false, workTrackedWhole: false))
+        #expect(!QuickLog.isShown(wholeWork: true, workTrackedWhole: false))
+    }
 }

@@ -39,19 +39,32 @@ private struct PracticeTodayProvider: TimelineProvider {
     /// up on after a few seconds: iOS doesn't wait long, and the phone's own
     /// count will do.
     private func loggedToday() async throws -> (logged: Int, goal: Int) {
-        struct Row: Decodable { let timer_seconds: Int; let timer_remaining_seconds: Int }
+        struct Row: Decodable {
+            struct Work: Decodable { let track_by_movement: Bool }
+            struct Piece: Decodable { let whole_work: Bool; let works: Work? }
+            let timer_seconds: Int
+            let timer_remaining_seconds: Int
+            let pieces: Piece?
+
+            /// The app's rule: a duration on a piece the "Track by movement"
+            /// switch hides doesn't count toward the goal.
+            var countsTowardGoal: Bool {
+                guard let piece = pieces else { return true }
+                return QuickLog.isShown(wholeWork: piece.whole_work, workTrackedWhole: piece.works.map { !$0.track_by_movement } ?? false)
+            }
+        }
         let db = await Session.shared.client
         let today = PracticeDay.today()
         return try await withThrowingTaskGroup(of: (logged: Int, goal: Int).self) { group in
             group.addTask {
                 let rows: [Row] = try await db.from("practice_tasks")
-                    .select("timer_seconds, timer_remaining_seconds")
+                    .select("timer_seconds, timer_remaining_seconds, pieces(whole_work, works(track_by_movement))")
                     .eq("date", value: today)
                     .execute()
                     .value
                 return (
                     logged: rows.reduce(0) { $0 + max(0, $1.timer_seconds - $1.timer_remaining_seconds) },
-                    goal: rows.reduce(0) { $0 + max(0, $1.timer_seconds) }
+                    goal: rows.filter(\.countsTowardGoal).reduce(0) { $0 + max(0, $1.timer_seconds) }
                 )
             }
             group.addTask {
