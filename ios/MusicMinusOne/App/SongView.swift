@@ -49,9 +49,17 @@ struct SongView: View {
         .background(Color(white: 0.09))
         .overlay { countdownOverlay }
         .onAppear { if let song { player.load(song, library: library) } }
-        .onChange(of: currentID) { _, _ in if let song { player.load(song, library: library) } }
+        .onChange(of: currentID) { _, id in
+            // Already loaded when the player moved on to the next movement itself.
+            if let song, player.songID != id { player.load(song, library: library) }
+        }
+        // The player went on to the next movement at the end of this one.
+        .onChange(of: player.songID) { _, id in
+            if let id, id != currentID, library.song(id) != nil { currentID = id }
+        }
         .onChange(of: song) { old, new in
-            guard let new else { return }
+            // A different song is the currentID change, loaded there.
+            guard let new, old?.id == new.id else { return }
             if old?.tracks.map(\.file) != new.tracks.map(\.file) || !player.missing.isEmpty {
                 player.load(new, library: library)
             } else {
@@ -355,13 +363,22 @@ struct SongView: View {
 
     @ViewBuilder private var countdownOverlay: some View {
         if let n = player.countdown {
-            Text("\(n)")
-                .font(.system(size: 220, weight: .heavy).monospacedDigit())
-                .foregroundStyle(Color.anytuneOrange)
-                .shadow(color: .black, radius: 12)
-                .contentTransition(.numericText(countsDown: true))
-                .animation(.snappy(duration: 0.12), value: n)
-                .allowsHitTesting(false)
+            VStack(spacing: 0) {
+                if let caption = player.countdownCaption {
+                    Text(caption)
+                        .font(.title2.bold())
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal)
+                }
+                Text("\(n)")
+                    .font(.system(size: 220, weight: .heavy).monospacedDigit())
+                    .foregroundStyle(Color.anytuneOrange)
+                    .contentTransition(.numericText(countsDown: true))
+                    .animation(.snappy(duration: 0.12), value: n)
+            }
+            .shadow(color: .black, radius: 12)
+            .allowsHitTesting(false)
         }
     }
 }

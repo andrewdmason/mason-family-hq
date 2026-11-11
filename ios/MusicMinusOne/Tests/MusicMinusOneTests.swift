@@ -55,6 +55,17 @@ import Testing
         #expect(plan.number(at: 1.99) == 1)
         #expect(plan.number(at: 2) == nil)
     }
+
+    @Test func nextMovementWaitsFourSecondsCountingDown() {
+        // The gap into the next movement: four one-second beats of silence
+        // before its start, whatever the movement's own tempo and speed.
+        let plan = CountIn(target: 0, beats: Player.movementGap, tempo: 60, speed: 1)
+        #expect(plan.startAt == 0)
+        #expect(plan.silentLead == 4)
+        #expect(plan.number(at: 0) == 4)
+        #expect(plan.number(at: 3.5) == 1)
+        #expect(plan.number(at: 4) == nil)
+    }
 }
 
 @Suite struct SyncMergeTests {
