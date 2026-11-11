@@ -52,6 +52,7 @@ enum DemoPractice {
                 task(bach, goal: 20, done: 8, text: "Bars 22–37: even sixteenths, let the bass ring"),
                 task(movements[1], goal: 15, done: 6),
                 task(salut, goal: 0, done: 4),
+                task(elegie, goal: 20, done: 0),
             ],
             lastPracticed: [
                 sight.id: daysAgo(2), bach.id: daysAgo(1), movements[0].id: daysAgo(3), movements[2].id: daysAgo(5),

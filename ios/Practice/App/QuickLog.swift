@@ -123,9 +123,22 @@ enum QuickLog {
     /// switch: a work tracked by movement shows its movements; one that isn't
     /// shows its whole-work piece instead. visibleActivePieces on the website.
     static func visiblePieces(_ pieces: [Piece], wholeWorkIDs: Set<UUID>) -> [Piece] {
-        pieces.filter { piece in
-            if let work = piece.workID, wholeWorkIDs.contains(work) { return piece.wholeWork }
-            return !piece.wholeWork
+        pieces.filter { isShown(wholeWork: $0.wholeWork, workTrackedWhole: $0.workID.map(wholeWorkIDs.contains) ?? false) }
+    }
+
+    /// Whether the switch shows a piece: a work's whole-work piece when the
+    /// work isn't tracked by movement, its movements when it is. Only a shown
+    /// piece's planned time counts toward the day's goal, so switching a
+    /// work to whole leaves its movements' durations behind.
+    static func isShown(wholeWork: Bool, workTrackedWhole: Bool) -> Bool {
+        wholeWork == workTrackedWhole
+    }
+
+    /// The day's planned practice: the durations set on its entries, less
+    /// those on pieces the switch hides.
+    static func goal(_ tasks: [PracticeTask], hiddenPieceIDs: Set<UUID>) -> Int {
+        tasks.reduce(0) { sum, task in
+            task.pieceID.map(hiddenPieceIDs.contains) == true ? sum : sum + max(0, task.timerSeconds)
         }
     }
 

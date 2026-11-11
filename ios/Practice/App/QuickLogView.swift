@@ -262,6 +262,11 @@ private struct TimeReadout: View {
 
     private var text: String {
         if state.running { return QuickLog.clock(state.elapsedSeconds) }
+        // A small tile has no line for the goal, so it shares this one: a
+        // rotation piece planned for today reads "0m of 45m", not "2d ago".
+        if size == .small, state.goalSeconds > 0 {
+            return "\(QuickLog.total(state.elapsedSeconds)) of \(QuickLog.total(state.goalSeconds))"
+        }
         if state.playedToday { return QuickLog.total(state.elapsedSeconds) }
         return QuickLog.sinceShort(state.lastPracticed, today: today)
     }
