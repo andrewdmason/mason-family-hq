@@ -99,11 +99,7 @@ final class PracticeStore {
             tasks = writes.apply(to: t, date: today)
             lastPracticed = Dictionary(l.map { ($0.piece_id, $0.last_practiced) }, uniquingKeysWith: { a, _ in a })
             loadError = nil
-            PracticeToday(
-                date: today,
-                loggedSeconds: tasks.reduce(0) { $0 + $1.elapsedSeconds },
-                run: timer.running.flatMap { $0.date == today ? $0.widgetRun : nil }
-            ).publish()
+            publishToday()
             save()
         } catch {
             loadError = "Couldn't load today's practice. Pull to try again."
@@ -223,6 +219,7 @@ final class PracticeStore {
             tasks[i].timerRemainingSeconds = remaining
             timer.changeGoal(taskID: task.id, by: delta)
             writes.enqueue(.edit(taskID: task.id, text: text, timerSeconds: seconds, remainingSeconds: remaining))
+            publishToday()
         }
 
         guard status != PieceListing(piece), !isDemo else { return }
@@ -328,12 +325,18 @@ final class PracticeStore {
             tasks[i].timerRemainingSeconds = remaining
             writes.enqueue(.remaining(taskID: id, remainingSeconds: remaining))
         }
+        publishToday()
+        save()
+    }
+
+    /// The day as the home screen widget shows it.
+    private func publishToday() {
         PracticeToday(
             date: today,
             loggedSeconds: tasks.reduce(0) { $0 + $1.elapsedSeconds },
-            run: timer.running.flatMap { $0.date == today ? $0.widgetRun : nil }
+            run: timer.running.flatMap { $0.date == today ? $0.widgetRun : nil },
+            goalSeconds: todayGoal
         ).publish()
-        save()
     }
 
     /// Today's planned practice: the durations set on the day's entries.

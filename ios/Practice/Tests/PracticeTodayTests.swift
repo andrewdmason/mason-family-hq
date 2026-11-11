@@ -8,8 +8,8 @@ private let utc = TimeZone(identifier: "UTC")!
 private let ten = Date(timeIntervalSince1970: 1_792_022_400 + 10 * 3600)
 private let day = "2026-10-15"
 
-private func timeline(_ saved: PracticeToday?, server: Int? = nil, now: Date = ten) -> [PracticeTodayEntry] {
-    PracticeToday.timeline(saved: saved, loggedOnServer: server, now: now, timeZone: utc).entries
+private func timeline(_ saved: PracticeToday?, server: Int? = nil, serverGoal: Int? = nil, now: Date = ten) -> [PracticeTodayEntry] {
+    PracticeToday.timeline(saved: saved, loggedOnServer: server, goalOnServer: serverGoal, now: now, timeZone: utc).entries
 }
 
 @Suite struct PracticeTodayTests {
@@ -71,5 +71,33 @@ private func timeline(_ saved: PracticeToday?, server: Int? = nil, now: Date = t
         #expect(PracticeToday.timeline(saved: saved, loggedOnServer: nil, now: ten, timeZone: utc).policy == .after(ten.addingTimeInterval(1800)))
         let late = ten.addingTimeInterval(13.75 * 3600) // 23:45
         #expect(PracticeToday.timeline(saved: saved, loggedOnServer: nil, now: late, timeZone: utc).policy == .after(ten.addingTimeInterval(14 * 3600)))
+    }
+
+    @Test func theGoalIsMetOnceTheDaysPlanIsPracticed() {
+        #expect(!timeline(PracticeToday(date: day, loggedSeconds: 600))[0].goalMet) // no plan, nothing to meet
+        #expect(!timeline(PracticeToday(date: day, loggedSeconds: 600, goalSeconds: 900))[0].goalMet)
+        #expect(timeline(PracticeToday(date: day, loggedSeconds: 900, goalSeconds: 900))[0].goalMet)
+        #expect(timeline(PracticeToday(date: day, loggedSeconds: 1200, goalSeconds: 900))[0].goalMet)
+        // A plan grown on the website holds the celebration back.
+        #expect(!timeline(PracticeToday(date: day, loggedSeconds: 900, goalSeconds: 900), serverGoal: 1800)[0].goalMet)
+        // Midnight starts over.
+        #expect(!timeline(PracticeToday(date: day, loggedSeconds: 900, goalSeconds: 900)).last!.goalMet)
+    }
+
+    @Test func aRunningTimerTurnsGreenTheMomentItReachesTheGoal() {
+        // 10m logged, a run 30s old, a goal of 11m 45s: met 75s from now.
+        let run = PracticeToday.Run(startedAt: ten.addingTimeInterval(-30), endsBy: ten.addingTimeInterval(600))
+        let entries = timeline(PracticeToday(date: day, loggedSeconds: 600, run: run, goalSeconds: 705))
+        let met = entries.first { $0.goalMet }
+        #expect(met?.date == ten.addingTimeInterval(75))
+        #expect(met?.seconds == 705)
+        #expect(entries.prefix { !$0.goalMet }.allSatisfy { $0.seconds < 705 })
+        #expect(zip(entries, entries.dropFirst()).allSatisfy { $0.date < $1.date })
+    }
+
+    @Test func aSavedDayFromBeforeGoalsStillLoads() throws {
+        let json = #"{"date":"2026-10-15","loggedSeconds":600}"#
+        let saved = try JSONDecoder().decode(PracticeToday.self, from: Data(json.utf8))
+        #expect(saved.goalSeconds == 0)
     }
 }
