@@ -47,7 +47,8 @@ if $INSTALL_LINK; then
   PREFIX=$(echo "$APP" | tr '[:upper:]' '[:lower:]')
 
   TOKEN=$(security find-generic-password -s "Supabase CLI" -w)
-  TOKEN=$(echo "${TOKEN#go-keyring-base64:}" | base64 -d)
+  # Older Supabase CLIs stored it base64-encoded behind a prefix; newer ones plain.
+  [[ "$TOKEN" == go-keyring-base64:* ]] && TOKEN=$(echo "${TOKEN#go-keyring-base64:}" | base64 -d)
   KEY=$(curl -fsS -H "Authorization: Bearer $TOKEN" "https://api.supabase.com/v1/projects/$PROJECT_REF/api-keys?reveal=true" |
     python3 -c "import json,sys; print(next(k['api_key'] for k in json.load(sys.stdin) if k['name']=='service_role'))")
 
