@@ -118,7 +118,7 @@ struct QuestionCard: View {
                 Label("Not quite", systemImage: "xmark.circle.fill").font(.footnote.weight(.semibold)).foregroundStyle(.red)
             }
         } else if onChoose != nil {
-            Text("Tap an answer, or type or say it.").font(.footnote).foregroundStyle(.secondary)
+            Text(onDark ? "Tap an answer or say it." : "Tap an answer, or type or say it.").font(.footnote).foregroundStyle(.secondary)
         }
     }
 

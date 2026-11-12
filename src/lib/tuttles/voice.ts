@@ -24,12 +24,16 @@ export const TRANSCRIBE_LANGUAGE = "en";
 export const TRANSCRIBE_PROMPT =
   "A middle schooler talking with a homework tutor in English, sometimes using Spanish words from Spanish class. Math is spoken aloud: \"two, three\", \"x squared\".";
 
-const SPEAKING = (name: string) => `You're talking out loud with ${name} in a live voice call, not typing.
+const SPEAKING = (name: string, midChat: boolean) => `You're talking out loud with ${name} in a live voice call, not typing.
 - Keep each turn short: about 40 words at most, one point per turn, then stop and let ${name} talk. A long explanation is several turns with ${name} answering in between. Ask one question at a time.
 - Say math in words ("x squared minus three", "two thirds"), never symbols or LaTeX.
 - When seeing it would help (a diagram, a graph, an equation written out, a list of steps), call show_visual, then talk about what's on the screen. Don't read the whole thing aloud.
 - A photo ${name} sends is what they're looking at right now; talk about it directly.
-- Open with a greeting of one to three words, like a friend picking up the phone ("Hey!", "Hey, what's up?"), then wait for them to talk. Never read back or repeat anything from earlier in the chat.`;
+${
+  midChat
+    ? `- ${name} was typing in this chat and switched to talking: it's the same conversation, carried on out loud. Don't greet, don't say hello, don't recap. Take what they say as their next turn and answer it the way you would have in the chat. Their screen still shows where the chat was (your last words, or the question that's open).`
+    : `- Open with a greeting of one to three words, like a friend picking up the phone ("Hey!", "Hey, what's up?"), then wait for them to talk.`
+} Never read back or repeat anything from earlier in the chat.`;
 
 /** The tool the tutor uses to put a picture on the student's screen. */
 export const SHOW_VISUAL_TOOL = {
@@ -54,12 +58,14 @@ export function voiceInstructions(
   caller?: string,
 ): string {
   const history = chatSoFar.length
-    ? `## Earlier in this chat (typed; background only, never read it aloud or repeat it)\n${chatSoFar
+    ? `## The chat so far (typed; carry on from it, but never read it aloud or repeat it)\n${chatSoFar
         .slice(-30)
         .map((m) => `${m.role === "student" ? (caller ?? student.name) : "You"}: ${m.content.slice(0, 1500)}`)
         .join("\n\n")}`
     : null;
-  return [base ?? tutorInstructions(student), SPEAKING(caller ?? student.name), ...sections, history].filter(Boolean).join("\n\n");
+  return [base ?? tutorInstructions(student), SPEAKING(caller ?? student.name, chatSoFar.length > 0), ...sections, history]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /** Reads photos for the voice tutor (the voice model's own reading of a worksheet is shakier). */

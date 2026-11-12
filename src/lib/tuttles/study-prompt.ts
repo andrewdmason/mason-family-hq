@@ -139,7 +139,7 @@ export function quizInstructions(args: {
   const ending = done
     ? `\n\nAll ${quiz.count} questions are answered: the quiz is over. ${test ? "Go over the misses now if you haven't." : `Wrap up in two or three short sentences: one genuine bit of encouragement, and the one or two things to look at next.`} The app shows ${name} the score and how each topic moved, so don't list scores. Don't ask another question. If ${name} wants more, say they can start another quiz from the set.`
     : open
-      ? `\n\nQuestion ${open.number} is open. ${voice ? "If the call just started, ask it again." : ""}`
+      ? `\n\nQuestion ${open.number} is open. ${voice ? "It's already on their screen from the typed chat: don't call ask_question for it again. Their first words are probably the answer, so record it. If they ask what it was, read it out (with the options and their letters)." : ""}`
       : `\n\nNext: question ${asked.length + 1} of ${quiz.count}.`;
 
   return `## This chat is a quiz
