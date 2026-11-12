@@ -249,4 +249,45 @@ final class NoteEditingTests: XCTestCase {
         XCTAssertEqual(LinkTitle.title(inHTML: "<html><title lang=en>\n A &amp; B\n</title></html>"), "A & B")
         XCTAssertNil(LinkTitle.title(inHTML: "<html></html>"))
     }
+
+    private func tasks(_ items: String...) -> String {
+        "<ul data-type=\"taskList\">" + items.joined() + "</ul>"
+    }
+
+    private func task(_ text: String, _ nested: String = "") -> String {
+        #"<li data-checked="false" data-type="taskItem"><label><input type="checkbox"><span></span></label><div><p>"# + text + "</p>" + nested + "</div></li>"
+    }
+
+    func testDraggingALineMovesItsNestedItemsWithIt() {
+        let text = storage(tasks(task("a", tasks(task("a1"))), task("b"), task("c")))
+        // "a" (with "a1" under it) to the gap after "b", which is line 3.
+        let edit = NoteEditing.moveLine(at: 0, toGap: 3, in: text, style: style)!
+        NoteEditing.apply(edit, to: text, style: style)
+        XCTAssertEqual(html(text), tasks(task("b"), task("a", tasks(task("a1"))), task("c")))
+        XCTAssertEqual(NoteEditing.paragraph(at: edit.selection.location, in: text).kind.depth, 1)
+    }
+
+    func testDroppingOnItselfDoesNothing() {
+        let text = storage(tasks(task("a", tasks(task("a1"))), task("b")))
+        XCTAssertNil(NoteEditing.moveLine(at: 0, toGap: 0, in: text, style: style))
+        XCTAssertNil(NoteEditing.moveLine(at: 0, toGap: 1, in: text, style: style))
+        XCTAssertNil(NoteEditing.moveLine(at: 0, toGap: 2, in: text, style: style))
+    }
+
+    func testANestedItemMovedToTheTopComesOut() {
+        let text = storage(tasks(task("a", tasks(task("a1"))), task("b")))
+        let a1 = NoteEditing.lineRanges(in: text)[1].location
+        NoteEditing.apply(NoteEditing.moveLine(at: a1, toGap: 0, in: text, style: style)!, to: text, style: style)
+        XCTAssertEqual(html(text), tasks(task("a1"), task("a"), task("b")))
+    }
+
+    func testMovingUpAndDownSkipsNeighboursWhole() {
+        let text = storage(tasks(task("a"), task("b", tasks(task("b1"))), task("c")))
+        NoteEditing.apply(NoteEditing.moveLine(at: 0, up: false, in: text, style: style)!, to: text, style: style)
+        XCTAssertEqual(html(text), tasks(task("b", tasks(task("b1"))), task("a"), task("c")))
+        let c = NoteEditing.lineRanges(in: text)[3].location
+        NoteEditing.apply(NoteEditing.moveLine(at: c, up: true, in: text, style: style)!, to: text, style: style)
+        XCTAssertEqual(html(text), tasks(task("b", tasks(task("b1"))), task("c"), task("a")))
+        XCTAssertNil(NoteEditing.moveLine(at: 0, up: true, in: text, style: style))
+    }
 }

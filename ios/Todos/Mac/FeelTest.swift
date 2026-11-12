@@ -1102,6 +1102,76 @@ struct FeelTest {
             return
         }
 
+        if CommandLine.arguments.contains("focus") {
+            func press(_ text: String, _ code: UInt16, flags: NSEvent.ModifierFlags = []) async {
+                let event = NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: flags,
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                    context: nil, characters: text, charactersIgnoringModifiers: text, isARepeat: false,
+                    keyCode: code)
+                if let event { NSApp.postEvent(event, atStart: false) }
+                try? await Task.sleep(for: .milliseconds(400))
+            }
+            var log: [String] = []
+            // Today holds only these three, so the run doesn't depend on the saved list.
+            for index in store.todos.indices where store.todos[index].bucket == .today {
+                store.todos[index].bucket = .anytime
+            }
+            let titles = ["Get the report ready", "Fix account claiming", "Call the plumber"]
+            let made = titles.enumerated().map { index, title in
+                Todo(
+                    id: "focus-\(index)", title: title, notes: index == 0 ? "<p>Pull the numbers from Tuesday.</p>" : nil,
+                    bucket: .today, assigneeEmail: store.me, creatorEmail: store.me, projectId: store.projects.first?.id,
+                    sectionId: nil, snoozedUntil: nil, completedAt: nil, sortOrder: Double(-100 + index),
+                    createdAt: TodoStore.stamp(Date()))
+            }
+            store.todos += made
+            store.go(.view(.inbox))
+            try? await Task.sleep(for: .milliseconds(300))
+            capture(window, "focus-0-inbox")
+            store.go(.view(.today))
+            try? await Task.sleep(for: .milliseconds(400))
+            capture(window, "focus-1-today")
+            await press("F", 3, flags: [.command, .shift])
+            log.append("⇧⌘F -> focusing \(store.focusing), card \(store.focusTask?.title ?? "-")")
+            try? await Task.sleep(for: .milliseconds(400))
+            capture(window, "focus-2-card")
+            await press("j", 38)
+            log.append("j (no skip) -> card \(store.focusTask?.title ?? "-")")
+            await press("e", 14)
+            log.append("e -> card \(store.focusTask?.title ?? "-"), done \(store.focusDone)")
+            capture(window, "focus-3-after-complete")
+            await press("z", 6, flags: [.command])
+            log.append("⌘Z -> card \(store.focusTask?.title ?? "-"), done \(store.focusDone)")
+            await press("\r", 36)
+            log.append("Return -> editing name \(window.firstResponder is NSText)")
+            for letter in " today" { await press(String(letter), 0) }
+            await press("\u{1b}", 53)
+            log.append("Esc -> still focusing \(store.focusing), name \(store.todos.first { $0.id == "focus-0" }?.title ?? "-")")
+            await press("s", 1)
+            log.append("s -> card \(store.focusTask?.title ?? "-"), first snoozed \(store.todos.first { $0.id == "focus-0" }?.snoozedUntil != nil)")
+            await press("o", 31, flags: [.command])
+            log.append("⌘O -> card \(store.focusTask?.title ?? "-"), second \(store.todos.first { $0.id == "focus-1" }?.bucket.rawValue ?? "-")")
+            await press("e", 14)
+            log.append("e -> card \(store.focusTask?.title ?? "none"), done \(store.focusDone)")
+            try? await Task.sleep(for: .milliseconds(300))
+            capture(window, "focus-4-clear")
+            await press("\u{1b}", 53)
+            log.append("Esc -> focusing \(store.focusing), view \(store.title)")
+            capture(window, "focus-5-empty-today")
+            await press("F", 3, flags: [.command, .shift])
+            log.append("⇧⌘F on empty Today -> focusing \(store.focusing)")
+            await press("z", 6, flags: [.command])
+            await press("F", 3, flags: [.command, .shift])
+            log.append("after ⌘Z, ⇧⌘F -> focusing \(store.focusing), card \(store.focusTask?.title ?? "-")")
+            await press("g", 5)
+            await press("w", 13)
+            log.append("g w -> focusing \(store.focusing), view \(store.title)")
+            try? (log.joined(separator: "\n") + "\n").write(to: results, atomically: true, encoding: .utf8)
+            NSApp.terminate(nil)
+            return
+        }
+
         if CommandLine.arguments.contains("when") {
             func press(_ text: String, _ code: UInt16, flags: NSEvent.ModifierFlags = []) async {
                 let event = NSEvent.keyEvent(

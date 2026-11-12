@@ -54,6 +54,8 @@ final class AttachmentPreview: NSObject, QLPreviewPanelDataSource {
         file = url
         guard let panel = QLPreviewPanel.shared() else { return }
         panel.updateController()
+        // Whatever has the keyboard, a text field say, may have taken the panel.
+        panel.dataSource = self
         panel.reloadData()
         panel.makeKeyAndOrderFront(nil)
     }

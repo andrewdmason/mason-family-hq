@@ -42,10 +42,14 @@ final class TodoListController: NSViewController {
     private let coordinator: TodoTableCoordinator
     private var shownDestination: Destination?
     private var clickMonitor: Any?
+    private let focusView: FocusView
+    private var listParts: [NSView] = []
+    private var showingFocus = false
 
     init(store: TodoStore) {
         self.store = store
         coordinator = TodoTableCoordinator(store: store)
+        focusView = FocusView(store: store)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -89,7 +93,16 @@ final class TodoListController: NSViewController {
         let container = NSView()
         container.addSubview(scroll)
         container.addSubview(fade)
+        // Focus mode takes the list's place, under the same toolbar.
+        focusView.translatesAutoresizingMaskIntoConstraints = false
+        focusView.isHidden = true
+        container.addSubview(focusView)
+        listParts = [scroll, fade]
         NSLayoutConstraint.activate([
+            focusView.topAnchor.constraint(equalTo: container.topAnchor),
+            focusView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            focusView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            focusView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             scroll.topAnchor.constraint(equalTo: container.topAnchor),
             scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -128,7 +141,11 @@ final class TodoListController: NSViewController {
     }
 
     func focus() {
-        view.window?.makeFirstResponder(coordinator.table)
+        if store.focusing {
+            focusView.takeKeys()
+        } else {
+            view.window?.makeFirstResponder(coordinator.table)
+        }
     }
 
     /// Back in an open to-do, with the cursor where it was.
@@ -138,17 +155,24 @@ final class TodoListController: NSViewController {
 
     /// Redraw whenever anything the list reads changes.
     private func follow() {
-        let state = withObservationTracking {
-            TodoListState(
+        let (state, focusing) = withObservationTracking {
+            (TodoListState(
                 rows: store.listRows, destination: store.destination, selectedID: store.selectedID,
                 selectedIDs: store.selectedIDs, renamingProjectID: store.renamingProjectID,
                 renamingInHeader: store.renamingProjectID != nil && !store.isRenamingInSidebar,
                 namingSectionID: store.namingSectionID, openID: store.openID,
-                attachments: store.attachments.byTask)
+                attachments: store.attachments.byTask), store.focusing)
         } onChange: { [weak self] in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.follow() } }
         }
         coordinator.apply(state)
+        // Focus mode takes the list's place, and the keys with it.
+        if focusing != showingFocus {
+            showingFocus = focusing
+            focusView.isHidden = !focusing
+            for part in listParts { part.isHidden = focusing }
+            focus()
+        }
         // Keys and focus belong to the list, even just after a click in the sidebar.
         if shownDestination != state.destination {
             // Not while a new to-do's field has just taken the cursor.

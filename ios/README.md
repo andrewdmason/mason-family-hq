@@ -75,6 +75,10 @@ lives on the Mac in a file, so opening it and every action are instant; the
 website stays as it is for the rest of the family. `TodosMac` isn't in the CI
 matrix, which builds for the iPhone simulator.
 
+Focus mode (⇧⌘F, or the one toolbar button on Today) is the website's: one Today
+to-do at a time, no skip. E completes, S snoozes until tomorrow, the ⌘ When keys
+move it, Esc leaves. New to-dos are ⌘N or C; there's no add button.
+
 ## Todos (iPhone)
 
 The same list and sync (`Todos/Shared`, `Todos/Sync`) with its own screens in

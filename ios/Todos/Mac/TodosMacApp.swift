@@ -78,7 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titleVisibility = .hidden
         window.titlebarSeparatorStyle = .none
         window.titlebarAppearsTransparent = true
-        let toolbar = TodoToolbarController(store: model.store, window: window)
+        let toolbar = TodoToolbarController(store: model.store, window: window, sidebar: sidebarItem)
         window.toolbar = toolbar.toolbar
         window.toolbarStyle = .unified
         self.toolbar = toolbar
@@ -223,6 +223,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let forward = ClosureMenuItem(title: "Forward") { store.goForward() }
         forward.keyEquivalent = "]"
         go.addItem(forward)
+        go.addItem(.separator())
+        // KeyRouter answers ⇧⌘F first; this is where it's written down.
+        let focus = ClosureMenuItem(title: "Focus") {
+            if !store.toggleFocus() { NSSound.beep() }
+        }
+        focus.keyEquivalent = "f"
+        focus.keyEquivalentModifierMask = [.command, .shift]
+        go.addItem(focus)
         goItem.submenu = go
         let windowItem = menu.addItem(withTitle: "Window", action: nil, keyEquivalent: "")
         let window = NSMenu(title: "Window")
@@ -292,21 +300,28 @@ final class AppModel {
     }
 }
 
-/// Just the sidebar toggle and New To-Do, the one prominent action. Everything
-/// else lives in ⌘K.
+/// Just the sidebar toggle and Focus, the one button, on Today. New to-dos come
+/// from ⌘N and C; everything else lives in ⌘K. In focus mode the same button is
+/// the way back out, and the sidebar folds away.
 @MainActor
 final class TodoToolbarController: NSObject, NSToolbarDelegate {
     let toolbar = NSToolbar(identifier: "todos")
     private let store: TodoStore
     private weak var window: NSWindow?
+    private let sidebar: NSSplitViewItem
+    private var focusItem: NSToolbarItem?
+    private var wasFocusing = false
+    /// Whether the sidebar was already folded away when focus began.
+    private var sidebarWasCollapsed = false
 
     private enum ID {
-        static let new = NSToolbarItem.Identifier("new")
+        static let focus = NSToolbarItem.Identifier("focus")
     }
 
-    init(store: TodoStore, window: NSWindow) {
+    init(store: TodoStore, window: NSWindow, sidebar: NSSplitViewItem) {
         self.store = store
         self.window = window
+        self.sidebar = sidebar
         super.init()
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
@@ -314,18 +329,51 @@ final class TodoToolbarController: NSObject, NSToolbarDelegate {
         follow()
     }
 
-    /// Keep the window's name (for the Window menu) current.
     private func follow() {
-        let title = withObservationTracking {
-            store.title
+        withObservationTracking {
+            render()
         } onChange: { [weak self] in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.follow() } }
         }
-        window?.title = title
+    }
+
+    private func render() {
+        let (title, focusing) = (store.title, store.focusing)
+        let onToday = store.destination == .view(.today)
+        let todayEmpty = store.focusQueue.isEmpty
+        // Keep the window's name (for the Window menu) current.
+        window?.title = focusing ? "Focus" : title
+        if focusing != wasFocusing {
+            wasFocusing = focusing
+            if focusing { sidebarWasCollapsed = sidebar.isCollapsed }
+            if !sidebarWasCollapsed {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.2
+                    sidebar.animator().isCollapsed = focusing
+                }
+            }
+            // The system makes its own sidebar button, so it's found rather than kept.
+            toolbar.items.first { $0.itemIdentifier == .toggleSidebar }?.isHidden = focusing
+        }
+        guard let item = focusItem else { return }
+        item.isHidden = !(focusing || onToday)
+        if focusing {
+            item.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Leave Focus")
+            item.label = "Leave Focus"
+            item.toolTip = "Leave Focus (⇧⌘F)"
+            item.style = .plain
+            item.isEnabled = true
+        } else {
+            item.image = NSImage(systemSymbolName: "scope", accessibilityDescription: "Focus")
+            item.label = "Focus"
+            item.toolTip = todayEmpty ? "Focus (⇧⌘F): nothing in Today" : "Focus (⇧⌘F)"
+            item.style = .prominent
+            item.isEnabled = !todayEmpty
+        }
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace, ID.new]
+        [.toggleSidebar, .sidebarTrackingSeparator, .flexibleSpace, ID.focus]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -336,20 +384,22 @@ final class TodoToolbarController: NSObject, NSToolbarDelegate {
         _ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
-        guard identifier == ID.new else { return NSToolbarItem(itemIdentifier: identifier) }
         let item = NSToolbarItem(itemIdentifier: identifier)
-        item.label = "New To-Do"
-        item.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New To-Do")
-        item.toolTip = "New To-Do (⌘N)"
+        guard identifier == ID.focus else { return item }
         item.isBordered = true
         item.target = self
-        item.action = #selector(newToDo)
-        item.style = .prominent
+        item.action = #selector(toggleFocus)
         item.backgroundTintColor = TodosLook.accent
+        // Enabled by follow(), from whether Today has anything in it.
+        item.autovalidates = false
+        focusItem = item
+        render()
         return item
     }
 
-    @objc private func newToDo() { store.startNew() }
+    @objc private func toggleFocus() {
+        if !store.toggleFocus() { NSSound.beep() }
+    }
 }
 
 // MARK: - Keyboard
@@ -411,6 +461,86 @@ final class KeyRouter {
         return store.pasteTodos(text) > 0
     }
 
+    /// Focus mode's keys: E completes, S snoozes until tomorrow, the ⌘ When keys
+    /// move it, Esc leaves. No J/K, no delete, no skip; those stay with the list.
+    private func performInFocus(_ event: NSEvent, command: Bool, shift: Bool, typing: Bool) -> Bool {
+        let characters = (event.charactersIgnoringModifiers ?? "").lowercased()
+        let responder = event.window?.firstResponder
+
+        // Files pasted anywhere on the card attach to it.
+        if command, characters == "v", let id = store.focusTask?.id,
+            AttachmentPasteboard.attach(from: pasteboard, to: id, in: store.attachments) {
+            return true
+        }
+        if let notes = responder as? DetailNotesView, notes.handleShortcut(event) { return true }
+
+        if event.keyCode == 53 {
+            // Esc leaves the field first, keeping what was typed; the next one leaves focus.
+            if typing {
+                refocus(event.window)
+                store.commitFocusEdit()
+            } else {
+                store.endFocus()
+            }
+            return true
+        }
+
+        let whenKeys: [String: Bucket] = ["t": .today, "e": .week, "o": .someday, "r": .anytime]
+        if command, !shift, let bucket = whenKeys[characters] {
+            store.focusMove(to: bucket)
+            refocus(event.window)
+            return true
+        }
+
+        if command {
+            switch characters {
+            case "n":
+                // A new to-do is planning, which happens in the list.
+                store.endFocus()
+                store.startNew()
+            case "[": store.goBack()
+            case "]": store.goForward()
+            case "z":
+                if typing { return false }
+                if shift { store.focusRedo() } else { store.focusUndo() }
+            default:
+                return false
+            }
+            return true
+        }
+
+        if typing { return false }
+
+        switch event.keyCode {
+        case 36, 76:
+            focusView(in: event.window)?.focusTitle()
+            return true
+        default: break
+        }
+        switch characters {
+        case "e": store.focusComplete()
+        case "s": store.focusSnooze(until: TodoStore.tomorrow())
+        default: break
+        }
+        // Everything else is swallowed: nothing here should move you past a to-do.
+        return true
+    }
+
+    private func focusView(in window: NSWindow?) -> FocusView? {
+        var queue: [NSView] = window?.contentView.map { [$0] } ?? []
+        while !queue.isEmpty {
+            let view = queue.removeFirst()
+            if let focus = view as? FocusView { return focus }
+            queue += view.subviews
+        }
+        return nil
+    }
+
+    /// The keys back on the card itself, out of any field.
+    private func refocus(_ window: NSWindow?) {
+        if let focus = focusView(in: window) { focus.takeKeys() } else { window?.makeFirstResponder(nil) }
+    }
+
     func perform(_ event: NSEvent) -> Bool {
         let command = event.modifierFlags.contains(.command)
         let shift = event.modifierFlags.contains(.shift)
@@ -421,6 +551,14 @@ final class KeyRouter {
             togglePalette()
             return true
         }
+
+        if command, shift, characters.lowercased() == "f" {
+            if !store.toggleFocus() { NSSound.beep() }
+            return true
+        }
+        // G chords still go places, which leaves focus, as on the website.
+        let chord = !command && !typing && (characters == "g" || CACurrentMediaTime() < chordUntil)
+        if store.focusing, !chord { return performInFocus(event, command: command, shift: shift, typing: typing) }
 
         // These work from anywhere, even mid-typing, which keeps what was typed.
         if command, characters.lowercased() == "n" {

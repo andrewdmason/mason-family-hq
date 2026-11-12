@@ -619,6 +619,92 @@ enum NoteEditing {
         return Edit(range: line.range, replacement: replacement, selection: selection)
     }
 
+    // MARK: Moving lines
+
+    /// Each line's range, top to bottom. The empty line after a final newline isn't one.
+    static func lineRanges(in text: NSAttributedString) -> [NSRange] {
+        var result: [NSRange] = []
+        var location = 0
+        while location < text.length {
+            let line = paragraph(at: location, in: text)
+            result.append(line.range)
+            location = NSMaxRange(line.range)
+        }
+        return result
+    }
+
+    static func lineIndex(at location: Int, in text: NSAttributedString) -> Int? {
+        let ranges = lineRanges(in: text)
+        if let index = ranges.firstIndex(where: { NSLocationInRange(location, $0) }) { return index }
+        return location >= text.length && !ranges.isEmpty ? ranges.count - 1 : nil
+    }
+
+    /// The line at this index and, for a list item, the items nested under it.
+    static func block(_ lines: [NoteLine], at index: Int) -> Range<Int> {
+        var end = index + 1
+        guard case .list = lines[index].kind else { return index..<end }
+        let depth = lines[index].kind.depth
+        while end < lines.count, lines[end].kind.depth > depth { end += 1 }
+        return index..<end
+    }
+
+    /// Lines with a block moved to a gap (0 is above the first line). Nil when that's
+    /// where it is already, or inside itself. A list item never ends up nested deeper
+    /// than the line above it allows.
+    static func moving(_ lines: [NoteLine], block: Range<Int>, toGap gap: Int) -> (lines: [NoteLine], start: Int)? {
+        let gap = min(gap, lines.count)
+        guard gap < block.lowerBound || gap > block.upperBound else { return nil }
+        var rest = lines
+        var moved = Array(rest[block])
+        rest.removeSubrange(block)
+        let start = gap > block.upperBound ? gap - block.count : gap
+        let allowed = (start > 0 ? rest[start - 1].kind.depth : 0) + 1
+        if case .list(let path, _) = moved[0].kind, path.count > allowed {
+            let drop = path.count - allowed
+            moved = moved.map { line in
+                guard case .list(let path, let checked) = line.kind else { return line }
+                var line = line
+                line.kind = .list(path: Array(path.dropFirst(drop)), checked: checked)
+                return line
+            }
+        }
+        rest.insert(contentsOf: moved, at: start)
+        return (rest, start)
+    }
+
+    /// Moves the line holding `location`, with what's nested under it, to a gap
+    /// between lines. The caret lands at the end of the moved line.
+    static func moveLine(at location: Int, toGap gap: Int, in text: NSAttributedString, style: NoteStyle) -> Edit? {
+        let lines = document(from: text).lines
+        guard let index = lineIndex(at: location, in: text), lines.indices.contains(index),
+            let result = moving(lines, block: block(lines, at: index), toGap: gap)
+        else { return nil }
+        let replacement = attributed(NoteDocument(lines: result.lines), style: style)
+        let ranges = lineRanges(in: replacement)
+        let caret = ranges.indices.contains(result.start) ? paragraph(at: ranges[result.start].location, in: replacement).contentEnd : replacement.length
+        return Edit(
+            range: NSRange(location: 0, length: text.length), replacement: replacement,
+            selection: NSRange(location: caret, length: 0))
+    }
+
+    /// ⌥⌘↑ and ⌥⌘↓: past the neighbouring item, along with what's nested under it.
+    static func moveLine(at location: Int, up: Bool, in text: NSAttributedString, style: NoteStyle) -> Edit? {
+        let lines = document(from: text).lines
+        guard let index = lineIndex(at: location, in: text), lines.indices.contains(index)
+        else { return nil }
+        let own = block(lines, at: index)
+        let depth = lines[index].kind.depth
+        let gap: Int
+        if up {
+            guard let above = lines[..<index].lastIndex(where: { $0.kind.depth <= depth }) else { return nil }
+            gap = above
+        } else {
+            guard own.upperBound < lines.count else { return nil }
+            gap = block(lines, at: own.upperBound).upperBound
+        }
+        return moveLine(at: location, toGap: gap, in: text, style: style)
+    }
+
     // MARK: Pasting
 
     private static let urlOnly = try? NSRegularExpression(pattern: #"^https?://\S+$"#, options: .caseInsensitive)
