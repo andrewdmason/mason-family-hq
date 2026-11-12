@@ -10,6 +10,7 @@ enum DemoChats {
         TutorThread(id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!, title: "Puppy weight graph", updatedAt: Date().addingTimeInterval(-5400), archivedAt: nil, courseId: 10),
         TutorThread(id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!, title: "Domain and range of 2a", updatedAt: Date().addingTimeInterval(-10800), archivedAt: nil, courseId: 10),
         TutorThread(id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!, title: "Vasco da Gama’s voyage", updatedAt: Date().addingTimeInterval(-16200), archivedAt: nil, courseId: 12),
+        TutorThread(id: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!, title: "Quiz: Science quiz: cells", updatedAt: Date().addingTimeInterval(-20000), archivedAt: nil, courseId: 13, kind: "quiz", studySetId: "demo-cells"),
     ]
 
     static let messages: [UUID: [ChatMessage]] = [

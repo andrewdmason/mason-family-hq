@@ -12,14 +12,19 @@ struct TutorThread: Identifiable, Codable, Equatable {
     var archivedAt: Date?
     /// The class it's about (a Canvas course id), or nil.
     var courseId: Int?
-    /// "briefing" for a parent's chat about one of the kid's topics.
+    /// "briefing" for a parent's chat about one of the kid's topics, "quiz" for a quiz.
     var kind: String?
+    /// The study set it's about: a quiz's, or the one set up in it.
+    var studySetId: String?
+
+    var isQuiz: Bool { kind == "quiz" }
 
     enum CodingKeys: String, CodingKey {
         case id, title, kind
         case updatedAt = "updated_at"
         case archivedAt = "archived_at"
         case courseId = "course_id"
+        case studySetId = "study_set_id"
     }
 }
 
@@ -64,6 +69,8 @@ final class ChatStore {
     var listError: String?
     /// The student's classes, from Canvas; nil until loaded or when there's no Canvas.
     var classes: ClassesPayload?
+    /// Their study sets (Study.swift); nil until loaded.
+    var study: StudyPayload?
 
     /// The kid's chats (a parent's, while seeing the app as the kid), and a
     /// parent's own briefings.
@@ -139,11 +146,13 @@ final class ChatStore {
         // Keep the kid list (it's the same for every view) until the new load replaces it.
         if let payload = classes { classes = payload.forSwitching() }
         classesLoaded = false
+        study = nil
         loadSaved()
         Task {
             async let threads: Void = refreshThreads()
             async let classes: Void = refreshClasses()
-            _ = await (threads, classes)
+            async let study: Void = refreshStudy()
+            _ = await (threads, classes, study)
         }
     }
 
@@ -223,7 +232,7 @@ final class ChatStore {
         }
         do {
             let fresh: [TutorThread] = try await client.from("tutor_threads")
-                .select("id, title, updated_at, archived_at, course_id, kind")
+                .select("id, title, updated_at, archived_at, course_id, kind, study_set_id")
                 .eq("student_id", value: ownerID?.uuidString.lowercased() ?? "")
                 .is("archived_at", value: nil)
                 .order("updated_at", ascending: false)
@@ -328,7 +337,7 @@ final class ChatStore {
     }
 
     func messages(in threadID: UUID) async throws -> [ChatMessage] {
-        if isDemo { return DemoChats.messages[threadID] ?? [] }
+        if isDemo { return threadID == DemoChats.quizThreadID ? DemoChats.quizMessages : DemoChats.messages[threadID] ?? [] }
         struct Row: Decodable {
             let id: UUID
             let role: ChatMessage.Role

@@ -46,20 +46,24 @@ extension ChatStore {
         var text: String
         var images: [String] = []
         var visuals: [String] = []
+        /// Quiz questions and study sets from the call, as the server shaped them.
+        var blocks: [String] = []
     }
 
-    /// Saves a finished call into its chat.
-    func saveVoice(threadID: UUID, assignmentID: Int?, turns: [VoiceTurn]) async throws {
-        struct Body: Encodable { let threadId: String; let assignmentId: Int?; let turns: [VoiceTurn] }
-        let body = try JSONEncoder().encode(Body(threadId: threadID.uuidString.lowercased(), assignmentId: assignmentID, turns: turns))
+    /// Saves a finished call into its chat (filed under the study set made in
+    /// it, if one was).
+    func saveVoice(threadID: UUID, assignmentID: Int?, studySetID: String? = nil, turns: [VoiceTurn]) async throws {
+        struct Body: Encodable { let threadId: String; let assignmentId: Int?; let studySetId: String?; let turns: [VoiceTurn] }
+        let body = try JSONEncoder().encode(Body(threadId: threadID.uuidString.lowercased(), assignmentId: assignmentID,
+                                                 studySetId: studySetID, turns: turns))
         _ = try await post("tuttles/api/voice/save", body: body, contentType: "application/json")
     }
 
-    private func post(_ route: String, json: [String: Any]) async throws -> Data {
+    func post(_ route: String, json: [String: Any]) async throws -> Data {
         try await post(route, body: try JSONSerialization.data(withJSONObject: json), contentType: "application/json")
     }
 
-    private func post(_ route: String, body: Data, contentType: String) async throws -> Data {
+    func post(_ route: String, body: Data, contentType: String) async throws -> Data {
         let token = try await client.auth.session.accessToken
         var request = URLRequest(url: Self.websiteURL.appending(path: route))
         request.httpMethod = "POST"

@@ -37,6 +37,10 @@ private struct BlockView: View {
             DisplayMath(latex: latex)
         case .visual(let json):
             VisualView(json: json)
+        case .question(let json):
+            QuestionBlockView(json: json)
+        case .studySet(let json):
+            StudySetBlockView(json: json)
         case .code(let code):
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(code).font(.callout.monospaced()).padding(12)
