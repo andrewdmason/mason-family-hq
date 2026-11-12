@@ -41,6 +41,12 @@ final class NoteLayoutManager: NSLayoutManager {
 
     /// The task line whose checkbox is at this point, in text container coordinates.
     func checkboxLine(at point: CGPoint) -> Int? {
+        guard let marker = markerLine(at: point), marker.isTask else { return nil }
+        return marker.location
+    }
+
+    /// The list item whose bullet, number or checkbox is at this point.
+    func markerLine(at point: CGPoint) -> (location: Int, isTask: Bool)? {
         guard let storage = textStorage, storage.length > 0, let container = textContainers.first else { return nil }
         ensureLayout(for: container)
         let glyph = glyphIndex(for: point, in: container)
@@ -48,10 +54,20 @@ final class NoteLayoutManager: NSLayoutManager {
         guard fragment.contains(CGPoint(x: fragment.midX, y: point.y)) else { return nil }
         let character = characterIndexForGlyph(at: glyph)
         let paragraph = NoteEditing.paragraph(at: character, in: storage)
-        guard case .list(let path, _) = paragraph.kind, path.last == .task else { return nil }
+        guard case .list(let path, _) = paragraph.kind else { return nil }
         let right = CGFloat(path.count) * gutter
         guard point.x >= right - gutter, point.x < right else { return nil }
-        return paragraph.range.location
+        return (paragraph.range.location, path.last == .task)
+    }
+
+    /// The top and bottom of a line's text, every wrapped row of it.
+    func verticalSpan(of range: NSRange) -> ClosedRange<CGFloat>? {
+        guard let storage = textStorage, range.location < storage.length else { return nil }
+        let first = glyphIndexForCharacter(at: range.location)
+        let last = glyphIndexForCharacter(at: max(NSMaxRange(range) - 1, range.location))
+        let top = lineFragmentRect(forGlyphAt: first, effectiveRange: nil).minY
+        let bottom = lineFragmentRect(forGlyphAt: last, effectiveRange: nil).maxY
+        return top...max(top, bottom)
     }
 
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {

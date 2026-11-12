@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 
 /// The notes in an open to-do. The rules are in NoteEditing; this is the Mac's side
 /// of them: keys, clicks, the clipboard and undo.
@@ -15,6 +16,8 @@ final class DetailNotesView: NSTextView, NSTextViewDelegate {
     private let undoer = UndoManager()
     /// A text system built by hand is owned from its storage down, so this holds it.
     private var ownedStorage: NSTextStorage?
+    /// Where a dragged line would land, while one's being dragged.
+    private var dropLine: NSRect?
 
     static func make(style: NoteStyle) -> DetailNotesView {
         let (storage, _, container) = NoteLayoutManager.makeStack(style: style)
@@ -188,6 +191,14 @@ final class DetailNotesView: NSTextView, NSTextViewDelegate {
         if plain, key == "i" { toggle(.italic); return true }
         if plain, key == "u" { toggle(.underline); return true }
         if shifted, key == "s" { toggle(.strike); return true }
+        if optioned, event.keyCode == 126 || event.keyCode == 125 {
+            if let edit = NoteEditing.moveLine(at: selectedRange().location, up: event.keyCode == 126, in: textStorage, style: noteStyle) {
+                apply(edit)
+            } else {
+                NSSound.beep()
+            }
+            return true
+        }
 
         var block: NoteLineKind?
         if optioned {
@@ -228,16 +239,88 @@ final class DetailNotesView: NSTextView, NSTextViewDelegate {
 
     // MARK: Mouse and clipboard
 
+    /// A bullet or checkbox: a click ticks a checkbox, and a drag moves the line.
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if isEditable, let textStorage, let manager = layoutManager as? NoteLayoutManager,
-            let line = manager.checkboxLine(at: point),
-            let edit = NoteEditing.toggleChecked(at: line, selection: selectedRange(), in: textStorage, style: noteStyle) {
-            apply(edit)
+            let marker = manager.markerLine(at: point) {
+            if dragLine(at: marker.location, from: event) { return }
+            if marker.isTask,
+                let edit = NoteEditing.toggleChecked(at: marker.location, selection: selectedRange(), in: textStorage, style: noteStyle) {
+                apply(edit)
+            } else {
+                window?.makeFirstResponder(self)
+                setSelectedRange(NSRange(location: NoteEditing.paragraph(at: marker.location, in: textStorage).contentEnd, length: 0))
+            }
             return
         }
         super.mouseDown(with: event)
     }
+
+    /// A bullet or checkbox isn't text, so it gets the arrow, not the I-beam.
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        if isEditable, let manager = layoutManager as? NoteLayoutManager,
+            manager.markerLine(at: convert(event.locationInWindow, from: nil)) != nil {
+            NSCursor.arrow.set()
+        }
+    }
+
+    /// Follows the pointer until the button's let go. False if it never really moved.
+    private func dragLine(at location: Int, from down: NSEvent) -> Bool {
+        guard let window, let textStorage, let manager = layoutManager as? NoteLayoutManager else { return false }
+        let lines = NoteEditing.document(from: textStorage).lines
+        guard let index = NoteEditing.lineIndex(at: location, in: textStorage), lines.indices.contains(index) else { return false }
+        let block = NoteEditing.block(lines, at: index)
+        var dragging = false
+        var gap: Int?
+        while let event = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]), event.type == .leftMouseDragged {
+            if !dragging {
+                guard hypot(event.locationInWindow.x - down.locationInWindow.x, event.locationInWindow.y - down.locationInWindow.y) > 4 else { continue }
+                dragging = true
+                NSCursor.closedHand.push()
+            }
+            autoscroll(with: event)
+            let found = dropGap(at: convert(event.locationInWindow, from: nil), lineCount: lines.count, manager: manager)
+            gap = NoteEditing.moving(lines, block: block, toGap: found.gap) == nil ? nil : found.gap
+            let line = gap == nil ? nil : NSRect(x: 0, y: found.y - 1, width: bounds.width, height: 2)
+            if line != dropLine {
+                if let dropLine { setNeedsDisplay(dropLine.insetBy(dx: 0, dy: -2)) }
+                if let line { setNeedsDisplay(line.insetBy(dx: 0, dy: -2)) }
+                dropLine = line
+            }
+        }
+        guard dragging else { return false }
+        NSCursor.pop()
+        if let dropLine { setNeedsDisplay(dropLine.insetBy(dx: 0, dy: -2)) }
+        dropLine = nil
+        if let gap, let edit = NoteEditing.moveLine(at: location, toGap: gap, in: textStorage, style: noteStyle) {
+            window.makeFirstResponder(self)
+            apply(edit)
+        }
+        return true
+    }
+
+    /// The gap between lines nearest the pointer, and how far down the view it is.
+    private func dropGap(at point: NSPoint, lineCount: Int, manager: NoteLayoutManager) -> (gap: Int, y: CGFloat) {
+        guard let textStorage else { return (0, 0) }
+        let spans = NoteEditing.lineRanges(in: textStorage).prefix(lineCount).compactMap(manager.verticalSpan(of:))
+        guard let last = spans.last else { return (0, 0) }
+        for (index, span) in spans.enumerated() where point.y < span.lowerBound + (span.upperBound - span.lowerBound) / 2 {
+            return (index, span.lowerBound)
+        }
+        return (spans.count, last.upperBound)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let dropLine else { return }
+        noteStyle.accent.setFill()
+        NSBezierPath(roundedRect: dropLine, xRadius: 1, yRadius: 1).fill()
+    }
+
+    /// A text view would take the Quick Look panel for itself, and show nothing.
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { false }
 
     override func paste(_ sender: Any?) {
         let board = NSPasteboard.general

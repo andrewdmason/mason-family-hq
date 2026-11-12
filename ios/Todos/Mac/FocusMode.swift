@@ -37,6 +37,8 @@ final class FocusView: NSView, NSTextFieldDelegate {
     private var notesHTML = ""
     private var items: [AttachmentItem] = []
     private var toastTimer: Timer?
+    /// The name's row, where the moon shows while the pointer's over it.
+    private var titleHover: NSTrackingArea?
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -85,6 +87,7 @@ final class FocusView: NSView, NSTextFieldDelegate {
         snooze.toolTip = "Not today: snooze or move (S snoozes until tomorrow)"
         snooze.target = self
         snooze.action = #selector(showWhenMenu)
+        snooze.alphaValue = 0
         column.addSubview(snooze)
 
         notes.onChange = { [weak self] html in self?.notesChanged(html) }
@@ -319,6 +322,37 @@ final class FocusView: NSView, NSTextFieldDelegate {
         toast.isHidden = true
     }
 
+    // MARK: Hover
+
+    private func trackTitleRow(_ row: NSRect) {
+        if let titleHover {
+            guard titleHover.rect != row else { return }
+            column.removeTrackingArea(titleHover)
+        }
+        let area = NSTrackingArea(rect: row, options: [.mouseEnteredAndExited, .activeInKeyWindow], owner: self)
+        column.addTrackingArea(area)
+        titleHover = area
+        if let window {
+            let pointer = column.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            showSnooze(row.contains(pointer))
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        if event.trackingArea === titleHover { showSnooze(true) }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        if event.trackingArea === titleHover { showSnooze(false) }
+    }
+
+    private func showSnooze(_ visible: Bool) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            snooze.animator().alphaValue = visible ? 1 : 0
+        }
+    }
+
     // MARK: Layout
 
     override func layout() {
@@ -354,6 +388,7 @@ final class FocusView: NSView, NSTextFieldDelegate {
             circle.frame = NSRect(x: x, y: y + 2, width: Metrics.circle + 4, height: Metrics.circle + 4)
             title.frame = NSRect(x: x + Metrics.textX - 2, y: y, width: textWidth + 2, height: Metrics.titleHeight)
             snooze.frame = NSRect(x: x + width - 28, y: y + 4, width: 28, height: 26)
+            trackTitleRow(NSRect(x: x, y: y, width: width, height: Metrics.titleHeight))
             y += Metrics.titleHeight + Metrics.gap
             notes.frame = NSRect(x: x + Metrics.textX, y: y, width: textWidth, height: notesHeight)
             placeholder.frame = NSRect(x: x + Metrics.textX, y: y, width: textWidth, height: 20)
