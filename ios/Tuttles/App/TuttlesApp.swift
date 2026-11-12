@@ -11,6 +11,35 @@ enum TuttlesLook {
     static let accent = Color(red: 0.84, green: 0.15, blue: 0.12)
 }
 
+/// The "New chat" button, floating at the bottom of a list where a thumb can reach it.
+struct NewChatButton: ViewModifier {
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .safeAreaInset(edge: .bottom) {
+                Button(action: action) {
+                    Label("New chat", systemImage: "square.and.pencil")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 16)
+                }
+                .glassEffect(.regular.tint(TuttlesLook.accent).interactive(), in: .capsule)
+                .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+            }
+    }
+}
+
+extension View {
+    func newChatButton(action: @escaping () -> Void) -> some View {
+        modifier(NewChatButton(action: action))
+    }
+}
+
 @main
 struct TuttlesApp: App {
     var body: some Scene {
@@ -194,18 +223,14 @@ private struct ThreadListView: View {
         .overlay {
             if store.threadsLoaded, store.classesLoaded, store.kidThreads.isEmpty, store.classes == nil, store.listError == nil {
                 ContentUnavailableView("No chats yet", systemImage: "bubble.left.and.text.bubble.right",
-                                       description: Text("Start one with the pencil button."))
+                                       description: Text("Start one with the New chat button."))
             }
         }
         .navigationTitle("Tuttles")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { AccountMenu(showMemory: $showingMemory) }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("New chat", systemImage: "square.and.pencil") {
-                    path.append(.chat(UUID(), isNew: true))
-                }
-            }
         }
+        .newChatButton { path.append(.chat(UUID(), isNew: true)) }
         .sheet(isPresented: $showingMemory) {
             MemorySheet(memory: store.classes?.memory, name: store.classes?.student.name ?? "")
         }
