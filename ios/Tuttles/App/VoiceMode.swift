@@ -85,11 +85,16 @@ final class VoiceCall {
                 state = .failed("Tuttles needs the microphone. Turn it on in Settings.")
                 return
             }
-            // Audio first, so the talk button works (and chirps) the moment the
-            // screen opens. Anything said before the line is open waits in the
-            // outbox.
+            // The key comes from the website: ask for it straight away.
+            let keyRequest = Task { try await store.voiceKey(threadID: threadID, assignmentID: assignmentID) }
+            // Starting the audio (echo cancelling especially) holds up the
+            // main thread for a moment, which would stutter the call opening;
+            // it waits until that's done. Then the talk button works (and
+            // chirps) even before the line is open: anything said waits in
+            // the outbox.
+            try? await Task.sleep(for: .milliseconds(520))
             try startAudio()
-            let key = try await store.voiceKey(threadID: threadID, assignmentID: assignmentID)
+            let key = try await keyRequest.value
             var request = URLRequest(url: URL(string: "wss://api.openai.com/v1/realtime?model=\(key.model)")!)
             request.setValue("Bearer \(key.key)", forHTTPHeaderField: "Authorization")
             let socket = URLSession.shared.webSocketTask(with: request)
@@ -181,8 +186,10 @@ final class VoiceCall {
                   "item_id": item, "content_index": 0,
                   "audio_end_ms": playedSamples * 1000 / 24000])
         }
-        player.stop()
-        player.play()
+        if engine.isRunning {
+            player.stop()
+            player.play()
+        }
         // Cut off: the caption stops where the voice did.
         receivedSamples = playedSamples
         captionID += 1
@@ -480,12 +487,15 @@ final class VoiceCall {
     private let releaseHaptic = UIImpactFeedbackGenerator(style: .light)
 
     private func beep(_ buffer: AVAudioPCMBuffer?) {
-        guard let buffer else { return }
+        guard let buffer, engine.isRunning else { return }
         beeper.scheduleBuffer(buffer, at: nil, options: .interrupts)
         if !beeper.isPlaying { beeper.play() }
     }
 
-    enum Chirp { case tone(hz: Double, seconds: Double), hiss(seconds: Double) }
+    enum Chirp {
+        case tone(hz: Double, seconds: Double)
+        case hiss(seconds: Double)
+    }
 
     /// Up, like keying a walkie-talkie.
     static let pressSound: [Chirp] = [.tone(hz: 1250, seconds: 0.045), .tone(hz: 1870, seconds: 0.065)]
@@ -530,16 +540,12 @@ final class VoiceCall {
 
 // MARK: - The screen
 
+/// The call, laid over the chat. Its camera and hang-up live in the chat's
+/// top bar (where the call button was), so they don't move in and out.
 struct VoiceView: View {
-    let threadID: UUID
-    let assignmentID: Int?
-    /// After the call is saved, so the chat can show it.
-    let onEnd: () -> Void
-
-    @Environment(ChatStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
-    @State private var call: VoiceCall?
-    @State private var showingCamera = false
+    let call: VoiceCall?
+    /// Shared with the chat, so its message box can become the talk bar.
+    let space: Namespace.ID
 
     var body: some View {
         ZStack {
@@ -547,12 +553,6 @@ struct VoiceView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 16) {
-                HStack {
-                    cameraButton
-                    Spacer()
-                    hangUpButton
-                }
-                .padding(.horizontal, 16)
                 studentArea
                 stage
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -564,18 +564,11 @@ struct VoiceView: View {
             }
             .padding(.bottom, 12)
         }
-        .preferredColorScheme(.dark)
+        .environment(\.colorScheme, .dark)
         // The talk button sits near the bottom edge, where iOS otherwise holds
         // touches back while it checks for the home swipe.
         .defersSystemGestures(on: .bottom)
-        .task {
-            let c = VoiceCall(store: store, threadID: threadID, assignmentID: assignmentID)
-            call = c
-            await c.start()
-        }
-        .fullScreenCover(isPresented: $showingCamera) {
-            CameraView(onDone: { _ in }, onShot: { photo in call?.send(photo: photo) })
-        }
+        .task { await call?.start() }
     }
 
     @ViewBuilder private var stage: some View {
@@ -677,34 +670,6 @@ struct VoiceView: View {
         .animation(.easeOut(duration: 0.2), value: call?.waiting)
     }
 
-    private var hangUpButton: some View {
-        Button {
-            Task {
-                await call?.hangUp()
-                onEnd()
-                dismiss()
-            }
-        } label: {
-            Image(systemName: "phone.down.fill").font(.title3).frame(width: 44, height: 44)
-        }
-        .buttonStyle(.glassProminent)
-        .buttonBorderShape(.circle)
-        .tint(.red)
-        .foregroundStyle(.white)
-        .accessibilityLabel("Hang up")
-    }
-
-    private var cameraButton: some View {
-        Button { showingCamera = true } label: {
-            Image(systemName: "camera.fill").font(.title3).frame(width: 44, height: 44)
-        }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
-        .foregroundStyle(.white)
-        .disabled(call?.state != .live)
-        .accessibilityLabel("Camera")
-    }
-
     /// The big talk button, the whole width.
     private var controls: some View {
         HStack {
@@ -715,6 +680,7 @@ struct VoiceView: View {
                 onPress: { call?.press() },
                 onRelease: { call?.release() }
             )
+            .matchedGeometryEffect(id: "talkBar", in: space)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 16)

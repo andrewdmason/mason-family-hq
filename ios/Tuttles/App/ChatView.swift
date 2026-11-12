@@ -29,7 +29,14 @@ struct ChatView: View {
     @FocusState private var typing: Bool
     @State private var talk = TalkRecorder()
     @State private var transcribing = false
+    /// In a call: the chat blurs back, the call's colors come up over it,
+    /// and the message box turns into the talk bar (the camera rides along).
     @State private var showingVoice = false
+    /// Dark status bar and all, once the call's colors have covered the chat.
+    @State private var callIsDark = false
+    @Namespace private var callSpace
+    @State private var call: VoiceCall?
+    @State private var showingCallCamera = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -56,22 +63,42 @@ struct ChatView: View {
             }
         }
         .overlay { if messages.isEmpty { emptyState } }
+        .blur(radius: showingVoice ? 24 : 0)
         .safeAreaInset(edge: .bottom) { composer }
-        .navigationTitle(title ?? "")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Call Tuttles", systemImage: "phone.fill") { showingVoice = true }
-                    .disabled(sending)
+        .overlay {
+            if showingVoice {
+                VoiceView(call: call, space: callSpace)
+                    .transition(.opacity)
             }
         }
-        .fullScreenCover(isPresented: $showingVoice) {
-            VoiceView(threadID: threadID, assignmentID: messages.isEmpty ? start?.assignment.id : nil) {
-                Task {
-                    if let saved = try? await store.messages(in: threadID) { messages = saved }
-                    await store.refreshThreads()
+        .navigationTitle(showingVoice ? "" : (title ?? ""))
+        .toolbar {
+            // In a call the bar stays put: the call button becomes hang-up, and
+            // the camera takes the back button's place.
+            if showingVoice {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Camera", systemImage: "camera.fill") { showingCallCamera = true }
+                        .disabled(call?.state != .live)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Hang up", systemImage: "phone.down.fill") { endCall() }
+                        .buttonStyle(.glassProminent)
+                        .tint(.red)
+                        .disabled(call?.state == .ending)
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Call Tuttles", systemImage: "phone.fill") { startCall() }
+                        .disabled(sending)
                 }
             }
         }
+        .toolbarColorScheme(showingVoice ? .dark : nil, for: .navigationBar)
+        .navigationBarBackButtonHidden(showingVoice)
+        .fullScreenCover(isPresented: $showingCallCamera) {
+            CameraView(onDone: { _ in }, onShot: { photo in call?.send(photo: photo) })
+        }
+        .preferredColorScheme(callIsDark ? .dark : nil)
         .navigationBarTitleDisplayMode(.inline)
         .task {
             // A briefing starts itself: the parent tapped "Brief me".
@@ -96,6 +123,31 @@ struct ChatView: View {
             }
         }
         .fullScreenCover(item: $viewing) { PhotoViewer(ref: $0) }
+    }
+
+    static let callMorph = Animation.smooth(duration: 0.5)
+
+    private func startCall() {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        typing = false
+        call = VoiceCall(store: store, threadID: threadID, assignmentID: messages.isEmpty ? start?.assignment.id : nil)
+        withAnimation(Self.callMorph) { showingVoice = true }
+        Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            if showingVoice { callIsDark = true }
+        }
+    }
+
+    private func endCall() {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        Task {
+            await call?.hangUp()
+            // Saved: bring the call into the chat before it shows again.
+            if let saved = try? await store.messages(in: threadID) { messages = saved }
+            callIsDark = false
+            withAnimation(Self.callMorph) { showingVoice = false }
+            await store.refreshThreads()
+        }
     }
 
     private var emptyState: some View {
@@ -181,6 +233,10 @@ struct ChatView: View {
                     .padding(.horizontal, 6)
                 }
             }
+            if showingVoice {
+                // Holds the box's place so the chat doesn't shift behind the call.
+                Color.clear.frame(height: 48)
+            } else {
             HStack(alignment: .bottom, spacing: 10) {
                 Button {
                     typing = false
@@ -233,6 +289,8 @@ struct ChatView: View {
                     }
                 }
                 .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24))
+                .matchedGeometryEffect(id: "talkBar", in: callSpace)
+            }
             }
         }
         .padding(.horizontal, 14)
