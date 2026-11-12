@@ -60,7 +60,6 @@ struct BriefingTopic: Hashable {
 struct ParentHomeView: View {
     @Binding var path: [Route]
     @Environment(ChatStore.self) private var store
-    @State private var showingMemory = false
     @State private var newSet = false
 
     private var kidName: String { store.week?.kid.name ?? store.classes?.student.name ?? "your kid" }
@@ -147,12 +146,6 @@ struct ParentHomeView: View {
             }
         }
         .navigationTitle("This week")
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) { AccountMenu(showMemory: $showingMemory) }
-        }
-        .sheet(isPresented: $showingMemory) {
-            MemorySheet(memory: store.classes?.memory, name: kidName)
-        }
         .refreshable {
             async let week: Void = store.refreshWeek()
             async let threads: Void = store.refreshThreads()

@@ -34,6 +34,8 @@ public final class Session {
 
     public private(set) var userID: UUID?
     public private(set) var email: String?
+    /// The Google account's full name, for initials and greetings.
+    public private(set) var name: String?
     /// family_members.role: owner, parent, kid… Nil until it's loaded, or for
     /// an account that isn't in the family.
     public private(set) var role: String?
@@ -52,6 +54,11 @@ public final class Session {
             if user?.id != userID { role = user.flatMap { Self.savedRole(for: $0.id) } }
             userID = user?.id
             email = user?.email
+            if case .string(let full)? = user?.userMetadata["full_name"] ?? user?.userMetadata["name"] {
+                name = full
+            } else {
+                name = nil
+            }
             guard let id = user?.id else {
                 checked = true
                 continue

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { tuttlesCaller } from "@/lib/tuttles/context";
-import { iseeForGrade, namedIsee, parseSetDraft, TEMPLATES } from "@/lib/tuttles/study";
+import { iseeForGrade, iseeFromText, namedIsee, parseSetDraft, TEMPLATES } from "@/lib/tuttles/study";
 import { gradeFor } from "@/lib/tuttles/prompt";
 import { addSources, saveSet, setSummaries } from "@/lib/tuttles/study-db";
 import { foldInMaterial } from "@/lib/tuttles/study-material";
@@ -28,7 +28,9 @@ const TESTLIKE = /\b(quiz|test|exam|assessment|midterm|final)\b/i;
  *
  *   POST { title, courseId?, testDate?, note?, images?, template?, assignmentId? } → { set }
  *
- * `images` are already in the tuttles bucket, under {kid id}/study/.
+ * `images` are already in the tuttles bucket, under {kid id}/study/. A set
+ * whose name or note says "ISEE" starts from that level's outline
+ * (iseeFromText); `template` is for older apps that had an ISEE switch.
  */
 export async function GET(request: Request) {
   const caller = await tuttlesCaller(request);
@@ -73,13 +75,17 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "bad json" }, { status: 400 });
   }
-  const title = typeof body.title === "string" ? body.title.trim().slice(0, 120) : "";
-  // "isee-lower"/"-middle"/"-upper", or plain "isee" for the level the kid's grade calls for.
+  let title = typeof body.title === "string" ? body.title.trim().slice(0, 120) : "";
+  const note = typeof body.note === "string" ? body.note.trim().slice(0, 8000) : "";
+  const grade = gradeFor(student.birthdate);
+  // Older apps send "isee-lower"/"-middle"/"-upper", or plain "isee" for the level the kid's grade calls for.
   const asked = typeof body.template === "string" ? body.template.toLowerCase() : "";
   const template =
-    asked in TEMPLATES ? asked : (namedIsee(asked, null) ?? (asked === "isee" ? iseeForGrade(gradeFor(student.birthdate)) : null));
+    (asked in TEMPLATES ? asked : (namedIsee(asked, null) ?? (asked === "isee" ? iseeForGrade(grade) : null))) ??
+    iseeFromText(title, note, grade);
+  // Named just "ISEE" (or "ISEE prep"): the outline's title, which says the level.
+  if (template && /^isee(\s+(prep|practice|test))?$/i.test(title)) title = "";
   if (!title && !template) return NextResponse.json({ error: "A study set needs a name." }, { status: 400 });
-  const note = typeof body.note === "string" ? body.note.trim().slice(0, 8000) : "";
   const folder = `${student.studentId}/study/`;
   const images = (Array.isArray(body.images) ? body.images : [])
     .filter((p): p is string => typeof p === "string" && p.startsWith(folder) && p.endsWith(".jpg") && !p.includes(".."))
@@ -102,7 +108,8 @@ export async function POST(request: Request) {
         images,
         canvas: canvas ? `${canvas.name}\n${(canvas.description ?? "").replace(/<[^>]+>/g, " ").slice(0, 4000)}` : null,
       });
-      set = await saveSet(db, { student, by, setId: set.id, draft: { ...draft, title: title || draft.title } });
+      // An ISEE set keeps the outline's title unless one was given.
+      set = await saveSet(db, { student, by, setId: set.id, draft: { ...draft, title: title || (template ? set.title : draft.title) } });
       await addSources(db, set.id, by, [
         ...(note ? [{ kind: "note" as const, body: note }] : []),
         ...images.map((p) => ({ kind: "photo" as const, imagePath: p, body: "Photo" })),

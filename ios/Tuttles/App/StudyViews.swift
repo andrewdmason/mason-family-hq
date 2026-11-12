@@ -159,8 +159,8 @@ struct StudyNudge: View {
     }
 }
 
-/// The chat list's Study section: sets, most pressing first, and Canvas tests without one.
-struct StudySection: View {
+/// Study, from the menu: sets, most pressing first, and Canvas tests without one.
+struct StudyListView: View {
     @Binding var path: [Route]
     @Environment(ChatStore.self) private var store
     @State private var creating = false
@@ -168,36 +168,55 @@ struct StudySection: View {
     var body: some View {
         let sets = store.study?.sets ?? []
         let suggestions = store.study?.suggestions ?? []
-        if !sets.isEmpty || !suggestions.isEmpty {
-            Section {
-                ForEach(sets) { set in
-                    NavigationLink(value: Route.studySet(set.id)) { StudySetRow(set: set) }
+        List {
+            if !sets.isEmpty {
+                Section {
+                    ForEach(sets) { set in
+                        NavigationLink(value: Route.studySet(set.id)) { StudySetRow(set: set) }
+                    }
                 }
-                ForEach(suggestions) { s in
-                    Button { setUp(s) } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "plus.circle.fill").foregroundStyle(TuttlesLook.accent)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text("Get ready for \(s.name)").font(.subheadline.weight(.medium)).foregroundStyle(.primary)
-                                if let due = s.dueAt {
-                                    Text(due.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
-                                        .font(.caption).foregroundStyle(.secondary)
+            }
+            if !suggestions.isEmpty {
+                Section("Coming up on Canvas") {
+                    ForEach(suggestions) { s in
+                        Button { setUp(s) } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "plus.circle.fill").foregroundStyle(TuttlesLook.accent)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text("Get ready for \(s.name)").font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+                                    if let due = s.dueAt {
+                                        Text(due.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            } header: {
-                HStack {
-                    Text("Study")
-                    Spacer()
-                    Button("New", systemImage: "plus") { creating = true }
-                        .font(.footnote.weight(.semibold))
-                        .textCase(nil)
-                }
             }
-            .sheet(isPresented: $creating) { NewStudySetSheet { id in path.append(.studySet(id)) } }
         }
+        .overlay {
+            if store.study != nil, sets.isEmpty, suggestions.isEmpty {
+                ContentUnavailableView {
+                    Label("Nothing to study yet", systemImage: "books.vertical")
+                } description: {
+                    Text("Getting ready for a test? Add the study guide and Tuttles will quiz you on it.")
+                } actions: {
+                    Button("New study set") { creating = true }
+                }
+            } else if store.study == nil {
+                ProgressView()
+            }
+        }
+        .navigationTitle("Study")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("New study set", systemImage: "plus") { creating = true }
+            }
+        }
+        .refreshable { await store.refreshStudy() }
+        .sheet(isPresented: $creating) { NewStudySetSheet { id in path.append(.studySet(id)) } }
+        .animation(.default, value: sets.count)
     }
 
     /// A chat about the Canvas test that sets it up.
@@ -282,6 +301,7 @@ struct StudySetView: View {
     @State private var editingDate = false
     @State private var renaming = false
     @State private var newTitle = ""
+    @State private var levelError: String?
 
     private var set: StudySet? { detail?.set ?? store.studySet(setID) }
 
@@ -295,6 +315,9 @@ struct StudySetView: View {
                             if set.createdByParent {
                                 Text("Added by a parent").font(.caption).foregroundStyle(.secondary)
                             }
+                        }
+                        if let level = set.iseeLevel {
+                            IseeLevelMenu(level: level) { changeLevel(to: $0) }
                         }
                         if let when = set.whenText {
                             Label("Test \(when)\(set.daysLeft.map { $0 > 1 && $0 < 60 ? ", in \($0) days" : "" } ?? "")",
@@ -441,6 +464,11 @@ struct StudySetView: View {
                 }
             }
         }
+        .alert("Couldn't change the level", isPresented: Binding(get: { levelError != nil }, set: { if !$0 { levelError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(levelError ?? "")
+        }
         .alert("Rename", isPresented: $renaming) {
             TextField("Name", text: $newTitle)
             Button("Save") {
@@ -470,9 +498,51 @@ struct StudySetView: View {
         }
     }
 
+    /// Moves an ISEE set to another level's sections and topics; answers on shared topics stay.
+    private func changeLevel(to level: String) {
+        Task {
+            do {
+                _ = try await store.updateStudySet(setID, ["iseeLevel": level])
+            } catch {
+                levelError = error.localizedDescription
+            }
+            await load()
+        }
+    }
+
     private func removeTopic(_ topic: StudySet.Topic) async {
         try? await store.updateStudySet(setID, ["removeTopicId": topic.id])
         await load()
+    }
+}
+
+/// "ISEE · Lower Level", with the other levels a tap away. The level goes by
+/// the grade the kid is applying into, which the app can only guess.
+private struct IseeLevelMenu: View {
+    let level: String
+    let change: (String) -> Void
+
+    private static let levels = [
+        ("lower", "Lower Level", "into 5th–6th"),
+        ("middle", "Middle Level", "into 7th–8th"),
+        ("upper", "Upper Level", "into 9th+"),
+    ]
+
+    var body: some View {
+        Menu {
+            Picker("ISEE level", selection: Binding(get: { level }, set: { if $0 != level { change($0) } })) {
+                ForEach(Self.levels, id: \.0) { id, name, who in
+                    Text("\(name) (\(who))").tag(id)
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Label("ISEE · \(Self.levels.first { $0.0 == level }?.1 ?? level.capitalized)", systemImage: "graduationcap")
+                Image(systemName: "chevron.up.chevron.down").font(.caption)
+            }
+            .font(.subheadline.weight(.medium))
+        }
+        .accessibilityHint("Changes which ISEE level this set prepares for")
     }
 }
 
@@ -619,9 +689,6 @@ struct NewStudySetSheet: View {
     @State private var date = Date().addingTimeInterval(7 * 86400)
     @State private var note = ""
     @State private var photos: [ChatPhoto] = []
-    @State private var isee = false
-    /// "isee" lets the website pick the level from the kid's grade.
-    @State private var iseeLevel = "isee"
     @State private var camera = false
     @State private var saving = false
     @State private var error: String?
@@ -630,23 +697,8 @@ struct NewStudySetSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Toggle("ISEE prep", isOn: $isee)
-                    if isee {
-                        Picker("Level", selection: $iseeLevel) {
-                            Text("For their grade").tag("isee")
-                            Text("Lower (entering 5th–6th)").tag("isee-lower")
-                            Text("Middle (entering 7th–8th)").tag("isee-middle")
-                            Text("Upper (entering 9th–12th)").tag("isee-upper")
-                        }
-                    }
-                } footer: {
-                    if isee {
-                        Text("Starts from that level's sections: verbal, quantitative, reading and math. The level goes by the grade they're applying into.")
-                    }
-                }
-                Section {
-                    TextField(isee ? "ISEE" : "Science quiz: cells", text: $title)
-                    if !isee, let classes = store.classes?.classes, !classes.isEmpty {
+                    TextField("Science quiz: cells", text: $title)
+                    if let classes = store.classes?.classes, !classes.isEmpty {
                         Picker("Class", selection: $courseID) {
                             Text("None").tag(Int?.none)
                             ForEach(classes) { Text($0.shortName).tag(Optional($0.id)) }
@@ -654,6 +706,8 @@ struct NewStudySetSheet: View {
                     }
                     Toggle("Test date", isOn: $hasDate)
                     if hasDate { DatePicker("Day", selection: $date, displayedComponents: .date) }
+                } footer: {
+                    Text("For the ISEE, just call it ISEE: Tuttles brings in the real test's sections for their level.")
                 }
                 Section {
                     PhotoStrip(photos: $photos) { camera = true }
@@ -673,7 +727,7 @@ struct NewStudySetSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     if saving { ProgressView() } else {
                         Button("Make") { save() }
-                            .disabled(!isee && title.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
             }
@@ -688,8 +742,8 @@ struct NewStudySetSheet: View {
         Task {
             do {
                 let set = try await store.createStudySet(
-                    title: title.trimmingCharacters(in: .whitespaces), courseID: isee ? nil : courseID,
-                    testDate: hasDate ? date : nil, note: note, photos: photos, template: isee ? iseeLevel : nil)
+                    title: title.trimmingCharacters(in: .whitespaces), courseID: courseID,
+                    testDate: hasDate ? date : nil, note: note, photos: photos)
                 dismiss()
                 if let set { onMade(set.id) }
             } catch {

@@ -70,6 +70,8 @@ struct StudySet: Decodable, Identifiable, Hashable {
     let coverage: String
     let coverageNote: String?
     let createdByParent: Bool
+    /// "lower", "middle" or "upper" for an ISEE set.
+    var iseeLevel: String?
     let overall: Overall
     let topics: [Topic]
     let quizzes: Int
@@ -287,14 +289,15 @@ extension ChatStore {
     }
 
     /// A new set from the form (a parent's, or the kid's outside a chat).
-    func createStudySet(title: String, courseID: Int?, testDate: Date?, note: String, photos: [ChatPhoto],
-                        template: String?) async throws -> StudySet? {
+    /// A set from the form. Calling it "ISEE" is enough: the website starts it
+    /// from the outline for the kid's level (iseeFromText in src/lib/tuttles/study.ts).
+    func createStudySet(title: String, courseID: Int?, testDate: Date?, note: String,
+                        photos: [ChatPhoto]) async throws -> StudySet? {
         if isDemo { try await Task.sleep(for: .seconds(1)); return DemoChats.study.sets.first }
         let paths = try await uploadStudyPhotos(photos)
         var body: [String: Any] = ["title": title, "note": note, "images": paths]
         if let courseID { body["courseId"] = courseID }
         if let testDate { body["testDate"] = StudySet.day.string(from: testDate) }
-        if let template { body["template"] = template }
         struct Reply: Decodable { let set: StudySet? }
         let set = try Self.decoder.decode(Reply.self, from: try await post("tuttles/api/study", json: body)).set
         await refreshStudy()

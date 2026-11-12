@@ -17,6 +17,8 @@ import {
   choiceIndex,
   isBareGrade,
   iseeForGrade,
+  iseeFromText,
+  iseeLevelOf,
   namedIsee,
   TEMPLATES,
   overallFor,
@@ -215,5 +217,18 @@ for (const t of Object.values(TEMPLATES)) {
   assert.ok(t.topics.length >= 8 && t.material.includes("questions"), `${t.id} is filled in`);
 }
 assert.ok(!TEMPLATES["isee-lower"].topics.some((t) => /comparison/i.test(t.name)), "no quantitative comparisons at Lower Level");
+
+// A plain form's set is the ISEE when it says so; no switch needed.
+assert.equal(iseeFromText("Science quiz: cells", "", 5), null);
+assert.equal(iseeFromText("ISEE", "", 5), "isee-lower", "just the name: the level their grade calls for");
+assert.equal(iseeFromText("ISEE", "", 6), "isee-middle", "a 6th grader applies into 7th");
+assert.equal(iseeFromText("ISEE", "", null), "isee-middle", "no birthdate: Middle");
+assert.equal(iseeFromText("ISEE Lower Level", "", 6), "isee-lower", "a named level wins over the grade");
+assert.equal(iseeFromText("Entrance test", "The ISEE, upper level, in January", 5), "isee-upper", "said in the notes");
+assert.equal(iseeFromText("isee prep", "He's applying into 6th", 6), "isee-lower", "the grade they're applying into");
+assert.equal(iseeFromText("Diseases", "", 5), null, "the word, not the letters");
+assert.equal(iseeLevelOf("isee-middle"), "middle");
+assert.equal(iseeLevelOf("isee"), "upper", "sets from before levels were the Upper outline");
+assert.equal(iseeLevelOf(null), null);
 
 console.log("verify-tuttles-study: ok");
