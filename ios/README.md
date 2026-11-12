@@ -106,6 +106,13 @@ The kids' homework tutor (Sebastian's for now), in `Tuttles/`. Bundle id and
 URL scheme `io.mason.tuttles`. It opens on a new chat; earlier ones are a step
 back. The tutor's rules are in `src/lib/tuttles/prompt.ts`.
 
+- Sebastian is under 13, so no TestFlight. `scripts/release.sh Tuttles` also
+  publishes an ad hoc build to family.mason.io/install/tuttles (installs only
+  on iPhones registered on the developer account; plugging one into Xcode
+  registers it). Copies installed from there show a banner when a newer build
+  is published (`MasonKit/AppUpdate.swift`); tapping it updates in place.
+  `--adhoc-only` skips TestFlight.
+
 - A turn goes to the website (`/tuttles/api/chat`) with the phone's access
   token; the website holds the model key, streams the reply back as plain text,
   and saves the turn once it's finished. A failed turn saves nothing and comes
