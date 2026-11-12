@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import { FenceFilter } from "@/lib/tuttles/fences";
 import {
   choiceIndex,
+  isBareGrade,
   overallFor,
   parseGrade,
   parseQuestion,
@@ -166,5 +167,34 @@ assert.equal((await run([...other])).shown, other);
 const open = await run(['Q:\n```question\n{"prompt":"y","answer":"Z"}']);
 assert.deepEqual(open.got, ['question:{"prompt":"y","answer":"Z"}']);
 assert.ok(!open.shown.includes('"Z"'));
+
+// The tutor's call written without its fence (seen on Sebastian's phone): lifted out too.
+assert.ok(isBareGrade('{"choice":"B"}'));
+assert.ok(isBareGrade('{"result":"correct","response":"quick"}'));
+assert.ok(!isBareGrade('{"type":"math","latex":"x"}'), "other JSON isn't a grade");
+assert.ok(!isBareGrade("{a set of numbers}"));
+async function runBare(chunks: string[]): Promise<{ shown: string; got: string[] }> {
+  const got: string[] = [];
+  const f = new FenceFilter(
+    new Set(["question", "grade"]),
+    async (lang, body) => {
+      got.push(`${lang}:${body}`);
+      return "";
+    },
+    (line) => (isBareGrade(line) ? "grade" : null),
+  );
+  let shown = "";
+  for (const c of chunks) shown += await f.push(c);
+  shown += await f.end();
+  return { shown, got };
+}
+const leaked = '{"choice":"B"}\nCorrect—**rapid** means **quick**.\n';
+for (const chunks of [[leaked], [...leaked]]) {
+  const { shown, got } = await runBare(chunks);
+  assert.equal(shown, "Correct—**rapid** means **quick**.\n");
+  assert.deepEqual(got, ['grade:{"choice":"B"}']);
+}
+assert.equal((await runBare(["Sets look like {1, 2, 3} here.\n{x | x > 2}\n"])).shown, "Sets look like {1, 2, 3} here.\n{x | x > 2}\n");
+assert.deepEqual((await runBare(['{"result":"wrong"}'])).got, ['grade:{"result":"wrong"}'], "a reply that's only the call");
 
 console.log("verify-tuttles-study: ok");

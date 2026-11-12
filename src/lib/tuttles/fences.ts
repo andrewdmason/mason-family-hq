@@ -11,6 +11,10 @@
  *
  * Everything else streams straight through, except the start of a line that
  * might be a fence, which waits until the line is whole.
+ *
+ * `bare` catches what the tutor sometimes writes without its fence: a line
+ * that's only JSON (its call on an answer, `{"choice":"B"}`). It names the
+ * block such a line should have been, or null to show it as it is.
  */
 export class FenceFilter {
   private pending = "";
@@ -20,6 +24,7 @@ export class FenceFilter {
   constructor(
     private readonly langs: ReadonlySet<string>,
     private readonly handle: (lang: string, body: string) => Promise<string>,
+    private readonly bare: (line: string) => string | null = () => null,
   ) {}
 
   /** Takes the next piece of the reply; returns what can be shown now. */
@@ -47,8 +52,8 @@ export class FenceFilter {
         const nl = this.pending.indexOf("\n");
         const head = (nl < 0 ? this.pending : this.pending.slice(0, nl)).trimStart();
         if (nl < 0) {
-          // Could still turn out to be a fence: wait for the rest of the line.
-          if ("```".startsWith(head.slice(0, 3)) || head.startsWith("```")) return out;
+          // Could still turn out to be a fence, or bare JSON: wait for the rest of the line.
+          if ("```".startsWith(head.slice(0, 3)) || head.startsWith("```") || head.startsWith("{")) return out;
           out += this.pending;
           this.pending = "";
           this.atLineStart = false;
@@ -58,6 +63,12 @@ export class FenceFilter {
         if (open && this.langs.has(open[1].toLowerCase())) {
           this.fence = { lang: open[1].toLowerCase(), body: [] };
           this.pending = this.pending.slice(nl + 1);
+          continue;
+        }
+        const lang = head.startsWith("{") ? this.bare(head.trim()) : null;
+        if (lang) {
+          this.pending = this.pending.slice(nl + 1);
+          out += await this.handle(lang, head.trim());
           continue;
         }
         out += this.pending.slice(0, nl + 1);
@@ -85,7 +96,8 @@ export class FenceFilter {
       const rest = this.pending.trim().startsWith("```") ? [] : this.pending ? [this.pending] : [];
       out += await this.handle(lang, [...body, ...rest].join("\n"));
     } else {
-      out += this.pending;
+      const lang = this.atLineStart && this.pending.trim().startsWith("{") ? this.bare(this.pending.trim()) : null;
+      out += lang ? await this.handle(lang, this.pending.trim()) : this.pending;
     }
     this.pending = "";
     return out;

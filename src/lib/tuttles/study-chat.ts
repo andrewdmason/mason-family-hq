@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { memoryContext } from "@/lib/tuttles/memory";
-import { parseGrade, parseQuestion, parseSetDraft } from "@/lib/tuttles/study";
+import { isBareGrade, parseGrade, parseQuestion, parseSetDraft } from "@/lib/tuttles/study";
 import {
   addSources,
   openQuestion,
@@ -29,6 +29,8 @@ import type { TutoredStudent } from "@/lib/tuttles/tutoring-as";
 export type StudyTurn = {
   instructions: string[];
   langs: Set<string>;
+  /** Which block a bare JSON line should have been (fences.ts), if any. */
+  bare?: (line: string) => string | null;
   handle: (lang: string, body: string) => Promise<string>;
   /** A set made or changed in this turn, for the thread to point at. */
   linkedSetId: () => string | null;
@@ -152,6 +154,7 @@ async function quizTurn(
       ...(memory ? [memory] : []),
     ],
     langs: new Set(["question", "grade"]),
+    bare: (line) => (isBareGrade(line) ? "grade" : null),
     linkedSetId: () => set.id,
     async handle(lang, body) {
       try {

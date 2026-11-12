@@ -106,7 +106,11 @@ export function quizInstructions(args: {
 \`\`\`grade
 {"result":"correct"}
 \`\`\`
-  If they typed a multiple choice answer instead of tapping, write {"choice":"B"} (the letter or option they gave) and the app grades it. A tapped answer is already graded: see "How it's going".`;
+  If they typed or said a multiple choice answer instead of tapping, start with the same kind of block holding their choice, and the app grades it:
+\`\`\`grade
+{"choice":"B"}
+\`\`\`
+  A tapped answer is already graded (see "How it's going"): write no block for it, just react. Never write this JSON outside its \`\`\`grade block; it's for the app, not ${name}.`;
 
   const results = `Results: "correct" right (accept small spelling slips unless spelling is what's tested, and any equivalent form); "hinted" right only after you gave a hint on this question; "wrong"; "skipped" when they don't know or give up.`;
 

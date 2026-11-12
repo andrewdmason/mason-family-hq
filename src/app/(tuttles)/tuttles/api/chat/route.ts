@@ -178,7 +178,7 @@ export async function POST(request: Request) {
           ...(await studentSections(db, student, assignmentId)),
           ...(study?.instructions ?? []),
         ].join("\n\n");
-  const filter = study ? new FenceFilter(study.langs, study.handle) : null;
+  const filter = study ? new FenceFilter(study.langs, study.handle, study.bare) : null;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
