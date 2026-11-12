@@ -454,7 +454,7 @@ extension ChatView {
     /// A tap on a multiple choice option: graded on the website, then said in the chat.
     private func choose(_ q: QuizQuestion, _ index: Int) {
         guard !sending, quiz.pending == nil, let choices = q.choices, choices.indices.contains(index) else { return }
-        quiz.pending = q.id
+        quiz.pending = .init(id: q.id, index: index)
         Task {
             do {
                 let reply = try await store.answerQuiz(threadID: threadID, questionID: q.id, choice: index)

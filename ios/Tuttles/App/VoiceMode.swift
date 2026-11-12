@@ -348,8 +348,8 @@ final class VoiceCall {
             case "ask_question":
                 let reply = try await store.voiceQuestion(threadID: threadID, arguments: args)
                 quiz?.state = reply.state
+                // On screen, but not in the strip to tap back to: that's for pictures and photos.
                 stage = .question(reply.question)
-                shown.append(.question(reply.question))
                 addBlock(reply.block, callID: callID)
                 return "Question \(reply.question.number) is on their screen. Say it\(reply.question.isChoice ? ", and each option with its letter" : ""), then wait for their answer."
             case "record_answer":
@@ -393,7 +393,7 @@ final class VoiceCall {
     /// A tap on an option of the question on screen: graded, then the tutor's told.
     func choose(_ q: QuizQuestion, _ index: Int) {
         guard let quiz, quiz.pending == nil, let choices = q.choices, choices.indices.contains(index) else { return }
-        quiz.pending = q.id
+        quiz.pending = .init(id: q.id, index: index)
         Task {
             defer { quiz.pending = nil }
             guard let reply = try? await store.answerQuiz(threadID: threadID, questionID: q.id, choice: index) else { return }
@@ -692,7 +692,7 @@ struct VoiceView: View {
                 QuestionCard(
                     question: live,
                     testRun: call?.quiz?.state?.isTestRun == true,
-                    pending: call?.quiz?.pending == live.id,
+                    pendingIndex: call?.quiz?.pendingIndex(live),
                     onChoose: call?.quiz?.canAnswer(live) == true ? { i in call?.choose(live, i) } : nil,
                     onDark: true)
                     .environment(\.colorScheme, .light)

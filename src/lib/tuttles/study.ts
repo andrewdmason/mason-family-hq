@@ -426,6 +426,19 @@ export function parseGrade(raw: unknown): Grade | null {
   return { result, choice, response: str(o.response, 1000) || null };
 }
 
+/**
+ * A line that's only the tutor's call on an answer, written without its
+ * ```grade fence (`{"choice":"B"}`, `{"result":"correct"}`). Nothing else:
+ * other JSON a student might be shown stays.
+ */
+export function isBareGrade(line: string): boolean {
+  if (!line.startsWith("{") || !line.endsWith("}")) return false;
+  const o = safeJSON(line);
+  if (!o || typeof o !== "object" || Array.isArray(o)) return false;
+  const keys = Object.keys(o);
+  return keys.length > 0 && keys.every((k) => k === "choice" || k === "result" || k === "response") && parseGrade(o) != null;
+}
+
 /** Matches a topic the tutor named to one of the set's, forgivingly. */
 export function matchTopic<T extends { name: string }>(name: string, topics: T[]): T | null {
   const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
