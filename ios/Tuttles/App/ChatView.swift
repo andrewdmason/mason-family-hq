@@ -46,6 +46,14 @@ struct ChatView: View {
     @State private var quizAgain: StudySet?
     @State private var startError: String?
     @Environment(\.navigate) private var navigate
+    /// The chat at the bottom of the stack has the menu button where a back button would be.
+    var menuButton = false
+    @Environment(SideMenuState.self) private var menu: SideMenuState?
+
+    /// Study sets whose test hasn't happened yet and that have topics to quiz, most pressing first.
+    private var activeSets: [StudySet] {
+        Array((store.study?.sets ?? []).filter { ($0.daysLeft ?? 0) >= 0 && !$0.topics.isEmpty }.prefix(3))
+    }
 
     private var isQuiz: Bool { quizStart != nil || store.threads.first { $0.id == threadID }?.isQuiz == true }
 
@@ -111,6 +119,9 @@ struct ChatView: View {
                         .disabled(call?.state == .ending)
                 }
             } else {
+                if menuButton {
+                    ToolbarItem(placement: .topBarLeading) { MenuToolbarButton() }
+                }
                 if let state = quiz.state {
                     ToolbarItem(placement: .principal) { QuizProgress(state: state, startedAt: testStartedAt) }
                 }
@@ -133,6 +144,8 @@ struct ChatView: View {
             CameraView(onDone: { _ in }, onShot: { photo in call?.send(photo: photo) })
         }
         .preferredColorScheme(callIsDark ? .dark : nil)
+        // No sliding the menu open in the middle of a call.
+        .onChange(of: showingVoice) { if menuButton { menu?.locked = showingVoice } }
         .navigationBarTitleDisplayMode(.inline)
         .task {
             quiz.choose = { q, i in choose(q, i) }
@@ -238,22 +251,10 @@ struct ChatView: View {
                     Text("Snap your homework or ask a question.")
                         .foregroundStyle(.secondary)
                 }
-                // The most pressing study set, a tap from a quiz.
-                if isNew, let set = store.study?.sets.first(where: { $0.isSoon && !$0.topics.isEmpty }) {
-                    StudyNudge(set: set)
-                        .padding(.top, 10)
-                        .padding(.horizontal, 24)
-                }
-                if isNew, let soon = store.classes?.dueSoon.prefix(3), !soon.isEmpty {
+                // The tests coming up, each a tap from a quiz.
+                if isNew, !activeSets.isEmpty {
                     VStack(spacing: 8) {
-                        ForEach(Array(soon)) { a in
-                            Button {
-                                withAnimation(.snappy) { start = ChatStart(assignment: a) }
-                            } label: {
-                                SuggestionRow(assignment: a, info: store.classInfo(a.courseId))
-                            }
-                            .buttonStyle(.plain)
-                        }
+                        ForEach(activeSets) { StudyNudge(set: $0) }
                     }
                     .padding(.top, 10)
                     .padding(.horizontal, 24)
@@ -501,28 +502,6 @@ private struct AssignmentBanner: View {
                 .foregroundStyle(assignment.status == .missing ? .red : .secondary)
         }
         .padding(.horizontal, 24)
-    }
-}
-
-/// One of the "working on this?" suggestions on a new chat.
-private struct SuggestionRow: View {
-    let assignment: ClassAssignment
-    let info: ClassInfo?
-
-    var body: some View {
-        HStack(spacing: 10) {
-            if let info { ClassLabel(info: info) }
-            Text(assignment.name)
-                .font(.subheadline.weight(.medium))
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            Text(assignment.dueText)
-                .font(.caption)
-                .foregroundStyle(assignment.status == .missing ? .red : .secondary)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .glassEffect(.regular.interactive(), in: .capsule)
     }
 }
 

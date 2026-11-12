@@ -354,8 +354,43 @@ export function namedIsee(asked: string, level: string | null): string | null {
 /** The ISEE level for a student in `currentGrade` now: the one for the grade they go into next. */
 export function iseeForGrade(currentGrade: number | null): string {
   if (currentGrade == null) return "isee-middle";
-  const entering = currentGrade + 1;
+  return iseeForEntering(currentGrade + 1);
+}
+
+/** The ISEE level for the grade a student is applying into. */
+function iseeForEntering(entering: number): string {
   return entering <= 6 ? "isee-lower" : entering <= 8 ? "isee-middle" : "isee-upper";
+}
+
+/**
+ * A set made from a plain form is an ISEE set when its name or notes say
+ * "ISEE": no special switch. The level is the one the words name ("Lower
+ * Level", "lower"), or the grade they say the kid is applying into ("into
+ * 6th", "entering 7th"), or else the one their grade now calls for. Null when
+ * it isn't the ISEE.
+ */
+export function iseeFromText(title: string, note: string, currentGrade: number | null): string | null {
+  const text = `${title}\n${note}`;
+  if (!/\bisee\b/i.test(text)) return null;
+  const level = text.match(/\b(lower|middle|upper)\b/i)?.[1];
+  if (level) return `isee-${level.toLowerCase()}`;
+  const into = text.match(/\b(?:into|entering|for|applying to)\s+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\b/i)?.[1];
+  if (into) return iseeForEntering(Number(into));
+  return iseeForGrade(currentGrade);
+}
+
+/**
+ * A set's saved template as an outline id: sets made before there were
+ * levels saved plain "isee", which was the Upper Level's outline.
+ */
+export function templateId(saved: string | null): string | null {
+  return saved === "isee" ? "isee-upper" : saved;
+}
+
+/** "isee-lower" → "lower"; null for a set that isn't an ISEE one. */
+export function iseeLevelOf(template: string | null): "lower" | "middle" | "upper" | null {
+  const m = templateId(template)?.match(/^isee-(lower|middle|upper)$/);
+  return m ? (m[1] as "lower" | "middle" | "upper") : null;
 }
 
 // --- What the model writes ---------------------------------------------------------

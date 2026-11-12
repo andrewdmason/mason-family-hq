@@ -1,8 +1,8 @@
 import SwiftUI
 
 // The student's classes, from Canvas through the website
-// (/tuttles/api/classes, src/lib/tuttles/classes.ts): the "Due soon" strip,
-// a page per class, and the labels on chats. The website works it all out;
+// (/tuttles/api/classes, src/lib/tuttles/classes.ts): the class list in the
+// menu, a page per class, and the labels on chats. The website works it all out;
 // this draws it.
 
 struct ClassesPayload: Decodable {
@@ -134,56 +134,6 @@ struct ClassLabel: View {
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
             .background(info.tint.opacity(0.12), in: .capsule)
-    }
-}
-
-/// One assignment card in the "Due soon" strip.
-struct DueCard: View {
-    let assignment: ClassAssignment
-    let info: ClassInfo?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                if let info { ClassLabel(info: info) }
-                Spacer(minLength: 0)
-                if assignment.status == .missing {
-                    Text("Missing").font(.caption2.weight(.bold)).foregroundStyle(.red)
-                }
-            }
-            Text(assignment.name)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(2, reservesSpace: true)
-                .multilineTextAlignment(.leading)
-            Text(assignment.status == .missing ? "was due \(assignment.dueText)" : "due \(assignment.dueText)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .foregroundStyle(.primary)
-        .padding(12)
-        .frame(width: 168, alignment: .leading)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 18))
-    }
-}
-
-/// The strip across the top of the chat list.
-struct DueSoonStrip: View {
-    let items: [ClassAssignment]
-    let classes: [ClassInfo]
-    let open: (ClassAssignment) -> Void
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(items) { a in
-                    Button { open(a) } label: { DueCard(assignment: a, info: classes.first { $0.id == a.courseId }) }
-                        .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 4)
-        }
-        .scrollClipDisabled()
     }
 }
 
@@ -351,28 +301,13 @@ struct ThreadRow: View {
     }
 }
 
-/// Stand-ins for the "Due soon" strip and the classes while they load the
-/// first time, so they don't pop in out of nowhere.
+/// Stand-ins for the classes while they load the first time, so they don't
+/// pop in out of nowhere.
 struct ClassesPlaceholder: View {
     @State private var pulse = false
 
     var body: some View {
         Group {
-            Section {
-                HStack(spacing: 10) {
-                    ForEach(0..<2, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 18)
-                            .fill(.quaternary)
-                            .frame(width: 168, height: 104)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 20)
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-            } header: {
-                Text("Due soon")
-            }
             Section("Classes") {
                 ForEach(0..<4, id: \.self) { _ in
                     HStack(spacing: 12) {

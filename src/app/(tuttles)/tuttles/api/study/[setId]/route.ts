@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { tuttlesCaller } from "@/lib/tuttles/context";
-import { getSet, setSources, setSummaries } from "@/lib/tuttles/study-db";
+import { changeIseeLevel, getSet, setSources, setSummaries } from "@/lib/tuttles/study-db";
 
 export const runtime = "nodejs";
 
@@ -11,9 +11,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * it's built from, and the quizzes taken on it.
  *
  *   GET                                                 → { set, format, material, sources, quizzes }
- *   PATCH { title?, testDate?, removeTopicId?, archived? } → { set }
+ *   PATCH { title?, testDate?, removeTopicId?, archived?, iseeLevel? } → { set }
  *
- * `testDate: null` makes it open-ended.
+ * `testDate: null` makes it open-ended. `iseeLevel` ("lower", "middle",
+ * "upper") moves an ISEE set to that level's outline and topics.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ setId: string }> }) {
   const caller = await tuttlesCaller(request);
@@ -97,6 +98,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ se
   const { error } = await db.from("tutor_study_sets").update(change).eq("id", setId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  if (typeof body.iseeLevel === "string" && ["lower", "middle", "upper"].includes(body.iseeLevel)) {
+    try {
+      await changeIseeLevel(db, set, body.iseeLevel as "lower" | "middle" | "upper");
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : "Couldn't change the level." }, { status: 500 });
+    }
+  }
   if (typeof body.removeTopicId === "string" && UUID.test(body.removeTopicId)) {
     await db
       .from("tutor_study_topics")

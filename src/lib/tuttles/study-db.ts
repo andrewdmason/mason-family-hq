@@ -6,11 +6,13 @@ import {
   daysUntil,
   DEFAULT_LENGTH,
   iseeForGrade,
+  iseeLevelOf,
   matchTopic,
   overallFor,
   planQuiz,
   QUIZ_LENGTHS,
   TEMPLATES,
+  templateId,
   topicProgress,
   type Level,
   type Outcome,
@@ -128,6 +130,8 @@ export type SetSummary = {
   coverage: SetRow["coverage"];
   coverageNote: string | null;
   createdByParent: boolean;
+  /** "lower", "middle" or "upper" for an ISEE set, which the app lets you change. */
+  iseeLevel: "lower" | "middle" | "upper" | null;
   overall: Overall;
   topics: { id: string; name: string; weight: number; level: Level; asked: number; right: number; lastSeen: string | null }[];
   quizzes: number;
@@ -165,6 +169,7 @@ export async function setSummaries(
       coverage: s.coverage,
       coverageNote: s.coverage_note,
       createdByParent: s.created_by_parent,
+      iseeLevel: iseeLevelOf(s.template),
       overall: overallFor(topics, s.test_date, now),
       topics: topics.map((t) => ({
         id: t.id,
@@ -284,6 +289,33 @@ export async function saveSet(
   const topics = draft.topics ?? (template && !existing ? template.topics : null);
   if (topics) await replaceTopics(db, set.id, topics);
   return set;
+}
+
+/**
+ * Moves an ISEE set to another level: that level's outline, timing and topics.
+ * Topics the levels share (by name) keep their answers; ones the new level
+ * doesn't have are taken off. Notes added on top of the outline stay, and a
+ * title that was the old level's becomes the new one's.
+ */
+export async function changeIseeLevel(db: SupabaseClient, set: SetRow, level: "lower" | "middle" | "upper") {
+  const saved = templateId(set.template);
+  const from = saved ? TEMPLATES[saved] : null;
+  const to = TEMPLATES[`isee-${level}`];
+  if (!from || !to || from.id === to.id) return;
+  const extra = set.material.startsWith(from.material) ? set.material.slice(from.material.length).trim() : null;
+  const { error } = await db
+    .from("tutor_study_sets")
+    .update({
+      template: to.id,
+      format: to.format,
+      // Notes that didn't start from the outline are kept whole, after the new one.
+      material: extra === null ? `${to.material}\n\n${set.material}` : extra ? `${to.material}\n\n${extra}` : to.material,
+      ...(set.title === from.title ? { title: to.title } : {}),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", set.id);
+  if (error) throw new Error(error.message);
+  await replaceTopics(db, set.id, to.topics);
 }
 
 async function replaceTopics(db: SupabaseClient, setId: string, topics: { name: string; weight: number }[]) {
