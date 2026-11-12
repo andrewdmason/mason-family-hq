@@ -26,7 +26,7 @@ extension ChatStore {
 
     /// Uploads a photo into a chat's folder and returns its path.
     func upload(_ photo: ChatPhoto, threadID: UUID) async throws -> String {
-        guard let userID = Session.shared.userID else { throw SendError.notSignedIn }
+        guard let userID = ownerID else { throw SendError.notSignedIn }
         let path = "\(userID.uuidString.lowercased())/\(threadID.uuidString.lowercased())/\(photo.id.uuidString.lowercased()).jpg"
         _ = try await client.storage.from("tuttles")
             .upload(path, data: photo.jpeg, options: FileOptions(contentType: "image/jpeg", upsert: true))
@@ -64,7 +64,7 @@ extension ChatStore {
         var request = URLRequest(url: Self.websiteURL.appending(path: route))
         request.httpMethod = "POST"
         request.timeoutInterval = 60
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        authorize(&request, token: token)
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         let (data, response) = try await URLSession.shared.data(for: request)

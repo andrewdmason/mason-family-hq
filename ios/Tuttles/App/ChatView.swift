@@ -59,6 +59,7 @@ struct ChatView: View {
         .overlay { if messages.isEmpty { emptyState } }
         .safeAreaInset(edge: .bottom) { composer }
         .navigationTitle(title ?? "")
+        .kidUsing(store.actingKid)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Call Tuttles", systemImage: "phone.fill") { showingVoice = true }

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { FamilyKid } from "@/lib/tuttles/tutoring-as";
 import { currentUnit, type Assignment } from "@/lib/canvas/tutor-context";
 
 /**
@@ -45,6 +46,8 @@ export type ClassInfo = {
 export type ClassesPayload = {
   /** Whose classes these are (a parent trying the app sees a kid's). */
   student: { name: string; preview: boolean };
+  /** For a parent: the kids the app can switch to (src/lib/tuttles/tutoring-as.ts). */
+  kids?: FamilyKid[];
   /** What Tuttles has noticed (src/lib/tuttles/memory.ts), for the student to read; no evidence, no parent notes. */
   memory: {
     learning: string[];

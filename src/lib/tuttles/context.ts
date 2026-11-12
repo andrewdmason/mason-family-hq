@@ -2,12 +2,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canvasContext, focusAssignmentContext } from "@/lib/canvas/tutor-context";
 import { memoryContext } from "@/lib/tuttles/memory";
-import { tutoredStudent, type TutoredStudent } from "@/lib/tuttles/tutoring-as";
+import { requestedKid, tutoredStudent, type TutoredStudent } from "@/lib/tuttles/tutoring-as";
 
 /**
  * The phone's requests to the Tuttles routes carry its Supabase access token
  * as a bearer header (no cookies; the routes are excluded from the session
  * gate in middleware). This checks it and works out who's being tutored.
+ *
+ * `userId` is whose chats these are: the caller, or the kid a parent's phone
+ * is being used by (src/lib/tuttles/tutoring-as.ts).
  */
 export async function tuttlesCaller(
   request: Request,
@@ -19,9 +22,9 @@ export async function tuttlesCaller(
     data: { user },
   } = await db.auth.getUser(token);
   if (!user) return { error: "unauthorized", status: 401 };
-  const student = await tutoredStudent(db, user.id);
+  const student = await tutoredStudent(db, user.id, requestedKid(request));
   if (!student) return { error: "not a family member", status: 403 };
-  return { db, userId: user.id, student };
+  return { db, userId: student.ownerId, student };
 }
 
 /**
