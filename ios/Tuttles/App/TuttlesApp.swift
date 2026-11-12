@@ -46,6 +46,9 @@ struct TuttlesApp: App {
         WindowGroup {
             RootView()
                 .tint(TuttlesLook.accent)
+                // Sebastian's copy comes from family.mason.io/install/tuttles
+                // (he's under 13, so no TestFlight); this offers each new build.
+                .appUpdateBanner(slug: "tuttles", appName: "Tuttles", tint: TuttlesLook.accent)
         }
     }
 }

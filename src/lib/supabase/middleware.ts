@@ -84,6 +84,9 @@ export async function updateSession(request: NextRequest) {
     // The Clips Camera iPhone app's install page is shareable without an
     // account; the app it installs only runs on registered iPhones.
     !request.nextUrl.pathname.startsWith("/clips/install") &&
+    // Same for the other family iPhone apps' install pages — see
+    // src/app/install/[app]/page.tsx.
+    !request.nextUrl.pathname.startsWith("/install/") &&
     // Book conversion asked for by the Reader iOS app's Share extension, with
     // its access token as a bearer header (no cookies), which the route
     // validates itself — see src/lib/reading/bearer-scope.ts.
