@@ -28,7 +28,6 @@ struct ChatView: View {
     @State private var pose = Int.random(in: 1...10)
     @FocusState private var typing: Bool
     @State private var talk = TalkRecorder()
-    @State private var cancelArmed = false
     @State private var transcribing = false
     @State private var showingVoice = false
 
@@ -149,6 +148,13 @@ struct ChatView: View {
                     .foregroundStyle(.red)
                     .padding(.horizontal, 6)
             }
+            if talk.mode == .holding {
+                Text("Release to send")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .transition(.opacity)
+            }
             if !photos.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -189,8 +195,14 @@ struct ChatView: View {
                 .accessibilityLabel("Camera")
 
                 HStack(alignment: .bottom, spacing: 6) {
-                    if talk.isRecording {
-                        RecordingStrip(recorder: talk, cancelArmed: cancelArmed)
+                    if talk.isActive {
+                        RecordingStrip(recorder: talk) {
+                            Task { await talk.cancel() }
+                        } onStop: {
+                            Task {
+                                if let audio = await talk.finish() { transcribe(audio, send: false) }
+                            }
+                        }
                     } else if transcribing {
                         Label("Writing it out…", systemImage: "waveform")
                             .foregroundStyle(.secondary)
@@ -204,9 +216,9 @@ struct ChatView: View {
                             .padding(.vertical, 10)
                             .padding(.leading, 16)
                     }
-                    // Nothing typed: hold to talk instead.
+                    // Nothing typed: talk instead (tap, or hold and let go to send).
                     if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !sending, !transcribing {
-                        TalkButton(recorder: talk, cancelArmed: $cancelArmed) { audio in sendSpoken(audio) }
+                        TalkButton(recorder: talk) { audio in transcribe(audio, send: true) }
                     } else {
                         Button(action: send) {
                             Image(systemName: "arrow.up")
@@ -225,10 +237,12 @@ struct ChatView: View {
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 6)
+        .animation(.snappy, value: talk.mode)
     }
 
-    /// Push to talk: write out what was said and send it, with any photos queued.
-    private func sendSpoken(_ audio: Data) {
+    /// Write out what was said, then either send it (with any photos queued)
+    /// or leave it in the box to edit.
+    private func transcribe(_ audio: Data, send shouldSend: Bool) {
         transcribing = true
         sendError = nil
         Task {
@@ -237,7 +251,7 @@ struct ChatView: View {
                 transcribing = false
                 guard !text.isEmpty else { return }
                 draft = text
-                send()
+                if shouldSend { send() } else { typing = true }
             } catch {
                 transcribing = false
                 sendError = "Didn't catch that: \(error.localizedDescription)"

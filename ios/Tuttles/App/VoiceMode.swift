@@ -1,10 +1,13 @@
 import AVFoundation
 import SwiftUI
 
-// Voice mode: a live spoken conversation with the tutor inside a chat
-// (src/lib/tuttles/voice.ts). The website hands out a short-lived key already
-// set up with the tutor's instructions; the phone streams the microphone to
-// OpenAI's realtime model over a WebSocket and plays its voice back. The tutor
+// Voice mode: a spoken conversation with the tutor inside a chat
+// (src/lib/tuttles/voice.ts), walkie-talkie style. The website hands out a
+// short-lived key already set up with the tutor's instructions; while the big
+// button is held the phone streams the microphone to OpenAI's realtime model
+// over a WebSocket, and letting go ends the turn and asks for the reply. Only
+// what's said with the button down is heard, so a busy room doesn't count.
+// Pressing the button while the tutor talks cuts it off. The tutor
 // can put a picture on the screen (show_visual), and photos taken during the
 // call go to it as they're taken, with an exact write-up from the stronger
 // model. Hanging up saves the call into the chat.
@@ -39,12 +42,23 @@ final class VoiceCall {
     private var receivedSamples = 0
     private var playedSamples = 0
     private(set) var studentCaption = ""
-    /// The student is talking right now (from the server's voice detection).
-    private(set) var studentSpeaking = false
-    /// 0…1, for the background.
+    /// The talk button is held down.
+    private(set) var talking = false
+    /// Let go, and the tutor hasn't started answering yet.
+    private(set) var waiting = false
+    /// A nudge shown where the student's words go (e.g. after a quick tap).
+    private(set) var hint: String?
+    /// 0…1, for the background. The microphone only counts while talking.
     private(set) var inputLevel: Float = 0
     private(set) var outputLevel: Float = 0
-    var muted = false
+    /// The microphone is going to the tutor: while the button is held, and a
+    /// beat after so the last word isn't clipped.
+    private var listening = false
+    private var pressedAt = Date()
+    /// A reply is being made (between response.created and response.done).
+    private var responding = false
+    /// The assistant message whose voice is playing, to cut off.
+    private var playingItem: String?
 
     private(set) var turns: [Turn] = []
     let threadID: UUID
@@ -54,6 +68,8 @@ final class VoiceCall {
     private var socket: URLSessionWebSocketTask?
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
+    /// The walkie-talkie chirps.
+    private let beeper = AVAudioPlayerNode()
     private let playFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false)!
     private let sendFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 24000, channels: 1, interleaved: true)!
 
@@ -69,19 +85,25 @@ final class VoiceCall {
                 state = .failed("Tuttles needs the microphone. Turn it on in Settings.")
                 return
             }
-            let key = try await store.voiceKey(threadID: threadID, assignmentID: assignmentID)
+            // Audio first, so the talk button works (and chirps) the moment the
+            // screen opens. Anything said before the line is open waits in the
+            // outbox.
             try startAudio()
+            let key = try await store.voiceKey(threadID: threadID, assignmentID: assignmentID)
             var request = URLRequest(url: URL(string: "wss://api.openai.com/v1/realtime?model=\(key.model)")!)
             request.setValue("Bearer \(key.key)", forHTTPHeaderField: "Authorization")
             let socket = URLSession.shared.webSocketTask(with: request)
             self.socket = socket
             socket.resume()
             Task { await receive() }
-            // The tutor picks up like a friend answering the phone: a word or
-            // two, then it waits.
-            send(["type": "response.create", "response": [
-                "instructions": "Say exactly \"\(Self.greeting(name: store.classes?.student.name))\" and nothing else.",
+            // Push to talk: no voice detection; each turn is committed by hand.
+            send(["type": "session.update", "session": [
+                "type": "realtime",
+                "audio": ["input": ["turn_detection": NSNull()]],
             ]])
+            let queued = outbox
+            outbox = []
+            queued.forEach { socket.send(.string($0)) { _ in } }
             state = .live
         } catch {
             state = .failed(error.localizedDescription)
@@ -105,6 +127,66 @@ final class VoiceCall {
     }
 
     func show(_ item: Stage) { stage = item }
+
+    // MARK: Push to talk
+
+    /// The talk button went down: cut the tutor off and start listening.
+    func press() {
+        guard state == .live || state == .connecting, !talking else { return }
+        talking = true
+        // What they said last time goes; the new words show once written out.
+        studentCaption = ""
+        hint = nil
+        waiting = false
+        pressedAt = .now
+        beep(pressChirp)
+        pressHaptic.impactOccurred()
+        pressHaptic.prepare()
+        interruptTutor()
+        send(["type": "input_audio_buffer.clear"])
+        listening = true
+    }
+
+    /// The talk button came up: end the turn and ask for the reply.
+    func release() {
+        guard talking else { return }
+        talking = false
+        releaseHaptic.impactOccurred()
+        releaseHaptic.prepare()
+        let held = Date().timeIntervalSince(pressedAt)
+        Task {
+            // The microphone's last chunk is still on its way in.
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !talking else { return }
+            listening = false
+            inputLevel = 0
+            if held < 0.35 {
+                send(["type": "input_audio_buffer.clear"])
+                hint = "Hold the button down while you talk"
+                return
+            }
+            beep(releaseChirp)
+            send(["type": "input_audio_buffer.commit"])
+            send(["type": "response.create"])
+            waiting = true
+        }
+    }
+
+    /// Stop the tutor mid-sentence, and tell the model where it was cut off.
+    private func interruptTutor() {
+        // Marked quiet: if they arrive too late to matter, the error isn't shown.
+        if responding { send(["type": "response.cancel", "event_id": "quiet-cancel-\(UUID().uuidString)"]) }
+        if pendingPlayback > 0, let item = playingItem {
+            send(["type": "conversation.item.truncate", "event_id": "quiet-truncate-\(UUID().uuidString)",
+                  "item_id": item, "content_index": 0,
+                  "audio_end_ms": playedSamples * 1000 / 24000])
+        }
+        player.stop()
+        player.play()
+        // Cut off: the caption stops where the voice did.
+        receivedSamples = playedSamples
+        captionID += 1
+    }
 
     /// A photo taken during the call: shown, uploaded, read, then given to the tutor.
     func send(photo: ChatPhoto) {
@@ -153,8 +235,17 @@ final class VoiceCall {
     private func handle(_ e: [String: Any]) {
         if let type = e["type"] as? String, !type.hasSuffix(".delta") { VoiceLog.say("event \(type)") }
         switch e["type"] as? String {
+        case "response.created":
+            responding = true
+        case "response.done":
+            responding = false
+            waiting = false
         case "response.output_audio.delta":
-            if let b64 = e["delta"] as? String, let pcm = Data(base64Encoded: b64) { play(pcm) }
+            // A reply cancelled by pressing the button can still trickle in.
+            guard !talking, let b64 = e["delta"] as? String, let pcm = Data(base64Encoded: b64) else { return }
+            if let id = e["item_id"] as? String { playingItem = id }
+            waiting = false
+            play(pcm)
         case "response.output_item.added":
             if let item = e["item"] as? [String: Any], item["type"] as? String == "message", let id = item["id"] as? String {
                 turns.append(Turn(id: id, role: "assistant"))
@@ -170,16 +261,6 @@ final class VoiceCall {
                 turns[at].text += delta
                 tutorCaption = turns[at].text
             }
-        case "input_audio_buffer.speech_started":
-            // They started talking: stop the tutor mid-sentence (the server
-            // cancels the rest of its reply).
-            player.stop()
-            player.play()
-            studentSpeaking = true
-            // Cut off: the caption stops where the voice did.
-            receivedSamples = playedSamples
-        case "input_audio_buffer.speech_stopped":
-            studentSpeaking = false
         case "input_audio_buffer.committed":
             if let id = e["item_id"] as? String {
                 let after = (e["previous_item_id"] as? String).flatMap { p in turns.firstIndex { $0.id == p } }
@@ -206,17 +287,19 @@ final class VoiceCall {
                   "item": ["type": "function_call_output", "call_id": callID, "output": "Shown on their screen."]])
             send(["type": "response.create"])
         case "error":
-            let message = (e["error"] as? [String: Any])?["message"] as? String ?? "Something went wrong."
+            let error = e["error"] as? [String: Any]
+            let message = error?["message"] as? String ?? "Something went wrong."
+            VoiceLog.say("error: \(message)")
+            // Cancelling a reply that just finished, or a turn with no audio,
+            // isn't worth showing.
+            let code = error?["code"] as? String ?? ""
+            let quiet = (error?["event_id"] as? String)?.hasPrefix("quiet-") == true
+            guard !quiet, !["response_cancel_not_active", "input_audio_buffer_commit_empty"].contains(code) else { return }
+            waiting = false
             tutorCaption = message
         default:
             break
         }
-    }
-
-    static func greeting(name: String?) -> String {
-        var options = ["Hey!", "Hey, what's up?", "Hi!", "What's up?", "Hey there!"]
-        if let name, !name.isEmpty { options += ["Hey \(name)!", "Hi \(name)!"] }
-        return options.randomElement()!
     }
 
     /// show_visual's argument: the visual's JSON, as a string or an object.
@@ -229,23 +312,38 @@ final class VoiceCall {
     }
 
     private func send(_ event: [String: Any]) {
-        guard let socket, let data = try? JSONSerialization.data(withJSONObject: event),
+        guard let data = try? JSONSerialization.data(withJSONObject: event),
               let text = String(data: data, encoding: .utf8) else { return }
-        socket.send(.string(text)) { _ in }
+        if let socket {
+            socket.send(.string(text)) { _ in }
+        } else if state == .connecting {
+            outbox.append(text)
+        }
     }
+
+    /// Events from before the line opened (talking while it connects).
+    private var outbox: [String] = []
 
     // MARK: Audio
 
     private func startAudio() throws {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+        // Short audio buffers: the chirp and the level meter respond at once.
+        try? session.setPreferredIOBufferDuration(0.005)
         try session.setActive(true)
+        pressHaptic.prepare()
+        releaseHaptic.prepare()
+        pressChirp = Self.render(Self.pressSound, format: playFormat)
+        releaseChirp = Self.render(Self.releaseSound, format: playFormat)
         // Echo cancellation, so the tutor doesn't hear itself. Must come before
         // anything else touches the engine's nodes.
         try engine.inputNode.setVoiceProcessingEnabled(true)
 
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: playFormat)
+        engine.attach(beeper)
+        engine.connect(beeper, to: engine.mainMixerNode, format: playFormat)
 
         // With echo cancellation on, the microphone can arrive as several
         // channels; the first one is the voice. It's taken alone and then
@@ -255,7 +353,7 @@ final class VoiceCall {
               let converter = AVAudioConverter(from: mono, to: sendFormat) else { throw VoiceError.audio }
         VoiceLog.say("mic format \(inFormat)")
         let sendFormat = self.sendFormat
-        engine.inputNode.installTap(onBus: 0, bufferSize: 4800, format: inFormat) { [weak self] buffer, _ in
+        engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inFormat) { [weak self] buffer, _ in
             guard let channel = buffer.floatChannelData?[0], buffer.frameLength > 0,
                   let single = AVAudioPCMBuffer(pcmFormat: mono, frameCapacity: buffer.frameLength) else { return }
             single.frameLength = buffer.frameLength
@@ -278,15 +376,13 @@ final class VoiceCall {
             }
             let bytes = Data(bytes: out.int16ChannelData![0], count: Int(out.frameLength) * 2)
             Task { @MainActor in
-                guard let self else { return }
-                self.inputLevel = self.inputLevel * 0.6 + level * 0.4
-                guard !self.muted, self.state == .live else { return }
+                guard let self, self.listening, self.state == .live || self.state == .connecting else { return }
+                // Rises fairly quickly with a voice, settles slowly after it.
+                let rate: Float = level > self.inputLevel ? 0.25 : 0.06
+                self.inputLevel += (level - self.inputLevel) * rate
                 self.sentChunks += 1
                 if self.sentChunks == 1 || self.sentChunks % 50 == 0 { VoiceLog.say("mic chunks sent: \(self.sentChunks)") }
-                let heard = self.passesEchoGate(level)
-                // Silence in place of the echo, so the server's sense of time holds.
-                let audio = heard ? bytes : Data(count: bytes.count)
-                self.send(["type": "input_audio_buffer.append", "audio": audio.base64EncodedString()])
+                self.send(["type": "input_audio_buffer.append", "audio": bytes.base64EncodedString()])
             }
         }
         // What's actually coming out of the speaker, for the background.
@@ -307,35 +403,12 @@ final class VoiceCall {
         engine.prepare()
         try engine.start()
         player.play()
+        beeper.play()
         VoiceLog.say("audio started; route \(session.currentRoute.outputs.map(\.portType.rawValue)); echo cancelling: \(engine.inputNode.isVoiceProcessingEnabled)")
     }
 
     /// The tutor's voice still queued to play, in buffers.
     private var pendingPlayback = 0
-    private var lastPlayback = Date.distantPast
-    private var loudRun = 0
-    private var echoPeak: Float = 0
-
-    /// Echo guard. The phone's echo cancelling lets some of the tutor's own
-    /// voice back into the microphone, which the server then takes for the
-    /// student and interrupts itself. While the tutor is talking (and a beat
-    /// after), the microphone only counts when it's clearly louder than that
-    /// echo for a few chunks running: the student talking over it.
-    private func passesEchoGate(_ level: Float) -> Bool {
-        let tutorTalking = pendingPlayback > 0 || Date().timeIntervalSince(lastPlayback) < 0.4
-        guard tutorTalking else {
-            loudRun = 0
-            if echoPeak > 0 { VoiceLog.say("echo peak while tutor talked: \(echoPeak)"); echoPeak = 0 }
-            return true
-        }
-        echoPeak = max(echoPeak, level)
-        loudRun = level > Self.bargeIn ? loudRun + 1 : 0
-        if loudRun >= 3 { VoiceLog.say("barge-in at level \(level)") }
-        return loudRun >= 3
-    }
-
-    /// Microphone level (0…1, as `rms` scales it) that counts as talking over the tutor.
-    static let bargeIn: Float = 0.45
 
     private var sentChunks = 0
     private var playedChunks = 0
@@ -346,9 +419,11 @@ final class VoiceCall {
         VoiceLog.say("audio configuration changed; running: \(engine.isRunning); echo cancelling: \(engine.inputNode.isVoiceProcessingEnabled)")
         if !engine.isRunning {
             engine.connect(player, to: engine.mainMixerNode, format: playFormat)
+            engine.connect(beeper, to: engine.mainMixerNode, format: playFormat)
             try? engine.start()
         }
         player.play()
+        beeper.play()
     }
 
     private func stopAudio() {
@@ -357,6 +432,7 @@ final class VoiceCall {
         engine.inputNode.removeTap(onBus: 0)
         engine.mainMixerNode.removeTap(onBus: 0)
         player.stop()
+        beeper.stop()
         engine.stop()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
@@ -377,7 +453,6 @@ final class VoiceCall {
             Task { @MainActor in
                 guard let self else { return }
                 self.pendingPlayback = max(0, self.pendingPlayback - 1)
-                self.lastPlayback = Date()
                 guard reply == self.captionID else { return }
                 self.playedSamples = min(self.receivedSamples, self.playedSamples + count)
                 self.spokenShare = self.receivedSamples > 0 ? Double(self.playedSamples) / Double(self.receivedSamples) : 0
@@ -394,6 +469,57 @@ final class VoiceCall {
         var sum: Float = 0
         for i in 0..<Int(buffer.frameLength) { sum += data[i] * data[i] }
         return min(1, sqrt(sum / Float(buffer.frameLength)) * 6)
+    }
+
+    // MARK: Beeps
+
+    /// Rendered once, when the call's audio starts.
+    @ObservationIgnored private var pressChirp: AVAudioPCMBuffer?
+    @ObservationIgnored private var releaseChirp: AVAudioPCMBuffer?
+    private let pressHaptic = UIImpactFeedbackGenerator(style: .heavy)
+    private let releaseHaptic = UIImpactFeedbackGenerator(style: .light)
+
+    private func beep(_ buffer: AVAudioPCMBuffer?) {
+        guard let buffer else { return }
+        beeper.scheduleBuffer(buffer, at: nil, options: .interrupts)
+        if !beeper.isPlaying { beeper.play() }
+    }
+
+    enum Chirp { case tone(hz: Double, seconds: Double), hiss(seconds: Double) }
+
+    /// Up, like keying a walkie-talkie.
+    static let pressSound: [Chirp] = [.tone(hz: 1250, seconds: 0.045), .tone(hz: 1870, seconds: 0.065)]
+    /// Down, then a little burst of static: "over."
+    static let releaseSound: [Chirp] = [.tone(hz: 1870, seconds: 0.045), .tone(hz: 1250, seconds: 0.06), .hiss(seconds: 0.09)]
+
+    nonisolated static func render(_ chirp: [Chirp], format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        let rate = format.sampleRate
+        let counts = chirp.map { part -> Int in
+            switch part {
+            case .tone(_, let seconds), .hiss(let seconds): Int(seconds * rate)
+            }
+        }
+        let total = counts.reduce(0, +)
+        guard total > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(total)) else { return nil }
+        buffer.frameLength = AVAudioFrameCount(total)
+        let out = buffer.floatChannelData![0]
+        let ramp = 0.004 * rate
+        var at = 0
+        var phase = 0.0
+        for (part, count) in zip(chirp, counts) {
+            for k in 0..<count {
+                let fade = min(1, Double(k) / ramp, Double(count - k) / ramp)
+                switch part {
+                case .tone(let hz, _):
+                    phase += 2 * .pi * hz / rate
+                    out[at] = Float(sin(phase) * fade * 0.1)
+                case .hiss:
+                    out[at] = Float(Double.random(in: -1...1) * 0.03 * (1 - Double(k) / Double(count)))
+                }
+                at += 1
+            }
+        }
+        return buffer
     }
 
     enum VoiceError: LocalizedError {
@@ -417,10 +543,16 @@ struct VoiceView: View {
 
     var body: some View {
         ZStack {
-            VoiceBackground(input: call?.inputLevel ?? 0, output: call?.outputLevel ?? 0)
+            VoiceBackground(input: call?.inputLevel ?? 0, output: call?.outputLevel ?? 0, listening: call?.talking == true)
                 .ignoresSafeArea()
 
             VStack(spacing: 16) {
+                HStack {
+                    cameraButton
+                    Spacer()
+                    hangUpButton
+                }
+                .padding(.horizontal, 16)
                 studentArea
                 stage
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -433,6 +565,9 @@ struct VoiceView: View {
             .padding(.bottom, 12)
         }
         .preferredColorScheme(.dark)
+        // The talk button sits near the bottom edge, where iOS otherwise holds
+        // touches back while it checks for the home swipe.
+        .defersSystemGestures(on: .bottom)
         .task {
             let c = VoiceCall(store: store, threadID: threadID, assignmentID: assignmentID)
             call = c
@@ -485,12 +620,16 @@ struct VoiceView: View {
         .frame(height: 50)
     }
 
-    /// The top of the screen is the student's: a live waveform while they talk,
-    /// then what they said, written out.
+    /// The top of the screen is the student's: what they last said, written
+    /// out (the button itself shows them being heard).
     private var studentArea: some View {
         ZStack {
-            if call?.studentSpeaking == true {
-                ListeningWave(level: call?.inputLevel ?? 0)
+            if call?.talking == true {
+                EmptyView()
+            } else if let hint = call?.hint {
+                Label(hint, systemImage: "hand.point.down.fill")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.85))
                     .transition(.opacity)
             } else if let said = call?.studentCaption, !said.isEmpty {
                 Text(said)
@@ -505,102 +644,284 @@ struct VoiceView: View {
         .frame(height: 76)
         .padding(.horizontal, 28)
         .padding(.top, 8)
-        .animation(.easeOut(duration: 0.2), value: call?.studentSpeaking)
+        .animation(.easeOut(duration: 0.2), value: call?.talking)
+        .animation(.easeOut(duration: 0.2), value: call?.hint)
         .animation(.easeOut(duration: 0.2), value: call?.studentCaption)
     }
 
     private var captions: some View {
         VStack(spacing: 8) {
             switch call?.state ?? .connecting {
-            case .connecting:
-                Text("Connecting…").foregroundStyle(.white.opacity(0.7))
             case .failed(let message):
                 Text(message).foregroundStyle(.white).multilineTextAlignment(.center)
             case .ending:
                 Text("Saving…").foregroundStyle(.white.opacity(0.7))
-            case .live:
-                SpokenCaption(text: call?.tutorCaption ?? "", spokenShare: call?.spokenShare ?? 0, replyID: call?.captionID ?? 0)
+            case .live, .connecting:
+                // Connecting needs no caption: anything said while it connects
+                // is held and sent when the line opens.
+                if call?.waiting == true {
+                    CallThinkingDots().transition(.opacity)
+                } else if call?.tutorCaption.isEmpty == true, call?.talking == false {
+                    Text("Ready when you are! Hold the button and talk.")
+                        .font(.title3.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .transition(.opacity)
+                } else {
+                    SpokenCaption(text: call?.tutorCaption ?? "", spokenShare: call?.spokenShare ?? 0, replyID: call?.captionID ?? 0)
+                }
             }
         }
         .multilineTextAlignment(.center)
         .padding(.horizontal, 28)
         .frame(minHeight: 110, alignment: .bottom)
+        .animation(.easeOut(duration: 0.2), value: call?.waiting)
     }
 
+    private var hangUpButton: some View {
+        Button {
+            Task {
+                await call?.hangUp()
+                onEnd()
+                dismiss()
+            }
+        } label: {
+            Image(systemName: "phone.down.fill").font(.title3).frame(width: 44, height: 44)
+        }
+        .buttonStyle(.glassProminent)
+        .buttonBorderShape(.circle)
+        .tint(.red)
+        .foregroundStyle(.white)
+        .accessibilityLabel("Hang up")
+    }
+
+    private var cameraButton: some View {
+        Button { showingCamera = true } label: {
+            Image(systemName: "camera.fill").font(.title3).frame(width: 44, height: 44)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .foregroundStyle(.white)
+        .disabled(call?.state != .live)
+        .accessibilityLabel("Camera")
+    }
+
+    /// The big talk button, the whole width.
     private var controls: some View {
-        HStack(spacing: 28) {
-            Button {
-                call?.muted.toggle()
-            } label: {
-                Image(systemName: call?.muted == true ? "mic.slash.fill" : "mic.fill")
-                    .font(.title2)
-                    .frame(width: 64, height: 64)
-            }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-            .accessibilityLabel(call?.muted == true ? "Unmute" : "Mute")
-
-            Button { showingCamera = true } label: {
-                Image(systemName: "camera.fill").font(.title2).frame(width: 64, height: 64)
-            }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-            .disabled(call?.state != .live)
-            .accessibilityLabel("Camera")
-
-            Button {
-                Task {
-                    await call?.hangUp()
-                    onEnd()
-                    dismiss()
-                }
-            } label: {
-                Image(systemName: "phone.down.fill").font(.title2).frame(width: 64, height: 64)
-            }
-            .buttonStyle(.glassProminent)
-            .buttonBorderShape(.circle)
-            .tint(.red)
-            .accessibilityLabel("Hang up")
+        HStack {
+            TalkBarButton(
+                enabled: call?.state == .live || call?.state == .connecting,
+                talking: call?.talking == true,
+                level: call?.inputLevel ?? 0,
+                onPress: { call?.press() },
+                onRelease: { call?.release() }
+            )
         }
         .foregroundStyle(.white)
+        .padding(.horizontal, 16)
     }
 }
 
-/// Slow, drifting color that swells with the voices: the student's in cool
-/// tones, the tutor's in the warm hydrant reds.
-struct VoiceBackground: View {
-    let input: Float
-    let output: Float
+/// The walkie-talkie button: hold it down and talk, let go when done.
+struct TalkBarButton: View {
+    let enabled: Bool
+    let talking: Bool
+    let level: Float
+    let onPress: () -> Void
+    let onRelease: () -> Void
 
+    @State private var down = false
+
+    var body: some View {
+        ZStack {
+            if talking {
+                ListeningWave(level: level)
+                    .scaleEffect(0.8)
+                    .transition(.opacity)
+            } else {
+                Label("Hold to talk", systemImage: "mic.fill")
+                    .font(.title3.weight(.bold))
+                    .transition(.opacity)
+            }
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .frame(height: 84)
+        .glassEffect(.regular.tint(talking ? TuttlesLook.accent : TuttlesLook.accent.opacity(0.35)), in: .capsule)
+        .shadow(color: TuttlesLook.accent.opacity(talking ? 0.7 : 0), radius: 22)
+        .scaleEffect(down ? 0.95 : 1)
+        .opacity(enabled ? 1 : 0.45)
+        .animation(.snappy(duration: 0.18), value: down)
+        .animation(.easeOut(duration: 0.15), value: talking)
+        .overlay {
+            // UIKit touches, not a SwiftUI gesture: it fires on touch-down
+            // with nothing in between.
+            TouchDownArea(
+                onDown: {
+                    guard enabled, !down else { return }
+                    down = true
+                    onPress()
+                },
+                onUp: {
+                    guard down else { return }
+                    down = false
+                    onRelease()
+                }
+            )
+            .clipShape(.capsule)
+        }
+        .accessibilityElement()
+        .accessibilityLabel(talking ? "Listening" : "Hold to talk")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// A plain view that reports a finger landing and lifting, straight from
+/// UIKit's touch callbacks.
+private struct TouchDownArea: UIViewRepresentable {
+    let onDown: () -> Void
+    let onUp: () -> Void
+
+    func makeUIView(context: Context) -> TouchView { TouchView() }
+
+    func updateUIView(_ view: TouchView, context: Context) {
+        view.onDown = onDown
+        view.onUp = onUp
+    }
+
+    final class TouchView: UIView {
+        var onDown: () -> Void = {}
+        var onUp: () -> Void = {}
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            backgroundColor = .clear
+            isMultipleTouchEnabled = false
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { onDown() }
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { onUp() }
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { onUp() }
+    }
+}
+
+/// Three dots that pulse while the tutor works out what to say.
+struct CallThinkingDots: View {
     var body: some View {
         TimelineView(.animation) { context in
             let t = context.date.timeIntervalSinceReferenceDate
-            let you = Double(min(1, input * 1.6))
+            HStack(spacing: 8) {
+                ForEach(0..<3, id: \.self) { i in
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 10, height: 10)
+                        .opacity(0.35 + 0.65 * (sin(t * 5 - Double(i) * 0.8) + 1) / 2)
+                }
+            }
+        }
+        .accessibilityLabel("Thinking")
+    }
+}
+
+/// Slow, drifting color that swells with the voices. The tutor talking is
+/// the warm hydrant reds. Holding the talk button turns it to cool, lit-up
+/// aqua and violet — the room going quiet to listen — which breathes gently
+/// while waiting and blooms brighter and wider with the student's voice.
+struct VoiceBackground: View {
+    let input: Float
+    let output: Float
+    let listening: Bool
+
+    /// The blend toward the listening colors, 0…1, eased over `fade`.
+    @State private var from: Double = 0
+    @State private var to: Double = 0
+    @State private var changedAt = Date.distantPast
+    private static let fade: TimeInterval = 0.35
+
+    var body: some View {
+        TimelineView(.animation) { context in
+            let now = context.date
+            let t = now.timeIntervalSinceReferenceDate
+            let l = blend(at: now)
             let tutor = Double(min(1, output * 1.6))
+            // Below the floor is the room, not the student: it doesn't count.
+            let floor = 0.18
+            let you = min(1, max(0, Double(input) - floor) / (1 - floor) * 1.4) * l
+            // A slow in-and-out breath while it waits for words.
+            let breath = (sin(t * 1.6) + 1) / 2 * l * (1 - you)
             let drift = { (speed: Double, phase: Double, amount: Double) -> Float in Float(sin(t * speed + phase) * amount) }
+            // The middle reaches out toward the edges as they talk.
+            let reach = Float(you * 0.08)
             MeshGradient(
                 width: 3, height: 3,
                 points: [
                     [0, 0], [0.5 + drift(0.3, 0, 0.1), 0], [1, 0],
-                    [0, 0.5 + drift(0.25, 1, 0.1)],
-                    [0.5 + drift(0.4, 2, 0.12 + tutor * 0.1), 0.5 + drift(0.35, 3, 0.12 + you * 0.1)],
-                    [1, 0.5 + drift(0.2, 4, 0.1)],
+                    [0, 0.5 + drift(0.25, 1, 0.1 + Double(reach))],
+                    // The voice changes how far it drifts, never how fast:
+                    // changing the speed jumps the phase.
+                    [0.5 + drift(0.4, 2, 0.12 + tutor * 0.1 + you * 0.06),
+                     0.5 + drift(0.35, 3, 0.12 + you * 0.06)],
+                    [1, 0.5 + drift(0.2, 4, 0.1 + Double(reach))],
                     [0, 1], [0.5 + drift(0.33, 5, 0.1), 1], [1, 1],
                 ],
-                colors: [
-                    Color(red: 0.05, green: 0.05, blue: 0.10),
-                    Color(red: 0.10 + 0.25 * tutor, green: 0.05, blue: 0.12),
-                    Color(red: 0.05, green: 0.07, blue: 0.16 + 0.2 * you),
-                    Color(red: 0.08, green: 0.10, blue: 0.22 + 0.35 * you),
-                    Color(red: 0.45 + 0.4 * tutor, green: 0.10 + 0.1 * tutor, blue: 0.12),
-                    Color(red: 0.30 + 0.3 * tutor, green: 0.08, blue: 0.20),
-                    Color(red: 0.04, green: 0.05, blue: 0.10),
-                    Color(red: 0.12, green: 0.08, blue: 0.18 + 0.25 * you),
-                    Color(red: 0.06, green: 0.05, blue: 0.12),
-                ]
+                colors: zip(Self.speaking(tutor: tutor), Self.listening(you: you, breath: breath))
+                    .map { Self.mix($0, $1, l) }
             )
-            .animation(.easeOut(duration: 0.25), value: tutor)
         }
+        .onChange(of: listening) { _, isListening in
+            // Start from wherever the fade is now (it may be mid-way), headed
+            // the new way.
+            let now = Date()
+            from = blend(at: now)
+            to = isListening ? 1 : 0
+            changedAt = now
+        }
+    }
+
+    private func blend(at now: Date) -> Double {
+        let p = min(1, now.timeIntervalSince(changedAt) / Self.fade)
+        let eased = p * p * (3 - 2 * p)
+        return from + (to - from) * eased
+    }
+
+    typealias RGB = SIMD3<Double>
+
+    /// The resting and tutor-talking colors, top-left to bottom-right.
+    static func speaking(tutor: Double) -> [RGB] {
+        [
+            [0.05, 0.05, 0.10],
+            [0.10 + 0.25 * tutor, 0.05, 0.12],
+            [0.05, 0.07, 0.16],
+            [0.08, 0.10, 0.22],
+            [0.45 + 0.4 * tutor, 0.10 + 0.1 * tutor, 0.12],
+            [0.30 + 0.3 * tutor, 0.08, 0.20],
+            [0.04, 0.05, 0.10],
+            [0.12, 0.08, 0.18],
+            [0.06, 0.05, 0.12],
+        ]
+    }
+
+    /// Listening: deep blue at the edges, violet at the sides, an aqua glow in
+    /// the middle that brightens with the voice.
+    static func listening(you: Double, breath: Double) -> [RGB] {
+        let glow = 0.25 * breath + you
+        return [
+            [0.03, 0.04, 0.12],
+            [0.06, 0.16 + 0.18 * glow, 0.30 + 0.15 * glow],
+            [0.08, 0.05, 0.20 + 0.1 * glow],
+            [0.20 + 0.15 * glow, 0.10, 0.42 + 0.2 * glow],
+            [0.10 + 0.25 * glow, 0.50 + 0.38 * glow, 0.62 + 0.3 * glow],
+            [0.32 + 0.2 * glow, 0.14 + 0.1 * glow, 0.55 + 0.2 * glow],
+            [0.03, 0.05, 0.14],
+            [0.05, 0.28 + 0.3 * glow, 0.42 + 0.25 * glow],
+            [0.06, 0.04, 0.16],
+        ]
+    }
+
+    static func mix(_ a: RGB, _ b: RGB, _ t: Double) -> Color {
+        let c = a + (b - a) * t
+        return Color(red: min(1, c.x), green: min(1, c.y), blue: min(1, c.z))
     }
 }
 
