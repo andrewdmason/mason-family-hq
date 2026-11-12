@@ -1,4 +1,5 @@
 import AVFoundation
+import Network
 import SwiftUI
 
 // Voice mode: a spoken conversation with the tutor inside a chat
@@ -17,13 +18,20 @@ import SwiftUI
 // website, which keeps the answers and grades multiple choice. A tap on an
 // option goes the same way and the tutor is told how it went. Elsewhere it can
 // save a study set (save_study_set).
+//
+// A dropped line (the phone moving from Wi-Fi to cell, say) doesn't end the
+// call. A heartbeat and a watch on the network notice it within seconds; the
+// phone gets a fresh key, opens a new line, and tells the tutor what's been
+// said so far, so it picks up where it left off. Anything said meanwhile waits
+// in the outbox. If the line can't come back within a minute, a button tries
+// again.
 
 // MARK: - The call
 
 @MainActor
 @Observable
 final class VoiceCall {
-    enum State: Equatable { case connecting, live, ending, failed(String) }
+    enum State: Equatable { case connecting, live, reconnecting, ending, failed(String) }
     enum Stage: Equatable { case none, visual(String), photo(UIImage), reading, question(QuizQuestion), studySet(String) }
 
     struct Turn {
@@ -36,6 +44,10 @@ final class VoiceCall {
     }
 
     private(set) var state: State = .connecting
+    /// The call dropped and couldn't come back on its own: offer to try again.
+    private(set) var canRetry = false
+    /// The talk button and microphone work: live, or on the way there.
+    var isOpen: Bool { state == .live || state == .connecting || state == .reconnecting }
     private(set) var stage: Stage = .none
     /// Pictures and photos from this call, newest last, to tap back to.
     private(set) var shown: [Stage] = []
@@ -109,24 +121,185 @@ final class VoiceCall {
             try? await Task.sleep(for: .milliseconds(520))
             try startAudio()
             let key = try await keyRequest.value
-            var request = URLRequest(url: URL(string: "wss://api.openai.com/v1/realtime?model=\(key.model)")!)
-            request.setValue("Bearer \(key.key)", forHTTPHeaderField: "Authorization")
-            let socket = URLSession.shared.webSocketTask(with: request)
-            self.socket = socket
-            socket.resume()
-            Task { await receive() }
-            // Push to talk: no voice detection; each turn is committed by hand.
-            send(["type": "session.update", "session": [
-                "type": "realtime",
-                "audio": ["input": ["turn_detection": NSNull()]],
-            ]])
-            let queued = outbox
-            outbox = []
-            queued.forEach { socket.send(.string($0)) { _ in } }
-            state = .live
+            guard state == .connecting else { return }
+            open(key, recap: nil)
+            watchNetwork()
         } catch {
             state = .failed(error.localizedDescription)
             stopAudio()
+        }
+    }
+
+    /// Opens the line with a key, then sends what was waiting: first, after a
+    /// drop, what's been said so far, then anything said while it was down.
+    private func open(_ key: ChatStore.VoiceKey, recap: String?) {
+        var request = URLRequest(url: URL(string: "wss://api.openai.com/v1/realtime?model=\(key.model)")!)
+        request.setValue("Bearer \(key.key)", forHTTPHeaderField: "Authorization")
+        let socket = URLSession.shared.webSocketTask(with: request)
+        self.socket = socket
+        socket.resume()
+        Task { await receive(socket) }
+        // Push to talk: no voice detection; each turn is committed by hand.
+        send(["type": "session.update", "session": [
+            "type": "realtime",
+            "audio": ["input": ["turn_detection": NSNull()]],
+        ]])
+        if let recap {
+            send(["type": "conversation.item.create", "item": ["type": "message", "role": "system", "content": [
+                ["type": "input_text", "text": recap],
+            ]]])
+        }
+        let queued = outbox
+        outbox = []
+        queued.forEach { socket.send(.string($0)) { _ in } }
+        state = .live
+        heartbeat?.cancel()
+        heartbeat = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(8))
+                guard let self, !Task.isCancelled, self.socket === socket, self.state == .live else { return }
+                if await !Self.ping(socket, within: 6) { self.dropped(socket) }
+            }
+        }
+    }
+
+    // MARK: Dropped lines
+
+    private var heartbeat: Task<Void, Never>?
+    private var reconnecting: Task<Void, Never>?
+    private var network: NWPathMonitor?
+    private var lastPath: String?
+    /// Photo write-ups by turn id, so a new line can be told what they showed.
+    private var photoReadings: [String: String] = [:]
+
+    /// When the phone changes networks the old line usually dies quietly, so
+    /// it's checked straight away rather than at the next heartbeat.
+    private func watchNetwork() {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            let summary = "\(path.status) \(path.availableInterfaces.map { "\($0.type)" })"
+            Task { @MainActor in self?.networkChanged(to: summary, usable: path.status == .satisfied) }
+        }
+        monitor.start(queue: .main)
+        network = monitor
+    }
+
+    private func networkChanged(to path: String, usable: Bool) {
+        defer { lastPath = path }
+        guard let lastPath, lastPath != path else { return }
+        VoiceLog.say("network changed: \(path)")
+        guard state == .live, let socket else { return }
+        Task {
+            if await !Self.ping(socket, within: usable ? 3 : 1) { dropped(socket) }
+        }
+    }
+
+    /// The line went quiet or closed: start a new one, unless it's already
+    /// been replaced or the call is over.
+    private func dropped(_ dead: URLSessionWebSocketTask) {
+        guard dead === socket, state == .live else { return }
+        VoiceLog.say("line dropped; reconnecting")
+        dead.cancel(with: .goingAway, reason: nil)
+        socket = nil
+        // Whatever the tutor was in the middle of saying is gone with the line.
+        let midTurn = waiting || responding
+        responding = false
+        playingItem = nil
+        if engine.isRunning {
+            player.stop()
+            player.play()
+        }
+        receivedSamples = playedSamples
+        captionID += 1
+        reconnect(answerAfter: midTurn)
+    }
+
+    /// Keeps trying for about a minute, quickly at first.
+    private func reconnect(answerAfter midTurn: Bool) {
+        state = .reconnecting
+        canRetry = false
+        waiting = midTurn
+        reconnecting?.cancel()
+        reconnecting = Task { [weak self] in
+            let delays: [Double] = [0, 1, 2, 3, 3, 5, 5, 5, 5, 5, 5, 5, 5]
+            for delay in delays {
+                try? await Task.sleep(for: .seconds(delay))
+                guard let self, !Task.isCancelled, self.state == .reconnecting else { return }
+                do {
+                    let key = try await self.store.voiceKey(threadID: self.threadID, assignmentID: self.assignmentID)
+                    guard !Task.isCancelled, self.state == .reconnecting else { return }
+                    VoiceLog.say("reconnected")
+                    // A turn finished while it was down already asks for its reply.
+                    let asked = self.outbox.contains { $0.contains("\"response.create\"") }
+                    self.open(key, recap: Self.recap(self.turns, readings: self.photoReadings, midTurn: midTurn))
+                    if midTurn, !asked { self.send(["type": "response.create"]) }
+                    return
+                } catch {
+                    VoiceLog.say("reconnect failed: \(error.localizedDescription)")
+                }
+            }
+            guard let self, self.state == .reconnecting else { return }
+            self.outbox = []
+            self.waiting = false
+            self.listening = false
+            self.talking = false
+            self.canRetry = true
+            self.state = .failed("The call dropped. Check your connection and try again.")
+        }
+    }
+
+    /// After giving up: have another go.
+    func retry() {
+        guard canRetry else { return }
+        reconnect(answerAfter: false)
+    }
+
+    /// What a new line is told so the tutor can carry on: the call so far,
+    /// newest kept if it's long.
+    nonisolated static func recap(_ turns: [Turn], readings: [String: String], midTurn: Bool) -> String {
+        var lines: [String] = []
+        for turn in turns {
+            let who = turn.role == "user" ? "Student" : "You"
+            var parts: [String] = []
+            let text = turn.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { parts.append(text) }
+            if !turn.images.isEmpty || readings[turn.id] != nil {
+                parts.append("(sent a photo\(readings[turn.id].map { ", which shows: \($0)" } ?? ""))")
+            }
+            if !turn.visuals.isEmpty { parts.append("(put a picture on their screen)") }
+            if !parts.isEmpty { lines.append("\(who): \(parts.joined(separator: " "))") }
+        }
+        var said = lines.joined(separator: "\n")
+        if said.count > 12000 { said = "…" + said.suffix(12000) }
+        let opening = "(The call's connection dropped for a moment and has just come back. You're still on the same call."
+        let next = midTurn
+            ? " The line went down while you were about to answer, so their last words may not have reached you: if what they said last isn't below, say you got cut off and ask them to say it again; otherwise carry on with your answer.)"
+            : " Don't start talking; wait for them, and carry on as if nothing happened.)"
+        return said.isEmpty
+            ? opening + " Nothing had been said yet." + next
+            : opening + " Here's what's been said so far on this call:\n\n" + said + "\n\n" + next.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Whether the line answers a ping in time.
+    nonisolated private static func ping(_ socket: URLSessionWebSocketTask, within seconds: Double) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let once = Once(continuation)
+            socket.sendPing { error in once.resume(error == nil) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { once.resume(false) }
+        }
+    }
+
+    /// Resumes a continuation the first time only (a pong or a timeout).
+    private final class Once: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Bool, Never>?
+        init(_ continuation: CheckedContinuation<Bool, Never>) { self.continuation = continuation }
+        func resume(_ value: Bool) {
+            lock.lock()
+            let c = continuation
+            continuation = nil
+            lock.unlock()
+            c?.resume(returning: value)
         }
     }
 
@@ -134,6 +307,10 @@ final class VoiceCall {
     func hangUp() async {
         guard state != .ending else { return }
         state = .ending
+        reconnecting?.cancel()
+        heartbeat?.cancel()
+        network?.cancel()
+        network = nil
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
         stopAudio()
@@ -152,7 +329,7 @@ final class VoiceCall {
 
     /// The talk button went down: cut the tutor off and start listening.
     func press() {
-        guard state == .live || state == .connecting, !talking else { return }
+        guard isOpen, !talking else { return }
         talking = true
         // What they said last time goes; the new words show once written out.
         studentCaption = ""
@@ -222,6 +399,7 @@ final class VoiceCall {
             if let path = try? await store.upload(photo, threadID: threadID) {
                 if let at = turns.firstIndex(where: { $0.id == id }) { turns[at].images.append(path) }
                 reading = try? await store.readPhoto(at: path)
+                if let reading { photoReadings[id] = reading }
             }
             stage = .photo(photo.image)
             let small = photo.image.scaledDown(toFit: 1280).jpegData(compressionQuality: 0.7) ?? photo.jpeg
@@ -238,12 +416,13 @@ final class VoiceCall {
 
     // MARK: Events
 
-    private func receive() async {
-        while let socket {
+    private func receive(_ socket: URLSessionWebSocketTask) async {
+        while socket === self.socket {
             guard let message = try? await socket.receive() else {
-                if state == .live { state = .failed("The call dropped.") }
+                dropped(socket)
                 return
             }
+            guard socket === self.socket else { return }
             let data: Data? = switch message {
             case .string(let s): s.data(using: .utf8)
             case .data(let d): d
@@ -424,12 +603,13 @@ final class VoiceCall {
               let text = String(data: data, encoding: .utf8) else { return }
         if let socket {
             socket.send(.string(text)) { _ in }
-        } else if state == .connecting {
+        } else if state == .connecting || state == .reconnecting {
             outbox.append(text)
         }
     }
 
-    /// Events from before the line opened (talking while it connects).
+    /// Events from before the line opened (talking while it connects or
+    /// comes back).
     private var outbox: [String] = []
 
     // MARK: Audio
@@ -484,7 +664,7 @@ final class VoiceCall {
             }
             let bytes = Data(bytes: out.int16ChannelData![0], count: Int(out.frameLength) * 2)
             Task { @MainActor in
-                guard let self, self.listening, self.state == .live || self.state == .connecting else { return }
+                guard let self, self.listening, self.isOpen else { return }
                 // Rises fairly quickly with a voice, settles slowly after it.
                 let rate: Float = level > self.inputLevel ? 0.25 : 0.06
                 self.inputLevel += (level - self.inputLevel) * rate
@@ -523,7 +703,7 @@ final class VoiceCall {
     private var configObserver: NSObjectProtocol?
 
     private func restartAudio() {
-        guard state == .live || state == .connecting else { return }
+        guard isOpen else { return }
         VoiceLog.say("audio configuration changed; running: \(engine.isRunning); echo cancelling: \(engine.inputNode.isVoiceProcessingEnabled)")
         if !engine.isRunning {
             engine.connect(player, to: engine.mainMixerNode, format: playFormat)
@@ -770,6 +950,19 @@ struct VoiceView: View {
             switch call?.state ?? .connecting {
             case .failed(let message):
                 Text(message).foregroundStyle(.white).multilineTextAlignment(.center)
+                if call?.canRetry == true {
+                    Button("Reconnect", systemImage: "arrow.clockwise") { call?.retry() }
+                        .buttonStyle(.glassProminent)
+                        .tint(TuttlesLook.accent)
+                }
+            case .reconnecting:
+                // The talk button still works: what's said goes when it's back.
+                HStack(spacing: 10) {
+                    ProgressView().tint(.white)
+                    Text("Reconnecting…").foregroundStyle(.white.opacity(0.8))
+                }
+                .font(.title3.weight(.medium))
+                .transition(.opacity)
             case .ending:
                 Text("Saving…").foregroundStyle(.white.opacity(0.7))
             case .live, .connecting:
@@ -797,7 +990,7 @@ struct VoiceView: View {
     private var controls: some View {
         HStack {
             TalkBarButton(
-                enabled: call?.state == .live || call?.state == .connecting,
+                enabled: call?.isOpen == true,
                 talking: call?.talking == true,
                 level: call?.inputLevel ?? 0,
                 onPress: { call?.press() },
