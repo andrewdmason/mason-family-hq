@@ -98,11 +98,67 @@ final class VoiceCall {
     private let playFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false)!
     private let sendFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 24000, channels: 1, interleaved: true)!
 
-    init(store: ChatStore, threadID: UUID, assignmentID: Int?, quiz: QuizContext? = nil) {
+    init(store: ChatStore, threadID: UUID, assignmentID: Int?, quiz: QuizContext? = nil, chat: [ChatMessage] = []) {
         self.store = store
         self.threadID = threadID
         self.assignmentID = assignmentID
         self.quiz = quiz
+        pickUp(from: chat)
+    }
+
+    /// A call started partway through a chat opens where the chat is, so it
+    /// feels like switching to talking rather than starting over: a quiz's
+    /// open question on screen, or else the tutor's last words as the caption
+    /// (with its last picture, if it drew one) and the student's above.
+    private func pickUp(from chat: [ChatMessage]) {
+        if let open = quiz?.state?.open {
+            stage = .question(open)
+        }
+        // Over an open question, their last answer would be the one before it.
+        if stage == .none, let said = chat.last(where: { $0.role == .student })?.content, !said.isEmpty {
+            studentCaption = Self.plain(said)
+        }
+        guard let reply = chat.last(where: { $0.role == .tutor }) else { return }
+        let blocks = MessageBlocks.parse(reply.content)
+        if stage == .none, let visual = blocks.reversed().compactMap({ b -> String? in
+            if case .visual(let json) = b { return json } else { return nil }
+        }).first {
+            stage = .visual(visual)
+            shown.append(.visual(visual))
+        }
+        let words = Self.plain(blocks)
+        guard !words.isEmpty else { return }
+        tutorCaption = words
+        spokenShare = 1
+        captionID += 1
+    }
+
+    /// A message as words for a caption: its prose, without Markdown, math
+    /// markup or the cards and pictures (which have their own place).
+    static func plain(_ blocks: [MessageBlock]) -> String {
+        blocks.compactMap { block -> String? in
+            switch block {
+            case .paragraph(let t), .heading(_, let t): plain(t)
+            case .bullets(let items), .numbered(let items): items.map { plain($0.text) }.joined(separator: " ")
+            default: nil
+            }
+        }
+        .joined(separator: " ")
+    }
+
+    static func plain(_ text: String) -> String {
+        InlineRun.split(text).map { run -> String in
+            switch run {
+            case .text(let prose): String(InlineText.markdown(prose).characters)
+            case .math(let latex): latex
+                .replacingOccurrences(of: #"\\frac\{([^{}]*)\}\{([^{}]*)\}"#, with: "$1/$2", options: .regularExpression)
+                .replacingOccurrences(of: #"\\(times|cdot)"#, with: "×", options: .regularExpression)
+                .replacingOccurrences(of: #"\\[a-zA-Z]+"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: "{", with: "").replacingOccurrences(of: "}", with: "")
+            }
+        }
+        .joined()
+        .split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
     func start() async {

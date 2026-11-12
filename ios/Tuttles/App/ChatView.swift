@@ -193,7 +193,7 @@ struct ChatView: View {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         typing = false
         call = VoiceCall(store: store, threadID: threadID, assignmentID: messages.isEmpty ? start?.assignment.id : nil,
-                         quiz: isQuiz ? quiz : nil)
+                         quiz: isQuiz ? quiz : nil, chat: messages)
         withAnimation(Self.callMorph) { showingVoice = true }
         Task {
             try? await Task.sleep(for: .milliseconds(500))

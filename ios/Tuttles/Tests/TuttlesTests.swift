@@ -125,6 +125,11 @@ final class SpokenCaptionTests: XCTestCase {
         }
     }
 
+    @MainActor func testCaptionFromTheChatsLastReply() {
+        let reply = "**Nice!** So $x = \\frac{3}{4}$ works.\n\n```visual\n{\"type\":\"math\",\"latex\":\"x\"}\n```\n\n- Check it by plugging back in."
+        XCTAssertEqual(VoiceCall.plain(MessageBlocks.parse(reply)), "Nice! So x = 3/4 works. Check it by plugging back in.")
+    }
+
     func testVisualArgumentAsStringOrObject() {
         XCTAssertEqual(VoiceCall.visual(from: #"{"visual":"{\"type\":\"math\",\"latex\":\"x\"}"}"#), #"{"type":"math","latex":"x"}"#)
         XCTAssertNotNil(VoiceCall.visual(from: #"{"visual":{"type":"math","latex":"x"}}"#))
