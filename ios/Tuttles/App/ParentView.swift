@@ -3,7 +3,9 @@ import SwiftUI
 // The parents' side of Tuttles: what the kid is learning this week, per class
 // (/tuttles/api/parent/week, src/lib/tuttles/week.ts), with a briefing chat
 // for the parent on any topic and ways to bring it up at home. Parents switch
-// between this and seeing the app as the kid from the account menu.
+// between this and seeing the app as the kid from the account menu. What the
+// kid is studying for (Study.swift) sits on top: how ready they are for each
+// set, and a way to make one for them or add material to one.
 
 struct WeekPayload: Decodable {
     struct Kid: Decodable { let id: String; let name: String }
@@ -59,11 +61,34 @@ struct ParentHomeView: View {
     @Binding var path: [Route]
     @Environment(ChatStore.self) private var store
     @State private var showingMemory = false
+    @State private var newSet = false
 
     private var kidName: String { store.week?.kid.name ?? store.classes?.student.name ?? "your kid" }
 
     var body: some View {
         List {
+            Section {
+                ForEach(store.study?.sets ?? []) { set in
+                    NavigationLink(value: Route.studySet(set.id)) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            StudySetRow(set: set)
+                            Text(set.quizzes == 0
+                                 ? "No quizzes yet"
+                                 : "\(set.quizzes) quiz\(set.quizzes == 1 ? "" : "zes")\(set.lastQuizAt.map { ", last \($0.formatted(.relative(presentation: .named)))" } ?? "")")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Button("New study set for \(kidName)", systemImage: "plus.circle") { newSet = true }
+            } header: {
+                Text("Studying")
+            } footer: {
+                if store.study?.sets.isEmpty ?? true {
+                    Text("A quiz or test \(kidName) is getting ready for. Tuttles quizzes them on it and tracks what they know. Add a photo of the study guide and Tuttles does the rest.")
+                }
+            }
+
             if let brief = store.week?.brief {
                 if !brief.comingUp.isEmpty {
                     Section("Coming up") {
@@ -131,9 +156,16 @@ struct ParentHomeView: View {
         .refreshable {
             async let week: Void = store.refreshWeek()
             async let threads: Void = store.refreshThreads()
-            _ = await (week, threads)
+            async let study: Void = store.refreshStudy()
+            _ = await (week, threads, study)
         }
-        .task { if store.week == nil { await store.refreshWeek() } }
+        .task {
+            if store.study == nil { await store.refreshStudy() }
+            if store.week == nil { await store.refreshWeek() }
+        }
+        .sheet(isPresented: $newSet) {
+            NewStudySetSheet(forName: kidName) { id in path.append(.studySet(id)) }
+        }
     }
 }
 

@@ -76,15 +76,20 @@ struct RootView: View {
             store.loadSaved()
             async let threads: Void = store.refreshThreads()
             async let classes: Void = store.refreshClasses()
-            _ = await (threads, classes)
+            async let study: Void = store.refreshStudy()
+            _ = await (threads, classes, study)
         }
     }
 }
 
 enum Route: Hashable {
     /// `isNew`: a chat with nothing in it yet, whose id is made here. A new
-    /// chat can be about an assignment (`start`) or begun from a class page.
-    case chat(UUID, isNew: Bool, start: ChatStart? = nil, courseID: Int? = nil, briefing: BriefingTopic? = nil)
+    /// chat can be about an assignment (`start`) or begun from a class page,
+    /// or be a quiz on a study set (`quiz`).
+    case chat(UUID, isNew: Bool, start: ChatStart? = nil, courseID: Int? = nil, briefing: BriefingTopic? = nil,
+              quiz: QuizStart? = nil)
+    /// A study set's page (Study.swift).
+    case studySet(String)
     case classPage(Int)
     /// Parent view: one of the kid's topics this week.
     case topic(WeekPayload.Topic, WeekPayload.ClassWeek)
@@ -120,10 +125,12 @@ struct ChatsView: View {
             }
                 .navigationDestination(for: Route.self) { route in
                     switch route {
-                    case .chat(let id, let isNew, let start, let courseID, let briefing):
+                    case .chat(let id, let isNew, let start, let courseID, let briefing, let quiz):
                         ChatView(threadID: id, isNew: isNew,
-                                 title: briefing?.title ?? store.threads.first { $0.id == id }?.title,
-                                 courseID: courseID, briefing: briefing, start: start)
+                                 title: briefing?.title ?? quiz.map { "Quiz: \($0.setTitle)" } ?? store.threads.first { $0.id == id }?.title,
+                                 courseID: courseID, briefing: briefing, quizStart: quiz, start: start)
+                    case .studySet(let id):
+                        StudySetView(setID: id, path: $path)
                     case .topic(let topic, let week):
                         TopicView(topic: topic, week: week, path: $path)
                     case .classPage(let id):
@@ -131,6 +138,7 @@ struct ChatsView: View {
                     }
                 }
         }
+        .environment(\.navigate, TuttlesNavigate { path.append($0) })
         .onChange(of: store.viewer) {
             // A view starts at its home: the parent's This week, or a new chat for the kid's.
             path = store.showingParentView ? [] : [.chat(UUID(), isNew: true)]
@@ -146,6 +154,7 @@ private struct ThreadListView: View {
 
     var body: some View {
         List {
+            StudySection(path: $path)
             if let classes = store.classes, !classes.classes.isEmpty {
                 if !classes.dueSoon.isEmpty {
                     Section {
@@ -241,17 +250,20 @@ private struct ThreadListView: View {
         .refreshable {
             async let threads: Void = store.refreshThreads()
             async let classes: Void = store.refreshClasses()
-            _ = await (threads, classes)
+            async let study: Void = store.refreshStudy()
+            _ = await (threads, classes, study)
         }
         .task(id: path.count) {
             // Back on the list: pick up the chat just had and its new title.
             if path.isEmpty {
                 await store.refreshThreads()
                 await store.refreshClasses()
+                await store.refreshStudy()
             }
         }
         .animation(.default, value: store.classes?.classes.count)
         .animation(.default, value: store.threads.count)
+        .animation(.default, value: store.study?.sets.count)
     }
 }
 

@@ -11,6 +11,12 @@ import SwiftUI
 // can put a picture on the screen (show_visual), and photos taken during the
 // call go to it as they're taken, with an exact write-up from the stronger
 // model. Hanging up saves the call into the chat.
+//
+// In a quiz chat the tutor puts each question on the screen (ask_question)
+// and records what's said (record_answer); the phone relays both to the
+// website, which keeps the answers and grades multiple choice. A tap on an
+// option goes the same way and the tutor is told how it went. Elsewhere it can
+// save a study set (save_study_set).
 
 // MARK: - The call
 
@@ -18,7 +24,7 @@ import SwiftUI
 @Observable
 final class VoiceCall {
     enum State: Equatable { case connecting, live, ending, failed(String) }
-    enum Stage: Equatable { case none, visual(String), photo(UIImage), reading }
+    enum Stage: Equatable { case none, visual(String), photo(UIImage), reading, question(QuizQuestion), studySet(String) }
 
     struct Turn {
         let id: String
@@ -26,6 +32,7 @@ final class VoiceCall {
         var text = ""
         var images: [String] = []
         var visuals: [String] = []
+        var blocks: [String] = []
     }
 
     private(set) var state: State = .connecting
@@ -63,6 +70,12 @@ final class VoiceCall {
     private(set) var turns: [Turn] = []
     let threadID: UUID
     let assignmentID: Int?
+    /// A quiz chat's questions, shared with the chat behind the call.
+    let quiz: QuizContext?
+    /// A study set saved during the call, to file a new chat under.
+    private var studySetID: String?
+    /// What each tool call is, by its id (from response.output_item.added).
+    private var toolNames: [String: String] = [:]
     private let store: ChatStore
 
     private var socket: URLSessionWebSocketTask?
@@ -73,10 +86,11 @@ final class VoiceCall {
     private let playFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 24000, channels: 1, interleaved: false)!
     private let sendFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 24000, channels: 1, interleaved: true)!
 
-    init(store: ChatStore, threadID: UUID, assignmentID: Int?) {
+    init(store: ChatStore, threadID: UUID, assignmentID: Int?, quiz: QuizContext? = nil) {
         self.store = store
         self.threadID = threadID
         self.assignmentID = assignmentID
+        self.quiz = quiz
     }
 
     func start() async {
@@ -124,10 +138,11 @@ final class VoiceCall {
         socket = nil
         stopAudio()
         let toSave = turns
-            .filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty || !$0.images.isEmpty || !$0.visuals.isEmpty }
-            .map { ChatStore.VoiceTurn(role: $0.role == "user" ? "student" : "tutor", text: $0.text, images: $0.images, visuals: $0.visuals) }
+            .filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty || !$0.images.isEmpty || !$0.visuals.isEmpty || !$0.blocks.isEmpty }
+            .map { ChatStore.VoiceTurn(role: $0.role == "user" ? "student" : "tutor", text: $0.text, images: $0.images,
+                                       visuals: $0.visuals, blocks: $0.blocks) }
         if !toSave.isEmpty {
-            try? await store.saveVoice(threadID: threadID, assignmentID: assignmentID, turns: toSave)
+            try? await store.saveVoice(threadID: threadID, assignmentID: assignmentID, studySetID: studySetID, turns: toSave)
         }
     }
 
@@ -254,6 +269,10 @@ final class VoiceCall {
             waiting = false
             play(pcm)
         case "response.output_item.added":
+            if let item = e["item"] as? [String: Any], item["type"] as? String == "function_call",
+               let callID = item["call_id"] as? String, let name = item["name"] as? String {
+                toolNames[callID] = name
+            }
             if let item = e["item"] as? [String: Any], item["type"] as? String == "message", let id = item["id"] as? String {
                 turns.append(Turn(id: id, role: "assistant"))
                 tutorCaption = ""
@@ -281,7 +300,18 @@ final class VoiceCall {
             }
         case "response.function_call_arguments.done":
             guard let callID = e["call_id"] as? String else { return }
-            if let visual = Self.visual(from: e["arguments"] as? String) {
+            let name = e["name"] as? String ?? toolNames[callID] ?? "show_visual"
+            let arguments = e["arguments"] as? String
+            if name != "show_visual" {
+                Task {
+                    let output = await runTool(name, arguments: arguments, callID: callID)
+                    send(["type": "conversation.item.create",
+                          "item": ["type": "function_call_output", "call_id": callID, "output": output]])
+                    send(["type": "response.create"])
+                }
+                return
+            }
+            if let visual = Self.visual(from: arguments) {
                 stage = .visual(visual)
                 shown.append(.visual(visual))
                 if let at = turns.lastIndex(where: { $0.role == "assistant" }) {
@@ -306,6 +336,77 @@ final class VoiceCall {
             tutorCaption = message
         default:
             break
+        }
+    }
+
+    /// The quiz and study set tools, relayed to the website. Returns what the tutor is told.
+    private func runTool(_ name: String, arguments: String?, callID: String) async -> String {
+        let args = arguments.flatMap { $0.data(using: .utf8) }
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        do {
+            switch name {
+            case "ask_question":
+                let reply = try await store.voiceQuestion(threadID: threadID, arguments: args)
+                quiz?.state = reply.state
+                stage = .question(reply.question)
+                shown.append(.question(reply.question))
+                addBlock(reply.block, callID: callID)
+                return "Question \(reply.question.number) is on their screen. Say it\(reply.question.isChoice ? ", and each option with its letter" : ""), then wait for their answer."
+            case "record_answer":
+                let reply = try await store.answerQuiz(
+                    threadID: threadID, questionID: nil, choice: args["choice"], result: args["result"] as? String,
+                    response: args["response"] as? String)
+                quiz?.state = reply.state
+                if case .question(let q) = stage, let live = reply.state.questions.first(where: { $0.id == q.id }) {
+                    stage = .question(live)
+                }
+                return reply.note
+            case "save_study_set":
+                let raw = args["set"] as? String
+                    ?? (args["set"].flatMap { try? JSONSerialization.data(withJSONObject: $0) }.flatMap { String(data: $0, encoding: .utf8) })
+                    ?? ""
+                let images = turns.flatMap(\.images)
+                let reply = try await store.voiceStudySet(threadID: threadID, set: raw, assignmentID: assignmentID, images: images)
+                if let set = reply.set {
+                    studySetID = set.id
+                    stage = .studySet(set.title)
+                    shown.append(.studySet(set.title))
+                }
+                addBlock(reply.block, callID: callID)
+                return reply.note
+            default:
+                return "There's no tool called \(name)."
+            }
+        } catch {
+            return "That didn't work: \(error.localizedDescription)"
+        }
+    }
+
+    private func addBlock(_ block: String, callID: String) {
+        if let at = turns.lastIndex(where: { $0.role == "assistant" }) {
+            turns[at].blocks.append(block)
+        } else {
+            turns.append(Turn(id: callID, role: "assistant", blocks: [block]))
+        }
+    }
+
+    /// A tap on an option of the question on screen: graded, then the tutor's told.
+    func choose(_ q: QuizQuestion, _ index: Int) {
+        guard let quiz, quiz.pending == nil, let choices = q.choices, choices.indices.contains(index) else { return }
+        quiz.pending = q.id
+        Task {
+            defer { quiz.pending = nil }
+            guard let reply = try? await store.answerQuiz(threadID: threadID, questionID: q.id, choice: index) else { return }
+            quiz.state = reply.state
+            if let live = reply.state.questions.first(where: { $0.id == q.id }) { stage = .question(live) }
+            let letter = String(UnicodeScalar(65 + index)!)
+            turns.append(Turn(id: "tap-\(UUID().uuidString)", role: "user", text: "\(letter). \(choices[index])"))
+            interruptTutor()
+            send(["type": "conversation.item.create", "item": ["type": "message", "role": "user", "content": [
+                ["type": "input_text", "text": "(\(letter) tapped on screen. \(reply.note))"],
+            ]]])
+            send(["type": "response.create"])
+            waiting = true
         }
     }
 
@@ -585,6 +686,26 @@ struct VoiceView: View {
                 ProgressView().tint(.white)
                 Text("Looking at your photo…").foregroundStyle(.white.opacity(0.8))
             }
+        case .question(let q):
+            ScrollView {
+                let live = call?.quiz?.live(q) ?? q
+                QuestionCard(
+                    question: live,
+                    testRun: call?.quiz?.state?.isTestRun == true,
+                    pending: call?.quiz?.pending == live.id,
+                    onChoose: call?.quiz?.canAnswer(live) == true ? { i in call?.choose(live, i) } : nil,
+                    onDark: true)
+                    .environment(\.colorScheme, .light)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .transition(.scale(scale: 0.92).combined(with: .opacity))
+        case .studySet(let title):
+            VStack(spacing: 12) {
+                Image(systemName: "books.vertical.fill").font(.system(size: 44)).foregroundStyle(.white)
+                Text(title).font(.title3.weight(.semibold)).foregroundStyle(.white).multilineTextAlignment(.center)
+                Text("Study set saved").foregroundStyle(.white.opacity(0.7))
+            }
+            .transition(.opacity)
         case .none:
             Color.clear
         }
@@ -599,6 +720,8 @@ struct VoiceView: View {
                             switch item {
                             case .photo(let image): Image(uiImage: image).resizable().scaledToFill()
                             case .visual: Image(systemName: "chart.xyaxis.line").font(.title3).foregroundStyle(.white)
+                            case .question(let q): Text("Q\(q.number)").font(.headline).foregroundStyle(.white)
+                            case .studySet: Image(systemName: "books.vertical.fill").font(.title3).foregroundStyle(.white)
                             default: Color.clear
                             }
                         }

@@ -6,6 +6,8 @@ import { briefingInstructions, TUTOR_MODEL, tutorInstructions, type Briefing } f
 import { nameThread } from "@/lib/tuttles/naming";
 import { requestedKid, tutoredStudent } from "@/lib/tuttles/tutoring-as";
 import { studentSections } from "@/lib/tuttles/context";
+import { FenceFilter } from "@/lib/tuttles/fences";
+import { studyTurn } from "@/lib/tuttles/study-chat";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -25,6 +27,13 @@ export const maxDuration = 120;
  * The phone has a Supabase session but no website cookies, so it sends its
  * access token and this validates it (excluded from the session gate in
  * middleware for that reason). The model key stays here.
+ *
+ * Study sets and quizzes (src/lib/tuttles/study.ts) ride along: the tutor can
+ * write a ```studyset block in any of the kid's chats, and in a quiz chat
+ * (made by /tuttles/api/quiz/start) writes ```question and ```grade blocks.
+ * Those are lifted out of the reply as it streams (src/lib/tuttles/fences.ts)
+ * and saved, and the student gets a cleaned-up block in their place: a
+ * question without its answer, a set's id, or nothing.
  *
  * A turn is saved only once the reply has finished: the student's message and
  * the tutor's together. A turn that fails mid-reply ends the stream with
@@ -81,7 +90,7 @@ export async function POST(request: Request) {
 
   const { data: thread } = await db
     .from("tutor_threads")
-    .select("id, student_id, title, course_id, assignment_id, kind, topic")
+    .select("id, student_id, title, course_id, assignment_id, kind, topic, study_set_id")
     .eq("id", threadId)
     .maybeSingle();
   if (thread && thread.student_id !== ownerId) return NextResponse.json({ error: "not your thread" }, { status: 403 });
@@ -142,6 +151,18 @@ export async function POST(request: Request) {
     ),
     studentTurn(text, images),
   ];
+  // Study sets in an ordinary chat; the quiz itself in a quiz chat.
+  const study = briefing
+    ? null
+    : await studyTurn(db, {
+        student,
+        userId: user.id,
+        threadId,
+        thread: thread ? { kind: thread.kind, study_set_id: thread.study_set_id } : null,
+        images: allPaths,
+        assignmentId,
+      });
+
   // What the tutor knows of them (src/lib/tuttles/memory.ts) and their classes,
   // when a parent has connected Canvas. After the fixed tutoring rules, so
   // those stay a cacheable prefix.
@@ -150,10 +171,14 @@ export async function POST(request: Request) {
         briefingInstructions(await parentName(db, user.id), { name: student.name, birthdate: student.birthdate }, briefing),
         ...(await studentSections(db, student, briefing.assignmentIds[0] ?? null)),
       ].join("\n\n")
-    : [
-        tutorInstructions({ name: student.name, birthdate: student.birthdate }),
-        ...(await studentSections(db, student, assignmentId)),
-      ].join("\n\n");
+    : study?.isQuiz
+      ? [tutorInstructions({ name: student.name, birthdate: student.birthdate }), ...study.instructions].join("\n\n")
+      : [
+          tutorInstructions({ name: student.name, birthdate: student.birthdate }),
+          ...(await studentSections(db, student, assignmentId)),
+          ...(study?.instructions ?? []),
+        ].join("\n\n");
+  const filter = study ? new FenceFilter(study.langs, study.handle) : null;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -170,8 +195,11 @@ export async function POST(request: Request) {
         let usage: unknown = null;
         for await (const event of events) {
           if (event.type === "response.output_text.delta") {
-            reply += event.delta;
-            controller.enqueue(encoder.encode(event.delta));
+            const shown = filter ? await filter.push(event.delta) : event.delta;
+            if (shown) {
+              reply += shown;
+              controller.enqueue(encoder.encode(shown));
+            }
           } else if (event.type === "response.completed") {
             usage = event.response.usage ?? null;
           } else if (event.type === "response.failed" || event.type === "error") {
@@ -179,7 +207,14 @@ export async function POST(request: Request) {
           }
         }
 
+        const tail = filter ? await filter.end() : "";
+        if (tail) {
+          reply += tail;
+          controller.enqueue(encoder.encode(tail));
+        }
+
         const now = new Date();
+        const setId = study && !study.isQuiz ? study.linkedSetId() : null;
         if (!thread) {
           const { error } = await db
             .from("tutor_threads")
@@ -189,12 +224,16 @@ export async function POST(request: Request) {
               course_id: briefing ? briefing.courseId : (opened?.course_id ?? null),
               assignment_id: opened?.id ?? null,
               ...(briefing ? { kind: "briefing", topic: briefing, title: briefing.title } : {}),
+              ...(setId ? { study_set_id: setId } : {}),
               created_at: now.toISOString(),
               updated_at: now.toISOString(),
             });
           if (error) throw new Error(error.message);
         } else {
-          await db.from("tutor_threads").update({ updated_at: now.toISOString() }).eq("id", threadId);
+          await db
+            .from("tutor_threads")
+            .update({ updated_at: now.toISOString(), ...(setId && !thread.study_set_id ? { study_set_id: setId } : {}) })
+            .eq("id", threadId);
         }
         // A millisecond apart, so the two sort in the order they happened.
         const { error: saveErr } = await db.from("tutor_messages").insert([

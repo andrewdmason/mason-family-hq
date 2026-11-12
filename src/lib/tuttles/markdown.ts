@@ -132,6 +132,10 @@ export function parseBlocks(src: string): Block[] {
       // same as the iPhone app; an unclosed code block still shows its code.
       if (lang === "visual") {
         if (closed) blocks.push({ t: "visual", source: v });
+      } else if (lang === "question" || lang === "studyset") {
+        // Quiz questions and study sets (src/lib/tuttles/study.ts) read as text here.
+        const card = quizCardText(lang, v);
+        if (card) blocks.push({ t: "paragraph", c: parseInline(card) });
       } else {
         blocks.push({ t: "code", lang, v });
       }
@@ -406,4 +410,17 @@ function parseRich(text: string, atoms: Atom[]): Inline[] {
 export function parseInline(src: string): Inline[] {
   const { text, atoms } = extractAtoms(src);
   return parseRich(text, atoms);
+}
+
+/** A quiz question or study set block, as a line of Markdown. */
+function quizCardText(lang: string, json: string): string | null {
+  try {
+    const o = JSON.parse(json) as { title?: string; number?: number; of?: number; prompt?: string; choices?: string[] | null };
+    if (lang === "studyset") return o.title ? `**Study set:** ${o.title}` : null;
+    if (!o.prompt) return null;
+    const choices = o.choices?.length ? `  \n${o.choices.map((c, i) => `${String.fromCharCode(65 + i)}) ${c}`).join("  \n")}` : "";
+    return `**Question ${o.number ?? ""}${o.of ? ` of ${o.of}` : ""}:** ${o.prompt}${choices}`;
+  } catch {
+    return null;
+  }
 }

@@ -7,25 +7,30 @@ export const runtime = "nodejs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type Turn = { role: "student" | "tutor"; text: string; images?: string[]; visuals?: string[] };
+type Turn = { role: "student" | "tutor"; text: string; images?: string[]; visuals?: string[]; blocks?: string[] };
+
+/** Quiz questions and study sets from the call, already shaped by the server (/tuttles/api/quiz/question, /study/save). */
+const SAVED_BLOCK = /^```(question|studyset)\n\{[\s\S]*\}\n```\n?$/;
 
 /**
  * Saves a voice call into its chat, once it ends (src/lib/tuttles/voice.ts).
  *
- *   POST { threadId, assignmentId?, turns: [{role, text, images?, visuals?}] }
+ *   POST { threadId, assignmentId?, studySetId?, turns: [{role, text, images?, visuals?, blocks?}] }
  *   Authorization: Bearer <supabase access token>
  *
  * The phone has the transcript (the call ran between it and OpenAI). Each turn
  * becomes a message; the pictures the tutor showed go into its message as
- * ```visual blocks, so the chat reads like any other. A call into a new chat
- * creates it, filed like a typed one.
+ * ```visual blocks, so the chat reads like any other; quiz questions and
+ * study sets go in as the blocks the server made for them. A call into a new
+ * chat creates it, filed like a typed one (and under the study set made in
+ * it, if one was).
  */
 export async function POST(request: Request) {
   const caller = await tuttlesCaller(request);
   if ("error" in caller) return NextResponse.json({ error: caller.error }, { status: caller.status });
   const { db, userId, student } = caller;
 
-  let body: { threadId?: unknown; assignmentId?: unknown; turns?: unknown };
+  let body: { threadId?: unknown; assignmentId?: unknown; studySetId?: unknown; turns?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -42,8 +47,9 @@ export async function POST(request: Request) {
       text: t.text.trim().slice(0, 8000),
       images: (t.images ?? []).filter((p) => typeof p === "string" && p.startsWith(folder) && p.endsWith(".jpg")),
       visuals: (t.visuals ?? []).filter((v) => typeof v === "string").slice(0, 10),
+      blocks: (t.blocks ?? []).filter((b) => typeof b === "string" && SAVED_BLOCK.test(b)).slice(0, 40),
     }))
-    .filter((t) => t.text || t.images.length || t.visuals.length);
+    .filter((t) => t.text || t.images.length || t.visuals.length || t.blocks.length);
   if (turns.length === 0) return NextResponse.json({ ok: true, saved: 0 });
 
   // Consecutive turns from the same side read as one message.
@@ -54,7 +60,8 @@ export async function POST(request: Request) {
       last.text = [last.text, t.text].filter(Boolean).join(" ");
       last.images.push(...t.images);
       last.visuals.push(...t.visuals);
-    } else merged.push({ ...t, images: [...t.images], visuals: [...t.visuals] });
+      last.blocks.push(...t.blocks);
+    } else merged.push({ ...t, images: [...t.images], visuals: [...t.visuals], blocks: [...t.blocks] });
   }
 
   const { data: thread } = await db
@@ -75,11 +82,16 @@ export async function POST(request: Request) {
           .eq("id", requested)
           .maybeSingle()
       : { data: null };
+    const studySetId = typeof body.studySetId === "string" && /^[0-9a-f-]{36}$/i.test(body.studySetId) ? body.studySetId : null;
+    const { data: set } = studySetId
+      ? await db.from("tutor_study_sets").select("id").eq("id", studySetId).eq("student_id", student.studentId).maybeSingle()
+      : { data: null };
     const { error } = await db.from("tutor_threads").insert({
       id: threadId,
       student_id: userId,
       course_id: opened?.course_id ?? null,
       assignment_id: opened?.id ?? null,
+      study_set_id: set?.id ?? null,
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -87,7 +99,9 @@ export async function POST(request: Request) {
   const rows = merged.map((t, i) => ({
     thread_id: threadId,
     role: t.role,
-    content: [t.text, ...t.visuals.map((v) => "```visual\n" + v + "\n```")].filter(Boolean).join("\n\n"),
+    content: [t.text, ...t.visuals.map((v) => "```visual\n" + v + "\n```"), ...t.blocks.map((b) => b.trimEnd())]
+      .filter(Boolean)
+      .join("\n\n"),
     images: t.images,
     model: t.role === "tutor" ? VOICE_MODEL : null,
     usage: null,

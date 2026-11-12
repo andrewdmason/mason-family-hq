@@ -133,6 +133,7 @@ Rules:
 - "evidence" lists those signs briefly ("chat Nov 6: mixed up domain and range", "Quiz 2-3: 3/6"). Keep the strongest few.
 - "lastSeen" (YYYY-MM-DD) is the most recent date the pattern showed. Carry an unchanged item forward as it was.
 - Drop an item when a later grade or chat shows it's fixed, or when it hasn't shown for three weeks.
+- Quiz results (Tuttles' own practice quizzes, by topic) are evidence like grades: a topic missed in two quizzes on different days is a shaky spot, and one answered right across quizzes is a strength.
 - Grades are evidence, not items: never write "got 6/8 on the homework" as a memory. A grade is evidence about a skill only when its name or the teacher's comment shows what it covered; "Quiz 2-3: 3/6" alone says nothing about which topic.
 - Nothing personal beyond what helps tutoring: no friends, family, feelings or private details. No judgments of character. Write plainly and kindly; ${name} can read it.
 - Prefer keeping the memory short and right over full. When unsure, leave it out.
@@ -206,6 +207,8 @@ export async function rewriteMemory(
         }`,
     );
 
+  const quizLines = await quizResults(db, studentId, since, courseName);
+
   const input = [
     `## Current memory\n${JSON.stringify(memory?.profile ?? EMPTY, null, 1)}`,
     `## Chats since it was last written\n${chats
@@ -215,6 +218,7 @@ export async function rewriteMemory(
       )
       .join("\n\n")}`,
     `## Grades in the last three weeks\n${gradeLines.join("\n") || "(none)"}`,
+    ...(quizLines.length ? [`## Quiz results since then (Tuttles quizzes, by topic: right/asked)\n${quizLines.join("\n")}`] : []),
   ].join("\n\n");
 
   const res = await openai().responses.create({
@@ -235,6 +239,36 @@ export async function rewriteMemory(
   }
   await saveVersion(db, studentId, profile, said || null, "nightly", null, memory?.version ?? 0);
   return { status: "rewritten", changes: out.changes };
+}
+
+/** The kid's practice quiz answers since `since`, per set and topic, for the rewrite. */
+async function quizResults(
+  db: SupabaseClient,
+  studentId: string,
+  since: Date,
+  courseName: (id: number) => string,
+): Promise<string[]> {
+  const { data: sets } = await db.from("tutor_study_sets").select("id, title, course_id").eq("student_id", studentId);
+  if (!sets?.length) return [];
+  const { data: answers } = await db
+    .from("tutor_quiz_questions")
+    .select("set_id, result, answered_at, tutor_study_topics(name)")
+    .in("set_id", sets.map((s) => s.id))
+    .eq("counts", true)
+    .not("result", "is", null)
+    .gt("answered_at", since.toISOString());
+  const tally = new Map<string, { right: number; asked: number; days: Set<string> }>();
+  for (const a of answers ?? []) {
+    const set = sets.find((s) => s.id === a.set_id)!;
+    const topic = (a.tutor_study_topics as unknown as { name: string } | null)?.name ?? "other";
+    const key = `${set.course_id ? courseName(set.course_id) : "no class"} · ${set.title} · ${topic}`;
+    const t = tally.get(key) ?? { right: 0, asked: 0, days: new Set<string>() };
+    t.asked += 1;
+    if (a.result === "correct") t.right += 1;
+    t.days.add(day(a.answered_at));
+    tally.set(key, t);
+  }
+  return [...tally].map(([k, t]) => `- ${k}: ${t.right}/${t.asked} (${[...t.days].join(", ")})`);
 }
 
 /** Puts an earlier version back, as a new version (history only grows). */

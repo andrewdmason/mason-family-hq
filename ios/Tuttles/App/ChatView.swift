@@ -10,6 +10,8 @@ struct ChatView: View {
     var courseID: Int?
     /// For a new parent's chat: the kid's topic it briefs them on.
     var briefing: BriefingTopic?
+    /// For a new quiz: the set and how it's run (Study.swift).
+    var quizStart: QuizStart?
 
     /// For a new chat: the assignment it's about. Set by tapping one, here or
     /// on the list or a class page; the first message carries it.
@@ -37,6 +39,15 @@ struct ChatView: View {
     @Namespace private var callSpace
     @State private var call: VoiceCall?
     @State private var showingCallCamera = false
+    /// A quiz chat's questions and how they went, for its cards.
+    @State private var quiz = QuizContext()
+    /// When a test run began here, for its clock.
+    @State private var testStartedAt: Date?
+    @State private var quizAgain: StudySet?
+    @State private var startError: String?
+    @Environment(\.navigate) private var navigate
+
+    private var isQuiz: Bool { quizStart != nil || store.threads.first { $0.id == threadID }?.isQuiz == true }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -47,6 +58,13 @@ struct ChatView: View {
                         case .student: StudentMessage(message: message, viewing: $viewing)
                         case .tutor: TutorMessage(message: message)
                         }
+                    }
+                    if let state = quiz.state, state.finished, let recap = state.recap, !sending {
+                        RecapCard(
+                            state: state, recap: recap,
+                            onAgain: store.studySet(state.setId).map { set in { quizAgain = set } },
+                            onOpenSet: { navigate.go(.studySet(state.setId)) })
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                     Color.clear.frame(height: 1).id("end")
                 }
@@ -61,7 +79,12 @@ struct ChatView: View {
             .onChange(of: messages.count) {
                 withAnimation { proxy.scrollTo("end", anchor: .bottom) }
             }
+            .onChange(of: quiz.state?.finished) {
+                withAnimation { proxy.scrollTo("end", anchor: .bottom) }
+            }
         }
+        .environment(quiz)
+        .sheet(item: $quizAgain) { QuizStartSheet(set: $0) }
         .overlay { if messages.isEmpty { emptyState } }
         .blur(radius: showingVoice ? 24 : 0)
         .safeAreaInset(edge: .bottom) { composer }
@@ -88,9 +111,19 @@ struct ChatView: View {
                         .disabled(call?.state == .ending)
                 }
             } else {
+                if let state = quiz.state {
+                    ToolbarItem(placement: .principal) { QuizProgress(state: state, startedAt: testStartedAt) }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Call Tuttles", systemImage: "phone.fill") { startCall() }
-                        .disabled(sending)
+                        .disabled(sending || (isQuiz && quiz.state == nil))
+                }
+                if let state = quiz.state, !state.finished {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Button("End quiz", systemImage: "flag.checkered") { endQuiz() }
+                        } label: { Image(systemName: "ellipsis") }
+                    }
                 }
             }
         }
@@ -102,6 +135,20 @@ struct ChatView: View {
         .preferredColorScheme(callIsDark ? .dark : nil)
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            quiz.choose = { q, i in choose(q, i) }
+            // A quiz starts itself: the plan is made, then the first question asked.
+            if let quizStart, isNew, messages.isEmpty, quiz.state == nil {
+                do {
+                    quiz.state = try await store.startQuiz(threadID: threadID, quizStart)
+                    if quizStart.mode == "test" { testStartedAt = .now }
+                    draft = "Let's go! (\(quizStart.mode == "test" ? "Test run" : "Practice"), \(quizStart.count) questions)"
+                    send()
+                    await store.refreshThreads()
+                } catch {
+                    startError = "Couldn't start the quiz: \(error.localizedDescription)"
+                }
+                return
+            }
             // A briefing starts itself: the parent tapped "Brief me".
             if let briefing, isNew, messages.isEmpty, !sending {
                 draft = "Brief me on \(briefing.title)."
@@ -117,6 +164,20 @@ struct ChatView: View {
             guard !isNew, messages.isEmpty else { return }
             do { messages = try await store.messages(in: threadID) } catch { loadError = "Couldn't load this chat." }
         }
+        .task(id: isQuiz) {
+            // Known to be a quiz once the chat list has it (it may load after this opens).
+            if isQuiz, !isNew, quiz.state == nil { await refreshQuiz() }
+        }
+        .task(id: testStartedAt) {
+            // A test run's time is up: Tuttles goes over it.
+            guard let started = testStartedAt, let state = quiz.state else { return }
+            try? await Task.sleep(for: .seconds(max(0, QuizProgress.limit(state) - Date().timeIntervalSince(started))))
+            guard !Task.isCancelled, quiz.state?.finished == false else { return }
+            while sending { try? await Task.sleep(for: .milliseconds(300)) }
+            quiz.state = try? await store.finishQuiz(threadID: threadID)
+            draft = "Time's up!"
+            send()
+        }
         .fullScreenCover(isPresented: $showingCamera) {
             CameraView { taken in
                 photos.append(contentsOf: taken)
@@ -131,7 +192,8 @@ struct ChatView: View {
     private func startCall() {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         typing = false
-        call = VoiceCall(store: store, threadID: threadID, assignmentID: messages.isEmpty ? start?.assignment.id : nil)
+        call = VoiceCall(store: store, threadID: threadID, assignmentID: messages.isEmpty ? start?.assignment.id : nil,
+                         quiz: isQuiz ? quiz : nil)
         withAnimation(Self.callMorph) { showingVoice = true }
         Task {
             try? await Task.sleep(for: .milliseconds(500))
@@ -145,6 +207,7 @@ struct ChatView: View {
             await call?.hangUp()
             // Saved: bring the call into the chat before it shows again.
             if let saved = try? await store.messages(in: threadID) { messages = saved }
+            if isQuiz { await refreshQuiz() }
             callIsDark = false
             withAnimation(Self.callMorph) { showingVoice = false }
             await store.refreshThreads()
@@ -157,7 +220,14 @@ struct ChatView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(height: start == nil ? 200 : 140)
-            if let start {
+            if let quizStart {
+                Text(quizStart.setTitle).font(.title3.weight(.semibold)).multilineTextAlignment(.center)
+                if let startError {
+                    Text(startError).foregroundStyle(.red).multilineTextAlignment(.center)
+                } else {
+                    Label("Getting your quiz ready…", systemImage: "checklist").foregroundStyle(.secondary)
+                }
+            } else if let start {
                 AssignmentBanner(assignment: start.assignment, info: store.classInfo(start.assignment.courseId))
                 Text("Snap the page, or say where you're stuck.")
                     .foregroundStyle(.secondary)
@@ -167,6 +237,12 @@ struct ChatView: View {
                 if loadError == nil {
                     Text("Snap your homework or ask a question.")
                         .foregroundStyle(.secondary)
+                }
+                // The most pressing study set, a tap from a quiz.
+                if isNew, let set = store.study?.sets.first(where: { $0.isSoon && !$0.topics.isEmpty }) {
+                    StudyNudge(set: set)
+                        .padding(.top, 10)
+                        .padding(.horizontal, 24)
                 }
                 if isNew, let soon = store.classes?.dueSoon.prefix(3), !soon.isEmpty {
                     VStack(spacing: 8) {
@@ -344,6 +420,9 @@ struct ChatView: View {
                     if let at = messages.firstIndex(where: { $0.id == reply.id }) { messages[at].content = soFar }
                 }
                 if let at = messages.firstIndex(where: { $0.id == reply.id }) { messages[at].streaming = false }
+                if isQuiz { await refreshQuiz() }
+                // A set made or changed in the chat: its card needs it.
+                if text.isEmpty == false, messages.last?.content.contains("```studyset") == true { await store.refreshStudy() }
                 // Started from a class page: file it there.
                 if isFirst, start == nil, let courseID {
                     await store.setCourse(TutorThread(id: threadID, updatedAt: .now), to: courseID)
@@ -358,6 +437,48 @@ struct ChatView: View {
                 sendError = "Didn't send: \(error.localizedDescription)"
             }
             sending = false
+        }
+    }
+}
+
+// MARK: - Quizzes
+
+extension ChatView {
+    private func refreshQuiz() async {
+        if let state = try? await store.quizState(threadID: threadID) {
+            withAnimation(.snappy) { quiz.state = state }
+            if state.finished { await store.refreshStudy() }
+        }
+    }
+
+    /// A tap on a multiple choice option: graded on the website, then said in the chat.
+    private func choose(_ q: QuizQuestion, _ index: Int) {
+        guard !sending, quiz.pending == nil, let choices = q.choices, choices.indices.contains(index) else { return }
+        quiz.pending = q.id
+        Task {
+            do {
+                let reply = try await store.answerQuiz(threadID: threadID, questionID: q.id, choice: index)
+                withAnimation(.snappy) { quiz.state = reply.state }
+                quiz.pending = nil
+                draft = "\(String(UnicodeScalar(65 + index)!)). \(choices[index])"
+                send()
+            } catch {
+                quiz.pending = nil
+                sendError = "Didn't send: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func endQuiz() {
+        Task {
+            guard let state = try? await store.finishQuiz(threadID: threadID) else { return }
+            withAnimation(.snappy) { quiz.state = state }
+            // Tuttles wraps up what was done.
+            if !sending, !messages.isEmpty {
+                draft = "Let's stop here."
+                send()
+            }
+            await store.refreshStudy()
         }
     }
 }

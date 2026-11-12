@@ -15,6 +15,10 @@ enum MessageBlock: Equatable {
     case table(header: [String], rows: [[String]])
     case math(String)
     case visual(String)
+    /// A quiz question (QuizViews.swift) and a study set (StudyViews.swift),
+    /// as the website shaped them: JSON, with no answer in a question.
+    case question(String)
+    case studySet(String)
     case code(String)
     case rule
 
@@ -64,6 +68,10 @@ enum MessageBlocks {
                 let content = body.joined(separator: "\n")
                 if lang == "visual" {
                     if closed { blocks.append(.visual(content)) }
+                } else if lang == "question" {
+                    if closed { blocks.append(.question(content)) }
+                } else if lang == "studyset" {
+                    if closed { blocks.append(.studySet(content)) }
                 } else if lang == "math" || lang == "latex" {
                     blocks.append(.math(content))
                 } else {

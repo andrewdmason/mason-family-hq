@@ -24,6 +24,39 @@ final class MessageBlocksTests: XCTestCase {
         XCTAssertEqual(blocks[3], .math("\\{(-2,-4),(0,0)\\},"))
     }
 
+    func testQuizQuestionAndStudySetBlocks() {
+        let text = """
+        Warm-up:
+
+        ```question
+        {"id":"q1","number":1,"of":10,"topic":"Cells","kind":"choice","prompt":"Which makes proteins?","choices":["Mitochondria","Ribosome"]}
+        ```
+
+        ```studyset
+        {"id":"s1","title":"Science quiz"}
+        ```
+        """
+        let blocks = MessageBlocks.parse(text)
+        XCTAssertEqual(blocks.count, 3)
+        guard case .question(let json) = blocks[1] else { return XCTFail("\(blocks[1])") }
+        let q = QuizQuestion(block: json)
+        XCTAssertEqual(q?.number, 1)
+        XCTAssertEqual(q?.choices?.count, 2)
+        XCTAssertEqual(q?.isChoice, true)
+        XCTAssertNil(q?.answerIndex, "a saved question carries no answer")
+        guard case .studySet = blocks[2] else { return XCTFail("\(blocks[2])") }
+    }
+
+    @MainActor func testOpenQuestionIsTheUnansweredLast() {
+        let state = DemoChats.quizState(QuizStart(setID: "demo-cells", setTitle: "Cells"))
+        XCTAssertEqual(state.open?.id, "q2")
+        XCTAssertEqual(state.answeredCount, 1)
+        let context = QuizContext()
+        context.state = state
+        XCTAssertTrue(context.canAnswer(state.questions[1]))
+        XCTAssertFalse(context.canAnswer(state.questions[0]), "an answered question takes no more taps")
+    }
+
     func testUnclosedVisualWaitsWhileStreaming() {
         let blocks = MessageBlocks.parse("Here:\n\n```visual\n{\"type\":\"mapping\"")
         XCTAssertEqual(blocks, [.paragraph("Here:")])
