@@ -1,9 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { gradeFor } from "@/lib/tuttles/prompt";
 import type { TutoredStudent } from "@/lib/tuttles/tutoring-as";
 import {
   choiceIndex,
   daysUntil,
   DEFAULT_LENGTH,
+  iseeForGrade,
   matchTopic,
   overallFor,
   planQuiz,
@@ -217,7 +219,7 @@ export async function setSources(db: SupabaseClient, setId: string) {
  * Makes a set from the tutor's draft, or updates one. A draft's topic list,
  * when it has one, is the whole list: topics it leaves out are taken off
  * (their answers stay), new ones are added, and kept ones take its order and
- * weights. A template ('isee') brings its own topics, format and notes.
+ * weights. A template (an ISEE level) brings its own topics, format and notes.
  */
 export async function saveSet(
   db: SupabaseClient,
@@ -231,7 +233,9 @@ export async function saveSet(
   },
 ): Promise<SetRow> {
   const { student, draft } = args;
-  const template = draft.template ? TEMPLATES[draft.template] : null;
+  // Plain "isee": the level for the grade they're going into.
+  const templateId = draft.template === "isee" ? iseeForGrade(gradeFor(student.birthdate)) : draft.template;
+  const template = templateId ? (TEMPLATES[templateId] ?? null) : null;
   let courseId = args.courseId ?? null;
   if (draft.className && courseId == null) {
     const { data: courses } = await db.from("canvas_courses").select("id, name").eq("student_id", student.studentId);

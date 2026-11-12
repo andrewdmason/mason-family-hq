@@ -269,15 +269,59 @@ export type Template = {
 };
 
 /**
- * The ISEE Upper Level, which an 8th grader applying to 9th takes. Canvas
- * doesn't know about it, so its outline is built in. Sections and question
- * types are the published ones.
+ * The ISEE, which Canvas doesn't know about, so its outlines are built in:
+ * one per level, by the grade the student is applying INTO (not the one
+ * they're in): Lower for entering 5th–6th, Middle for 7th–8th, Upper for
+ * 9th–12th. The levels share their sections but not their difficulty,
+ * length or timing. Section lengths are the published ones.
  */
+const ISEE_FORMAT_COMMON =
+  "All multiple choice with four options (A–D), no calculator, no penalty for wrong answers (so never leave one blank), plus an unscored essay sent to schools.";
+
+export const ISEE_LOWER: Template = {
+  id: "isee-lower",
+  title: "ISEE (Lower Level)",
+  format: `ISEE Lower Level, for students entering grades 5–6. ${ISEE_FORMAT_COMMON} Verbal Reasoning: synonyms (pick the word closest in meaning) and one-blank sentence completions. Quantitative Reasoning: word problems only (no quantitative comparisons at this level). Reading Comprehension: short passages, each followed by questions on the main idea, details, inference, vocabulary in context, and organization. Mathematics Achievement: grade 4–5 math problems.`,
+  topics: [
+    { name: "Verbal: synonyms", weight: 2 },
+    { name: "Verbal: sentence completion", weight: 2 },
+    { name: "Reading comprehension", weight: 3 },
+    { name: "Quantitative: word problems and reasoning", weight: 3 },
+    { name: "Math: whole numbers, place value and operations", weight: 2 },
+    { name: "Math: fractions and decimals", weight: 2 },
+    { name: "Math: geometry and measurement", weight: 2 },
+    { name: "Math: data, graphs and probability", weight: 1 },
+    { name: "Math: patterns and early algebra", weight: 1 },
+  ],
+  material:
+    "ISEE Lower Level (entering grades 5–6). Verbal Reasoning (34 questions, 20 minutes): synonyms with grade 4–6 vocabulary; one-blank sentence completions that test vocabulary and the logic of the sentence (signal words like but, because, although). Quantitative Reasoning (38 questions, 35 minutes): word problems that test reasoning more than calculation: number sense, estimation, patterns, simple fractions, measurement, reading tables and graphs. Reading Comprehension (25 questions, 25 minutes): five short passages (science, history, stories). Mathematics Achievement (30 questions, 30 minutes): place value, multi-digit operations, factors and multiples, equivalent fractions, adding and subtracting fractions, decimals and money, perimeter and area of rectangles, angles and shapes, units of measurement and time, bar and line graphs, simple probability, number patterns and missing-number equations. Essay (30 minutes): a prompt about themselves or their experience; unscored, but schools read it.",
+};
+
+export const ISEE_MIDDLE: Template = {
+  id: "isee-middle",
+  title: "ISEE (Middle Level)",
+  format: `ISEE Middle Level, for students entering grades 7–8. ${ISEE_FORMAT_COMMON} Verbal Reasoning: synonyms (pick the word closest in meaning) and sentence completions (a word or phrase). Quantitative Reasoning: word problems and quantitative comparisons (Column A vs Column B: A is greater, B is greater, they're equal, or it can't be determined). Reading Comprehension: passages, each followed by questions on the main idea, details, inference, vocabulary in context, and the author's purpose and tone. Mathematics Achievement: grade 6–7 math problems.`,
+  topics: [
+    { name: "Verbal: synonyms", weight: 2 },
+    { name: "Verbal: sentence completion", weight: 2 },
+    { name: "Reading comprehension", weight: 3 },
+    { name: "Quantitative: word problems", weight: 2 },
+    { name: "Quantitative: quantitative comparison", weight: 2 },
+    { name: "Math: fractions, decimals and percents", weight: 2 },
+    { name: "Math: ratios, rates and proportions", weight: 2 },
+    { name: "Math: integers, exponents and expressions", weight: 2 },
+    { name: "Math: equations and inequalities", weight: 2 },
+    { name: "Math: geometry and measurement", weight: 2 },
+    { name: "Math: data analysis and probability", weight: 1 },
+  ],
+  material:
+    "ISEE Middle Level (entering grades 7–8). Verbal Reasoning (40 questions, 20 minutes): synonyms with grade 6–8 vocabulary (roots and prefixes help); sentence completions where the missing word or phrase follows from the sentence's logic (contrast: although, despite, however; cause: because, so, therefore). Quantitative Reasoning (37 questions, 35 minutes): reasoning more than computation; word problems, and quantitative comparisons where estimating, simplifying or testing cases often beats calculating, and 'can't be determined' is right when the answer depends on unknown values. Reading Comprehension (36 questions, 35 minutes): six passages from history, science and literature. Mathematics Achievement (47 questions, 40 minutes): operations with fractions, decimals and percents; percent of a number and percent change; ratios, unit rates and proportions; negative numbers; exponents and order of operations; writing and evaluating expressions; one- and two-step equations and inequalities; the coordinate plane; area of triangles, parallelograms and circles; volume of prisms; angle relationships; mean, median, mode and range; reading graphs; simple and compound probability. Essay (30 minutes): unscored, sent to schools.",
+};
+
 export const ISEE_UPPER: Template = {
-  id: "isee",
+  id: "isee-upper",
   title: "ISEE (Upper Level)",
-  format:
-    "All multiple choice with four options (A–D), no calculator, except an unscored essay. Verbal Reasoning: synonyms (pick the word closest in meaning) and sentence completions (one or two blanks). Quantitative Reasoning: word problems and quantitative comparisons (Column A vs Column B: A is greater, B is greater, they're equal, or it can't be determined). Reading Comprehension: passages, each followed by questions on the main idea, details, inference, vocabulary in context, and the author's purpose and tone. Mathematics Achievement: grade-level math problems.",
+  format: `ISEE Upper Level, for students entering grades 9–12. ${ISEE_FORMAT_COMMON} Verbal Reasoning: synonyms (pick the word closest in meaning) and sentence completions. Quantitative Reasoning: word problems and quantitative comparisons (Column A vs Column B: A is greater, B is greater, they're equal, or it can't be determined). Reading Comprehension: passages, each followed by questions on the main idea, details, inference, vocabulary in context, and the author's purpose and tone. Mathematics Achievement: grade 8–9 math problems.`,
   topics: [
     { name: "Verbal: synonyms", weight: 2 },
     { name: "Verbal: sentence completion", weight: 2 },
@@ -290,10 +334,29 @@ export const ISEE_UPPER: Template = {
     { name: "Math: data analysis and probability", weight: 1 },
   ],
   material:
-    "ISEE Upper Level. Verbal Reasoning (40 questions, 20 minutes): synonyms with advanced grade 8–12 vocabulary; sentence completions testing vocabulary and logic (contrast and cause words like although, because, despite). Quantitative Reasoning (37 questions, 35 minutes): reasoning more than computation; word problems and quantitative comparisons across numbers and operations, algebra, geometry, measurement, data and probability. Reading Comprehension (36 questions, 35 minutes): six passages from history, science and literature. Mathematics Achievement (47 questions, 40 minutes): fractions, decimals, percents, ratios, exponents and roots, linear equations and inequalities, functions, coordinate geometry, area and volume, angles, the Pythagorean theorem, mean/median/mode, probability. Essay (30 minutes): unscored, sent to schools. Wrong answers aren't penalized, so never leave one blank.",
+    "ISEE Upper Level (entering grades 9–12). Verbal Reasoning (40 questions, 20 minutes): synonyms with advanced grade 8–12 vocabulary; sentence completions testing vocabulary and logic. Quantitative Reasoning (37 questions, 35 minutes): word problems and quantitative comparisons across numbers and operations, algebra, geometry, measurement, data and probability. Reading Comprehension (36 questions, 35 minutes): six passages from history, science and literature. Mathematics Achievement (47 questions, 40 minutes): fractions, decimals, percents, ratios, exponents and roots, linear equations and inequalities, functions, coordinate geometry, area and volume, angles, the Pythagorean theorem, mean/median/mode, probability. Essay (30 minutes): unscored, sent to schools.",
 };
 
-export const TEMPLATES: Record<string, Template> = { isee: ISEE_UPPER };
+export const TEMPLATES: Record<string, Template> = {
+  "isee-lower": ISEE_LOWER,
+  "isee-middle": ISEE_MIDDLE,
+  "isee-upper": ISEE_UPPER,
+};
+
+/** An ISEE outline named with its level ("isee-middle", or "isee" with level "middle"); null if no level was named. */
+export function namedIsee(asked: string, level: string | null): string | null {
+  const a = asked.toLowerCase();
+  if (!a.startsWith("isee")) return null;
+  const named = a.match(/^isee[-_ ]?(lower|middle|upper)$/)?.[1] ?? level?.toLowerCase().match(/lower|middle|upper/)?.[0] ?? null;
+  return named ? `isee-${named}` : null;
+}
+
+/** The ISEE level for a student in `currentGrade` now: the one for the grade they go into next. */
+export function iseeForGrade(currentGrade: number | null): string {
+  if (currentGrade == null) return "isee-middle";
+  const entering = currentGrade + 1;
+  return entering <= 6 ? "isee-lower" : entering <= 8 ? "isee-middle" : "isee-upper";
+}
 
 // --- What the model writes ---------------------------------------------------------
 
@@ -384,6 +447,7 @@ export function parseSetDraft(raw: unknown): SetDraft | null {
   const date = str(o.testDate, 10);
   const coverage = ["thin", "okay", "good"].includes(o.coverage as string) ? (o.coverage as SetDraft["coverage"]) : null;
   const template = str(o.template, 20).toLowerCase();
+  const level = str(o.level, 20).toLowerCase() || null;
   const topics = Array.isArray(o.topics)
     ? o.topics
         .map((t) =>
@@ -404,7 +468,8 @@ export function parseSetDraft(raw: unknown): SetDraft | null {
     title: str(o.title, 120) || null,
     className: str(o.class ?? o.className, 120) || null,
     testDate: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null,
-    template: template in TEMPLATES ? template : null,
+    // Plain "isee" (no level named) is worked out from the student's grade when the set is saved.
+    template: template in TEMPLATES ? template : (namedIsee(template, level) ?? (template === "isee" ? "isee" : null)),
     format: str(o.format, 1500) || null,
     material: str(o.material, 20000) || null,
     coverage,
