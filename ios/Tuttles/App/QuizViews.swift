@@ -9,8 +9,12 @@ import SwiftUI
 @Observable
 final class QuizContext {
     var state: QuizState?
-    /// A choice being sent: the question's id.
-    var pending: String?
+    /// A choice tapped and on its way to be graded. It shows as picked at once.
+    struct Pick: Equatable { let id: String; let index: Int }
+    var pending: Pick?
+
+    /// The option picked on this question while it's being graded.
+    func pendingIndex(_ q: QuizQuestion) -> Int? { pending?.id == q.id ? pending?.index : nil }
     var choose: (QuizQuestion, Int) -> Void = { _, _ in }
 
     /// A question from a saved message, with how it went filled in.
@@ -36,7 +40,7 @@ struct QuestionBlockView: View {
             QuestionCard(
                 question: q,
                 testRun: quiz?.state?.isTestRun == true,
-                pending: quiz?.pending == q.id,
+                pendingIndex: quiz?.pendingIndex(q),
                 onChoose: quiz?.canAnswer(q) == true ? { i in quiz?.choose(q, i) } : nil)
         }
     }
@@ -45,7 +49,8 @@ struct QuestionBlockView: View {
 struct QuestionCard: View {
     let question: QuizQuestion
     var testRun = false
-    var pending = false
+    /// Tapped, being graded: drawn as picked straight away.
+    var pendingIndex: Int?
     /// Set while it can be answered by tapping.
     var onChoose: ((Int) -> Void)?
     /// Drawn over the voice call's dark background.
@@ -66,7 +71,7 @@ struct QuestionCard: View {
             if let choices = question.choices, question.isChoice {
                 VStack(spacing: 8) {
                     ForEach(Array(choices.enumerated()), id: \.offset) { i, choice in
-                        ChoiceRow(letter: String(UnicodeScalar(65 + i)!), text: choice, look: look(i), pending: pending && question.chosenIndex == nil)
+                        ChoiceRow(letter: String(UnicodeScalar(65 + i)!), text: choice, look: look(i))
                             .contentShape(.rect)
                             .onTapGesture {
                                 guard let onChoose else { return }
@@ -91,7 +96,7 @@ struct QuestionCard: View {
     enum Look { case plain, chosen, right, wrong, missedRight }
 
     private func look(_ i: Int) -> Look {
-        guard question.answered else { return .plain }
+        guard question.answered else { return pendingIndex == i ? .chosen : .plain }
         let chosen = question.chosenIndex == i
         guard let answer = question.answerIndex else { return chosen ? .chosen : .plain }
         if i == answer { return chosen ? .right : .missedRight }
@@ -145,7 +150,6 @@ private struct ChoiceRow: View {
     let letter: String
     let text: String
     let look: QuestionCard.Look
-    let pending: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -168,7 +172,6 @@ private struct ChoiceRow: View {
         .padding(.vertical, 10)
         .background(rowFill, in: .rect(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(stroke, lineWidth: look == .plain ? 1 : 2))
-        .opacity(pending ? 0.6 : 1)
         .animation(.snappy, value: look)
     }
 
