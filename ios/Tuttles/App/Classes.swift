@@ -254,13 +254,7 @@ struct ClassPageView: View {
         }
         .navigationTitle(info?.name ?? "Class")
         .kidUsing(store.actingKid)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("New chat", systemImage: "square.and.pencil") {
-                    path.append(.chat(UUID(), isNew: true, courseID: courseID))
-                }
-            }
-        }
+        .newChatButton { path.append(.chat(UUID(), isNew: true, courseID: courseID)) }
         .sheet(isPresented: $showingOverview) {
             if let unit = info?.unit {
                 NavigationStack {

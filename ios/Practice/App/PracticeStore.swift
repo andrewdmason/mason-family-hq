@@ -339,9 +339,10 @@ final class PracticeStore {
         ).publish()
     }
 
-    /// Today's planned practice: the durations set on the day's entries.
+    /// Today's planned practice: the durations set on the day's entries,
+    /// less those on movements of a work tracked whole (or the reverse).
     var todayGoal: Int {
-        tasks.reduce(0) { $0 + max(0, $1.timerSeconds) }
+        QuickLog.goal(tasks, hiddenPieceIDs: Set(allPieces.map(\.id)).subtracting(pieces.map(\.id)))
     }
 
     /// Today's total, a running timer included.

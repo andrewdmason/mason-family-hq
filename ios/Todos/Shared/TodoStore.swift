@@ -545,6 +545,11 @@ final class TodoStore {
         finishRenamingProject()
         guard destination != self.destination else { return }
         commitEdit()
+        // Going anywhere else (⌘[, a g chord) is leaving focus.
+        if focusing {
+            commitFocusEdit()
+            focusing = false
+        }
         newestSectionID = nil
         self.destination = destination
         selectedID = visible.first?.id
@@ -1248,10 +1253,99 @@ final class TodoStore {
         }
     }
 
+    // MARK: Focus
+
+    // One Today to-do at a time, as on the website: Today is where the day is
+    // planned, focus is where it's worked. Every way forward takes the to-do out
+    // of Today (done, snoozed, moved), so there's deliberately no skip. The card
+    // is whichever Today to-do is selected, so the list's own actions, undo and
+    // its pick of what comes next all work here unchanged.
+
+    private(set) var focusing = false
+    /// When this focus began, for the count of what's been done in it.
+    @ObservationIgnored private var focusStarted = ""
+    /// The card's name and notes as typed, saved as one change when it moves on.
+    @ObservationIgnored var focusDraft: (id: String, title: String, notes: String)?
+
+    var focusQueue: [Todo] { tasks(for: .view(.today)) }
+
+    /// The selected Today to-do, or the top of Today when that one has gone
+    /// (finished on another device, say). Nil once Today is clear.
+    var focusTask: Todo? {
+        let queue = focusQueue
+        return queue.first { $0.id == selectedID } ?? queue.first
+    }
+
+    /// Finished since focus began. Counted from the list, so ⌘Z takes one back.
+    var focusDone: Int {
+        guard focusing else { return 0 }
+        return todos.filter { $0.assigneeEmail == me && ($0.completedAt ?? "") >= focusStarted }.count
+    }
+
+    /// Starts on the selected to-do if it's in Today, else at the top. False, and
+    /// nothing changes, when Today is empty.
+    @discardableResult
+    func startFocus() -> Bool {
+        guard !focusing else { return true }
+        let queue = focusQueue
+        guard !queue.isEmpty else { return false }
+        let start = queue.first { $0.id == selectedID } ?? queue[0]
+        commitEdit()
+        go(.view(.today))
+        selectedID = start.id
+        focusStarted = Self.stamp(Date())
+        focusing = true
+        return true
+    }
+
+    /// Back to Today, with the to-do you were on selected.
+    func endFocus() {
+        guard focusing else { return }
+        commitFocusEdit()
+        focusing = false
+        if let task = focusTask { selectedID = task.id }
+    }
+
+    func toggleFocus() -> Bool {
+        if focusing {
+            endFocus()
+            return true
+        }
+        return startFocus()
+    }
+
+    func commitFocusEdit() {
+        guard let draft = focusDraft else { return }
+        focusDraft = nil
+        edit(draft.id, title: draft.title, notes: draft.notes)
+    }
+
+    private func onFocusTask(_ body: () -> Void) {
+        commitFocusEdit()
+        guard let task = focusTask else { return }
+        selectedID = task.id
+        body()
+    }
+
+    func focusComplete() { onFocusTask { completeSelected() } }
+    func focusSnooze(until date: Date) { onFocusTask { snoozeSelected(until: date) } }
+    func focusMove(to bucket: Bucket) { onFocusTask { moveSelected(to: bucket) } }
+
+    func focusUndo() {
+        commitFocusEdit()
+        undo()
+    }
+
+    func focusRedo() {
+        commitFocusEdit()
+        redo()
+    }
+
     // MARK: Saving
 
     /// On quitting: the usual save waits a moment, and would never happen.
     func saveNow() {
+        commitFocusEdit()
         closeOpen()
         finishNamingSection()
         finishRenamingProject()
