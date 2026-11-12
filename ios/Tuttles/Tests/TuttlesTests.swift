@@ -130,4 +130,20 @@ final class SpokenCaptionTests: XCTestCase {
         XCTAssertNotNil(VoiceCall.visual(from: #"{"visual":{"type":"math","latex":"x"}}"#))
         XCTAssertNil(VoiceCall.visual(from: "nonsense"))
     }
+
+    func testReconnectRecap() {
+        let turns = [
+            VoiceCall.Turn(id: "u1", role: "user", text: "What's 3 times 4?"),
+            VoiceCall.Turn(id: "a1", role: "assistant", text: "Let's count it out.", visuals: ["{}"]),
+            VoiceCall.Turn(id: "p1", role: "user", images: ["x/y.jpg"]),
+            VoiceCall.Turn(id: "e1", role: "assistant"),
+        ]
+        let recap = VoiceCall.recap(turns, readings: ["p1": "Problem 2: 5 x 6"], midTurn: false)
+        XCTAssertTrue(recap.contains("Student: What's 3 times 4?"))
+        XCTAssertTrue(recap.contains("You: Let's count it out. (put a picture on their screen)"))
+        XCTAssertTrue(recap.contains("Student: (sent a photo, which shows: Problem 2: 5 x 6)"))
+        XCTAssertFalse(recap.contains("You: \n"))
+        XCTAssertTrue(recap.contains("Don't start talking"))
+        XCTAssertTrue(VoiceCall.recap([], readings: [:], midTurn: true).contains("Nothing had been said yet"))
+    }
 }
