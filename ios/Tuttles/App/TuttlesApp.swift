@@ -131,9 +131,9 @@ struct ChatsView: View {
                     }
                 }
         }
-        .onChange(of: store.showingParentView) { _, parent in
+        .onChange(of: store.viewer) {
             // A view starts at its home: the parent's This week, or a new chat for the kid's.
-            path = parent ? [] : [.chat(UUID(), isNew: true)]
+            path = store.showingParentView ? [] : [.chat(UUID(), isNew: true)]
         }
         .onAppear { if store.showingParentView { path = [] } }
     }
@@ -230,6 +230,7 @@ private struct ThreadListView: View {
             }
         }
         .navigationTitle("Tuttles")
+        .kidUsing(store.actingKid)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { AccountMenu(showMemory: $showingMemory) }
         }
@@ -263,10 +264,17 @@ struct AccountMenu: View {
         @Bindable var store = store
         Menu {
             if store.isParent {
-                // Parents see the app as the kid does, or their own view of it.
-                Picker("View", selection: $store.parentView) {
-                    Label("See it as \(store.classes?.student.name ?? "the kid")", systemImage: "iphone").tag(false)
-                    Label("Parent view", systemImage: "person.2").tag(true)
+                // A kid without a phone uses it as themselves; the kid with one,
+                // parents see as they would; or the parents' own view.
+                Picker("View", selection: $store.viewer) {
+                    if store.kids.isEmpty {
+                        Label("See it as \(store.classes?.student.name ?? "the kid")", systemImage: "iphone").tag(ChatStore.Viewer.preview)
+                    }
+                    ForEach(store.kids) { kid in
+                        Label(kid.name, systemImage: kid.mode == .own ? "person.fill" : "iphone")
+                            .tag(kid.mode == .own ? ChatStore.Viewer.kid(kid.id) : .preview)
+                    }
+                    Label("Parent view", systemImage: "person.2").tag(ChatStore.Viewer.parent)
                 }
             }
             Button(store.showingParentView ? "What Tuttles knows about \(store.classes?.student.name ?? "them")" : "What Tuttles knows about you",
@@ -278,5 +286,17 @@ struct AccountMenu: View {
             Image(systemName: "person.crop.circle")
         }
         .accessibilityLabel("Account")
+    }
+}
+
+extension View {
+    /// While a kid is using a parent's phone, their name sits under the title,
+    /// so nobody chats as them by mistake.
+    @ViewBuilder func kidUsing(_ kid: FamilyKid?) -> some View {
+        if let kid {
+            navigationSubtitle("\(kid.name) is using Tuttles")
+        } else {
+            self
+        }
     }
 }

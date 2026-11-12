@@ -136,6 +136,10 @@ extension DemoChats {
                                  comment: "Missing important parts of the final question.", new: true)]
         return ClassesPayload(
             student: .init(name: "Sebastian", preview: false),
+            kids: [
+                FamilyKid(id: UUID(uuidString: "00000000-0000-0000-0000-00000000000a")!, name: "Oscar", mode: .own),
+                FamilyKid(id: UUID(uuidString: "00000000-0000-0000-0000-00000000000b")!, name: "Sebastian", mode: .preview),
+            ],
             memory: .init(
                 learning: ["Gets it faster from a worked example before trying one himself"],
                 classes: [

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { classesFor, type ClassesPayload } from "@/lib/tuttles/classes";
-import { tutoredStudent } from "@/lib/tuttles/tutoring-as";
+import { familyKids, requestedKid, tutoredStudent } from "@/lib/tuttles/tutoring-as";
 import { currentMemory } from "@/lib/tuttles/memory";
 
 export const runtime = "nodejs";
@@ -24,15 +24,17 @@ export async function GET(request: Request) {
     data: { user },
   } = await db.auth.getUser(token);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const student = await tutoredStudent(db, user.id);
+  const student = await tutoredStudent(db, user.id, requestedKid(request));
   if (!student) return NextResponse.json({ error: "not a family member" }, { status: 403 });
 
-  const [classes, memory] = await Promise.all([
-    classesFor(db, student.studentId, user.id),
+  const [classes, memory, kids] = await Promise.all([
+    classesFor(db, student.studentId, student.ownerId),
     currentMemory(db, student.studentId),
+    familyKids(db, user.id),
   ]);
   const payload: ClassesPayload = {
     student: { name: student.name, preview: student.preview },
+    ...(kids ? { kids } : {}),
     memory: memory && {
       learning: memory.profile.learning.map((i) => i.text),
       classes: memory.profile.classes.map((c) => ({

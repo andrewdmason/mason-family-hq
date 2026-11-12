@@ -21,9 +21,32 @@ struct ClassesPayload: Decodable {
         var isEmpty: Bool { learning.isEmpty && classes.isEmpty }
     }
     let student: Student
+    /// For a parent: the kids the app can switch to, youngest first.
+    var kids: [FamilyKid]? = nil
     var memory: Memory? = nil
     let dueSoon: [ClassAssignment]
     let classes: [ClassInfo]
+}
+
+extension ClassesPayload {
+    /// While another view loads: only the kid list, which every view shares.
+    func forSwitching() -> ClassesPayload? {
+        guard let kids else { return nil }
+        return ClassesPayload(student: Student(name: "", preview: false), kids: kids, dueSoon: [], classes: [])
+    }
+}
+
+/// A kid a parent's app can switch to (src/lib/tuttles/tutoring-as.ts).
+struct FamilyKid: Decodable, Hashable, Identifiable {
+    enum Mode: String, Decodable {
+        /// The parent sees what this kid would, in their own chats.
+        case preview
+        /// The kid uses the parent's phone, in the kid's own chats.
+        case own
+    }
+    let id: UUID
+    let name: String
+    let mode: Mode
 }
 
 struct ClassInfo: Decodable, Identifiable, Hashable {
@@ -230,6 +253,7 @@ struct ClassPageView: View {
             }
         }
         .navigationTitle(info?.name ?? "Class")
+        .kidUsing(store.actingKid)
         .newChatButton { path.append(.chat(UUID(), isNew: true, courseID: courseID)) }
         .sheet(isPresented: $showingOverview) {
             if let unit = info?.unit {

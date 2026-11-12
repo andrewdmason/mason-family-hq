@@ -73,11 +73,79 @@ final class ChatStore {
     /// The signed-in member is a parent (or it's the demo).
     var isParent: Bool { isDemo || ["owner", "parent"].contains(Session.shared.role ?? "") }
 
-    /// A parent's choice between seeing the app as the kid and their own view.
-    var parentView: Bool = UserDefaults.standard.bool(forKey: "tuttles.parentView") {
-        didSet { UserDefaults.standard.set(parentView, forKey: "tuttles.parentView") }
+    /// Who a parent's phone is being used as. It stays chosen, across launches,
+    /// until a parent picks another.
+    enum Viewer: Hashable {
+        /// The parents' own view (This week).
+        case parent
+        /// The parent seeing the app as the previewed kid, in their own chats.
+        case preview
+        /// A kid without a phone using this one, in the kid's own chats.
+        case kid(UUID)
     }
-    var showingParentView: Bool { isParent && parentView }
+
+    var viewer: Viewer = ChatStore.savedViewer {
+        didSet {
+            guard viewer != oldValue else { return }
+            let saved: String = switch viewer {
+            case .parent: "parent"
+            case .preview: "preview"
+            case .kid(let id): id.uuidString.lowercased()
+            }
+            UserDefaults.standard.set(saved, forKey: "tuttles.viewer")
+            switchedViewer()
+        }
+    }
+
+    private static var savedViewer: Viewer {
+        let defaults = UserDefaults.standard
+        switch defaults.string(forKey: "tuttles.viewer") {
+        case "parent": return .parent
+        case "preview": return .preview
+        case let saved?: return UUID(uuidString: saved).map(Viewer.kid) ?? .preview
+        // Before there was a kid choice: a yes/no for the parent view.
+        case nil: return defaults.bool(forKey: "tuttles.parentView") ? .parent : .preview
+        }
+    }
+
+    var showingParentView: Bool { isParent && viewer == .parent }
+
+    /// The kid using this parent's phone as themselves, if one is.
+    var actingKid: FamilyKid? {
+        guard isParent, case .kid(let id) = viewer else { return nil }
+        return classes?.kids?.first { $0.id == id } ?? FamilyKid(id: id, name: classes?.student.name ?? "Kid", mode: .own)
+    }
+
+    /// Whose chats the app shows and saves: the signed-in member's, or the
+    /// kid's using their phone.
+    var ownerID: UUID? { actingKid?.id ?? Session.shared.userID }
+
+    /// The kids a parent can switch to, youngest first, from the last classes load.
+    var kids: [FamilyKid] { isParent ? classes?.kids ?? [] : [] }
+
+    /// A request to the website, signed as the member, naming the kid using
+    /// the phone if one is (src/lib/tuttles/tutoring-as.ts).
+    func authorize(_ request: inout URLRequest, token: String) {
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let kid = actingKid {
+            request.setValue(kid.id.uuidString.lowercased(), forHTTPHeaderField: "X-Tuttles-Kid")
+        }
+    }
+
+    /// Someone else is using the app now: their chats and classes, not the last person's.
+    private func switchedViewer() {
+        threads = []
+        threadsLoaded = false
+        // Keep the kid list (it's the same for every view) until the new load replaces it.
+        if let payload = classes { classes = payload.forSwitching() }
+        classesLoaded = false
+        loadSaved()
+        Task {
+            async let threads: Void = refreshThreads()
+            async let classes: Void = refreshClasses()
+            _ = await (threads, classes)
+        }
+    }
 
     /// The parents' "This week" (ParentView.swift).
     var week: WeekPayload?
@@ -118,7 +186,7 @@ final class ChatStore {
     /// Shows what this phone saw last time straight away, so the list doesn't
     /// wait on the network to open; the refreshes replace it.
     func loadSaved() {
-        guard !isDemo, let userID = Session.shared.userID else { return }
+        guard !isDemo, let userID = ownerID else { return }
         if threads.isEmpty, let data = try? Data(contentsOf: Self.savedFile("threads", userID)),
            let saved = try? Self.decoder.decode([TutorThread].self, from: data) {
             threads = saved
@@ -141,7 +209,7 @@ final class ChatStore {
     }
 
     private func save(_ data: Data, as name: String) {
-        guard let userID = Session.shared.userID else { return }
+        guard let userID = ownerID else { return }
         try? data.write(to: Self.savedFile(name, userID), options: .atomic)
     }
 
@@ -156,7 +224,7 @@ final class ChatStore {
         do {
             let fresh: [TutorThread] = try await client.from("tutor_threads")
                 .select("id, title, updated_at, archived_at, course_id, kind")
-                .eq("student_id", value: Session.shared.userID?.uuidString.lowercased() ?? "")
+                .eq("student_id", value: ownerID?.uuidString.lowercased() ?? "")
                 .is("archived_at", value: nil)
                 .order("updated_at", ascending: false)
                 .limit(200)
@@ -180,7 +248,7 @@ final class ChatStore {
         }
         guard let token = try? await client.auth.session.accessToken else { return }
         var request = URLRequest(url: Self.websiteURL.appending(path: "tuttles/api/classes"))
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        authorize(&request, token: token)
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200,
               let payload = try? Self.decoder.decode(ClassesPayload.self, from: data) else { return }
@@ -209,6 +277,7 @@ final class ChatStore {
         }
         classes = ClassesPayload(
             student: payload.student,
+            kids: payload.kids,
             memory: payload.memory,
             dueSoon: payload.dueSoon,
             classes: payload.classes.map { c in
@@ -218,7 +287,7 @@ final class ChatStore {
     }
 
     func markSeenLater(_ assignment: ClassAssignment) {
-        guard !isDemo, let userID = Session.shared.userID else { return }
+        guard !isDemo, let userID = ownerID else { return }
         struct Seen: Encodable { let user_id: String; let assignment_id: Int }
         Task {
             _ = try? await client.from("tutor_feedback_seen")
@@ -312,7 +381,7 @@ final class ChatStore {
             try await DemoChats.reply(onText: onText)
             return
         }
-        guard let userID = Session.shared.userID else { throw SendError.notSignedIn }
+        guard let userID = ownerID else { throw SendError.notSignedIn }
         let folder = "\(userID.uuidString.lowercased())/\(threadID.uuidString.lowercased())"
         var paths: [String] = []
         for photo in photos {
@@ -328,7 +397,7 @@ final class ChatStore {
         var request = URLRequest(url: Self.chatURL)
         request.httpMethod = "POST"
         request.timeoutInterval = 120
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        authorize(&request, token: token)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = ["threadId": threadID.uuidString.lowercased(), "text": text, "images": paths]
         if let assignmentID { body["assignmentId"] = assignmentID }

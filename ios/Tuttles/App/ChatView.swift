@@ -72,6 +72,7 @@ struct ChatView: View {
             }
         }
         .navigationTitle(showingVoice ? "" : (title ?? ""))
+        .kidUsing(store.actingKid)
         .toolbar {
             // In a call the bar stays put: the call button becomes hang-up, and
             // the camera takes the back button's place.

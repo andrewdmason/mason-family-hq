@@ -4,7 +4,7 @@ import type { ResponseInputItem } from "openai/resources/responses/responses";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { briefingInstructions, TUTOR_MODEL, tutorInstructions, type Briefing } from "@/lib/tuttles/prompt";
 import { nameThread } from "@/lib/tuttles/naming";
-import { tutoredStudent } from "@/lib/tuttles/tutoring-as";
+import { requestedKid, tutoredStudent } from "@/lib/tuttles/tutoring-as";
 import { studentSections } from "@/lib/tuttles/context";
 
 export const runtime = "nodejs";
@@ -54,9 +54,11 @@ export async function POST(request: Request) {
   } = await db.auth.getUser(token);
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   // A parent is tutored as a kid (src/lib/tuttles/tutoring-as.ts); the thread
-  // and its messages are still the parent's own.
-  const student = await tutoredStudent(db, user.id);
+  // and its messages are still the parent's own, unless the parent's phone is
+  // being used by a kid, whose they then are.
+  const student = await tutoredStudent(db, user.id, requestedKid(request));
   if (!student) return NextResponse.json({ error: "not a family member" }, { status: 403 });
+  const ownerId = student.ownerId;
 
   let body: { threadId?: unknown; text?: unknown; images?: unknown; assignmentId?: unknown; briefing?: unknown };
   try {
@@ -68,7 +70,7 @@ export async function POST(request: Request) {
   if (!UUID.test(threadId)) return NextResponse.json({ error: "bad threadId" }, { status: 400 });
   const text = typeof body.text === "string" ? body.text.trim().slice(0, MAX_TEXT) : "";
   const images = Array.isArray(body.images) ? body.images : [];
-  const folder = `${user.id}/${threadId}/`;
+  const folder = `${ownerId}/${threadId}/`;
   if (
     images.length > MAX_IMAGES ||
     !images.every((p): p is string => typeof p === "string" && p.startsWith(folder) && p.endsWith(".jpg") && !p.includes(".."))
@@ -82,7 +84,7 @@ export async function POST(request: Request) {
     .select("id, student_id, title, course_id, assignment_id, kind, topic")
     .eq("id", threadId)
     .maybeSingle();
-  if (thread && thread.student_id !== user.id) return NextResponse.json({ error: "not your thread" }, { status: 403 });
+  if (thread && thread.student_id !== ownerId) return NextResponse.json({ error: "not your thread" }, { status: 403 });
 
   // The assignment this chat was opened from, if it's one of the tutored kid's.
   const requested = typeof body.assignmentId === "number" ? body.assignmentId : null;
@@ -183,7 +185,7 @@ export async function POST(request: Request) {
             .from("tutor_threads")
             .insert({
               id: threadId,
-              student_id: user.id,
+              student_id: ownerId,
               course_id: briefing ? briefing.courseId : (opened?.course_id ?? null),
               assignment_id: opened?.id ?? null,
               ...(briefing ? { kind: "briefing", topic: briefing, title: briefing.title } : {}),
