@@ -28,7 +28,7 @@ extension DemoChats {
            {"id":"s3","name":"Ordering at a restaurant","weight":2,"level":"new","asked":0,"right":0,"lastSeen":null},
            {"id":"s4","name":"Gustar with food","weight":1,"level":"new","asked":0,"right":0,"lastSeen":null}],
           "quizzes":0,"lastQuizAt":null},
-         {"id":"demo-isee","title":"ISEE (Upper Level)","courseId":null,"testDate":"\#(isee)","daysLeft":52,"coverage":"okay","coverageNote":"a practice test you've taken","createdByParent":true,
+         {"id":"demo-isee","title":"ISEE (Middle Level)","courseId":null,"testDate":"\#(isee)","daysLeft":52,"coverage":"okay","coverageNote":"a practice test you've taken","createdByParent":true,
           "overall":{"level":"learning","ready":1,"total":9,"note":null},
           "topics":[
            {"id":"i1","name":"Verbal: synonyms","weight":2,"level":"shaky","asked":8,"right":5,"lastSeen":"2026-11-08T03:00:00Z"},

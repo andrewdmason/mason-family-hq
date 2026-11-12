@@ -620,6 +620,8 @@ struct NewStudySetSheet: View {
     @State private var note = ""
     @State private var photos: [ChatPhoto] = []
     @State private var isee = false
+    /// "isee" lets the website pick the level from the kid's grade.
+    @State private var iseeLevel = "isee"
     @State private var camera = false
     @State private var saving = false
     @State private var error: String?
@@ -629,11 +631,21 @@ struct NewStudySetSheet: View {
             Form {
                 Section {
                     Toggle("ISEE prep", isOn: $isee)
+                    if isee {
+                        Picker("Level", selection: $iseeLevel) {
+                            Text("For their grade").tag("isee")
+                            Text("Lower (entering 5th–6th)").tag("isee-lower")
+                            Text("Middle (entering 7th–8th)").tag("isee-middle")
+                            Text("Upper (entering 9th–12th)").tag("isee-upper")
+                        }
+                    }
                 } footer: {
-                    if isee { Text("Starts from the ISEE Upper Level's sections: verbal, quantitative, reading and math.") }
+                    if isee {
+                        Text("Starts from that level's sections: verbal, quantitative, reading and math. The level goes by the grade they're applying into.")
+                    }
                 }
                 Section {
-                    TextField(isee ? "ISEE (Upper Level)" : "Science quiz: cells", text: $title)
+                    TextField(isee ? "ISEE" : "Science quiz: cells", text: $title)
                     if !isee, let classes = store.classes?.classes, !classes.isEmpty {
                         Picker("Class", selection: $courseID) {
                             Text("None").tag(Int?.none)
@@ -677,7 +689,7 @@ struct NewStudySetSheet: View {
             do {
                 let set = try await store.createStudySet(
                     title: title.trimmingCharacters(in: .whitespaces), courseID: isee ? nil : courseID,
-                    testDate: hasDate ? date : nil, note: note, photos: photos, template: isee ? "isee" : nil)
+                    testDate: hasDate ? date : nil, note: note, photos: photos, template: isee ? iseeLevel : nil)
                 dismiss()
                 if let set { onMade(set.id) }
             } catch {

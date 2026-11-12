@@ -16,6 +16,9 @@ import { FenceFilter } from "@/lib/tuttles/fences";
 import {
   choiceIndex,
   isBareGrade,
+  iseeForGrade,
+  namedIsee,
+  TEMPLATES,
   overallFor,
   parseGrade,
   parseQuestion,
@@ -196,5 +199,21 @@ for (const chunks of [[leaked], [...leaked]]) {
 }
 assert.equal((await runBare(["Sets look like {1, 2, 3} here.\n{x | x > 2}\n"])).shown, "Sets look like {1, 2, 3} here.\n{x | x > 2}\n");
 assert.deepEqual((await runBare(['{"result":"wrong"}'])).got, ['grade:{"result":"wrong"}'], "a reply that's only the call");
+
+// --- ISEE levels: by the grade they're going INTO ---
+assert.equal(iseeForGrade(5), "isee-lower", "a 5th grader going into 6th takes the Lower Level");
+assert.equal(iseeForGrade(7), "isee-middle", "a 7th grader applying for 8th takes the Middle Level");
+assert.equal(iseeForGrade(8), "isee-upper");
+assert.equal(iseeForGrade(3), "isee-lower");
+assert.equal(namedIsee("isee", "Middle"), "isee-middle");
+assert.equal(namedIsee("isee-lower", null), "isee-lower");
+assert.equal(namedIsee("isee", null), null, "no level named: left to the grade");
+assert.equal(parseSetDraft('{"template":"isee"}')?.template, "isee");
+assert.equal(parseSetDraft('{"template":"isee","level":"lower"}')?.template, "isee-lower");
+assert.equal(parseSetDraft('{"template":"ISEE-Upper"}')?.template, "isee-upper");
+for (const t of Object.values(TEMPLATES)) {
+  assert.ok(t.topics.length >= 8 && t.material.includes("questions"), `${t.id} is filled in`);
+}
+assert.ok(!TEMPLATES["isee-lower"].topics.some((t) => /comparison/i.test(t.name)), "no quantitative comparisons at Lower Level");
 
 console.log("verify-tuttles-study: ok");

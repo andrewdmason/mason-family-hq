@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { tuttlesCaller } from "@/lib/tuttles/context";
-import { parseSetDraft, TEMPLATES } from "@/lib/tuttles/study";
+import { iseeForGrade, namedIsee, parseSetDraft, TEMPLATES } from "@/lib/tuttles/study";
+import { gradeFor } from "@/lib/tuttles/prompt";
 import { addSources, saveSet, setSummaries } from "@/lib/tuttles/study-db";
 import { foldInMaterial } from "@/lib/tuttles/study-material";
 
@@ -73,7 +74,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "bad json" }, { status: 400 });
   }
   const title = typeof body.title === "string" ? body.title.trim().slice(0, 120) : "";
-  const template = typeof body.template === "string" && body.template in TEMPLATES ? body.template : null;
+  // "isee-lower"/"-middle"/"-upper", or plain "isee" for the level the kid's grade calls for.
+  const asked = typeof body.template === "string" ? body.template.toLowerCase() : "";
+  const template =
+    asked in TEMPLATES ? asked : (namedIsee(asked, null) ?? (asked === "isee" ? iseeForGrade(gradeFor(student.birthdate)) : null));
   if (!title && !template) return NextResponse.json({ error: "A study set needs a name." }, { status: 400 });
   const note = typeof body.note === "string" ? body.note.trim().slice(0, 8000) : "";
   const folder = `${student.studentId}/study/`;
