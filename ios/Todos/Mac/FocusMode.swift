@@ -27,7 +27,7 @@ final class FocusView: NSView, NSTextFieldDelegate {
     private let title = FocusTitleField()
     private let snooze = NSButton()
     private let notes = DetailNotesView.make(style: Metrics.noteStyle)
-    private let placeholder = NSTextField(labelWithString: "Notes")
+    private let placeholder = NotesPlaceholder(labelWithString: "Notes")
     private let strip = AttachmentStripView()
     private let clear = NSTextField(labelWithString: "Today's clear")
     private let clearDetail = NSTextField(labelWithString: "")
