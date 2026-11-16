@@ -1,6 +1,12 @@
 import AppKit
 import Quartz
 
+/// The grey "Notes" over an empty note. It sits on top of the notes, so it lets
+/// clicks through to them: a label would otherwise take the click and do nothing.
+final class NotesPlaceholder: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// The notes in an open to-do. The rules are in NoteEditing; this is the Mac's side
 /// of them: keys, clicks, the clipboard and undo.
 final class DetailNotesView: NSTextView, NSTextViewDelegate {

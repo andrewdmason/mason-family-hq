@@ -956,7 +956,7 @@ final class TodoDetailCell: NSTableCellView {
     private let circle = TickView()
     private let title = DetailTitleField()
     private let notes = DetailNotesView.make(style: Metrics.noteStyle)
-    private let placeholder = NSTextField(labelWithString: "Notes")
+    private let placeholder = NotesPlaceholder(labelWithString: "Notes")
     private let strip = AttachmentStripView()
     private var todoID: String?
     private var attachmentStore: AttachmentStore?
@@ -1123,6 +1123,10 @@ final class TodoCell: NSTableCellView {
     private let marker = NSImageView()
     private let title = NSTextField(labelWithString: "")
     private let detail = NSTextField(labelWithString: "")
+    /// Things' page right after the name: this one has notes.
+    private let noteIcon = NSImageView()
+    private var noteGap: NSLayoutConstraint?
+    private var noteWidth: NSLayoutConstraint?
     private let paperclip = NSImageView()
     private let paperclipCount = NSTextField(labelWithString: "")
     private var titleLeading: NSLayoutConstraint?
@@ -1142,18 +1146,22 @@ final class TodoCell: NSTableCellView {
         title.focusRingType = .none
         title.isBezeled = false
         title.drawsBackground = false
-        title.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        // Hugs its words, so the notes page sits right after them.
+        title.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         detail.font = .systemFont(ofSize: 12)
         detail.textColor = .tertiaryLabelColor
         detail.setContentCompressionResistancePriority(.required, for: .horizontal)
         detail.setContentHuggingPriority(.required, for: .horizontal)
+        noteIcon.image = NSImage(systemSymbolName: "doc", accessibilityDescription: "Has notes")
+        noteIcon.symbolConfiguration = .init(pointSize: 11, weight: .regular)
+        noteIcon.contentTintColor = .tertiaryLabelColor
         paperclip.image = NSImage(systemSymbolName: "paperclip", accessibilityDescription: "Attachments")
         paperclip.symbolConfiguration = .init(pointSize: 11, weight: .regular)
         paperclip.contentTintColor = .tertiaryLabelColor
         paperclipCount.font = .systemFont(ofSize: 12)
         paperclipCount.textColor = .tertiaryLabelColor
-        for view in [circle, marker, title, detail, paperclip, paperclipCount] as [NSView] {
+        for view in [circle, marker, title, noteIcon, detail, paperclip, paperclipCount] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -1166,7 +1174,8 @@ final class TodoCell: NSTableCellView {
             marker.centerYAnchor.constraint(equalTo: centerYAnchor),
             marker.widthAnchor.constraint(equalToConstant: 16),
             title.centerYAnchor.constraint(equalTo: centerYAnchor),
-            paperclip.leadingAnchor.constraint(greaterThanOrEqualTo: title.trailingAnchor, constant: 8),
+            noteIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            paperclip.leadingAnchor.constraint(greaterThanOrEqualTo: noteIcon.trailingAnchor, constant: 8),
             paperclip.centerYAnchor.constraint(equalTo: centerYAnchor),
             paperclipCount.leadingAnchor.constraint(equalTo: paperclip.trailingAnchor, constant: 2),
             paperclipCount.firstBaselineAnchor.constraint(equalTo: title.firstBaselineAnchor),
@@ -1176,17 +1185,26 @@ final class TodoCell: NSTableCellView {
         ])
         titleLeading = title.leadingAnchor.constraint(equalTo: circle.trailingAnchor, constant: 8)
         titleLeading?.isActive = true
+        noteGap = noteIcon.leadingAnchor.constraint(equalTo: title.trailingAnchor, constant: 6)
+        noteWidth = noteIcon.widthAnchor.constraint(equalToConstant: 0)
+        noteGap?.isActive = true
+        noteWidth?.isActive = true
         for view in [paperclip, paperclipCount] {
             view.setContentCompressionResistancePriority(.required, for: .horizontal)
             view.setContentHuggingPriority(.required, for: .horizontal)
         }
-        // The name fills the row; the row's detail stays out of its way.
-        title.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -28).withPriority(.defaultLow).isActive = true
+        // The name takes what room the row's detail leaves it, and no more; the
+        // attachment count stays over at the right, by the detail.
+        paperclipCount.trailingAnchor.constraint(equalTo: detail.leadingAnchor, constant: -8).withPriority(.defaultLow).isActive = true
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     func configure(_ todo: Todo, detail text: String?, marker list: TodoView?, attachments: Int, onTick: @escaping () -> Void) {
+        let hasNotes = TodoMerge.plainNotes(fromHTML: todo.notes) != nil
+        noteIcon.isHidden = !hasNotes
+        noteGap?.constant = hasNotes ? 6 : 0
+        noteWidth?.constant = hasNotes ? 12 : 0
         paperclip.isHidden = attachments == 0
         paperclipCount.isHidden = attachments == 0
         paperclipCount.stringValue = attachments > 0 ? "\(attachments)" : ""
