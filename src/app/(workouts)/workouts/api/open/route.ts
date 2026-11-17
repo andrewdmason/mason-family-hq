@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { supabaseUrl, supabaseAnonKey } from "@/lib/supabase/config";
 import { ensureSessionForEvent } from "@/lib/workouts/session";
+import { eventRequest, phoneMember } from "@/lib/workouts/phone";
 
 export const runtime = "nodejs";
-// The first open of a workout runs the AI parse.
+// The first open of a workout nobody prepared runs the AI parse.
 export const maxDuration = 120;
 
 /**
@@ -18,38 +16,18 @@ export const maxDuration = 120;
  *   → { sessionId }
  *
  * Safe to send again: an event already opened and structured returns its
- * session, and one whose parse failed is parsed again. The phone has a Supabase
- * session but no website cookies, so it sends its access token and this
- * validates it (excluded from the session gate in middleware for that reason),
- * then acts as that member, under row-level security.
+ * session, and one whose parse failed is parsed again. Quick when the phone
+ * prepared the workout first (../prepare/route.ts).
  */
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export async function POST(request: Request) {
-  const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
-  if (!token) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const {
-    data: { user },
-  } = await createAdminClient().auth.getUser(token);
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const caller = await phoneMember(request);
+  if (!caller) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const asked = await eventRequest(request);
+  if (!asked) return NextResponse.json({ error: "bad request" }, { status: 400 });
+  const timeZone = typeof asked.body.timeZone === "string" ? asked.body.timeZone : null;
 
-  let body: { eventId?: unknown; timeZone?: unknown };
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "bad json" }, { status: 400 });
-  }
-  const eventId = typeof body.eventId === "string" ? body.eventId.toLowerCase() : "";
-  if (!UUID.test(eventId)) return NextResponse.json({ error: "bad eventId" }, { status: 400 });
-  const timeZone = typeof body.timeZone === "string" ? body.timeZone : null;
-
-  const member = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  try {
-    const sessionId = await ensureSessionForEvent(member, user.id, eventId, { timeZone });
+    const sessionId = await ensureSessionForEvent(caller.member, caller.userId, asked.eventId, { timeZone });
     return NextResponse.json({ sessionId });
   } catch (error) {
     const message = error instanceof Error ? error.message : "couldn't open the workout";

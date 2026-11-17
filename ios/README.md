@@ -154,6 +154,12 @@ their own. Four tabs, as on the website: Today, Upcoming, PRs, History.
   (`/workouts/api/open`, with the phone's access token), which holds the model
   key that structures it. A workout that came back unstructured is tried again
   the same way.
+- That structuring is the slow part, so on each load the app sends the
+  workouts coming up to `/workouts/api/prepare`, one at a time in the
+  background. The website keeps each parse by the text's hash
+  (`workout_parses`) and the open picks it up. Nothing is opened ahead: an
+  opened workout's prescribed loads count toward estimated maxes whether or
+  not it was done, so a skipped one must not become a session.
 - Still on the website only: logging a workout that isn't on the calendar,
   editing or re-importing a workout's movements, the movement library, and
   sending to WHOOP (the recap says where that stands).
