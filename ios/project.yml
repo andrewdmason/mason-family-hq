@@ -309,3 +309,49 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: true
+  # Workouts: today's workout from the calendar, logged set by set at the gym,
+  # with estimated 1RMs and personal records. Opening a calendar workout goes
+  # through the website (/workouts/api/open), which holds the model key.
+  Workouts:
+    type: application
+    platform: iOS
+    sources: [Workouts/App]
+    dependencies:
+      - package: MasonKit
+      - package: Supabase
+        product: Supabase
+    entitlements:
+      path: Workouts/App/Workouts.entitlements
+      properties:
+        keychain-access-groups: [$(AppIdentifierPrefix)io.mason.shared]
+    info:
+      path: Workouts/App/Info.plist
+      properties:
+        CFBundleDisplayName: Workouts
+        CFBundleURLTypes:
+          - CFBundleURLName: io.mason.workouts
+            CFBundleURLSchemes: [io.mason.workouts]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.mason.workouts
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+    scheme:
+      testTargets: [WorkoutsTests]
+  WorkoutsTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Workouts/Tests]
+    dependencies:
+      - target: Workouts
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true

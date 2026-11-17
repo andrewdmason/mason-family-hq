@@ -1,6 +1,7 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getUserTimezone, localDate } from "@/lib/date-utils";
+import { localDate, resolveTimezone } from "@/lib/date-utils";
 import { WORKOUTS_MODEL } from "@/lib/workouts/anthropic";
 import { parseWorkoutDescription, buildSessionSourceText } from "@/lib/workouts/parse";
 import { loadMovementVocabulary } from "@/lib/workouts/canonicalize";
@@ -19,11 +20,16 @@ export type SupabaseServer = Awaited<ReturnType<typeof createClient>>;
  * Safe to call during a Server Component render: it performs no redirect/
  * notFound/revalidatePath, and the supabase server client swallows cookie-write
  * errors during render. It returns early when the session is already parsed.
+ *
+ * `supabase` acts as the member: the website's cookie client, or the iPhone
+ * app's bearer client (src/app/(workouts)/workouts/api/open/route.ts), which
+ * has no tz cookie and so names its `timeZone`.
  */
 export async function ensureSessionForEvent(
-  supabase: SupabaseServer,
+  supabase: SupabaseServer | SupabaseClient,
   userId: string,
-  eventId: string
+  eventId: string,
+  opts: { timeZone?: string | null } = {}
 ): Promise<string> {
   const existing = await findSessionByEvent(supabase, eventId);
   if (existing?.parsedAt) return existing.id;
@@ -31,7 +37,7 @@ export async function ensureSessionForEvent(
   const event = await getWorkoutEventById(supabase, eventId);
   if (!event) throw new Error("Workout event not found");
 
-  const tz = await getUserTimezone();
+  const tz = await resolveTimezone(opts.timeZone);
   const sessionDate = localDate(new Date(event.startTime), tz);
 
   const title = stripCfoPrefix(event.rawTitle) || null;

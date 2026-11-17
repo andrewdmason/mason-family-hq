@@ -130,6 +130,39 @@ back. The tutor's rules are in `src/lib/tuttles/prompt.ts`.
 - `--demo` runs on canned chats with no sign-in (`--open <n>` opens one), for
   the simulator. `--website <url>` points the chat at another server.
 
+## Workouts
+
+The website's Workouts (`src/app/(workouts)`), for the gym. Bundle id and URL
+scheme `io.mason.workouts`; open to everyone in the family, each member seeing
+their own. Four tabs, as on the website: Today, Upcoming, PRs, History.
+
+- Today is today's workout open and ready to log: a glass card per block, a
+  field for every set (already filled with what was written, so doing it as
+  written needs no typing), each lift's best estimated 1RM with the load that
+  matches today's reps, a benchmark's earlier attempts, the block's result, how
+  the day felt, notes, and Mark done. Done folds it into a recap; Edit in the ⋯
+  menu opens the fields again.
+- The rules are the website's, ported in `Workouts/App/WorkoutRules.swift`
+  (formatting, Epley estimates, which workout is today's, the recap, the
+  progress roll-ups) and tested against the same cases as
+  `scripts/verify-workout-math.mts`; keep the two in step.
+- Reads come straight from Supabase under the member's sign-in
+  (`WorkoutStore.swift`, the queries of `src/lib/workouts/queries.ts`). Edits
+  queue on disk and go when there's signal, oldest first (`WorkoutWrites.swift`),
+  and the last screens seen are kept, so it opens and logs in a gym with none.
+- Opening a workout from the calendar goes through the website
+  (`/workouts/api/open`, with the phone's access token), which holds the model
+  key that structures it. A workout that came back unstructured is tried again
+  the same way.
+- Still on the website only: logging a workout that isn't on the calendar,
+  editing or re-importing a workout's movements, the movement library, and
+  sending to WHOOP (the recap says where that stands).
+- The look is Liquid Glass on a mesh of the icon's clay and paper
+  (`WorkoutStyle.swift`), warmer with a workout open and sage once it's done.
+- `--demo` runs on a made-up training block with no sign-in, for the simulator;
+  `--demo-done` has today's workout already done, `--tab <today|upcoming|prs|history>`
+  opens on a tab, and `--website <url>` points opening at another server.
+
 ## Adding an app
 
 A new folder beside `Practice/` and a target in `project.yml` that depends on
