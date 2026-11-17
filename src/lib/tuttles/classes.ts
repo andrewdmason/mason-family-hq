@@ -44,7 +44,7 @@ export type ClassInfo = {
 };
 
 export type ClassesPayload = {
-  /** Whose classes these are (a parent trying the app sees a kid's). */
+  /** Whose classes these are (a parent in their own view sees a kid's). */
   student: { name: string; preview: boolean };
   /** For a parent: the kids the app can switch to (src/lib/tuttles/tutoring-as.ts). */
   kids?: FamilyKid[];

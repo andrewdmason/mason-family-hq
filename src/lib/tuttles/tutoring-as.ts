@@ -5,35 +5,36 @@ export type TutoredStudent = {
   studentId: string;
   /**
    * Whose chats these are: the threads, photos and "seen" marks are saved
-   * under this user. The caller, except when a parent hands their phone to a
-   * kid, when it's the kid.
+   * under this user. The caller, except when a parent's phone is being used
+   * as a kid, when it's the kid.
    */
   ownerId: string;
   name: string;
   birthdate: string | null;
-  /** A parent trying the app as a kid: their chats stay their own. */
+  /** A parent in their own view, which is about a kid: the chats (their briefings) stay their own. */
   preview: boolean;
 };
 
 /**
- * The header a parent's phone sends when a kid is using it as themselves
- * (the app's "Oscar" view): the kid's user id. Their chats are the kid's own,
- * as if the kid had signed in.
+ * The header a parent's phone sends when it's being used as a kid (the app's
+ * "Oscar" and "Sebastian" views): the kid's user id. The chats are the kid's
+ * own, as if the kid had signed in, whether it's the kid holding the phone or
+ * a parent looking in.
  */
 export const KID_HEADER = "x-tuttles-kid";
 
 /**
- * Who the tutor is tutoring. A kid is tutored as themselves. A parent trying
- * the app is tutored as a kid, so they see what the kid will: the kid's name,
- * grade and classes. The chat still belongs to the parent, so it never lands in
- * the kid's history, summary or memory.
+ * Who the tutor is tutoring. A kid is tutored as themselves.
  *
- * The kid previewed is the oldest one with Canvas connected (only Sebastian,
- * for now).
+ * `asKid`: a parent's phone being used as a kid, by the kid or by the parent.
+ * The named kid is tutored as themselves and owns the chats: they show on the
+ * kid's own phone and count in their history, summary and memory. Only a
+ * parent may ask, and only for a kid; anything else is refused (null).
  *
- * `asKid`: a parent's phone being used by a kid without one of their own. The
- * named kid is tutored as themselves and owns the chats. Only a parent may ask,
- * and only for a kid; anything else is refused (null).
+ * A parent who names no kid is in the parents' own view (This week and their
+ * briefings). It's about one kid, the oldest with Canvas connected (only
+ * Sebastian, for now): the tutor knows that kid's name, grade and classes,
+ * and the chats belong to the parent.
  */
 export async function tutoredStudent(
   db: SupabaseClient,
@@ -64,7 +65,7 @@ export async function tutoredStudent(
 
 type Member = { user_id: string; name: string | null; birthdate: string | null; role: string };
 
-/** The kid a parent previews: the oldest with Canvas connected, else the oldest. */
+/** The kid the parents' view is about: the oldest with Canvas connected, else the oldest. */
 async function previewedKid(db: SupabaseClient, members: Member[]): Promise<Member | null> {
   const { data: conns } = await db.from("canvas_connections").select("student_id");
   const kids = members
@@ -76,15 +77,20 @@ async function previewedKid(db: SupabaseClient, members: Member[]): Promise<Memb
 export type FamilyKid = {
   id: string;
   name: string;
-  /** "preview": the parent sees what this kid would, in their own chats.
-   *  "own": the kid uses the parent's phone, in the kid's own chats. */
-  mode: "preview" | "own";
+  /** Always "own": the phone is used as the kid, in the kid's own chats.
+   *  Builds of the app from before every kid was "own" still read it. */
+  mode: "own";
+  /**
+   * The kid has a phone of their own, so a parent's is only looking in:
+   * opening their graded work there leaves it marked new for the kid. It's
+   * the kid the parents' view is about, for now.
+   */
+  ownPhone: boolean;
 };
 
 /**
- * The kids a parent's app can switch to, youngest first: the previewed kid
- * as a preview, the rest as themselves (they have no phone of their own).
- * Null for a kid.
+ * The kids a parent's app can switch to, youngest first, each used as
+ * themselves. Null for a kid.
  */
 export async function familyKids(db: SupabaseClient, userId: string): Promise<FamilyKid[] | null> {
   const { data } = await db
@@ -101,7 +107,8 @@ export async function familyKids(db: SupabaseClient, userId: string): Promise<Fa
     .map((k) => ({
       id: k.user_id,
       name: k.name ?? "Kid",
-      mode: k.user_id === previewed?.user_id ? "preview" : "own",
+      mode: "own" as const,
+      ownPhone: k.user_id === previewed?.user_id,
     }));
 }
 

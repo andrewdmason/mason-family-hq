@@ -38,15 +38,27 @@ extension ClassesPayload {
 
 /// A kid a parent's app can switch to (src/lib/tuttles/tutoring-as.ts).
 struct FamilyKid: Decodable, Hashable, Identifiable {
-    enum Mode: String, Decodable {
-        /// The parent sees what this kid would, in their own chats.
-        case preview
-        /// The kid uses the parent's phone, in the kid's own chats.
-        case own
-    }
     let id: UUID
     let name: String
-    let mode: Mode
+    /// The kid has a phone of their own, so a parent's is only looking in.
+    let ownPhone: Bool
+
+    init(id: UUID, name: String, ownPhone: Bool) {
+        self.id = id
+        self.name = name
+        self.ownPhone = ownPhone
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, ownPhone, mode }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        // A kid list saved before `ownPhone`: that kid was the one in "preview" mode.
+        ownPhone = try c.decodeIfPresent(Bool.self, forKey: .ownPhone)
+            ?? (c.decodeIfPresent(String.self, forKey: .mode) == "preview")
+    }
 }
 
 struct ClassInfo: Decodable, Identifiable, Hashable {

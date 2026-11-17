@@ -72,8 +72,7 @@ final class ChatStore {
     /// Their study sets (Study.swift); nil until loaded.
     var study: StudyPayload?
 
-    /// The kid's chats (a parent's, while seeing the app as the kid), and a
-    /// parent's own briefings.
+    /// The kid's chats, and a parent's own briefings.
     var kidThreads: [TutorThread] { threads.filter { $0.kind != "briefing" } }
     var briefings: [TutorThread] { threads.filter { $0.kind == "briefing" } }
 
@@ -85,21 +84,22 @@ final class ChatStore {
     enum Viewer: Hashable {
         /// The parents' own view (This week).
         case parent
-        /// The parent seeing the app as the previewed kid, in their own chats.
-        case preview
-        /// A kid without a phone using this one, in the kid's own chats.
+        /// The phone used as a kid, in the kid's own chats: by a kid without a
+        /// phone, or by a parent looking in on one who has their own.
         case kid(UUID)
+        /// Nothing chosen yet, or a choice saved when a parent only previewed
+        /// the kid with a phone. It becomes that kid once the kid list is in.
+        case unchosen
     }
 
     var viewer: Viewer = ChatStore.savedViewer {
         didSet {
             guard viewer != oldValue else { return }
-            let saved: String = switch viewer {
-            case .parent: "parent"
-            case .preview: "preview"
-            case .kid(let id): id.uuidString.lowercased()
+            switch viewer {
+            case .parent: UserDefaults.standard.set("parent", forKey: "tuttles.viewer")
+            case .kid(let id): UserDefaults.standard.set(id.uuidString.lowercased(), forKey: "tuttles.viewer")
+            case .unchosen: break
             }
-            UserDefaults.standard.set(saved, forKey: "tuttles.viewer")
             switchedViewer()
         }
     }
@@ -108,20 +108,31 @@ final class ChatStore {
         let defaults = UserDefaults.standard
         switch defaults.string(forKey: "tuttles.viewer") {
         case "parent": return .parent
-        case "preview": return .preview
-        case let saved?: return UUID(uuidString: saved).map(Viewer.kid) ?? .preview
+        case let saved?: return UUID(uuidString: saved).map(Viewer.kid) ?? .unchosen
         // Before there was a kid choice: a yes/no for the parent view.
-        case nil: return defaults.bool(forKey: "tuttles.parentView") ? .parent : .preview
+        case nil: return defaults.bool(forKey: "tuttles.parentView") ? .parent : .unchosen
         }
+    }
+
+    /// With the kid list in (saved or just loaded), a parent who hasn't chosen
+    /// is using the app as the kid with a phone of their own, the one they
+    /// used to preview.
+    private func settleViewer() {
+        guard isParent, viewer == .unchosen, let kid = kids.first(where: \.ownPhone) ?? kids.first else { return }
+        viewer = .kid(kid.id)
     }
 
     var showingParentView: Bool { isParent && viewer == .parent }
 
-    /// The kid using this parent's phone as themselves, if one is.
+    /// The kid this parent's phone is being used as, if it is.
     var actingKid: FamilyKid? {
         guard isParent, case .kid(let id) = viewer else { return nil }
-        return classes?.kids?.first { $0.id == id } ?? FamilyKid(id: id, name: classes?.student.name ?? "Kid", mode: .own)
+        return classes?.kids?.first { $0.id == id } ?? FamilyKid(id: id, name: classes?.student.name ?? "Kid", ownPhone: false)
     }
+
+    /// A parent looking in on a kid who has their own phone: what's new for
+    /// the kid stays new until the kid opens it.
+    private var lookingIn: Bool { actingKid?.ownPhone == true }
 
     /// Whose chats the app shows and saves: the signed-in member's, or the
     /// kid's using their phone.
@@ -130,8 +141,8 @@ final class ChatStore {
     /// The kids a parent can switch to, youngest first, from the last classes load.
     var kids: [FamilyKid] { isParent ? classes?.kids ?? [] : [] }
 
-    /// A request to the website, signed as the member, naming the kid using
-    /// the phone if one is (src/lib/tuttles/tutoring-as.ts).
+    /// A request to the website, signed as the member, naming the kid the
+    /// phone is being used as if it is (src/lib/tuttles/tutoring-as.ts).
     func authorize(_ request: inout URLRequest, token: String) {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let kid = actingKid {
@@ -211,6 +222,7 @@ final class ChatStore {
             classes = saved
             classesLoaded = true
         }
+        settleViewer()
     }
 
     private static func savedFile(_ name: String, _ userID: UUID) -> URL {
@@ -248,11 +260,14 @@ final class ChatStore {
     }
 
     func refreshClasses() async {
-        defer { classesLoaded = true }
+        // Unless the view changed meanwhile: then these aren't its classes.
+        let asked = viewer
+        defer { if viewer == asked { classesLoaded = true } }
         if isDemo {
             // `--slow`: a first load that takes a while, to see the placeholders.
             if CommandLine.arguments.contains("--slow") { try? await Task.sleep(for: .seconds(4)) }
             classes = DemoChats.classes
+            settleViewer()
             return
         }
         guard let token = try? await client.auth.session.accessToken else { return }
@@ -263,6 +278,7 @@ final class ChatStore {
               let payload = try? Self.decoder.decode(ClassesPayload.self, from: data) else { return }
         classes = payload
         save(data, as: "classes")
+        settleViewer()
     }
 
     /// Files a chat under another class (nil: none).
@@ -277,10 +293,11 @@ final class ChatStore {
     }
 
     /// Feedback opened in the app stops being marked new: on the page now
-    /// (`markSeen`), or the next time the page loads (`markSeenLater`).
+    /// (`markSeen`), or the next time the page loads (`markSeenLater`). Not
+    /// while a parent is looking in on a kid with their own phone.
     func markSeen(_ assignment: ClassAssignment) {
         markSeenLater(assignment)
-        guard let payload = classes else { return }
+        guard !lookingIn, let payload = classes else { return }
         func clear(_ list: [ClassAssignment]) -> [ClassAssignment] {
             list.map { $0.id == assignment.id ? $0.seen() : $0 }
         }
@@ -296,7 +313,7 @@ final class ChatStore {
     }
 
     func markSeenLater(_ assignment: ClassAssignment) {
-        guard !isDemo, let userID = ownerID else { return }
+        guard !isDemo, !lookingIn, let userID = ownerID else { return }
         struct Seen: Encodable { let user_id: String; let assignment_id: Int }
         Task {
             _ = try? await client.from("tutor_feedback_seen")

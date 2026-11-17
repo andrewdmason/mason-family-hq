@@ -152,3 +152,26 @@ final class SpokenCaptionTests: XCTestCase {
         XCTAssertTrue(VoiceCall.recap([], readings: [:], midTurn: true).contains("Nothing had been said yet"))
     }
 }
+
+final class FamilyKidTests: XCTestCase {
+    private func kids(_ json: String) throws -> [FamilyKid] {
+        try JSONDecoder().decode([FamilyKid].self, from: Data(json.utf8))
+    }
+
+    func testOwnPhoneFromTheWebsite() throws {
+        let list = try kids("""
+        [{"id":"00000000-0000-0000-0000-00000000000a","name":"Oscar","mode":"own","ownPhone":false},
+         {"id":"00000000-0000-0000-0000-00000000000b","name":"Sebastian","mode":"own","ownPhone":true}]
+        """)
+        XCTAssertEqual(list.map(\.ownPhone), [false, true])
+    }
+
+    /// A kid list saved by a build that previewed the kid with a phone.
+    func testOwnPhoneFromASavedPreview() throws {
+        let list = try kids("""
+        [{"id":"00000000-0000-0000-0000-00000000000a","name":"Oscar","mode":"own"},
+         {"id":"00000000-0000-0000-0000-00000000000b","name":"Sebastian","mode":"preview"}]
+        """)
+        XCTAssertEqual(list.map(\.ownPhone), [false, true])
+    }
+}

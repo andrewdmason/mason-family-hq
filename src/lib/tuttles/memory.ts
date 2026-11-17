@@ -13,8 +13,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * (tutor_parent_notes) and this never rewrites them. Every version is kept
  * (tutor_memories), so a parent can see what changed and restore a night.
  *
- * Chats a parent has while trying the app as the kid are theirs, not the
- * kid's, so they never feed this.
+ * A parent's own chats (their briefings) are theirs, not the kid's, so they
+ * never feed this. Chats had on a parent's phone as the kid are the kid's,
+ * and do.
  */
 
 export const MEMORY_MODEL = "gpt-5.6-sol";
