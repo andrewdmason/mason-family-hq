@@ -330,15 +330,11 @@ struct AccountMenu: View {
         @Bindable var store = store
         Menu {
             if store.isParent {
-                // A kid without a phone uses it as themselves; the kid with one,
-                // parents see as they would; or the parents' own view.
+                // The phone as one of the kids, in the kid's own chats, or the
+                // parents' own view.
                 Picker("View", selection: $store.viewer) {
-                    if store.kids.isEmpty {
-                        Label("See it as \(store.classes?.student.name ?? "the kid")", systemImage: "iphone").tag(ChatStore.Viewer.preview)
-                    }
                     ForEach(store.kids) { kid in
-                        Label(kid.name, systemImage: kid.mode == .own ? "person.fill" : "iphone")
-                            .tag(kid.mode == .own ? ChatStore.Viewer.kid(kid.id) : .preview)
+                        Label(kid.name, systemImage: "person.fill").tag(ChatStore.Viewer.kid(kid.id))
                     }
                     Label("Parent view", systemImage: "person.2").tag(ChatStore.Viewer.parent)
                 }
@@ -358,13 +354,10 @@ struct AccountMenu: View {
         .accessibilityLabel("Account")
     }
 
-    /// Whoever the app is being seen as: the kid using the phone, the kid a
-    /// parent is previewing, or whoever's signed in ("AM" for Andrew Mason).
+    /// Whoever the app is being used as: the kid the phone is on, or whoever's
+    /// signed in ("AM" for Andrew Mason).
     private var initials: String {
-        let previewing = store.isParent && store.viewer == .preview
-            ? store.kids.first { $0.mode != .own }?.name ?? store.classes?.student.name
-            : nil
-        guard let name = store.actingKid?.name ?? previewing ?? Session.shared.name else {
+        guard let name = store.actingKid?.name ?? Session.shared.name else {
             return Session.shared.email?.first.map { String($0).uppercased() } ?? "?"
         }
         let words = name.split(separator: " ")
@@ -374,8 +367,8 @@ struct AccountMenu: View {
 }
 
 extension View {
-    /// While a kid is using a parent's phone, their name sits under the title,
-    /// so nobody chats as them by mistake.
+    /// While a parent's phone is being used as a kid, the kid's name sits under
+    /// the title, so nobody chats as them by mistake.
     @ViewBuilder func kidUsing(_ kid: FamilyKid?) -> some View {
         if let kid {
             navigationSubtitle("\(kid.name) is using Tuttles")
