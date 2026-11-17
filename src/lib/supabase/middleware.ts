@@ -100,6 +100,12 @@ export async function updateSession(request: NextRequest) {
     !(
       request.nextUrl.pathname.startsWith("/tuttles/api/") &&
       request.headers.get("authorization")?.startsWith("Bearer ")
+    ) &&
+    // Likewise the Workouts iPhone app, opening a calendar workout — see
+    // src/app/(workouts)/workouts/api/open/route.ts.
+    !(
+      request.nextUrl.pathname.startsWith("/workouts/api/") &&
+      request.headers.get("authorization")?.startsWith("Bearer ")
     )
   ) {
     const url = request.nextUrl.clone();
