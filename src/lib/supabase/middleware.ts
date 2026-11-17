@@ -102,7 +102,7 @@ export async function updateSession(request: NextRequest) {
       request.headers.get("authorization")?.startsWith("Bearer ")
     ) &&
     // Likewise the Workouts iPhone app, opening a calendar workout — see
-    // src/app/(workouts)/workouts/api/open/route.ts.
+    // src/lib/workouts/phone.ts.
     !(
       request.nextUrl.pathname.startsWith("/workouts/api/") &&
       request.headers.get("authorization")?.startsWith("Bearer ")

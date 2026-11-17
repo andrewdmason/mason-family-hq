@@ -8,7 +8,8 @@ import Supabase
 /// Supabase under the member's sign-in (the website's queries in
 /// src/lib/workouts/queries.ts); edits go through `WorkoutWrites`. Only opening
 /// a calendar workout needs the website, which holds the model key that
-/// structures it.
+/// structures it — so the workouts coming up are sent ahead to be structured
+/// in the background, and the tap that opens one has little left to wait for.
 @MainActor
 @Observable
 final class WorkoutStore {
@@ -35,6 +36,11 @@ final class WorkoutStore {
     private let writes: WorkoutWrites
     private let defaults: UserDefaults
     private var memberEmail: String?
+    /// Calendar workouts sent ahead to be structured this run, and the ones
+    /// on their way there now.
+    private var prepared: Set<UUID> = []
+    private var preparing: [UUID: Task<Void, Never>] = [:]
+    private var preparation: Task<Void, Never>?
     /// In the demo, what each calendar workout becomes when it's opened.
     private var demoUnopened: [UUID: SessionDetail] = [:]
     private var db: SupabaseClient { Session.shared.client }
@@ -99,6 +105,7 @@ final class WorkoutStore {
         }
         loaded = true
         await prepareToday()
+        prepareUpcoming()
     }
 
     /// Today's workout, ready to log: an unopened calendar workout is opened
@@ -114,8 +121,40 @@ final class WorkoutStore {
         }
     }
 
-    /// Open a calendar workout into a session to log. The first open structures
-    /// it on the website, which can take a little while.
+    /// Have the website structure the calendar workouts coming up, soonest
+    /// first and one at a time, so each is quick to open when it's tapped.
+    /// Nothing is opened: a workout prepared and then skipped never becomes a
+    /// session (an opened one's prescribed loads count toward estimated maxes
+    /// whether or not it was done).
+    private func prepareUpcoming() {
+        guard !isDemo, preparation == nil else { return }
+        preparation = Task { [weak self] in
+            while let self, let event = self.nextToPrepare() {
+                self.prepared.insert(event.id)
+                let sending = Task { await self.prepareOnWebsite(event.id) }
+                self.preparing[event.id] = Task { _ = await sending.value }
+                let reached = await sending.value
+                self.preparing[event.id] = nil
+                if !reached {
+                    // No signal: leave it, and the rest, for the next load.
+                    self.prepared.remove(event.id)
+                    break
+                }
+            }
+            self?.preparation = nil
+        }
+    }
+
+    private func nextToPrepare() -> WorkoutEvent? {
+        for case .event(let event) in todo where !prepared.contains(event.id) && !opening.contains(event.id) {
+            return event
+        }
+        return nil
+    }
+
+    /// Open a calendar workout into a session to log. One that was prepared
+    /// opens quickly; otherwise the first open structures it on the website,
+    /// which can take a little while.
     @discardableResult
     func open(_ event: WorkoutEvent) async -> UUID? {
         guard !opening.contains(event.id) else { return nil }
@@ -131,6 +170,10 @@ final class WorkoutStore {
             ))
             return detail.id
         }
+        // Tapped while it's being prepared: that parse is nearly there, and
+        // quicker to wait for than to start again.
+        await preparing[event.id]?.value
+        prepared.insert(event.id)
         do {
             let id = try await openOnWebsite(event.id)
             failedOpens.remove(event.id)
@@ -389,6 +432,9 @@ final class WorkoutStore {
         benchmarks = nil
         memberEmail = nil
         failedOpens = []
+        preparation?.cancel()
+        preparation = nil
+        prepared = []
         loaded = false
     }
 
@@ -407,20 +453,33 @@ final class WorkoutStore {
 
     /// The website's parse-on-open (src/app/(workouts)/workouts/api/open/route.ts).
     private func openOnWebsite(_ eventID: UUID) async throws -> UUID {
+        struct Reply: Decodable { let sessionId: UUID }
+        let (data, response) = try await URLSession.shared.data(for: websiteRequest("open", event: eventID))
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw OpenFailed() }
+        return try JSONDecoder().decode(Reply.self, from: data).sessionId
+    }
+
+    /// The website's parse ahead of an open
+    /// (src/app/(workouts)/workouts/api/prepare/route.ts). False when the
+    /// website couldn't be reached; a workout it reached but couldn't
+    /// structure is left to its first open.
+    private func prepareOnWebsite(_ eventID: UUID) async -> Bool {
+        guard let request = try? await websiteRequest("prepare", event: eventID) else { return false }
+        return (try? await URLSession.shared.data(for: request)) != nil
+    }
+
+    private func websiteRequest(_ route: String, event: UUID) async throws -> URLRequest {
         let token = try await db.auth.session.accessToken
-        var request = URLRequest(url: Self.websiteURL.appending(path: "workouts/api/open"))
+        var request = URLRequest(url: Self.websiteURL.appending(path: "workouts/api/\(route)"))
         request.httpMethod = "POST"
         request.timeoutInterval = 120
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode([
-            "eventId": eventID.uuidString.lowercased(),
+            "eventId": event.uuidString.lowercased(),
             "timeZone": TimeZone.current.identifier,
         ])
-        struct Reply: Decodable { let sessionId: UUID }
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw OpenFailed() }
-        return try JSONDecoder().decode(Reply.self, from: data).sessionId
+        return request
     }
 
     // MARK: Queries
