@@ -2,13 +2,10 @@ import SwiftUI
 
 /// The top of the calendar, in glass with the day scrolling under it: the
 /// month (tap to drop open a month grid), Today, the week to move between
-/// days, and in the Day view whose column is whose and the day's all-day
-/// events.
+/// days.
 struct TopBar: View {
-    let me: String?
     @Environment(CalendarStore.self) private var store
     @Environment(CalendarNav.self) private var nav
-    @Environment(Prefs.self) private var prefs
 
     private static let monthNames = Calendar.current.monthSymbols
 
@@ -21,10 +18,6 @@ struct TopBar: View {
             } else {
                 WeekStrip()
             }
-            if nav.view == .day {
-                PeopleRow(me: me)
-                AllDayRow()
-            }
         }
         .padding(.top, 2)
         .padding(.bottom, 8)
@@ -35,7 +28,6 @@ struct TopBar: View {
                 .ignoresSafeArea(edges: .top)
         }
         .animation(.snappy, value: nav.monthOpen)
-        .animation(.snappy, value: nav.view)
     }
 
     private var titleRow: some View {
@@ -121,7 +113,6 @@ private let weekdayLetters = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
 private struct DayCell: View {
     let day: Day
     var dimmed = false
-    var showsDot = false
     @Environment(CalendarNav.self) private var nav
 
     var body: some View {
@@ -133,24 +124,19 @@ private struct DayCell: View {
                 nav.monthOpen = false
             }
         } label: {
-            VStack(spacing: 2) {
-                Text(String(day.day))
-                    .font(.system(.callout, design: .rounded).weight(selected || isToday ? .bold : .medium))
-                    .foregroundStyle(selected ? Color.white : isToday ? CalendarStyle.accent : dimmed ? Color.secondary.opacity(0.5) : Color.primary)
-                    .frame(width: 34, height: 34)
-                    .background {
-                        if selected {
-                            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                .fill(isToday ? AnyShapeStyle(CalendarStyle.olive) : AnyShapeStyle(Color.primary.opacity(0.82)))
-                        } else if isToday {
-                            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                .strokeBorder(CalendarStyle.accent, lineWidth: 1.5)
-                        }
+            Text(String(day.day))
+                .font(.system(.callout, design: .rounded).weight(selected || isToday ? .bold : .medium))
+                .foregroundStyle(selected ? Color.white : isToday ? CalendarStyle.accent : dimmed ? Color.secondary.opacity(0.5) : Color.primary)
+                .frame(width: 34, height: 34)
+                .background {
+                    if selected {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .fill(isToday ? AnyShapeStyle(CalendarStyle.olive) : AnyShapeStyle(Color.primary.opacity(0.82)))
+                    } else if isToday {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .strokeBorder(CalendarStyle.accent, lineWidth: 1.5)
                     }
-                Circle()
-                    .fill(Color.secondary.opacity(showsDot ? 0.55 : 0))
-                    .frame(width: 4, height: 4)
-            }
+                }
             .frame(maxWidth: .infinity)
             .contentShape(.rect)
         }
@@ -162,8 +148,6 @@ private struct DayCell: View {
 /// The week in view, Monday first; swipe for the weeks either side.
 private struct WeekStrip: View {
     @Environment(CalendarNav.self) private var nav
-    @Environment(CalendarStore.self) private var store
-    @Environment(Prefs.self) private var prefs
 
     private static let weeks: [Day] = {
         guard let first = CalendarNav.days.first?.weekStart(), let last = CalendarNav.days.last else { return [] }
@@ -198,7 +182,7 @@ private struct WeekStrip: View {
                         HStack(spacing: 0) {
                             ForEach(0..<7, id: \.self) { offset in
                                 let day = start.adding(days: offset)
-                                DayCell(day: day, showsDot: hasEvents(day))
+                                DayCell(day: day)
                             }
                         }
                         .padding(.horizontal, 10)
@@ -211,20 +195,14 @@ private struct WeekStrip: View {
             .scrollTargetBehavior(.paging)
             .scrollIndicators(.hidden)
             .scrollPosition(id: week)
-            .frame(height: 42)
+            .frame(height: 36)
         }
-    }
-
-    private func hasEvents(_ day: Day) -> Bool {
-        !store.board.events(on: day, showHidden: prefs.showHidden).isEmpty
     }
 }
 
 /// The month dropped open: tap a day to go there.
 private struct MonthGrid: View {
     @Environment(CalendarNav.self) private var nav
-    @Environment(CalendarStore.self) private var store
-    @Environment(Prefs.self) private var prefs
 
     var body: some View {
         VStack(spacing: 2) {
@@ -239,10 +217,7 @@ private struct MonthGrid: View {
             ForEach(nav.day.monthGrid(), id: \.self) { week in
                 HStack(spacing: 0) {
                     ForEach(week, id: \.self) { day in
-                        DayCell(
-                            day: day, dimmed: day.month != nav.day.month,
-                            showsDot: !store.board.events(on: day, showHidden: prefs.showHidden).isEmpty
-                        )
+                        DayCell(day: day, dimmed: day.month != nav.day.month)
                     }
                 }
             }
@@ -294,77 +269,5 @@ struct ColumnMetrics {
             if x < edge { return i }
         }
         return widths.count - 1
-    }
-}
-
-/// Whose column is whose, lined up with the grid below.
-private struct PeopleRow: View {
-    let me: String?
-    @Environment(CalendarStore.self) private var store
-    @Environment(Prefs.self) private var prefs
-
-    var body: some View {
-        let members = DayLayout.order(prefs.shown(store.board.members), me: me)
-        GeometryReader { geo in
-            let metrics = ColumnMetrics(width: geo.size.width, count: members.count, asBlocks: prefs.othersAsBlocks)
-            ZStack(alignment: .topLeading) {
-                ForEach(Array(members.enumerated()), id: \.element.email) { index, member in
-                    HStack(spacing: 6) {
-                        Avatar(member: member, size: 24)
-                        if index == 0 {
-                            Text(member.firstName)
-                                .font(.footnote.weight(.semibold))
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                        }
-                    }
-                    .padding(.leading, index == 0 ? 8 : 0)
-                    .frame(width: metrics.widths[index], height: 28, alignment: index == 0 ? .leading : .center)
-                    .offset(x: metrics.x(index))
-                }
-            }
-        }
-        .frame(height: 28)
-    }
-}
-
-/// The day's all-day events, each with whose it is.
-private struct AllDayRow: View {
-    @Environment(CalendarStore.self) private var store
-    @Environment(CalendarNav.self) private var nav
-    @Environment(Prefs.self) private var prefs
-
-    var body: some View {
-        let shown = Set(prefs.shown(store.board.members).map(\.email))
-        let items = store.board.events(on: nav.day, showHidden: prefs.showHidden)
-            .filter { $0.event.allDay && shown.contains($0.event.memberEmail) }
-        if !items.isEmpty {
-            ScrollView(.horizontal) {
-                HStack(spacing: 6) {
-                    ForEach(items) { item in
-                        Button {
-                            nav.open(item, in: store.board)
-                        } label: {
-                            HStack(spacing: 5) {
-                                Avatar(member: store.board.member(item.event.memberEmail), size: 16)
-                                Text(item.title)
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(CalendarStyle.ink(item.color))
-                                    .lineLimit(1)
-                                if item.conflict { ConflictMark() }
-                            }
-                            .padding(.leading, 4)
-                            .padding(.trailing, 9)
-                            .padding(.vertical, 4)
-                            .background(CalendarStyle.wash(item.color, 0.3), in: .capsule)
-                            .opacity(item.hidden ? 0.5 : 1)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 14)
-            }
-            .scrollIndicators(.hidden)
-        }
     }
 }
