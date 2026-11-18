@@ -227,12 +227,28 @@ struct ChatView: View {
         }
     }
 
+    /// The greeting, at the most that fits above the message box. With the
+    /// keyboard up, photos waiting and a long message there's little room, and
+    /// it gives way (a smaller Tuttles, then none, then just the words) rather
+    /// than run under the title bar and the box.
     private var emptyState: some View {
+        ViewThatFits(in: .vertical) {
+            greeting(tuttles: start == nil ? 200 : 140)
+            greeting(tuttles: 96)
+            greeting(tuttles: nil)
+            greeting(tuttles: nil, nudges: false)
+            Color.clear.frame(height: 0)
+        }
+    }
+
+    private func greeting(tuttles: CGFloat?, nudges: Bool = true) -> some View {
         VStack(spacing: 14) {
-            Image("Tuttles\(pose)")
-                .resizable()
-                .scaledToFit()
-                .frame(height: start == nil ? 200 : 140)
+            if let tuttles {
+                Image("Tuttles\(pose)")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: tuttles)
+            }
             if let quizStart {
                 Text(quizStart.setTitle).font(.title3.weight(.semibold)).multilineTextAlignment(.center)
                 if let startError {
@@ -252,7 +268,7 @@ struct ChatView: View {
                         .foregroundStyle(.secondary)
                 }
                 // The tests coming up, each a tap from a quiz.
-                if isNew, !activeSets.isEmpty {
+                if nudges, isNew, !activeSets.isEmpty {
                     VStack(spacing: 8) {
                         ForEach(activeSets) { StudyNudge(set: $0) }
                     }
@@ -261,7 +277,7 @@ struct ChatView: View {
                 }
             }
         }
-        .padding(.bottom, 40)
+        .padding(.bottom, tuttles == nil ? 12 : 40)
     }
 
     // MARK: - Writing
