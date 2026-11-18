@@ -160,7 +160,7 @@ private func event(_ key: String, _ date: String) -> WorkoutEvent {
             set(load: 75, reps: 21, context: .metcon, rx: SetMetrics(reps: 21, load: 95, unit: "lb")),
             set(load: 95, reps: 15, context: .metcon),
         ])
-        #expect(WorkoutRules.metconLine(scaled) == "75 lb × 21 (Rx 95 lb × 21) · 95 lb × 15")
+        #expect(WorkoutRules.metconLine(scaled) == "75 lb × 21 (written 95 lb × 21) · 95 lb × 15")
     }
 }
 

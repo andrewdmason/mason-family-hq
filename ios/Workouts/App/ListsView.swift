@@ -1,50 +1,48 @@
 import SwiftUI
 
-/// Where the app opens: how often you've trained lately, then today's workout
-/// and what's coming, soonest first, each a tap from logging. Nothing from
-/// before today is here; that's History.
+/// Where the app opens: today's workout and what's coming, soonest first,
+/// each a tap from logging and a swipe from gone. Nothing from before today
+/// is here; that's History.
 struct UpcomingView: View {
     let store: WorkoutStore
     let email: String?
     @State private var path: [SessionRoute] = []
+    @State private var deleting: FocusItem?
 
     var body: some View {
         let focus = store.focus
         let rows = store.todo
         NavigationStack(path: $path) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+            List {
+                Group {
                     if let error = store.loadError {
                         LoadErrorBanner(message: error)
                     }
-                    TrendCard(trend: store.trend, trained: Set(store.sessions.map(\.date)), today: store.today)
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        SectionHeader(title: "Coming up")
-                        if rows.isEmpty {
-                            EmptyCard(
-                                symbol: "calendar.badge.clock", title: "Nothing queued",
-                                message: "Workouts on your calendar show up here to open and log."
-                            )
-                        } else {
-                            GlassEffectContainer(spacing: 10) {
-                                VStack(spacing: 10) {
-                                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                                        UpcomingRow(store: store, row: row) { path.append(SessionRoute(id: $0)) }
-                                    }
-                                }
+                    if rows.isEmpty {
+                        EmptyCard(
+                            symbol: "calendar.badge.clock", title: "Nothing queued",
+                            message: "Workouts on your calendar show up here to open and log."
+                        )
+                    }
+                    ForEach(rows, id: \.id) { row in
+                        UpcomingRow(store: store, row: row) { path.append(SessionRoute(id: $0)) }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button("Delete", systemImage: "trash") { deleting = row }
+                                    .tint(.red)
                             }
-                        }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, WorkoutStyle.scrollEnd)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .contentMargins(.bottom, WorkoutStyle.scrollEnd, for: .scrollContent)
+            .animation(.default, value: rows.map(\.id))
             .scrollIndicators(.hidden)
             .background { WorkoutBackground(mood: mood(focus)) }
             .navigationTitle("Upcoming")
-            .navigationSubtitle(Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day()))
             .toolbarTitleDisplayMode(.inlineLarge)
             .scrollEdgeEffectStyle(.soft, for: .top)
             .toolbar {
@@ -52,6 +50,17 @@ struct UpcomingView: View {
             }
             .refreshable { await store.load() }
             .navigationDestination(for: SessionRoute.self) { SessionScreen(store: store, id: $0.id) }
+            .confirmationDialog(
+                "Delete \(deleting?.title ?? "this workout")?",
+                isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+                titleVisibility: .visible, presenting: deleting
+            ) { row in
+                Button("Delete workout", role: .destructive) {
+                    Task { await store.dismiss(row) }
+                }
+            } message: { _ in
+                Text("This deletes it from your calendar too, with anything logged for it. It can't be undone.")
+            }
         }
     }
 }
@@ -65,7 +74,7 @@ extension UpcomingView {
 
 /// Workouts in the last 7 and 30 days against the window before, over a
 /// strip of the last four weeks with a mark for each day trained.
-private struct TrendCard: View {
+struct TrendCard: View {
     let trend: WorkoutTrend
     let trained: Set<String>
     let today: String
@@ -157,24 +166,12 @@ private struct UpcomingRow: View {
                         .font(.headline)
                         .foregroundStyle(.primary)
                         .multilineTextAlignment(.leading)
-                    HStack(spacing: 6) {
-                        Text(WorkoutDay.label(row.date, today: store.today))
-                            .font(.caption)
-                            .foregroundStyle(row.date < store.today ? AnyShapeStyle(WorkoutStyle.goldText) : AnyShapeStyle(.secondary))
-                        switch row {
-                        case .event: Chip(text: "Calendar", symbol: "calendar", color: .secondary)
-                        case .session: Chip(text: "Logging", symbol: "pencil.line")
-                        }
-                    }
+                    Text(WorkoutDay.label(row.date, today: store.today))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                if opening {
-                    ProgressView()
-                } else {
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.bold))
-                        .foregroundStyle(.tertiary)
-                }
+                if opening { ProgressView() }
             }
             .padding(14)
             .contentShape(shape)

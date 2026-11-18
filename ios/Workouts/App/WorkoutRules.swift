@@ -102,6 +102,13 @@ enum FocusItem: Equatable {
     case session(SessionSummary)
     case event(WorkoutEvent)
 
+    var id: UUID {
+        switch self {
+        case .session(let session): session.id
+        case .event(let event): event.id
+        }
+    }
+
     var date: String {
         switch self {
         case .session(let session): session.date
@@ -328,7 +335,7 @@ enum WorkoutRules {
             let actual = setMetric(set.metricType, set.actual)
             let rx = setMetric(set.metricType, set.prescribed)
             if actual == "—" { return rx }
-            return actual == rx ? actual : "\(actual) (Rx \(rx))"
+            return actual == rx ? actual : "\(actual) (written \(rx))"
         }
         .filter { $0 != "—" }
         .joined(separator: " · ")

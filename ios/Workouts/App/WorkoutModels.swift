@@ -40,8 +40,8 @@ enum RxLevel: String, LenientEnum {
     var label: String {
         switch self {
         case .scaled: "Scaled"
-        case .rx: "Rx"
-        case .rxPlus: "Rx+"
+        case .rx: "As written"
+        case .rxPlus: "Advanced"
         }
     }
 }

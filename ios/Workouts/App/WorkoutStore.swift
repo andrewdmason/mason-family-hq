@@ -28,6 +28,9 @@ final class WorkoutStore {
     private(set) var opening: Set<UUID> = []
     /// Calendar workouts that wouldn't open when tapped.
     private(set) var failedOpens: Set<UUID> = []
+    /// Calendar workouts deleted here whose delete hasn't reached the
+    /// calendar yet: hidden meanwhile.
+    private(set) var skipped: Set<UUID> = []
     /// Sessions that turned out not to exist any more.
     private(set) var missing: Set<UUID> = []
     /// Canned workouts with no sign-in or network: `--demo`, for the simulator.
@@ -51,6 +54,7 @@ final class WorkoutStore {
         self.writes = writes ?? .shared
         self.defaults = defaults
         isDemo = false
+        skipped = Set((defaults.stringArray(forKey: Self.skippedKey) ?? []).compactMap(UUID.init))
         restore()
     }
 
@@ -78,7 +82,8 @@ final class WorkoutStore {
     /// Upcoming shows three weeks of the calendar, as the website does.
     var todo: [FocusItem] {
         let horizon = WorkoutDay.daysAgo(today, -21)
-        return WorkoutRules.todo(sessions: sessions, events: events.filter { $0.date <= horizon }, today: today)
+        let coming = events.filter { $0.date <= horizon && !skipped.contains($0.id) }
+        return WorkoutRules.todo(sessions: sessions, events: coming, today: today)
     }
 
     var history: [SessionSummary] { WorkoutRules.history(sessions: sessions, today: today) }
@@ -91,12 +96,17 @@ final class WorkoutStore {
         today = WorkoutDay.today()
         guard !isDemo else { return }
         await writes.flush()
+        await sendDeletes()
         do {
             async let sessionsQuery = fetchSessions()
             async let eventsQuery = fetchEvents()
             var (fetched, calendar) = try await (sessionsQuery, eventsQuery)
             writes.apply(to: &fetched)
-            sessions = fetched
+            // Nothing waiting to be deleted comes back, and nothing is left
+            // waiting once its calendar entry and session are both gone.
+            skipped.formIntersection(Set(calendar.map(\.id)).union(fetched.compactMap(\.calendarEventID)))
+            saveSkipped()
+            sessions = fetched.filter { !($0.calendarEventID.map(skipped.contains) ?? false) }
             events = calendar
             loadError = nil
             save()
@@ -301,6 +311,58 @@ final class WorkoutStore {
         save()
     }
 
+    /// Delete a workout the member won't do. One from the calendar goes from
+    /// the calendar too (and Google Calendar), through the website; it's
+    /// hidden here at once and the delete is sent when there's signal. One
+    /// logged by hand is just deleted.
+    func dismiss(_ item: FocusItem) async {
+        switch item {
+        case .event(let event):
+            skipped.insert(event.id)
+        case .session(let session):
+            guard let eventID = session.calendarEventID else {
+                _ = await delete(session.id)
+                return
+            }
+            skipped.insert(eventID)
+            sessions.removeAll { $0.id == session.id }
+            details[session.id] = nil
+            insights[session.id] = nil
+            save()
+        }
+        saveSkipped()
+        await sendDeletes()
+    }
+
+    /// The same, for a session open on screen.
+    func dismiss(session id: UUID) async -> Bool {
+        guard let summary = sessions.first(where: { $0.id == id }) else { return await delete(id) }
+        await dismiss(.session(summary))
+        return true
+    }
+
+    /// Send the calendar deletes still waiting. One the website refuses stays
+    /// hidden here and is tried again on the next load.
+    private func sendDeletes() async {
+        guard !isDemo else { return }
+        for eventID in skipped {
+            guard let status = await deleteOnWebsite(eventID) else { return }
+            if status == 200 {
+                skipped.remove(eventID)
+                events.removeAll { $0.id == eventID }
+            }
+        }
+        saveSkipped()
+        save()
+    }
+
+    private func saveSkipped() {
+        guard !isDemo else { return }
+        defaults.set(skipped.map(\.uuidString), forKey: Self.skippedKey)
+    }
+
+    private static let skippedKey = "workouts.skipped"
+
     /// Remove a session and everything logged for it. A calendar workout is
     /// still scheduled, so it goes back to Upcoming, unopened.
     func delete(_ sessionID: UUID) async -> Bool {
@@ -417,6 +479,8 @@ final class WorkoutStore {
     /// Signing out: nothing of the last member's stays on the phone.
     func forget() {
         defaults.removeObject(forKey: Self.snapshotKey)
+        defaults.removeObject(forKey: Self.skippedKey)
+        skipped = []
         sessions = []
         events = []
         details = [:]
@@ -459,6 +523,16 @@ final class WorkoutStore {
     private func prepareOnWebsite(_ eventID: UUID) async -> Bool {
         guard let request = try? await websiteRequest("prepare", event: eventID) else { return false }
         return (try? await URLSession.shared.data(for: request)) != nil
+    }
+
+    /// The website's delete of a calendar workout
+    /// (src/app/(workouts)/workouts/api/delete/route.ts): its HTTP status, or
+    /// nil when the website couldn't be reached.
+    private func deleteOnWebsite(_ eventID: UUID) async -> Int? {
+        guard let request = try? await websiteRequest("delete", event: eventID),
+              let (_, response) = try? await URLSession.shared.data(for: request)
+        else { return nil }
+        return (response as? HTTPURLResponse)?.statusCode
     }
 
     private func websiteRequest(_ route: String, event: UUID) async throws -> URLRequest {
