@@ -8,6 +8,7 @@ import { requestedKid, tutoredStudent } from "@/lib/tuttles/tutoring-as";
 import { studentSections } from "@/lib/tuttles/context";
 import { FenceFilter } from "@/lib/tuttles/fences";
 import { studyTurn } from "@/lib/tuttles/study-chat";
+import { fileInput, parseFiles, savedFiles, type TutorFile } from "@/lib/tuttles/files";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -15,14 +16,15 @@ export const maxDuration = 120;
 /**
  * One turn of a Tuttles chat, from the iPhone app.
  *
- *   POST { threadId, text, images, assignmentId? }   Authorization: Bearer <supabase access token>
+ *   POST { threadId, text, images, files?, assignmentId? }   Authorization: Bearer <supabase access token>
  *   → the tutor's reply, streamed as plain text
  *
  * `threadId` is made on the phone, so the first message of a new chat creates
  * the thread. `assignmentId`, on that first message, is the Canvas assignment
  * the chat was opened from: the thread files under its class, and the tutor
  * keeps its instructions in view. `images` are paths the phone has already uploaded to the tuttles
- * bucket, under {student_id}/{thread_id}/.
+ * bucket, under {student_id}/{thread_id}/. `files` are PDFs uploaded there the
+ * same way, each {path, name, pages} (src/lib/tuttles/files.ts).
  *
  * The phone has a Supabase session but no website cookies, so it sends its
  * access token and this validates it (excluded from the session gate in
@@ -69,7 +71,7 @@ export async function POST(request: Request) {
   if (!student) return NextResponse.json({ error: "not a family member" }, { status: 403 });
   const ownerId = student.ownerId;
 
-  let body: { threadId?: unknown; text?: unknown; images?: unknown; assignmentId?: unknown; briefing?: unknown };
+  let body: { threadId?: unknown; text?: unknown; images?: unknown; files?: unknown; assignmentId?: unknown; briefing?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -86,7 +88,9 @@ export async function POST(request: Request) {
   ) {
     return NextResponse.json({ error: "bad images" }, { status: 400 });
   }
-  if (!text && images.length === 0) return NextResponse.json({ error: "empty message" }, { status: 400 });
+  const files = parseFiles(body.files, folder);
+  if (!files) return NextResponse.json({ error: "bad files" }, { status: 400 });
+  if (!text && images.length === 0 && files.length === 0) return NextResponse.json({ error: "empty message" }, { status: 400 });
 
   const { data: thread } = await db
     .from("tutor_threads")
@@ -116,17 +120,23 @@ export async function POST(request: Request) {
   const { data: earlier, error: historyErr } = thread
     ? await db
         .from("tutor_messages")
-        .select("role, content, images")
+        .select("role, content, images, files")
         .eq("thread_id", threadId)
         .order("created_at", { ascending: true })
     : { data: [], error: null };
   if (historyErr) return NextResponse.json({ error: historyErr.message }, { status: 500 });
-  const history = (earlier ?? []) as { role: "student" | "tutor"; content: string; images: string[] }[];
+  const history = (earlier ?? []).map((m) => ({
+    role: m.role as "student" | "tutor",
+    content: m.content as string,
+    images: m.images as string[],
+    files: savedFiles(m.files),
+  }));
 
-  // Every photo in the thread goes to the model with every turn, as data
-  // rather than a link: nothing outside can fetch it, and it works the same
-  // against a local database.
+  // Every photo and file in the thread goes to the model with every turn, as
+  // data rather than a link: nothing outside can fetch it, and it works the
+  // same against a local database.
   const allPaths = [...history.flatMap((m) => m.images), ...images];
+  const allFiles: TutorFile[] = [...history.flatMap((m) => m.files), ...files];
   const photoData = new Map<string, string>();
   const bucket = db.storage.from("tuttles");
   const downloaded = await Promise.all(allPaths.map(async (p) => [p, (await bucket.download(p)).data] as const));
@@ -139,11 +149,22 @@ export async function POST(request: Request) {
     console.warn(`[tuttles/chat] photo not uploaded: ${missing}`);
     return NextResponse.json({ error: "photo not uploaded" }, { status: 400 });
   }
+  const fileData = new Map(
+    (await Promise.all(allFiles.map(async (f) => [f.path, await fileInput(db, f)] as const))).flatMap(([p, input]) =>
+      input ? [[p, input] as const] : [],
+    ),
+  );
+  const missingFile = files.find((f) => !fileData.has(f.path));
+  if (missingFile) {
+    console.warn(`[tuttles/chat] file not uploaded: ${missingFile.path}`);
+    return NextResponse.json({ error: "file not uploaded" }, { status: 400 });
+  }
 
-  const studentTurn = (content: string, paths: string[]): ResponseInputItem => ({
+  const studentTurn = (content: string, paths: string[], sent: TutorFile[]): ResponseInputItem => ({
     role: "user",
     content: [
       ...(content ? [{ type: "input_text" as const, text: content }] : []),
+      ...sent.flatMap((f) => fileData.get(f.path) ?? []),
       ...paths
         .filter((p) => photoData.has(p))
         .map((p) => ({ type: "input_image" as const, image_url: photoData.get(p)!, detail: "high" as const })),
@@ -151,9 +172,9 @@ export async function POST(request: Request) {
   });
   const input: ResponseInputItem[] = [
     ...history.map((m) =>
-      m.role === "student" ? studentTurn(m.content, m.images) : ({ role: "assistant", content: m.content } as const),
+      m.role === "student" ? studentTurn(m.content, m.images, m.files) : ({ role: "assistant", content: m.content } as const),
     ),
-    studentTurn(text, images),
+    studentTurn(text, images, files),
   ];
   // Study sets in an ordinary chat; the quiz itself in a quiz chat.
   const study = briefing
@@ -164,6 +185,7 @@ export async function POST(request: Request) {
         threadId,
         thread: thread ? { kind: thread.kind, study_set_id: thread.study_set_id } : null,
         images: allPaths,
+        files: allFiles,
         assignmentId,
       });
 
@@ -241,13 +263,14 @@ export async function POST(request: Request) {
         }
         // A millisecond apart, so the two sort in the order they happened.
         const { error: saveErr } = await db.from("tutor_messages").insert([
-          { thread_id: threadId, role: "student", content: text, images, created_at: now.toISOString() },
+          { thread_id: threadId, role: "student", content: text, images, files, created_at: now.toISOString() },
           {
             thread_id: threadId,
             role: "tutor",
             content: reply,
             // Rows inserted together share columns, so a missing one is null, not its default.
             images: [],
+            files: [],
             model: TUTOR_MODEL,
             usage,
             created_at: new Date(now.getTime() + 1).toISOString(),

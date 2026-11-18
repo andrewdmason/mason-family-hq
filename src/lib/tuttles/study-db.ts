@@ -209,8 +209,9 @@ export async function setSources(db: SupabaseClient, setId: string) {
     .order("created_at");
   return (data ?? []) as {
     id: string;
-    kind: "photo" | "note" | "canvas";
+    kind: "photo" | "note" | "canvas" | "file";
     body: string;
+    /** A photo's path in the tuttles bucket, or a file's. */
     image_path: string | null;
     assignment_id: number | null;
     thread_id: string | null;
@@ -335,12 +336,12 @@ async function replaceTopics(db: SupabaseClient, setId: string, topics: { name: 
   if (gone.length) await db.from("tutor_study_topics").update({ removed_at: new Date().toISOString() }).in("id", gone);
 }
 
-/** Photos and notes that came with a set, so the set's page can show what it's built from. */
+/** Photos, files and notes that came with a set, so the set's page can show what it's built from. */
 export async function addSources(
   db: SupabaseClient,
   setId: string,
   by: string,
-  sources: { kind: "photo" | "note" | "canvas"; body?: string; imagePath?: string; assignmentId?: number; threadId?: string }[],
+  sources: { kind: "photo" | "note" | "canvas" | "file"; body?: string; imagePath?: string; assignmentId?: number; threadId?: string }[],
 ) {
   if (!sources.length) return;
   const { data: have } = await db.from("tutor_study_sources").select("image_path, assignment_id").eq("set_id", setId);

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { memoryContext } from "@/lib/tuttles/memory";
 import { isBareGrade, parseGrade, parseQuestion, parseSetDraft } from "@/lib/tuttles/study";
+import type { TutorFile } from "@/lib/tuttles/files";
 import {
   addSources,
   openQuestion,
@@ -44,8 +45,9 @@ export async function studyTurn(
     userId: string;
     threadId: string;
     thread: { kind: string | null; study_set_id: string | null } | null;
-    /** Every photo in the thread, this turn's included. */
+    /** Every photo and file in the thread, this turn's included. */
     images: string[];
+    files: TutorFile[];
     assignmentId: number | null;
   },
 ): Promise<StudyTurn> {
@@ -73,6 +75,7 @@ export async function studyTurn(
         linkedId: linked,
         knownIds: sets.map((s) => s.id),
         images: args.images,
+        files: args.files,
         assignmentId: args.assignmentId,
         body,
       });
@@ -98,6 +101,7 @@ export async function saveTutorSet(
     /** The student's sets the tutor was told about, the only ids it may name. */
     knownIds: string[];
     images: string[];
+    files?: TutorFile[];
     assignmentId: number | null;
     body: string;
   },
@@ -120,6 +124,7 @@ export async function saveTutorSet(
     });
     await addSources(db, set.id, args.userId, [
       ...args.images.map((p) => ({ kind: "photo" as const, imagePath: p, threadId: args.threadId, body: "Photo from a chat" })),
+      ...(args.files ?? []).map((f) => ({ kind: "file" as const, imagePath: f.path, threadId: args.threadId, body: f.name })),
       ...(args.assignmentId
         ? [{ kind: "canvas" as const, assignmentId: args.assignmentId, threadId: args.threadId, body: "Canvas assignment" }]
         : []),

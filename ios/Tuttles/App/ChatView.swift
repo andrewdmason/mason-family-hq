@@ -21,10 +21,10 @@ struct ChatView: View {
     @State private var messages: [ChatMessage] = []
     @State private var draft = ""
     @State private var photos: [ChatPhoto] = []
+    @State private var files: [ChatFile] = []
     @State private var sending = false
     @State private var loadError: String?
     @State private var sendError: String?
-    @State private var showingCamera = false
     @State private var viewing: PhotoRef?
     /// Which costume Tuttles greets a new chat in (Tuttles1…Tuttles10).
     @State private var pose = Int.random(in: 1...10)
@@ -191,12 +191,6 @@ struct ChatView: View {
             draft = "Time's up!"
             send()
         }
-        .fullScreenCover(isPresented: $showingCamera) {
-            CameraView { taken in
-                photos.append(contentsOf: taken)
-                if !taken.isEmpty { typing = true }
-            }
-        }
         .fullScreenCover(item: $viewing) { PhotoViewer(ref: $0) }
     }
 
@@ -283,7 +277,7 @@ struct ChatView: View {
     // MARK: - Writing
 
     private var canSend: Bool {
-        !sending && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !photos.isEmpty)
+        !sending && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !photos.isEmpty || !files.isEmpty)
     }
 
     private var composer: some View {
@@ -301,9 +295,14 @@ struct ChatView: View {
                     .frame(maxWidth: .infinity)
                     .transition(.opacity)
             }
-            if !photos.isEmpty {
+            if !photos.isEmpty || !files.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
+                        ForEach(files) { file in
+                            FileChip(file: file) {
+                                withAnimation { files.removeAll { $0.id == file.id } }
+                            }
+                        }
                         ForEach(photos) { photo in
                             Image(uiImage: photo.image)
                                 .resizable()
@@ -332,17 +331,20 @@ struct ChatView: View {
                 Color.clear.frame(height: 48)
             } else {
             HStack(alignment: .bottom, spacing: 10) {
-                Button {
+                AttachMenu(photos: $photos, files: $files) {
                     typing = false
-                    showingCamera = true
+                } onAdded: {
+                    typing = true
+                } onProblem: { problem in
+                    sendError = problem
                 } label: {
-                    Image(systemName: "camera.fill")
-                        .font(.title3)
+                    Image(systemName: "plus")
+                        .font(.title3.weight(.medium))
                         .frame(width: 34, height: 34)
                 }
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
-                .accessibilityLabel("Camera")
+                .accessibilityLabel("Add photos or files")
 
                 HStack(alignment: .bottom, spacing: 6) {
                     if talk.isActive {
@@ -415,7 +417,8 @@ struct ChatView: View {
         guard canSend else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let sent = photos
-        let student = ChatMessage(id: UUID(), role: .student, content: text, photos: sent)
+        let sentFiles = files
+        let student = ChatMessage(id: UUID(), role: .student, content: text, photos: sent, files: sentFiles)
         let reply = ChatMessage(id: UUID(), role: .tutor, content: "", streaming: true)
         withAnimation(.snappy) {
             messages.append(student)
@@ -423,6 +426,7 @@ struct ChatView: View {
         }
         draft = ""
         photos = []
+        files = []
         sending = true
         sendError = nil
 
@@ -430,7 +434,7 @@ struct ChatView: View {
             do {
                 let isFirst = messages.count <= 2
                 try await store.send(
-                    threadID: threadID, text: text, photos: sent,
+                    threadID: threadID, text: text, photos: sent, files: sentFiles,
                     assignmentID: isFirst ? start?.assignment.id : nil,
                     briefing: isFirst ? briefing : nil
                 ) { soFar in
@@ -451,6 +455,7 @@ struct ChatView: View {
                 }
                 if draft.isEmpty { draft = text }
                 photos = sent + photos
+                files = sentFiles + files
                 sendError = "Didn't send: \(error.localizedDescription)"
             }
             sending = false
@@ -543,6 +548,7 @@ private struct StudentMessage: View {
                 .defaultScrollAnchor(.trailing)
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
+            ForEach(message.files) { FileButton(file: $0) }
             if !message.content.isEmpty {
                 Text(message.content)
                     .padding(.horizontal, 15)

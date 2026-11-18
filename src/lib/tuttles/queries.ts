@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { savedFiles } from "@/lib/tuttles/files";
 
 /**
  * Reads for the parents' Tuttles pages. Everything goes through the caller's
@@ -47,14 +48,17 @@ export async function getThreadsByStudent(supabase: SupabaseClient): Promise<Stu
   if (untitledIds.length > 0) {
     const { data: msgs } = await supabase
       .from("tutor_messages")
-      .select("thread_id, content, images, created_at")
+      .select("thread_id, content, images, files, created_at")
       .in("thread_id", untitledIds)
       .eq("role", "student")
       .order("created_at", { ascending: true });
     for (const m of msgs ?? []) {
       if (firstMessage.has(m.thread_id)) continue;
       const text = preview(m.content ?? "");
-      firstMessage.set(m.thread_id, text || ((m.images as string[] | null)?.length ? "Photo" : ""));
+      firstMessage.set(
+        m.thread_id,
+        text || ((m.images as string[] | null)?.length ? "Photo" : (savedFiles(m.files)[0]?.name ?? "")),
+      );
     }
   }
 
@@ -89,6 +93,8 @@ export type ThreadMessage = {
   createdAt: string;
   /** Signed URLs for the photos on a student message (1 hour). */
   images: { url: string; path: string }[];
+  /** PDFs sent with it, with signed URLs too. */
+  files: { url: string; path: string; name: string; pages: number | null }[];
 };
 
 export type ThreadDetail = {
@@ -114,15 +120,19 @@ export async function getThread(supabase: SupabaseClient, threadId: string): Pro
   const [{ data: messages, error }, { data: member }] = await Promise.all([
     supabase
       .from("tutor_messages")
-      .select("id, role, content, images, created_at")
+      .select("id, role, content, images, files, created_at")
       .eq("thread_id", threadId)
       .order("created_at", { ascending: true }),
     supabase.from("family_members").select("name").eq("user_id", thread.student_id).maybeSingle(),
   ]);
   if (error) throw new Error(`tutor messages: ${error.message}`);
 
-  // One batch for every photo in the thread, signed server-side.
-  const paths = [...new Set((messages ?? []).flatMap((m) => (m.images as string[] | null) ?? []))];
+  // One batch for every photo and file in the thread, signed server-side.
+  const paths = [
+    ...new Set(
+      (messages ?? []).flatMap((m) => [...((m.images as string[] | null) ?? []), ...savedFiles(m.files).map((f) => f.path)]),
+    ),
+  ];
   const signed = new Map<string, string>();
   if (paths.length > 0) {
     const { data } = await supabase.storage.from("tuttles").createSignedUrls(paths, SIGNED_URL_SECONDS);
@@ -144,6 +154,10 @@ export async function getThread(supabase: SupabaseClient, threadId: string): Pro
       images: ((m.images as string[] | null) ?? []).flatMap((path) => {
         const url = signed.get(path);
         return url ? [{ url, path }] : [];
+      }),
+      files: savedFiles(m.files).flatMap((f) => {
+        const url = signed.get(f.path);
+        return url ? [{ url, path: f.path, name: f.name, pages: f.pages ?? null }] : [];
       }),
     })),
   };

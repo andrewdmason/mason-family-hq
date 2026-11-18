@@ -176,7 +176,7 @@ export async function rewriteMemory(
   for (const t of threads) {
     const { data: msgs } = await db
       .from("tutor_messages")
-      .select("role, content, images, created_at")
+      .select("role, content, images, files, created_at")
       .eq("thread_id", t.id)
       .order("created_at");
     chats.push({
@@ -184,7 +184,9 @@ export async function rewriteMemory(
       day: day(t.updated_at),
       messages: (msgs ?? []).map((m) => ({
         role: m.role,
-        content: `${m.images?.length ? `[sent ${m.images.length} photo${m.images.length > 1 ? "s" : ""}] ` : ""}${clip(m.content, 2000)}`,
+        content: `${m.images?.length ? `[sent ${m.images.length} photo${m.images.length > 1 ? "s" : ""}] ` : ""}${
+          Array.isArray(m.files) && m.files.length ? `[sent ${m.files.map((f: { name?: string }) => f.name ?? "a file").join(", ")}] ` : ""
+        }${clip(m.content, 2000)}`,
       })),
     });
   }

@@ -4,6 +4,7 @@ import { iseeForGrade, iseeFromText, namedIsee, parseSetDraft, TEMPLATES } from 
 import { gradeFor } from "@/lib/tuttles/prompt";
 import { addSources, saveSet, setSummaries } from "@/lib/tuttles/study-db";
 import { foldInMaterial } from "@/lib/tuttles/study-material";
+import { parseFiles } from "@/lib/tuttles/files";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -26,9 +27,9 @@ const TESTLIKE = /\b(quiz|test|exam|assessment|midterm|final)\b/i;
  * Makes one from a form (a parent's "New study set", or the kid outside a
  * chat): Tuttles reads the note and photos into topics and notes.
  *
- *   POST { title, courseId?, testDate?, note?, images?, template?, assignmentId? } → { set }
+ *   POST { title, courseId?, testDate?, note?, images?, files?, template?, assignmentId? } → { set }
  *
- * `images` are already in the tuttles bucket, under {kid id}/study/. A set
+ * `images` and `files` (PDFs) are already in the tuttles bucket, under {kid id}/study/. A set
  * whose name or note says "ISEE" starts from that level's outline
  * (iseeFromText); `template` is for older apps that had an ISEE switch.
  */
@@ -90,6 +91,8 @@ export async function POST(request: Request) {
   const images = (Array.isArray(body.images) ? body.images : [])
     .filter((p): p is string => typeof p === "string" && p.startsWith(folder) && p.endsWith(".jpg") && !p.includes(".."))
     .slice(0, 12);
+  const files = parseFiles(body.files, folder);
+  if (!files) return NextResponse.json({ error: "bad files" }, { status: 400 });
   const courseId = typeof body.courseId === "number" ? body.courseId : null;
   const assignmentId = typeof body.assignmentId === "number" ? body.assignmentId : null;
   const testDate = typeof body.testDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.testDate) ? body.testDate : null;
@@ -98,7 +101,7 @@ export async function POST(request: Request) {
     const by = caller.userId;
     const base = parseSetDraft({ title, testDate, template })!;
     let set = await saveSet(db, { student, by, setId: null, draft: base, courseId, assignmentId });
-    if (note || images.length || assignmentId) {
+    if (note || images.length || files.length || assignmentId) {
       const canvas = assignmentId
         ? (await db.from("canvas_assignments").select("name, description").eq("id", assignmentId).eq("student_id", student.studentId).maybeSingle()).data
         : null;
@@ -106,6 +109,7 @@ export async function POST(request: Request) {
       const draft = await foldInMaterial(db, set, topics, {
         note,
         images,
+        files,
         canvas: canvas ? `${canvas.name}\n${(canvas.description ?? "").replace(/<[^>]+>/g, " ").slice(0, 4000)}` : null,
       });
       // An ISEE set keeps the outline's title unless one was given.
@@ -113,6 +117,7 @@ export async function POST(request: Request) {
       await addSources(db, set.id, by, [
         ...(note ? [{ kind: "note" as const, body: note }] : []),
         ...images.map((p) => ({ kind: "photo" as const, imagePath: p, body: "Photo" })),
+        ...files.map((f) => ({ kind: "file" as const, imagePath: f.path, body: f.name })),
         ...(assignmentId ? [{ kind: "canvas" as const, assignmentId, body: canvas?.name ?? "Canvas assignment" }] : []),
       ]);
     }

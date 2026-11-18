@@ -54,6 +54,8 @@ struct ChatMessage: Identifiable, Equatable {
     var imagePaths: [String] = []
     /// Photos still on the phone, for a message sent from it.
     var photos: [ChatPhoto] = []
+    /// PDFs sent with it (Attachments.swift).
+    var files: [ChatFile] = []
     /// The reply is still arriving.
     var streaming = false
 }
@@ -360,14 +362,23 @@ final class ChatStore {
             let role: ChatMessage.Role
             let content: String
             let images: [String]
+            let files: [File]?
+            struct File: Decodable {
+                let path: String
+                let name: String
+                let pages: Int?
+            }
         }
         let rows: [Row] = try await client.from("tutor_messages")
-            .select("id, role, content, images")
+            .select("id, role, content, images, files")
             .eq("thread_id", value: threadID.uuidString.lowercased())
             .order("created_at", ascending: true)
             .execute()
             .value
-        return rows.map { ChatMessage(id: $0.id, role: $0.role, content: $0.content, imagePaths: $0.images) }
+        return rows.map { row in
+            ChatMessage(id: row.id, role: row.role, content: row.content, imagePaths: row.images,
+                        files: (row.files ?? []).map { ChatFile(path: $0.path, name: $0.name, pages: $0.pages) })
+        }
     }
 
     // MARK: - Photos
@@ -387,21 +398,23 @@ final class ChatStore {
     // MARK: - Sending
 
     enum SendError: LocalizedError {
-        case notSignedIn, photoNotUploaded, server(String)
+        case notSignedIn, photoNotUploaded, fileNotUploaded, server(String)
         var errorDescription: String? {
             switch self {
             case .notSignedIn: "You're not signed in."
             case .photoNotUploaded: "A photo couldn't be uploaded. Try sending again."
+            case .fileNotUploaded: "A file couldn't be uploaded. Try sending again."
             case .server(let message): message
             }
         }
     }
 
-    /// Uploads the photos, sends the turn, and calls `onText` with the reply so
+    /// Uploads the photos and files, sends the turn, and calls `onText` with the reply so
     /// far as it streams in (at most every few frames). Throws if the turn
     /// failed; nothing is saved then, so it can be sent again.
     func send(
-        threadID: UUID, text: String, photos: [ChatPhoto], assignmentID: Int? = nil, briefing: BriefingTopic? = nil,
+        threadID: UUID, text: String, photos: [ChatPhoto], files: [ChatFile] = [],
+        assignmentID: Int? = nil, briefing: BriefingTopic? = nil,
         onText: @escaping @MainActor (String) -> Void
     ) async throws {
         if isDemo {
@@ -426,6 +439,7 @@ final class ChatStore {
             photoCache[path] = photo.image
             paths.append(path)
         }
+        let (sentFiles, fileFailed) = await upload(files, to: folder)
 
         let token = try await client.auth.session.accessToken
         var request = URLRequest(url: Self.chatURL)
@@ -434,6 +448,7 @@ final class ChatStore {
         authorize(&request, token: token)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = ["threadId": threadID.uuidString.lowercased(), "text": text, "images": paths]
+        if !sentFiles.isEmpty { body["files"] = sentFiles }
         if let assignmentID { body["assignmentId"] = assignmentID }
         if let briefing {
             body["briefing"] = [
@@ -449,6 +464,7 @@ final class ChatStore {
             for try await byte in bytes { body.append(byte) }
             let message = (try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["error"] as? String
             if uploadFailed, message?.hasPrefix("photo not uploaded") == true { throw SendError.photoNotUploaded }
+            if fileFailed, message?.hasPrefix("file not uploaded") == true { throw SendError.fileNotUploaded }
             throw SendError.server(message ?? "The tutor couldn't be reached.")
         }
 

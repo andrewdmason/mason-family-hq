@@ -362,12 +362,14 @@ struct StudySetView: View {
                             }
                         }
                     }
-                    Button("Add material", systemImage: "camera.fill") { adding = true }
+                    Button("Add material", systemImage: "plus") { adding = true }
                     if let detail, !detail.sources.isEmpty {
                         let photos = detail.sources.filter { $0.kind == "photo" }.count
+                        let files = detail.sources.filter { $0.kind == "file" }.count
                         let notes = detail.sources.filter { $0.kind == "note" }.count
                         let canvas = detail.sources.filter { $0.kind == "canvas" }.count
                         Text([photos > 0 ? "\(photos) photo\(photos == 1 ? "" : "s")" : nil,
+                              files > 0 ? "\(files) file\(files == 1 ? "" : "s")" : nil,
                               notes > 0 ? "\(notes) note\(notes == 1 ? "" : "s")" : nil,
                               canvas > 0 ? "Canvas" : nil].compactMap { $0 }.joined(separator: " · "))
                             .font(.footnote).foregroundStyle(.secondary)
@@ -580,7 +582,7 @@ private struct TestDateSheet: View {
 
 // MARK: - Material
 
-/// Photos and a note for a set; Tuttles reads them in before the sheet closes.
+/// Photos, files and a note for a set; Tuttles reads them in before the sheet closes.
 struct AddMaterialSheet: View {
     let setID: String
     let hint: String?
@@ -588,7 +590,7 @@ struct AddMaterialSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var note = ""
     @State private var photos: [ChatPhoto] = []
-    @State private var camera = false
+    @State private var files: [ChatFile] = []
     @State private var saving = false
     @State private var error: String?
 
@@ -596,9 +598,9 @@ struct AddMaterialSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    PhotoStrip(photos: $photos) { camera = true }
+                    PhotoStrip(photos: $photos, files: $files) { error = $0 }
                 } header: {
-                    Text("Photos")
+                    Text("Photos and files")
                 } footer: {
                     Text(hint.map { $0.isEmpty ? "Study guides, vocab lists, notes, old quizzes." : "Most helpful: \($0)." }
                          ?? "Study guides, vocab lists, notes, old quizzes.")
@@ -616,11 +618,10 @@ struct AddMaterialSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     if saving { ProgressView() } else {
                         Button("Add") { save() }
-                            .disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && photos.isEmpty)
+                            .disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && photos.isEmpty && files.isEmpty)
                     }
                 }
             }
-            .fullScreenCover(isPresented: $camera) { CameraView { photos.append(contentsOf: $0) } }
             .interactiveDismissDisabled(saving)
         }
     }
@@ -630,7 +631,7 @@ struct AddMaterialSheet: View {
         error = nil
         Task {
             do {
-                try await store.addMaterial(to: setID, note: note, photos: photos)
+                try await store.addMaterial(to: setID, note: note, photos: photos, files: files)
                 dismiss()
             } catch {
                 self.error = error.localizedDescription
@@ -640,22 +641,27 @@ struct AddMaterialSheet: View {
     }
 }
 
-/// Photos taken for a form, with the camera button first.
+/// Photos and files for a form, with the + (camera, photos, files) first.
 struct PhotoStrip: View {
     @Binding var photos: [ChatPhoto]
-    let openCamera: () -> Void
+    @Binding var files: [ChatFile]
+    /// A file that couldn't be taken, in words; nil clears it.
+    var onProblem: (String?) -> Void = { _ in }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                Button(action: openCamera) {
-                    Image(systemName: "camera.fill")
+                AttachMenu(photos: $photos, files: $files, onProblem: onProblem) {
+                    Image(systemName: "plus")
                         .font(.title2)
                         .frame(width: 64, height: 84)
                         .background(Color(.tertiarySystemFill), in: .rect(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Take photos")
+                .accessibilityLabel("Add photos or files")
+                ForEach(files) { file in
+                    FileChip(file: file) { files.removeAll { $0.id == file.id } }
+                }
                 ForEach(photos) { photo in
                     Image(uiImage: photo.image)
                         .resizable().scaledToFill()
@@ -689,7 +695,7 @@ struct NewStudySetSheet: View {
     @State private var date = Date().addingTimeInterval(7 * 86400)
     @State private var note = ""
     @State private var photos: [ChatPhoto] = []
-    @State private var camera = false
+    @State private var files: [ChatFile] = []
     @State private var saving = false
     @State private var error: String?
 
@@ -710,7 +716,7 @@ struct NewStudySetSheet: View {
                     Text("For the ISEE, just call it ISEE: Tuttles brings in the real test's sections for their level.")
                 }
                 Section {
-                    PhotoStrip(photos: $photos) { camera = true }
+                    PhotoStrip(photos: $photos, files: $files) { error = $0 }
                     TextField("What's on it, what the teacher said…", text: $note, axis: .vertical)
                         .lineLimit(3...10)
                 } header: {
@@ -731,7 +737,6 @@ struct NewStudySetSheet: View {
                     }
                 }
             }
-            .fullScreenCover(isPresented: $camera) { CameraView { photos.append(contentsOf: $0) } }
             .interactiveDismissDisabled(saving)
         }
     }
@@ -743,7 +748,7 @@ struct NewStudySetSheet: View {
             do {
                 let set = try await store.createStudySet(
                     title: title.trimmingCharacters(in: .whitespaces), courseID: courseID,
-                    testDate: hasDate ? date : nil, note: note, photos: photos)
+                    testDate: hasDate ? date : nil, note: note, photos: photos, files: files)
                 dismiss()
                 if let set { onMade(set.id) }
             } catch {
