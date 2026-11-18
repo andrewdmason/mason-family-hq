@@ -330,7 +330,7 @@ final class VoiceCall {
         let opening = "(The call's connection dropped for a moment and has just come back. You're still on the same call."
         let next = midTurn
             ? " The line went down while you were about to answer, so their last words may not have reached you: if what they said last isn't below, say you got cut off and ask them to say it again; otherwise carry on with your answer.)"
-            : " Don't start talking; wait for them, and carry on as if nothing happened.)"
+            : " Don't start talking; wait for them, and carry on as if nothing happened, without greeting them again.)"
         return said.isEmpty
             ? opening + " Nothing had been said yet." + next
             : opening + " Here's what's been said so far on this call:\n\n" + said + "\n\n" + next.trimmingCharacters(in: .whitespaces)

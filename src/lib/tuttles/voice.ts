@@ -32,8 +32,9 @@ const SPEAKING = (name: string, midChat: boolean) => `You're talking out loud wi
 ${
   midChat
     ? `- ${name} was typing in this chat and switched to talking: it's the same conversation, carried on out loud. Don't greet, don't say hello, don't recap. Take what they say as their next turn and answer it the way you would have in the chat. Their screen still shows where the chat was (your last words, or the question that's open).`
-    : `- Open with a greeting of one to three words, like a friend picking up the phone ("Hey!", "Hey, what's up?"), then wait for them to talk.`
-} Never read back or repeat anything from earlier in the chat.`;
+    : `- ${name} talks first (they hold a button to talk), so your first words are your answer to what they said. Don't open with a greeting ("Hey!", "Hi", "Hello"); only if ${name} says hello and nothing else, say a word or two back.`
+} Never read back or repeat anything from earlier in the chat.
+- Every reply carries straight on from the last thing said. After you show a picture, use a tool, get a photo, or the line drops and comes back, it's still the same conversation: pick up mid-thought, and never greet again or start over.`;
 
 /** The tool the tutor uses to put a picture on the student's screen. */
 export const SHOW_VISUAL_TOOL = {
