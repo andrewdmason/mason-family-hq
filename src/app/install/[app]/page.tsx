@@ -18,6 +18,11 @@ const APPS: Record<string, { name: string; blurb: string; keeps: string }> = {
     blurb: "Your homework tutor. Snap a picture of the problem and work it out together.",
     keeps: "your chats",
   },
+  calendar: {
+    name: "Calendar",
+    blurb: "The family calendar: everyone's day side by side, and who's driving.",
+    keeps: "your settings",
+  },
 };
 
 type Latest = { version: string; build: string; publishedAt: string; manifest: string };

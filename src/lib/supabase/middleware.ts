@@ -106,6 +106,12 @@ export async function updateSession(request: NextRequest) {
     !(
       request.nextUrl.pathname.startsWith("/workouts/api/") &&
       request.headers.get("authorization")?.startsWith("Bearer ")
+    ) &&
+    // And the Calendar iPhone app's changes — see
+    // src/app/(calendar)/calendar/api/[action]/route.ts.
+    !(
+      request.nextUrl.pathname.startsWith("/calendar/api/") &&
+      request.headers.get("authorization")?.startsWith("Bearer ")
     )
   ) {
     const url = request.nextUrl.clone();

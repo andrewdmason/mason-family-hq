@@ -27,7 +27,9 @@ export default async function CalendarPage() {
     getCalendarSources(),
     getCalendarEvents(),
   ]);
-  const canManage = me?.role === "owner" || me?.role === "parent";
+  // Events are open to every family member, kids included; only calendar setup
+  // (Settings) stays with the parents.
+  const canManage = !!me;
   const currentMemberEmail = me?.email ?? null;
   const eventIds = events.map((e) => e.id);
   const [goingByEvent, dutiesByEvent, logistics] = await Promise.all([

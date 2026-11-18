@@ -177,6 +177,51 @@ their own. Three tabs: Upcoming, PRs, History.
   `--demo-done` has today's workout already done, `--tab <upcoming|prs|history>`
   opens on a tab, and `--website <url>` points opening at another server.
 
+## Calendar
+
+The family calendar (`src/app/(calendar)`), for everyone's phone. Bundle id and
+URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
+`FamilyCalendar`, so it doesn't shadow Foundation's `Calendar`. Plan:
+`docs/plans/2026-11-18-001-feat-ios-calendar-app-plan.md`.
+
+- Two views, switched from the floating bar's menu: **Day**, a time grid with a
+  column per family member, and **Schedule**, one list day after day. The top
+  bar's week strip moves between days; its title drops open a month grid.
+- In Day the signed-in member's column is first and wide, with full cards.
+  Everyone else is a narrow pin line with their photo at each event's start
+  (tap for a peek card, tap that for the event), or thin blocks if Settings
+  says so. Long-press empty grid to place a new event in that person's column.
+- The rules are the website's, ported in `Calendar/Shared/CalendarRules.swift`
+  and `CalendarBoard.swift` (which day an event is on, which rows are one
+  shared event, what's hidden, lanes, conflicts, duty chips, the calendar
+  label) and tested in `Calendar/Tests`; keep them in step with
+  `src/lib/calendar/calendar-utils.ts`, `grid-layout.ts`, `conflicts.ts`,
+  `recurrence.ts` and the `display` function in `calendar-client.tsx`.
+- It opens on a local copy (a file per member in Application Support: members,
+  sources, events from 60 days back to 180 ahead, going, duties) and reads the
+  rest straight from Supabase under the member's sign-in. On opening it asks
+  the website for its light sync, then reads again.
+- Every change goes through the website (`/calendar/api/<action>`, with the
+  phone's access token), which runs the same mutations as the website's own
+  actions: writing back to Google, drive blocks, TeamSnap. The change shows at
+  once and is put back, with why, if it's refused. Changes need a connection;
+  nothing queues. Every family member can make them, kids included.
+- The event sheet has the website panel's instant actions (TeamSnap RSVP, a
+  kid's own going, who's going along, drop-off and pick-up) and Edit for Google
+  and app-only events. Not here yet: the team's availability roster, repeating
+  events (shown, not made), and the "pending" drive blocks the website draws
+  between a duty tap and the server catching up; the app reads again a few
+  seconds after a change, which is when the real ones arrive.
+- Settings are this phone's: who shows and in what order, pins or blocks, the
+  view it opens on, hidden events. Calendar setup stays on the website.
+- Released like Tuttles: `scripts/release.sh Calendar --adhoc-only` publishes
+  to family.mason.io/install/calendar and installed copies show the update
+  banner. Each phone must be registered on the developer account first.
+- `Calendar/Shared` has no UIKit, for the Mac app to come (`Calendar/Mac`).
+- `--demo` runs on a made-up family week with no sign-in, for the simulator;
+  `--me <first name>` chooses whose phone it is, `--view <day|schedule>` the
+  view, and `--website <url>` points changes at another server.
+
 ## Adding an app
 
 A new folder beside `Practice/` and a target in `project.yml` that depends on

@@ -355,3 +355,51 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: true
+  # Calendar: the family calendar, with a column per person. Opens on a local
+  # copy; changes go through the website (/calendar/api), which writes back to
+  # Google. The module is FamilyCalendar so it doesn't shadow Foundation's
+  # Calendar. Shared/ is what the Mac app will build on too.
+  Calendar:
+    type: application
+    platform: iOS
+    sources: [Calendar/Shared, Calendar/iPhone]
+    dependencies:
+      - package: MasonKit
+      - package: Supabase
+        product: Supabase
+    entitlements:
+      path: Calendar/iPhone/Calendar.entitlements
+      properties:
+        keychain-access-groups: [$(AppIdentifierPrefix)io.mason.shared]
+    info:
+      path: Calendar/iPhone/Info.plist
+      properties:
+        CFBundleDisplayName: Calendar
+        CFBundleURLTypes:
+          - CFBundleURLName: io.mason.calendar
+            CFBundleURLSchemes: [io.mason.calendar]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.mason.calendar
+        PRODUCT_MODULE_NAME: FamilyCalendar
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
+    scheme:
+      testTargets: [CalendarTests]
+  CalendarTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Calendar/Tests]
+    dependencies:
+      - target: Calendar
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
