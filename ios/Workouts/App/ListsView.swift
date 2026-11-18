@@ -1,12 +1,15 @@
 import SwiftUI
 
-/// What's coming: how often you've trained lately, then the workouts on the
-/// calendar and the ones opened but not finished, soonest first.
+/// Where the app opens: how often you've trained lately, then today's workout
+/// and what's coming, soonest first, each a tap from logging. Nothing from
+/// before today is here; that's History.
 struct UpcomingView: View {
     let store: WorkoutStore
+    let email: String?
     @State private var path: [SessionRoute] = []
 
     var body: some View {
+        let focus = store.focus
         let rows = store.todo
         NavigationStack(path: $path) {
             ScrollView {
@@ -17,7 +20,7 @@ struct UpcomingView: View {
                     TrendCard(trend: store.trend, trained: Set(store.sessions.map(\.date)), today: store.today)
 
                     VStack(alignment: .leading, spacing: 12) {
-                        SectionHeader(title: "To do")
+                        SectionHeader(title: "Coming up")
                         if rows.isEmpty {
                             EmptyCard(
                                 symbol: "calendar.badge.clock", title: "Nothing queued",
@@ -39,13 +42,24 @@ struct UpcomingView: View {
                 .padding(.bottom, WorkoutStyle.scrollEnd)
             }
             .scrollIndicators(.hidden)
-            .background { WorkoutBackground() }
+            .background { WorkoutBackground(mood: mood(focus)) }
             .navigationTitle("Upcoming")
+            .navigationSubtitle(Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day()))
             .toolbarTitleDisplayMode(.inlineLarge)
             .scrollEdgeEffectStyle(.soft, for: .top)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { AccountMenu(email: email, store: store) }
+            }
             .refreshable { await store.load() }
             .navigationDestination(for: SessionRoute.self) { SessionScreen(store: store, id: $0.id) }
         }
+    }
+}
+
+extension UpcomingView {
+    fileprivate func mood(_ focus: TodayWorkout) -> WorkoutMood {
+        guard focus.today != nil else { return .rest }
+        return focus.todayCompleted ? .done : .work
     }
 }
 
@@ -172,13 +186,14 @@ private struct UpcomingRow: View {
     }
 }
 
-/// What's done, most recent first, a card per month.
+/// What's behind, most recent first, a card per month: workouts done, and
+/// ones opened before today and never marked done, still there to log.
 struct HistoryView: View {
     let store: WorkoutStore
     @State private var path: [SessionRoute] = []
 
     var body: some View {
-        let months = Self.months(store.done)
+        let months = Self.months(store.history)
         NavigationStack(path: $path) {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 22) {
@@ -186,7 +201,7 @@ struct HistoryView: View {
                         if store.loaded {
                             EmptyCard(
                                 symbol: "checkmark.circle", title: "Nothing yet",
-                                message: "Workouts you mark done collect here."
+                                message: "Workouts from before today collect here."
                             )
                         } else {
                             ProgressView().controlSize(.large).frame(maxWidth: .infinity).padding(.vertical, 120)
@@ -250,10 +265,11 @@ private struct HistoryRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "checkmark.circle.fill")
+            Image(systemName: row.completed ? "checkmark.circle.fill" : "circle.dashed")
                 .font(.title2)
-                .foregroundStyle(WorkoutStyle.done)
+                .foregroundStyle(row.completed ? AnyShapeStyle(WorkoutStyle.done) : AnyShapeStyle(WorkoutStyle.goldText))
                 .frame(width: 32)
+                .accessibilityLabel(row.completed ? "Done" : "Unfinished")
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.title)
                     .font(.body.weight(.medium))
@@ -264,10 +280,14 @@ private struct HistoryRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            Text("\(row.blockCount) \(row.blockCount == 1 ? "block" : "blocks")")
-                .font(.caption)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
+            if row.completed {
+                Text("\(row.blockCount) \(row.blockCount == 1 ? "block" : "blocks")")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            } else {
+                Chip(text: "Unfinished", color: WorkoutStyle.goldText)
+            }
             Image(systemName: "chevron.right")
                 .font(.footnote.weight(.bold))
                 .foregroundStyle(.tertiary)
