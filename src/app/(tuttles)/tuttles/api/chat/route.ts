@@ -134,7 +134,11 @@ export async function POST(request: Request) {
     if (blob) photoData.set(p, `data:image/jpeg;base64,${Buffer.from(await blob.arrayBuffer()).toString("base64")}`);
   }
   const missing = images.find((p) => !photoData.has(p));
-  if (missing) return NextResponse.json({ error: `photo not uploaded: ${missing}` }, { status: 400 });
+  if (missing) {
+    // The phone shows this to the kid as it is, so the path stays in the log.
+    console.warn(`[tuttles/chat] photo not uploaded: ${missing}`);
+    return NextResponse.json({ error: "photo not uploaded" }, { status: 400 });
+  }
 
   const studentTurn = (content: string, paths: string[]): ResponseInputItem => ({
     role: "user",

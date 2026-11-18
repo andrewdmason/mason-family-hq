@@ -387,10 +387,11 @@ final class ChatStore {
     // MARK: - Sending
 
     enum SendError: LocalizedError {
-        case notSignedIn, server(String)
+        case notSignedIn, photoNotUploaded, server(String)
         var errorDescription: String? {
             switch self {
             case .notSignedIn: "You're not signed in."
+            case .photoNotUploaded: "A photo couldn't be uploaded. Try sending again."
             case .server(let message): message
             }
         }
@@ -410,11 +411,18 @@ final class ChatStore {
         guard let userID = ownerID else { throw SendError.notSignedIn }
         let folder = "\(userID.uuidString.lowercased())/\(threadID.uuidString.lowercased())"
         var paths: [String] = []
+        var uploadFailed = false
         for photo in photos {
             let path = "\(folder)/\(photo.id.uuidString.lowercased()).jpg"
-            // A retry re-uploads what already went; that's fine.
-            _ = try? await client.storage.from("tuttles")
-                .upload(path, data: photo.jpeg, options: FileOptions(contentType: "image/jpeg", upsert: true))
+            // A retry re-uploads what already went, and storage may refuse to
+            // replace it; that's fine, the photo is there. So a failure here isn't
+            // the last word: the website says whether a photo is really missing.
+            do {
+                _ = try await client.storage.from("tuttles")
+                    .upload(path, data: photo.jpeg, options: FileOptions(contentType: "image/jpeg", upsert: true))
+            } catch {
+                uploadFailed = true
+            }
             photoCache[path] = photo.image
             paths.append(path)
         }
@@ -440,6 +448,7 @@ final class ChatStore {
             var body = Data()
             for try await byte in bytes { body.append(byte) }
             let message = (try? JSONSerialization.jsonObject(with: body) as? [String: Any])?["error"] as? String
+            if uploadFailed, message?.hasPrefix("photo not uploaded") == true { throw SendError.photoNotUploaded }
             throw SendError.server(message ?? "The tutor couldn't be reached.")
         }
 
