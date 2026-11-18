@@ -1,3 +1,4 @@
+import UniformTypeIdentifiers
 import XCTest
 @testable import Tuttles
 
@@ -173,5 +174,48 @@ final class FamilyKidTests: XCTestCase {
          {"id":"00000000-0000-0000-0000-00000000000b","name":"Sebastian","mode":"preview"}]
         """)
         XCTAssertEqual(list.map(\.ownPhone), [false, true])
+    }
+}
+
+final class ChatFileTests: XCTestCase {
+    private func pdf(pages: Int) -> Data {
+        UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 200, height: 200)).pdfData { context in
+            for page in 0..<pages {
+                context.beginPage()
+                ("Page \(page + 1)" as NSString).draw(at: CGPoint(x: 20, y: 20), withAttributes: nil)
+            }
+        }
+    }
+
+    func testAPDFBecomesAFileWithItsPageCount() throws {
+        let file = try ChatFile(name: "Study guide.pdf", pdf: pdf(pages: 3))
+        XCTAssertEqual(file.name, "Study guide.pdf")
+        XCTAssertEqual(file.pages, 3)
+        XCTAssertEqual(file.detail, "PDF · 3 pages")
+        XCTAssertEqual(try ChatFile(name: "Handout", pdf: pdf(pages: 1)).name, "Handout.pdf")
+        XCTAssertEqual(try ChatFile(name: "Handout", pdf: pdf(pages: 1)).detail, "PDF · 1 page")
+    }
+
+    func testALongPDFIsTurnedAway() {
+        XCTAssertNoThrow(try ChatFile(name: "a.pdf", pdf: pdf(pages: ChatFile.maxPages)))
+        XCTAssertThrowsError(try ChatFile(name: "a.pdf", pdf: pdf(pages: ChatFile.maxPages + 1))) {
+            XCTAssertEqual($0 as? ChatFile.Problem, .tooLong)
+        }
+    }
+
+    func testWhatIsntAPDFOrPictureIsTurnedAway() {
+        XCTAssertThrowsError(try ChatFile(name: "a.pdf", pdf: Data("hello".utf8))) {
+            XCTAssertEqual($0 as? ChatFile.Problem, .unreadable)
+        }
+        XCTAssertThrowsError(try PickedFile(name: "essay.docx", type: UTType(filenameExtension: "docx"), data: Data("PK".utf8))) {
+            XCTAssertEqual($0 as? ChatFile.Problem, .unreadable)
+        }
+    }
+
+    func testAPictureFromFilesIsAPhoto() throws {
+        let png = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 40)).pngData { $0.fill(CGRect(x: 0, y: 0, width: 40, height: 40)) }
+        guard case .photo = try PickedFile(name: "shot.png", type: .png, data: png) else { return XCTFail("not a photo") }
+        guard case .file(let file) = try PickedFile(name: "guide.pdf", type: .pdf, data: pdf(pages: 2)) else { return XCTFail("not a file") }
+        XCTAssertEqual(file.pages, 2)
     }
 }

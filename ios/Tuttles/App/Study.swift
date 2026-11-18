@@ -280,11 +280,22 @@ extension ChatStore {
         return paths
     }
 
+    /// Uploads files for a set into the kid's folder, as the website is told of them.
+    func uploadStudyFiles(_ files: [ChatFile]) async throws -> [[String: Any]] {
+        if isDemo || files.isEmpty { return [] }
+        if study?.studentId == nil { await refreshStudy() }
+        guard let kid = study?.studentId else { throw SendError.notSignedIn }
+        let (sent, failed) = await upload(files, to: "\(kid)/study")
+        if failed { throw SendError.fileNotUploaded }
+        return sent
+    }
+
     /// More material for a set: Tuttles reads it into the set before this returns.
-    func addMaterial(to id: String, note: String, photos: [ChatPhoto]) async throws {
+    func addMaterial(to id: String, note: String, photos: [ChatPhoto], files: [ChatFile] = []) async throws {
         if isDemo { try await Task.sleep(for: .seconds(1)); return }
         let paths = try await uploadStudyPhotos(photos)
-        _ = try await post("tuttles/api/study/\(id)/sources", json: ["note": note, "images": paths])
+        let sent = try await uploadStudyFiles(files)
+        _ = try await post("tuttles/api/study/\(id)/sources", json: ["note": note, "images": paths, "files": sent])
         await refreshStudy()
     }
 
@@ -292,10 +303,11 @@ extension ChatStore {
     /// A set from the form. Calling it "ISEE" is enough: the website starts it
     /// from the outline for the kid's level (iseeFromText in src/lib/tuttles/study.ts).
     func createStudySet(title: String, courseID: Int?, testDate: Date?, note: String,
-                        photos: [ChatPhoto]) async throws -> StudySet? {
+                        photos: [ChatPhoto], files: [ChatFile] = []) async throws -> StudySet? {
         if isDemo { try await Task.sleep(for: .seconds(1)); return DemoChats.study.sets.first }
         let paths = try await uploadStudyPhotos(photos)
-        var body: [String: Any] = ["title": title, "note": note, "images": paths]
+        let sent = try await uploadStudyFiles(files)
+        var body: [String: Any] = ["title": title, "note": note, "images": paths, "files": sent]
         if let courseID { body["courseId"] = courseID }
         if let testDate { body["testDate"] = StudySet.day.string(from: testDate) }
         struct Reply: Decodable { let set: StudySet? }

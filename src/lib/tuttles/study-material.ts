@@ -3,11 +3,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { TUTOR_MODEL } from "@/lib/tuttles/prompt";
 import { parseSetDraft, type SetDraft } from "@/lib/tuttles/study";
 import type { SetRow } from "@/lib/tuttles/study-db";
+import { fileInput, type TutorFile } from "@/lib/tuttles/files";
 
 /**
  * Folds new material into a study set outside a chat: a parent making a set
- * from the parent view, or anyone adding a photo or note on a set's page. The
- * model reads the new photos and note with what the set already has and
+ * from the parent view, or anyone adding a photo, file or note on a set's page. The
+ * model reads the new photos, files and note with what the set already has and
  * rewrites its notes, topics, format and coverage, the way the tutor does in a
  * chat with a ```studyset block.
  */
@@ -34,18 +35,18 @@ const SCHEMA = {
   },
 };
 
-const INSTRUCTIONS = `You keep a student's study set: what's on an upcoming quiz or test, so a tutor can quiz them on it. You get the set as it is and new material (photos of study guides, worksheets or notes, and/or a typed note). Write the set again with the new material folded in.
+const INSTRUCTIONS = `You keep a student's study set: what's on an upcoming quiz or test, so a tutor can quiz them on it. You get the set as it is and new material (photos or PDFs of study guides, worksheets or notes, and/or a typed note). Write the set again with the new material folded in.
 - title: keep it unless it's a placeholder and the material says what the test is.
 - format: what the real test asks (question types, how many, anything known); keep what's known, add what the material says.
 - topics: 4 to 12 specific, testable topics ("-ar verbs in the present tense", "solving two-step equations"), not "Chapter 3". Keep existing topic names exactly when they still apply, so their history carries over. weight: 3 a big part of the test, 2 a fair share, 1 a little.
-- material: the study notes quizzes are written from. Keep what's there and add the new material faithfully and completely: facts, definitions, vocabulary (word and meaning), formulas, example problems. Transcribe photos; don't summarize a vocab list.
+- material: the study notes quizzes are written from. Keep what's there and add the new material faithfully and completely: facts, definitions, vocabulary (word and meaning), formulas, example problems. Transcribe photos and files; don't summarize a vocab list.
 - coverage: "thin" if it's mostly a title, "okay" with a topic list but few details, "good" with a study guide or the actual content. coverageNote: in a few words, what would help most next (e.g. "the vocab list for unit 4"), or "" if nothing.`;
 
 export async function foldInMaterial(
   db: SupabaseClient,
   set: Pick<SetRow, "title" | "format" | "material" | "coverage" | "coverage_note" | "id">,
   topics: { name: string; weight: number }[],
-  added: { note?: string | null; images?: string[]; canvas?: string | null },
+  added: { note?: string | null; images?: string[]; files?: TutorFile[]; canvas?: string | null },
 ): Promise<SetDraft> {
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not set");
   const bucket = db.storage.from("tuttles");
@@ -55,6 +56,7 @@ export async function foldInMaterial(
       return data ? `data:image/jpeg;base64,${Buffer.from(await data.arrayBuffer()).toString("base64")}` : null;
     }),
   );
+  const files = (await Promise.all((added.files ?? []).map((f) => fileInput(db, f)))).flatMap((f) => f ?? []);
   const current = {
     title: set.title,
     format: set.format ?? "",
@@ -68,6 +70,7 @@ export async function foldInMaterial(
     added.canvas ? `## From Canvas\n${added.canvas}` : null,
     added.note ? `## New note\n${added.note}` : null,
     photos.some(Boolean) ? "## New photos (attached)" : null,
+    files.length ? "## New files (attached)" : null,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -80,6 +83,7 @@ export async function foldInMaterial(
         role: "user",
         content: [
           { type: "input_text", text },
+          ...files,
           ...photos.filter((p): p is string => Boolean(p)).map((p) => ({ type: "input_image" as const, image_url: p, detail: "high" as const })),
         ],
       },

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cache } from "react";
-import { Archive, ArrowLeft } from "lucide-react";
+import { Archive, ArrowLeft, FileText } from "lucide-react";
 import { TutorMessage } from "@/components/tuttles/tutor-message";
 import { createClient } from "@/lib/supabase/server";
 import { formatMessageTime, getThread, type ThreadMessage } from "@/lib/tuttles/queries";
@@ -117,6 +117,24 @@ function StudentBubble({ message }: { message: ThreadMessage }) {
           ))}
         </div>
       )}
+      {message.files.map((file) => (
+        <a
+          key={file.path}
+          href={file.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Open the PDF"
+          className="flex max-w-[85%] items-center gap-2.5 rounded-xl border border-foreground/10 bg-muted px-3 py-2 transition-opacity hover:opacity-90"
+        >
+          <FileText className="h-5 w-5 shrink-0 text-[#d7261e]" aria-hidden />
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium">{file.name}</span>
+            <span className="block text-xs text-muted-foreground">
+              PDF{file.pages ? ` · ${file.pages} page${file.pages === 1 ? "" : "s"}` : ""}
+            </span>
+          </span>
+        </a>
+      ))}
       {message.content.trim() && (
         <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-[1.15rem] rounded-br-md bg-[#d7261e] px-3.5 py-2 text-[0.95rem] leading-snug text-white">
           {message.content}
