@@ -137,9 +137,13 @@ scheme `io.mason.workouts`; open to everyone in the family, each member seeing
 their own. Three tabs: Upcoming, PRs, History.
 
 - Upcoming is where it opens: today's workout first in the list, then
-  what's coming, each a tap from logging. Today's is not opened until it's tapped,
-  so a day skipped leaves no session behind. Workouts from before today that
-  were opened and never marked done are in History, marked unfinished.
+  what's coming, each a tap from logging. Today's is not opened until it's
+  tapped, so a day skipped leaves no session behind. Swiping a row away
+  (or Delete in a workout's menu) deletes it from the calendar too, Google
+  Calendar included, through `/workouts/api/delete`; it's hidden at once and
+  the delete is sent when there's signal. Workouts from before today
+  that were opened and never marked done are in History, marked unfinished.
+  How often you've trained lately sits above the records on PRs.
 - A workout open to log is a glass card per block, a
   field for every set (already filled with what was written, so doing it as
   written needs no typing), each lift's best estimated 1RM with the load that

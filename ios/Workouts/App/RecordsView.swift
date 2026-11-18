@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Personal records: each movement family's best estimated 1RMs with their
+/// Progress: how often you've trained lately, then personal records — each
+/// movement family's best estimated 1RMs with their
 /// trend against 90 days ago, then the best result on every benchmark.
 struct RecordsView: View {
     let store: WorkoutStore
@@ -9,6 +10,8 @@ struct RecordsView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
+                    TrendCard(trend: store.trend, trained: Set(store.sessions.map(\.date)), today: store.today)
+
                     VStack(alignment: .leading, spacing: 12) {
                         SectionHeader(title: "Strength by family", symbol: "dumbbell.fill")
                         if let families = store.families {

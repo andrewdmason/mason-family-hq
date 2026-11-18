@@ -28,8 +28,8 @@ struct LogContext {
 /// One workout, to log or to look back on: its blocks as glass cards with a
 /// field for every set, the comparisons beside each lift, how the day felt,
 /// and Mark done. Once done it folds into a recap; Edit opens the fields again
-/// without reopening the workout. Sits inside the caller's scroll view (the
-/// Today tab, or a session pushed from a list).
+/// without reopening the workout. Sits inside the scroll view of a session pushed
+/// from a list, and puts its date and actions in that screen's bar.
 struct SessionContent: View {
     let store: WorkoutStore
     let sessionID: UUID
@@ -44,7 +44,7 @@ struct SessionContent: View {
     var body: some View {
         if let session = store.details[sessionID] {
             VStack(alignment: .leading, spacing: 18) {
-                SessionHeader(session: session, menu: { menu(session) })
+                SessionHeader(session: session)
 
                 if session.isUnparsed {
                     UnparsedCard(session: session, working: session.calendarEventID.map(store.opening.contains) ?? false) {
@@ -68,14 +68,18 @@ struct SessionContent: View {
                 focus = nil
             }
             .toolbar { keyboardBar(session) }
+            .navigationTitle(WorkoutDay.short(session.sessionDate))
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { menu(session) }
+            }
             .sheet(isPresented: $showingSource) { SourceSheet(session: session) }
             .confirmationDialog("Delete this workout?", isPresented: $confirmingDelete, titleVisibility: .visible) {
                 Button("Delete workout", role: .destructive) {
-                    Task { if await store.delete(sessionID) { onDeleted() } }
+                    Task { if await store.dismiss(session: sessionID) { onDeleted() } }
                 }
             } message: {
                 Text(session.source == "calendar"
-                    ? "This clears the logged sets and effort. The workout is still on your calendar, so it'll show again under Upcoming."
+                    ? "This removes the workout and everything logged for it, and deletes it from your calendar. It can't be undone."
                     : "This removes the workout and everything logged for it. It can't be undone.")
             }
         } else if store.missing.contains(sessionID) {
@@ -169,9 +173,6 @@ struct SessionContent: View {
             Button("Delete workout", systemImage: "trash", role: .destructive) { confirmingDelete = true }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.body.weight(.semibold))
-                .frame(width: 40, height: 40)
-                .glassEffect(.regular.interactive(), in: .circle)
         }
         .accessibilityLabel("Workout actions")
     }
@@ -258,50 +259,15 @@ struct SessionContent: View {
 
 // MARK: - Header
 
-private struct SessionHeader<Actions: View>: View {
+private struct SessionHeader: View {
     let session: SessionDetail
-    @ViewBuilder let menu: () -> Actions
 
     var body: some View {
-        let calendar = session.source == "calendar"
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center) {
-                Label(
-                    "\(WorkoutDay.short(session.sessionDate)) · \(calendar ? "From calendar" : "Logged")",
-                    systemImage: calendar ? "calendar" : "square.and.pencil"
-                )
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(.secondary)
-                Spacer()
-                menu()
-            }
-            Text(session.title ?? "Workout")
-                .font(.system(.largeTitle, design: .serif, weight: .bold))
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
-
-            let types = session.blocks.map(\.blockType).reduce(into: [BlockType]()) { seen, type in
-                if !seen.contains(type) { seen.append(type) }
-            }
-            if !types.isEmpty {
-                ScrollView(.horizontal) {
-                    GlassEffectContainer(spacing: 8) {
-                        HStack(spacing: 8) {
-                            ForEach(types, id: \.self) { type in
-                                Label(WorkoutRules.label(type), systemImage: WorkoutStyle.symbol(for: type))
-                                    .font(.footnote.weight(.semibold))
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 7)
-                                    .glassEffect(.regular, in: .capsule)
-                            }
-                        }
-                    }
-                }
-                .scrollIndicators(.hidden)
-                .scrollClipDisabled()
-            }
-        }
-        .padding(.horizontal, 4)
+        Text(session.title ?? "Workout")
+            .font(.system(.largeTitle, design: .serif, weight: .bold))
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.isHeader)
+            .padding(.horizontal, 4)
     }
 }
 
@@ -481,7 +447,7 @@ private struct EntryView: View {
                 HistoryPanel(name: entry.name, history: history, hint: hint, reference: reference, today: today)
             }
 
-            if entry.isMetcon {
+            if entry.isMetcon, !logsLoad {
                 let line = WorkoutRules.metconLine(entry)
                 if !line.isEmpty {
                     Text(line)
@@ -497,6 +463,12 @@ private struct EntryView: View {
                 }
             }
         }
+    }
+
+    /// In a WOD a movement is one line of what was written, unless it has a
+    /// load: the weight on the bar is often scaled, so those keep their fields.
+    private var logsLoad: Bool {
+        entry.sets.contains { $0.metricType == .loadReps }
     }
 
     /// The prescription the suggested load is worked out for.
@@ -534,8 +506,8 @@ private struct SetRow: View {
                         .monospacedDigit()
                         .strikethrough(changed, color: .secondary)
                         .foregroundStyle(changed ? .secondary : .primary)
-                    if rx != "—" {
-                        Text(changed ? "As written" : "Rx")
+                    if changed {
+                        Text("As written")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -683,7 +655,7 @@ private struct HistoryPanel: View {
                         stat("\(WorkoutRules.trim(suggested)) lb", "today's \(reps)")
                     }
                     if let load = reference?.prescribed.load, let percent = history.percent(ofLoad: load) {
-                        stat("\(percent)%", "Rx of max")
+                        stat("\(percent)%", "Of your max")
                     }
                 }
                 if !history.recent.isEmpty {
