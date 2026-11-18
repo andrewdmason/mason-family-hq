@@ -43,8 +43,9 @@ import {
   type PlaceSuggestion,
 } from "@/lib/calendar/geocoding";
 
-/** Throw unless the caller is an owner/parent — the roles that manage calendars.
- * Returns the caller's member email (handy for connection-scoped work). */
+/** Throw unless the caller is an owner/parent — the roles that set calendars up
+ * (sources, primary calendars, logistics). Events themselves are open to every
+ * family member: see requireMember. Returns the caller's member email (handy for connection-scoped work). */
 async function requireParent(): Promise<string> {
   const supabase = await createClient();
   const userId = await requireUserId(supabase);
@@ -79,7 +80,7 @@ export type ManualEventInput = import("@/lib/calendar/mutations").ManualEventInp
 export type DutyState = import("@/lib/calendar/mutations").DutyState;
 
 export async function createManualEvent(input: ManualEventInput): Promise<string> {
-  await requireParent();
+  await requireMember();
   return createCalendarEvent(input);
 }
 
@@ -87,22 +88,22 @@ export async function updateManualEvent(
   id: string,
   input: ManualEventInput,
 ): Promise<void> {
-  await requireParent();
+  await requireMember();
   return updateCalendarEvent(id, input);
 }
 
 export async function deleteEvent(id: string): Promise<void> {
-  await requireParent();
+  await requireMember();
   return deleteCalendarEvent(id);
 }
 
 /** Move an event to a different family member's calendar (the Edit form's
- * Calendar picker). Owner/parent only. */
+ * Calendar picker). Any family member. */
 export async function changeEventOwner(
   eventId: string,
   newOwnerEmail: string,
 ): Promise<{ ok: true; warning?: string } | { error: string }> {
-  await requireParent();
+  await requireMember();
   return changeCalendarEventOwner(eventId, newOwnerEmail);
 }
 
@@ -515,13 +516,13 @@ export async function relinkTeamsnapPlayer(
 /** Toggle whether a family member is "going" to an event. Stored in
  * event_attendees (the durable source of truth, survives re-sync) and reconciled
  * to the event's real Google guest list when it's a materialized event. Binary —
- * distinct from TeamSnap's player RSVP. Owner/parent only. */
+ * distinct from TeamSnap's player RSVP. Any family member. */
 export async function setEventGoing(
   eventId: string,
   memberEmail: string,
   going: boolean,
 ): Promise<{ ok: true; warning?: string } | { error: string }> {
-  await requireParent();
+  await requireMember();
   return setGoing(eventId, memberEmail, going);
 }
 
@@ -538,14 +539,14 @@ export async function setEventOwnerGoing(
 
 // --- Drop-off / pick-up duty ------------------------------------------------
 
-/** Set (or clear) who's doing drop-off / pick-up for a kid's event. Owner/parent
- * only. See setDuty in @/lib/calendar/mutations for the mechanics. */
+/** Set (or clear) who's doing drop-off / pick-up for a kid's event. Any family
+ * member. See setDuty in @/lib/calendar/mutations for the mechanics. */
 export async function setEventDuty(
   eventId: string,
   duty: Duty,
   state: DutyState,
 ): Promise<{ ok: true } | { error: string }> {
-  await requireParent();
+  await requireMember();
   return setDuty(eventId, duty, state);
 }
 
@@ -556,7 +557,7 @@ export type LocationSuggestion = PlaceSuggestion;
 export async function searchLocationSuggestions(
   input: string,
 ): Promise<LocationSuggestion[]> {
-  await requireParent();
+  await requireMember();
   const query = input.trim();
   if (query.length < 2) return [];
 
@@ -639,12 +640,12 @@ export async function fetchEventTeamAvailability(
 }
 
 /** Mark the linked player's RSVP for an event, writing it back to TeamSnap.
- * Owner/parent only (kids see the calendar read-only). */
+ * Any family member. */
 export async function markEventRsvp(
   eventId: string,
   status: Exclude<TeamsnapRsvp, "no_reply">,
 ): Promise<{ ok: true } | { error: string }> {
-  await requireParent();
+  await requireMember();
   const result = await setEventRsvp(eventId, status);
   if ("error" in result) return result;
   revalidatePath("/calendar");

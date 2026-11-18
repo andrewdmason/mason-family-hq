@@ -7,6 +7,7 @@
 #     io.mason.<app>, e.g. io.mason.practice). --adhoc-only skips it.
 #   - For apps in INSTALL_LINK_APPS, also an install link at
 #     family.mason.io/install/<app> for kids under 13, who can't use TestFlight:
+#     (and for Calendar, so the whole family installs it the same way):
 #     an ad hoc build that installs only on iPhones registered on the developer
 #     account (plugging a phone into Xcode registers it). Copies installed from
 #     the link check for newer builds and show an update banner (MasonKit's
@@ -18,7 +19,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-INSTALL_LINK_APPS=(Tuttles)
+INSTALL_LINK_APPS=(Tuttles Calendar)
 
 APP="${1:-Practice}"
 ADHOC_ONLY=false
@@ -59,7 +60,8 @@ if $INSTALL_LINK; then
   BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleIdentifier" "$ARCHIVE/Info.plist")
   APP_PATH=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:ApplicationPath" "$ARCHIVE/Info.plist")
   TITLE=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$ARCHIVE/Products/$APP_PATH/Info.plist" 2>/dev/null || echo "$APP")
-  ICON="$APP/App/Assets.xcassets/AppIcon.appiconset/icon-1024.png"
+  # App/ for most apps; Calendar keeps its iPhone screens in iPhone/.
+  ICON=$(ls "$APP"/*/Assets.xcassets/AppIcon.appiconset/icon-1024.png | head -1)
 
   upload() { # <file> <path in bucket> <content type>
     curl -fsS -X POST "$SUPABASE_URL/storage/v1/object/$BUCKET/$2" \
