@@ -359,20 +359,24 @@ enum WorkoutRules {
         return TodayWorkout(today: item, todayCompleted: session?.completed ?? false, next: next)
     }
 
-    /// To do: workouts on the calendar not yet opened, and opened ones not
-    /// yet done, soonest first.
+    /// To do, from today on: workouts on the calendar not yet opened, and
+    /// opened ones not yet done, soonest first. (The website keeps unfinished
+    /// ones from before today here too; the app files those under history.)
     static func todo(sessions: [SessionSummary], events: [WorkoutEvent], today: String) -> [FocusItem] {
         let linked = Set(sessions.compactMap(\.calendarEventID))
         let rows = events.filter { !linked.contains($0.id) && $0.date >= today }.map(FocusItem.event)
-            + sessions.filter { !$0.completed }.map(FocusItem.session)
+            + sessions.filter { !$0.completed && $0.date >= today }.map(FocusItem.session)
         return rows.enumerated()
             .sorted { $0.element.date != $1.element.date ? $0.element.date < $1.element.date : $0.offset < $1.offset }
             .map(\.element)
     }
 
-    /// Done and closed, most recent first.
-    static func done(sessions: [SessionSummary]) -> [SessionSummary] {
-        sessions.filter(\.completed).sorted { $0.date != $1.date ? $0.date > $1.date : $0.createdAt > $1.createdAt }
+    /// What's behind: workouts done, and ones from before today that were
+    /// opened and never marked done (still there to finish logging), most
+    /// recent first.
+    static func history(sessions: [SessionSummary], today: String) -> [SessionSummary] {
+        sessions.filter { $0.completed || $0.date < today }
+            .sorted { $0.date != $1.date ? $0.date > $1.date : $0.createdAt > $1.createdAt }
     }
 
     /// Workouts in the last 7 and 30 days, each beside the window before it.

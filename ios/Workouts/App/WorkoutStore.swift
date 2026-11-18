@@ -26,7 +26,7 @@ final class WorkoutStore {
     private(set) var loadError: String?
     /// Calendar workouts being opened (and structured) right now.
     private(set) var opening: Set<UUID> = []
-    /// Calendar workouts that wouldn't open, so Today doesn't retry in a loop.
+    /// Calendar workouts that wouldn't open when tapped.
     private(set) var failedOpens: Set<UUID> = []
     /// Sessions that turned out not to exist any more.
     private(set) var missing: Set<UUID> = []
@@ -81,7 +81,7 @@ final class WorkoutStore {
         return WorkoutRules.todo(sessions: sessions, events: events.filter { $0.date <= horizon }, today: today)
     }
 
-    var done: [SessionSummary] { WorkoutRules.done(sessions: sessions) }
+    var history: [SessionSummary] { WorkoutRules.history(sessions: sessions, today: today) }
 
     var trend: WorkoutTrend { WorkoutRules.trend(dates: sessions.map(\.date), today: today) }
 
@@ -108,17 +108,12 @@ final class WorkoutStore {
         prepareUpcoming()
     }
 
-    /// Today's workout, ready to log: an unopened calendar workout is opened
-    /// (structured on its first visit), an opened one is loaded.
+    /// Today's workout, a tap from logging: one already opened is loaded.
+    /// One still only on the calendar is not opened until it's tapped (a
+    /// day skipped then leaves no session behind); it's first in line to be
+    /// structured ahead, below.
     private func prepareToday() async {
-        switch focus.today {
-        case .event(let event):
-            if !failedOpens.contains(event.id) { _ = await open(event) }
-        case .session(let session):
-            await loadSession(session.id)
-        case nil:
-            break
-        }
+        if case .session(let session) = focus.today { await loadSession(session.id) }
     }
 
     /// Have the website structure the calendar workouts coming up, soonest
@@ -316,8 +311,6 @@ final class WorkoutStore {
                 return false
             }
         }
-        // Left unopened rather than opened (and structured) again at once.
-        if let eventID = sessions.first(where: { $0.id == sessionID })?.calendarEventID { failedOpens.insert(eventID) }
         sessions.removeAll { $0.id == sessionID }
         details[sessionID] = nil
         insights[sessionID] = nil

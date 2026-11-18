@@ -134,9 +134,13 @@ back. The tutor's rules are in `src/lib/tuttles/prompt.ts`.
 
 The website's Workouts (`src/app/(workouts)`), for the gym. Bundle id and URL
 scheme `io.mason.workouts`; open to everyone in the family, each member seeing
-their own. Four tabs, as on the website: Today, Upcoming, PRs, History.
+their own. Three tabs: Upcoming, PRs, History.
 
-- Today is today's workout open and ready to log: a glass card per block, a
+- Upcoming is where it opens: today's workout first in the list, then
+  what's coming, each a tap from logging. Today's is not opened until it's tapped,
+  so a day skipped leaves no session behind. Workouts from before today that
+  were opened and never marked done are in History, marked unfinished.
+- A workout open to log is a glass card per block, a
   field for every set (already filled with what was written, so doing it as
   written needs no typing), each lift's best estimated 1RM with the load that
   matches today's reps, a benchmark's earlier attempts, the block's result, how
@@ -166,7 +170,7 @@ their own. Four tabs, as on the website: Today, Upcoming, PRs, History.
 - The look is Liquid Glass on a mesh of the icon's clay and paper
   (`WorkoutStyle.swift`), warmer with a workout open and sage once it's done.
 - `--demo` runs on a made-up training block with no sign-in, for the simulator;
-  `--demo-done` has today's workout already done, `--tab <today|upcoming|prs|history>`
+  `--demo-done` has today's workout already done, `--tab <upcoming|prs|history>`
   opens on a tab, and `--website <url>` points opening at another server.
 
 ## Adding an app

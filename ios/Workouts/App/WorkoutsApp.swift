@@ -55,18 +55,18 @@ struct SessionRoute: Hashable {
 }
 
 enum AppTab: String, Hashable {
-    case today, upcoming, prs, history
+    case upcoming, prs, history
 
     /// `--tab <name>` opens on a tab, for the simulator.
     static var launch: AppTab {
         let args = CommandLine.arguments
-        guard let at = args.firstIndex(of: "--tab"), args.count > at + 1 else { return .today }
-        return AppTab(rawValue: args[at + 1]) ?? .today
+        guard let at = args.firstIndex(of: "--tab"), args.count > at + 1 else { return .upcoming }
+        return AppTab(rawValue: args[at + 1]) ?? .upcoming
     }
 }
 
-/// The app's four screens, as the website's tabs: today's workout ready to
-/// log, what's coming, personal records, and what's done.
+/// The app's three screens: today's workout and what's coming, personal
+/// records, and what's behind.
 struct WorkoutTabs: View {
     let store: WorkoutStore
     let email: String?
@@ -75,11 +75,8 @@ struct WorkoutTabs: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            Tab("Today", systemImage: "flame.fill", value: AppTab.today) {
-                TodayView(store: store, email: email) { tab = .upcoming }
-            }
             Tab("Upcoming", systemImage: "calendar", value: AppTab.upcoming) {
-                UpcomingView(store: store)
+                UpcomingView(store: store, email: email)
             }
             Tab("PRs", systemImage: "trophy.fill", value: AppTab.prs) {
                 RecordsView(store: store)
@@ -128,8 +125,7 @@ struct AccountMenu: View {
     }
 }
 
-/// A session on its own screen, pushed from Upcoming, History or Today's
-/// "next up".
+/// A session on its own screen, pushed from Upcoming or History.
 struct SessionScreen: View {
     let store: WorkoutStore
     let id: UUID

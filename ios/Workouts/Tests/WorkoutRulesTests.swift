@@ -213,14 +213,15 @@ private func event(_ key: String, _ date: String) -> WorkoutEvent {
         #expect(focus.next?.title == "sooner")
     }
 
-    @Test func todoAndDone() {
+    @Test func todoAndHistory() {
         let sessions = [
             session("logging", "2026-05-30"), session("finished", "2026-05-29", completed: true),
             session("opened", "2026-06-02", event: "cfo-2"),
         ]
         let events = [event("cfo-2", "2026-06-02"), event("cfo-3", "2026-06-03"), event("past", "2026-05-31")]
-        #expect(WorkoutRules.todo(sessions: sessions, events: events, today: today).map(\.title) == ["logging", "opened", "cfo-3"])
-        #expect(WorkoutRules.done(sessions: sessions).map(\.title) == ["finished"])
+        #expect(WorkoutRules.todo(sessions: sessions, events: events, today: today).map(\.title) == ["opened", "cfo-3"])
+        // Unfinished from before today sits in history, beside what's done.
+        #expect(WorkoutRules.history(sessions: sessions, today: today).map(\.title) == ["logging", "finished"])
     }
 
     @Test func trend() {
