@@ -38,6 +38,8 @@ private struct DayPage: View {
     @Environment(CalendarNav.self) private var nav
     @Environment(Prefs.self) private var prefs
     @State private var position: ScrollPosition
+    /// How tall this day's all-day strip is; the grid starts below it.
+    @State private var stripHeight: CGFloat = 0
 
     init(day: Day, me: String?, scroll: CGFloat) {
         self.day = day
@@ -77,7 +79,7 @@ private struct DayPage: View {
                     press(phase, point, metrics: metrics, columns: layout.columns)
                 })
             }
-            .contentMargins(.top, nav.topInset + 6, for: .scrollContent)
+            .contentMargins(.top, nav.topInset + stripHeight + 6, for: .scrollContent)
             .contentMargins(.bottom, nav.bottomInset, for: .scrollContent)
             .scrollIndicators(.hidden)
             .scrollPosition($position)
@@ -89,6 +91,11 @@ private struct DayPage: View {
                 if day != nav.day { position.scrollTo(y: offset) }
             }
             .refreshable { await store.sync() }
+            .overlay(alignment: .top) {
+                AllDayStrip(day: day)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { stripHeight = $0 }
+                    .padding(.top, nav.topInset)
+            }
         }
     }
 
@@ -501,5 +508,61 @@ private struct AttendingCard: View {
             .offset(y: legTop)
         }
         .clipShape(.rect(cornerRadius: 7, style: .continuous))
+    }
+}
+
+/// The day's all-day events: a strip of the grid pinned under the top bar,
+/// a row each, lined up with the columns and in the colour of whose it is.
+/// The day's timed events scroll under it.
+private struct AllDayStrip: View {
+    let day: Day
+    @Environment(CalendarStore.self) private var store
+    @Environment(CalendarNav.self) private var nav
+    @Environment(Prefs.self) private var prefs
+
+    var body: some View {
+        let shown = Set(prefs.shown(store.board.members).map(\.email))
+        let items = store.board.events(on: day, showHidden: prefs.showHidden)
+            .filter { $0.event.allDay && shown.contains($0.event.memberEmail) }
+        if !items.isEmpty {
+            VStack(spacing: 3) {
+                ForEach(items) { item in
+                    Button {
+                        nav.open(item, in: store.board)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(item.title)
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundStyle(CalendarStyle.ink(item.color))
+                                .strikethrough(item.hidden)
+                                .lineLimit(1)
+                            if item.conflict { ConflictMark() }
+                            Spacer(minLength: 0)
+                            Avatar(member: store.board.member(item.event.memberEmail), size: 16)
+                        }
+                        .padding(.leading, 9)
+                        .padding(.trailing, 5)
+                        .frame(height: 24)
+                        .background(CalendarStyle.wash(item.color, 0.3))
+                        .overlay(alignment: .leading) {
+                            Rectangle().fill(CalendarStyle.muted(item.color)).frame(width: 3.5)
+                        }
+                        .clipShape(.rect(cornerRadius: 7, style: .continuous))
+                        .opacity(item.hidden ? 0.5 : 1)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.leading, CalendarStyle.gutter + 1.5)
+            .padding(.trailing, 6)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity)
+            .background(alignment: .leading) {
+                // The gutter's edge carries on up through the strip.
+                Rectangle().fill(CalendarStyle.line).frame(width: 0.5).padding(.leading, CalendarStyle.gutter)
+            }
+            .background(CalendarStyle.ground)
+            .overlay(alignment: .bottom) { Rectangle().fill(CalendarStyle.line).frame(height: 0.5) }
+        }
     }
 }

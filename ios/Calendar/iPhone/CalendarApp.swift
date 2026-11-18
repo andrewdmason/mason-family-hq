@@ -78,7 +78,7 @@ struct CalendarScreen: View {
             .ignoresSafeArea(edges: [.top, .bottom])
 
             VStack(spacing: 0) {
-                TopBar(me: me)
+                TopBar()
                     .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { nav.topInset = $0 }
                 Spacer(minLength: 0)
             }
