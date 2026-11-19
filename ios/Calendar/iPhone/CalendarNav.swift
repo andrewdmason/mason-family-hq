@@ -58,11 +58,13 @@ struct GridDraft: Equatable {
     var start: Int
 }
 
-/// The event form, for a new event or an existing one.
-struct EditorRequest: Identifiable {
+/// The event card: an event opened, or a new one being made.
+struct CardRequest: Identifiable {
     let id = UUID()
-    var event: CalEvent?
-    var draft: EventDraft
+    /// The event; nil for a new one.
+    var itemID: UUID?
+    /// The event as the card opens on it.
+    var draft: CardDraft
 }
 
 /// Where the app is: the day in view, which view, and what's open over it.
@@ -73,11 +75,10 @@ final class CalendarNav {
     var view: ViewMode
     /// The month grid is dropped open under the title.
     var monthOpen = false
-    /// The event sheet.
-    var opened: EventItem?
+    /// The event card.
+    var card: CardRequest?
     /// The peek card raised by tapping a pin.
     var peek: EventItem?
-    var editor: EditorRequest?
     var gridDraft: GridDraft?
     var showSettings = false
     /// A change that didn't go through, to say so.
@@ -88,6 +89,8 @@ final class CalendarNav {
     /// so content can scroll under both and still start and end clear of them.
     var topInset: CGFloat = 150
     var bottomInset: CGFloat = 90
+    /// How tall the screen is, for the event card to fit itself to.
+    var screenHeight: CGFloat = 800
     /// How far the Day grid is scrolled, shared by every day so paging
     /// between days keeps the time of day in view.
     var gridScroll: CGFloat
@@ -117,8 +120,15 @@ final class CalendarNav {
         }
     }
 
-    func open(_ item: EventItem, in board: Board) {
+    func open(_ item: EventItem, in store: CalendarStore) {
         peek = nil
-        opened = board.opened(item)
+        let opened = store.board.opened(item)
+        card = CardRequest(itemID: opened.id, draft: store.cardDraft(for: opened))
+    }
+
+    /// A new event, on `member`'s calendar until the card says otherwise.
+    func compose(for member: String, from start: Date, to end: Date) {
+        peek = nil
+        card = CardRequest(itemID: nil, draft: CardDraft(event: EventDraft(memberEmail: member, start: start, end: end)))
     }
 }

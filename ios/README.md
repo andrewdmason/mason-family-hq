@@ -250,18 +250,36 @@ URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
 - Every change goes through the website (`/calendar/api/<action>`, with the
   phone's access token), which runs the same mutations as the website's own
   actions: writing back to Google, drive blocks, TeamSnap. Every change shows
-  at once, saving an event included: the form closes and the website hears in
-  the background. If it refuses or can't be reached the change is put back and
-  a banner says why. A new event sits under an id made up on the phone until
+  at once: the event card closes on its ✓ and the website hears in the
+  background, a part at a time (the event's fields, a move to another
+  calendar, who's going, the RSVP, each drive). A part it refuses or can't be
+  reached for is put back and a banner says why; the rest stands. A new event sits under an id made up on the phone until
   the website's row for it has been read. Nothing queues across launches.
   Every family member can make changes, kids included.
-- The event sheet has the website panel's instant actions (TeamSnap RSVP, a
-  kid's own going, who's going along, drop-off and pick-up) and Edit for Google
-  and app-only events. Deleting a repeating event asks: this one only, or all
-  of them (the whole Google series, past ones too). Not here yet: the team's availability roster, repeating
-  events (shown, not made), and the "pending" drive blocks the website draws
-  between a duty tap and the server catching up; the app reads again a few
-  seconds after a change, which is when the real ones arrive.
+- An event opens as one card (`iPhone/EventCard.swift`), which is also how a
+  new one is made: there's no separate form. Every row is the thing and the
+  way to change it (title, time, all-day, repeat, location, who's going and
+  whose calendar it's on, the TeamSnap RSVP, drop-off and pick-up, notes), and
+  all of it sits in a draft (`CardDraft`) until the ✓. ✕ or a swipe down with
+  changes asks before dropping them. The card is as tall as what's on it. An
+  event that can't be edited here (TeamSnap's, a feed's) shows its fields as
+  plain words with the family's rows still live. If the calendar is read
+  again under an open card, what was changed there stays and the rest
+  follows (`CardDraft.rebased`).
+- Repeating: a Google event can be made to repeat (every day, weekday, week,
+  2 weeks, month, year, with an optional last day), and a rule made in Google
+  Calendar that those can't say is kept as it is. Saving an edit to a
+  repeating event asks: this one only, or all of them. A change to the rule
+  is always to all; "Doesn't repeat" keeps this one and removes the rest.
+  Who's going, the RSVP and drives are always the one occurrence's, and so is
+  a move to another calendar. Deleting asks the same question. On the website
+  the series is changed on Google and its rows mirrored again
+  (`mirrorSeries` in `src/lib/calendar/mutations.ts`), each occurrence
+  keeping its row so going and drives survive.
+- Not here yet: the team's availability roster, and the "pending" drive
+  blocks the website draws between a duty tap and the server catching up; the
+  app reads again a few seconds after a change, which is when the real ones
+  arrive.
 - Touch and hold an event to hide it from your own view (`iPhone/Hiding.swift`):
   nobody else's calendar changes. A Google repeating event offers every
   occurrence or just this one; anything else is hidden one at a time. A hidden

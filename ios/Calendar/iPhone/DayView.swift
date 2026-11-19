@@ -103,7 +103,7 @@ private struct DayPage: View {
 
     /// A long-press on empty grid places a new event: an hour in that
     /// person's column, snapped to the quarter hour, which follows the finger
-    /// until it lifts and then opens the form.
+    /// until it lifts and then opens the card.
     private func press(_ phase: GridPress.Phase, _ point: CGPoint, metrics: ColumnMetrics, columns: [DayColumn]) {
         guard let index = metrics.column(at: point.x), columns.indices.contains(index) else { return }
         // A long-press on an event is that event's own (its menu), not a new one.
@@ -124,9 +124,7 @@ private struct DayPage: View {
         case .ended:
             guard let draft = nav.gridDraft else { return }
             let begins = day.at(minutes: draft.start)
-            nav.editor = EditorRequest(
-                event: nil, draft: EventDraft(memberEmail: draft.member, start: begins, end: begins.addingTimeInterval(3600))
-            )
+            nav.compose(for: draft.member, from: begins, to: begins.addingTimeInterval(3600))
             nav.gridDraft = nil
         case .cancelled:
             nav.gridDraft = nil
@@ -290,7 +288,7 @@ private struct ColumnBlocks: View {
     private func card(_ block: DayBlock) -> some View {
         let rect = frame(block)
         Button {
-            nav.open(block.item, in: store.board)
+            nav.open(block.item, in: store)
         } label: {
             Group {
                 switch block.kind {
@@ -376,7 +374,7 @@ private struct ColumnBlocks: View {
     private func thin(_ block: DayBlock) -> some View {
         let rect = frame(block)
         Button {
-            nav.open(block.item, in: store.board)
+            nav.open(block.item, in: store)
         } label: {
             Group {
                 if block.kind == .drive {
@@ -554,7 +552,7 @@ private struct AllDayStrip: View {
             VStack(spacing: 3) {
                 ForEach(items) { item in
                     Button {
-                        nav.open(item, in: store.board)
+                        nav.open(item, in: store)
                     } label: {
                         HStack(spacing: 6) {
                             Text(item.title)

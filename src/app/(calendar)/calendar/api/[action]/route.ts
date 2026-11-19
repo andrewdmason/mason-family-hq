@@ -34,7 +34,7 @@ export const maxDuration = 60;
  *   POST /calendar/api/<action>   Authorization: Bearer <supabase access token>
  *
  *   create        { event }                      → { id }
- *   update        { id, event }                  → { ok }
+ *   update        { id, event, scope? }          → { ok }
  *   delete        { id, series? }                → { ok }
  *   owner         { id, memberEmail }            → { ok, warning? }
  *   going         { id, memberEmail, going }     → { ok, warning? }
@@ -45,7 +45,9 @@ export const maxDuration = 60;
  *   places        { query }                      → { suggestions }
  *   sync          {}                             → { ok }
  *
- * `event` is a ManualEventInput; `state` is a DutyState (null clears it). A
+ * `event` is a ManualEventInput; `state` is a DutyState (null clears it).
+ * `event.rrule` makes a Google event repeat (null stops it), and
+ * `scope: "series"` makes an edit to every occurrence of a repeating one. A
  * change the rules refuse answers 400 with { error }, in words fit to show.
  * `convertible: true` on an answer means Google made the event itself and
  * won't have it changed; `convert` swaps it for an ordinary copy that can be.
@@ -83,7 +85,7 @@ export async function POST(
         const id = uuid(body.id);
         const event = eventInput(body.event);
         if (!id || !event) return bad("The event is missing something.");
-        await updateCalendarEvent(id, event);
+        await updateCalendarEvent(id, event, body.scope === "series" ? "series" : "this");
         return NextResponse.json({ ok: true });
       }
       case "delete": {
@@ -183,6 +185,9 @@ function answer(result: { ok: true; warning?: string; convertible?: true } | { e
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// An RRULE body: "FREQ=WEEKLY;INTERVAL=2;UNTIL=20270101T075959Z".
+const RRULE = /^FREQ=(DAILY|WEEKLY|MONTHLY|YEARLY)(;[A-Z]+=[A-Z0-9,+-]+)*$/;
+
 function uuid(value: unknown): string | null {
   return typeof value === "string" && UUID.test(value) ? value.toLowerCase() : null;
 }
@@ -202,7 +207,15 @@ function eventInput(value: unknown): ManualEventInput | null {
   const startTime = instant(v.startTime);
   if (!title || !startTime || typeof v.allDay !== "boolean") return null;
   if (v.endTime != null && !instant(v.endTime)) return null;
+  // Left out, the repeat rule is left alone; null stops the event repeating.
+  let rrule: string | null | undefined;
+  if (v.rrule === null) rrule = null;
+  else if (v.rrule !== undefined) {
+    if (typeof v.rrule !== "string" || !RRULE.test(v.rrule)) return null;
+    rrule = v.rrule;
+  }
   return {
+    ...(rrule !== undefined ? { rrule } : {}),
     calendarSourceId: uuid(v.calendarSourceId),
     memberEmail: text(v.memberEmail),
     title,

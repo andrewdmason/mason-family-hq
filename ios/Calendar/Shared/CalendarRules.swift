@@ -489,12 +489,111 @@ enum CalendarRules {
 
     /// "20260630T235959Z" → "Jun 30, 2026".
     private static func untilText(_ value: String) -> String? {
+        guard let day = untilDay(value), (1...12).contains(day.month) else { return nil }
+        return "\(months[day.month - 1]) \(day.day), \(day.year)"
+    }
+
+    /// The last day an UNTIL allows: a bare date as it is ("20260630"), an
+    /// instant ("20260701T065959Z") as the day it falls on here.
+    static func untilDay(_ value: String, in calendar: Calendar = .current) -> Day? {
         let digits = value.prefix(8)
         guard digits.count == 8, digits.allSatisfy(\.isNumber),
-              let y = Int(digits.prefix(4)), let m = Int(digits.dropFirst(4).prefix(2)), let d = Int(digits.suffix(2)),
-              (1...12).contains(m)
+              let y = Int(digits.prefix(4)), let m = Int(digits.dropFirst(4).prefix(2)), let d = Int(digits.suffix(2))
         else { return nil }
-        return "\(months[m - 1]) \(d), \(y)"
+        let clock = value.dropFirst(8)
+        guard clock.hasPrefix("T"), clock.hasSuffix("Z"), clock.count == 8,
+              let h = Int(clock.dropFirst().prefix(2)), let min = Int(clock.dropFirst(3).prefix(2)), let sec = Int(clock.dropFirst(5).prefix(2)),
+              let instant = utc.date(from: DateComponents(year: y, month: m, day: d, hour: h, minute: min, second: sec))
+        else { return Day(year: y, month: m, day: d) }
+        return Day(instant, in: calendar)
+    }
+
+    // MARK: Repeating, as the card edits it
+
+    /// "Every week": what the card calls each way of repeating.
+    static func repeatLabel(_ every: Repeat.Every) -> String {
+        switch every {
+        case .day: "Every day"
+        case .weekday: "Every weekday"
+        case .week: "Every week"
+        case .twoWeeks: "Every 2 weeks"
+        case .month: "Every month"
+        case .year: "Every year"
+        case .other(let body): body.isEmpty ? "Repeats" : repeatText(body)
+        }
+    }
+
+    private static func ruleParts(_ rrule: String) -> [(key: String, value: String)] {
+        rrule.split(separator: ";").compactMap { piece in
+            guard let eq = piece.firstIndex(of: "="), eq != piece.startIndex else { return nil }
+            return (piece[..<eq].uppercased(), String(piece[piece.index(after: eq)...]))
+        }
+    }
+
+    /// An RRULE body as the card's choice. Anything the choices can't say is
+    /// kept whole, less its end, which the card edits on its own.
+    static func repeats(from rrule: String, in calendar: Calendar = .current) -> Repeat {
+        let parts = ruleParts(rrule)
+        let until = parts.first { $0.key == "UNTIL" }.flatMap { untilDay($0.value, in: calendar) }
+        let rest = parts.filter { $0.key != "UNTIL" }
+        let body = rest.map { "\($0.key)=\($0.value)" }.joined(separator: ";")
+        var named: [String: String] = [:]
+        for part in rest where part.key != "WKST" { named[part.key] = part.value }
+        let freq = named.removeValue(forKey: "FREQ")
+        let interval = Int(named.removeValue(forKey: "INTERVAL") ?? "1") ?? 1
+        let byDay = named.removeValue(forKey: "BYDAY").map { Set($0.split(separator: ",").map(String.init)) } ?? []
+        var every = Repeat.Every.other(body)
+        if named.isEmpty {
+            switch (freq, interval) {
+            case ("DAILY", 1) where byDay.isEmpty: every = .day
+            case ("WEEKLY", 1) where byDay == ["MO", "TU", "WE", "TH", "FR"]: every = .weekday
+            case ("WEEKLY", 1) where byDay.count <= 1 && byDay.allSatisfy { weekdayNames[$0] != nil }: every = .week
+            case ("WEEKLY", 2) where byDay.count <= 1 && byDay.allSatisfy { weekdayNames[$0] != nil }: every = .twoWeeks
+            case ("MONTHLY", 1) where byDay.isEmpty: every = .month
+            case ("YEARLY", 1) where byDay.isEmpty: every = .year
+            default: break
+            }
+        }
+        return Repeat(every: every, until: until)
+    }
+
+    /// The card's choice as an RRULE body, anchored to the event's own start
+    /// by Google. The end is the whole of its last day here: a bare date for
+    /// an all-day event, else that day's last second as a UTC instant, which
+    /// is what Google wants for each. Nil when there's no rule to send.
+    static func rrule(_ rule: Repeat, allDay: Bool, in calendar: Calendar = .current) -> String? {
+        var body: String
+        switch rule.every {
+        case .day: body = "FREQ=DAILY"
+        case .weekday: body = "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"
+        case .week: body = "FREQ=WEEKLY"
+        case .twoWeeks: body = "FREQ=WEEKLY;INTERVAL=2"
+        case .month: body = "FREQ=MONTHLY"
+        case .year: body = "FREQ=YEARLY"
+        case .other(let kept):
+            guard !kept.isEmpty else { return nil }
+            body = kept
+        }
+        guard let until = rule.until else { return body }
+        if allDay {
+            body += String(format: ";UNTIL=%04d%02d%02d", until.year, until.month, until.day)
+        } else {
+            let last = until.adding(days: 1, in: calendar).start(in: calendar).addingTimeInterval(-1)
+            let c = utc.dateComponents([.year, .month, .day, .hour, .minute, .second], from: last)
+            body += String(
+                format: ";UNTIL=%04d%02d%02dT%02d%02d%02dZ",
+                c.year ?? 0, c.month ?? 0, c.day ?? 0, c.hour ?? 0, c.minute ?? 0, c.second ?? 0
+            )
+        }
+        return body
+    }
+
+    /// "1h 30min", "45min", "2h": how long an event runs.
+    static func length(from start: Date, to end: Date) -> String {
+        let minutes = max(0, Int((end.timeIntervalSince(start) / 60).rounded()))
+        let (h, m) = (minutes / 60, minutes % 60)
+        if h == 0 { return "\(m)min" }
+        return m == 0 ? "\(h)h" : "\(h)h \(m)min"
     }
 
     // MARK: Changing hands

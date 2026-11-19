@@ -367,7 +367,7 @@ extension CalendarSnapshot {
     }
 }
 
-/// What the event form sends: the website's ManualEventInput.
+/// An event's own fields as the card edits them: the website's ManualEventInput.
 struct EventDraft: Hashable, Sendable {
     var title = ""
     var memberEmail: String
@@ -378,11 +378,79 @@ struct EventDraft: Hashable, Sendable {
     var notes = ""
 }
 
+/// How an event repeats: one of the card's choices, or a rule made elsewhere
+/// that they can't say, which is kept as it is.
+struct Repeat: Hashable, Sendable {
+    enum Every: Hashable, Sendable {
+        case day, weekday, week, twoWeeks, month, year
+        /// An RRULE body without its end ("FREQ=WEEKLY;BYDAY=MO,WE"); empty
+        /// when the event repeats but its rule hasn't been read.
+        case other(String)
+
+        static let choices: [Every] = [.day, .weekday, .week, .twoWeeks, .month, .year]
+    }
+
+    var every: Every
+    /// The last day it happens on; nil when it goes on for good.
+    var until: Day?
+}
+
+/// Everything the event card holds while it's open: the event's own fields,
+/// how it repeats, and the family's side of it. Nothing is sent until the
+/// card's ✓.
+struct CardDraft: Hashable, Sendable {
+    var event: EventDraft
+    var repeats: Repeat?
+    /// The other family members going along, not counting whose it is.
+    var going: [String] = []
+    /// Whether the one whose calendar it's on is going (only a kid can not be).
+    var holderGoing = true
+    /// The TeamSnap answer, on a TeamSnap event.
+    var rsvp: TeamsnapRsvp?
+    var duties: [DutyKind: DutyState] = [:]
+
+    /// This draft carried onto a fresh read of the event: whatever was
+    /// changed here stays as changed, and the rest follows the read.
+    func rebased(from base: CardDraft, onto fresh: CardDraft) -> CardDraft {
+        var out = fresh
+        if event.title != base.event.title { out.event.title = event.title }
+        if event.memberEmail != base.event.memberEmail { out.event.memberEmail = event.memberEmail }
+        if event.location != base.event.location { out.event.location = event.location }
+        if event.notes != base.event.notes { out.event.notes = event.notes }
+        if event.start != base.event.start || event.end != base.event.end || event.allDay != base.event.allDay {
+            out.event.start = event.start
+            out.event.end = event.end
+            out.event.allDay = event.allDay
+        }
+        if repeats != base.repeats { out.repeats = repeats }
+        if holderGoing != base.holderGoing { out.holderGoing = holderGoing }
+        if rsvp != base.rsvp { out.rsvp = rsvp }
+        for member in Set(going).symmetricDifference(base.going) {
+            out.going.removeAll { $0 == member }
+            if going.contains(member) { out.going.append(member) }
+        }
+        for duty in DutyKind.allCases where duties[duty] != base.duties[duty] {
+            out.duties[duty] = duties[duty]
+        }
+        return out
+    }
+}
+
+/// A card's ✓: the event as it was when the card opened (nil for a new one),
+/// the draft then and now, and whether the edit is to every occurrence of a
+/// repeating event.
+struct CardSave: Sendable {
+    var event: CalEvent?
+    var before: CardDraft
+    var after: CardDraft
+    var series = false
+}
+
 /// An event Google made itself (from a Gmail confirmation) that just refused a
-/// change: the offer to swap it for an ordinary copy, and the edit to make
-/// once it has been, if it was an edit.
+/// change: the offer to swap it for an ordinary copy, and the save to make
+/// once it has been, if it was the card's.
 struct Conversion: Identifiable, Sendable {
     let id = UUID()
     var event: CalEvent
-    var draft: EventDraft?
+    var save: CardSave?
 }
