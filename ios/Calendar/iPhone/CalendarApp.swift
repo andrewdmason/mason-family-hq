@@ -18,7 +18,17 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if store.isDemo {
+            if CommandLine.arguments.contains("--widget") {
+                // The widget's own view at its size, for the simulator.
+                TodayWidgetView(model: TodayWidgetModel(snapshot: store.snapshot, me: DemoCalendar.me, photos: [:], now: Date()))
+                    .padding(16)
+                    .frame(width: 364, height: 382)
+                    .background(CalendarStyle.ground, in: .rect(cornerRadius: 28, style: .continuous))
+                    .compositingGroup()
+                    .shadow(color: .black.opacity(0.25), radius: 20, y: 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(red: 0.42, green: 0.45, blue: 0.52).gradient)
+            } else if store.isDemo {
                 CalendarScreen(me: DemoCalendar.me, opensOn: prefs.opensOn)
             } else if !session.checked {
                 ProgressView()
@@ -45,7 +55,7 @@ struct RootView: View {
         .onChange(of: session.userID, initial: true) { old, new in
             // Another member signing in starts from nothing of the last one's.
             if old != nil, old != new { store.forget() }
-            if let new { store.open(for: new) }
+            if let new { store.open(for: new, email: session.email) }
         }
     }
 }
@@ -113,6 +123,16 @@ struct CalendarScreen: View {
             SettingsView(me: me)
         }
         .task { await store.sync() }
+        .onOpenURL { url in
+            // From the widget: an event to open, or just today.
+            nav.peek = nil
+            if url.host() == "event", let id = UUID(uuidString: url.lastPathComponent), let item = store.board.item(id) {
+                nav.day = item.day
+                nav.opened = store.board.opened(item)
+            } else if url.host() == "today" {
+                nav.goToToday()
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await store.sync() } }
         }
@@ -141,8 +161,8 @@ struct ProblemBanner: View {
     }
 }
 
-/// The card raised by tapping a pin: enough to know what it is, and a tap
-/// away from the whole event.
+/// The card raised by tapping a pin: enough to know what it is. A tap or a
+/// swipe up opens the whole event; a swipe down puts the card away.
 struct PeekCard: View {
     let item: EventItem
     @Environment(CalendarStore.self) private var store
@@ -179,14 +199,27 @@ struct PeekCard: View {
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
         .offset(y: drag)
-        .gesture(
+        // Ahead of the button's own tap, so a swipe that starts on the card
+        // is a swipe: up opens the event, down puts the card away.
+        .highPriorityGesture(
             DragGesture(minimumDistance: 8)
-                .onChanged { drag = max(0, $0.translation.height) }
+                .onChanged { value in
+                    // Follows the finger down; resists a little going up.
+                    let y = value.translation.height
+                    drag = y > 0 ? y : y / 3
+                }
                 .onEnded { value in
-                    if value.translation.height > 44 { nav.peek = nil }
+                    let y = value.translation.height
+                    let flick = value.predictedEndTranslation.height
+                    if y < -24 || flick < -90 {
+                        nav.open(item, in: store.board)
+                    } else if y > 40 || flick > 120 {
+                        nav.peek = nil
+                    }
                     withAnimation(.snappy) { drag = 0 }
                 }
         )
+        .accessibilityAction(named: "Dismiss") { nav.peek = nil }
     }
 }
 

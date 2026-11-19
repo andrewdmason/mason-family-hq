@@ -316,3 +316,28 @@ private func event(
         #expect(CalendarRules.series(of: appOnly, in: [oneOff, appOnly]).map(\.id) == [appOnly.id])
     }
 }
+
+@Suite struct TheWidget {
+    private let jenny = Member(email: "jenny@x.io", name: "Jenny Mason", role: .parent, color: "#db2777")
+    private let seb = Member(email: "seb@x.io", name: "Sebastian Mason", role: .kid, color: "#16a34a")
+    private let oscar = Member(email: "oscar@x.io", name: "Oscar Mason", role: .kid, color: "#d97706")
+
+    @Test func peopleFollowThisPhonesOrderAndHiding() {
+        let all = [jenny, seb, oscar]
+        #expect(CalendarShared.shown(all, order: [], hidden: []).map(\.email) == ["jenny@x.io", "seb@x.io", "oscar@x.io"])
+        #expect(CalendarShared.shown(all, order: ["oscar@x.io"], hidden: ["seb@x.io"]).map(\.email) == ["oscar@x.io", "jenny@x.io"])
+    }
+
+    @Test func theHoursInViewStartAnHourBeforeNow() {
+        var snapshot = CalendarSnapshot()
+        snapshot.members = [jenny, seb]
+        snapshot.events = [event(1, "seb@x.io", from: 16 * 60, to: 17 * 60), event(2, "jenny@x.io", from: 12 * 60, to: 13 * 60)]
+        func model(_ minutes: Int) -> TodayWidgetModel {
+            TodayWidgetModel(snapshot: snapshot, me: "seb@x.io", photos: [:], now: day.at(minutes: minutes, in: pacific), in: pacific)
+        }
+        #expect(model(15 * 60 + 20).firstHour == 14)
+        #expect(model(20).firstHour == 0) // not before midnight
+        #expect(model(23 * 60).firstHour == 16) // nor past it
+        #expect(model(15 * 60).layout.columns.map(\.member.email) == ["seb@x.io", "jenny@x.io"])
+    }
+}

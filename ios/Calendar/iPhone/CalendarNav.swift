@@ -28,7 +28,8 @@ final class Prefs {
 
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    /// In the app group's defaults, so the widget shows the same people.
+    init(defaults: UserDefaults = CalendarShared.defaults) {
         self.defaults = defaults
         hidden = Set(defaults.stringArray(forKey: "calendar.hidden") ?? [])
         order = defaults.stringArray(forKey: "calendar.order") ?? []
@@ -39,17 +40,12 @@ final class Prefs {
 
     /// Everyone, in this phone's order.
     func ordered(_ members: [Member]) -> [Member] {
-        let rank = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
-        return members.enumerated().sorted { a, b in
-            let (ra, rb) = (rank[a.element.email] ?? 1000 + a.offset, rank[b.element.email] ?? 1000 + b.offset)
-            return ra < rb
-        }
-        .map(\.element)
+        CalendarShared.shown(members, order: order, hidden: [])
     }
 
     /// The members with a column.
     func shown(_ members: [Member]) -> [Member] {
-        ordered(members).filter { !hidden.contains($0.email) }
+        CalendarShared.shown(members, order: order, hidden: hidden)
     }
 }
 

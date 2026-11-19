@@ -2,6 +2,7 @@ import Foundation
 import MasonKit
 import Observation
 import Supabase
+import WidgetKit
 
 /// The family calendar on this device. It opens on the local copy (a file, so
 /// it's there with no signal), reads the rest straight from Supabase under the
@@ -50,51 +51,52 @@ final class CalendarStore {
         snapshot = demo
         board = Board.build(demo)
         loaded = true
+        // The widget shows the made-up family too, under a made-up member.
+        let user = UUID(uuidString: "00000000-0000-0000-0000-00000000DE30")!
+        if let data = try? JSONEncoder().encode(demo) { try? data.write(to: CalendarShared.copy(user), options: .atomic) }
+        CalendarShared.who = .init(user: user, email: DemoCalendar.me)
+        reloadWidget()
     }
 
     var lastUpdated: Date? { snapshot.fetchedAt }
 
     // MARK: The local copy
 
-    private static func file(_ user: UUID) -> URL {
-        let folder = URL.applicationSupportDirectory.appending(path: "Calendar")
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        return folder.appending(path: "copy-\(user.uuidString.lowercased()).json")
-    }
-
-    private static func photoFolder() -> URL {
-        let folder = URL.cachesDirectory.appending(path: "member-photos")
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        return folder
-    }
-
     /// Open on what this member last saw here.
-    func open(for user: UUID) {
+    func open(for user: UUID, email: String?) {
         guard !isDemo, owner != user else { return }
         owner = user
-        if let data = try? Data(contentsOf: Self.file(user)),
+        if let email { CalendarShared.who = .init(user: user, email: email.lowercased()) }
+        if let data = try? Data(contentsOf: CalendarShared.copy(user)),
            let saved = try? JSONDecoder().decode(CalendarSnapshot.self, from: data) {
             snapshot = saved
             loaded = true
             for member in saved.members {
-                if let data = try? Data(contentsOf: Self.photoFile(member)) { photos[member.email] = data }
+                if let data = try? Data(contentsOf: CalendarShared.photo(member.email)) { photos[member.email] = data }
             }
         }
     }
 
-    private static func photoFile(_ member: Member) -> URL {
-        photoFolder().appending(path: member.email.replacingOccurrences(of: "/", with: "_") + ".img")
-    }
-
     private func save() {
         guard !isDemo, let owner, let data = try? JSONEncoder().encode(snapshot) else { return }
-        try? data.write(to: Self.file(owner), options: .atomic)
+        try? data.write(to: CalendarShared.copy(owner), options: .atomic)
+        reloadWidget()
+    }
+
+    /// The home screen widget reads the copy just saved. (Not from inside the
+    /// widget, which is what's reading.)
+    private func reloadWidget() {
+        #if !WIDGET_EXTENSION
+        WidgetCenter.shared.reloadAllTimelines()
+        #endif
     }
 
     /// Another member signing in starts from nothing of the last one's.
     func forget() {
-        if let owner { try? FileManager.default.removeItem(at: Self.file(owner)) }
+        if let owner { try? FileManager.default.removeItem(at: CalendarShared.copy(owner)) }
         owner = nil
+        CalendarShared.who = nil
+        reloadWidget()
         followUp?.cancel()
         provisional = [:]
         serverIDs = [:]
@@ -341,7 +343,7 @@ final class CalendarStore {
             guard let data = try? await db.storage.from("member-photos").download(path: path) else { continue }
             photos[member.email] = data
             paths[member.email] = path
-            try? data.write(to: Self.photoFile(member), options: .atomic)
+            try? data.write(to: CalendarShared.photo(member.email), options: .atomic)
         }
         UserDefaults.standard.set(paths, forKey: "calendar.photoPaths")
     }
