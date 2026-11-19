@@ -23,7 +23,8 @@ final class Prefs {
     var othersAsBlocks: Bool { didSet { defaults.set(othersAsBlocks, forKey: "calendar.othersAsBlocks") } }
     /// The view the app opens on.
     var opensOn: ViewMode { didSet { defaults.set(opensOn.rawValue, forKey: "calendar.opensOn") } }
-    /// Show events that are hidden by default (declined, not going).
+    /// Show events that are hidden by default (declined, not going, or
+    /// hidden by this member).
     var showHidden: Bool { didSet { defaults.set(showHidden, forKey: "calendar.showHidden") } }
 
     private let defaults: UserDefaults
@@ -81,6 +82,8 @@ final class CalendarNav {
     var showSettings = false
     /// A change that didn't go through, to say so.
     var problem: String?
+    /// What a long-press just hid, while its Undo is on offer.
+    var justHidden: EventHide?
     /// How far the top bar reaches down the screen, and the bottom bar up it,
     /// so content can scroll under both and still start and end clear of them.
     var topInset: CGFloat = 150

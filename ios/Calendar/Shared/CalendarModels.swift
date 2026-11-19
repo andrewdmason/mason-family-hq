@@ -274,6 +274,68 @@ struct Logistics: Hashable, Codable, Sendable {
     var bufferMinutes: Int = 5
 }
 
+/// Something the signed-in member has hidden from their own view: one event,
+/// or every occurrence of a repeating one. A row of calendar_event_hides.
+struct EventHide: Identifiable, Hashable, Codable, Sendable {
+    enum Scope: String, Codable, Sendable {
+        case event, series
+    }
+
+    var id: UUID
+    var scope: Scope
+    /// What's hidden: `CalendarRules.hideTarget` of the event, or the Google
+    /// series' id.
+    var target: String
+    // The event as it was when hidden, for the list in Settings.
+    var title: String
+    var ownerEmail: String?
+    var start: Date?
+    var rrule: String?
+
+    static let columns = "id, scope, target, title, owner_email, start_time, rrule"
+
+    enum CodingKeys: String, CodingKey {
+        case id, scope, target, title, rrule
+        case ownerEmail = "owner_email"
+        case start = "start_time"
+    }
+
+    init(
+        id: UUID = UUID(), scope: Scope, target: String, title: String, ownerEmail: String? = nil,
+        start: Date? = nil, rrule: String? = nil
+    ) {
+        self.id = id
+        self.scope = scope
+        self.target = target
+        self.title = title
+        self.ownerEmail = ownerEmail
+        self.start = start
+        self.rrule = rrule
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        scope = try c.decode(Scope.self, forKey: .scope)
+        target = try c.decode(String.self, forKey: .target)
+        title = try c.decode(String.self, forKey: .title)
+        ownerEmail = try c.decodeIfPresent(String.self, forKey: .ownerEmail)?.lowercased()
+        start = try Instant.decodeIfPresent(c, .start)
+        rrule = try c.decodeIfPresent(String.self, forKey: .rrule)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(scope, forKey: .scope)
+        try c.encode(target, forKey: .target)
+        try c.encode(title, forKey: .title)
+        try c.encodeIfPresent(ownerEmail, forKey: .ownerEmail)
+        try c.encodeIfPresent(start.map(Instant.string), forKey: .start)
+        try c.encodeIfPresent(rrule, forKey: .rrule)
+    }
+}
+
 /// Everything the calendar shows, as last read: the local copy the app opens on.
 struct CalendarSnapshot: Codable, Sendable {
     var members: [Member] = []
@@ -284,7 +346,25 @@ struct CalendarSnapshot: Codable, Sendable {
     /// Event id → its drop-off and pick-up, where set.
     var duties: [UUID: [DutyKind: DutyState]] = [:]
     var logistics = Logistics()
+    /// What the signed-in member has hidden from their own view.
+    var hides: [EventHide] = []
     var fetchedAt: Date?
+}
+
+extension CalendarSnapshot {
+    /// A copy saved before a field existed still opens, with that field empty.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init()
+        members = try c.decodeIfPresent([Member].self, forKey: .members) ?? []
+        sources = try c.decodeIfPresent([CalSource].self, forKey: .sources) ?? []
+        events = try c.decodeIfPresent([CalEvent].self, forKey: .events) ?? []
+        going = try c.decodeIfPresent([UUID: [String]].self, forKey: .going) ?? [:]
+        duties = try c.decodeIfPresent([UUID: [DutyKind: DutyState]].self, forKey: .duties) ?? [:]
+        logistics = try c.decodeIfPresent(Logistics.self, forKey: .logistics) ?? Logistics()
+        hides = try c.decodeIfPresent([EventHide].self, forKey: .hides) ?? []
+        fetchedAt = try c.decodeIfPresent(Date.self, forKey: .fetchedAt)
+    }
 }
 
 /// What the event form sends: the website's ManualEventInput.

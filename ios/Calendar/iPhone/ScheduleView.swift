@@ -154,7 +154,7 @@ private struct ScheduleRow: View {
                         Text(item.title)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
-                            .strikethrough(item.hidden)
+                            .strikethrough(item.hidden && !item.hiddenByMe)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                         if item.conflict { ConflictMark() }
@@ -185,5 +185,6 @@ private struct ScheduleRow: View {
         }
         .buttonStyle(.plain)
         .opacity(item.hidden ? 0.5 : isPast ? 0.55 : 1)
+        .hideMenu(item, cornerRadius: 12)
     }
 }
