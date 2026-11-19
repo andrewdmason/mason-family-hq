@@ -4,6 +4,9 @@ import SwiftUI
 /// form. Every row is the thing itself and the way to change it: the title,
 /// when (and how it repeats), where, who's going and whose calendar it's on,
 /// who's driving, the TeamSnap RSVP, notes.
+/// When and where each say what's so in one row, and a tap on it goes to a
+/// screen of its own to change it: WhenScreen slides over from the right,
+/// LocationCard comes up over the card.
 ///
 /// It all sits in a draft until the ✓, which saves the lot and closes the
 /// card; ✕, or a swipe down, asks before dropping changes. An event
@@ -24,8 +27,8 @@ struct EventCard: View {
     @State private var base: CardDraft
     /// Why a tap did nothing.
     @State private var note: String?
-    /// The picker open under the time row.
-    @State private var picking: TimePart?
+    /// Slid over to the screen where the day, times and repeat are set.
+    @State private var settingWhen = false
     @State private var confirmDiscard = false
     @State private var confirmDelete = false
     @State private var askScope = false
@@ -47,7 +50,6 @@ struct EventCard: View {
     @FocusState private var focus: Field?
 
     private enum Field { case title, notes }
-    private enum TimePart { case start, end, date, until }
 
     private static let weekdays = Calendar.current.weekdaySymbols
     private static let months = Calendar.current.monthSymbols
@@ -113,6 +115,59 @@ struct EventCard: View {
     }
 
     private var card: some View {
+        // The card, and the screen its time row slides over to from the right.
+        ZStack {
+            if settingWhen {
+                WhenScreen(
+                    draft: $draft, clock: clock, zoneNote: zoneNote, canRepeat: onGoogle,
+                    back: { settingWhen = false }
+                )
+                // A swipe back from the left edge, as a pushed screen has.
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 30).onEnded { drag in
+                        let across = drag.translation.width
+                        if drag.startLocation.x < 40, across > 70, across > abs(drag.translation.height) * 2 {
+                            settingWhen = false
+                        }
+                    }
+                )
+                .transition(.move(edge: .trailing))
+            } else {
+                front.transition(.move(edge: .leading))
+            }
+        }
+        .clipped()
+        .animation(.snappy(duration: 0.3), value: settingWhen)
+        .presentationDetents(detents, selection: detent)
+        .presentationDragIndicator(.visible)
+        // The page's paper, part see-through: glass enough to feel the day
+        // behind it, solid enough that a bright block doesn't bleed into the words.
+        .presentationBackground { CalendarStyle.ground.opacity(0.82).background(.ultraThinMaterial) }
+        .interactiveDismissDisabled(hasWork)
+        // A swipe down with changes doesn't close the card (above); it asks
+        // about them, as ✕ does. Not on the time screen, where a wheel may
+        // be under the finger.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 40).onEnded { drag in
+                let down = drag.translation.height
+                guard hasWork, atTop, !settingWhen, focus == nil else { return }
+                if down > 90, down > abs(drag.translation.width) * 2 { confirmDiscard = true }
+            }
+        )
+        // On the card as a whole, not its front: the front is away while the
+        // time screen is up, and a new event's title is focused only once.
+        .onAppear { if isNew { focus = .title } }
+        // The event read again under the open card: what was changed here
+        // stays, the rest follows.
+        .onChange(of: item) { _, item in
+            guard let item else { return }
+            let fresh = store.cardDraft(for: item)
+            draft = draft.rebased(from: base, onto: fresh)
+            base = fresh
+        }
+    }
+
+    private var front: some View {
         VStack(spacing: 0) {
             header
             ScrollView {
@@ -135,42 +190,16 @@ struct EventCard: View {
             .scrollDismissesKeyboard(.interactively)
             .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y <= 1 } action: { atTop = $1 }
         }
-        .presentationDetents(detents, selection: detent)
-        .presentationDragIndicator(.visible)
-        // The page's paper, part see-through: glass enough to feel the day
-        // behind it, solid enough that a bright block doesn't bleed into the words.
-        .presentationBackground { CalendarStyle.ground.opacity(0.82).background(.ultraThinMaterial) }
-        .interactiveDismissDisabled(hasWork)
-        // A swipe down with changes doesn't close the card (above); it asks
-        // about them, as ✕ does. Not while a wheel is open under the finger.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 40).onEnded { drag in
-                let down = drag.translation.height
-                guard hasWork, atTop, picking != .start, picking != .end, focus == nil else { return }
-                if down > 90, down > abs(drag.translation.width) * 2 { confirmDiscard = true }
-            }
-        )
         .animation(.snappy, value: note)
-        .animation(.snappy, value: picking)
         .animation(.snappy, value: needsDrives)
         .modifier(ConvertAlert(active: true))
         .sheet(isPresented: $placing) {
             LocationCard(current: draft.event.location, session: placeSession) { setPlace($0, from: $1) }
         }
-        .onAppear { if isNew { focus = .title } }
         .onChange(of: focus) { _, field in
             // Up out of the keyboard's way, and back to its own height after.
             tall = field != nil
-            if field != nil { picking = nil }
             if field != .notes { editingNotes = false }
-        }
-        // The event read again under the open card: what was changed here
-        // stays, the rest follows.
-        .onChange(of: item) { _, item in
-            guard let item else { return }
-            let fresh = store.cardDraft(for: item)
-            draft = draft.rebased(from: base, onto: fresh)
-            base = fresh
         }
     }
 
@@ -190,7 +219,8 @@ struct EventCard: View {
 
     private var detent: Binding<PresentationDetent> {
         Binding(
-            get: { tall ? .large : fits.map { .height($0) } ?? .large },
+            // The time screen has a month to show: it gets the whole height.
+            get: { tall || settingWhen ? .large : fits.map { .height($0) } ?? .large },
             set: { tall = $0 == .large }
         )
     }
@@ -360,57 +390,60 @@ struct EventCard: View {
 
     // MARK: When
 
+    /// When it is, in words, and the one thing to tap to change any of it:
+    /// the day, the times, all-day, how it repeats. They're all set on the
+    /// screen it slides over to (WhenScreen), so the card only says what's so.
     @ViewBuilder
     private var whenRows: some View {
         let event = draft.event
-        row("clock", alignment: .top) {
-            VStack(alignment: .leading, spacing: 5) {
-                if !event.allDay {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        timePart(.start, CalendarRules.clock(event.start, in: clock))
-                        Image(systemName: "arrow.right")
-                            .font(.footnote)
-                            .foregroundStyle(.tertiary)
-                            .accessibilityLabel("to")
-                        timePart(.end, CalendarRules.clock(event.end, in: clock))
-                        Text(CalendarRules.length(from: event.start, to: event.end))
-                            .foregroundStyle(.secondary)
-                    }
-                    .font(.body.weight(.medium))
-                }
-                timePart(.date, dateText)
-                    .font(event.allDay ? .body.weight(.medium) : .body)
-                if !event.allDay, let zoneNote {
-                    Text(zoneNote)
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(CalendarStyle.accent)
-                }
-            }
-        }
-        if let picking, picking != .until {
-            picker(picking)
-        }
-        row(nil, alignment: .center) {
-            Toggle("All-day", isOn: $draft.event.allDay)
-                .tint(CalendarStyle.olive)
-                .onChange(of: draft.event.allDay) { _, allDay in
-                    if allDay, picking != .date { picking = nil }
-                }
-        }
-        if onGoogle { repeatRows }
-        divider
-    }
-
-    private func timePart(_ part: TimePart, _ text: String) -> some View {
         Button {
             focus = nil
-            picking = picking == part ? nil : part
+            settingWhen = true
         } label: {
-            Text(text)
-                .foregroundStyle(picking == part ? CalendarStyle.accent : .primary)
-                .contentShape(.rect)
+            row("clock", alignment: .top) {
+                HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 5) {
+                    if !event.allDay {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(CalendarRules.clock(event.start, in: clock))
+                            Image(systemName: "arrow.right")
+                                .font(.footnote)
+                                .foregroundStyle(.tertiary)
+                                .accessibilityLabel("to")
+                            Text(CalendarRules.clock(event.end, in: clock))
+                            Text(CalendarRules.length(from: event.start, to: event.end))
+                                .foregroundStyle(.secondary)
+                        }
+                        .font(.body.weight(.medium))
+                    }
+                    Text(event.allDay ? "\(dateText) · All day" : dateText)
+                        .font(event.allDay ? .body.weight(.medium) : .body)
+                    if let repeatText {
+                        Label(repeatText, systemImage: "repeat")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    if !event.allDay, let zoneNote {
+                        Text(zoneNote)
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(CalendarStyle.accent)
+                    }
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 4)
+                    .padding(.trailing, 8)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .accessibilityHint("Sets the date, time, all-day and repeat")
+        divider
     }
 
     /// "Fri, Nov 20", with the day it ends on when that's another one.
@@ -423,114 +456,11 @@ struct EventCard: View {
         return words(event.start)
     }
 
-    @ViewBuilder
-    private func picker(_ part: TimePart) -> some View {
-        Group {
-            switch part {
-            case .start:
-                // Moving the start keeps the event's length.
-                DatePicker("Starts", selection: Binding(
-                    get: { draft.event.start }, set: { CalendarRules.moveStart(&draft.event, to: $0) }
-                ), displayedComponents: .hourAndMinute)
-                .datePickerStyle(.wheel)
-            case .end:
-                // An end before the start snaps to a quarter of an hour after it.
-                DatePicker("Ends", selection: Binding(
-                    get: { draft.event.end }, set: { CalendarRules.moveEnd(&draft.event, to: $0) }
-                ), in: draft.event.start..., displayedComponents: [.date, .hourAndMinute])
-                .datePickerStyle(.wheel)
-            case .date:
-                DatePicker("Date", selection: Binding(
-                    get: { draft.event.start },
-                    set: { date in
-                        let start = Day(date, in: clock).at(minutes: CalendarRules.minutes(draft.event.start, in: clock), in: clock)
-                        CalendarRules.moveStart(&draft.event, to: start)
-                    }
-                ), displayedComponents: .date)
-                .datePickerStyle(.graphical)
-            case .until:
-                DatePicker("Ends", selection: Binding(
-                    get: { draft.repeats?.until?.at(minutes: 12 * 60) ?? draft.event.start },
-                    set: { draft.repeats?.until = Day($0) }
-                ), in: draft.event.start..., displayedComponents: .date)
-                .datePickerStyle(.graphical)
-            }
-        }
-        .labelsHidden()
-        .tint(CalendarStyle.olive)
-        // The wheels turn in the trip's time on a day away.
-        .environment(\.timeZone, clock.timeZone)
-        .frame(maxWidth: .infinity)
-        .padding(.leading, 36)
-        .transition(.opacity)
-    }
-
-    /// How it repeats, and until when.
-    @ViewBuilder
-    private var repeatRows: some View {
-        let every = draft.repeats?.every
-        row("repeat") {
-            Menu {
-                Picker("Repeat", selection: Binding(
-                    get: { every },
-                    set: { choice in
-                        draft.repeats = choice.map { Repeat(every: $0, until: draft.repeats?.until) }
-                        if choice == nil, picking == .until { picking = nil }
-                    }
-                )) {
-                    Text("Doesn't repeat").tag(Repeat.Every?.none)
-                    ForEach(Repeat.Every.choices, id: \.self) { choice in
-                        Text(CalendarRules.repeatLabel(choice)).tag(Repeat.Every?.some(choice))
-                    }
-                    // A rule made in Google Calendar that these can't say.
-                    if let every, case .other = every {
-                        Text(CalendarRules.repeatLabel(every)).tag(Repeat.Every?.some(every))
-                    }
-                }
-            } label: {
-                HStack {
-                    Text(every.map(CalendarRules.repeatLabel) ?? "Repeat")
-                        .foregroundStyle(every == nil ? .tertiary : .primary)
-                    Spacer()
-                    Image(systemName: "chevron.down").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
-                }
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-        }
-        // A rule that hasn't been read can't be given an end.
-        if let rule = draft.repeats, rule.every != .other("") {
-            row(nil) {
-                Button {
-                    focus = nil
-                    picking = picking == .until ? nil : .until
-                } label: {
-                    HStack(spacing: 6) {
-                        Text("Ends").foregroundStyle(.secondary)
-                        Text(rule.until.map(untilText) ?? "Never")
-                            .foregroundStyle(picking == .until ? CalendarStyle.accent : .primary)
-                        Spacer()
-                    }
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                if rule.until != nil {
-                    Button {
-                        draft.repeats?.until = nil
-                        picking = nil
-                    } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Never ends")
-                }
-            }
-            if picking == .until { picker(.until) }
-        }
-    }
-
-    private func untilText(_ day: Day) -> String {
-        day.at(minutes: 12 * 60).formatted(.dateTime.month(.abbreviated).day().year())
+    /// "Every week", "Every week until Dec 31, 2026"; nil when it happens once.
+    private var repeatText: String? {
+        guard let rule = draft.repeats else { return nil }
+        let every = CalendarRules.repeatLabel(rule.every)
+        return rule.until.map { "\(every) until \(WhenScreen.untilText($0))" } ?? every
     }
 
     /// When, for an event that can't be changed here.
@@ -627,7 +557,6 @@ struct EventCard: View {
 
     private func place() {
         focus = nil
-        picking = nil
         placeSession = UUID()
         placing = true
     }
