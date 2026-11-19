@@ -86,6 +86,34 @@ export async function getLogisticsSettings(
   };
 }
 
+/** Whether an event's cached drive time needs working out again: never tried,
+ * tried over a day ago, or tried for a different location than it has now.
+ * A try that failed (no coordinates, no route) counts as a try: it waits out
+ * the day like any other, instead of spending two Places searches every tick.
+ * `geocoded_location` is the location text last tried, found or not. */
+export function driveIsDue(
+  event: {
+    location: string | null;
+    geocoded_location: string | null;
+    drive_calculated_at: string | null;
+  },
+  staleBefore: Date,
+): boolean {
+  if (!event.location) return false;
+  if (event.drive_calculated_at == null) return true;
+  if (new Date(event.drive_calculated_at) < staleBefore) return true;
+  return (
+    event.geocoded_location != null &&
+    event.geocoded_location !== event.location.trim()
+  );
+}
+
+/** A location that is a link ("Click to join meeting: https://…"), not a
+ * place: nothing to geocode or drive to. */
+function isLink(location: string): boolean {
+  return /https?:\/\//i.test(location);
+}
+
 /** Refresh the drive cache for upcoming located events: geocode locations and
  * compute home→event drive minutes, with per-run dedup caches and staleness
  * stamps (failures stamp drive_calculated_at too, so they retry after 24h, not
@@ -100,11 +128,12 @@ export async function refreshDriveTimes(
   const { homeLat, homeLng } = settings;
 
   const now = new Date().toISOString();
-  const staleThreshold = new Date(
-    Date.now() - STALE_HOURS * 3600_000,
-  ).toISOString();
+  const staleBefore = new Date(Date.now() - STALE_HOURS * 3600_000);
 
-  const { data: events } = await supabase
+  // Every upcoming located event, then the due ones picked out here: "the
+  // location isn't the one that was geocoded" compares two columns, which the
+  // query can't. Without it a location edit kept its old drive time for a day.
+  const { data: upcoming } = await supabase
     .from("calendar_events")
     .select(
       "id, location, location_lat, location_lng, geocoded_location, location_time_zone, drive_minutes, drive_calculated_at",
@@ -113,12 +142,19 @@ export async function refreshDriveTimes(
     .eq("is_canceled", false)
     .eq("all_day", false)
     .not("location", "is", null)
-    .is("drive_source_event_id", null) // never compute drive time for drive blocks
-    .or(
-      `drive_calculated_at.is.null,drive_calculated_at.lt.${staleThreshold},drive_minutes.is.null`,
-    );
+    .is("drive_source_event_id", null); // never compute drive time for drive blocks
 
-  if (!events?.length) return { calculated: 0 };
+  const events = (upcoming ?? []).filter((event) =>
+    driveIsDue(
+      {
+        location: event.location as string | null,
+        geocoded_location: event.geocoded_location as string | null,
+        drive_calculated_at: event.drive_calculated_at as string | null,
+      },
+      staleBefore,
+    ),
+  );
+  if (!events.length) return { calculated: 0 };
 
   // Per-run dedup: many events share a location (weekly practice), so geocode
   // and route each distinct place once.
@@ -140,11 +176,20 @@ export async function refreshDriveTimes(
 
     if (
       SKIP_LOCATIONS.has(locKey) ||
+      isLink(location) ||
       isHomeLocation(location, settings.homeAddress)
     ) {
+      // Nowhere to drive to. An earlier location's drive time goes with it.
       await supabase
         .from("calendar_events")
-        .update({ drive_calculated_at: new Date().toISOString() })
+        .update({
+          location_lat: null,
+          location_lng: null,
+          geocoded_location: location,
+          location_time_zone: null,
+          drive_minutes: null,
+          drive_calculated_at: new Date().toISOString(),
+        })
         .eq("id", event.id);
       continue;
     }
@@ -174,10 +219,18 @@ export async function refreshDriveTimes(
           })
           .eq("id", event.id);
       } else {
-        // Geocoding failed — stamp as attempted so we retry on staleness only.
+        // Geocoding failed — stamp as attempted, for this location, so we
+        // retry on staleness only. What the last location had is dropped.
         await supabase
           .from("calendar_events")
-          .update({ drive_calculated_at: new Date().toISOString() })
+          .update({
+            location_lat: null,
+            location_lng: null,
+            geocoded_location: location,
+            location_time_zone: null,
+            drive_minutes: null,
+            drive_calculated_at: new Date().toISOString(),
+          })
           .eq("id", event.id);
         continue;
       }

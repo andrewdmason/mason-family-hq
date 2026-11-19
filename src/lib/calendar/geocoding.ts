@@ -159,6 +159,24 @@ export function withPlaceName(
   return `${name}, ${full}`;
 }
 
+// How far from home the nearest match can be and still be taken as "the local
+// one": a long day's drive is a different place with a similar name.
+const NEAREST_MAX_KM = 150;
+
+/** Great-circle distance in kilometres. */
+export function kmBetween(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  const rad = (deg: number) => (deg * Math.PI) / 180;
+  const a =
+    Math.sin(rad(lat2 - lat1) / 2) ** 2 +
+    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(rad(lng2 - lng1) / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.sqrt(a));
+}
+
 export async function geocodeAddress(
   address: string,
   nearLat?: number,
@@ -169,9 +187,16 @@ export async function geocodeAddress(
   // prominence ranking picks the famous one (Chabot College, Hayward). Pure
   // street addresses return empty under DISTANCE rank, so fall through to
   // relevance rank, then to keyless Nominatim.
+  //
+  // "Nearest" is only an answer when it's near. For a place on a trip ("The
+  // Springs Resort & Spa, Arenal") the nearest thing with a name like it is
+  // just another resort a state away (Pagosa Springs, CO), where relevance
+  // rank finds the one meant, in Costa Rica.
   if (nearLat != null && nearLng != null) {
     const nearest = await geocodeWithPlaces(address, nearLat, nearLng, "DISTANCE");
-    if (nearest) return nearest;
+    if (nearest && kmBetween(nearLat, nearLng, nearest.lat, nearest.lng) <= NEAREST_MAX_KM) {
+      return nearest;
+    }
   }
   const places = await geocodeWithPlaces(address, nearLat, nearLng);
   if (places) return places;
