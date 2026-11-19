@@ -257,7 +257,8 @@ URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
   Every family member can make changes, kids included.
 - The event sheet has the website panel's instant actions (TeamSnap RSVP, a
   kid's own going, who's going along, drop-off and pick-up) and Edit for Google
-  and app-only events. Not here yet: the team's availability roster, repeating
+  and app-only events. Deleting a repeating event asks: this one only, or all
+  of them (the whole Google series, past ones too). Not here yet: the team's availability roster, repeating
   events (shown, not made), and the "pending" drive blocks the website draws
   between a duty tap and the server catching up; the app reads again a few
   seconds after a change, which is when the real ones arrive.

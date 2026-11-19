@@ -513,22 +513,26 @@ final class CalendarStore {
         }
     }
 
-    func delete(_ event: CalEvent, report: @escaping (String) -> Void) {
-        let removed = snapshot.events.filter { $0.id == event.id || $0.driveSourceEventID == event.id }
-        snapshot.events.removeAll { $0.id == event.id || $0.driveSourceEventID == event.id }
-        provisional[event.id] = nil
+    /// Delete an event, or with `series` every occurrence of the repeating
+    /// event it's one of, past and to come.
+    func delete(_ event: CalEvent, series: Bool = false, report: @escaping (String) -> Void) {
+        let gone = Set((series ? CalendarRules.series(of: event, in: snapshot.events) : [event]).map(\.id))
+        let isGone: (CalEvent) -> Bool = { gone.contains($0.id) || $0.driveSourceEventID.map(gone.contains) == true }
+        let removed = snapshot.events.filter(isGone)
+        snapshot.events.removeAll(where: isGone)
+        for id in gone { provisional[id] = nil }
         guard !isDemo else { return }
         sending += 1
         Task { [weak self] in
             guard let self else { return }
             defer { self.sending -= 1 }
             do {
-                _ = try await CalendarAPI.post("delete", ["id": await self.id(event)])
+                _ = try await CalendarAPI.post("delete", ["id": await self.id(event), "series": series])
                 self.save()
                 self.refreshSoon()
             } catch {
                 self.snapshot.events += removed
-                report("“\(event.title)” wasn't deleted: \(error.localizedDescription)")
+                report("“\(event.title)” \(series ? "and its series weren't" : "wasn't") deleted: \(error.localizedDescription)")
             }
         }
     }
