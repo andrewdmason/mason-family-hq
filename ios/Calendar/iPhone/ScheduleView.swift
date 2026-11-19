@@ -128,7 +128,7 @@ private struct ScheduleRow: View {
 
     var body: some View {
         Button {
-            nav.open(item, in: store.board)
+            nav.open(item, in: store)
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .trailing, spacing: 1) {

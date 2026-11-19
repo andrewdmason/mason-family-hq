@@ -12,11 +12,19 @@ import {
   patchGoogleEvent,
   deleteGoogleEvent,
   getGoogleEvent,
+  listGoogleEventInstances,
+  googleTimesToEvent,
   isGoogleMadeRefusal,
   eventToGoogleBody,
   DEFAULT_REMINDERS,
   type GoogleCredential,
 } from "@/lib/calendar/google";
+import {
+  syncWindow,
+  attendeesJson,
+  rruleFromRecurrence,
+} from "@/lib/calendar/google-sync";
+import { FAMILY_TZ } from "@/lib/calendar/drive-time";
 import {
   credForMember,
   syncEventGuests,
@@ -47,6 +55,9 @@ export type ManualEventInput = {
   startTime: string; // ISO
   endTime: string | null; // ISO
   allDay: boolean;
+  // The repeat rule (an RRULE body, "FREQ=WEEKLY;..."), for Google events
+  // only. Left out, the event keeps whatever it has; null stops it repeating.
+  rrule?: string | null;
 };
 
 // Fields shared by manual and Google event rows (source_type / external_id are
@@ -115,6 +126,23 @@ export async function createCalendarEvent(
   // Writing into a Google calendar: push to Google first, then mirror locally so
   // the row carries the Google event id for later edits/deletes.
   const target = await googleTarget(admin, input.calendarSourceId);
+  if (target && input.rrule) {
+    // A repeating event: Google expands the rule, and every occurrence in the
+    // sync window is mirrored now, under the ids the next sync will find.
+    const created = await insertGoogleEvent(
+      target.cred,
+      target.googleCalendarId,
+      {
+        ...recurringGoogleBody(input),
+        recurrence: [`RRULE:${input.rrule}`],
+        reminders: DEFAULT_REMINDERS,
+      },
+    );
+    const rows = await mirrorSeries(admin, target, created.id);
+    if (!rows.length) throw new Error("Couldn't create the event.");
+    revalidatePath("/calendar");
+    return rows[0].id;
+  }
   if (target) {
     const created = await insertGoogleEvent(
       target.cred,
@@ -154,16 +182,21 @@ export async function createCalendarEvent(
   return data.id as string;
 }
 
+/** Save an edit. For one of a repeating Google series, `scope: "series"`
+ * makes the edit to every occurrence (Google Calendar's "All events");
+ * otherwise it's to this one alone. A change to the repeat rule itself
+ * (`input.rrule`) is always to the whole series. */
 export async function updateCalendarEvent(
   id: string,
   input: ManualEventInput,
+  scope: "this" | "series" = "this",
 ): Promise<void> {
   const admin = createAdminClient();
 
   const { data: ev } = await admin
     .from("calendar_events")
     .select(
-      "id, member_email, source_type, calendar_source_id, external_id, start_time, end_time",
+      "id, member_email, source_type, calendar_source_id, external_id, start_time, end_time, all_day, rrule, google_recurring_event_id",
     )
     .eq("id", id)
     .single();
@@ -178,17 +211,35 @@ export async function updateCalendarEvent(
     const target = await googleTarget(admin, ev.calendar_source_id);
     if (!target) throw new Error("This calendar is no longer connected.");
     const googleEventId = ev.external_id.slice("google:".length);
-    await patchGoogleEvent(
-      target.cred,
-      target.googleCalendarId,
-      googleEventId,
-      eventToGoogleBody(input),
-    );
-    const { error } = await admin
-      .from("calendar_events")
-      .update(baseEventColumns(input))
-      .eq("id", id);
-    if (error) throw new Error(error.message);
+    const seriesId = ev.google_recurring_event_id as string | null;
+    const ruleChanged =
+      input.rrule !== undefined && (input.rrule ?? null) !== (ev.rrule ?? null);
+
+    if (ruleChanged && !input.rrule && seriesId) {
+      await stopRepeating(admin, target, id, googleEventId, seriesId, input);
+    } else if (ruleChanged && input.rrule && !seriesId) {
+      // A one-off event starts repeating: it becomes the series, and its row
+      // the first occurrence.
+      await patchGoogleEvent(target.cred, target.googleCalendarId, googleEventId, {
+        ...recurringGoogleBody(input),
+        recurrence: [`RRULE:${input.rrule}`],
+      });
+      await mirrorSeries(admin, target, googleEventId, dayShift(ev, input));
+    } else if (seriesId && (scope === "series" || ruleChanged)) {
+      await updateSeries(admin, target, seriesId, ev, input, ruleChanged);
+    } else {
+      await patchGoogleEvent(
+        target.cred,
+        target.googleCalendarId,
+        googleEventId,
+        eventToGoogleBody(input),
+      );
+      const { error } = await admin
+        .from("calendar_events")
+        .update(baseEventColumns(input))
+        .eq("id", id);
+      if (error) throw new Error(error.message);
+    }
     await settleDutiesAfterTimeChange(admin, id, ev, input);
     revalidatePath("/calendar");
     return;
@@ -205,6 +256,384 @@ export async function updateCalendarEvent(
   }
   if (ev) await settleDutiesAfterTimeChange(admin, id, ev, input);
   revalidatePath("/calendar");
+}
+
+// ---------------------------------------------------------------------------
+// Repeating events. Google owns the rule and its expansion; the app mirrors
+// one row per occurrence (as sync does), and going and drives hang off those
+// rows. So whatever changes a series keeps each occurrence's row where it can.
+// ---------------------------------------------------------------------------
+
+/** A repeating event's body. Google needs a named zone on a repeating timed
+ * event, so the rule follows the family's clock across daylight saving. */
+function recurringGoogleBody(input: ManualEventInput): Record<string, unknown> {
+  const body = eventToGoogleBody(input);
+  if (!input.allDay) {
+    body.start = { ...(body.start as object), timeZone: FAMILY_TZ };
+    body.end = { ...(body.end as object), timeZone: FAMILY_TZ };
+  }
+  return body;
+}
+
+/** The wall-clock date an event is on: an all-day one's stored UTC date, a
+ * timed one's date on the family's clock. */
+function localDay(iso: string, allDay: boolean): string {
+  return allDay
+    ? new Date(iso).toISOString().slice(0, 10)
+    : new Date(iso).toLocaleDateString("en-CA", { timeZone: FAMILY_TZ });
+}
+
+function addDaysTo(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function daysBetween(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+}
+
+/** "19:05" on the family's clock. */
+function localClock(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-GB", {
+    timeZone: FAMILY_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+}
+
+/** How many days an edit moves an event by. */
+function dayShift(
+  before: { start_time: string; all_day: boolean },
+  input: ManualEventInput,
+): number {
+  const after_ = baseEventColumns(input);
+  return daysBetween(
+    localDay(before.start_time, before.all_day),
+    localDay(after_.start_time, input.allDay),
+  );
+}
+
+/** Bring the app's rows for a Google series in line with Google: one row per
+ * occurrence in the sync window. An occurrence keeps the row it had (by its
+ * Google id, else by its date, `shiftDays` later when the series just moved)
+ * so going and drives survive; new occurrences get rows, and rows whose
+ * occurrence is gone are cancelled, as sync would. Returns the rows by start. */
+async function mirrorSeries(
+  admin: ReturnType<typeof createAdminClient>,
+  target: GoogleWriteTarget,
+  seriesId: string,
+  shiftDays = 0,
+): Promise<{ id: string; start_time: string }[]> {
+  const master = await getGoogleEvent(target.cred, target.googleCalendarId, seriesId);
+  const rrule = rruleFromRecurrence(master?.recurrence);
+  const window = syncWindow();
+  const instances = (
+    await listGoogleEventInstances(target.cred, target.googleCalendarId, seriesId, window)
+  ).filter((i) => i.status !== "cancelled");
+
+  type Row = {
+    id: string;
+    external_id: string | null;
+    start_time: string;
+    all_day: boolean;
+    is_canceled: boolean;
+    owner_not_going: boolean;
+  };
+  const columns = "id, external_id, start_time, all_day, is_canceled, owner_not_going";
+  const [{ data: bySeries }, { data: byId }] = await Promise.all([
+    admin
+      .from("calendar_events")
+      .select(columns)
+      .eq("calendar_source_id", target.sourceId)
+      .eq("google_recurring_event_id", seriesId),
+    admin
+      .from("calendar_events")
+      .select(columns)
+      .eq("calendar_source_id", target.sourceId)
+      .eq("external_id", `google:${seriesId}`),
+  ]);
+  const rows = [...(bySeries ?? []), ...(byId ?? [])] as Row[];
+  const byExternal = new Map(rows.map((r) => [r.external_id, r]));
+  const byDay = new Map<string, Row>();
+  for (const r of rows) {
+    const day = addDaysTo(localDay(r.start_time, r.all_day), shiftDays);
+    if (!byDay.has(day)) byDay.set(day, r);
+  }
+
+  const claimed = new Set<string>();
+  const kept: { row: Row; columns: Record<string, unknown> }[] = [];
+  const fresh: Record<string, unknown>[] = [];
+  for (const inst of instances) {
+    const times = googleTimesToEvent(inst);
+    if (!times.start_time) continue;
+    const externalId = `google:${inst.id}`;
+    const cols = {
+      title: inst.summary ?? "Event",
+      description: inst.description ?? null,
+      location: inst.location ?? null,
+      ...times,
+      external_id: externalId,
+      google_recurring_event_id: seriesId,
+      rrule,
+      is_canceled: false,
+    };
+    let row = byExternal.get(externalId);
+    if (!row || claimed.has(row.id)) {
+      row = byDay.get(localDay(times.start_time, times.all_day));
+    }
+    if (row && !claimed.has(row.id)) {
+      claimed.add(row.id);
+      kept.push({ row, columns: cols });
+    } else {
+      fresh.push({
+        ...cols,
+        member_email: target.memberEmail,
+        calendar_source_id: target.sourceId,
+        source_type: "google" as const,
+        organizer_email: inst.organizer?.email?.toLowerCase() ?? null,
+        google_attendees: attendeesJson(inst),
+      });
+    }
+  }
+
+  const inChunks = async <T,>(items: T[], run: (item: T) => PromiseLike<unknown>) => {
+    for (let i = 0; i < items.length; i += 25) {
+      await Promise.all(items.slice(i, i + 25).map(run));
+    }
+  };
+  // Rows whose occurrence is gone: out of the way first, so their Google ids
+  // are free for the rows taking them over.
+  const gone = rows.filter(
+    (r) =>
+      !claimed.has(r.id) &&
+      !r.owner_not_going &&
+      +new Date(r.start_time) >= +new Date(window.timeMin) &&
+      +new Date(r.start_time) <= +new Date(window.timeMax),
+  );
+  await inChunks(gone, (r) =>
+    admin
+      .from("calendar_events")
+      .update({ is_canceled: true, external_id: `google:gone:${r.id}` })
+      .eq("id", r.id),
+  );
+  // When a series moves by one of its own steps, an occurrence's new Google
+  // id is its neighbour's old one: park the ids that change before setting
+  // them, so no two rows hold the same one on the way.
+  const moving = kept.filter((k) => k.row.external_id !== k.columns.external_id);
+  await inChunks(moving, (k) =>
+    admin
+      .from("calendar_events")
+      .update({ external_id: `google:moving:${k.row.id}` })
+      .eq("id", k.row.id),
+  );
+  await inChunks(kept, async (k) => {
+    const { error } = await admin
+      .from("calendar_events")
+      .update(k.columns)
+      .eq("id", k.row.id);
+    if (error) throw new Error(error.message);
+  });
+
+  const out = kept.map((k) => ({
+    id: k.row.id,
+    start_time: k.columns.start_time as string,
+  }));
+  if (fresh.length) {
+    const { data, error } = await admin
+      .from("calendar_events")
+      .upsert(fresh, { onConflict: "calendar_source_id,external_id" })
+      .select("id, start_time");
+    if (error) throw new Error(error.message);
+    out.push(...((data ?? []) as { id: string; start_time: string }[]));
+  }
+  return out.sort((a, b) => +new Date(a.start_time) - +new Date(b.start_time));
+}
+
+/** An edit to every occurrence of a series: made to the series itself on
+ * Google, then mirrored. A new time is carried over as the same move on the
+ * clock (so "an hour later" is an hour later on every occurrence). */
+async function updateSeries(
+  admin: ReturnType<typeof createAdminClient>,
+  target: GoogleWriteTarget,
+  seriesId: string,
+  before: { start_time: string; end_time: string | null; all_day: boolean },
+  input: ManualEventInput,
+  ruleChanged: boolean,
+): Promise<void> {
+  const master = await getGoogleEvent(target.cred, target.googleCalendarId, seriesId);
+  if (!master || master.status === "cancelled") {
+    throw new Error("This repeating event is no longer on Google Calendar.");
+  }
+  const body = eventToGoogleBody(input);
+  const after_ = baseEventColumns(input);
+  const sameInstant = (a: string | null, b: string | null) =>
+    (a == null) === (b == null) && (a == null || +new Date(a) === +new Date(b!));
+  const timeChanged =
+    before.all_day !== input.allDay ||
+    !sameInstant(before.start_time, after_.start_time) ||
+    !sameInstant(before.end_time, after_.end_time);
+  const shift = timeChanged ? dayShift(before, input) : 0;
+
+  if (!timeChanged) {
+    delete body.start;
+    delete body.end;
+  } else {
+    const masterDay = master.start?.date
+      ?? (master.start?.dateTime ? localDay(master.start.dateTime, false) : null);
+    if (!masterDay) throw new Error("This repeating event has no start on Google Calendar.");
+    const startDay = addDaysTo(masterDay, shift);
+    if (input.allDay) {
+      const span = after_.end_time
+        ? Math.max(1, daysBetween(localDay(after_.start_time, true), localDay(after_.end_time, true)))
+        : 1;
+      body.start = { date: startDay, dateTime: null, timeZone: null };
+      body.end = { date: addDaysTo(startDay, span), dateTime: null, timeZone: null };
+    } else {
+      const end = after_.end_time ?? after_.start_time;
+      const endDay = addDaysTo(
+        startDay,
+        daysBetween(localDay(after_.start_time, false), localDay(end, false)),
+      );
+      body.start = {
+        dateTime: `${startDay}T${localClock(after_.start_time)}:00`,
+        timeZone: FAMILY_TZ,
+        date: null,
+      };
+      body.end = {
+        dateTime: `${endDay}T${localClock(end)}:00`,
+        timeZone: FAMILY_TZ,
+        date: null,
+      };
+    }
+  }
+  if (ruleChanged && input.rrule) {
+    body.recurrence = [
+      ...(master.recurrence ?? []).filter((line) => !line.startsWith("RRULE:")),
+      `RRULE:${input.rrule}`,
+    ];
+  }
+
+  await patchGoogleEvent(target.cred, target.googleCalendarId, seriesId, body);
+  const rows = await mirrorSeries(admin, target, seriesId, shift);
+
+  // Every occurrence that moved takes its drive blocks with it.
+  if (timeChanged && rows.length) {
+    const { data: duties } = await admin
+      .from("event_duty_assignments")
+      .select("event_id")
+      .in("event_id", rows.map((r) => r.id));
+    const withDuties = [...new Set((duties ?? []).map((d) => d.event_id as string))];
+    if (withDuties.length) {
+      after(() =>
+        queueDriveWork(async () => {
+          for (const eventId of withDuties) {
+            try {
+              await reconcileEventDrive(admin, eventId);
+            } catch (err) {
+              // best-effort: the next sweep reshapes the blocks
+              console.error(
+                `[drive] reconcile failed after series change (event ${eventId}):`,
+                err instanceof Error ? err.message : err,
+              );
+            }
+          }
+          revalidatePath("/calendar");
+        }),
+      );
+    }
+  }
+}
+
+/** A repeating event stops repeating: this occurrence stays, as an ordinary
+ * event with its guests, and the rest of the series goes. The copy is made
+ * first, so a refusal part-way leaves the series as it was. */
+async function stopRepeating(
+  admin: ReturnType<typeof createAdminClient>,
+  target: GoogleWriteTarget,
+  id: string,
+  googleEventId: string,
+  seriesId: string,
+  input: ManualEventInput,
+): Promise<void> {
+  const { cred, googleCalendarId } = target;
+  const occurrence = await getGoogleEvent(cred, googleCalendarId, googleEventId);
+  const copy = await insertGoogleEvent(
+    cred,
+    googleCalendarId,
+    {
+      ...eventToGoogleBody(input),
+      attendees: (occurrence?.attendees ?? [])
+        .filter((a) => a.email)
+        .map((a) => ({ email: a.email, responseStatus: a.responseStatus })),
+      reminders: DEFAULT_REMINDERS,
+    },
+    { sendUpdates: "none" },
+  );
+  try {
+    await deleteGoogleEvent(cred, googleCalendarId, seriesId, { sendUpdates: "none" });
+  } catch (err) {
+    await deleteGoogleEvent(cred, googleCalendarId, copy.id, {
+      sendUpdates: "none",
+    }).catch(() => {});
+    throw err;
+  }
+
+  const { error } = await admin
+    .from("calendar_events")
+    .update({
+      ...baseEventColumns(input),
+      external_id: `google:${copy.id}`,
+      google_recurring_event_id: null,
+      rrule: null,
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+
+  // The other occurrences, with the drive blocks their duties put on a
+  // parent's calendar (see deleteCalendarEvent).
+  const { data: siblings } = await admin
+    .from("calendar_events")
+    .select("id, start_time")
+    .eq("calendar_source_id", target.sourceId)
+    .eq("google_recurring_event_id", seriesId)
+    .neq("id", id);
+  const ids = (siblings ?? []).map((r) => r.id as string);
+  if (!ids.length) return;
+  const { data: duties } = await admin
+    .from("event_duty_assignments")
+    .select(ASSIGNMENT_COLUMNS)
+    .in("event_id", ids);
+  for (const a of duties ?? []) {
+    await deleteDriveEvent(admin, a as unknown as DutyAssignmentRow).catch(() => {});
+  }
+  const { error: deleteError } = await admin
+    .from("calendar_events")
+    .delete()
+    .in("id", ids);
+  if (deleteError) throw new Error(deleteError.message);
+  const withDuties = new Set(
+    (duties ?? []).map((d) => (d as unknown as DutyAssignmentRow).event_id),
+  );
+  const starts = (siblings ?? [])
+    .filter((r) => withDuties.has(r.id as string) && r.start_time)
+    .map((r) => r.start_time as string);
+  if (starts.length) {
+    after(() =>
+      queueDriveWork(async () => {
+        try {
+          for (const startTime of starts) await reconcileDriveAround(admin, startTime);
+          revalidatePath("/calendar");
+        } catch (err) {
+          console.error(
+            "[drive] neighborhood reconcile failed after a series stopped repeating:",
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }),
+    );
+  }
 }
 
 /** A time change moves an event's drive blocks (and can merge them into — or

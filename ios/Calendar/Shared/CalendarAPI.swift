@@ -87,7 +87,17 @@ enum CalendarAPI {
 
     /// An event as the website's ManualEventInput. An all-day event is sent
     /// as midnight UTC of its date, with no end.
-    static func body(_ draft: EventDraft, sourceID: UUID?, in calendar: Calendar = .current) -> [String: Any] {
+    /// `rule` is sent only when how the event repeats is being set:
+    /// `.some(nil)` stops it repeating.
+    static func body(
+        _ draft: EventDraft, sourceID: UUID?, rule: String?? = nil, in calendar: Calendar = .current
+    ) -> [String: Any] {
+        var body = fields(draft, sourceID: sourceID, in: calendar)
+        if case .some(let rule) = rule { body["rrule"] = rule ?? NSNull() }
+        return body
+    }
+
+    private static func fields(_ draft: EventDraft, sourceID: UUID?, in calendar: Calendar) -> [String: Any] {
         let start = draft.allDay ? CalendarRules.allDayInstant(Day(draft.start, in: calendar)) : draft.start
         func text(_ value: String) -> Any {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)

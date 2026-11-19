@@ -108,16 +108,13 @@ struct CalendarScreen: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 4)
         }
-        .modifier(ConvertAlert(active: nav.opened == nil && nav.editor == nil && !nav.showSettings))
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { nav.screenHeight = $0 }
+        .modifier(ConvertAlert(active: nav.card == nil && !nav.showSettings))
         .environment(nav)
         .animation(.snappy, value: nav.peek)
         .animation(.snappy, value: nav.problem)
-        .sheet(item: $nav.opened) { item in
-            EventSheet(itemID: item.id, me: me)
-                .environment(nav)
-        }
-        .sheet(item: $nav.editor) { request in
-            EventEditor(request: request)
+        .sheet(item: $nav.card) { request in
+            EventCard(request: request, me: me)
                 .environment(nav)
         }
         .sheet(isPresented: $nav.showSettings) {
@@ -129,7 +126,7 @@ struct CalendarScreen: View {
             nav.peek = nil
             if url.host() == "event", let id = UUID(uuidString: url.lastPathComponent), let item = store.board.item(id) {
                 nav.day = item.day
-                nav.opened = store.board.opened(item)
+                nav.open(item, in: store)
             } else if url.host() == "today" {
                 nav.goToToday()
             }
@@ -201,7 +198,7 @@ struct PeekCard: View {
 
     var body: some View {
         Button {
-            nav.open(item, in: store.board)
+            nav.open(item, in: store)
         } label: {
             HStack(spacing: 12) {
                 RoundedRectangle(cornerRadius: 2)
@@ -242,7 +239,7 @@ struct PeekCard: View {
                     let y = value.translation.height
                     let flick = value.predictedEndTranslation.height
                     if y < -24 || flick < -90 {
-                        nav.open(item, in: store.board)
+                        nav.open(item, in: store)
                     } else if y > 40 || flick > 120 {
                         nav.peek = nil
                     }
@@ -300,7 +297,6 @@ struct FloatingBar: View {
     private func compose() {
         guard let member = me ?? store.board.members.first?.email else { return }
         let times = CalendarRules.newEventTimes(on: nav.day)
-        nav.peek = nil
-        nav.editor = EditorRequest(event: nil, draft: EventDraft(memberEmail: member, start: times.start, end: times.end))
+        nav.compose(for: member, from: times.start, to: times.end)
     }
 }

@@ -227,6 +227,87 @@ private func event(
     }
 }
 
+@Suite struct TheCard {
+    @Test func theChoicesAreTheRulesGoogleKeeps() {
+        #expect(CalendarRules.rrule(Repeat(every: .day), allDay: false) == "FREQ=DAILY")
+        #expect(CalendarRules.rrule(Repeat(every: .weekday), allDay: false) == "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR")
+        #expect(CalendarRules.rrule(Repeat(every: .twoWeeks), allDay: false) == "FREQ=WEEKLY;INTERVAL=2")
+        // A rule the choices can't say goes back as it came; one never read, not at all.
+        #expect(CalendarRules.rrule(Repeat(every: .other("FREQ=MONTHLY;BYDAY=3FR")), allDay: false) == "FREQ=MONTHLY;BYDAY=3FR")
+        #expect(CalendarRules.rrule(Repeat(every: .other("")), allDay: false) == nil)
+    }
+
+    @Test func aRuleReadsBackAsItsChoice() {
+        #expect(CalendarRules.repeats(from: "FREQ=DAILY").every == .day)
+        #expect(CalendarRules.repeats(from: "FREQ=WEEKLY;BYDAY=FR").every == .week)
+        #expect(CalendarRules.repeats(from: "FREQ=WEEKLY;WKST=SU;BYDAY=TU,MO,WE,TH,FR").every == .weekday)
+        #expect(CalendarRules.repeats(from: "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO").every == .twoWeeks)
+        #expect(CalendarRules.repeats(from: "FREQ=MONTHLY").every == .month)
+        #expect(CalendarRules.repeats(from: "FREQ=YEARLY").every == .year)
+        // Kept whole, less its end.
+        let twice = CalendarRules.repeats(from: "FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=20270101T075959Z", in: pacific)
+        #expect(twice.every == .other("FREQ=WEEKLY;BYDAY=TU,TH"))
+        #expect(twice.until == Day(year: 2026, month: 12, day: 31))
+        #expect(CalendarRules.repeats(from: "FREQ=DAILY;COUNT=5").every == .other("FREQ=DAILY;COUNT=5"))
+        #expect(CalendarRules.repeatLabel(.other("FREQ=WEEKLY;BYDAY=TU,TH")) == "Weekly on Tue, Thu")
+    }
+
+    @Test func theLastDayIsTheWholeOfItHere() {
+        // An evening event on the last day is already tomorrow in UTC: the
+        // end is that day's last second in Pacific, not UTC's.
+        let rule = Repeat(every: .week, until: Day(year: 2026, month: 12, day: 31))
+        #expect(CalendarRules.rrule(rule, allDay: false, in: pacific) == "FREQ=WEEKLY;UNTIL=20270101T075959Z")
+        #expect(CalendarRules.rrule(rule, allDay: true, in: pacific) == "FREQ=WEEKLY;UNTIL=20261231")
+        #expect(CalendarRules.repeats(from: "FREQ=WEEKLY;UNTIL=20261231", in: pacific).until == rule.until)
+        #expect(CalendarRules.untilDay("20260701T065959Z", in: pacific) == Day(year: 2026, month: 6, day: 30))
+    }
+
+    @Test func howLongItRuns() {
+        let start = Date(timeIntervalSince1970: 0)
+        #expect(CalendarRules.length(from: start, to: start.addingTimeInterval(90 * 60)) == "1h 30min")
+        #expect(CalendarRules.length(from: start, to: start.addingTimeInterval(45 * 60)) == "45min")
+        #expect(CalendarRules.length(from: start, to: start.addingTimeInterval(120 * 60)) == "2h")
+    }
+
+    @Test func aReadUnderAnOpenCardKeepsWhatWasChanged() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        var base = CardDraft(event: EventDraft(title: "Recital", memberEmail: "seb@x.io", start: start, end: start.addingTimeInterval(3600)))
+        base.going = ["jenny@x.io"]
+        base.duties = [.dropoff: .parent("jenny@x.io")]
+
+        var draft = base
+        draft.event.title = "Spring recital"
+        draft.going = ["jenny@x.io", "andrew@x.io"]
+        draft.duties[.pickup] = .parent("andrew@x.io")
+
+        // Meanwhile, elsewhere: it moved an hour, Jenny dropped out, and the
+        // drop-off changed hands.
+        var fresh = base
+        fresh.event.start = start.addingTimeInterval(3600)
+        fresh.event.end = start.addingTimeInterval(7200)
+        fresh.event.location = "Hertz Hall"
+        fresh.going = []
+        fresh.duties[.dropoff] = .caregiver("Marina")
+
+        let merged = draft.rebased(from: base, onto: fresh)
+        #expect(merged.event.title == "Spring recital")
+        #expect(merged.event.start == fresh.event.start)
+        #expect(merged.event.location == "Hertz Hall")
+        #expect(merged.going == ["andrew@x.io"])
+        #expect(merged.duties == [.dropoff: .caregiver("Marina"), .pickup: .parent("andrew@x.io")])
+        // Nothing changed here: the card is just the fresh read.
+        #expect(base.rebased(from: base, onto: fresh) == fresh)
+    }
+
+    @Test func theRuleGoesOnlyWhenItsBeingSet() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let draft = EventDraft(title: "Lesson", memberEmail: "seb@x.io", start: start, end: start.addingTimeInterval(1800))
+        #expect(CalendarAPI.body(draft, sourceID: nil)["rrule"] == nil)
+        #expect(CalendarAPI.body(draft, sourceID: nil, rule: .some("FREQ=WEEKLY"))["rrule"] as? String == "FREQ=WEEKLY")
+        #expect(CalendarAPI.body(draft, sourceID: nil, rule: .some(nil))["rrule"] is NSNull)
+    }
+}
+
 @Suite struct TheBoard {
     private let jenny = Member(email: "jenny@x.io", name: "Jenny Mason", role: .parent, color: "#db2777")
     private let seb = Member(email: "seb@x.io", name: "Sebastian Mason", role: .kid, color: "#16a34a")
