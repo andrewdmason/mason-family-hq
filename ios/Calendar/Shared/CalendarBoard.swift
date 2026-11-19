@@ -12,6 +12,8 @@ enum DutyChip: Hashable, Sendable {
 struct EventItem: Identifiable, Hashable, Sendable {
     var event: CalEvent
     var day: Day
+    /// The trip's zone, when its day is drawn in another place's time.
+    var zone: TimeZone?
     /// The other family members going, in family order.
     var attendees: [String]
     /// "#rrggbb": the kid's on a drive block, else the owner's.
@@ -34,6 +36,14 @@ struct EventItem: Identifiable, Hashable, Sendable {
     var isTeamsnap = false
 
     var id: UUID { event.id }
+
+    /// The calendar its times are read in: the trip's, on a day away.
+    func calendar(in base: Calendar = .current) -> Calendar {
+        guard let zone else { return base }
+        var calendar = base
+        calendar.timeZone = zone
+        return calendar
+    }
 
     /// "FSB: Practice".
     var title: String { label.map { "\($0): \(event.title)" } ?? event.title }
@@ -58,6 +68,25 @@ struct Board: Sendable {
     var logistics = Logistics()
     /// What the signed-in member has hidden from their own view.
     var hides: [EventHide] = []
+    /// The days drawn in another place's time (a trip), and which place's.
+    var away: [Day: TimeZone] = [:]
+
+    /// The calendar `day` is drawn in: the trip's zone on a day away.
+    func calendar(on day: Day, in base: Calendar = .current) -> Calendar {
+        guard let zone = away[day] else { return base }
+        var calendar = base
+        calendar.timeZone = zone
+        return calendar
+    }
+
+    /// The trip zone a moment is drawn in, for an event not on the board yet.
+    func zone(at date: Date) -> TimeZone? { CalendarRules.zone(at: date, away: away) }
+
+    /// "Costa Rica time · 2h ahead", on a day away.
+    func zoneNote(on day: Day, in base: Calendar = .current) -> String? {
+        guard let zone = away[day] else { return nil }
+        return CalendarRules.zoneNote(zone, home: base.timeZone, at: day.at(minutes: 12 * 60, in: calendar(on: day, in: base)))
+    }
 
     func member(_ email: String?) -> Member? {
         guard let email else { return nil }
@@ -152,6 +181,18 @@ struct Board: Sendable {
             logical, hides: snapshot.hides, me: me, duties: snapshot.duties, rows: board.rows
         )
 
+        // Where the phone's owner will be: their own events say. With nobody
+        // signed in (a preview), everyone's do.
+        board.away = CalendarRules.awayZones(
+            logical.events.filter { e in
+                !hidden(e) && !mine.contains(e.id) && (me == nil || CalendarRules.isInvolved(
+                    me, in: e, attendees: logical.attendees[e.id] ?? [], duties: snapshot.duties[e.id]
+                ))
+            },
+            home: calendar.timeZone
+        )
+        let away = board.away
+
         func chip(_ state: DutyState?) -> DutyChip {
             guard let state else { return .unset }
             if state.isNa { return .notNeeded }
@@ -175,9 +216,14 @@ struct Board: Sendable {
                 let saved = snapshot.duties[e.id] ?? [:]
                 duties = [.dropoff: chip(saved[.dropoff]), .pickup: chip(saved[.pickup])]
             }
+            // On a day away, a timed event is on the day it's on there.
+            let zone = e.allDay ? nil : CalendarRules.zone(at: e.start, away: away)
+            var local = calendar
+            if let zone { local.timeZone = zone }
             return EventItem(
                 event: e,
-                day: CalendarRules.day(of: e, in: calendar),
+                day: CalendarRules.day(of: e, in: local),
+                zone: zone,
                 attendees: (logical.attendees[e.id] ?? [])
                     .filter { rank[$0] != nil }
                     .sorted { (rank[$0] ?? 0) < (rank[$1] ?? 0) },
@@ -282,9 +328,9 @@ struct DayLayout: Sendable {
                 let legs = own.filter { $0.event.driveSourceEventID == item.id }
                 let top = legs.first { $0.event.driveDuty == .dropoff }
                 let bottom = legs.first { $0.event.driveDuty == .pickup }
-                let event = CalendarRules.span(item.event, in: calendar)
-                let start = top.map { CalendarRules.startMinutes($0.event, in: calendar) } ?? event.start
-                let end = bottom.map { CalendarRules.endMinutes($0.event, in: calendar) } ?? event.end
+                let event = CalendarRules.span(item.event, in: item.calendar(in: calendar))
+                let start = top.map { CalendarRules.startMinutes($0.event, in: $0.calendar(in: calendar)) } ?? event.start
+                let end = bottom.map { CalendarRules.endMinutes($0.event, in: $0.calendar(in: calendar)) } ?? event.end
                 for leg in [top, bottom].compactMap({ $0 }) { claimed.insert(leg.id) }
                 blocks[item.id] = (
                     item, .attending(eventStart: event.start, eventEnd: event.end),
@@ -292,7 +338,7 @@ struct DayLayout: Sendable {
                 )
             }
             for item in own where !claimed.contains(item.id) {
-                blocks[item.id] = (item, item.event.isDrive ? .drive : .own, CalendarRules.span(item.event, in: calendar))
+                blocks[item.id] = (item, item.event.isDrive ? .drive : .own, CalendarRules.span(item.event, in: item.calendar(in: calendar)))
             }
             let placed = CalendarRules.pack(blocks.values.map(\.2))
             column.blocks = placed.compactMap { p in

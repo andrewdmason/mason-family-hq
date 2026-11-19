@@ -268,6 +268,74 @@ enum CalendarRules {
         return hidden
     }
 
+    // MARK: Days away
+
+    private static func calendar(in zone: TimeZone) -> Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = zone
+        return c
+    }
+
+    /// The days drawn in another place's time, and which place's: a trip.
+    /// A day is away when most of `events` with a place on it (as many counts)
+    /// are in one zone whose clock isn't the phone's. Up to `gap` days in a
+    /// row with nothing placed, between two days away in the same zone, are
+    /// part of the trip too. Pass the events that say where the phone's owner
+    /// will be: theirs, not hidden, one per real event.
+    static func awayZones(_ events: [CalEvent], home: TimeZone, gap: Int = 3) -> [Day: TimeZone] {
+        var placed: [Day: [String: Int]] = [:]
+        var noon: [Day: Date] = [:]
+        for e in events where !e.allDay && !e.isDrive && e.location != nil {
+            guard let name = e.locationZone, let zone = TimeZone(identifier: name) else { continue }
+            // Counted on the day it's on where it is.
+            let day = Day(e.start, in: calendar(in: zone))
+            placed[day, default: [:]][name, default: 0] += 1
+            noon[day] = e.start
+        }
+
+        var away: [Day: TimeZone] = [:]
+        for (day, counts) in placed {
+            let total = counts.values.reduce(0, +)
+            // The busiest zone, by name when two tie, so it doesn't flicker.
+            guard let (name, count) = counts.max(by: { ($0.value, $1.key) < ($1.value, $0.key) }),
+                  count * 2 >= total, let zone = TimeZone(identifier: name), let at = noon[day],
+                  zone.secondsFromGMT(for: at) != home.secondsFromGMT(for: at)
+            else { continue }
+            away[day] = zone
+        }
+
+        // The days of a trip with nothing placed on them.
+        let days = placed.keys.sorted()
+        for (before, after) in zip(days, days.dropFirst()) {
+            guard let zone = away[before], away[after]?.identifier == zone.identifier else { continue }
+            let between = before.days(to: after, in: utc) - 1
+            guard (1...max(gap, 1)).contains(between), gap > 0 else { continue }
+            for step in 1...between { away[before.adding(days: step, in: utc)] = zone }
+        }
+        return away
+    }
+
+    /// The trip zone `date` is drawn in: one whose day, at that moment, is a
+    /// day away in it. Nil is the phone's own time.
+    static func zone(at date: Date, away: [Day: TimeZone]) -> TimeZone? {
+        var tried: Set<String> = []
+        for zone in away.values where tried.insert(zone.identifier).inserted {
+            if away[Day(date, in: calendar(in: zone))]?.identifier == zone.identifier { return zone }
+        }
+        return nil
+    }
+
+    /// "Costa Rica time · 2h ahead": what a day away says about its clock.
+    static func zoneNote(_ zone: TimeZone, home: TimeZone, at date: Date) -> String {
+        let place = zone.identifier.split(separator: "/").last.map { $0.replacingOccurrences(of: "_", with: " ") }
+            ?? zone.identifier
+        let minutes = (zone.secondsFromGMT(for: date) - home.secondsFromGMT(for: date)) / 60
+        guard minutes != 0 else { return "\(place) time" }
+        let (h, m) = (abs(minutes) / 60, abs(minutes) % 60)
+        let length = m == 0 ? "\(h)h" : h == 0 ? "\(m)m" : "\(h)h \(m)m"
+        return "\(place) time · \(length) \(minutes > 0 ? "ahead" : "behind")"
+    }
+
     // MARK: Blocks on the axis
 
     /// Where a block begins: a TeamSnap arrival time earlier than the start

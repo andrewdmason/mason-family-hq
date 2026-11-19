@@ -57,7 +57,7 @@ private struct DayPage: View {
             let metrics = ColumnMetrics(width: geo.size.width, count: layout.columns.count, asBlocks: prefs.othersAsBlocks)
             ScrollView(.vertical) {
                 ZStack(alignment: .topLeading) {
-                    HourLines(today: day == .today())
+                    HourLines(today: day == .today(), calendar: store.board.calendar(on: day))
                     ColumnRules(metrics: metrics, wash: layout.columns.first.map { CalendarStyle.muted($0.member.color).opacity(0.045) })
                     ForEach(Array(layout.columns.enumerated()), id: \.element.id) { index, column in
                         ColumnBlocks(column: column, wide: index == 0, width: metrics.widths[index], inWide: layout.inWideColumn)
@@ -70,7 +70,7 @@ private struct DayPage: View {
                             .frame(width: max(metrics.widths[index], 120))
                             .offset(x: min(metrics.x(index), geo.size.width - max(metrics.widths[index], 120)), y: y(draft.start))
                     }
-                    if day == .today() { NowLine() }
+                    if day == .today() { NowLine(calendar: store.board.calendar(on: day)) }
                 }
                 .frame(width: geo.size.width, height: height, alignment: .topLeading)
                 .contentShape(.rect)
@@ -92,9 +92,12 @@ private struct DayPage: View {
             }
             .refreshable { await store.sync() }
             .overlay(alignment: .top) {
-                AllDayStrip(day: day)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { stripHeight = $0 }
-                    .padding(.top, nav.topInset)
+                VStack(spacing: 0) {
+                    ZoneNote(day: day)
+                    AllDayStrip(day: day)
+                }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { stripHeight = $0 }
+                .padding(.top, nav.topInset)
             }
         }
     }
@@ -123,7 +126,8 @@ private struct DayPage: View {
             nav.gridDraft = GridDraft(day: day, member: draft.member, start: start)
         case .ended:
             guard let draft = nav.gridDraft else { return }
-            let begins = day.at(minutes: draft.start)
+            // On a day away, the grid's hours are the trip's.
+            let begins = day.at(minutes: draft.start, in: store.board.calendar(on: day))
             nav.compose(for: draft.member, from: begins, to: begins.addingTimeInterval(3600))
             nav.gridDraft = nil
         case .cancelled:
@@ -160,11 +164,13 @@ private struct GridPress: UIGestureRecognizerRepresentable {
 private struct HourLines: View {
     /// Today's grid drops an hour's label while the now line's time sits on it.
     let today: Bool
+    /// The day's calendar: the trip's zone on a day away.
+    let calendar: Calendar
 
     var body: some View {
         if today {
             TimelineView(.everyMinute) { context in
-                lines(now: CalendarRules.minutes(context.date))
+                lines(now: CalendarRules.minutes(context.date, in: calendar))
             }
         } else {
             lines(now: nil)
@@ -221,11 +227,14 @@ private struct NowLine: View {
     /// How many minutes either side of an hour the time would touch its label.
     static let labelReach = 14
 
+    /// The day's calendar: the trip's zone on a day away.
+    let calendar: Calendar
+
     var body: some View {
         TimelineView(.everyMinute) { context in
-            let top = CGFloat(CalendarRules.minutes(context.date)) / 60 * CalendarStyle.hourHeight
+            let top = CGFloat(CalendarRules.minutes(context.date, in: calendar)) / 60 * CalendarStyle.hourHeight
             ZStack(alignment: .topLeading) {
-                Text(context.date, format: .dateTime.hour(.defaultDigits(amPM: .omitted)).minute())
+                Text(context.date, format: Date.FormatStyle(timeZone: calendar.timeZone).hour(.defaultDigits(amPM: .omitted)).minute())
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(CalendarStyle.now)
@@ -401,7 +410,7 @@ private struct ColumnBlocks: View {
         .hideMenu(block.item, cornerRadius: 11)
         .offset(y: top)
         .animation(.snappy, value: hot)
-        .accessibilityLabel("\(block.item.title), \(CalendarRules.timeRange(block.item.event))")
+        .accessibilityLabel("\(block.item.title), \(CalendarRules.timeRange(block.item.event, in: block.item.calendar()))")
     }
 
     @ViewBuilder
@@ -433,7 +442,7 @@ private struct ColumnBlocks: View {
         .opacity(block.item.hidden ? 0.5 : 1)
         .hideMenu(block.item, cornerRadius: 5)
         .offset(x: rect.minX, y: rect.minY)
-        .accessibilityLabel("\(block.item.title), \(CalendarRules.timeRange(block.item.event))")
+        .accessibilityLabel("\(block.item.title), \(CalendarRules.timeRange(block.item.event, in: block.item.calendar()))")
     }
 }
 
@@ -461,7 +470,7 @@ private struct OwnCard: View {
                 }
                 if height >= 44 {
                     HStack(spacing: 4) {
-                        Text(CalendarRules.timeRange(item.event))
+                        Text(CalendarRules.timeRange(item.event, in: item.calendar()))
                             .font(.system(size: 10.5))
                             .foregroundStyle(CalendarStyle.ink(item.color).opacity(0.75))
                             .lineLimit(1)
@@ -552,7 +561,7 @@ private struct AttendingCard: View {
                         .font(.system(size: 12.5, weight: .semibold))
                         .lineLimit(2)
                     if height - legTop - legBottom >= 44 {
-                        Text(CalendarRules.timeRange(item.event))
+                        Text(CalendarRules.timeRange(item.event, in: item.calendar()))
                             .font(.system(size: 10.5))
                             .opacity(0.85)
                             .lineLimit(1)
@@ -566,6 +575,33 @@ private struct AttendingCard: View {
             .offset(y: legTop)
         }
         .clipShape(.rect(cornerRadius: 7, style: .continuous))
+    }
+}
+
+/// On a day away, whose time the grid is in: "Costa Rica time · 2h ahead",
+/// pinned under the top bar so the hours are never read as the phone's.
+private struct ZoneNote: View {
+    let day: Day
+    @Environment(CalendarStore.self) private var store
+
+    var body: some View {
+        if let note = store.board.zoneNote(on: day) {
+            HStack(spacing: 5) {
+                Image(systemName: "globe.americas.fill")
+                    .font(.system(size: 10))
+                Text(note)
+                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(CalendarStyle.accent)
+            .padding(.leading, CalendarStyle.gutter + 8)
+            .padding(.trailing, 8)
+            .frame(height: 24)
+            .frame(maxWidth: .infinity)
+            .background(CalendarStyle.ground)
+            .overlay(alignment: .bottom) { Rectangle().fill(CalendarStyle.line).frame(height: 0.5) }
+            .accessibilityLabel("Times shown in \(note)")
+        }
     }
 }
 

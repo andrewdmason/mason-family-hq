@@ -64,6 +64,19 @@ struct EventCard: View {
 
     private var item: EventItem? { request.itemID.flatMap { store.board.item($0) } }
     private var isNew: Bool { request.itemID == nil }
+    /// The trip's zone, when the event was opened on a day away. From the
+    /// event as opened, so the clock doesn't jump as its date is changed.
+    private var zone: TimeZone? { base.event.allDay ? nil : store.board.zone(at: base.event.start) }
+    /// The calendar the card's times are read and set in.
+    private var clock: Calendar {
+        var calendar = Calendar.current
+        if let zone { calendar.timeZone = zone }
+        return calendar
+    }
+    /// "Costa Rica time · 2h ahead", when that's whose time the card is in.
+    private var zoneNote: String? {
+        zone.map { CalendarRules.zoneNote($0, home: .current, at: draft.event.start) }
+    }
     private var editable: Bool { isNew || item.map { store.board.isEditable($0.event) } == true }
     private var holder: Member? { store.board.member(draft.event.memberEmail) }
     private var titleIsEmpty: Bool { draft.event.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -354,12 +367,12 @@ struct EventCard: View {
             VStack(alignment: .leading, spacing: 5) {
                 if !event.allDay {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        timePart(.start, CalendarRules.clock(event.start))
+                        timePart(.start, CalendarRules.clock(event.start, in: clock))
                         Image(systemName: "arrow.right")
                             .font(.footnote)
                             .foregroundStyle(.tertiary)
                             .accessibilityLabel("to")
-                        timePart(.end, CalendarRules.clock(event.end))
+                        timePart(.end, CalendarRules.clock(event.end, in: clock))
                         Text(CalendarRules.length(from: event.start, to: event.end))
                             .foregroundStyle(.secondary)
                     }
@@ -367,6 +380,11 @@ struct EventCard: View {
                 }
                 timePart(.date, dateText)
                     .font(event.allDay ? .body.weight(.medium) : .body)
+                if !event.allDay, let zoneNote {
+                    Text(zoneNote)
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(CalendarStyle.accent)
+                }
             }
         }
         if let picking, picking != .until {
@@ -398,10 +416,10 @@ struct EventCard: View {
     /// "Fri, Nov 20", with the day it ends on when that's another one.
     private var dateText: String {
         let event = draft.event
-        let style = Date.FormatStyle().weekday(.abbreviated).month(.abbreviated).day()
-        let sameYear = Calendar.current.isDate(event.start, equalTo: Date(), toGranularity: .year)
+        let style = Date.FormatStyle(timeZone: clock.timeZone).weekday(.abbreviated).month(.abbreviated).day()
+        let sameYear = clock.isDate(event.start, equalTo: Date(), toGranularity: .year)
         func words(_ date: Date) -> String { date.formatted(sameYear ? style : style.year()) }
-        if !event.allDay, Day(event.end) != Day(event.start) { return "\(words(event.start)) → \(words(event.end))" }
+        if !event.allDay, Day(event.end, in: clock) != Day(event.start, in: clock) { return "\(words(event.start)) → \(words(event.end))" }
         return words(event.start)
     }
 
@@ -425,7 +443,7 @@ struct EventCard: View {
                 DatePicker("Date", selection: Binding(
                     get: { draft.event.start },
                     set: { date in
-                        let start = Day(date).at(minutes: CalendarRules.minutes(draft.event.start))
+                        let start = Day(date, in: clock).at(minutes: CalendarRules.minutes(draft.event.start, in: clock), in: clock)
                         CalendarRules.moveStart(&draft.event, to: start)
                     }
                 ), displayedComponents: .date)
@@ -440,6 +458,8 @@ struct EventCard: View {
         }
         .labelsHidden()
         .tint(CalendarStyle.olive)
+        // The wheels turn in the trip's time on a day away.
+        .environment(\.timeZone, clock.timeZone)
         .frame(maxWidth: .infinity)
         .padding(.leading, 36)
         .transition(.opacity)
@@ -516,16 +536,21 @@ struct EventCard: View {
     /// When, for an event that can't be changed here.
     @ViewBuilder
     private func lockedWhen(_ event: CalEvent) -> some View {
-        let day = CalendarRules.day(of: event)
+        let day = CalendarRules.day(of: event, in: clock)
         row("clock") {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(Self.weekdays[(day.weekdayIndex() + 1) % 7]), \(Self.months[day.month - 1]) \(day.day)")
                     .font(.body.weight(.medium))
-                Text([CalendarRules.timeRange(event), event.rrule.map(CalendarRules.repeatText)].compactMap { $0 }.joined(separator: " · "))
+                Text([CalendarRules.timeRange(event, in: clock), event.rrule.map(CalendarRules.repeatText)].compactMap { $0 }.joined(separator: " · "))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                if !event.allDay, let zoneNote {
+                    Text(zoneNote)
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(CalendarStyle.accent)
+                }
                 if let arrival = event.teamsnapArrival, arrival < event.start {
-                    Text("Arrive by \(CalendarRules.clock(arrival))")
+                    Text("Arrive by \(CalendarRules.clock(arrival, in: clock))")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(CalendarStyle.accent)
                 }
