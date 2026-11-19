@@ -2,6 +2,36 @@ import UniformTypeIdentifiers
 import XCTest
 @testable import Tuttles
 
+final class AttachmentTests: XCTestCase {
+    /// What's picked, dropped or pasted (the Mac's ways in, and the phone's
+    /// Files picker) stops at four files and says why.
+    func testAddingStopsAtFourFiles() {
+        var photos: [ChatPhoto] = []
+        var files: [ChatFile] = []
+        let picks: [() throws -> PickedFile] = (0..<5).map { n in
+            { .file(ChatFile(path: "folder/\(n).pdf", name: "\(n).pdf", pages: 1)) }
+        }
+        let (added, problem) = PickedFile.add(picks, photos: &photos, files: &files)
+        XCTAssertTrue(added)
+        XCTAssertEqual(files.count, ChatFile.maxAtOnce)
+        XCTAssertEqual(problem, .tooMany)
+        XCTAssertTrue(photos.isEmpty)
+    }
+
+    func testAnUnreadableFileIsReportedAndTheRestGoIn() {
+        var photos: [ChatPhoto] = []
+        var files: [ChatFile] = []
+        let picks: [() throws -> PickedFile] = [
+            { try PickedFile(name: "notes.txt", type: .plainText, data: Data("hello".utf8)) },
+            { .file(ChatFile(path: "folder/a.pdf", name: "a.pdf", pages: 2)) },
+        ]
+        let (added, problem) = PickedFile.add(picks, photos: &photos, files: &files)
+        XCTAssertTrue(added)
+        XCTAssertEqual(files.map(\.name), ["a.pdf"])
+        XCTAssertEqual(problem, .unreadable)
+    }
+}
+
 final class MessageBlocksTests: XCTestCase {
     func testVisualListAndMath() {
         let text = """

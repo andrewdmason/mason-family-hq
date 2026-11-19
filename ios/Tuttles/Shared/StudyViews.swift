@@ -119,7 +119,7 @@ struct StudySetBlockView: View {
                 }
             }
             .padding(14)
-            .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 18))
+            .tuttlesCard(radius: 18)
             .task(id: ref.id) { if set == nil { await store.refreshStudy() } }
             .sheet(item: $quizzing) { QuizStartSheet(set: $0) }
         }
@@ -168,7 +168,7 @@ struct StudyListView: View {
     var body: some View {
         let sets = store.study?.sets ?? []
         let suggestions = store.study?.suggestions ?? []
-        List {
+        PageList {
             if !sets.isEmpty {
                 Section {
                     ForEach(sets) { set in
@@ -210,7 +210,7 @@ struct StudyListView: View {
         }
         .navigationTitle("Study")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .tuttlesTrailing) {
                 Button("New study set", systemImage: "plus") { creating = true }
             }
         }
@@ -237,7 +237,7 @@ struct QuizStartSheet: View {
     @State private var count = 10
 
     var body: some View {
-        NavigationStack {
+        SheetStack {
             Form {
                 Section {
                     Picker("Kind", selection: $mode) {
@@ -272,7 +272,7 @@ struct QuizStartSheet: View {
                 }
             }
             .navigationTitle(set.title)
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -306,7 +306,7 @@ struct StudySetView: View {
     private var set: StudySet? { detail?.set ?? store.studySet(setID) }
 
     var body: some View {
-        List {
+        PageList {
             if let set {
                 Section {
                     VStack(alignment: .leading, spacing: 12) {
@@ -404,6 +404,12 @@ struct StudySetView: View {
                                 Task { await removeTopic(topic) }
                             }
                         }
+                        // The same, where there's no swiping (the Mac).
+                        .contextMenu {
+                            Button("Remove", systemImage: "minus.circle", role: .destructive) {
+                                Task { await removeTopic(topic) }
+                            }
+                        }
                     }
                 }
 
@@ -434,11 +440,11 @@ struct StudySetView: View {
             }
         }
         .navigationTitle(set?.title ?? "Study set")
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineTitle()
         .kidUsing(store.actingKid)
         .toolbar {
             if let set {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .tuttlesTrailing) {
                     Menu {
                         Button("Rename", systemImage: "pencil") { newTitle = set.title; renaming = true }
                         Button("Change test date", systemImage: "calendar") { editingDate = true }
@@ -556,7 +562,7 @@ private struct TestDateSheet: View {
     @State private var hasDate = true
 
     var body: some View {
-        NavigationStack {
+        SheetStack {
             Form {
                 Toggle("There's a test date", isOn: $hasDate)
                 if hasDate {
@@ -565,7 +571,7 @@ private struct TestDateSheet: View {
                 }
             }
             .navigationTitle("Test date")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -595,7 +601,7 @@ struct AddMaterialSheet: View {
     @State private var error: String?
 
     var body: some View {
-        NavigationStack {
+        SheetStack {
             Form {
                 Section {
                     PhotoStrip(photos: $photos, files: $files) { error = $0 }
@@ -612,7 +618,7 @@ struct AddMaterialSheet: View {
                 if let error { Text(error).foregroundStyle(.red) }
             }
             .navigationTitle("Add material")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -655,7 +661,7 @@ struct PhotoStrip: View {
                     Image(systemName: "plus")
                         .font(.title2)
                         .frame(width: 64, height: 84)
-                        .background(Color(.tertiarySystemFill), in: .rect(cornerRadius: 12))
+                        .background(Color.tuttlesFill, in: .rect(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Add photos or files")
@@ -663,7 +669,7 @@ struct PhotoStrip: View {
                     FileChip(file: file) { files.removeAll { $0.id == file.id } }
                 }
                 ForEach(photos) { photo in
-                    Image(uiImage: photo.image)
+                    Image(platformImage: photo.image)
                         .resizable().scaledToFill()
                         .frame(width: 64, height: 84)
                         .clipShape(.rect(cornerRadius: 12))
@@ -700,7 +706,7 @@ struct NewStudySetSheet: View {
     @State private var error: String?
 
     var body: some View {
-        NavigationStack {
+        SheetStack {
             Form {
                 Section {
                     TextField("Science quiz: cells", text: $title)
@@ -727,7 +733,7 @@ struct NewStudySetSheet: View {
                 if let error { Text(error).foregroundStyle(.red) }
             }
             .navigationTitle(forName.map { "New study set for \($0)" } ?? "New study set")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {

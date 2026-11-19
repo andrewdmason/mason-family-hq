@@ -1,6 +1,10 @@
 import Foundation
 import Observation
 import Supabase
+#if os(macOS)
+import AppKit
+import AuthenticationServices
+#endif
 
 /// Who's signed in, and what they're allowed into. One Google sign-in through
 /// the family Supabase, the same account as family.mason.io, kept in the
@@ -93,7 +97,21 @@ public final class Session {
     }
 
     public func signIn() async throws {
+        #if os(macOS)
+        // Not the sign-in library's own sheet: its callback assumes the main
+        // thread, and on the Mac it can arrive on another one, which crashes
+        // the app (as Todos found, Todos/Mac/SyncOnMac.swift).
+        let redirect = Config.authRedirect
+        let url = try client.auth.getOAuthSignInURL(provider: .google, redirectTo: redirect)
+        let web = MacWebSignIn(window: NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible })
+        let callback: URL = try await withCheckedThrowingContinuation { continuation in
+            web.start(url: url, scheme: redirect.scheme ?? "") { continuation.resume(with: $0) }
+        }
+        withExtendedLifetime(web) {}
+        _ = try await client.auth.session(from: callback)
+        #else
         try await client.auth.signInWithOAuth(provider: .google, redirectTo: Config.authRedirect)
+        #endif
     }
 
     public func signOut() async {
@@ -102,6 +120,34 @@ public final class Session {
 }
 
 #if os(macOS)
+/// The Google sign-in sheet on the Mac. Nothing in here is tied to the main
+/// thread: the answer can come back on another one.
+private final class MacWebSignIn: NSObject, ASWebAuthenticationPresentationContextProviding, @unchecked Sendable {
+    private let window: NSWindow?
+    private var session: ASWebAuthenticationSession?
+
+    init(window: NSWindow?) {
+        self.window = window
+    }
+
+    func start(url: URL, scheme: String, done: @escaping @Sendable (Result<URL, Error>) -> Void) {
+        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: scheme) { callback, error in
+            if let callback {
+                done(.success(callback))
+            } else {
+                done(.failure(error ?? URLError(.unknown)))
+            }
+        }
+        session.presentationContextProvider = self
+        self.session = session
+        session.start()
+    }
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        window ?? ASPresentationAnchor()
+    }
+}
+
 private struct SessionFile: AuthLocalStorage {
     private func url(_ key: String) throws -> URL {
         let folder = URL.applicationSupportDirectory.appending(path: Bundle.main.bundleIdentifier ?? "io.mason")

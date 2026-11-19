@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// A tutor reply, drawn: Markdown blocks down the screen, math typeset, and
 /// visuals drawn natively.
@@ -109,28 +108,28 @@ private struct TableView: View {
 /// A line of prose with Markdown emphasis and $math$ in it.
 struct InlineText: View {
     let text: String
-    var style: UIFont.TextStyle = .body
+    var style: PlatformFont.TextStyle = .body
     @Environment(\.colorScheme) private var scheme
 
-    init(_ text: String, style: UIFont.TextStyle = .body) {
+    init(_ text: String, style: PlatformFont.TextStyle = .body) {
         self.text = text
         self.style = style
     }
 
     var body: some View {
-        composed.font(Font(UIFont.preferredFont(forTextStyle: style)))
+        composed.font(Font(PlatformFont.reading(style) as CTFont))
     }
 
     private var composed: Text {
-        let size = UIFont.preferredFont(forTextStyle: style).pointSize
+        let size = PlatformFont.reading(style).pointSize
         var result = Text(verbatim: "")
         for run in InlineRun.split(text) {
             switch run {
             case .text(let prose):
                 result = Text("\(result)\(Text(Self.markdown(prose)))")
             case .math(let latex):
-                if let math = MathRendering.render(latex, fontSize: size * 1.05, color: .label.resolved(scheme), display: false) {
-                    result = Text("\(result)\(Text(Image(uiImage: math.image)).baselineOffset(-math.descent))")
+                if let math = MathRendering.render(latex, fontSize: size * 1.05, color: .ink(scheme), display: false) {
+                    result = Text("\(result)\(Text(Image(platformImage: math.image)).baselineOffset(-math.descent))")
                 } else {
                     result = Text("\(result)\(Text(verbatim: latex).font(.body.monospaced()))")
                 }

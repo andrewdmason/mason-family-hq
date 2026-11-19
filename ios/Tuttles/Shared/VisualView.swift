@@ -26,6 +26,11 @@ struct VisualView: View {
         .padding(14)
         .background(.background, in: .rect(cornerRadius: 20))
         .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.quaternary))
+        #if os(macOS)
+        // A picture the size of a phone's screen, not as wide as the column:
+        // a graph that wide is taller than the window.
+        .frame(maxWidth: 480)
+        #endif
     }
 }
 
@@ -313,7 +318,7 @@ private struct NumberLineView: View {
             }
             for p in n.points {
                 let dot = Path(ellipseIn: CGRect(x: X(p.value) - 6, y: mid - 6, width: 12, height: 12))
-                context.fill(dot, with: .color(p.open ? Color(uiColor: .systemBackground) : VisualColor.line))
+                context.fill(dot, with: .color(p.open ? Color.tuttlesPage : VisualColor.line))
                 context.stroke(dot, with: .color(VisualColor.line), lineWidth: 2.5)
             }
         }
@@ -323,20 +328,24 @@ private struct NumberLineView: View {
 
 /// Anything the native drawings don't cover, as the SVG the tutor wrote. Shown
 /// in a web view that runs no scripts and loads nothing.
-private struct SVGView: UIViewRepresentable {
+private struct SVGView {
     let svg: Visual.SVG
 
-    func makeUIView(context: Context) -> WKWebView {
+    @MainActor private func make() -> WKWebView {
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = false
         let view = WKWebView(frame: .zero, configuration: config)
+        #if canImport(UIKit)
         view.isOpaque = false
         view.backgroundColor = .clear
         view.scrollView.isScrollEnabled = false
+        #else
+        view.setValue(false, forKey: "drawsBackground")
+        #endif
         return view
     }
 
-    func updateUIView(_ view: WKWebView, context: Context) {
+    @MainActor private func update(_ view: WKWebView) {
         let title = svg.title.map { "<div class=t>\($0.replacingOccurrences(of: "<", with: "&lt;"))</div>" } ?? ""
         let csp = "default-src 'none'; style-src 'unsafe-inline'; img-src data:"
         view.loadHTMLString("""
@@ -348,8 +357,22 @@ private struct SVGView: UIViewRepresentable {
             """, baseURL: nil)
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: WKWebView, context: Context) -> CGSize? {
-        let width = proposal.width ?? 320
+    private func size(_ proposal: ProposedViewSize) -> CGSize {
+        let width = min(proposal.width ?? 320, 560)
         return CGSize(width: width, height: min(300, width * 0.75) + (svg.title == nil ? 0 : 26))
     }
 }
+
+#if canImport(UIKit)
+extension SVGView: UIViewRepresentable {
+    func makeUIView(context: Context) -> WKWebView { make() }
+    func updateUIView(_ view: WKWebView, context: Context) { update(view) }
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: WKWebView, context: Context) -> CGSize? { size(proposal) }
+}
+#else
+extension SVGView: NSViewRepresentable {
+    func makeNSView(context: Context) -> WKWebView { make() }
+    func updateNSView(_ view: WKWebView, context: Context) { update(view) }
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: WKWebView, context: Context) -> CGSize? { size(proposal) }
+}
+#endif

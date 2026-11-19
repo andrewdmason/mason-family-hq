@@ -265,18 +265,18 @@ targets:
   Tuttles:
     type: application
     platform: iOS
-    sources: [Tuttles/App]
+    sources: [Tuttles/iPhone, Tuttles/Shared]
     dependencies:
       - package: MasonKit
       - package: Supabase
         product: Supabase
       - package: SwiftMath
     entitlements:
-      path: Tuttles/App/Tuttles.entitlements
+      path: Tuttles/iPhone/Tuttles.entitlements
       properties:
         keychain-access-groups: [$(AppIdentifierPrefix)io.mason.shared]
     info:
-      path: Tuttles/App/Info.plist
+      path: Tuttles/iPhone/Info.plist
       properties:
         CFBundleDisplayName: Tuttles
         CFBundleURLTypes:
@@ -309,6 +309,39 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: true
+  # Tuttles on the Mac: the same tutor at a desk, for the family Mac mini. No
+  # camera or voice; homework is dragged, pasted or picked in.
+  TuttlesMac:
+    type: application
+    platform: macOS
+    sources: [Tuttles/Mac, Tuttles/Shared]
+    dependencies:
+      - package: MasonKit
+      - package: Supabase
+        product: Supabase
+      - package: SwiftMath
+    info:
+      path: Tuttles/Mac/Info.plist
+      properties:
+        CFBundleDisplayName: Tuttles
+        CFBundleURLTypes:
+          - CFBundleURLName: io.mason.tuttles
+            CFBundleURLSchemes: [io.mason.tuttles]
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.education
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.mason.tuttles
+        PRODUCT_NAME: Tuttles
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Built here it's signed to run on this Mac only. scripts/release-mac.sh
+        # signs the copy for the family Mac with the Developer ID and has
+        # Apple notarize it, which needs the hardened runtime.
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: YES
   # Workouts: today's workout from the calendar, logged set by set at the gym,
   # with estimated 1RMs and personal records. Opening a calendar workout goes
   # through the website (/workouts/api/open), which holds the model key.

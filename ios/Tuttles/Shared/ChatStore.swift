@@ -2,7 +2,7 @@ import Foundation
 import MasonKit
 import Observation
 import Supabase
-import UIKit
+import SwiftUI
 
 /// A chat in the list.
 struct TutorThread: Identifiable, Codable, Equatable {
@@ -33,11 +33,11 @@ struct ChatPhoto: Identifiable, Equatable {
     let id: UUID
     /// What goes to the tutor: the long side at most 2048 points, as JPEG.
     let jpeg: Data
-    let image: UIImage
+    let image: PlatformImage
 
-    init?(_ image: UIImage) {
+    init?(_ image: PlatformImage) {
         let scaled = image.scaledDown(toFit: 2048)
-        guard let jpeg = scaled.jpegData(compressionQuality: 0.8) else { return nil }
+        guard let jpeg = scaled.jpeg(quality: 0.8) else { return nil }
         id = UUID()
         self.jpeg = jpeg
         self.image = scaled
@@ -98,17 +98,22 @@ final class ChatStore {
         didSet {
             guard viewer != oldValue else { return }
             switch viewer {
-            case .parent: UserDefaults.standard.set("parent", forKey: "tuttles.viewer")
-            case .kid(let id): UserDefaults.standard.set(id.uuidString.lowercased(), forKey: "tuttles.viewer")
+            case .parent: UserDefaults.standard.set("parent", forKey: Self.viewerKey)
+            case .kid(let id): UserDefaults.standard.set(id.uuidString.lowercased(), forKey: Self.viewerKey)
             case .unchosen: break
             }
             switchedViewer()
         }
     }
 
+    /// Where the choice is kept. The demo keeps its own: its made-up kids
+    /// aren't in the family, and a real launch that found one chosen would be
+    /// refused its classes, and with them the list of kids to choose from.
+    private static let viewerKey = demo ? "tuttles.viewer.demo" : "tuttles.viewer"
+
     private static var savedViewer: Viewer {
         let defaults = UserDefaults.standard
-        switch defaults.string(forKey: "tuttles.viewer") {
+        switch defaults.string(forKey: viewerKey) {
         case "parent": return .parent
         case let saved?: return UUID(uuidString: saved).map(Viewer.kid) ?? .unchosen
         // Before there was a kid choice: a yes/no for the parent view.
@@ -196,7 +201,8 @@ final class ChatStore {
     }
 
     /// Canned chats, with no sign-in or network: `--demo`, for the simulator.
-    let isDemo = CommandLine.arguments.contains("--demo")
+    let isDemo = ChatStore.demo
+    private static let demo = CommandLine.arguments.contains("--demo")
 
     var client: SupabaseClient { Session.shared.client }
 
@@ -228,7 +234,14 @@ final class ChatStore {
     }
 
     private static func savedFile(_ name: String, _ userID: UUID) -> URL {
-        URL.cachesDirectory.appending(path: "tuttles-\(name)-\(userID.uuidString.lowercased()).json")
+        #if os(macOS)
+        // A Mac's caches folder is everyone's: Tuttles keeps to a folder of its own.
+        let folder = URL.cachesDirectory.appending(path: Bundle.main.bundleIdentifier ?? "io.mason.tuttles")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        #else
+        let folder = URL.cachesDirectory
+        #endif
+        return folder.appending(path: "tuttles-\(name)-\(userID.uuidString.lowercased()).json")
     }
 
     private func save(_ data: Data, as name: String) {
@@ -275,9 +288,17 @@ final class ChatStore {
         guard let token = try? await client.auth.session.accessToken else { return }
         var request = URLRequest(url: Self.websiteURL.appending(path: "tuttles/api/classes"))
         authorize(&request, token: token)
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200,
-              let payload = try? Self.decoder.decode(ClassesPayload.self, from: data) else { return }
+        guard let (data, response) = try? await URLSession.shared.data(for: request) else { return }
+        let status = (response as? HTTPURLResponse)?.statusCode
+        // The kid this was being used as isn't one the website will tutor
+        // (no longer in the family, say): forget the choice and start over, or
+        // there'd be no classes and no list of kids to pick another from.
+        if status == 403, case .kid = viewer, viewer == asked {
+            UserDefaults.standard.removeObject(forKey: Self.viewerKey)
+            viewer = .unchosen
+            return
+        }
+        guard status == 200, let payload = try? Self.decoder.decode(ClassesPayload.self, from: data) else { return }
         classes = payload
         save(data, as: "classes")
         settleViewer()
@@ -383,14 +404,14 @@ final class ChatStore {
 
     // MARK: - Photos
 
-    private var photoCache: [String: UIImage] = [:]
+    private var photoCache: [String: PlatformImage] = [:]
 
-    func rememberPhoto(_ image: UIImage, at path: String) { photoCache[path] = image }
+    func rememberPhoto(_ image: PlatformImage, at path: String) { photoCache[path] = image }
 
-    func photo(at path: String) async -> UIImage? {
+    func photo(at path: String) async -> PlatformImage? {
         if let cached = photoCache[path] { return cached }
         guard !isDemo, let data = try? await client.storage.from("tuttles").download(path: path),
-              let image = UIImage(data: data) else { return nil }
+              let image = PlatformImage(data: data) else { return nil }
         photoCache[path] = image
         return image
     }
@@ -528,15 +549,5 @@ struct ReplyDecoder {
         if let m = text.firstMatch(of: Self.errorTail) { return String(text[..<m.range.lowerBound]) }
         if let start = text.range(of: "\n\n[error: ", options: .backwards) { return String(text[..<start.lowerBound]) }
         return text
-    }
-}
-
-extension UIImage {
-    func scaledDown(toFit longest: CGFloat) -> UIImage {
-        let scale = min(1, longest / max(size.width, size.height))
-        let target = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        return UIGraphicsImageRenderer(size: target, format: format).image { _ in draw(in: CGRect(origin: .zero, size: target)) }
     }
 }

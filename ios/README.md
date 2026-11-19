@@ -102,9 +102,18 @@ their to-do has reached the database (`Shared/TodoAttachments.swift`).
 
 ## Tuttles
 
-The kids' homework tutor (Sebastian's for now), in `Tuttles/`. Bundle id and
-URL scheme `io.mason.tuttles`. It opens on a new chat; earlier ones are a step
-back. The tutor's rules are in `src/lib/tuttles/prompt.ts`.
+The kids' homework tutor, in `Tuttles/`: an iPhone app (`Tuttles/iPhone`, scheme
+`Tuttles`) and a Mac app (`Tuttles/Mac`, scheme `TuttlesMac`, below) on the
+same code (`Tuttles/Shared`). Bundle id and URL scheme `io.mason.tuttles` for
+both. It opens on a new chat; earlier ones are a step back. The tutor's rules
+are in `src/lib/tuttles/prompt.ts`.
+
+- `Shared/` is everything that isn't the shape of the device: the store, the
+  rules of a chat (`ChatSession`: sending, quizzes, a test run's clock), how a
+  reply is drawn, and the study, class and parent screens. `Platform.swift`
+  names what differs (images, colours, a card, a page of sections) so the rest
+  reads the same on both. A change there is a change to both apps; CI builds
+  both.
 
 - Sebastian is under 13, so no TestFlight. `scripts/release.sh Tuttles` also
   publishes an ad hoc build to family.mason.io/install/tuttles (installs only
@@ -129,6 +138,42 @@ back. The tutor's rules are in `src/lib/tuttles/prompt.ts`.
   family.mason.io/tuttles.
 - `--demo` runs on canned chats with no sign-in (`--open <n>` opens one), for
   the simulator. `--website <url>` points the chat at another server.
+
+## Tuttles (Mac)
+
+Tuttles at a desk, for the family Mac mini (scheme `TuttlesMac`), where each
+kid and each parent has a login. Everything the iPhone app does except the
+camera and voice (push to talk and calls): homework comes in by dragging it
+onto the chat, pasting it (⌘V with a screenshot, a picture, a PDF or a file on
+the clipboard) or the + beside the message box.
+
+- One window: a sidebar where the phone has its slide-out menu (New chat,
+  Classes, Study, the chats, and who's signed in), and what's open beside it.
+  A parent switches between their own view and each kid's from the account
+  menu at the foot of the sidebar, as on the phone.
+- Return sends and Shift-Return starts a new line; ⌘N is a new chat. In a
+  quiz, with nothing typed, 1 to 4 pick an answer.
+- The look is Liquid Glass on a mesh of the icon's red and warm paper
+  (`MacStyle.swift`): the sidebar, the message box, the student's bubbles and
+  the cards are glass; the tutor's replies sit straight on the backdrop, down
+  a column in the middle, a size up from the Mac's usual text.
+- Sign-in is each login's own (kept in a file in that account, see
+  `MasonKit/Session.swift`), so one copy in Applications serves everyone.
+- `scripts/release-mac.sh` signs a build with the family Developer ID, has
+  Apple notarize it, and publishes it to family.mason.io/install/tuttles
+  (`app-builds/tuttles-mac/latest.json`). Installed copies show an
+  **Update Tuttles** button in the sidebar when there's a newer one
+  (`MacUpdate.swift`): it downloads the build, checks it's signed by the
+  family account and newer, swaps it in and reopens. Its one-time setup (the
+  certificate and the notarization sign-in) is at the top of the script.
+- For trying it out (debug builds): `--demo` runs on canned chats with no
+  sign-in; `--open=<n>`, `--class=<id>`, `--study` and `--classes` open
+  somewhere; `--dark` is the dark look; `-tuttles.viewer.demo parent` is the
+  parent view. `--snapshot=<file.png>` writes a picture of the window a few seconds in
+  and quits, without coming to the front (`--snapshot-after=<seconds>`), after
+  typing `--keys=<text>` or clicking `--click=<x>,<y>` if given
+  (`DebugSnapshot.swift`). Values ride on the flag with an `=`: the Mac takes a
+  bare word after a flag for a file to open, and opens no window.
 
 ## Workouts
 
@@ -260,3 +305,4 @@ CI runs the same for every app on every change under `ios/`
 - `scripts/install-on-phone.sh [App]`: builds, signs (team S4AV4J8F99,
   automatic) and installs on Andrew's iPhone over the cable or Wi-Fi.
 - `scripts/release.sh [App]`: uploads a build to TestFlight.
+- `scripts/release-mac.sh`: publishes Tuttles for the Mac (see Tuttles (Mac)).

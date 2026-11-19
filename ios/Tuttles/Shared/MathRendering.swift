@@ -1,6 +1,5 @@
 import SwiftMath
 import SwiftUI
-import UIKit
 
 /// The tutor's LaTeX, typeset by SwiftMath into an image. Inline math sits in a
 /// line of text as an image, dropped by its descent so it shares the text's
@@ -8,14 +7,14 @@ import UIKit
 @MainActor
 enum MathRendering {
     struct Rendered {
-        let image: UIImage
+        let image: PlatformImage
         /// How far the math reaches below its baseline, in points.
         let descent: CGFloat
     }
 
     private static var cache: [String: Rendered] = [:]
 
-    static func render(_ latex: String, fontSize: CGFloat, color: UIColor, display: Bool) -> Rendered? {
+    static func render(_ latex: String, fontSize: CGFloat, color: PlatformColor, display: Bool) -> Rendered? {
         let source = cleaned(latex)
         let key = "\(display)|\(fontSize)|\(color.hexKey)|\(source)"
         if let hit = cache[key] { return hit }
@@ -27,8 +26,13 @@ enum MathRendering {
         label.labelMode = display ? .display : .text
         label.textAlignment = .left
         label.frame = CGRect(origin: .zero, size: label.intrinsicContentSize)
+        #if canImport(UIKit)
         label.layoutIfNeeded()
-        guard label.error == nil, let list = label.displayList, label.intrinsicContentSize.width > 0 else { return nil }
+        #else
+        label.layout()
+        #endif
+        // The typeset line's own width: on the Mac the label reports no size of its own.
+        guard label.error == nil, let list = label.displayList, list.width > 0 else { return nil }
 
         let image = MTMathImage(latex: source, fontSize: fontSize, textColor: color, labelMode: display ? .display : .text, textAlignment: .left)
         guard case (nil, let rendered?) = image.asImage() else { return nil }
@@ -56,9 +60,9 @@ struct DisplayMath: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        if let math = MathRendering.render(latex, fontSize: 20, color: .label.resolved(scheme), display: true) {
+        if let math = MathRendering.render(latex, fontSize: 20, color: .ink(scheme), display: true) {
             ScrollView(.horizontal, showsIndicators: false) {
-                Image(uiImage: math.image)
+                Image(platformImage: math.image)
                     .frame(minWidth: 0)
             }
             .frame(maxWidth: .infinity)
@@ -67,17 +71,5 @@ struct DisplayMath: View {
         } else {
             Text(latex).font(.body.monospaced()).foregroundStyle(.secondary)
         }
-    }
-}
-
-extension UIColor {
-    func resolved(_ scheme: ColorScheme) -> UIColor {
-        resolvedColor(with: UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light))
-    }
-
-    var hexKey: String {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        getRed(&r, green: &g, blue: &b, alpha: &a)
-        return String(format: "%02x%02x%02x%02x", Int(r * 255), Int(g * 255), Int(b * 255), Int(a * 255))
     }
 }

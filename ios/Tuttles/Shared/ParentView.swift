@@ -65,7 +65,7 @@ struct ParentHomeView: View {
     private var kidName: String { store.week?.kid.name ?? store.classes?.student.name ?? "your kid" }
 
     var body: some View {
-        List {
+        PageList {
             Section {
                 ForEach(store.study?.sets ?? []) { set in
                     NavigationLink(value: Route.studySet(set.id)) {
@@ -171,7 +171,7 @@ struct TopicView: View {
     @Environment(ChatStore.self) private var store
 
     var body: some View {
-        List {
+        PageList {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
                     ClassTag(name: week.shortName, tint: week.tint)
@@ -208,7 +208,7 @@ struct TopicView: View {
             }
         }
         .navigationTitle(topic.title)
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineTitle()
     }
 }
 
