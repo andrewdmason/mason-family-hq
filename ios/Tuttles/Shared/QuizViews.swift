@@ -47,6 +47,11 @@ struct QuestionBlockView: View {
 }
 
 struct QuestionCard: View {
+    #if os(macOS)
+    private static let howToAnswer = "Click an answer, press 1 to 4, or type it."
+    #else
+    private static let howToAnswer = "Tap an answer, or type or say it."
+    #endif
     let question: QuizQuestion
     var testRun = false
     /// Tapped, being graded: drawn as picked straight away.
@@ -75,7 +80,7 @@ struct QuestionCard: View {
                             .contentShape(.rect)
                             .onTapGesture {
                                 guard let onChoose else { return }
-                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                Haptics.tap()
                                 onChoose(i)
                             }
                             .disabled(onChoose == nil)
@@ -90,7 +95,7 @@ struct QuestionCard: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         // Over a call, the caller sets a light scheme (as for visuals) and it sits on white.
-        .background(onDark ? Color.white : Color(.secondarySystemBackground), in: .rect(cornerRadius: 20))
+        .tuttlesCard(radius: 20, fill: onDark ? .white : nil)
     }
 
     enum Look { case plain, chosen, right, wrong, missedRight }
@@ -118,7 +123,7 @@ struct QuestionCard: View {
                 Label("Not quite", systemImage: "xmark.circle.fill").font(.footnote.weight(.semibold)).foregroundStyle(.red)
             }
         } else if onChoose != nil {
-            Text(onDark ? "Tap an answer or say it." : "Tap an answer, or type or say it.").font(.footnote).foregroundStyle(.secondary)
+            Text(onDark ? "Tap an answer or say it." : Self.howToAnswer).font(.footnote).foregroundStyle(.secondary)
         }
     }
 
@@ -177,7 +182,7 @@ private struct ChoiceRow: View {
 
     private var badgeFill: Color {
         switch look {
-        case .plain: Color(.tertiarySystemFill)
+        case .plain: Color.tuttlesFill
         case .chosen: TuttlesLook.accent
         case .right: .green
         case .wrong: .red
@@ -190,13 +195,13 @@ private struct ChoiceRow: View {
         case .right, .missedRight: .green.opacity(0.08)
         case .wrong: .red.opacity(0.08)
         case .chosen: TuttlesLook.accent.opacity(0.08)
-        case .plain: Color(.systemBackground)
+        case .plain: Color.tuttlesPage
         }
     }
 
     private var stroke: Color {
         switch look {
-        case .plain: Color(.separator)
+        case .plain: Color.tuttlesLine
         case .chosen: TuttlesLook.accent
         case .right, .missedRight: .green
         case .wrong: .red
@@ -269,7 +274,7 @@ struct RecapCard: View {
             .font(.subheadline.weight(.semibold))
         }
         .padding(16)
-        .background(Color(.secondarySystemBackground), in: .rect(cornerRadius: 20))
+        .tuttlesCard(radius: 20)
     }
 }
 

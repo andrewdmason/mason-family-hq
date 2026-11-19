@@ -1,5 +1,4 @@
 import Foundation
-import UIKit
 
 /// Canned chats for `--demo` (the simulator, with no sign-in): real tutor
 /// replies from the bake-off the tutor's rules were tested in, so the drawing of math and

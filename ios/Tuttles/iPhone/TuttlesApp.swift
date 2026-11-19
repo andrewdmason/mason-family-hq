@@ -1,54 +1,11 @@
 import MasonKit
 import SwiftUI
 
-// Tuttles: a homework tutor for the kids. It opens on a new chat with the
+// Tuttles on the iPhone: a homework tutor for the kids. It opens on a new chat with the
 // camera one tap away; classes, study and earlier chats are in the menu that
 // slides in from the left (SideMenu.swift). The tutor guides rather
 // than answers (src/lib/tuttles/prompt.ts), and parents read every chat on the
 // website at /tuttles.
-
-enum TuttlesLook {
-    /// Hydrant red, from the app icon.
-    static let accent = Color(red: 0.84, green: 0.15, blue: 0.12)
-}
-
-/// The red "New chat" capsule.
-struct NewChatCapsule: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label("New chat", systemImage: "square.and.pencil")
-                .font(.headline)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 22)
-                .padding(.vertical, 14)
-        }
-        .glassEffect(.regular.tint(TuttlesLook.accent).interactive(), in: .capsule)
-        .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
-    }
-}
-
-/// The "New chat" button, floating at the bottom of a list where a thumb can reach it.
-struct NewChatButton: ViewModifier {
-    let action: () -> Void
-
-    func body(content: Content) -> some View {
-        content
-            .safeAreaInset(edge: .bottom) {
-                NewChatCapsule(action: action)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 8)
-            }
-    }
-}
-
-extension View {
-    func newChatButton(action: @escaping () -> Void) -> some View {
-        modifier(NewChatButton(action: action))
-    }
-}
 
 @main
 struct TuttlesApp: App {
@@ -89,29 +46,6 @@ struct RootView: View {
             async let study: Void = store.refreshStudy()
             _ = await (threads, classes, study)
         }
-    }
-}
-
-enum Route: Hashable {
-    /// `isNew`: a chat with nothing in it yet, whose id is made here. A new
-    /// chat can be about an assignment (`start`) or begun from a class page,
-    /// or be a quiz on a study set (`quiz`).
-    case chat(UUID, isNew: Bool, start: ChatStart? = nil, courseID: Int? = nil, briefing: BriefingTopic? = nil,
-              quiz: QuizStart? = nil)
-    /// A study set's page (Study.swift).
-    case studySet(String)
-    case classPage(Int)
-    /// Parent view: one of the kid's topics this week.
-    case topic(WeekPayload.Topic, WeekPayload.ClassWeek)
-    /// From the menu: the class list, the study sets, and a parent's This week.
-    case classes
-    case study
-    case week
-
-    /// The chat this route opens, if it's one.
-    var chatID: UUID? {
-        if case .chat(let id, _, _, _, _, _) = self { return id }
-        return nil
     }
 }
 
@@ -214,7 +148,7 @@ struct ChatsView: View {
     @ViewBuilder private func screen(_ route: Route, isRoot: Bool) -> some View {
         switch route {
         case .chat(let id, let isNew, let start, let courseID, let briefing, let quiz):
-            ChatView(threadID: id, isNew: isNew,
+            ChatView(store: store, threadID: id, isNew: isNew,
                      title: briefing?.title ?? quiz.map { "Quiz: \($0.setTitle)" } ?? store.threads.first { $0.id == id }?.title,
                      courseID: courseID, briefing: briefing, quizStart: quiz, start: start, menuButton: isRoot)
         case .studySet(let id):
@@ -273,54 +207,6 @@ struct ChatsView: View {
     }
 }
 
-/// The class list, from the menu.
-struct ClassesListView: View {
-    @Binding var path: [Route]
-    @Environment(ChatStore.self) private var store
-
-    var body: some View {
-        List {
-            if let classes = store.classes?.classes, !classes.isEmpty {
-                Section {
-                    ForEach(classes) { info in
-                        NavigationLink(value: Route.classPage(info.id)) {
-                            HStack(spacing: 12) {
-                                RoundedRectangle(cornerRadius: 3).fill(info.tint).frame(width: 6, height: 28)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(info.shortName).font(.body.weight(.medium))
-                                    if let unit = info.unit {
-                                        Text(unit.name).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                                    }
-                                }
-                                Spacer()
-                                let newFeedback = info.feedback.filter(\.isNew).count
-                                if newFeedback > 0 {
-                                    Text("\(newFeedback) new")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 7).padding(.vertical, 2)
-                                        .background(TuttlesLook.accent, in: .capsule)
-                                }
-                            }
-                        }
-                    }
-                }
-            } else if !store.classesLoaded {
-                ClassesPlaceholder()
-            }
-        }
-        .overlay {
-            if store.classesLoaded, store.classes?.classes.isEmpty ?? true {
-                ContentUnavailableView("No classes yet", systemImage: "books.vertical",
-                                       description: Text("Once Canvas is connected, your classes show up here."))
-            }
-        }
-        .navigationTitle("Classes")
-        .refreshable { await store.refreshClasses() }
-        .animation(.default, value: store.classes?.classes.count)
-    }
-}
-
 /// Who's signed in, as their initials, and the way out.
 struct AccountMenu: View {
     @Binding var showMemory: Bool
@@ -345,35 +231,12 @@ struct AccountMenu: View {
                 Button("Sign out", role: .destructive) { Task { await Session.shared.signOut() } }
             }
         } label: {
-            Text(initials)
+            Text(store.initials)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color(.label))
                 .frame(width: 48, height: 48)
                 .glassEffect(.regular.interactive(), in: .circle)
         }
         .accessibilityLabel("Account")
-    }
-
-    /// Whoever the app is being used as: the kid the phone is on, or whoever's
-    /// signed in ("AM" for Andrew Mason).
-    private var initials: String {
-        guard let name = store.actingKid?.name ?? Session.shared.name else {
-            return Session.shared.email?.first.map { String($0).uppercased() } ?? "?"
-        }
-        let words = name.split(separator: " ")
-        let letters = [words.first, words.count > 1 ? words.last : nil].compactMap { $0?.first }
-        return letters.isEmpty ? "?" : String(letters).uppercased()
-    }
-}
-
-extension View {
-    /// While a parent's phone is being used as a kid, the kid's name sits under
-    /// the title, so nobody chats as them by mistake.
-    @ViewBuilder func kidUsing(_ kid: FamilyKid?) -> some View {
-        if let kid {
-            navigationSubtitle("\(kid.name) is using Tuttles")
-        } else {
-            self
-        }
     }
 }

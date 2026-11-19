@@ -1,5 +1,7 @@
 import PDFKit
+#if os(iOS)
 import PhotosUI
+#endif
 import QuickLook
 import Supabase
 import SwiftUI
@@ -71,7 +73,7 @@ enum PickedFile {
     init(name: String, type: UTType?, data: Data) throws {
         if type?.conforms(to: .pdf) == true || (type == nil && data.starts(with: Data("%PDF".utf8))) {
             self = .file(try ChatFile(name: name, pdf: data))
-        } else if let image = UIImage(data: data), let photo = ChatPhoto(image) {
+        } else if let image = PlatformImage(data: data), let photo = ChatPhoto(image) {
             self = .photo(photo)
         } else {
             throw ChatFile.Problem.unreadable
@@ -100,9 +102,10 @@ struct AttachMenu<Label: View>: View {
     var onProblem: (String?) -> Void = { _ in }
     @ViewBuilder var label: () -> Label
 
+    @State private var showingFiles = false
+    #if os(iOS)
     @State private var showingCamera = false
     @State private var showingLibrary = false
-    @State private var showingFiles = false
     @State private var libraryPicks: [PhotosPickerItem] = []
 
     var body: some View {
@@ -126,7 +129,7 @@ struct AttachMenu<Label: View>: View {
             Task {
                 for pick in picks {
                     if let data = try? await pick.loadTransferable(type: Data.self),
-                       let image = UIImage(data: data), let photo = ChatPhoto(image) {
+                       let image = PlatformImage(data: data), let photo = ChatPhoto(image) {
                         photos.append(photo)
                     }
                 }
@@ -138,6 +141,17 @@ struct AttachMenu<Label: View>: View {
             add(urls)
         }
     }
+    #else
+    // The Mac has no camera to hold up to the page: the + picks files, and
+    // anything can be dragged or pasted in as well (Mac/MacChatView.swift).
+    var body: some View {
+        Button { open { showingFiles = true } } label: { label() }
+            .fileImporter(isPresented: $showingFiles, allowedContentTypes: [.pdf, .image], allowsMultipleSelection: true) { result in
+                guard case .success(let urls) = result else { return }
+                add(urls)
+            }
+    }
+    #endif
 
     private func open(_ show: () -> Void) {
         onProblem(nil)
@@ -146,11 +160,24 @@ struct AttachMenu<Label: View>: View {
     }
 
     private func add(_ urls: [URL]) {
+        let (added, problem) = PickedFile.add(urls.map { url in { try PickedFile(contentsOf: url) } }, photos: &photos, files: &files)
+        if let problem { onProblem(problem.localizedDescription) }
+        if added { onAdded() }
+    }
+}
+
+extension PickedFile {
+    /// Reads each thing picked, dropped or pasted into the photos and files
+    /// waiting to be sent. Says whether anything went in, and the first thing
+    /// wrong with what didn't.
+    static func add(
+        _ picks: [() throws -> PickedFile], photos: inout [ChatPhoto], files: inout [ChatFile]
+    ) -> (added: Bool, problem: ChatFile.Problem?) {
         var problem: ChatFile.Problem?
         var added = false
-        for url in urls {
+        for pick in picks {
             do {
-                switch try PickedFile(contentsOf: url) {
+                switch try pick() {
                 case .photo(let photo):
                     photos.append(photo)
                     added = true
@@ -163,8 +190,7 @@ struct AttachMenu<Label: View>: View {
                 problem = problem ?? (error as? ChatFile.Problem) ?? .unreadable
             }
         }
-        if let problem { onProblem(problem.localizedDescription) }
-        if added { onAdded() }
+        return (added, problem)
     }
 }
 
@@ -193,7 +219,7 @@ struct FileChip: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .frame(maxWidth: 220, alignment: .leading)
-        .background(Color(.tertiarySystemFill), in: .rect(cornerRadius: 14))
+        .background(Color.tuttlesFill, in: .rect(cornerRadius: 14))
         .overlay(alignment: .topTrailing) {
             if let onRemove {
                 Button(action: onRemove) {
