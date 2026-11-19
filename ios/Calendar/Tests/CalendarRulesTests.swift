@@ -208,6 +208,13 @@ private func event(
         #expect(CalendarRules.minutes(draft.end, in: pacific) == 615)
     }
 
+    @Test func whoeverHadAnEventStaysGoingWhenItMoves() {
+        #expect(CalendarRules.goingAfterMove([], from: "andrew@x.io", to: "seb@x.io") == ["andrew@x.io"])
+        // The new owner comes off the list; the old one isn't listed twice.
+        #expect(CalendarRules.goingAfterMove(["seb@x.io", "jenny@x.io", "andrew@x.io"], from: "andrew@x.io", to: "seb@x.io") == ["jenny@x.io", "andrew@x.io"])
+        #expect(CalendarRules.goingAfterMove(["jenny@x.io"], from: "seb@x.io", to: "seb@x.io") == ["jenny@x.io"])
+    }
+
     @Test func allDayGoesAsMidnightUTCWithNoEnd() {
         var draft = EventDraft(memberEmail: "seb@x.io", start: day.at(minutes: 540, in: pacific), end: day.at(minutes: 600, in: pacific))
         draft.title = " Science fair "

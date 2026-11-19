@@ -5,6 +5,7 @@ import { phoneMember } from "@/lib/workouts/phone";
 import { runCalendarSync } from "@/lib/calendar/sync";
 import { setEventRsvp } from "@/lib/calendar/attendance";
 import { suggestPlaces } from "@/lib/calendar/geocoding";
+import { isGoogleMadeRefusal } from "@/lib/calendar/google";
 import { normalizeCaregiver } from "@/lib/calendar/caregivers";
 import {
   createCalendarEvent,
@@ -14,6 +15,7 @@ import {
   setGoing,
   setOwnerGoing,
   setDuty,
+  convertGoogleMadeEvent,
   type DutyState,
   type ManualEventInput,
 } from "@/lib/calendar/mutations";
@@ -39,11 +41,14 @@ export const maxDuration = 60;
  *   owner-going   { id, going }                  → { ok, warning? }
  *   duty          { id, duty, state }            → { ok }
  *   rsvp          { id, status }                 → { ok }
+ *   convert       { id }                         → { ok }
  *   places        { query }                      → { suggestions }
  *   sync          {}                             → { ok }
  *
  * `event` is a ManualEventInput; `state` is a DutyState (null clears it). A
  * change the rules refuse answers 400 with { error }, in words fit to show.
+ * `convertible: true` on an answer means Google made the event itself and
+ * won't have it changed; `convert` swaps it for an ordinary copy that can be.
  */
 export async function POST(
   request: Request,
@@ -125,6 +130,11 @@ export async function POST(
         if (!("error" in result)) revalidatePath("/calendar");
         return answer(result);
       }
+      case "convert": {
+        const id = uuid(body.id);
+        if (!id) return bad("Which event?");
+        return answer(await convertGoogleMadeEvent(id));
+      }
       case "places": {
         const query = text(body.query) ?? "";
         if (query.length < 2) return NextResponse.json({ suggestions: [] });
@@ -149,6 +159,14 @@ export async function POST(
         return NextResponse.json({ error: "not found" }, { status: 404 });
     }
   } catch (error) {
+    // Google made this event itself (from an email) and won't have it changed:
+    // say so, so the app can offer to swap it for an ordinary copy.
+    if (isGoogleMadeRefusal(error)) {
+      return NextResponse.json(
+        { error: "Google made this event from an email and won't let it be changed.", convertible: true },
+        { status: 400 },
+      );
+    }
     const message = error instanceof Error ? error.message : "That didn't go through.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -159,7 +177,7 @@ function bad(error: string) {
 }
 
 /** A mutation's own answer: `{ ok }` as it is, `{ error }` as a 400. */
-function answer(result: { ok: true; warning?: string } | { error: string }) {
+function answer(result: { ok: true; warning?: string; convertible?: true } | { error: string }) {
   return NextResponse.json(result, { status: "error" in result ? 400 : 200 });
 }
 

@@ -278,6 +278,12 @@ URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
   also reads the calendar itself every half hour with the shared sign-in, so
   it keeps up when the app hasn't been opened.
 - The peek card opens on a tap or a swipe up, and goes away on a swipe down.
+- Google won't let an event it made from an email (a flight, a booking) be
+  edited or given guests. When it refuses, the app asks whether to replace the
+  event with a copy that can be: the website makes the copy on the same
+  calendar, deletes the original (`convert`), and the refused change is then
+  made. An event that moves to another member's calendar keeps whoever had it
+  as going.
 - `Calendar/Shared` has no UIKit, for the Mac app to come (`Calendar/Mac`).
 - `--demo` runs on a made-up family week with no sign-in, for the simulator;
   `--me <first name>` chooses whose phone it is, `--view <day|schedule>` the

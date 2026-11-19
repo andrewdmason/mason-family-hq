@@ -108,6 +108,7 @@ struct CalendarScreen: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 4)
         }
+        .modifier(ConvertAlert(active: nav.opened == nil && nav.editor == nil && !nav.showSettings))
         .environment(nav)
         .animation(.snappy, value: nav.peek)
         .animation(.snappy, value: nav.problem)
@@ -145,6 +146,35 @@ struct CalendarScreen: View {
         }
         .sensoryFeedback(.selection, trigger: nav.day)
         .sensoryFeedback(.error, trigger: nav.problem) { _, new in new != nil }
+    }
+}
+
+/// Google won't let an event it made from an email be changed. Offer to swap
+/// it for a copy that can be.
+struct ConvertAlert: ViewModifier {
+    /// Whether this is the view to ask from just now: a sheet asks while it's
+    /// up, the calendar underneath when nothing is.
+    let active: Bool
+    @Environment(CalendarStore.self) private var store
+    @Environment(CalendarNav.self) private var nav
+
+    func body(content: Content) -> some View {
+        let offer = Binding<Conversion?>(
+            get: { active ? store.conversion : nil },
+            set: { if $0 == nil, active { store.conversion = nil } }
+        )
+        content.alert(
+            "Make this an editable event?", isPresented: Binding(get: { offer.wrappedValue != nil }, set: { if !$0 { offer.wrappedValue = nil } }),
+            presenting: offer.wrappedValue
+        ) { conversion in
+            Button("Replace") {
+                let nav = nav
+                store.convert(conversion) { nav.problem = $0 }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Google created this from an email, so it can't be changed. Replace it with a copy you can edit?")
+        }
     }
 }
 

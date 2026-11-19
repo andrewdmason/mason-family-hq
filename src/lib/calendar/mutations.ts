@@ -12,6 +12,7 @@ import {
   patchGoogleEvent,
   deleteGoogleEvent,
   getGoogleEvent,
+  isGoogleMadeRefusal,
   eventToGoogleBody,
   DEFAULT_REMINDERS,
   type GoogleCredential,
@@ -162,7 +163,7 @@ export async function updateCalendarEvent(
   const { data: ev } = await admin
     .from("calendar_events")
     .select(
-      "id, source_type, calendar_source_id, external_id, start_time, end_time",
+      "id, member_email, source_type, calendar_source_id, external_id, start_time, end_time",
     )
     .eq("id", id)
     .single();
@@ -199,6 +200,9 @@ export async function updateCalendarEvent(
     .update({ ...baseEventColumns(input), member_email: input.memberEmail })
     .eq("id", id);
   if (error) throw new Error(error.message);
+  if (ev?.member_email && input.memberEmail && ev.member_email !== input.memberEmail) {
+    await keepPreviousOwnerGoing(admin, id, ev.member_email as string, input.memberEmail);
+  }
   if (ev) await settleDutiesAfterTimeChange(admin, id, ev, input);
   revalidatePath("/calendar");
 }
@@ -387,6 +391,37 @@ async function settleDutiesForNewOwner(
   await admin.from("event_duty_assignments").delete().eq("event_id", eventId);
 }
 
+/** An event that changes hands keeps whoever had it: they're marked going, so
+ * moving "my" appointment onto a kid's calendar still shows me taking them.
+ * The new owner's own going row goes, since the owner is implicit. */
+async function keepPreviousOwnerGoing(
+  admin: ReturnType<typeof createAdminClient>,
+  eventId: string,
+  previousOwnerEmail: string | null,
+  newOwnerEmail: string,
+): Promise<void> {
+  if (previousOwnerEmail && previousOwnerEmail !== newOwnerEmail) {
+    const { data: member } = await admin
+      .from("family_members")
+      .select("email")
+      .eq("email", previousOwnerEmail)
+      .maybeSingle();
+    if (member) {
+      await admin
+        .from("event_attendees")
+        .upsert(
+          { event_id: eventId, member_email: previousOwnerEmail, going: true },
+          { onConflict: "event_id,member_email" },
+        );
+    }
+  }
+  await admin
+    .from("event_attendees")
+    .delete()
+    .eq("event_id", eventId)
+    .eq("member_email", newOwnerEmail);
+}
+
 /** Move an event to a different family member — "oh, this is actually Oscar's
  * event". For a Google event it's re-created on the new owner's primary calendar
  * with the previous organizer and guests invited (so it still shows on their
@@ -425,6 +460,7 @@ export async function changeCalendarEventOwner(
       .update({ member_email: newOwnerEmail })
       .eq("id", eventId);
     if (error) return { error: error.message };
+    await keepPreviousOwnerGoing(admin, eventId, ev.member_email as string | null, newOwnerEmail);
     await settleDutiesForNewOwner(admin, eventId, newOwner.role as string);
     revalidatePath("/calendar");
     return { ok: true };
@@ -459,14 +495,16 @@ export async function changeCalendarEventOwner(
       .update({ member_email: newOwnerEmail })
       .eq("id", eventId);
     if (error) return { error: error.message };
+    await keepPreviousOwnerGoing(admin, eventId, ev.member_email as string | null, newOwnerEmail);
     await settleDutiesForNewOwner(admin, eventId, newOwner.role as string);
     revalidatePath("/calendar");
     return { ok: true };
   }
 
   // The new guest list: everyone already invited, plus the previous organizer
-  // (when they're family — Jenny stays on the event she created) and anyone
-  // toggled "going", minus the new owner (they're the organizer now).
+  // (when they're family — Jenny stays on the event she created), the previous
+  // owner, and anyone toggled "going", minus the new owner (they're the
+  // organizer now).
   const current = await getGoogleEvent(fromCred, src.googleCalendarId, oldGoogleId);
   const byEmail = new Map<string, { email: string; responseStatus?: string }>();
   for (const a of current?.attendees ?? []) {
@@ -480,6 +518,12 @@ export async function changeCalendarEventOwner(
   const oldOrganizer = (ev.organizer_email as string | null) ?? src.memberEmail;
   if (oldOrganizer && family.has(oldOrganizer)) {
     byEmail.set(oldOrganizer, { email: oldOrganizer, responseStatus: "accepted" });
+  }
+  // And whoever's calendar it was on, when someone else organized it: moving
+  // an event off your calendar assumes you're still going.
+  const previousOwner = (ev.member_email as string | null)?.toLowerCase();
+  if (previousOwner && family.has(previousOwner) && !byEmail.has(previousOwner)) {
+    byEmail.set(previousOwner, { email: previousOwner, responseStatus: "accepted" });
   }
   const { data: goingRows } = await admin
     .from("event_attendees")
@@ -590,6 +634,98 @@ export async function changeCalendarEventOwner(
   return warning ? { ok: true, warning } : { ok: true };
 }
 
+/** Swap an event Google made itself (from a Gmail confirmation, mostly) for an
+ * ordinary one. Google won't let anyone edit those or add guests, but it does
+ * let them be deleted: so an exact copy is made on the same calendar, with the
+ * family members marked going as its guests, and the original is deleted. The
+ * app row is repointed in place, keeping its id and everything hanging off it
+ * (going, duties).
+ *
+ * The copy is made first and only kept once the original is really gone, so a
+ * refusal leaves things as they were rather than doubled. */
+export async function convertGoogleMadeEvent(
+  eventId: string,
+): Promise<{ ok: true } | { error: string }> {
+  const admin = createAdminClient();
+
+  const { data: ev } = await admin
+    .from("calendar_events")
+    .select("id, member_email, source_type, calendar_source_id, external_id")
+    .eq("id", eventId)
+    .maybeSingle();
+  if (!ev) return { error: "Event not found." };
+  if (
+    ev.source_type !== "google" ||
+    !ev.external_id?.startsWith("google:") ||
+    !ev.calendar_source_id
+  ) {
+    return { error: "This event isn't on a Google calendar." };
+  }
+  const target = await googleTarget(admin, ev.calendar_source_id);
+  if (!target) return { error: "This calendar is no longer connected." };
+  const { cred, googleCalendarId } = target;
+  const oldGoogleId = ev.external_id.slice("google:".length);
+
+  const original = await getGoogleEvent(cred, googleCalendarId, oldGoogleId);
+  if (!original || original.status === "cancelled") {
+    return { error: "This event is no longer on Google Calendar." };
+  }
+  if (!original.eventType || original.eventType === "default") {
+    return { ok: true }; // already an ordinary event
+  }
+
+  // The copy's guests: family marked going, minus the owner (the organizer).
+  const { data: goingRows } = await admin
+    .from("event_attendees")
+    .select("member_email")
+    .eq("event_id", eventId)
+    .eq("going", true);
+  const owner = (ev.member_email as string | null)?.toLowerCase();
+  const guests = (goingRows ?? [])
+    .map((r) => (r.member_email as string).toLowerCase())
+    .filter((email) => email !== owner && email !== googleCalendarId.toLowerCase());
+
+  const copy = await insertGoogleEvent(
+    cred,
+    googleCalendarId,
+    {
+      summary: original.summary,
+      description: original.description,
+      location: original.location,
+      start: original.start,
+      end: original.end,
+      attendees: guests.map((email) => ({ email, responseStatus: "accepted" })),
+      reminders: DEFAULT_REMINDERS,
+    },
+    { sendUpdates: "none" },
+  );
+
+  // Delete the original, and look again: deleteGoogleEvent forgives several
+  // answers, and a copy beside a surviving original is worse than no change.
+  await deleteGoogleEvent(cred, googleCalendarId, oldGoogleId, {
+    sendUpdates: "none",
+  }).catch(() => {});
+  const survivor = await getGoogleEvent(cred, googleCalendarId, oldGoogleId);
+  if (survivor && survivor.status !== "cancelled") {
+    await deleteGoogleEvent(cred, googleCalendarId, copy.id, {
+      sendUpdates: "none",
+    }).catch(() => {});
+    return { error: "Google wouldn't let this event be replaced." };
+  }
+
+  const { error } = await admin
+    .from("calendar_events")
+    .update({
+      external_id: `google:${copy.id}`,
+      organizer_email: copy.organizer?.email?.toLowerCase() ?? owner ?? null,
+    })
+    .eq("id", eventId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/calendar");
+  return { ok: true };
+}
+
 /** Toggle whether a family member is "going" to an event. Stored in
  * event_attendees (the durable source of truth, survives re-sync) and reconciled
  * to the event's real Google guest list when it's a materialized event. Binary —
@@ -598,7 +734,7 @@ export async function setGoing(
   eventId: string,
   memberEmail: string,
   going: boolean,
-): Promise<{ ok: true; warning?: string } | { error: string }> {
+): Promise<{ ok: true; warning?: string; convertible?: true } | { error: string }> {
   const admin = createAdminClient();
 
   const { error } = await admin
@@ -610,15 +746,18 @@ export async function setGoing(
   if (error) return { error: error.message };
 
   let warning: string | undefined;
+  // Google made this event itself and won't take guests: the caller can offer
+  // to swap it for an ordinary copy (convertGoogleMadeEvent).
+  let convertible = false;
   if (importerEnabled()) {
     try {
       await syncEventGuests(admin, eventId);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "";
       // Google forbids guests on events it auto-created from Gmail (and some
       // other special types). Save the in-app state but tell the user why no
       // invite went out.
-      if (/eventtyperestriction|fromgmail/i.test(msg)) {
+      if (isGoogleMadeRefusal(e)) {
+        convertible = true;
         warning =
           "Saved here, but Google won't add guests to this event (it was created from Gmail).";
       }
@@ -654,6 +793,7 @@ export async function setGoing(
   }
 
   revalidatePath("/calendar");
+  if (convertible) return { ok: true, warning, convertible: true };
   return warning ? { ok: true, warning } : { ok: true };
 }
 

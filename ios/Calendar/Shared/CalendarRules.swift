@@ -435,6 +435,17 @@ enum CalendarRules {
         return "\(months[m - 1]) \(d), \(y)"
     }
 
+    // MARK: Changing hands
+
+    /// Who's going along once an event moves to another member's calendar:
+    /// whoever had it is assumed to still be going, and the new owner drops
+    /// off the list (the owner is implicit).
+    static func goingAfterMove(_ going: [String], from previous: String, to owner: String) -> [String] {
+        var list = going.filter { $0 != owner }
+        if previous != owner, !list.contains(previous) { list.append(previous) }
+        return list
+    }
+
     // MARK: New events
 
     /// Where a new event starts: the next round hour when the day is today,

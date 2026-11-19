@@ -112,6 +112,11 @@ enum DemoCalendar {
                 _ = add(jenny, "Farmers market", day: offset, h(9, 30), h(10, 30), at: "Temescal Farmers Market")
             }
         }
+        // Stands in for an event Google made from an email, which it won't
+        // let anyone change: adding someone, or editing it, offers the swap.
+        _ = add(andrew, "Flight to San José (UA 2312)", day: 1, h(11), h(17, 20), at: "San Francisco SFO") {
+            $0.externalID = "gmail:demo"
+        }
         _ = add(oscar, "Minimum day", day: 0, 0, nil, source: school, allDay: true)
         _ = add(jenny, "Grandma visiting", day: 2, 0, nil, allDay: true)
         _ = add(sebastian, "Science fair", day: 5, 0, nil, allDay: true)
