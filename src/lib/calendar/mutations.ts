@@ -249,54 +249,91 @@ async function settleDutiesAfterTimeChange(
   );
 }
 
-export async function deleteCalendarEvent(id: string): Promise<void> {
+/** Delete an event. For one of a repeating Google series, `scope: "series"`
+ * deletes the whole series instead: every occurrence, past and to come, the
+ * way Google Calendar's "All events" does. An event that isn't part of a
+ * series is deleted on its own either way. */
+export async function deleteCalendarEvent(
+  id: string,
+  scope: "this" | "series" = "this",
+): Promise<void> {
   const admin = createAdminClient();
 
   const { data: ev } = await admin
     .from("calendar_events")
-    .select("id, source_type, calendar_source_id, external_id, start_time")
+    .select(
+      "id, source_type, calendar_source_id, external_id, start_time, google_recurring_event_id",
+    )
     .eq("id", id)
     .single();
 
-  if (
+  const isGoogle =
     ev?.source_type === "google" &&
     ev.external_id?.startsWith("google:") &&
-    ev.calendar_source_id
-  ) {
+    ev.calendar_source_id;
+  const seriesId =
+    scope === "series" && isGoogle ? ev.google_recurring_event_id : null;
+
+  // The rows going away: this one, or every mirrored occurrence of its series
+  // on the same calendar. (Guests' copies on other calendars go on their next
+  // sync, as they do for a single delete.)
+  let rows: { id: string; start_time: string | null }[] = [
+    { id, start_time: (ev?.start_time as string | null) ?? null },
+  ];
+  if (seriesId) {
+    const { data: siblings, error } = await admin
+      .from("calendar_events")
+      .select("id, start_time")
+      .eq("calendar_source_id", ev!.calendar_source_id)
+      .eq("google_recurring_event_id", seriesId);
+    if (error) throw new Error(error.message);
+    if (siblings?.length) rows = siblings;
+  }
+  const ids = rows.map((r) => r.id);
+
+  if (isGoogle) {
     const target = await googleTarget(admin, ev.calendar_source_id);
     if (target) {
+      // Deleting the series master takes every occurrence with it.
       await deleteGoogleEvent(
         target.cred,
         target.googleCalendarId,
-        ev.external_id.slice("google:".length),
+        seriesId ?? ev.external_id!.slice("google:".length),
       );
     }
   }
 
-  // Drive blocks this event's duty assignments materialized live on a PARENT's
+  // Drive blocks these events' duty assignments materialized live on a PARENT's
   // Google calendar — delete them BEFORE the row delete, because the cascade
   // erases the assignment ledger (the only record of where the blocks live).
   const { data: duties } = await admin
     .from("event_duty_assignments")
     .select(ASSIGNMENT_COLUMNS)
-    .eq("event_id", id);
+    .in("event_id", ids);
   for (const a of duties ?? []) {
     await deleteDriveEvent(admin, a as unknown as DutyAssignmentRow).catch(
       () => {},
     );
   }
 
-  const { error } = await admin.from("calendar_events").delete().eq("id", id);
+  const { error } = await admin.from("calendar_events").delete().in("id", ids);
   if (error) throw new Error(error.message);
 
   // A deleted event's blocks may have been merged with a neighbor's (one
   // multi-stop trip) — re-expand the survivors after the response.
-  if (duties?.length && ev?.start_time) {
-    const startTime = ev.start_time as string;
+  const withDuties = new Set(
+    (duties ?? []).map((d) => (d as unknown as DutyAssignmentRow).event_id),
+  );
+  const starts = rows
+    .filter((r) => withDuties.has(r.id) && r.start_time)
+    .map((r) => r.start_time as string);
+  if (starts.length) {
     after(() =>
       queueDriveWork(async () => {
         try {
-          await reconcileDriveAround(admin, startTime);
+          for (const startTime of starts) {
+            await reconcileDriveAround(admin, startTime);
+          }
           revalidatePath("/calendar");
         } catch (err) {
           // best-effort: the next sweep finishes the job

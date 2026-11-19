@@ -293,3 +293,26 @@ private func event(
         #expect(board.events(on: day, showHidden: true).count == 2)
     }
 }
+
+@Suite struct Series {
+    @Test func aRepeatingEventsSeriesIsItsCalendarsOccurrences() {
+        let calendar = UUID()
+        let mine = event(1) { $0.sourceType = .google; $0.recurringEventID = "weekly"; $0.sourceID = calendar }
+        let next = event(2) { $0.sourceType = .google; $0.recurringEventID = "weekly"; $0.sourceID = calendar }
+        let guestCopy = event(3, "dad@x.io") { $0.sourceType = .google; $0.recurringEventID = "weekly"; $0.sourceID = UUID() }
+        let other = event(4) { $0.sourceType = .google; $0.recurringEventID = "monthly"; $0.sourceID = calendar }
+        let oneOff = event(5) { $0.sourceID = calendar }
+        let all = [mine, next, guestCopy, other, oneOff]
+
+        #expect(CalendarRules.repeats(mine))
+        #expect(CalendarRules.series(of: mine, in: all).map(\.id) == [mine.id, next.id])
+    }
+
+    @Test func anEventThatDoesntRepeatIsItsOwnSeries() {
+        let oneOff = event(1)
+        let appOnly = event(2) { $0.recurringEventID = "weekly"; $0.sourceType = .manual }
+        #expect(!CalendarRules.repeats(oneOff))
+        #expect(!CalendarRules.repeats(appOnly))
+        #expect(CalendarRules.series(of: appOnly, in: [oneOff, appOnly]).map(\.id) == [appOnly.id])
+    }
+}

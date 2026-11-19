@@ -63,12 +63,16 @@ enum DemoCalendar {
                 _ = add(andrew, "Take kids to school", day: offset, h(7, 55), h(8, 10))
                 _ = add(andrew, "CrossFit", day: offset, h(9), h(10), at: "CrossFit Oakland, 2500 Embarcadero") {
                     $0.rrule = "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"
+                    $0.recurringEventID = "demo-crossfit"
                 }
                 _ = add(sebastian, "School", day: offset, h(8, 20), h(15), at: "Park Day School")
                 _ = add(oscar, "School", day: offset, h(8, 20), h(14, 30), at: "Park Day School", source: nil)
             }
             if weekday == 1 || weekday == 3 {
-                _ = add(sebastian, "Guitar practice", day: offset, h(19), h(19, 30), at: "Home") { $0.rrule = "FREQ=WEEKLY;BYDAY=TU,TH" }
+                _ = add(sebastian, "Guitar practice", day: offset, h(19), h(19, 30), at: "Home") {
+                    $0.rrule = "FREQ=WEEKLY;BYDAY=TU,TH"
+                    $0.recurringEventID = "demo-guitar"
+                }
                 _ = add(jenny, "Pilates", day: offset, h(12), h(13), at: "The Pilates Room")
             }
             if weekday == 2 {

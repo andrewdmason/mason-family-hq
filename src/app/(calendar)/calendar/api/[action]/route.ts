@@ -33,7 +33,7 @@ export const maxDuration = 60;
  *
  *   create        { event }                      → { id }
  *   update        { id, event }                  → { ok }
- *   delete        { id }                         → { ok }
+ *   delete        { id, series? }                → { ok }
  *   owner         { id, memberEmail }            → { ok, warning? }
  *   going         { id, memberEmail, going }     → { ok, warning? }
  *   owner-going   { id, going }                  → { ok, warning? }
@@ -84,7 +84,8 @@ export async function POST(
       case "delete": {
         const id = uuid(body.id);
         if (!id) return bad("Which event?");
-        await deleteCalendarEvent(id);
+        // `series: true` deletes every occurrence of a repeating event.
+        await deleteCalendarEvent(id, body.series === true ? "series" : "this");
         return NextResponse.json({ ok: true });
       }
       case "owner": {

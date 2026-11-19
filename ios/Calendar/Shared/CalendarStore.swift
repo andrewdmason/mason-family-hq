@@ -459,9 +459,12 @@ final class CalendarStore {
         return warning
     }
 
-    func delete(_ event: CalEvent) async throws {
-        if !isDemo { _ = try await CalendarAPI.post("delete", ["id": Self.id(event)]) }
-        snapshot.events.removeAll { $0.id == event.id || $0.driveSourceEventID == event.id }
+    /// Delete an event, or with `series` every occurrence of the repeating
+    /// event it's one of, past and to come.
+    func delete(_ event: CalEvent, series: Bool = false) async throws {
+        let gone = Set((series ? CalendarRules.series(of: event, in: snapshot.events) : [event]).map(\.id))
+        if !isDemo { _ = try await CalendarAPI.post("delete", ["id": Self.id(event), "series": series]) }
+        snapshot.events.removeAll { gone.contains($0.id) || $0.driveSourceEventID.map(gone.contains) == true }
         save()
         refreshSoon()
     }
