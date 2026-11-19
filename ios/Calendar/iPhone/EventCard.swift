@@ -30,8 +30,12 @@ struct EventCard: View {
     @State private var confirmDelete = false
     @State private var askScope = false
     @State private var confirmStop = false
-    @State private var suggestions: [PlaceSuggestion] = []
-    @State private var search: Task<Void, Never>?
+    /// The location card is open over this one.
+    @State private var placing = false
+    /// That card's search, a new one each time it opens.
+    @State private var placeSession = UUID()
+    /// A picked place's full address, on its way.
+    @State private var lookup: Task<Void, Never>?
     @State private var editingNotes = false
     @State private var contentHeight: CGFloat = 380
     /// Pulled up to full height, or up there for the keyboard.
@@ -42,7 +46,7 @@ struct EventCard: View {
     @State private var leaving = false
     @FocusState private var focus: Field?
 
-    private enum Field { case title, location, notes }
+    private enum Field { case title, notes }
     private enum TimePart { case start, end, date, until }
 
     private static let weekdays = Calendar.current.weekdaySymbols
@@ -137,6 +141,9 @@ struct EventCard: View {
         .animation(.snappy, value: picking)
         .animation(.snappy, value: needsDrives)
         .modifier(ConvertAlert(active: true))
+        .sheet(isPresented: $placing) {
+            LocationCard(current: draft.event.location, session: placeSession) { setPlace($0, from: $1) }
+        }
         .onAppear { if isNew { focus = .title } }
         .onChange(of: focus) { _, field in
             // Up out of the keyboard's way, and back to its own height after.
@@ -532,66 +539,85 @@ struct EventCard: View {
 
     // MARK: Where
 
+    /// Where: with none, a tap opens the location card. With one, a tap
+    /// opens Maps, since where it is gets looked up far more than changed;
+    /// changing it is under the ⋯.
     @ViewBuilder
     private var whereRows: some View {
         let location = draft.event.location.trimmingCharacters(in: .whitespacesAndNewlines)
-        if editable {
-            row("mappin.and.ellipse", alignment: .center) {
-                TextField("Location", text: $draft.event.location, axis: .vertical)
-                    .focused($focus, equals: .location)
-                    .textContentType(.fullStreetAddress)
-                    .autocorrectionDisabled()
-                    .submitLabel(.done)
-                    .onChange(of: draft.event.location) { _, text in
-                        if text.contains("\n") { endLine(\.event.location) } else { suggest(text) }
-                    }
-                if !location.isEmpty, focus != .location {
-                    Button {
-                        openMaps(location)
-                    } label: {
-                        Image(systemName: "arrow.triangle.turn.up.right.circle.fill")
-                            .font(.title2)
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(CalendarStyle.accent)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Open in Maps")
-                }
-            }
-            ForEach(focus == .location ? suggestions : []) { place in
-                Button {
-                    draft.event.location = place.location
-                    suggestions = []
-                    focus = nil
-                } label: {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(place.label).font(.subheadline).foregroundStyle(.primary)
-                        if let secondary = place.secondary {
-                            Text(secondary).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 36)
-                    .padding(.vertical, 7)
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-            }
-            divider
-        } else if !location.isEmpty {
+        if editable, location.isEmpty {
             Button {
-                openMaps(location)
+                place()
             } label: {
                 row("mappin.and.ellipse") {
-                    Text(location)
-                        .multilineTextAlignment(.leading)
-                        .foregroundStyle(CalendarStyle.accent)
+                    Text("Location").foregroundStyle(.tertiary)
                 }
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .accessibilityHint("Opens Maps")
+            .accessibilityHint("Searches for a place")
             divider
+        } else if !location.isEmpty {
+            row("mappin.and.ellipse") {
+                Button {
+                    openMaps(location)
+                } label: {
+                    placeLabel(location)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens Maps")
+                if editable {
+                    Menu {
+                        Button("Change", systemImage: "pencil") { place() }
+                        Button("Copy Address", systemImage: "doc.on.doc") { UIPasteboard.general.string = location }
+                        Button("Remove", systemImage: "trash", role: .destructive) { setPlace("", from: nil) }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, height: 30, alignment: .trailing)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Location Options")
+                }
+            }
+            divider
+        }
+    }
+
+    /// A place on two lines: its name, then the rest of its address.
+    private func placeLabel(_ location: String) -> some View {
+        let parts = CalendarRules.placeParts(location)
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(parts.name).foregroundStyle(CalendarStyle.accent)
+            if let rest = parts.rest {
+                Text(rest).font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
+    }
+
+    private func place() {
+        focus = nil
+        picking = nil
+        placeSession = UUID()
+        placing = true
+    }
+
+    /// The location card's answer. A suggestion comes without its street
+    /// number or zip, so it's shown as it is at once and swapped for the
+    /// full address when that arrives, unless the location has moved on.
+    private func setPlace(_ location: String, from place: PlaceSuggestion?) {
+        lookup?.cancel()
+        draft.event.location = location
+        guard let place else { return }
+        let session = placeSession
+        lookup = Task {
+            guard let full = await store.fullAddress(of: place, session: session), !Task.isCancelled else { return }
+            if draft.event.location == location { draft.event.location = full }
         }
     }
 
@@ -609,21 +635,6 @@ struct EventCard: View {
         var maps = URLComponents(string: "https://maps.apple.com/")!
         maps.queryItems = [URLQueryItem(name: "q", value: location)]
         if let url = maps.url { openURL(url) }
-    }
-
-    private func suggest(_ text: String) {
-        search?.cancel()
-        let query = text.trimmingCharacters(in: .whitespaces)
-        guard focus == .location, query.count >= 2 else {
-            suggestions = []
-            return
-        }
-        search = Task {
-            try? await Task.sleep(for: .milliseconds(220))
-            guard !Task.isCancelled else { return }
-            let found = await store.places(query)
-            if !Task.isCancelled { suggestions = found }
-        }
     }
 
     // MARK: The family's rows

@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { phoneMember } from "@/lib/workouts/phone";
 import { runCalendarSync } from "@/lib/calendar/sync";
 import { setEventRsvp } from "@/lib/calendar/attendance";
-import { suggestPlaces } from "@/lib/calendar/geocoding";
+import { suggestPlaces, placeAddress } from "@/lib/calendar/geocoding";
 import { isGoogleMadeRefusal } from "@/lib/calendar/google";
 import { normalizeCaregiver } from "@/lib/calendar/caregivers";
 import {
@@ -42,7 +42,8 @@ export const maxDuration = 60;
  *   duty          { id, duty, state }            → { ok }
  *   rsvp          { id, status }                 → { ok }
  *   convert       { id }                         → { ok }
- *   places        { query }                      → { suggestions }
+ *   places        { query, session? }            → { suggestions }
+ *   place         { placeId, label, session? }   → { location }
  *   sync          {}                             → { ok }
  *
  * `event` is a ManualEventInput; `state` is a DutyState (null clears it).
@@ -149,8 +150,21 @@ export async function POST(
           query,
           home?.home_lat as number | undefined,
           home?.home_lng as number | undefined,
+          placesSession(body.session),
         );
         return NextResponse.json({ suggestions });
+      }
+      case "place": {
+        // A picked suggestion's full address; null leaves the app with the
+        // short form it already has.
+        const placeId = text(body.placeId);
+        if (!placeId || !/^[\w-]{1,300}$/.test(placeId)) return bad("Which place?");
+        const location = await placeAddress(
+          placeId,
+          text(body.label) ?? "",
+          placesSession(body.session),
+        );
+        return NextResponse.json({ location });
       }
       case "sync": {
         // The page-load sync: light, and nothing written to Google.
@@ -190,6 +204,11 @@ const RRULE = /^FREQ=(DAILY|WEEKLY|MONTHLY|YEARLY)(;[A-Z]+=[A-Z0-9,+-]+)*$/;
 
 function uuid(value: unknown): string | null {
   return typeof value === "string" && UUID.test(value) ? value.toLowerCase() : null;
+}
+
+/** The token tying a location search's typing to its pick, for Google's billing. */
+function placesSession(value: unknown): string | undefined {
+  return uuid(value) ?? undefined;
 }
 
 function text(value: unknown): string | null {

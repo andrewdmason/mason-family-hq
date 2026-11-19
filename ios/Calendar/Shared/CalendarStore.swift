@@ -885,9 +885,19 @@ final class CalendarStore {
         return e
     }
 
-    /// Places for the location field, near home first.
-    func places(_ query: String) async -> [PlaceSuggestion] {
-        guard !isDemo else { return [] }
-        return (try? await CalendarAPI.post("places", ["query": query], timeout: 15))?.suggestions ?? []
+    /// Places for the location card, near home first. `session` is the
+    /// card's own, the same from its first letter to its pick.
+    func places(_ query: String, session: UUID) async -> [PlaceSuggestion] {
+        guard !isDemo else { return DemoCalendar.places(query) }
+        let body = ["query": query, "session": session.uuidString]
+        return (try? await CalendarAPI.post("places", body, timeout: 15))?.suggestions ?? []
+    }
+
+    /// A picked place with its street number and zip, which the suggestion
+    /// leaves out. Nil when it couldn't be looked up: what was picked stands.
+    func fullAddress(of place: PlaceSuggestion, session: UUID) async -> String? {
+        guard !isDemo else { return DemoCalendar.fullAddress(of: place) }
+        let body = ["placeId": place.placeId, "label": place.label, "session": session.uuidString]
+        return (try? await CalendarAPI.post("place", body, timeout: 10))?.location
     }
 }

@@ -373,6 +373,8 @@ private func event(
         #expect(jennys[0].kind == .attending(eventStart: 600, eventEnd: 720))
         #expect(jennys[0].start == 560)
         #expect(jennys[0].end == 745)
+        // Seb's own game is a card in his wide column; Jenny's lunch isn't.
+        #expect(layout.inWideColumn == [id(1)])
     }
 
     @Test func anEventMovesOnlyToSomeoneWhoCanHoldIt() {
@@ -575,5 +577,52 @@ private func event(
         #expect(model(20).firstHour == 0) // not before midnight
         #expect(model(23 * 60).firstHour == 16) // nor past it
         #expect(model(15 * 60).layout.columns.map(\.member.email) == ["seb@x.io", "jenny@x.io"])
+    }
+}
+
+@Suite struct Places {
+    @Test func aPlaceIsItsNameOverTheRest() {
+        let school = CalendarRules.placeParts("Crowden School, 1475 Rose St, Berkeley, CA 94702, USA")
+        #expect(school.name == "Crowden School")
+        #expect(school.rest == "1475 Rose St, Berkeley, CA 94702, USA")
+        // A bare address leads with its street.
+        #expect(CalendarRules.placeParts("2909 Avalon Ave, Berkeley").name == "2909 Avalon Ave")
+        #expect(CalendarRules.placeParts("Hertz Hall").rest == nil)
+        // Google's own events can break an address over lines.
+        #expect(CalendarRules.placeParts("Field 3\n100 Park Rd").rest == "100 Park Rd")
+    }
+
+    @Test func recentPlacesAreEachOnceNearestFirst() {
+        let now = day.at(minutes: 12 * 60, in: pacific)
+        func at(_ n: Int, _ offset: Int, _ place: String?, _ more: (inout CalEvent) -> Void = { _ in }) -> CalEvent {
+            event(n) {
+                $0.start = now.addingTimeInterval(Double(offset) * 86_400)
+                $0.location = place
+                more(&$0)
+            }
+        }
+        let places = CalendarRules.recentPlaces([
+            at(1, -20, "Pool"),
+            at(2, -3, "School"),
+            at(3, 1, "Field"),
+            at(4, 9, "school"),
+            at(5, -1, nil),
+            at(6, 0, "  "),
+            at(7, 0, "Garage") { $0.driveSourceEventID = id(3) },
+            at(8, 0, "Gone") { $0.dismissed = true },
+            at(9, 0, "Click to join meeting: https://app.example.com/schedule.php?owner=1"),
+            at(10, 0, "TBD"),
+        ], now: now)
+        // The school once, as the nearer event spells it; no drive blocks,
+        // dismissed events, blanks, links or placeholders.
+        #expect(places == ["Field", "School", "Pool"])
+        #expect(CalendarRules.recentPlaces([at(1, 0, "A"), at(2, 1, "B")], now: now, limit: 1) == ["A"])
+    }
+
+    @Test func typingNarrowsThem() {
+        let places = ["Crowden School, 1475 Rose St", "Temescal Pool", "Park Day School"]
+        #expect(CalendarRules.matching(places, " school ") == ["Crowden School, 1475 Rose St", "Park Day School"])
+        #expect(CalendarRules.matching(places, "rose") == ["Crowden School, 1475 Rose St"])
+        #expect(CalendarRules.matching(places, "") == places)
     }
 }
