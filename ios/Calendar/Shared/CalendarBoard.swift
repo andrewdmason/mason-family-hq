@@ -18,7 +18,8 @@ struct EventItem: Identifiable, Hashable, Sendable {
     var color: String
     /// The calendar's name, when it goes in front of the title.
     var label: String?
-    /// Where it's from, for the event sheet.
+    /// The calendar or team it's from, for the event sheet, when that has a
+    /// name; whose it is, the sheet already shows.
     var sourceName: String?
     var conflict = false
     var hidden = false
@@ -88,6 +89,13 @@ struct Board: Sendable {
         !event.isDrive && (event.sourceType == .manual || event.sourceType == .google)
     }
 
+    /// Whether the event can move to `member`'s calendar: an event that can
+    /// be edited, and for a Google one a member with a Google calendar set up.
+    func canHold(_ member: Member, _ event: CalEvent) -> Bool {
+        guard isEditable(event), member.email != event.memberEmail else { return false }
+        return event.sourceType == .manual || member.primaryCalendarID != nil
+    }
+
     /// Whether TeamSnap takes an RSVP for it: a TeamSnap event.
     func hasRsvp(_ event: CalEvent) -> Bool {
         event.sourceType == .teamsnap && !event.isDrive
@@ -146,7 +154,7 @@ struct Board: Sendable {
                     .sorted { (rank[$0] ?? 0) < (rank[$1] ?? 0) },
                 color: color,
                 label: CalendarRules.calendarLabel(e, source: source, activeSourcesOfOwner: activeSources[e.memberEmail] ?? 0),
-                sourceName: source?.name ?? board.member(e.memberEmail)?.name,
+                sourceName: source?.name,
                 conflict: conflicts.contains(e.id),
                 hidden: isHidden,
                 duties: duties,

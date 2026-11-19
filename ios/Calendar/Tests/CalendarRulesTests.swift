@@ -294,6 +294,19 @@ private func event(
         #expect(jennys[0].end == 745)
     }
 
+    @Test func anEventMovesOnlyToSomeoneWhoCanHoldIt() {
+        var board = Board()
+        let jenny = Member(email: "jenny@x.io", role: .parent, color: "#db2777", primaryCalendarID: "jenny")
+        let oscar = Member(email: "oscar@x.io", role: .kid, color: "#d97706")
+        board.members = [jenny, oscar]
+        let google = event(1) { $0.sourceType = .google }
+        #expect(board.canHold(jenny, google))
+        #expect(!board.canHold(oscar, google)) // no Google calendar to put it on
+        #expect(board.canHold(oscar, event(2))) // app-only: anyone's
+        #expect(!board.canHold(jenny, event(3, "jenny@x.io"))) // already hers
+        #expect(!board.canHold(jenny, event(4) { $0.sourceType = .teamsnap }))
+    }
+
     @Test func hiddenEventsStayOutUnlessAskedFor() {
         let board = Board.build(snapshot([event(1) { $0.ownerNotGoing = true }, event(2)]), in: pacific)
         #expect(board.events(on: day, showHidden: false).map(\.id) == [id(2)])

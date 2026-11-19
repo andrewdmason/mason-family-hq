@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// An event, opened. At half height: what, when, where, and the things you
-/// do from here in one tap (who's going, who's driving, the TeamSnap RSVP).
+/// do from here in one tap (who's going and whose calendar it's on, who's
+/// driving, the TeamSnap RSVP).
 /// Pulled up: notes, and where the event comes from. Each tap shows at once
 /// and is put back, with why, if the website refuses it.
 struct EventSheet: View {
@@ -22,16 +23,16 @@ struct EventSheet: View {
         if let item = board.item(itemID) {
             let event = item.event
             let owner = board.member(event.memberEmail)
-            let ownerGoing: Bool? = board.hasOwnerGoing(event) ? !event.ownerNotGoing : nil
-            let notGoing = ownerGoing == false || (item.isTeamsnap && event.ownerNotGoing)
+            let roster = roster(event)
+            let holderGoing = holderGoing(event)
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    header(item, owner: owner, dimmed: notGoing)
+                    header(item, owner: owner, showsOwner: roster.isEmpty, dimmed: !holderGoing)
                     VStack(alignment: .leading, spacing: 12) {
                         when(event)
                         if let location = event.location { place(location) }
                     }
-                    actions(item, ownerGoing: ownerGoing, notGoing: notGoing)
+                    actions(item, roster: roster, holderGoing: holderGoing)
                     if let notes = event.notes, !notes.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Notes").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
@@ -67,7 +68,7 @@ struct EventSheet: View {
 
     // MARK: What, when, where
 
-    private func header(_ item: EventItem, owner: Member?, dimmed: Bool) -> some View {
+    private func header(_ item: EventItem, owner: Member?, showsOwner: Bool, dimmed: Bool) -> some View {
         HStack(alignment: .top, spacing: 12) {
             RoundedRectangle(cornerRadius: 2.5)
                 .fill(CalendarStyle.muted(item.color))
@@ -77,14 +78,20 @@ struct EventSheet: View {
                     .font(.system(.title2, design: .serif).weight(.semibold))
                     .opacity(dimmed ? 0.5 : 1)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 6) {
-                    Avatar(member: owner, size: 20)
-                    Text(owner?.firstName ?? "Family")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    if item.conflict {
-                        ConflictMark()
-                        Text("Overlaps").font(.footnote).foregroundStyle(CalendarStyle.amber)
+                // Whose it is sits with who's going, below; without that
+                // row (a drive), it's said here.
+                if showsOwner || item.conflict {
+                    HStack(spacing: 6) {
+                        if showsOwner {
+                            Avatar(member: owner, size: 20)
+                            Text(owner?.firstName ?? "Family")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        if item.conflict {
+                            ConflictMark()
+                            Text("Overlaps").font(.footnote).foregroundStyle(CalendarStyle.amber)
+                        }
                     }
                 }
             }
@@ -163,15 +170,30 @@ struct EventSheet: View {
 
     // MARK: Instant actions
 
+    /// The faces in "Who's going": the family, or just whose it is for an
+    /// app-only event, which has no Google event to add guests to.
+    private func roster(_ event: CalEvent) -> [Member] {
+        guard !event.isDrive else { return [] }
+        let members = store.board.members
+        return event.sourceType == .manual ? members.filter { $0.email == event.memberEmail } : members
+    }
+
+    /// Whether the one whose calendar it's on is going. Only a kid can not
+    /// be: a TeamSnap "no", or their own not going.
+    private func holderGoing(_ event: CalEvent) -> Bool {
+        let board = store.board
+        if board.hasRsvp(event) { return !(event.teamsnapRsvp == .notGoing || event.ownerNotGoing) }
+        if board.hasOwnerGoing(event) { return !event.ownerNotGoing }
+        return true
+    }
+
     @ViewBuilder
-    private func actions(_ item: EventItem, ownerGoing: Bool?, notGoing: Bool) -> some View {
+    private func actions(_ item: EventItem, roster: [Member], holderGoing: Bool) -> some View {
         let board = store.board
         let event = item.event
-        let others = board.members.filter { $0.email != event.memberEmail }
         let showsRsvp = board.hasRsvp(event)
-        let showsGoing = !notGoing && event.sourceType != .manual && !others.isEmpty
-        let showsDrives = !notGoing && board.hasDrives(event)
-        if showsRsvp || ownerGoing != nil || showsGoing || showsDrives {
+        let showsDrives = holderGoing && board.hasDrives(event)
+        if showsRsvp || !roster.isEmpty || showsDrives {
             VStack(alignment: .leading, spacing: 14) {
                 if showsRsvp {
                     actionRow("Attendance", badge: (event.teamsnapRsvp ?? .noReply) == .noReply ? "Needs RSVP" : nil) {
@@ -186,31 +208,24 @@ struct EventSheet: View {
                         .pickerStyle(.segmented)
                     }
                 }
-                if let ownerGoing {
-                    actionRow("\(board.member(event.memberEmail)?.firstName ?? "Attendance")") {
-                        Picker("Going", selection: Binding(
-                            get: { ownerGoing },
-                            set: { going in act { try await store.setOwnerGoing(event, going: going) } }
-                        )) {
-                            Text("Going").tag(true)
-                            Text("Not going").tag(false)
-                        }
-                        .pickerStyle(.segmented)
-                    }
-                }
-                if showsGoing {
-                    actionRow("Going along") {
-                        HStack(spacing: 12) {
-                            ForEach(others) { member in
-                                let going = item.attendees.contains(member.email)
-                                Button {
-                                    act { try await store.setGoing(event, member: member.email, going: !going) }
-                                } label: {
-                                    PersonChoice(member: member, name: member.firstName, color: member.color, selected: going)
+                if !roster.isEmpty {
+                    actionRow("Who's going") {
+                        ScrollView(.horizontal) {
+                            HStack(spacing: 12) {
+                                ForEach(roster) { member in
+                                    face(member, item, holderGoing: holderGoing)
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("\(member.firstName), \(going ? "going" : "not going")")
                             }
+                            .padding(.vertical, 2)
+                            .padding(.horizontal, 2)
+                        }
+                        .scrollIndicators(.hidden)
+                        // A held face lifts whole, name and all.
+                        .scrollClipDisabled()
+                        if !holderGoing, let holder = board.member(event.memberEmail) {
+                            Text("\(holder.firstName) isn't going, so it's off everyone's calendar.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -233,6 +248,58 @@ struct EventSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.primary.opacity(0.05), in: .rect(cornerRadius: 20, style: .continuous))
         }
+    }
+
+    /// One face in "Who's going". A tap is going or not; whoever's calendar
+    /// it's on wears the calendar badge, and holding anyone else's face
+    /// offers to move it to theirs.
+    @ViewBuilder
+    private func face(_ member: Member, _ item: EventItem, holderGoing: Bool) -> some View {
+        let event = item.event
+        let holds = member.email == event.memberEmail
+        // With the kid whose event it is not going, nobody is.
+        let going = holds ? holderGoing : holderGoing && item.attendees.contains(member.email)
+        let button = Button {
+            if holds {
+                toggleHolder(member, event, going: holderGoing)
+            } else {
+                act { try await store.setGoing(event, member: member.email, going: !going) }
+            }
+        } label: {
+            PersonChoice(member: member, name: member.firstName, color: member.color, selected: going, holder: holds)
+        }
+        .buttonStyle(.plain)
+        .disabled(!holds && !holderGoing)
+        .accessibilityLabel("\(member.firstName), \(going ? "going" : "not going")\(holds ? ", on their calendar" : "")")
+        if store.board.canHold(member, event) {
+            button
+                .contentShape(.contextMenuPreview, .rect(cornerRadius: 16, style: .continuous))
+                .contextMenu {
+                    Button("Move to \(member.firstName)'s Calendar", systemImage: "calendar") { move(event, to: member) }
+                }
+        } else {
+            button
+        }
+    }
+
+    /// A tap on whoever's calendar it's on. A kid can sit their own event
+    /// out (through TeamSnap when it's TeamSnap's); a parent's event can't go
+    /// on without them, so it says how to hand it over instead.
+    private func toggleHolder(_ holder: Member, _ event: CalEvent, going: Bool) {
+        let board = store.board
+        if board.hasRsvp(event) {
+            act { try await store.setRsvp(event, going ? .notGoing : .going); return nil }
+        } else if board.hasOwnerGoing(event) {
+            act { try await store.setOwnerGoing(event, going: !going) }
+        } else if board.members.contains(where: { board.canHold($0, event) }) {
+            note = "It's on \(holder.firstName)'s calendar, so \(holder.firstName) counts as going. To take \(holder.firstName) off it, hold someone else's face and move it to theirs."
+        } else {
+            note = "It's \(holder.firstName)'s event, so \(holder.firstName) counts as going."
+        }
+    }
+
+    private func move(_ event: CalEvent, to member: Member) {
+        act { try await store.setHolder(event, member: member.email) }
     }
 
     private func actionRow(_ title: String, badge: String? = nil, @ViewBuilder _ content: () -> some View) -> some View {
@@ -322,12 +389,13 @@ struct EventSheet: View {
 }
 
 /// Someone to pick: their face, ringed in their colour when chosen, faded
-/// when not.
+/// when not. `holder` adds the calendar badge: the event is on their calendar.
 private struct PersonChoice: View {
     let member: Member?
     let name: String
     let color: String
     let selected: Bool
+    var holder = false
 
     var body: some View {
         VStack(spacing: 4) {
@@ -344,11 +412,24 @@ private struct PersonChoice: View {
             }
             .padding(3)
             .overlay(Circle().strokeBorder(CalendarStyle.muted(color).opacity(selected ? 1 : 0), lineWidth: 2.5))
+            .overlay(alignment: .bottomTrailing) {
+                if holder {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 18, height: 18)
+                        .background(CalendarStyle.muted(color), in: .circle)
+                        .overlay(Circle().strokeBorder(CalendarStyle.ground, lineWidth: 1.5))
+                        .offset(x: 3, y: 3)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
             Text(name)
                 .font(.caption2.weight(selected ? .semibold : .regular))
                 .foregroundStyle(selected ? .primary : .secondary)
         }
         .opacity(selected ? 1 : 0.45)
         .animation(.snappy, value: selected)
+        .animation(.snappy, value: holder)
     }
 }

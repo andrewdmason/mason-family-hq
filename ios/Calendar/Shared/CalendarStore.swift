@@ -385,6 +385,23 @@ final class CalendarStore {
         }?.warning
     }
 
+    /// Move an event to another member's calendar. As the website does it,
+    /// whoever had it stays on as going.
+    func setHolder(_ event: CalEvent, member: String) async throws -> String? {
+        let before = snapshot.events.first { $0.id == event.id } ?? event
+        let goingBefore = snapshot.going[event.id]
+        var after = before
+        after.memberEmail = member
+        set(after)
+        snapshot.going[event.id] = CalendarRules.goingAfterMove(goingBefore ?? [], from: before.memberEmail, to: member)
+        return try await send(revert: {
+            self.set(before)
+            self.snapshot.going[event.id] = goingBefore
+        }) {
+            try await CalendarAPI.post("owner", ["id": await self.id(event), "memberEmail": member])
+        }?.warning
+    }
+
     /// Who's doing a drop-off or pick-up; nil clears it.
     func setDuty(_ event: CalEvent, _ duty: DutyKind, _ state: DutyState?) async throws {
         let before = snapshot.duties[event.id]?[duty]
@@ -396,8 +413,18 @@ final class CalendarStore {
 
     /// The linked player's answer, written back to TeamSnap.
     func setRsvp(_ event: CalEvent, _ answer: TeamsnapRsvp) async throws {
-        mutate(event.id) { $0.teamsnapRsvp = answer }
-        _ = try await send(revert: { self.mutate(event.id) { $0.teamsnapRsvp = event.teamsnapRsvp } }) {
+        // A TeamSnap "no" is the kid not going, as the website has it.
+        let isKids = board.member(event.memberEmail)?.role == .kid
+        mutate(event.id) {
+            $0.teamsnapRsvp = answer
+            if isKids { $0.ownerNotGoing = answer == .notGoing }
+        }
+        _ = try await send(revert: {
+            self.mutate(event.id) {
+                $0.teamsnapRsvp = event.teamsnapRsvp
+                $0.ownerNotGoing = event.ownerNotGoing
+            }
+        }) {
             try await CalendarAPI.post("rsvp", ["id": await self.id(event), "status": answer.rawValue])
         }
     }
