@@ -2,15 +2,14 @@ import SwiftUI
 
 /// The event form, for a new event or an existing one: the website's fields
 /// (title, all-day, start and end, whose calendar, location, notes). Saving
-/// goes through the website and needs a connection; the form stays open, with
-/// why, when it doesn't go through.
+/// shows on the calendar and closes the form at once; the website hears in
+/// the background.
 struct EventEditor: View {
     let request: EditorRequest
     @Environment(CalendarStore.self) private var store
     @Environment(CalendarNav.self) private var nav
     @Environment(\.dismiss) private var dismiss
     @State private var draft: EventDraft
-    @State private var saving = false
     @State private var error: String?
     @State private var confirmDelete = false
     @State private var suggestions: [PlaceSuggestion] = []
@@ -26,7 +25,7 @@ struct EventEditor: View {
 
     private var isNew: Bool { request.event == nil }
     private var titleIsEmpty: Bool { draft.title.trimmingCharacters(in: .whitespaces).isEmpty }
-    private var canSave: Bool { !titleIsEmpty && !saving && (isNew || draft != request.draft) }
+    private var canSave: Bool { !titleIsEmpty && (isNew || draft != request.draft) }
 
     var body: some View {
         NavigationStack {
@@ -108,7 +107,6 @@ struct EventEditor: View {
                     Section {
                         Button("Delete event", systemImage: "trash", role: .destructive) { confirmDelete = true }
                             .foregroundStyle(.red)
-                            .disabled(saving)
                             .confirmationDialog("Delete “\(event.title)”?", isPresented: $confirmDelete, titleVisibility: .visible) {
                                 Button("Delete", role: .destructive) { delete(event) }
                             } message: {
@@ -125,17 +123,13 @@ struct EventEditor: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    if saving {
-                        ProgressView()
-                    } else {
-                        Button(isNew ? "Add" : "Save") { save() }
-                            .fontWeight(.semibold)
-                            .disabled(!canSave)
-                    }
+                    Button(isNew ? "Add" : "Save") { save() }
+                        .fontWeight(.semibold)
+                        .disabled(!canSave)
                 }
             }
             .onAppear { if isNew { focus = .title } }
-            .interactiveDismissDisabled(saving || (!isNew && draft != request.draft))
+            .interactiveDismissDisabled(!isNew && draft != request.draft)
         }
         .presentationDetents([.large])
     }
@@ -197,41 +191,27 @@ struct EventEditor: View {
 
     // MARK: Saving
 
+    /// Save and close at once. The website hears in the background; if it
+    /// says no, the change is put back and the calendar says so.
     private func save() {
         guard !titleIsEmpty else {
             error = "A title is required."
             return
         }
-        saving = true
-        error = nil
-        Task {
-            do {
-                if let event = request.event {
-                    if let warning = try await store.update(event, draft) { nav.problem = warning }
-                } else {
-                    try await store.create(draft)
-                    // Show the day it landed on.
-                    nav.day = Day(draft.start)
-                }
-                dismiss()
-            } catch {
-                self.error = error.localizedDescription
-            }
-            saving = false
+        let nav = nav
+        if let event = request.event {
+            store.update(event, draft) { nav.problem = $0 }
+        } else {
+            store.create(draft) { nav.problem = $0 }
+            // Show the day it landed on.
+            nav.day = Day(draft.start)
         }
+        dismiss()
     }
 
     private func delete(_ event: CalEvent) {
-        saving = true
-        error = nil
-        Task {
-            do {
-                try await store.delete(event)
-                dismiss()
-            } catch {
-                self.error = error.localizedDescription
-            }
-            saving = false
-        }
+        let nav = nav
+        store.delete(event) { nav.problem = $0 }
+        dismiss()
     }
 }

@@ -315,27 +315,44 @@ private struct ColumnBlocks: View {
         let hot = nav.peek?.id == block.item.id
         let top = y(block.start)
         let height = max(y(block.end) - top, 12)
+        // Someone else's event this member is going to: drawn lighter and
+        // without a face, so it reads as "busy with that", not a second event.
+        let attending: Bool = { if case .attending = block.kind { true } else { false } }()
         let (coreTop, coreHeight): (CGFloat, CGFloat) = {
             if case .attending(let eventStart, let eventEnd) = block.kind {
                 return (y(eventStart) - top, max(y(eventEnd) - y(eventStart), 2))
             }
             return (0, height)
         }()
+        let color = CalendarStyle.muted(block.item.color)
         Button {
             nav.peek = hot ? nil : block.item
         } label: {
             ZStack(alignment: .top) {
-                Capsule()
-                    .fill(CalendarStyle.muted(block.item.color).opacity(0.3))
-                    .frame(width: hot ? 4 : 2.5, height: height)
-                Capsule()
-                    .fill(CalendarStyle.muted(block.item.color))
-                    .frame(width: hot ? 4 : 2.5, height: coreHeight)
-                    .offset(y: coreTop)
-                Avatar(member: store.board.member(block.item.event.memberEmail), size: 22)
-                    .overlay(Circle().strokeBorder(CalendarStyle.ground, lineWidth: 1.5))
-                    .scaleEffect(hot ? 1.15 : 1)
-                    .offset(y: coreTop - 11)
+                if attending {
+                    // Their drives there and back, fainter still.
+                    Capsule()
+                        .fill(color.opacity(0.18))
+                        .frame(width: hot ? 4 : 2.5, height: height)
+                    Capsule()
+                        .fill(color.opacity(0.45))
+                        .frame(width: hot ? 4 : 2.5, height: coreHeight)
+                        .offset(y: coreTop)
+                    Circle()
+                        .fill(CalendarStyle.ground)
+                        .overlay(Circle().strokeBorder(color.opacity(0.75), lineWidth: 2))
+                        .frame(width: 9, height: 9)
+                        .scaleEffect(hot ? 1.25 : 1)
+                        .offset(y: coreTop - 4.5)
+                } else {
+                    Capsule()
+                        .fill(color)
+                        .frame(width: hot ? 4 : 2.5, height: height)
+                    Avatar(member: store.board.member(block.item.event.memberEmail), size: 22)
+                        .overlay(Circle().strokeBorder(CalendarStyle.ground, lineWidth: 1.5))
+                        .scaleEffect(hot ? 1.15 : 1)
+                        .offset(y: -11)
+                }
             }
             .frame(width: width, height: height, alignment: .top)
             .contentShape(.rect)
