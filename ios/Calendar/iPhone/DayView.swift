@@ -106,6 +106,12 @@ private struct DayPage: View {
     /// until it lifts and then opens the card.
     private func press(_ phase: GridPress.Phase, _ point: CGPoint, metrics: ColumnMetrics, columns: [DayColumn]) {
         guard let index = metrics.column(at: point.x), columns.indices.contains(index) else { return }
+        // A long-press on an event is that event's own (its menu), not a new one.
+        if phase == .began {
+            let touched = Int(point.y / CalendarStyle.hourHeight * 60)
+            let least = Int(CalendarStyle.minBlock / CalendarStyle.hourHeight * 60)
+            if columns[index].blocks.contains(where: { $0.start <= touched && touched < max($0.end, $0.start + least) }) { return }
+        }
         let raw = Int(point.y / CalendarStyle.hourHeight * 60) - 30
         let start = min(max(0, (raw + 7) / 15 * 15), 23 * 60)
         switch phase {
@@ -299,6 +305,7 @@ private struct ColumnBlocks: View {
         }
         .buttonStyle(.plain)
         .opacity(block.item.hidden ? 0.5 : 1)
+        .hideMenu(block.item)
         .offset(x: rect.minX, y: rect.minY)
     }
 
@@ -357,6 +364,7 @@ private struct ColumnBlocks: View {
         }
         .buttonStyle(.plain)
         .opacity(block.item.hidden ? 0.5 : 1)
+        .hideMenu(block.item, cornerRadius: 11)
         .offset(y: top)
         .animation(.snappy, value: hot)
         .accessibilityLabel("\(block.item.title), \(CalendarRules.timeRange(block.item.event))")
@@ -389,6 +397,7 @@ private struct ColumnBlocks: View {
         }
         .buttonStyle(.plain)
         .opacity(block.item.hidden ? 0.5 : 1)
+        .hideMenu(block.item, cornerRadius: 5)
         .offset(x: rect.minX, y: rect.minY)
         .accessibilityLabel("\(block.item.title), \(CalendarRules.timeRange(block.item.event))")
     }
@@ -549,7 +558,7 @@ private struct AllDayStrip: View {
                             Text(item.title)
                                 .font(.system(size: 12.5, weight: .semibold))
                                 .foregroundStyle(CalendarStyle.ink(item.color))
-                                .strikethrough(item.hidden)
+                                .strikethrough(item.hidden && !item.hiddenByMe)
                                 .lineLimit(1)
                             if item.conflict { ConflictMark() }
                             Spacer(minLength: 0)
@@ -566,6 +575,7 @@ private struct AllDayStrip: View {
                         .opacity(item.hidden ? 0.5 : 1)
                     }
                     .buttonStyle(.plain)
+                    .hideMenu(item)
                 }
             }
             .padding(.leading, CalendarStyle.gutter + 1.5)

@@ -9,6 +9,7 @@ struct SettingsView: View {
     @Environment(Prefs.self) private var prefs
     @Environment(\.dismiss) private var dismiss
     @State private var syncing = false
+    @State private var showHiddenEvents = false
 
     var body: some View {
         @Bindable var prefs = prefs
@@ -44,7 +45,28 @@ struct SettingsView: View {
                         Text("Pins").tag(false)
                         Text("Blocks").tag(true)
                     }
+                }
+
+                Section {
+                    // A button, not a link: the form is always in edit mode
+                    // (for reordering people), where links don't answer.
+                    Button {
+                        showHiddenEvents = true
+                    } label: {
+                        HStack {
+                            Text("Hidden events").foregroundStyle(.primary)
+                            Spacer()
+                            Text(store.hides.isEmpty ? "None" : "\(store.hides.count)").foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
                     Toggle("Show hidden events", isOn: $prefs.showHidden)
+                } footer: {
+                    Text("Touch and hold an event to hide it from your view. Showing hidden events brings back, dimmed, the ones you've hidden and the ones nobody's going to.")
                 }
 
                 Section {
@@ -89,6 +111,7 @@ struct SettingsView: View {
                 }
             }
             .environment(\.editMode, .constant(.active))
+            .navigationDestination(isPresented: $showHiddenEvents) { HiddenEventsView() }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

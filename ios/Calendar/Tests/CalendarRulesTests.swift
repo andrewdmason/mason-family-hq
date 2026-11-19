@@ -418,6 +418,141 @@ private func event(
     }
 }
 
+@Suite struct Hiding {
+    private let jenny = Member(email: "jenny@x.io", name: "Jenny Mason", role: .parent, color: "#db2777")
+    private let dad = Member(email: "dad@x.io", name: "Andrew Mason", role: .owner, color: "#2563eb")
+    private let seb = Member(email: "seb@x.io", name: "Sebastian Mason", role: .kid, color: "#16a34a")
+
+    private func snapshot(_ events: [CalEvent], hides: [EventHide]) -> CalendarSnapshot {
+        var s = CalendarSnapshot()
+        s.members = [jenny, dad, seb]
+        s.events = events
+        s.hides = hides
+        return s
+    }
+
+    private func walk(_ n: Int, _ member: String = "jenny@x.io", _ more: (inout CalEvent) -> Void = { _ in }) -> CalEvent {
+        event(n, member) {
+            $0.sourceType = .google
+            $0.recurringEventID = "walks"
+            $0.googleEventID = "walks_\(n)"
+            more(&$0)
+        }
+    }
+
+    private func shown(_ s: CalendarSnapshot, me: String? = "dad@x.io") -> [UUID] {
+        Board.build(s, me: me, in: pacific).events(on: day, showHidden: false).map(\.id).sorted { $0.uuidString < $1.uuidString }
+    }
+
+    @Test func hidingOneEventLeavesTheRestOfItsSeries() {
+        let s = snapshot([walk(1), walk(2)], hides: [EventHide(scope: .event, target: "walks_1", title: "Walk")])
+        #expect(shown(s) == [id(2)])
+        // Asked for, it's back, marked as the member's own doing.
+        let board = Board.build(s, me: "dad@x.io", in: pacific)
+        #expect(board.events(on: day, showHidden: true).count == 2)
+        #expect(board.item(id(1))?.hiddenByMe == true)
+        #expect(board.item(id(2))?.hiddenByMe == false)
+    }
+
+    @Test func hidingASeriesHidesEveryOccurrence() {
+        let other = event(3, "jenny@x.io") { $0.sourceType = .google; $0.recurringEventID = "pilates" }
+        let s = snapshot([walk(1), walk(2), other], hides: [EventHide(scope: .series, target: "walks", title: "Walk")])
+        #expect(shown(s) == [id(3)])
+    }
+
+    @Test func anEventWithNoGoogleIdIsHiddenByItsRow() {
+        let practice = event(1) { $0.sourceType = .teamsnap }
+        #expect(CalendarRules.hideTarget(practice) == id(1).uuidString.lowercased())
+        let s = snapshot([practice, event(2)], hides: [EventHide(scope: .event, target: CalendarRules.hideTarget(practice), title: "Practice")])
+        #expect(shown(s) == [id(2)])
+    }
+
+    @Test func aHiddenSeriesShowsWhereTheMemberIsInvolved() {
+        // Going along to one, driving to another, and one moved onto their
+        // own calendar: each shows; the plain one stays hidden.
+        var s = snapshot(
+            [walk(1), walk(2), walk(3, "seb@x.io") { $0.location = "Park" }, walk(4, "dad@x.io")],
+            hides: [EventHide(scope: .series, target: "walks", title: "Walk")]
+        )
+        s.going[id(2)] = ["dad@x.io"]
+        s.duties[id(3)] = [.pickup: .parent("dad@x.io")]
+        #expect(shown(s) == [id(2), id(3), id(4)])
+        // On Jenny's phone it's her own two that show, not the others' ones.
+        #expect(shown(s, me: "jenny@x.io") == [id(1), id(2)])
+    }
+
+    @Test func hidingJustTheOneHoldsEvenWhenInvolved() {
+        var s = snapshot([walk(1)], hides: [EventHide(scope: .event, target: "walks_1", title: "Walk")])
+        s.going[id(1)] = ["dad@x.io"]
+        #expect(shown(s).isEmpty)
+    }
+
+    @Test func aSharedEventIsHiddenWhicheverCopyOwnsIt() {
+        // The same Google event on two calendars is one event, hidden once.
+        let hers = event(1, "jenny@x.io") { $0.sourceType = .google; $0.externalID = "google:dinner" }
+        let sebs = event(2, "seb@x.io") { $0.sourceType = .google; $0.externalID = "google:dinner" }
+        let s = snapshot([hers, sebs], hides: [EventHide(scope: .event, target: "dinner", title: "Dinner")])
+        #expect(shown(s).isEmpty)
+    }
+
+    @Test func driveBlocksGoWithTheirEvent() {
+        let lesson = walk(1, "seb@x.io") { $0.location = "Pool" }
+        let drive = event(2, "jenny@x.io", from: 8 * 60, to: 9 * 60) {
+            $0.driveSourceEventID = id(1)
+            $0.driveDuty = .dropoff
+        }
+        var s = snapshot([lesson, drive], hides: [EventHide(scope: .series, target: "walks", title: "Lesson")])
+        s.duties[id(1)] = [.dropoff: .parent("jenny@x.io")]
+        #expect(shown(s).isEmpty)
+        // Jenny is the one driving, so on her phone the same hide gives way.
+        #expect(shown(s, me: "jenny@x.io") == [id(1), id(2)])
+    }
+
+    @Test func whatALongPressOffers() {
+        let ownWalk = walk(3, "dad@x.io")
+        let drive = event(4, "dad@x.io") { $0.driveSourceEventID = id(1) }
+        let declined = event(5, "seb@x.io") { $0.ownerNotGoing = true }
+        let board = Board.build(snapshot([walk(1), event(2, "jenny@x.io"), ownWalk, drive, declined], hides: []), me: "dad@x.io", in: pacific)
+        func item(_ n: Int) -> EventItem { board.item(id(n))! }
+        #expect(board.canHide(item(1)) && board.canHideSeries(item(1)))
+        #expect(board.canHide(item(2)) && !board.canHideSeries(item(2))) // doesn't repeat
+        #expect(board.canHide(item(3)) && !board.canHideSeries(item(3))) // their own: one at a time
+        #expect(!board.canHide(item(4))) // a drive goes with its event
+        #expect(!board.canHide(item(5))) // already out of sight
+    }
+
+    @Test func aHiddenEventStillConflicts() {
+        let s = snapshot(
+            [event(1, "seb@x.io"), event(2, "seb@x.io")],
+            hides: [EventHide(scope: .event, target: CalendarRules.hideTarget(event(1, "seb@x.io")), title: "Event 1")]
+        )
+        #expect(Board.build(s, me: "dad@x.io", in: pacific).item(id(2))?.conflict == true)
+    }
+
+    @Test func aCopySavedBeforeHidingStillOpens() throws {
+        var saved = CalendarSnapshot()
+        saved.events = [event(1)]
+        saved.going[id(1)] = ["dad@x.io"]
+        var old = try JSONSerialization.jsonObject(with: JSONEncoder().encode(saved)) as! [String: Any]
+        old["hides"] = nil
+        let snapshot = try JSONDecoder().decode(CalendarSnapshot.self, from: JSONSerialization.data(withJSONObject: old))
+        #expect(snapshot.hides.isEmpty)
+        #expect(snapshot.events.map(\.id) == [id(1)])
+        #expect(snapshot.going[id(1)] == ["dad@x.io"])
+    }
+
+    @Test func aHideGoesToAndFromTheTable() throws {
+        let hide = EventHide(
+            id: id(9), scope: .series, target: "walks", title: "Walk", ownerEmail: "jenny@x.io",
+            start: day.at(minutes: 9 * 60, in: pacific), rrule: "FREQ=WEEKLY"
+        )
+        let row = try JSONSerialization.jsonObject(with: JSONEncoder().encode(hide)) as! [String: Any]
+        #expect(Set(row.keys) == ["id", "scope", "target", "title", "owner_email", "start_time", "rrule"])
+        #expect(row["scope"] as? String == "series")
+        #expect(try JSONDecoder().decode(EventHide.self, from: JSONEncoder().encode(hide)) == hide)
+    }
+}
+
 @Suite struct TheWidget {
     private let jenny = Member(email: "jenny@x.io", name: "Jenny Mason", role: .parent, color: "#db2777")
     private let seb = Member(email: "seb@x.io", name: "Sebastian Mason", role: .kid, color: "#16a34a")

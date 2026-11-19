@@ -31,7 +31,7 @@ struct TodayWidgetModel {
         self.now = now
         self.photos = photos
         day = Day(now, in: calendar)
-        let board = Board.build(snapshot, in: calendar)
+        let board = Board.build(snapshot, me: me, in: calendar)
         let shown = CalendarShared.shown(board.members)
         layout = DayLayout.build(day: day, board: board, shown: shown, me: me, showHidden: false, in: calendar)
         let emails = Set(shown.map(\.email))

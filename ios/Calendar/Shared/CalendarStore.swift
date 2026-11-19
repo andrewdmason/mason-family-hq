@@ -13,8 +13,10 @@ import WidgetKit
 @Observable
 final class CalendarStore {
     private(set) var snapshot = CalendarSnapshot() {
-        didSet { board = Board.build(snapshot) }
+        didSet { board = Board.build(snapshot, me: me) }
     }
+    /// Whose phone it is, by email: their own hides apply.
+    private var me: String?
     /// The calendar worked out from the copy; what the views read.
     private(set) var board = Board()
     /// Members' photos, by email.
@@ -51,8 +53,9 @@ final class CalendarStore {
 
     init(demo: CalendarSnapshot) {
         isDemo = true
+        me = DemoCalendar.me
         snapshot = demo
-        board = Board.build(demo)
+        board = Board.build(demo, me: DemoCalendar.me)
         loaded = true
         // The widget shows the made-up family too, under a made-up member.
         let user = UUID(uuidString: "00000000-0000-0000-0000-00000000DE30")!
@@ -69,6 +72,7 @@ final class CalendarStore {
     func open(for user: UUID, email: String?) {
         guard !isDemo, owner != user else { return }
         owner = user
+        me = email?.lowercased()
         if let email { CalendarShared.who = .init(user: user, email: email.lowercased()) }
         if let data = try? Data(contentsOf: CalendarShared.copy(user)),
            let saved = try? JSONDecoder().decode(CalendarSnapshot.self, from: data) {
@@ -98,6 +102,7 @@ final class CalendarStore {
     func forget() {
         if let owner { try? FileManager.default.removeItem(at: CalendarShared.copy(owner)) }
         owner = nil
+        me = nil
         CalendarShared.who = nil
         reloadWidget()
         followUp?.cancel()
@@ -123,6 +128,7 @@ final class CalendarStore {
             async let going = fetchGoing()
             async let duties = fetchDuties()
             async let logistics = fetchLogistics()
+            async let hides = fetchHides()
             var fresh = CalendarSnapshot()
             fresh.members = try await members
             fresh.sources = try await sources
@@ -130,6 +136,7 @@ final class CalendarStore {
             fresh.going = try await going
             fresh.duties = try await duties
             fresh.logistics = (try? await logistics) ?? snapshot.logistics
+            fresh.hides = (try? await hides) ?? snapshot.hides
             fresh.fetchedAt = Date()
             // A change sent while this was reading: what was read may be from
             // before it. Leave the screen as it is; the read that follows the
@@ -330,6 +337,15 @@ final class CalendarStore {
             .execute()
             .value
         return Logistics(homeAddress: rows.first?.home_address, bufferMinutes: rows.first?.drive_buffer_minutes ?? 5)
+    }
+
+    /// What this member has hidden; the table's rules give them only their own.
+    private func fetchHides() async throws -> [EventHide] {
+        try await db.from("calendar_event_hides")
+            .select(EventHide.columns)
+            .order("created_at")
+            .execute()
+            .value
     }
 
     /// Members' photos, from the private bucket every member can read. Kept
@@ -770,6 +786,83 @@ final class CalendarStore {
                 self.snapshot.events += removed
                 report("“\(event.title)” \(series ? "and its series weren't" : "wasn't") deleted: \(error.localizedDescription)")
             }
+        }
+    }
+
+    // MARK: Hiding
+
+    // A hide is the member's own and needs none of the website's rules or
+    // keys, so it's written straight to Supabase under their sign-in, the one
+    // change that doesn't go through the website.
+
+    /// What the member has hidden, for the list in Settings: every hidden
+    /// series, then the single events still to come.
+    var hides: [EventHide] {
+        let recent = Date().addingTimeInterval(-2 * 86_400)
+        let series = snapshot.hides.filter { $0.scope == .series }
+        let events = snapshot.hides
+            .filter { $0.scope == .event && ($0.start ?? .distantFuture) >= recent }
+            .sorted { ($0.start ?? .distantFuture) < ($1.start ?? .distantFuture) }
+        return series.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending } + events
+    }
+
+    /// Hide an event from this member's view, or with `series` every
+    /// occurrence of the repeating event it's one of. Returns the hide, for
+    /// undoing.
+    @discardableResult
+    func hide(_ event: CalEvent, series: Bool, report: @escaping (String) -> Void) -> EventHide? {
+        let whole = series && CalendarRules.repeats(event)
+        guard !event.isDrive, let target = whole ? event.recurringEventID : CalendarRules.hideTarget(event) else { return nil }
+        let scope: EventHide.Scope = whole ? .series : .event
+        if let already = snapshot.hides.first(where: { $0.scope == scope && $0.target == target }) { return already }
+        let hide = EventHide(
+            scope: scope, target: target, title: event.title, ownerEmail: event.memberEmail,
+            // An all-day event is stored at midnight UTC, the evening before
+            // here: the hide keeps noon on its day, so the list reads right.
+            start: whole ? nil : event.allDay ? CalendarRules.day(of: event).at(minutes: 12 * 60) : event.start,
+            rrule: whole ? event.rrule : nil
+        )
+        snapshot.hides.append(hide)
+        write(revert: { self.snapshot.hides.removeAll { $0.id == hide.id } }, failed: {
+            report("“\(event.title)” wasn't hidden: \($0)")
+        }) {
+            try await self.db.from("calendar_event_hides").insert(hide).execute()
+        }
+        return hide
+    }
+
+    /// Show again what a hide took away.
+    func unhide(_ hides: [EventHide], report: @escaping (String) -> Void) {
+        let ids = Set(hides.map(\.id))
+        let removed = snapshot.hides.filter { ids.contains($0.id) }
+        guard !removed.isEmpty else { return }
+        snapshot.hides.removeAll { ids.contains($0.id) }
+        write(revert: { self.snapshot.hides += removed }, failed: {
+            report("“\(removed[0].title)” is still hidden: \($0)")
+        }) {
+            try await self.db.from("calendar_event_hides")
+                .delete()
+                .in("id", values: ids.map { $0.uuidString.lowercased() })
+                .execute()
+        }
+    }
+
+    /// Send a hide, or the end of one, already shown; put it back if it
+    /// didn't go through.
+    private func write(
+        revert: @escaping () -> Void, failed: @escaping (String) -> Void, _ request: @escaping () async throws -> Void
+    ) {
+        guard !isDemo else { return }
+        sending += 1
+        Task { [weak self] in
+            do {
+                try await request()
+                self?.save()
+            } catch {
+                revert()
+                failed(error is URLError ? "you're offline." : error.localizedDescription)
+            }
+            self?.sending -= 1
         }
     }
 
