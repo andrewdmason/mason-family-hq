@@ -73,6 +73,7 @@ private struct DaySection: View {
     let day: Day
     let items: [EventItem]
     let me: String?
+    @Environment(CalendarStore.self) private var store
 
     private static let weekdays = Calendar.current.weekdaySymbols
     private static let months = Calendar.current.shortMonthSymbols
@@ -87,6 +88,15 @@ private struct DaySection: View {
                 Text("\(Self.months[day.month - 1]) \(day.day)")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                // A day away: its times are the trip's, not the phone's.
+                if let note = store.board.zoneNote(on: day) {
+                    Spacer(minLength: 0)
+                    Text(note)
+                        .font(.system(.caption, design: .rounded).weight(.semibold))
+                        .foregroundStyle(CalendarStyle.accent)
+                        .lineLimit(1)
+                        .accessibilityLabel("Times shown in \(note)")
+                }
             }
             .padding(.horizontal, 18)
             .padding(.top, 18)
@@ -135,9 +145,9 @@ private struct ScheduleRow: View {
                     if item.event.allDay {
                         Text("All day")
                     } else {
-                        Text(CalendarRules.shortClock(item.event.start))
+                        Text(CalendarRules.shortClock(item.event.start, in: item.calendar()))
                             .foregroundStyle(.primary)
-                        if let end = item.event.end { Text(CalendarRules.shortClock(end)) }
+                        if let end = item.event.end { Text(CalendarRules.shortClock(end, in: item.calendar())) }
                     }
                 }
                 .font(.system(.caption, design: .rounded).weight(.medium))

@@ -64,6 +64,120 @@ private func event(
     }
 }
 
+@Suite struct DaysAway {
+    private let home = TimeZone(identifier: "America/Los_Angeles")!
+    private let costaRica = "America/Costa_Rica"
+    private let me = "andrew@x.io"
+
+    /// An event with a place, at Pacific minutes on a day `offset` from the 18th.
+    private func placed(_ n: Int, day offset: Int = 0, from: Int = 9 * 60, in zone: String?, _ member: String = "andrew@x.io") -> CalEvent {
+        let on = day.adding(days: offset, in: pacific)
+        return CalEvent(
+            id: id(n), memberEmail: member, title: "Event \(n)", location: "Somewhere",
+            start: on.at(minutes: from, in: pacific), end: on.at(minutes: from + 60, in: pacific), locationZone: zone
+        )
+    }
+
+    private func board(_ events: [CalEvent]) -> Board {
+        var snapshot = CalendarSnapshot()
+        snapshot.members = [Member(email: me, name: "Andrew", role: .owner, color: "#2563eb")]
+        snapshot.events = events
+        return Board.build(snapshot, me: me, in: pacific)
+    }
+
+    @Test func aDayOfPlacesElsewhereIsAway() {
+        let away = CalendarRules.awayZones([placed(1, in: costaRica), placed(2, from: 11 * 60, in: costaRica)], home: home)
+        #expect(away[day]?.identifier == costaRica)
+        #expect(away.count == 1)
+    }
+
+    @Test func aDayAtHomeIsNot() {
+        #expect(CalendarRules.awayZones([placed(1, in: "America/Los_Angeles"), placed(2, in: nil)], home: home).isEmpty)
+        // Another name for the same clock is still home.
+        #expect(CalendarRules.awayZones([placed(1, in: "US/Pacific")], home: home).isEmpty)
+    }
+
+    @Test func mostOfTheDaysPlacesDecide() {
+        let stray = placed(1, in: "America/New_York")
+        let local = [placed(2, in: "America/Los_Angeles"), placed(3, in: "America/Los_Angeles")]
+        #expect(CalendarRules.awayZones([stray] + local, home: home).isEmpty)
+        // A practice left on the calendar at home doesn't undo a day of tours.
+        let tours = [placed(4, in: costaRica), placed(5, in: costaRica)]
+        #expect(CalendarRules.awayZones(tours + [local[0]], home: home)[day]?.identifier == costaRica)
+    }
+
+    @Test func emptyDaysInsideATripAreAwayToo() {
+        let away = CalendarRules.awayZones([placed(1, in: costaRica), placed(2, day: 3, in: costaRica)], home: home)
+        #expect(away.count == 4)
+        #expect(away[day.adding(days: 2, in: pacific)]?.identifier == costaRica)
+        // Too far apart to be one trip.
+        #expect(CalendarRules.awayZones([placed(1, in: costaRica), placed(2, day: 6, in: costaRica)], home: home).count == 2)
+        // A day at home between them isn't bridged.
+        let between = placed(3, day: 1, in: "America/Los_Angeles")
+        let split = CalendarRules.awayZones([placed(1, in: costaRica), between, placed(2, day: 2, in: costaRica)], home: home)
+        #expect(split[day.adding(days: 1, in: pacific)] == nil)
+    }
+
+    @Test func allDayDrivesAndPlacelessEventsDontCount() {
+        var allDay = placed(1, in: costaRica)
+        allDay.allDay = true
+        var drive = placed(2, in: costaRica)
+        drive.driveSourceEventID = id(9)
+        var cleared = placed(3, in: costaRica)
+        cleared.location = nil
+        #expect(CalendarRules.awayZones([allDay, drive, cleared], home: home).isEmpty)
+    }
+
+    @Test func aDayAwayReadsInItsOwnTime() {
+        // 8:45 Pacific is 10:45 in Costa Rica; dinner has no place but is that day.
+        let tubing = placed(1, from: 8 * 60 + 45, in: costaRica)
+        let dinner = placed(2, from: 17 * 60, in: nil)
+        let built = board([tubing, dinner])
+        let item = built.item(tubing.id)!
+        #expect(item.zone?.identifier == costaRica)
+        #expect(CalendarRules.timeRange(item.event, in: item.calendar(in: pacific)) == "10:45 AM – 11:45 AM")
+        #expect(built.item(dinner.id)?.zone?.identifier == costaRica)
+        #expect(built.zoneNote(on: day, in: pacific) == "Costa Rica time · 2h ahead")
+        let layout = DayLayout.build(day: day, board: built, shown: built.members, me: me, showHidden: false, in: pacific)
+        #expect(layout.columns[0].blocks.map(\.start) == [10 * 60 + 45, 19 * 60])
+    }
+
+    @Test func aLateEventMovesToTheDayItsOnThere() {
+        // 11 PM Pacific on a day away is 1 AM the next day there, also away.
+        let late = placed(1, from: 23 * 60, in: costaRica)
+        let next = placed(2, day: 1, in: costaRica)
+        let built = board([placed(3, in: costaRica), late, next])
+        #expect(built.item(late.id)?.day == day.adding(days: 1, in: pacific))
+    }
+
+    @Test func someoneElsesTripLeavesMyDaysAlone() {
+        let hers = placed(1, in: "America/New_York", "jenny@x.io")
+        var snapshot = CalendarSnapshot()
+        snapshot.members = [
+            Member(email: me, name: "Andrew", role: .owner, color: "#2563eb"),
+            Member(email: "jenny@x.io", name: "Jenny", role: .parent, color: "#db2777"),
+        ]
+        snapshot.events = [hers]
+        #expect(Board.build(snapshot, me: me, in: pacific).away.isEmpty)
+        // Going along makes it mine.
+        snapshot.going[hers.id] = [me]
+        #expect(Board.build(snapshot, me: me, in: pacific).away[day]?.identifier == "America/New_York")
+    }
+
+    @Test func theNoteSaysHowFar() {
+        let at = day.at(minutes: 12 * 60, in: pacific)
+        #expect(CalendarRules.zoneNote(TimeZone(identifier: "America/New_York")!, home: home, at: at) == "New York time · 3h ahead")
+        #expect(CalendarRules.zoneNote(TimeZone(identifier: "Pacific/Honolulu")!, home: home, at: at) == "Honolulu time · 2h behind")
+        #expect(CalendarRules.zoneNote(TimeZone(identifier: "Asia/Kolkata")!, home: home, at: at) == "Kolkata time · 13h 30m ahead")
+    }
+
+    @Test func theZoneComesFromTheTable() throws {
+        let row = #"{"id":"00000000-0000-0000-0000-000000000001","member_email":"a@x.io","title":"Tubing","start_time":"2026-11-18T16:45:00+00:00","source_type":"google","location_time_zone":"America/Costa_Rica"}"#
+        #expect(try JSONDecoder().decode(CalEvent.self, from: Data(row.utf8)).locationZone == costaRica)
+        #expect(CalEvent.columns.contains("location_time_zone"))
+    }
+}
+
 @Suite struct SharedEvents {
     @Test func rowsOfOneGoogleEventCollapse() {
         let mine = event(1, "jenny@x.io") { $0.externalID = "google:abc"; $0.organizerEmail = "jenny@x.io" }

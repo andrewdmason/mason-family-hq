@@ -19,7 +19,8 @@ struct TodayWidgetModel {
     /// The first hour on the axis.
     var firstHour: Int
 
-    var nowMinutes: Int { CalendarRules.minutes(now) }
+    /// Now on the axis, which on a day away is in the trip's time.
+    var nowMinutes: Int
 
     /// Whether anything is on in the hours in view.
     var isQuiet: Bool {
@@ -37,7 +38,8 @@ struct TodayWidgetModel {
         let emails = Set(shown.map(\.email))
         allDay = board.events(on: day, showHidden: false).filter { $0.event.allDay && emails.contains($0.event.memberEmail) }
         members = Dictionary(board.members.map { ($0.email, $0) }, uniquingKeysWith: { a, _ in a })
-        firstHour = min(max(CalendarRules.minutes(now, in: calendar) / 60 - 1, 0), 24 - Self.hoursShown)
+        nowMinutes = CalendarRules.minutes(now, in: board.calendar(on: day, in: calendar))
+        firstHour = min(max(nowMinutes / 60 - 1, 0), 24 - Self.hoursShown)
     }
 }
 
@@ -245,7 +247,7 @@ struct TodayWidgetView: View {
                 }
             }
             if height >= 30 {
-                Text(CalendarRules.timeRange(item.event))
+                Text(CalendarRules.timeRange(item.event, in: item.calendar()))
                     .font(.system(size: 9.5))
                     .opacity(0.75)
                     .lineLimit(1)

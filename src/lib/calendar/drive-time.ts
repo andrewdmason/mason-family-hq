@@ -6,6 +6,7 @@
 // the drive blocks reconcile (drive-events.ts), so a moved/relocated event gets
 // a corrected block in the same tick.
 
+import tzLookup from "@photostructure/tz-lookup";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { geocodeAddress, getDriveTime } from "./geocoding";
 import { isHomeLocation } from "./calendar-utils";
@@ -106,7 +107,7 @@ export async function refreshDriveTimes(
   const { data: events } = await supabase
     .from("calendar_events")
     .select(
-      "id, location, location_lat, location_lng, geocoded_location, drive_minutes, drive_calculated_at",
+      "id, location, location_lat, location_lng, geocoded_location, location_time_zone, drive_minutes, drive_calculated_at",
     )
     .gt("start_time", now)
     .eq("is_canceled", false)
@@ -198,12 +199,27 @@ export async function refreshDriveTimes(
       .update({
         drive_minutes: driveMinutes,
         drive_calculated_at: new Date().toISOString(),
+        // Written here, not with the geocode, so events geocoded before the
+        // column existed pick it up on their next pass.
+        location_time_zone:
+          zoneAt(eventLat, eventLng) ??
+          (event.location_time_zone as string | null),
       })
       .eq("id", event.id);
     if (driveMinutes != null) calculated += 1;
   }
 
   return { calculated };
+}
+
+/** The IANA timezone at a point ("America/Costa_Rica"), from an offline
+ * lookup — no API call. Null for coordinates it can't place. */
+function zoneAt(lat: number, lng: number): string | null {
+  try {
+    return tzLookup(lat, lng);
+  } catch {
+    return null;
+  }
 }
 
 function delay(ms: number): Promise<void> {

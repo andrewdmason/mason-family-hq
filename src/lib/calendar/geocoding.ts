@@ -57,7 +57,8 @@ export async function suggestPlaces(
     },
     body: JSON.stringify({
       input: query,
-      includedRegionCodes: ["us"],
+      // No country limit: trips abroad need their places too ("SJO Airport").
+      // The home bias below still puts nearby matches first.
       ...(sessionToken ? { sessionToken } : {}),
       ...(nearLat != null && nearLng != null
         ? {

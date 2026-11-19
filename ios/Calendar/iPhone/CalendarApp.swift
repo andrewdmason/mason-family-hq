@@ -223,7 +223,7 @@ struct PeekCard: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
-                    Text(CalendarRules.timeRange(item.event))
+                    Text(CalendarRules.timeRange(item.event, in: item.calendar()))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

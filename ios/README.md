@@ -237,6 +237,13 @@ URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
   (tap for a peek card, tap that for the event), or thin blocks if Settings
   says so. An event someone is only going along to is a fainter line with a
   small ring in their column, so one event doesn't read as two. Long-press empty grid to place a new event in that person's column.
+- A trip is drawn in its own time. A day where most of the signed-in member's
+  placed events are in another timezone (`calendar_events.location_time_zone`,
+  filled by the website's drive-time pass from the geocoded coordinates) is a
+  day away: its grid, cards, event sheet and time wheels are in that zone, under
+  a "Costa Rica time · 2h ahead" note. Empty days inside a trip count too. Once
+  the phone itself is in that zone there's nothing to convert and the note goes.
+  The rule is `CalendarRules.awayZones`; `--demo` has a trip 12 days out.
 - The rules are the website's, ported in `Calendar/Shared/CalendarRules.swift`
   and `CalendarBoard.swift` (which day an event is on, which rows are one
   shared event, what's hidden, lanes, conflicts, duty chips, the calendar

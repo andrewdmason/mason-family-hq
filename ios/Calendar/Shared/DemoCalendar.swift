@@ -117,6 +117,17 @@ enum DemoCalendar {
         _ = add(andrew, "Flight to San José (UA 2312)", day: 1, h(11), h(17, 20), at: "San Francisco SFO") {
             $0.externalID = "gmail:demo"
         }
+        // A trip: days whose places are two hours ahead, drawn in their own
+        // time. The times here are the phone's, so tubing reads 10:45 there.
+        for (offset, title, from, to, place) in [
+            (12, "River tubing, Club Rio", h(8, 45), h(10, 15), "Club Rio, The Springs Resort & Spa"),
+            (12, "Rock wall, Club Rio", h(11), h(12), "Club Rio, The Springs Resort & Spa"),
+            (14, "Hanging bridges tour", h(7), h(9, 30), "Místico Arenal Hanging Bridges Park"),
+        ] {
+            let tour = add(andrew, title, day: offset, from, to, at: place) { $0.locationZone = "America/Costa_Rica" }
+            snapshot.going[tour] = [jenny, sebastian, oscar]
+        }
+        _ = add(jenny, "Dinner at the lodge", day: 13, h(16, 30), h(18))
         _ = add(oscar, "Minimum day", day: 0, 0, nil, source: school, allDay: true)
         _ = add(jenny, "Grandma visiting", day: 2, 0, nil, allDay: true)
         _ = add(sebastian, "Science fair", day: 5, 0, nil, allDay: true)
