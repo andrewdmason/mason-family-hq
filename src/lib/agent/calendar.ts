@@ -150,6 +150,9 @@ export function serializeEvent(ev: CalendarEvent, data: AgentCalendarData) {
     end_time: ev.end_time,
     all_day: ev.all_day,
     location: ev.location,
+    // The call's link (Zoom, Meet, Teams…) when there is one, wherever it was
+    // written; an event with one and no place isn't in person.
+    join_url: ev.join_url,
     description: ev.description,
     source_type: ev.source_type,
     calendar: ev.calendar_source_id

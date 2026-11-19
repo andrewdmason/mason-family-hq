@@ -733,6 +733,64 @@ private func event(
         #expect(CalendarRules.recentPlaces([at(1, 0, "A"), at(2, 1, "B")], now: now, limit: 1) == ["A"])
     }
 
+    // The same cases as the website's scripts/verify-calendar-place.mts.
+    @Test func aLinkInTheLocationIsNotThePlace() {
+        #expect(CalendarRules.placeText("Crowden School, 1475 Rose St") == "Crowden School, 1475 Rose St")
+        #expect(CalendarRules.placeText("https://us02web.zoom.us/j/8123?pwd=abc") == nil)
+        #expect(CalendarRules.placeText("Click to join meeting: https://book.example.com/m/42") == nil)
+        #expect(CalendarRules.placeText("Zoom Meeting - https://zoom.us/j/1") == nil)
+        #expect(CalendarRules.placeText("Room 4, Crowden School — https://zoom.us/j/1") == "Room 4, Crowden School")
+        #expect(CalendarRules.placeText("Room 4, zoom.us/j/123") == "Room 4")
+        #expect(CalendarRules.placeText("St. Mary's Hall\n2501 Grove St") == "St. Mary's Hall\n2501 Grove St")
+        #expect(CalendarRules.placeText("  ") == nil)
+        #expect(CalendarRules.placeText(nil) == nil)
+
+        #expect(CalendarRules.isPlace("Field 3"))
+        #expect(CalendarRules.isPlace("Room 4 https://zoom.us/j/1"))
+        for nowhere in ["TBD", "n/a", "Zoom", "Online", "Phone call", "https://meet.google.com/abc-defg-hij"] {
+            #expect(!CalendarRules.isPlace(nowhere), "\(nowhere)")
+        }
+        #expect(!CalendarRules.isPlace(nil))
+    }
+
+    @Test func anEventOnACallNeedsNoDrive() {
+        let zoom = "https://zoom.us/j/1"
+        #expect(CalendarRules.isRemote(location: zoom, joinURL: zoom))
+        // The link was in the notes.
+        #expect(CalendarRules.isRemote(location: nil, joinURL: zoom))
+        #expect(CalendarRules.isRemote(location: "TBD", joinURL: zoom))
+        #expect(CalendarRules.isRemote(location: "Zoom", joinURL: nil))
+        // In person, with a remote option.
+        #expect(!CalendarRules.isRemote(location: "Crowden School", joinURL: zoom))
+        #expect(!CalendarRules.isRemote(location: "TBD", joinURL: nil))
+        #expect(!CalendarRules.isRemote(location: nil, joinURL: nil))
+    }
+
+    @Test func aJoinLinkIsCalledByItsService() {
+        #expect(CalendarRules.joinName("https://us02web.zoom.us/j/8123") == "Zoom")
+        #expect(CalendarRules.joinName("https://meet.google.com/abc-defg-hij") == "Google Meet")
+        #expect(CalendarRules.joinName("https://teams.microsoft.com/l/meetup-join/19%3a") == "Microsoft Teams")
+        #expect(CalendarRules.joinName("https://teams.live.com/meet/9334") == "Microsoft Teams")
+        #expect(CalendarRules.joinName("https://acme.webex.com/meet/bob") == "Webex")
+        #expect(CalendarRules.joinName("https://facetime.apple.com/join#v=1") == "FaceTime")
+        #expect(CalendarRules.joinName("https://www.book.example.com/m/42") == "book.example.com")
+        #expect(CalendarRules.joinName("https://notzoom.us/j/1") == "notzoom.us")
+    }
+
+    @Test func aCompactViewSaysThePlaceOrTheCall() {
+        let zoom = "https://zoom.us/j/1"
+        func line(_ location: String?, _ joinURL: String?) -> String? {
+            CalendarRules.whereLine(event(1) { $0.location = location; $0.joinURL = joinURL }).map { "\($0.call ? "call" : "place"): \($0.text)" }
+        }
+        #expect(line("Field 3", nil) == "place: Field 3")
+        #expect(line(zoom, zoom) == "call: Zoom")
+        #expect(line("Room 4 " + zoom, zoom) == "place: Room 4")
+        #expect(line(nil, "https://meet.google.com/abc") == "call: Google Meet")
+        #expect(line("TBD", nil) == "place: TBD")
+        #expect(line("Zoom", nil) == "call: Zoom")
+        #expect(line(nil, nil) == nil)
+    }
+
     @Test func typingNarrowsThem() {
         let places = ["Crowden School, 1475 Rose St", "Temescal Pool", "Park Day School"]
         #expect(CalendarRules.matching(places, " school ") == ["Crowden School, 1475 Rose St", "Park Day School"])

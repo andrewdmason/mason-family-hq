@@ -1,8 +1,9 @@
 "use client";
 
-import { AlertTriangle, MapPin } from "lucide-react";
+import { AlertTriangle, MapPin, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatTimeRange, mutedColor } from "@/lib/calendar/calendar-utils";
+import { whereLine } from "@/lib/calendar/place";
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import type { CalendarEvent, TeamsnapRsvp } from "@/lib/calendar/types";
 
@@ -56,6 +57,28 @@ export interface EventDisplay {
  * as the parent's initial in their color; N/A consumes no ink at all; unset is
  * a hollow amber dot — the only state that asks for attention — and only when
  * the event has a location (a proxy for "someone has to drive"). */
+/** Where an event is, on one line: its place under a pin, or the call it's on
+ * (Zoom, Google Meet…) under a camera. Never a bare link. */
+export function WhereLine({
+  event,
+  className,
+  iconClassName,
+}: {
+  event: Pick<CalendarEvent, "location" | "join_url">;
+  className: string;
+  iconClassName: string;
+}) {
+  const where = whereLine(event);
+  if (!where) return null;
+  const Icon = where.call ? Video : MapPin;
+  return (
+    <span className={className}>
+      <Icon className={iconClassName} />
+      {where.text}
+    </span>
+  );
+}
+
 export function DutyGlyphs({
   duties,
   hasLocation,
@@ -220,11 +243,12 @@ export function EventRow({
             {formatTimeRange(event.start_time, event.end_time, event.all_day)}
           </span>
           {sourceLabel && <span className="truncate">· {sourceLabel}</span>}
-          {showLocation && event.location && (
-            <span className="inline-flex items-center gap-0.5 truncate">
-              <MapPin className="h-3 w-3" />
-              {event.location}
-            </span>
+          {showLocation && (
+            <WhereLine
+              event={event}
+              className="inline-flex items-center gap-0.5 truncate"
+              iconClassName="h-3 w-3"
+            />
           )}
           {duties && (
             <DutyGlyphs duties={duties} hasLocation={!!event.location} />

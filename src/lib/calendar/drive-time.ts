@@ -10,6 +10,7 @@ import tzLookup from "@photostructure/tz-lookup";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { geocodeAddress, getDriveTime } from "./geocoding";
 import { isHomeLocation } from "./calendar-utils";
+import { isPlace, placeText } from "./place";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -24,7 +25,6 @@ const STALE_HOURS = 24;
 // locations per tick).
 const NOMINATIM_DELAY_MS = 1100;
 const MAX_GEOCODES_PER_RUN = 20;
-const SKIP_LOCATIONS = new Set(["tbd", "tba", "n/a", "unknown", "home"]);
 // A bare venue name ("Albany High") can geocode to a same-named place across
 // the country — the home bias prefers local but doesn't enforce it. Any
 // drive past this is almost certainly a mis-geocode for this family's events,
@@ -108,12 +108,6 @@ export function driveIsDue(
   );
 }
 
-/** A location that is a link ("Click to join meeting: https://…"), not a
- * place: nothing to geocode or drive to. */
-function isLink(location: string): boolean {
-  return /https?:\/\//i.test(location);
-}
-
 /** Refresh the drive cache for upcoming located events: geocode locations and
  * compute home→event drive minutes, with per-run dedup caches and staleness
  * stamps (failures stamp drive_calculated_at too, so they retry after 24h, not
@@ -175,8 +169,8 @@ export async function refreshDriveTimes(
       event.geocoded_location === location;
 
     if (
-      SKIP_LOCATIONS.has(locKey) ||
-      isLink(location) ||
+      // A call's link, "Zoom", "TBD": not a place (place.ts).
+      !isPlace(location) ||
       isHomeLocation(location, settings.homeAddress)
     ) {
       // Nowhere to drive to. An earlier location's drive time goes with it.
@@ -202,7 +196,13 @@ export async function refreshDriveTimes(
       if (geo === undefined) {
         if (geocodes >= MAX_GEOCODES_PER_RUN) continue; // next tick
         await delay(NOMINATIM_DELAY_MS);
-        geo = await geocodeAddress(location, homeLat, homeLng);
+        // The place alone: a link written after it ("Room 4, Crowden School
+        // https://zoom.us/…") isn't part of the address.
+        geo = await geocodeAddress(
+          placeText(location) ?? location,
+          homeLat,
+          homeLng,
+        );
         geoCache.set(locKey, geo);
         geocodes += 1;
       }

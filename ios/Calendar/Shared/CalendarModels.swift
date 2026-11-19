@@ -57,6 +57,10 @@ struct CalEvent: Identifiable, Hashable, Codable, Sendable {
     /// The timezone its place is in ("America/Costa_Rica"), once the website
     /// has geocoded the location.
     var locationZone: String?
+    /// The link to join by when the event is on a call (Zoom, Meet, Teams…),
+    /// found by the database wherever it was written: Google's conference
+    /// field, the location or the notes. Only ever read.
+    var joinURL: String?
 
     var isDrive: Bool { driveSourceEventID != nil }
 
@@ -68,7 +72,7 @@ struct CalEvent: Identifiable, Hashable, Codable, Sendable {
         teamsnapRsvp: TeamsnapRsvp? = nil, rrule: String? = nil, recurringEventID: String? = nil,
         guests: [GoogleGuest]? = nil, dismissed: Bool = false, ownerNotGoing: Bool = false,
         driveSourceEventID: UUID? = nil, driveDuty: DutyKind? = nil, driveMinutes: Int? = nil,
-        locationZone: String? = nil
+        locationZone: String? = nil, joinURL: String? = nil
     ) {
         self.id = id
         self.memberEmail = memberEmail
@@ -96,10 +100,11 @@ struct CalEvent: Identifiable, Hashable, Codable, Sendable {
         self.driveDuty = driveDuty
         self.driveMinutes = driveMinutes
         self.locationZone = locationZone
+        self.joinURL = joinURL
     }
 
     static let columns =
-        "id, member_email, calendar_source_id, title, description, location, start_time, end_time, all_day, source_type, external_id, google_event_id, organizer_email, teamsnap_opponent, teamsnap_arrival_time, teamsnap_is_game, teamsnap_rsvp, rrule, google_recurring_event_id, google_attendees, dismissed, owner_not_going, drive_source_event_id, drive_duty, drive_minutes, location_time_zone"
+        "id, member_email, calendar_source_id, title, description, location, start_time, end_time, all_day, source_type, external_id, google_event_id, organizer_email, teamsnap_opponent, teamsnap_arrival_time, teamsnap_is_game, teamsnap_rsvp, rrule, google_recurring_event_id, google_attendees, dismissed, owner_not_going, drive_source_event_id, drive_duty, drive_minutes, location_time_zone, join_url"
 
     enum CodingKeys: String, CodingKey {
         case id, title, location, rrule, dismissed
@@ -124,6 +129,7 @@ struct CalEvent: Identifiable, Hashable, Codable, Sendable {
         case driveDuty = "drive_duty"
         case driveMinutes = "drive_minutes"
         case locationZone = "location_time_zone"
+        case joinURL = "join_url"
     }
 
     init(from decoder: Decoder) throws {
@@ -154,6 +160,7 @@ struct CalEvent: Identifiable, Hashable, Codable, Sendable {
         driveDuty = try c.decodeIfPresent(DutyKind.self, forKey: .driveDuty)
         driveMinutes = try c.decodeIfPresent(Int.self, forKey: .driveMinutes)
         locationZone = try c.decodeIfPresent(String.self, forKey: .locationZone)
+        joinURL = try c.decodeIfPresent(String.self, forKey: .joinURL)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -184,6 +191,7 @@ struct CalEvent: Identifiable, Hashable, Codable, Sendable {
         try c.encodeIfPresent(driveDuty, forKey: .driveDuty)
         try c.encodeIfPresent(driveMinutes, forKey: .driveMinutes)
         try c.encodeIfPresent(locationZone, forKey: .locationZone)
+        try c.encodeIfPresent(joinURL, forKey: .joinURL)
     }
 }
 

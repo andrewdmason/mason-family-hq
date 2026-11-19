@@ -8,6 +8,7 @@ import {
   listGoogleEvents,
   googleTimesToEvent,
   FAMILYHQ_MARKER,
+  conferenceUrl,
   type GoogleCredential,
   type GoogleEvent,
 } from "./google";
@@ -158,6 +159,7 @@ export async function syncGoogleSource(
       title: ev.summary ?? "Event",
       description: ev.description ?? null,
       location: ev.location ?? null,
+      conference_url: conferenceUrl(ev),
       start_time,
       end_time,
       all_day,

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, Flag, MapPin } from "lucide-react";
+import { AlertTriangle, Flag } from "lucide-react";
 import {
   eventDayKey,
   formatTimeRange,
@@ -23,7 +23,7 @@ import {
   wash,
   type Placed,
 } from "@/lib/calendar/grid-layout";
-import { DutyGlyphs, type EventDisplay } from "./event-card";
+import { DutyGlyphs, WhereLine, type EventDisplay } from "./event-card";
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import { cn } from "@/lib/utils";
 
@@ -422,12 +422,11 @@ export function WeekView({
         <p className="mt-0.5 text-[11px] italic tabular-nums text-muted-foreground">
           {formatTimeRange(e.start_time, e.end_time, e.all_day)}
         </p>
-        {e.location && (
-          <p className="mt-0.5 flex items-center gap-0.5 truncate text-[11px] text-muted-foreground">
-            <MapPin className="h-2.5 w-2.5 shrink-0" />
-            {e.location}
-          </p>
-        )}
+        <WhereLine
+          event={e}
+          className="mt-0.5 flex items-center gap-0.5 truncate text-[11px] text-muted-foreground"
+          iconClassName="h-2.5 w-2.5 shrink-0"
+        />
         {(d.duties || d.attendees.length > 0) && (
           <p className="mt-1 flex items-center gap-1.5">
             {d.duties && (

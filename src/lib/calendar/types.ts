@@ -22,6 +22,10 @@ export interface CalendarEvent {
   title: string;
   description: string | null;
   location: string | null;
+  // The link to join by when the event is on a call (Zoom, Meet, Teams…),
+  // found by the database wherever it was written: Google's conference field,
+  // the location or the description (migration 00221). Read-only.
+  join_url: string | null;
   start_time: string;
   end_time: string | null;
   all_day: boolean;

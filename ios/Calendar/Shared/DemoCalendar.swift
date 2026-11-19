@@ -128,6 +128,10 @@ enum DemoCalendar {
             snapshot.going[tour] = [jenny, sebastian, oscar]
         }
         _ = add(jenny, "Dinner at the lodge", day: 13, h(16, 30), h(18))
+        // A kid's event on a call: the link, written in the location, is a
+        // row to join by, not a place, and there's no drive to arrange.
+        let zoom = "https://us02web.zoom.us/j/81234567890?pwd=demo"
+        _ = add(sebastian, "Math tutoring", day: 0, h(17), h(17, 45), at: "Join Zoom Meeting: \(zoom)") { $0.joinURL = zoom }
         _ = add(oscar, "Minimum day", day: 0, 0, nil, source: school, allDay: true)
         _ = add(jenny, "Grandma visiting", day: 2, 0, nil, allDay: true)
         _ = add(sebastian, "Science fair", day: 5, 0, nil, allDay: true)
