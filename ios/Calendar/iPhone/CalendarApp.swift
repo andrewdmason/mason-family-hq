@@ -99,6 +99,10 @@ struct CalendarScreen: View {
                     PeekCard(item: peek)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
+                if let hide = nav.justHidden {
+                    HiddenBanner(hide: hide)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
                 if let problem = nav.problem {
                     ProblemBanner(message: problem)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -112,6 +116,7 @@ struct CalendarScreen: View {
         .environment(nav)
         .animation(.snappy, value: nav.peek)
         .animation(.snappy, value: nav.problem)
+        .animation(.snappy, value: nav.justHidden)
         .sheet(item: $nav.opened) { item in
             EventSheet(itemID: item.id, me: me)
                 .environment(nav)
@@ -142,6 +147,14 @@ struct CalendarScreen: View {
             Task {
                 try? await Task.sleep(for: .seconds(4))
                 if nav.problem == problem { nav.problem = nil }
+            }
+        }
+        .onChange(of: nav.justHidden) { _, hide in
+            // The Undo stays a few seconds; Settings has it after that.
+            guard let hide else { return }
+            Task {
+                try? await Task.sleep(for: .seconds(6))
+                if nav.justHidden == hide { nav.justHidden = nil }
             }
         }
         .sensoryFeedback(.selection, trigger: nav.day)
@@ -228,6 +241,7 @@ struct PeekCard: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
+        .hideMenu(item, cornerRadius: 22)
         .offset(y: drag)
         // Ahead of the button's own tap, so a swipe that starts on the card
         // is a swipe: up opens the event, down puts the card away.

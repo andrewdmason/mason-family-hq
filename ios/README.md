@@ -262,6 +262,16 @@ URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
   events (shown, not made), and the "pending" drive blocks the website draws
   between a duty tap and the server catching up; the app reads again a few
   seconds after a change, which is when the real ones arrive.
+- Touch and hold an event to hide it from your own view (`iPhone/Hiding.swift`):
+  nobody else's calendar changes. A Google repeating event offers every
+  occurrence or just this one; anything else is hidden one at a time. A hidden
+  series still shows on a day you're going or driving, and one on your own
+  calendar can only be hidden an occurrence at a time; "just this one" always
+  holds. Drive blocks go with their event. A note with Undo follows, and
+  Settings › Hidden events lists them with a way back. Hides are the member's
+  own rows in `calendar_event_hides`, written straight to Supabase (the one
+  change that doesn't go through the website), kept in the local copy so the
+  widget leaves them out too. The website and the Mac don't read them yet.
 - Settings are this phone's: who shows and in what order, pins or blocks, the
   view it opens on, hidden events. Calendar setup stays on the website.
 - Released like Tuttles: `scripts/release.sh Calendar --adhoc-only` publishes

@@ -22,7 +22,13 @@ struct EventItem: Identifiable, Hashable, Sendable {
     /// name; whose it is, the sheet already shows.
     var sourceName: String?
     var conflict = false
+    /// Out of sight unless Settings asks for hidden events: declined or not
+    /// going, or hidden by the signed-in member themselves.
     var hidden = false
+    /// Hidden by the signed-in member (a long-press), which they can undo.
+    var hiddenByMe = false
+    /// On the signed-in member's calendar, or they're going or driving.
+    var involved = false
     /// Drop-off and pick-up, when the event is one that needs driving to.
     var duties: [DutyKind: DutyChip]?
     var isTeamsnap = false
@@ -50,6 +56,8 @@ struct Board: Sendable {
     /// Every row as read, for following a drive block back to its event.
     var rows: [UUID: CalEvent] = [:]
     var logistics = Logistics()
+    /// What the signed-in member has hidden from their own view.
+    var hides: [EventHide] = []
 
     func member(_ email: String?) -> Member? {
         guard let email else { return nil }
@@ -101,10 +109,26 @@ struct Board: Sendable {
         event.sourceType == .teamsnap && !event.isDrive
     }
 
-    static func build(_ snapshot: CalendarSnapshot, in calendar: Calendar = .current) -> Board {
+    /// Whether a long-press can hide it: not a drive (those go with their
+    /// event), and not something already out of sight for another reason.
+    func canHide(_ item: EventItem) -> Bool {
+        !item.event.isDrive && !item.hidden
+    }
+
+    /// Whether hiding can offer every occurrence as well as this one: a real
+    /// repeating series, and not one the member is part of, where a hidden
+    /// series would show anyway.
+    func canHideSeries(_ item: EventItem) -> Bool {
+        canHide(item) && CalendarRules.repeats(item.event) && !item.involved
+    }
+
+    /// `me` is whose phone it is: their own hides apply, and give way where
+    /// they're involved.
+    static func build(_ snapshot: CalendarSnapshot, me: String? = nil, in calendar: Calendar = .current) -> Board {
         var board = Board()
         board.members = snapshot.members
         board.logistics = snapshot.logistics
+        board.hides = snapshot.hides
         board.sources = Dictionary(snapshot.sources.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         board.rows = Dictionary(snapshot.events.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
@@ -121,7 +145,12 @@ struct Board: Sendable {
         func hidden(_ e: CalEvent) -> Bool {
             CalendarRules.isHidden(e, source: e.sourceID.flatMap { board.sources[$0] })
         }
+        // An event the member has only hidden from themselves is still on,
+        // so it still counts as a conflict for whoever's it is.
         let conflicts = CalendarRules.conflicts(logical.events.filter { !hidden($0) })
+        let mine = CalendarRules.hiddenByMember(
+            logical, hides: snapshot.hides, me: me, duties: snapshot.duties, rows: board.rows
+        )
 
         func chip(_ state: DutyState?) -> DutyChip {
             guard let state else { return .unset }
@@ -156,7 +185,11 @@ struct Board: Sendable {
                 label: CalendarRules.calendarLabel(e, source: source, activeSourcesOfOwner: activeSources[e.memberEmail] ?? 0),
                 sourceName: source?.name,
                 conflict: conflicts.contains(e.id),
-                hidden: isHidden,
+                hidden: isHidden || mine.contains(e.id),
+                hiddenByMe: mine.contains(e.id),
+                involved: CalendarRules.isInvolved(
+                    me, in: e, attendees: logical.attendees[e.id] ?? [], duties: snapshot.duties[e.id]
+                ),
                 duties: duties,
                 isTeamsnap: e.sourceType == .teamsnap
             )

@@ -206,6 +206,68 @@ enum CalendarRules {
         return source?.sourceType == .teamsnap && source?.teamsnapPlayerID != nil && event.teamsnapRsvp == .notGoing
     }
 
+    // MARK: Hidden by the member themselves
+
+    // Not the website's: only the phone has this, for now. A member hides an
+    // event, or a whole repeating series, from their own view (long-press).
+
+    /// What a hide of this one event is kept under: its Google id when it has
+    /// one, so every member's copy of a shared event is the one event, else
+    /// its row's id.
+    static func hideTarget(_ event: CalEvent) -> String {
+        googleID(event) ?? event.id.uuidString.lowercased()
+    }
+
+    /// Whether the event is `me`'s business: it's on their calendar, they're
+    /// going along, or they're doing its drop-off or pick-up.
+    static func isInvolved(_ me: String?, in event: CalEvent, attendees: [String], duties: [DutyKind: DutyState]?) -> Bool {
+        guard let me else { return false }
+        return event.memberEmail == me || attendees.contains(me)
+            || duties?.values.contains { $0.assignee == me } == true
+    }
+
+    /// The hides that cover this event: of it alone, and of its series.
+    static func hides(covering event: CalEvent, in hides: [EventHide]) -> [EventHide] {
+        let target = hideTarget(event)
+        let series = repeats(event) ? event.recurringEventID : nil
+        return hides.filter {
+            switch $0.scope {
+            case .event: $0.target == target
+            case .series: $0.target == series
+            }
+        }
+    }
+
+    /// The logical events `me` has hidden. Hiding one event always hides it.
+    /// A hidden series gives way, occurrence by occurrence, wherever `me` is
+    /// involved, so a pick-up they've been given can't go unseen. A drive
+    /// block is hidden with the event it's for.
+    static func hiddenByMember(
+        _ logical: LogicalEvents, hides: [EventHide], me: String?, duties: [UUID: [DutyKind: DutyState]],
+        rows: [UUID: CalEvent]
+    ) -> Set<UUID> {
+        guard !hides.isEmpty else { return [] }
+        var hidden: Set<UUID> = []
+        var byTarget: [String: UUID] = [:]
+        for event in logical.events where !event.isDrive {
+            byTarget[hideTarget(event)] = event.id
+            let covering = Self.hides(covering: event, in: hides)
+            if covering.contains(where: { $0.scope == .event }) {
+                hidden.insert(event.id)
+            } else if !covering.isEmpty,
+                      !isInvolved(me, in: event, attendees: logical.attendees[event.id] ?? [], duties: duties[event.id]) {
+                hidden.insert(event.id)
+            }
+        }
+        for drive in logical.events {
+            guard let source = drive.driveSourceEventID.flatMap({ rows[$0] }),
+                  let event = byTarget[hideTarget(source)], hidden.contains(event)
+            else { continue }
+            hidden.insert(drive.id)
+        }
+        return hidden
+    }
+
     // MARK: Blocks on the axis
 
     /// Where a block begins: a TeamSnap arrival time earlier than the start
