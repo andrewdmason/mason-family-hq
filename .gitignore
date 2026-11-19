@@ -62,3 +62,6 @@ next-env.d.ts
 
 # Baseball importer capture cache + browser profile (local, never committed)
 scripts/baseball/.cache/
+
+# Local backups written by scripts/reconvert-book.mts (contain book text)
+.reconvert-backup/
