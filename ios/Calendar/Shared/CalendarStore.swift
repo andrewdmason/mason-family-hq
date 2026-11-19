@@ -7,7 +7,7 @@ import Supabase
 /// it's there with no signal), reads the rest straight from Supabase under the
 /// member's sign-in, and sends every change through the website
 /// (`CalendarAPI`), showing it at once and putting it back if the website
-/// refuses. Changes need a connection; nothing queues.
+/// refuses or can't be reached. Nothing queues across launches.
 @MainActor
 @Observable
 final class CalendarStore {
@@ -28,6 +28,15 @@ final class CalendarStore {
 
     private var owner: UUID?
     private var followUp: Task<Void, Never>?
+    /// Changes on their way to the website. Reading waits for them, so a
+    /// read that left before a change landed can't put the old state back.
+    private var sending = 0
+    /// New events shown before the website has made them, under an id made
+    /// up here; each one's real id once it has one, and the request that's
+    /// fetching it.
+    private var provisional: [UUID: CalEvent] = [:]
+    private var serverIDs: [UUID: UUID] = [:]
+    private var creating: [UUID: Task<UUID?, Never>] = [:]
     private var db: SupabaseClient { Session.shared.client }
 
     static var isDemoLaunch: Bool { CommandLine.arguments.contains("--demo") }
@@ -87,6 +96,9 @@ final class CalendarStore {
         if let owner { try? FileManager.default.removeItem(at: Self.file(owner)) }
         owner = nil
         followUp?.cancel()
+        provisional = [:]
+        serverIDs = [:]
+        creating = [:]
         snapshot = CalendarSnapshot()
         photos = [:]
         loaded = false
@@ -96,7 +108,7 @@ final class CalendarStore {
 
     /// Read the calendar again. Keeps the copy when there's no signal.
     func refresh() async {
-        guard !isDemo, Session.shared.isSignedIn, !refreshing else { return }
+        guard !isDemo, Session.shared.isSignedIn, !refreshing, sending == 0 else { return }
         refreshing = true
         defer { refreshing = false }
         do {
@@ -114,6 +126,21 @@ final class CalendarStore {
             fresh.duties = try await duties
             fresh.logistics = (try? await logistics) ?? snapshot.logistics
             fresh.fetchedAt = Date()
+            // A change sent while this was reading: what was read may be from
+            // before it. Leave the screen as it is; the read that follows the
+            // change brings it all in.
+            guard sending == 0 else { return }
+            // A new event stays on screen under its made-up id until the
+            // website's own row for it has been read.
+            let read = Set(fresh.events.map(\.id))
+            for (id, event) in provisional {
+                if let real = serverIDs[id], read.contains(real) {
+                    provisional[id] = nil
+                    serverIDs[id] = nil
+                } else {
+                    fresh.events.append(event)
+                }
+            }
             snapshot = fresh
             offline = false
             loaded = true
@@ -329,7 +356,7 @@ final class CalendarStore {
         if going { list.append(member) }
         snapshot.going[event.id] = list
         return try await send(revert: { self.snapshot.going[event.id] = before }) {
-            try await CalendarAPI.post("going", ["id": Self.id(event), "memberEmail": member, "going": going])
+            try await CalendarAPI.post("going", ["id": await self.id(event), "memberEmail": member, "going": going])
         }
     }
 
@@ -338,7 +365,7 @@ final class CalendarStore {
     func setOwnerGoing(_ event: CalEvent, going: Bool) async throws -> String? {
         mutate(event.id) { $0.ownerNotGoing = !going }
         return try await send(revert: { self.mutate(event.id) { $0.ownerNotGoing = event.ownerNotGoing } }) {
-            try await CalendarAPI.post("owner-going", ["id": Self.id(event), "going": going])
+            try await CalendarAPI.post("owner-going", ["id": await self.id(event), "going": going])
         }
     }
 
@@ -347,7 +374,7 @@ final class CalendarStore {
         let before = snapshot.duties[event.id]?[duty]
         snapshot.duties[event.id, default: [:]][duty] = state
         _ = try await send(revert: { self.snapshot.duties[event.id, default: [:]][duty] = before }) {
-            try await CalendarAPI.post("duty", ["id": Self.id(event), "duty": duty.rawValue, "state": CalendarAPI.body(state)])
+            try await CalendarAPI.post("duty", ["id": await self.id(event), "duty": duty.rawValue, "state": CalendarAPI.body(state)])
         }
     }
 
@@ -355,11 +382,17 @@ final class CalendarStore {
     func setRsvp(_ event: CalEvent, _ answer: TeamsnapRsvp) async throws {
         mutate(event.id) { $0.teamsnapRsvp = answer }
         _ = try await send(revert: { self.mutate(event.id) { $0.teamsnapRsvp = event.teamsnapRsvp } }) {
-            try await CalendarAPI.post("rsvp", ["id": Self.id(event), "status": answer.rawValue])
+            try await CalendarAPI.post("rsvp", ["id": await self.id(event), "status": answer.rawValue])
         }
     }
 
-    private static func id(_ event: CalEvent) -> String { event.id.uuidString.lowercased() }
+    /// The event's id as the website knows it. An event made here a moment
+    /// ago waits for the website to have made it.
+    private func id(_ event: CalEvent) async -> String {
+        var id = event.id
+        if let making = creating[id] { id = await making.value ?? id }
+        return (serverIDs[id] ?? id).uuidString.lowercased()
+    }
 
     private func mutate(_ id: UUID, _ change: (inout CalEvent) -> Void) {
         guard let at = snapshot.events.firstIndex(where: { $0.id == id }) else { return }
@@ -371,6 +404,8 @@ final class CalendarStore {
         revert: () -> Void, _ request: () async throws -> CalendarAPI.Reply
     ) async throws -> String? {
         guard !isDemo else { return nil }
+        sending += 1
+        defer { sending -= 1 }
         do {
             let reply = try await request()
             save()
@@ -407,69 +442,108 @@ final class CalendarStore {
         )
     }
 
-    /// A new event. It appears once the website has made it.
-    @discardableResult
-    func create(_ draft: EventDraft) async throws -> UUID {
+    // Creating, editing and deleting show at once and close their form; the
+    // website hears in the background. If it refuses, or can't be reached,
+    // the change is put back and `report` is told why.
+
+    /// A new event, on screen straight away under an id made up here.
+    func create(_ draft: EventDraft, report: @escaping (String) -> Void) {
         let sourceID = sourceForNewEvent(draft.memberEmail)
-        if isDemo {
-            let event = applied(draft, to: CalEvent(memberEmail: draft.memberEmail, title: "", start: draft.start))
-            snapshot.events.append(event)
-            return event.id
-        }
-        let reply = try await CalendarAPI.post("create", ["event": CalendarAPI.body(draft, sourceID: sourceID)])
-        guard let id = reply.id else { throw CalendarProblem.refused("That didn't go through. Try again.") }
-        var event = applied(draft, to: CalEvent(id: id, memberEmail: draft.memberEmail, title: "", start: draft.start))
-        if let sourceID {
+        var event = applied(draft, to: CalEvent(memberEmail: draft.memberEmail, title: "", start: draft.start))
+        if sourceID != nil {
             event.sourceID = sourceID
             event.sourceType = .google
         }
         snapshot.events.append(event)
-        save()
-        refreshSoon()
-        return id
-    }
-
-    /// Save an edit. Returns a note when the event moved calendars but the
-    /// old copy couldn't be removed.
-    func update(_ event: CalEvent, _ draft: EventDraft) async throws -> String? {
-        let before = event
-        mutate(event.id) { $0 = self.applied(draft, to: $0, keepOwner: event.sourceType == .google) }
-        guard !isDemo else {
-            mutate(event.id) { $0.memberEmail = draft.memberEmail }
+        guard !isDemo else { return }
+        let local = event.id
+        provisional[local] = event
+        sending += 1
+        let request = Task { [weak self] () -> UUID? in
+            let reply = try? await CalendarAPI.post("create", ["event": CalendarAPI.body(draft, sourceID: sourceID)])
+            guard let self else { return nil }
+            self.sending -= 1
+            self.creating[local] = nil
+            if let id = reply?.id {
+                self.serverIDs[local] = id
+                self.refreshSoon()
+                return id
+            }
+            self.provisional[local] = nil
+            self.snapshot.events.removeAll { $0.id == local }
+            report("“\(event.title)” wasn't added. Check your connection and try again.")
             return nil
         }
-        do {
-            _ = try await CalendarAPI.post("update", [
-                "id": Self.id(event), "event": CalendarAPI.body(draft, sourceID: event.sourceID),
-            ])
-        } catch {
-            mutate(event.id) { $0 = before }
-            throw error
+        creating[local] = request
+    }
+
+    /// Save an edit.
+    func update(_ event: CalEvent, _ draft: EventDraft, report: @escaping (String) -> Void) {
+        let before = snapshot.events.first { $0.id == event.id } ?? event
+        let after = applied(draft, to: before)
+        set(after)
+        guard !isDemo else { return }
+        sending += 1
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.sending -= 1 }
+            do {
+                let id = await self.id(event)
+                _ = try await CalendarAPI.post("update", ["id": id, "event": CalendarAPI.body(draft, sourceID: event.sourceID)])
+                // A Google event changes owner by being made again on the
+                // new owner's calendar, which the update alone doesn't do.
+                if event.sourceType == .google, draft.memberEmail != event.memberEmail {
+                    do {
+                        let reply = try await CalendarAPI.post("owner", ["id": id, "memberEmail": draft.memberEmail])
+                        if let warning = reply.warning { report(warning) }
+                    } catch {
+                        // The rest of the edit went through; only the move didn't.
+                        var kept = after
+                        kept.memberEmail = event.memberEmail
+                        self.set(kept)
+                        report("Saved, but “\(after.title)” couldn't move calendars: \(error.localizedDescription)")
+                    }
+                }
+                self.save()
+                self.refreshSoon()
+            } catch {
+                self.set(before)
+                report("“\(before.title)” wasn't saved: \(error.localizedDescription)")
+            }
         }
-        var warning: String?
-        // A Google event changes owner by being made again on the new
-        // owner's calendar, which the update alone doesn't do.
-        if event.sourceType == .google, draft.memberEmail != event.memberEmail {
-            let reply = try await CalendarAPI.post("owner", ["id": Self.id(event), "memberEmail": draft.memberEmail])
-            mutate(event.id) { $0.memberEmail = draft.memberEmail }
-            warning = reply.warning
-        }
-        save()
-        refreshSoon()
-        return warning
     }
 
     /// Delete an event, or with `series` every occurrence of the repeating
     /// event it's one of, past and to come.
-    func delete(_ event: CalEvent, series: Bool = false) async throws {
+    func delete(_ event: CalEvent, series: Bool = false, report: @escaping (String) -> Void) {
         let gone = Set((series ? CalendarRules.series(of: event, in: snapshot.events) : [event]).map(\.id))
-        if !isDemo { _ = try await CalendarAPI.post("delete", ["id": Self.id(event), "series": series]) }
-        snapshot.events.removeAll { gone.contains($0.id) || $0.driveSourceEventID.map(gone.contains) == true }
-        save()
-        refreshSoon()
+        let isGone: (CalEvent) -> Bool = { gone.contains($0.id) || $0.driveSourceEventID.map(gone.contains) == true }
+        let removed = snapshot.events.filter(isGone)
+        snapshot.events.removeAll(where: isGone)
+        for id in gone { provisional[id] = nil }
+        guard !isDemo else { return }
+        sending += 1
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.sending -= 1 }
+            do {
+                _ = try await CalendarAPI.post("delete", ["id": await self.id(event), "series": series])
+                self.save()
+                self.refreshSoon()
+            } catch {
+                self.snapshot.events += removed
+                report("“\(event.title)” \(series ? "and its series weren't" : "wasn't") deleted: \(error.localizedDescription)")
+            }
+        }
     }
 
-    private func applied(_ draft: EventDraft, to event: CalEvent, keepOwner: Bool = false) -> CalEvent {
+    /// Put an event in place of the one with its id.
+    private func set(_ event: CalEvent) {
+        if provisional[event.id] != nil { provisional[event.id] = event }
+        mutate(event.id) { $0 = event }
+    }
+
+    private func applied(_ draft: EventDraft, to event: CalEvent) -> CalEvent {
         var e = event
         e.title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let location = draft.location.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -479,7 +553,7 @@ final class CalendarStore {
         e.allDay = draft.allDay
         e.start = draft.allDay ? CalendarRules.allDayInstant(Day(draft.start)) : draft.start
         e.end = draft.allDay ? nil : draft.end
-        if !keepOwner { e.memberEmail = draft.memberEmail }
+        e.memberEmail = draft.memberEmail
         return e
     }
 

@@ -235,7 +235,8 @@ URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
 - In Day the signed-in member's column is first and wide, with full cards.
   Everyone else is a narrow pin line with their photo at each event's start
   (tap for a peek card, tap that for the event), or thin blocks if Settings
-  says so. Long-press empty grid to place a new event in that person's column.
+  says so. An event someone is only going along to is a fainter line with a
+  small ring in their column, so one event doesn't read as two. Long-press empty grid to place a new event in that person's column.
 - The rules are the website's, ported in `Calendar/Shared/CalendarRules.swift`
   and `CalendarBoard.swift` (which day an event is on, which rows are one
   shared event, what's hidden, lanes, conflicts, duty chips, the calendar
@@ -248,9 +249,12 @@ URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
   the website for its light sync, then reads again.
 - Every change goes through the website (`/calendar/api/<action>`, with the
   phone's access token), which runs the same mutations as the website's own
-  actions: writing back to Google, drive blocks, TeamSnap. The change shows at
-  once and is put back, with why, if it's refused. Changes need a connection;
-  nothing queues. Every family member can make them, kids included.
+  actions: writing back to Google, drive blocks, TeamSnap. Every change shows
+  at once, saving an event included: the form closes and the website hears in
+  the background. If it refuses or can't be reached the change is put back and
+  a banner says why. A new event sits under an id made up on the phone until
+  the website's row for it has been read. Nothing queues across launches.
+  Every family member can make changes, kids included.
 - The event sheet has the website panel's instant actions (TeamSnap RSVP, a
   kid's own going, who's going along, drop-off and pick-up) and Edit for Google
   and app-only events. Deleting a repeating event asks: this one only, or all
