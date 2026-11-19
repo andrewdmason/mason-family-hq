@@ -57,7 +57,7 @@ private struct DayPage: View {
             let metrics = ColumnMetrics(width: geo.size.width, count: layout.columns.count, asBlocks: prefs.othersAsBlocks)
             ScrollView(.vertical) {
                 ZStack(alignment: .topLeading) {
-                    HourLines()
+                    HourLines(today: day == .today())
                     ColumnRules(metrics: metrics, wash: layout.columns.first.map { CalendarStyle.muted($0.member.color).opacity(0.045) })
                     ForEach(Array(layout.columns.enumerated()), id: \.element.id) { index, column in
                         ColumnBlocks(column: column, wide: index == 0, width: metrics.widths[index], inWide: layout.inWideColumn)
@@ -158,7 +158,20 @@ private struct GridPress: UIGestureRecognizerRepresentable {
 }
 
 private struct HourLines: View {
+    /// Today's grid drops an hour's label while the now line's time sits on it.
+    let today: Bool
+
     var body: some View {
+        if today {
+            TimelineView(.everyMinute) { context in
+                lines(now: CalendarRules.minutes(context.date))
+            }
+        } else {
+            lines(now: nil)
+        }
+    }
+
+    private func lines(now: Int?) -> some View {
         ZStack(alignment: .topLeading) {
             ForEach(0..<24, id: \.self) { hour in
                 let top = CGFloat(hour) * CalendarStyle.hourHeight
@@ -167,7 +180,7 @@ private struct HourLines: View {
                     .frame(height: 0.5)
                     .padding(.leading, CalendarStyle.gutter)
                     .offset(y: top)
-                if hour > 0 {
+                if hour > 0, now.map({ abs($0 - hour * 60) > NowLine.labelReach }) ?? true {
                     Text(CalendarRules.hourLabel(hour))
                         .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
@@ -202,11 +215,22 @@ private struct ColumnRules: View {
     }
 }
 
+/// Now, on today's grid: a line across every column, with the time in the
+/// gutter where an hour's label would be.
 private struct NowLine: View {
+    /// How many minutes either side of an hour the time would touch its label.
+    static let labelReach = 14
+
     var body: some View {
         TimelineView(.everyMinute) { context in
             let top = CGFloat(CalendarRules.minutes(context.date)) / 60 * CalendarStyle.hourHeight
             ZStack(alignment: .topLeading) {
+                Text(context.date, format: .dateTime.hour(.defaultDigits(amPM: .omitted)).minute())
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(CalendarStyle.now)
+                    .frame(width: CalendarStyle.gutter - 8, alignment: .trailing)
+                    .offset(y: top - 6)
                 Rectangle()
                     .fill(CalendarStyle.now)
                     .frame(height: 1.5)
