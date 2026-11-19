@@ -351,6 +351,53 @@ enum CalendarRules {
         return ids
     }
 
+    // MARK: Places
+
+    /// A location as the two lines it's shown on: the name, or the street
+    /// of a bare address, then the rest. "Crowden School, 1475 Rose St,
+    /// Berkeley" is "Crowden School" over "1475 Rose St, Berkeley".
+    static func placeParts(_ location: String) -> (name: String, rest: String?) {
+        let text = location.split(whereSeparator: \.isNewline).joined(separator: ", ")
+            .trimmingCharacters(in: .whitespaces)
+        guard let comma = text.range(of: ", ") else { return (text, nil) }
+        let rest = text[comma.upperBound...].trimmingCharacters(in: .whitespaces)
+        return (String(text[..<comma.lowerBound]), rest.isEmpty ? nil : rest)
+    }
+
+    /// The places the family's events are at, for the location card: each
+    /// once, those of the events nearest `now` first (last week's and next
+    /// week's before last month's). Written two ways, a place counts once,
+    /// as its nearest event has it. What isn't somewhere is left out.
+    static func recentPlaces(_ events: [CalEvent], now: Date = Date(), limit: Int = 8) -> [String] {
+        var nearest: [String: (place: String, distance: TimeInterval)] = [:]
+        for event in events where !event.isDrive && !event.dismissed {
+            guard let place = event.location?.trimmingCharacters(in: .whitespacesAndNewlines), isSomewhere(place) else { continue }
+            let key = place.lowercased()
+            let distance = abs(event.start.timeIntervalSince(now))
+            if let had = nearest[key], had.distance <= distance { continue }
+            nearest[key] = (place, distance)
+        }
+        return nearest.values
+            .sorted { ($0.distance, $0.place) < ($1.distance, $1.place) }
+            .prefix(limit)
+            .map(\.place)
+    }
+
+    /// Whether a location names a place. Calendars put other things there:
+    /// a booking tool's "Click to join meeting: https://…", or "TBD".
+    static func isSomewhere(_ location: String) -> Bool {
+        let text = location.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if text.isEmpty || text.contains("://") || text.contains("www.") { return false }
+        return !["tbd", "tba", "tbc", "n/a", "none", "online", "virtual", "zoom", "phone", "phone call"].contains(text)
+    }
+
+    /// The recent places that match what's been typed, by any word in them.
+    static func matching(_ places: [String], _ query: String) -> [String] {
+        let query = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !query.isEmpty else { return places }
+        return places.filter { $0.lowercased().contains(query) }
+    }
+
     // MARK: Home
 
     /// Whether an event is at home, which needs no drop-off or pick-up:

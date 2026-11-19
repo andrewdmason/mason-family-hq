@@ -41,6 +41,8 @@ enum CalendarAPI {
         var warning: String?
         var error: String?
         var suggestions: [PlaceSuggestion]?
+        /// A picked place's full address.
+        var location: String?
         /// Google made the event itself and refused the change.
         var convertible: Bool?
     }

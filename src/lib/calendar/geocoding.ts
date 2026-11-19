@@ -18,6 +18,7 @@ const PLACES_AUTOCOMPLETE_URL =
 // not a restriction — far-away tournaments still resolve.
 const PLACES_BIAS_RADIUS_M = 50_000;
 
+const PLACE_DETAILS_URL = "https://places.googleapis.com/v1/places";
 const NOMINATIM_BASE = "https://nominatim.openstreetmap.org";
 const USER_AGENT = "FamilyHQ/1.0 (family-calendar-app)";
 
@@ -40,6 +41,7 @@ export async function suggestPlaces(
   input: string,
   nearLat?: number,
   nearLng?: number,
+  sessionToken?: string,
 ): Promise<PlaceSuggestion[]> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
   const query = input.trim();
@@ -56,6 +58,7 @@ export async function suggestPlaces(
     body: JSON.stringify({
       input: query,
       includedRegionCodes: ["us"],
+      ...(sessionToken ? { sessionToken } : {}),
       ...(nearLat != null && nearLng != null
         ? {
             locationBias: {
@@ -105,6 +108,54 @@ export async function suggestPlaces(
     })
     .filter((s): s is PlaceSuggestion => s != null)
     .slice(0, 5);
+}
+
+/**
+ * A picked suggestion as its full address: "Crowden School, 1475 Rose St,
+ * Berkeley, CA 94702, USA", where autocomplete gave only the street. `label`
+ * is the suggestion's name, kept in front unless the address already starts
+ * with it (a plain street address). The same `sessionToken` the typing was
+ * sent with makes Google bill the typing and this lookup as one session.
+ * Null when it can't be read; the caller keeps what it had.
+ */
+export async function placeAddress(
+  placeId: string,
+  label: string,
+  sessionToken?: string,
+): Promise<string | null> {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  if (!apiKey) return null;
+
+  const url = new URL(`${PLACE_DETAILS_URL}/${encodeURIComponent(placeId)}`);
+  if (sessionToken) url.searchParams.set("sessionToken", sessionToken);
+  const res = await fetch(url, {
+    headers: {
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": "formattedAddress",
+    },
+    next: { revalidate: 0 },
+  });
+  if (!res.ok) {
+    console.warn(
+      `[places] Details failed (${res.status}) for ${placeId}: ${(await res.text()).slice(0, 200)}`,
+    );
+    return null;
+  }
+
+  const data = (await res.json()) as { formattedAddress?: string };
+  return withPlaceName(label, data.formattedAddress);
+}
+
+/** "Name, address", or the address alone when it already leads with the name. */
+export function withPlaceName(
+  label: string,
+  address: string | undefined,
+): string | null {
+  const full = address?.trim();
+  if (!full) return null;
+  const name = label.trim();
+  if (!name || full.toLowerCase().startsWith(name.toLowerCase())) return full;
+  return `${name}, ${full}`;
 }
 
 export async function geocodeAddress(

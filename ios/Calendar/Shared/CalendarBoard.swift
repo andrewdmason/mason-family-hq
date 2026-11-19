@@ -243,6 +243,13 @@ struct DayLayout: Sendable {
 
     var isEmpty: Bool { columns.allSatisfy { $0.allDay.isEmpty && $0.blocks.isEmpty } }
 
+    /// The events the first, wide column shows as cards. Someone else going
+    /// along to one of these has their face on its card there, so their own
+    /// column doesn't draw it again.
+    var inWideColumn: Set<UUID> {
+        Set((columns.first?.blocks ?? []).filter { $0.kind != .drive }.map(\.id))
+    }
+
     /// The columns' order: the signed-in member first, then the rest as shown.
     static func order(_ shown: [Member], me: String?) -> [Member] {
         var members = shown

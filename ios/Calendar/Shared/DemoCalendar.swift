@@ -123,4 +123,35 @@ enum DemoCalendar {
         snapshot.fetchedAt = Date()
         return snapshot
     }
+
+    // MARK: Places
+
+    /// What the website would suggest, so the location card can be tried
+    /// with no network: name, the street autocomplete gives, the full address.
+    private static let somewhere: [(name: String, street: String, full: String)] = [
+        ("Crowden School", "Rose Street, Berkeley, CA, USA", "1475 Rose St, Berkeley, CA 94702, USA"),
+        ("Cheese Board Pizza", "Shattuck Avenue, Berkeley, CA, USA", "1512 Shattuck Ave, Berkeley, CA 94709, USA"),
+        ("Chabot Space & Science Center", "Skyline Boulevard, Oakland, CA, USA", "10000 Skyline Blvd, Oakland, CA 94619, USA"),
+        ("The Tabletop Library", "Claremont Avenue, Berkeley, CA, USA", "2916 Claremont Ave, Berkeley, CA 94705, USA"),
+        ("Tilden Park Merry-Go-Round", "Central Park Drive, Orinda, CA, USA", "Central Park Dr, Orinda, CA 94563, USA"),
+        ("Temescal Pool", "45th Street, Oakland, CA, USA", "371 45th St, Oakland, CA 94609, USA"),
+        ("Hertz Hall", "Berkeley, CA, USA", "Hertz Hall, Berkeley, CA 94720, USA"),
+    ]
+
+    static func places(_ query: String) -> [PlaceSuggestion] {
+        let query = query.lowercased()
+        return somewhere.enumerated()
+            .filter { $0.element.name.lowercased().contains(query) }
+            .map { n, place in
+                PlaceSuggestion(
+                    placeId: "demo-\(n)", label: place.name, secondary: place.street,
+                    location: "\(place.name), \(place.street)"
+                )
+            }
+    }
+
+    static func fullAddress(of place: PlaceSuggestion) -> String? {
+        guard let found = somewhere.first(where: { $0.name == place.label }) else { return nil }
+        return found.full.hasPrefix(found.name) ? found.full : "\(found.name), \(found.full)"
+    }
 }

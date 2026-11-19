@@ -60,7 +60,7 @@ private struct DayPage: View {
                     HourLines()
                     ColumnRules(metrics: metrics, wash: layout.columns.first.map { CalendarStyle.muted($0.member.color).opacity(0.045) })
                     ForEach(Array(layout.columns.enumerated()), id: \.element.id) { index, column in
-                        ColumnBlocks(column: column, wide: index == 0, width: metrics.widths[index])
+                        ColumnBlocks(column: column, wide: index == 0, width: metrics.widths[index], inWide: layout.inWideColumn)
                             .frame(width: metrics.widths[index], height: height, alignment: .topLeading)
                             .offset(x: metrics.x(index))
                     }
@@ -252,6 +252,8 @@ private struct ColumnBlocks: View {
     let column: DayColumn
     let wide: Bool
     let width: CGFloat
+    /// The events on cards in the wide column (DayLayout.inWideColumn).
+    let inWide: Set<UUID>
     @Environment(CalendarStore.self) private var store
     @Environment(CalendarNav.self) private var nav
     @Environment(Prefs.self) private var prefs
@@ -312,8 +314,16 @@ private struct ColumnBlocks: View {
     // MARK: The narrow columns
 
     /// A drive on its own doesn't get a pin; one fused onto an event the
-    /// driver attends is part of that event's.
-    private func showsPin(_ block: DayBlock) -> Bool { block.kind != .drive }
+    /// driver attends is part of that event's. Nor does going along to an
+    /// event that's a card in the wide column, where their face already is:
+    /// a family trip would otherwise be a bare line down every column.
+    private func showsPin(_ block: DayBlock) -> Bool {
+        switch block.kind {
+        case .own: true
+        case .drive: false
+        case .attending: !inWide.contains(block.item.id)
+        }
+    }
 
     @ViewBuilder
     private func pin(_ block: DayBlock) -> some View {
