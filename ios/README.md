@@ -267,10 +267,27 @@ URL scheme `io.mason.calendar`; the scheme is `Calendar` and the module
 - Released like Tuttles: `scripts/release.sh Calendar --adhoc-only` publishes
   to family.mason.io/install/calendar and installed copies show the update
   banner. Each phone must be registered on the developer account first.
+- A large home screen widget (`Calendar/Widgets`, target `CalendarWidgets`)
+  shows today as the Day view in small: eight hours from an hour before now,
+  the phone's own member in the wide column and the family as pin lines.
+  Tapping an event opens it in the app (`io.mason.calendar://event/<id>`). Its
+  view and model are in `Calendar/WidgetShared`, built into the app too so
+  `--widget` can show it in the simulator. The app and widget share the
+  calendar's local copy, members' photos and Settings › People through the app
+  group `group.io.mason.calendar` (`Shared/CalendarShared.swift`); the widget
+  also reads the calendar itself every half hour with the shared sign-in, so
+  it keeps up when the app hasn't been opened.
+- The peek card opens on a tap or a swipe up, and goes away on a swipe down.
+- Google won't let an event it made from an email (a flight, a booking) be
+  edited or given guests. When it refuses, the app asks whether to replace the
+  event with a copy that can be: the website makes the copy on the same
+  calendar, deletes the original (`convert`), and the refused change is then
+  made. An event that moves to another member's calendar keeps whoever had it
+  as going.
 - `Calendar/Shared` has no UIKit, for the Mac app to come (`Calendar/Mac`).
 - `--demo` runs on a made-up family week with no sign-in, for the simulator;
   `--me <first name>` chooses whose phone it is, `--view <day|schedule>` the
-  view, and `--website <url>` points changes at another server.
+  view, `--widget` shows the widget's view at its size, and `--website <url>` points changes at another server.
 
 ## Adding an app
 

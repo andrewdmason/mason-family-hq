@@ -7,11 +7,15 @@ enum CalendarProblem: LocalizedError, Equatable {
     case offline
     /// The website said no, and why.
     case refused(String)
+    /// Google made the event itself (from an email) and won't have it
+    /// changed. It can be swapped for an ordinary copy.
+    case googleMade
 
     var errorDescription: String? {
         switch self {
         case .offline: "You're offline. Changes need a connection."
         case .refused(let why): why
+        case .googleMade: "Google made this event from an email and won't let it be changed."
         }
     }
 }
@@ -37,6 +41,8 @@ enum CalendarAPI {
         var warning: String?
         var error: String?
         var suggestions: [PlaceSuggestion]?
+        /// Google made the event itself and refused the change.
+        var convertible: Bool?
     }
 
     /// `--website <url>` points the app at another server, for the simulator.
@@ -72,6 +78,7 @@ enum CalendarAPI {
         }
         let reply = try? JSONDecoder().decode(Reply.self, from: data)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 500
+        if reply?.error != nil, reply?.convertible == true { throw CalendarProblem.googleMade }
         guard (200..<300).contains(status), let reply, reply.error == nil else {
             throw CalendarProblem.refused(reply?.error ?? "That didn't go through. Try again.")
         }

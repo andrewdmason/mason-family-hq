@@ -395,14 +395,18 @@ targets:
   Calendar:
     type: application
     platform: iOS
-    sources: [Calendar/Shared, Calendar/iPhone]
+    sources: [Calendar/Shared, Calendar/iPhone, Calendar/WidgetShared]
     dependencies:
       - package: MasonKit
       - package: Supabase
         product: Supabase
+      - target: CalendarWidgets
     entitlements:
       path: Calendar/iPhone/Calendar.entitlements
       properties:
+        # Shared with the widget: the calendar's local copy, members' photos
+        # and who shows (CalendarShared).
+        com.apple.security.application-groups: [group.io.mason.calendar]
         keychain-access-groups: [$(AppIdentifierPrefix)io.mason.shared]
     info:
       path: Calendar/iPhone/Info.plist
@@ -427,6 +431,41 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: true
     scheme:
       testTargets: [CalendarTests]
+  # The home screen widget: today, with the phone's own member in the wide
+  # column and the family beside it. It reads the app's local copy from the
+  # app group, and reads the calendar itself with the shared sign-in.
+  CalendarWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Calendar/Widgets
+      - Calendar/WidgetShared
+      - Calendar/Shared
+      - Calendar/iPhone/CalendarStyle.swift
+    dependencies:
+      - package: MasonKit
+      - package: Supabase
+        product: Supabase
+    entitlements:
+      path: Calendar/Widgets/Widgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.io.mason.calendar]
+        keychain-access-groups: [$(AppIdentifierPrefix)io.mason.shared]
+    info:
+      path: Calendar/Widgets/Info.plist
+      properties:
+        CFBundleDisplayName: Calendar
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.mason.calendar.widgets
+        PRODUCT_MODULE_NAME: FamilyCalendarWidgets
+        TARGETED_DEVICE_FAMILY: "1"
+        # The store doesn't ask the widget to reload from inside the widget.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) WIDGET_EXTENSION
   CalendarTests:
     type: bundle.unit-test
     platform: iOS

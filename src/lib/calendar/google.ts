@@ -69,6 +69,17 @@ export interface GoogleEvent {
   recurringEventId?: string;
   // On a series master (singleEvents=false): ["RRULE:...", maybe EXDATE/RDATE].
   recurrence?: string[];
+  // "default" for ordinary events; "fromGmail" for ones Google made from an
+  // email (a flight, a booking), which it won't let anyone edit.
+  eventType?: string;
+}
+
+/** Whether a Google error is its refusal to change an event it made itself
+ * (from Gmail, mostly). Such an event can be swapped for an ordinary copy:
+ * see convertGoogleMadeEvent in mutations.ts. */
+export function isGoogleMadeRefusal(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /eventtyperestriction|fromgmail/i.test(message);
 }
 
 // The private extended-property key the importer stamps on every event it

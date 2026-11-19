@@ -58,6 +58,7 @@ struct EventSheet: View {
             // behind it, solid enough that a bright block doesn't bleed into the words.
             .presentationBackground { CalendarStyle.ground.opacity(0.82).background(.ultraThinMaterial) }
             .animation(.snappy, value: note)
+            .modifier(ConvertAlert(active: true))
         } else {
             // Deleted, or gone in a refresh.
             Color.clear.onAppear { dismiss() }

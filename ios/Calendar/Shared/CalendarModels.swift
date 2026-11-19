@@ -297,3 +297,12 @@ struct EventDraft: Hashable, Sendable {
     var location = ""
     var notes = ""
 }
+
+/// An event Google made itself (from a Gmail confirmation) that just refused a
+/// change: the offer to swap it for an ordinary copy, and the edit to make
+/// once it has been, if it was an edit.
+struct Conversion: Identifiable, Sendable {
+    let id = UUID()
+    var event: CalEvent
+    var draft: EventDraft?
+}

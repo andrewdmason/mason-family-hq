@@ -2,6 +2,7 @@ import Foundation
 import MasonKit
 import Observation
 import Supabase
+import WidgetKit
 
 /// The family calendar on this device. It opens on the local copy (a file, so
 /// it's there with no signal), reads the rest straight from Supabase under the
@@ -23,6 +24,9 @@ final class CalendarStore {
     private(set) var refreshing = false
     /// The last read didn't reach the server.
     private(set) var offline = false
+    /// Google just refused a change to an event it made itself: the offer to
+    /// swap it for a copy that can be changed.
+    var conversion: Conversion?
     /// Canned family with no sign-in or network: `--demo`, for the simulator.
     let isDemo: Bool
 
@@ -50,51 +54,52 @@ final class CalendarStore {
         snapshot = demo
         board = Board.build(demo)
         loaded = true
+        // The widget shows the made-up family too, under a made-up member.
+        let user = UUID(uuidString: "00000000-0000-0000-0000-00000000DE30")!
+        if let data = try? JSONEncoder().encode(demo) { try? data.write(to: CalendarShared.copy(user), options: .atomic) }
+        CalendarShared.who = .init(user: user, email: DemoCalendar.me)
+        reloadWidget()
     }
 
     var lastUpdated: Date? { snapshot.fetchedAt }
 
     // MARK: The local copy
 
-    private static func file(_ user: UUID) -> URL {
-        let folder = URL.applicationSupportDirectory.appending(path: "Calendar")
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        return folder.appending(path: "copy-\(user.uuidString.lowercased()).json")
-    }
-
-    private static func photoFolder() -> URL {
-        let folder = URL.cachesDirectory.appending(path: "member-photos")
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        return folder
-    }
-
     /// Open on what this member last saw here.
-    func open(for user: UUID) {
+    func open(for user: UUID, email: String?) {
         guard !isDemo, owner != user else { return }
         owner = user
-        if let data = try? Data(contentsOf: Self.file(user)),
+        if let email { CalendarShared.who = .init(user: user, email: email.lowercased()) }
+        if let data = try? Data(contentsOf: CalendarShared.copy(user)),
            let saved = try? JSONDecoder().decode(CalendarSnapshot.self, from: data) {
             snapshot = saved
             loaded = true
             for member in saved.members {
-                if let data = try? Data(contentsOf: Self.photoFile(member)) { photos[member.email] = data }
+                if let data = try? Data(contentsOf: CalendarShared.photo(member.email)) { photos[member.email] = data }
             }
         }
     }
 
-    private static func photoFile(_ member: Member) -> URL {
-        photoFolder().appending(path: member.email.replacingOccurrences(of: "/", with: "_") + ".img")
-    }
-
     private func save() {
         guard !isDemo, let owner, let data = try? JSONEncoder().encode(snapshot) else { return }
-        try? data.write(to: Self.file(owner), options: .atomic)
+        try? data.write(to: CalendarShared.copy(owner), options: .atomic)
+        reloadWidget()
+    }
+
+    /// The home screen widget reads the copy just saved. (Not from inside the
+    /// widget, which is what's reading.)
+    private func reloadWidget() {
+        #if !WIDGET_EXTENSION
+        WidgetCenter.shared.reloadAllTimelines()
+        #endif
     }
 
     /// Another member signing in starts from nothing of the last one's.
     func forget() {
-        if let owner { try? FileManager.default.removeItem(at: Self.file(owner)) }
+        if let owner { try? FileManager.default.removeItem(at: CalendarShared.copy(owner)) }
         owner = nil
+        CalendarShared.who = nil
+        reloadWidget()
         followUp?.cancel()
         provisional = [:]
         serverIDs = [:]
@@ -341,7 +346,7 @@ final class CalendarStore {
             guard let data = try? await db.storage.from("member-photos").download(path: path) else { continue }
             photos[member.email] = data
             paths[member.email] = path
-            try? data.write(to: Self.photoFile(member), options: .atomic)
+            try? data.write(to: CalendarShared.photo(member.email), options: .atomic)
         }
         UserDefaults.standard.set(paths, forKey: "calendar.photoPaths")
     }
@@ -355,9 +360,20 @@ final class CalendarStore {
         var list = (before ?? []).filter { $0 != member }
         if going { list.append(member) }
         snapshot.going[event.id] = list
-        return try await send(revert: { self.snapshot.going[event.id] = before }) {
+        if isDemo, going, Self.isDemoGoogleMade(event) {
+            conversion = Conversion(event: event)
+            return nil
+        }
+        let reply = try await send(revert: { self.snapshot.going[event.id] = before }) {
             try await CalendarAPI.post("going", ["id": await self.id(event), "memberEmail": member, "going": going])
         }
+        // Google made this event and won't take guests: it's saved here, and
+        // the offer to swap the event for an ordinary copy says the rest.
+        if reply?.convertible == true {
+            conversion = Conversion(event: event)
+            return nil
+        }
+        return reply?.warning
     }
 
     /// A kid going to their own event, or not: not going takes it off every
@@ -366,7 +382,7 @@ final class CalendarStore {
         mutate(event.id) { $0.ownerNotGoing = !going }
         return try await send(revert: { self.mutate(event.id) { $0.ownerNotGoing = event.ownerNotGoing } }) {
             try await CalendarAPI.post("owner-going", ["id": await self.id(event), "going": going])
-        }
+        }?.warning
     }
 
     /// Who's doing a drop-off or pick-up; nil clears it.
@@ -402,7 +418,7 @@ final class CalendarStore {
     /// Send a change already shown; put it back if it didn't go through.
     private func send(
         revert: () -> Void, _ request: () async throws -> CalendarAPI.Reply
-    ) async throws -> String? {
+    ) async throws -> CalendarAPI.Reply? {
         guard !isDemo else { return nil }
         sending += 1
         defer { sending -= 1 }
@@ -410,7 +426,7 @@ final class CalendarStore {
             let reply = try await request()
             save()
             refreshSoon()
-            return reply.warning
+            return reply
         } catch {
             revert()
             throw error
@@ -482,6 +498,20 @@ final class CalendarStore {
         let before = snapshot.events.first { $0.id == event.id } ?? event
         let after = applied(draft, to: before)
         set(after)
+        // An event that changes hands keeps whoever had it: they're shown as
+        // going at once, as the website records when it makes the move.
+        let goingBefore = snapshot.going[event.id]
+        if after.memberEmail != before.memberEmail {
+            snapshot.going[event.id] = CalendarRules.goingAfterMove(
+                goingBefore ?? [], from: before.memberEmail, to: after.memberEmail
+            )
+        }
+        if isDemo, Self.isDemoGoogleMade(event) {
+            set(before)
+            snapshot.going[event.id] = goingBefore
+            conversion = Conversion(event: before, draft: draft)
+            return
+        }
         guard !isDemo else { return }
         sending += 1
         Task { [weak self] in
@@ -501,16 +531,58 @@ final class CalendarStore {
                         var kept = after
                         kept.memberEmail = event.memberEmail
                         self.set(kept)
+                        self.snapshot.going[event.id] = goingBefore
                         report("Saved, but “\(after.title)” couldn't move calendars: \(error.localizedDescription)")
                     }
                 }
                 self.save()
                 self.refreshSoon()
+            } catch CalendarProblem.googleMade {
+                // Not saved; offer the swap, which makes this edit afterwards.
+                self.set(before)
+                self.snapshot.going[event.id] = goingBefore
+                self.conversion = Conversion(event: before, draft: draft)
             } catch {
                 self.set(before)
+                self.snapshot.going[event.id] = goingBefore
                 report("“\(before.title)” wasn't saved: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Swap an event Google made itself for an ordinary copy that can be
+    /// changed (the website makes the copy and deletes the original), then
+    /// make the edit that was refused, if there was one.
+    func convert(_ conversion: Conversion, report: @escaping (String) -> Void) {
+        let event = conversion.event
+        if isDemo {
+            mutate(event.id) { $0.externalID = nil }
+            if let draft = conversion.draft, let now = snapshot.events.first(where: { $0.id == event.id }) {
+                update(now, draft, report: report)
+            }
+            return
+        }
+        sending += 1
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await CalendarAPI.post("convert", ["id": await self.id(event)])
+                self.sending -= 1
+                if let draft = conversion.draft {
+                    self.update(event, draft, report: report)
+                } else {
+                    self.refreshSoon()
+                }
+            } catch {
+                self.sending -= 1
+                report("“\(event.title)” couldn't be replaced: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// In the demo, the made-up flight stands in for an event Google made.
+    private static func isDemoGoogleMade(_ event: CalEvent) -> Bool {
+        event.externalID?.hasPrefix("gmail:") == true
     }
 
     /// Delete an event, or with `series` every occurrence of the repeating
