@@ -169,8 +169,8 @@ private struct ScheduleRow: View {
                             .multilineTextAlignment(.leading)
                         if item.conflict { ConflictMark() }
                     }
-                    if let location = item.event.location {
-                        Text(location)
+                    if let place = CalendarRules.whereLine(item.event) {
+                        Text(place.text)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)

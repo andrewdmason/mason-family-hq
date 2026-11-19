@@ -114,10 +114,12 @@ struct Board: Sendable {
         !event.isDrive && event.sourceType != .teamsnap && member(event.memberEmail)?.role == .kid
     }
 
-    /// Whether drop-off and pick-up apply: a kid's timed event away from home.
+    /// Whether drop-off and pick-up apply: a kid's timed event away from
+    /// home, in person (not one on a call).
     func hasDrives(_ event: CalEvent) -> Bool {
         !event.allDay && !event.isDrive && member(event.memberEmail)?.role == .kid
             && !CalendarRules.isHome(event.location, homeAddress: logistics.homeAddress)
+            && !CalendarRules.isRemote(location: event.location, joinURL: event.joinURL)
             && !parents.isEmpty
     }
 
@@ -212,7 +214,8 @@ struct Board: Sendable {
             let color = kid.flatMap { colors[$0] } ?? colors[e.memberEmail] ?? CalendarRules.hashColor(e.memberEmail)
             var duties: [DutyKind: DutyChip]?
             if !e.allDay, !isHidden, !e.isDrive, roles[e.memberEmail] == .kid,
-               !CalendarRules.isHome(e.location, homeAddress: snapshot.logistics.homeAddress) {
+               !CalendarRules.isHome(e.location, homeAddress: snapshot.logistics.homeAddress),
+               !CalendarRules.isRemote(location: e.location, joinURL: e.joinURL) {
                 let saved = snapshot.duties[e.id] ?? [:]
                 duties = [.dropoff: chip(saved[.dropoff]), .pickup: chip(saved[.pickup])]
             }

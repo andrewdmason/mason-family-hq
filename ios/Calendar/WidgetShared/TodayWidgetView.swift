@@ -252,8 +252,8 @@ struct TodayWidgetView: View {
                     .opacity(0.75)
                     .lineLimit(1)
             }
-            if height >= 64, let location = item.event.location {
-                Text(location)
+            if height >= 64, let place = CalendarRules.whereLine(item.event) {
+                Text(place.text)
                     .font(.system(size: 9.5))
                     .opacity(0.65)
                     .lineLimit(1)

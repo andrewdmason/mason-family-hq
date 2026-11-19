@@ -439,7 +439,7 @@ enum CalendarRules {
     static func recentPlaces(_ events: [CalEvent], now: Date = Date(), limit: Int = 8) -> [String] {
         var nearest: [String: (place: String, distance: TimeInterval)] = [:]
         for event in events where !event.isDrive && !event.dismissed {
-            guard let place = event.location?.trimmingCharacters(in: .whitespacesAndNewlines), isSomewhere(place) else { continue }
+            guard isPlace(event.location), let place = placeText(event.location) else { continue }
             let key = place.lowercased()
             let distance = abs(event.start.timeIntervalSince(now))
             if let had = nearest[key], had.distance <= distance { continue }
@@ -451,12 +451,86 @@ enum CalendarRules {
             .map(\.place)
     }
 
-    /// Whether a location names a place. Calendars put other things there:
-    /// a booking tool's "Click to join meeting: https://…", or "TBD".
-    static func isSomewhere(_ location: String) -> Bool {
-        let text = location.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if text.isEmpty || text.contains("://") || text.contains("www.") { return false }
-        return !["tbd", "tba", "tbc", "n/a", "none", "online", "virtual", "zoom", "phone", "phone call"].contains(text)
+    // MARK: Places and calls
+    //
+    // Where an event is, as opposed to how it's joined. A calendar's location
+    // holds more than places: a call's link ("Click to join meeting:
+    // https://…"), the word "Zoom", "TBD". The link to join by is found by the
+    // database wherever it was written (CalEvent.joinURL); what's here is the
+    // other half. The website has the same rules in src/lib/calendar/place.ts.
+
+    /// A link in a location, with or without its scheme ("zoom.us/j/123").
+    private static let link = try! NSRegularExpression(
+        pattern: #"(?:https?://|www\.)\S+|\S+\.[a-z]{2,}/\S*"#, options: .caseInsensitive)
+    /// Words that make the text beside a link its label, not a place.
+    private static let linkLabel = try! NSRegularExpression(
+        pattern: #"\b(?:join|click|meeting|zoom|teams|webex|online|virtual|video|call|link|here)\b"#,
+        options: .caseInsensitive)
+    private static let edges = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ",;:|/()[]–—-"))
+    /// Not decided yet: nowhere to look up, but still somewhere to be driven.
+    private static let undecided: Set<String> = ["tbd", "tba", "tbc", "n/a", "none", "unknown"]
+    /// Not in person.
+    private static let remote: Set<String> = [
+        "online", "virtual", "remote", "zoom", "zoom call", "zoom meeting", "google meet", "meet", "teams",
+        "microsoft teams", "facetime", "webex", "video call", "phone", "phone call",
+    ]
+
+    /// The location without its link: "Room 4" of "Room 4 — https://zoom.us/j/1",
+    /// nothing of "Click to join meeting: https://…". A location with no
+    /// link in it comes back as written.
+    static func placeText(_ location: String?) -> String? {
+        guard let location else { return nil }
+        let all = NSRange(location.startIndex..., in: location)
+        guard link.firstMatch(in: location, range: all) != nil else {
+            let text = location.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : text
+        }
+        let text = link.stringByReplacingMatches(in: location, range: all, withTemplate: " ")
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            .trimmingCharacters(in: edges)
+        let labels = linkLabel.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+        return text.isEmpty || labels ? nil : text
+    }
+
+    /// Whether the location names somewhere: a thing to map and drive to.
+    /// Not a link, "Zoom" or "TBD".
+    static func isPlace(_ location: String?) -> Bool {
+        guard let text = placeText(location)?.lowercased() else { return false }
+        return !undecided.contains(text) && !remote.contains(text)
+    }
+
+    /// Whether an event happens on a call and nowhere else, so there's no
+    /// drop-off or pick-up: it says so ("Zoom"), or it has a link to join and
+    /// no place. A call with a place as well (a class with a remote option)
+    /// isn't.
+    static func isRemote(location: String?, joinURL: String?) -> Bool {
+        if let text = placeText(location)?.lowercased(), remote.contains(text) { return true }
+        return joinURL != nil && !isPlace(location)
+    }
+
+    private static let services: [(host: String, name: String)] = [
+        ("zoom.us", "Zoom"), ("zoomgov.com", "Zoom"), ("meet.google.com", "Google Meet"),
+        ("teams.microsoft.com", "Microsoft Teams"), ("teams.live.com", "Microsoft Teams"), ("webex.com", "Webex"),
+        ("facetime.apple.com", "FaceTime"), ("whereby.com", "Whereby"), ("gotomeet.me", "GoTo Meeting"),
+        ("gotomeeting.com", "GoTo Meeting"), ("goto.com", "GoTo Meeting"), ("join.skype.com", "Skype"),
+        ("bluejeans.com", "BlueJeans"), ("chime.aws", "Amazon Chime"), ("meet.jit.si", "Jitsi"), ("doxy.me", "Doxy.me"),
+    ]
+
+    /// What a join link is called: "Zoom", "Google Meet"; for a link to
+    /// anything else, its site ("book.example.com").
+    static func joinName(_ joinURL: String) -> String {
+        guard let host = URL(string: joinURL)?.host()?.lowercased() else { return "Link" }
+        if let service = services.first(where: { host == $0.host || host.hasSuffix("." + $0.host) }) { return service.name }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    /// The one line a compact view has for where an event is: the place, else
+    /// the call it's on, else whatever the location says ("TBD").
+    static func whereLine(_ event: CalEvent) -> (text: String, call: Bool)? {
+        let text = placeText(event.location)
+        if isPlace(event.location), let text { return (text, false) }
+        if let joinURL = event.joinURL { return (joinName(joinURL), true) }
+        return text.map { ($0, remote.contains($0.lowercased())) }
     }
 
     /// The recent places that match what's been typed, by any word in them.

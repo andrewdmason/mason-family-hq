@@ -72,6 +72,20 @@ export interface GoogleEvent {
   // "default" for ordinary events; "fromGmail" for ones Google made from an
   // email (a flight, a booking), which it won't let anyone edit.
   eventType?: string;
+  // The call Google attached to the event. A Meet link is only ever here
+  // (never in the location); add-ons (Zoom for Google Calendar) write here too.
+  hangoutLink?: string;
+  conferenceData?: {
+    entryPoints?: Array<{ entryPointType?: string; uri?: string }>;
+  };
+}
+
+/** The link to join the event's call by, from Google's own conference field. */
+export function conferenceUrl(ev: GoogleEvent): string | null {
+  const video = ev.conferenceData?.entryPoints?.find(
+    (p) => p.entryPointType === "video" && p.uri,
+  );
+  return video?.uri ?? ev.hangoutLink ?? null;
 }
 
 /** Whether a Google error is its refusal to change an event it made itself

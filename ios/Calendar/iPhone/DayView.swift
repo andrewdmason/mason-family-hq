@@ -478,8 +478,8 @@ private struct OwnCard: View {
                         trailing(limit: 3, onlyUnset: false)
                     }
                 }
-                if height >= 74, let location = item.event.location {
-                    Label(location, systemImage: "mappin")
+                if height >= 74, let place = CalendarRules.whereLine(item.event) {
+                    Label(place.text, systemImage: place.call ? "video" : "mappin")
                         .labelStyle(.titleAndIcon)
                         .font(.system(size: 10.5))
                         .foregroundStyle(CalendarStyle.ink(item.color).opacity(0.65))

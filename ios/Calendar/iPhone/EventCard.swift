@@ -500,9 +500,39 @@ struct EventCard: View {
     @ViewBuilder
     private var whereRows: some View {
         let location = draft.event.location.trimmingCharacters(in: .whitespacesAndNewlines)
-        if editable, location.isEmpty {
+        let somewhere = CalendarRules.isPlace(location)
+        // The place is the location without any link in it. On a call,
+        // what's left that isn't a place ("Zoom") is the call's row to say.
+        let place = somewhere || joinURL == nil ? CalendarRules.placeText(location) : nil
+        if let joinURL {
+            row("video") {
+                Button {
+                    if let url = URL(string: joinURL) { openURL(url) }
+                } label: {
+                    Text("Join \(CalendarRules.joinName(joinURL))")
+                        .foregroundStyle(CalendarStyle.accent)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the call")
+                Menu {
+                    Button("Copy Link", systemImage: "doc.on.doc") { UIPasteboard.general.string = joinURL }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 30, alignment: .trailing)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Call Options")
+            }
+            divider
+        }
+        if editable, place == nil {
             Button {
-                place()
+                self.place()
             } label: {
                 row("mappin.and.ellipse") {
                     Text("Location").foregroundStyle(.tertiary)
@@ -512,19 +542,24 @@ struct EventCard: View {
             .buttonStyle(.plain)
             .accessibilityHint("Searches for a place")
             divider
-        } else if !location.isEmpty {
+        } else if let place {
             row("mappin.and.ellipse") {
-                Button {
-                    openMaps(location)
-                } label: {
-                    placeLabel(location)
+                if somewhere {
+                    Button {
+                        openMaps(place)
+                    } label: {
+                        placeLabel(place)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens Maps")
+                } else {
+                    // "TBD": said, with nowhere to look up.
+                    Text(place).frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .buttonStyle(.plain)
-                .accessibilityHint("Opens Maps")
                 if editable {
                     Menu {
-                        Button("Change", systemImage: "pencil") { place() }
-                        Button("Copy Address", systemImage: "doc.on.doc") { UIPasteboard.general.string = location }
+                        Button("Change", systemImage: "pencil") { self.place() }
+                        Button("Copy Address", systemImage: "doc.on.doc") { UIPasteboard.general.string = place }
                         Button("Remove", systemImage: "trash", role: .destructive) { setPlace("", from: nil) }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -566,6 +601,12 @@ struct EventCard: View {
     /// full address when that arrives, unless the location has moved on.
     private func setPlace(_ location: String, from place: PlaceSuggestion?) {
         lookup?.cancel()
+        // A call's link that was written in the location goes to the notes
+        // rather than away with it, where it's still found to join by.
+        let had = draft.event.location.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let joinURL, CalendarRules.placeText(had) != had, !draft.event.notes.contains(joinURL) {
+            draft.event.notes = draft.event.notes.isEmpty ? joinURL : draft.event.notes + "\n\n" + joinURL
+        }
         draft.event.location = location
         guard let place else { return }
         let session = placeSession
@@ -584,6 +625,10 @@ struct EventCard: View {
             draft[keyPath: field] = draft[keyPath: field].replacingOccurrences(of: "\n", with: "")
         }
     }
+
+    /// The link to join the event's call by, as last read (the database
+    /// finds it; a link typed just now shows once it's saved).
+    private var joinURL: String? { item?.event.joinURL }
 
     private func openMaps(_ location: String) {
         var maps = URLComponents(string: "https://maps.apple.com/")!
@@ -607,11 +652,12 @@ struct EventCard: View {
     }
 
     /// Whether drop-off and pick-up apply to the event as drafted: a kid's
-    /// timed event away from home.
+    /// timed event away from home, in person.
     private var needsDrives: Bool {
         let location = draft.event.location.trimmingCharacters(in: .whitespacesAndNewlines)
         return draft.holderGoing && !draft.event.allDay && item?.event.isDrive != true && holder?.role == .kid
             && !CalendarRules.isHome(location.isEmpty ? nil : location, homeAddress: store.board.logistics.homeAddress)
+            && !CalendarRules.isRemote(location: location, joinURL: joinURL)
             && !store.board.parents.isEmpty
     }
 

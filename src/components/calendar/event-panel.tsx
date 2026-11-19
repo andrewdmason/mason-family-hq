@@ -19,6 +19,7 @@ import {
   MapPin,
   Trash2,
   Users,
+  Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,7 @@ import {
   toDateKey,
   utcDateKey,
 } from "@/lib/calendar/calendar-utils";
+import { isPlace, joinName, placeText } from "@/lib/calendar/place";
 import { describeRRule } from "@/lib/calendar/recurrence";
 import { CAREGIVERS, CAREGIVER_COLOR } from "@/lib/calendar/caregivers";
 import type {
@@ -686,19 +688,23 @@ export function EventPanelContent({
                     )}
                 </div>
               </div>
-              {event.location && (
+              {/* How it's joined, apart from where it is: the call's link is
+                  found wherever it was written (location, description,
+                  Google's own field), and the place is what's left. */}
+              {event.join_url && (
                 <div className="flex items-start gap-2">
-                  <MapPin className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                  <Video className="mt-0.5 h-4 w-4 text-muted-foreground" />
                   <a
-                    href={googleMapsUrl(event.location)}
+                    href={event.join_url}
                     target="_blank"
                     rel="noreferrer"
                     className="text-primary hover:underline"
                   >
-                    {event.location}
+                    Join {joinName(event.join_url)}
                   </a>
                 </div>
               )}
+              <PlaceRow event={event} />
               {sourceLabel && (
                 <div className="text-muted-foreground">{sourceLabel}</div>
               )}
@@ -795,6 +801,32 @@ export function EventPanelContent({
 }
 
 // A labeled field row, keeping the label column narrow and quiet.
+/** Where the event is: the location without any link that was in it, opening
+ * Maps when it's somewhere ("TBD" is only said). An event on a call says
+ * nothing here unless it has a place as well. */
+function PlaceRow({ event }: { event: CalendarEvent }) {
+  const place = placeText(event.location);
+  const somewhere = isPlace(event.location);
+  if (!place || (!somewhere && event.join_url)) return null;
+  return (
+    <div className="flex items-start gap-2">
+      <MapPin className="mt-0.5 h-4 w-4 text-muted-foreground" />
+      {somewhere ? (
+        <a
+          href={googleMapsUrl(place)}
+          target="_blank"
+          rel="noreferrer"
+          className="text-primary hover:underline"
+        >
+          {place}
+        </a>
+      ) : (
+        <span>{place}</span>
+      )}
+    </div>
+  );
+}
+
 function FieldRow({
   label,
   children,

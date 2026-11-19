@@ -2,7 +2,7 @@
 
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, ChevronRight, Flag, MapPin } from "lucide-react";
+import { AlertTriangle, ChevronRight, Flag } from "lucide-react";
 import {
   eventDayKey,
   formatTimeRange,
@@ -22,7 +22,7 @@ import {
   wash,
   type Placed,
 } from "@/lib/calendar/grid-layout";
-import { DutyGlyphs, type EventDisplay } from "./event-card";
+import { DutyGlyphs, WhereLine, type EventDisplay } from "./event-card";
 import { MemberAvatar } from "@/components/journal/member-avatar";
 import {
   Popover,
@@ -1249,11 +1249,12 @@ export function DayView({
               );
             })()}
         </span>
-        {height >= 60 && event.location && (
-          <span className="mt-0.5 flex items-center gap-0.5 truncate text-[10px] text-muted-foreground">
-            <MapPin className="h-2.5 w-2.5 shrink-0" />
-            {event.location}
-          </span>
+        {height >= 60 && (
+          <WhereLine
+            event={event}
+            className="mt-0.5 flex items-center gap-0.5 truncate text-[10px] text-muted-foreground"
+            iconClassName="h-2.5 w-2.5 shrink-0"
+          />
         )}
         {draggable && resizeHandles()}
       </button>

@@ -33,6 +33,7 @@ import {
 } from "./google";
 import { getMemberPrimary, deterministicEventId, type ImportDest } from "./materialize";
 import { isHomeLocation } from "./calendar-utils";
+import { isRemote } from "./place";
 import {
   getLogisticsSettings,
   FAMILY_TZ,
@@ -76,13 +77,14 @@ export interface DutyAssignmentRow {
 }
 
 const SOURCE_EVENT_COLUMNS =
-  "id, member_email, title, location, start_time, end_time, all_day, is_canceled, dismissed, owner_not_going, teamsnap_arrival_time, drive_minutes";
+  "id, member_email, title, location, join_url, start_time, end_time, all_day, is_canceled, dismissed, owner_not_going, teamsnap_arrival_time, drive_minutes";
 
 interface SourceEventRow {
   id: string;
   member_email: string | null;
   title: string;
   location: string | null;
+  join_url: string | null;
   start_time: string;
   end_time: string | null;
   all_day: boolean;
@@ -221,7 +223,9 @@ function desiredFor(
     !event.all_day &&
     // An event AT home needs no driving — even if a duty was assigned before
     // the location changed (the sweep tears stale blocks down through here).
-    !isHomeLocation(event.location, settings?.homeAddress);
+    !isHomeLocation(event.location, settings?.homeAddress) &&
+    // Nor does one that's on a call (a Zoom lesson).
+    !isRemote(event);
   if (!shouldExist) return { exists: false };
   const ev = event as SourceEventRow;
 

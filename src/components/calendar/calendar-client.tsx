@@ -58,6 +58,7 @@ import {
   toLogicalEvents,
 } from "@/lib/calendar/calendar-utils";
 import { detectConflicts } from "@/lib/calendar/conflicts";
+import { isRemote } from "@/lib/calendar/place";
 import { CAREGIVER_COLOR } from "@/lib/calendar/caregivers";
 import {
   driveBlockWindow,
@@ -503,6 +504,7 @@ export function CalendarClient({
       if (ev.drive_source_event_id || ev.all_day) continue;
       if (!ev.member_email || !kidEmails.has(ev.member_email)) continue;
       if (isHomeLocation(ev.location, logistics.homeAddress)) continue;
+      if (isRemote(ev)) continue;
       // Not going / dismissed: no drive — treat as unassigned so any lingering
       // mirror hides on the tap (the assignments themselves stay saved).
       const d: EventDuties =
@@ -656,6 +658,7 @@ export function CalendarClient({
         drive_source_event_id: src.ev.id,
         drive_duty: src.duty,
         drive_minutes: null,
+        join_url: null,
       });
     }
     return { hidden, extra };
@@ -694,6 +697,7 @@ export function CalendarClient({
       drive_source_event_id: null,
       drive_duty: null,
       drive_minutes: null,
+      join_url: null,
     };
   }, [panel]);
 
@@ -790,6 +794,7 @@ export function CalendarClient({
       if (!e.member_email || !kidEmails.has(e.member_email)) return false;
       if (!e.location || isHomeLocation(e.location, logistics.homeAddress))
         return false;
+      if (isRemote(e)) return false;
       if (eventDayKey(e) !== dayKey) return false;
       const over = new Date(e.end_time ?? e.start_time).getTime() < nowTick;
       if (over) return false;
@@ -867,6 +872,7 @@ export function CalendarClient({
         !event.owner_not_going &&
         !event.drive_source_event_id &&
         !isHomeLocation(event.location, logistics.homeAddress) &&
+        !isRemote(event) &&
         event.member_email &&
         kidEmails.has(event.member_email)
       ) {
@@ -1508,6 +1514,7 @@ export function CalendarClient({
           !panelEvent.all_day &&
           !panelEvent.drive_source_event_id &&
           !isHomeLocation(panelEvent.location, logistics.homeAddress) &&
+          !isRemote(panelEvent) &&
           !!panelEvent.member_email &&
           kidEmails.has(panelEvent.member_email)
         }

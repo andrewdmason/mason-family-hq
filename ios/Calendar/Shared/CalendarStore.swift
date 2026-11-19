@@ -189,15 +189,20 @@ final class CalendarStore {
     private static let pageSize = 1000
 
     /// A build can reach a phone before the migration that adds a column it
-    /// reads (location_time_zone): Postgres then refuses the whole read
-    /// (42703, undefined column). Read without it, so the calendar still
-    /// loads; trips show once the column is there.
+    /// reads (join_url, location_time_zone): Postgres then refuses the whole
+    /// read (42703, undefined column). Read without the newest, then without
+    /// the one before, so the calendar still loads; what the column is for
+    /// shows once it's there.
     private func fetchEvents() async throws -> [CalEvent] {
-        do {
-            return try await fetchEvents(columns: CalEvent.columns)
-        } catch let error as PostgrestError where error.code == "42703" {
-            return try await fetchEvents(columns: CalEvent.columns.replacingOccurrences(of: ", location_time_zone", with: ""))
+        var columns = CalEvent.columns
+        for newer in [", join_url", ", location_time_zone"] {
+            do {
+                return try await fetchEvents(columns: columns)
+            } catch let error as PostgrestError where error.code == "42703" {
+                columns = columns.replacingOccurrences(of: newer, with: "")
+            }
         }
+        return try await fetchEvents(columns: columns)
     }
 
     private func fetchEvents(columns: String) async throws -> [CalEvent] {
