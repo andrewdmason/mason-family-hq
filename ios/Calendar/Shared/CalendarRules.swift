@@ -365,6 +365,19 @@ enum CalendarRules {
         return nil
     }
 
+    /// Every occurrence of the repeating event `event` is one of, itself
+    /// included: the rows on the same calendar from the same Google series.
+    /// Just the event when it doesn't repeat.
+    static func series(of event: CalEvent, in events: [CalEvent]) -> [CalEvent] {
+        guard event.sourceType == .google, let series = event.recurringEventID else { return [event] }
+        return events.filter { $0.id == event.id || ($0.recurringEventID == series && $0.sourceID == event.sourceID) }
+    }
+
+    /// Whether deleting can offer the whole series as well as the one event.
+    static func repeats(_ event: CalEvent) -> Bool {
+        event.sourceType == .google && event.recurringEventID != nil
+    }
+
     private static let weekdayNames = ["MO": "Mon", "TU": "Tue", "WE": "Wed", "TH": "Thu", "FR": "Fri", "SA": "Sat", "SU": "Sun"]
     private static let weekdayOrder = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
 

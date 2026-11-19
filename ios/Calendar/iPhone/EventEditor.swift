@@ -92,7 +92,7 @@ struct EventEditor: View {
                         Label(CalendarRules.repeatText(rrule), systemImage: "repeat")
                             .foregroundStyle(.secondary)
                     } footer: {
-                        Text("Changes here are to this one event. Change the whole series in Google Calendar.")
+                        Text("Edits here are to this one event; change the whole series in Google Calendar. Deleting can take the whole series.")
                     }
                 }
 
@@ -110,9 +110,14 @@ struct EventEditor: View {
                             .foregroundStyle(.red)
                             .disabled(saving)
                             .confirmationDialog("Delete “\(event.title)”?", isPresented: $confirmDelete, titleVisibility: .visible) {
-                                Button("Delete", role: .destructive) { delete(event) }
+                                if CalendarRules.repeats(event) {
+                                    Button("Delete This Event Only", role: .destructive) { delete(event) }
+                                    Button("Delete All Events", role: .destructive) { delete(event, series: true) }
+                                } else {
+                                    Button("Delete", role: .destructive) { delete(event) }
+                                }
                             } message: {
-                                Text(event.sourceType == .google ? "It comes off Google Calendar too." : "This can't be undone.")
+                                Text(deleteNote(event))
                             }
                     }
                 }
@@ -221,12 +226,19 @@ struct EventEditor: View {
         }
     }
 
-    private func delete(_ event: CalEvent) {
+    private func deleteNote(_ event: CalEvent) -> String {
+        if CalendarRules.repeats(event) {
+            return "This is a repeating event. Deleting all of them takes the whole series off Google Calendar, past ones too."
+        }
+        return event.sourceType == .google ? "It comes off Google Calendar too." : "This can't be undone."
+    }
+
+    private func delete(_ event: CalEvent, series: Bool = false) {
         saving = true
         error = nil
         Task {
             do {
-                try await store.delete(event)
+                try await store.delete(event, series: series)
                 dismiss()
             } catch {
                 self.error = error.localizedDescription
