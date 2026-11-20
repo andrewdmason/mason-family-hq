@@ -298,5 +298,38 @@ final class VocabRulesTests: XCTestCase {
         XCTAssertEqual(state.question?.kind, .sc)
         XCTAssertEqual(state.question?.allowDontKnow, false)
         XCTAssertNil(state.summary)
+        // An older website sends no key: the answer then waits for its word.
+        XCTAssertNil(state.question?.key)
+    }
+
+    /// A question's key grades it on the phone as the website would (feedbackFor in src/lib/words/session.ts).
+    func testKeyGrades() throws {
+        let json = #"""
+        {"position":1,"total":18,"kind":"syn","stem":"ABUNDANT","choices":["scarce","plentiful","abrupt","adequate"],
+         "isNew":false,"allowDontKnow":true,
+         "key":{"correctIndex":1,"whys":["The opposite.",null,"It only looks alike.",null],"masteredIfRight":true,
+                "tip":"Think of plenty.","title":"abundant","pos":"adjective","meaning":"more than enough","example":null,
+                "hook":"A bun dance.","parts":[{"part":"ab-","meaning":"away"}]}}
+        """#
+        let key = try XCTUnwrap(JSONDecoder().decode(VocabQuestion.self, from: Data(json.utf8)).key)
+
+        let right = key.feedback(for: 1)
+        XCTAssertEqual(right.result, "correct")
+        XCTAssertTrue(right.mastered)
+        XCTAssertNil(right.chosenWhy)
+        XCTAssertEqual(right.parts.map(\.part), ["ab-"])
+
+        let wrong = key.feedback(for: 0)
+        XCTAssertEqual(wrong.result, "wrong")
+        XCTAssertEqual(wrong.correctIndex, 1)
+        XCTAssertEqual(wrong.chosenWhy, "The opposite.")
+        XCTAssertFalse(wrong.mastered)
+        // A wrong choice nobody wrote a note for.
+        XCTAssertNil(key.feedback(for: 3).chosenWhy)
+
+        let dontKnow = key.feedback(for: nil)
+        XCTAssertEqual(dontKnow.result, "dontknow")
+        XCTAssertNil(dontKnow.chosenWhy)
+        XCTAssertFalse(dontKnow.mastered)
     }
 }

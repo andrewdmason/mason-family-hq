@@ -11,6 +11,7 @@ import {
   type Item,
   type Level,
   type Progress,
+  type QuestionKey,
   type Result,
   type SessionState,
   type SessionSummary,
@@ -113,10 +114,14 @@ function shuffle<T>(list: T[]): T[] {
   return a;
 }
 
-function toClient(session: SessionRow): ClientQuestion | null {
+/** Send the answer along with each question (the Tuttles app, which grades on the phone). */
+export type Serve = { key?: boolean };
+
+function toClient(session: SessionRow, key?: QuestionKey | null): ClientQuestion | null {
   const c = session.current;
   if (!c) return null;
   return {
+    ...(key ? { key } : {}),
     position: session.answered + 1,
     total: session.total,
     kind: c.kind,
@@ -191,19 +196,19 @@ async function summarize(admin: Admin, session: SessionRow): Promise<SessionSumm
   };
 }
 
-function stateOf(session: SessionRow, summary: SessionSummary | null): SessionState {
+function stateOf(session: SessionRow, summary: SessionSummary | null, key?: QuestionKey | null): SessionState {
   return {
     sessionId: session.id,
     elapsedMs: session.elapsed_ms,
     limitMs: session.limit_ms,
     noDontKnow: session.no_dont_know,
-    question: summary ? null : toClient(session),
+    question: summary ? null : toClient(session, key),
     summary,
   };
 }
 
 /** Today's unfinished session if there is one, or a new one. */
-export async function startOrResume(profile: Profile): Promise<SessionState> {
+export async function startOrResume(profile: Profile, serve: Serve = {}): Promise<SessionState> {
   const admin = createAdminClient();
   const today = wordsToday();
   const { data: open } = await admin
@@ -234,12 +239,14 @@ export async function startOrResume(profile: Profile): Promise<SessionState> {
     if (error) throw new Error(error.message);
     session = data as SessionRow;
   }
+  let progress: Map<string, Progress> | null = null;
   if (!session.current) {
-    const progress = await loadProgress(profile.userId, profile.level, admin);
+    progress = await loadProgress(profile.userId, profile.level, admin);
     const served = await serveNext(admin, session, progress);
     if (!served) return finish(admin, session);
   }
-  return stateOf(session, null);
+  if (!serve.key) return stateOf(session, null);
+  return stateOf(session, null, keyFor(session, progress ?? (await loadProgress(profile.userId, profile.level, admin))));
 }
 
 async function finish(admin: Admin, session: SessionRow): Promise<SessionState> {
@@ -250,7 +257,8 @@ async function finish(admin: Admin, session: SessionRow): Promise<SessionState> 
   return stateOf(session, await summarize(admin, session));
 }
 
-function feedbackFor(level: Level, item: Item, current: Current, result: Result, chosen: StoredChoice | null, mastered: boolean): Feedback {
+/** The word laid out for learning, however the answer went. */
+function lessonFor(level: Level, item: Item, current: Current): Omit<Feedback, "result" | "chosenWhy" | "mastered"> {
   const form = item.forms[current.form];
   const parts =
     item.type === "word"
@@ -260,9 +268,7 @@ function feedbackFor(level: Level, item: Item, current: Current, result: Result,
         })
       : [];
   return {
-    result,
     correctIndex: current.correct,
-    chosenWhy: result === "wrong" ? (chosen?.why ?? null) : null,
     tip: form.tip,
     title: titleOf(item),
     pos: item.type === "word" ? item.pos : item.kind,
@@ -270,7 +276,29 @@ function feedbackFor(level: Level, item: Item, current: Current, result: Result,
     example: item.type === "word" ? item.example : `As in ${item.examples.join(" and ")}.`,
     hook: item.hook,
     parts,
-    mastered,
+  };
+}
+
+function feedbackFor(level: Level, item: Item, current: Current, result: Result, chosen: StoredChoice | null, mastered: boolean): Feedback {
+  return { ...lessonFor(level, item, current), result, chosenWhy: result === "wrong" ? (chosen?.why ?? null) : null, mastered };
+}
+
+/** The answer takes the item to mastered. */
+function nowMastered(before: Progress | null, after: Progress): boolean {
+  return after.stage >= 3 && (before?.stage ?? 0) < 3;
+}
+
+/** The answer to the question on the session, for grading it where it's shown. */
+function keyFor(session: SessionRow, progress: Map<string, Progress>): QuestionKey | null {
+  const current = session.current;
+  const item = current ? findItem(session.level, current.item) : undefined;
+  if (!current || !item) return null;
+  const before = progress.get(item.id) ?? null;
+  const ifRight = applyAnswer(before, item.id, current.form, "correct", session.day, new Date().toISOString());
+  return {
+    ...lessonFor(session.level, item, current),
+    whys: current.choices.map((c) => (c.right ? null : (c.why ?? null))),
+    masteredIfRight: nowMastered(before, ifRight),
   };
 }
 
@@ -284,7 +312,8 @@ export async function answerQuestion(
   sessionId: string,
   position: number,
   choice: number | null,
-  ms: number
+  ms: number,
+  serve: Serve = {}
 ): Promise<{ feedback: Feedback; state: SessionState } | null> {
   const admin = createAdminClient();
   const { data } = await admin.from("words_sessions").select("*").eq("id", sessionId).eq("user_id", userId).maybeSingle();
@@ -301,32 +330,31 @@ export async function answerQuestion(
   const result: Result = choice === null ? "dontknow" : choice === current.correct ? "correct" : "wrong";
   const spent = Math.max(0, Math.min(Math.round(ms) || 0, 5 * 60 * 1000));
 
-  const { error: insertError } = await admin.from("words_answers").insert({
-    session_id: session.id,
-    user_id: userId,
-    level: session.level,
-    item: item.id,
-    form: current.form,
-    position,
-    result,
-    chosen: chosen?.text ?? null,
-    trap: result === "wrong" ? (chosen?.trap ?? null) : null,
-    ms: spent,
-  });
+  // What they've done so far is read while the answer is written, to save a trip.
+  const [{ error: insertError }, progress] = await Promise.all([
+    admin.from("words_answers").insert({
+      session_id: session.id,
+      user_id: userId,
+      level: session.level,
+      item: item.id,
+      form: current.form,
+      position,
+      result,
+      chosen: chosen?.text ?? null,
+      trap: result === "wrong" ? (chosen?.trap ?? null) : null,
+      ms: spent,
+    }),
+    loadProgress(userId, session.level, admin),
+  ]);
   // Already answered (the unique position): a second tap got here first.
   if (insertError) return null;
 
-  const progress = await loadProgress(userId, session.level, admin);
   const before = progress.get(item.id) ?? null;
   const now = new Date().toISOString();
   const after = applyAnswer(before, item.id, current.form, result, session.day, now);
   progress.set(item.id, after);
-  const { error: progressError } = await admin
-    .from("words_progress")
-    .upsert({ user_id: userId, level: session.level, ...after, updated_at: now }, { onConflict: "user_id,level,item" });
-  if (progressError) throw new Error(progressError.message);
 
-  const mastered = after.stage >= 3 && (before?.stage ?? 0) < 3;
+  const mastered = nowMastered(before, after);
   // A miss comes round once more this session; a miss on that second go waits for tomorrow.
   let requeue = session.requeue.filter((r) => r.item !== item.id);
   if (result !== "correct" && !current.requeued) requeue = [...requeue, { item: item.id, at: position }];
@@ -340,34 +368,47 @@ export async function answerQuestion(
   session.new_items += before ? 0 : 1;
   session.mastered_gained += mastered ? 1 : 0;
   session.current = null;
-  const { error: updateError } = await admin
-    .from("words_sessions")
-    .update({
-      answered: session.answered,
-      correct: session.correct,
-      wrong: session.wrong,
-      dontknow: session.dontknow,
-      elapsed_ms: session.elapsed_ms,
-      requeue: session.requeue,
-      new_items: session.new_items,
-      mastered_gained: session.mastered_gained,
-      current: null,
-    })
-    .eq("id", session.id);
+  // Their progress and the session are written together.
+  const [{ error: progressError }, { error: updateError }] = await Promise.all([
+    admin
+      .from("words_progress")
+      .upsert({ user_id: userId, level: session.level, ...after, updated_at: now }, { onConflict: "user_id,level,item" }),
+    admin
+      .from("words_sessions")
+      .update({
+        answered: session.answered,
+        correct: session.correct,
+        wrong: session.wrong,
+        dontknow: session.dontknow,
+        elapsed_ms: session.elapsed_ms,
+        requeue: session.requeue,
+        new_items: session.new_items,
+        mastered_gained: session.mastered_gained,
+        current: null,
+      })
+      .eq("id", session.id),
+  ]);
+  if (progressError) throw new Error(progressError.message);
   if (updateError) throw new Error(updateError.message);
 
   const feedback = feedbackFor(session.level, item, current, result, chosen, mastered);
   if (session.answered >= session.total) return { feedback, state: await finish(admin, session) };
   const served = await serveNext(admin, session, progress);
   if (!served) return { feedback, state: await finish(admin, session) };
-  return { feedback, state: stateOf(session, null) };
+  return { feedback, state: stateOf(session, null, serve.key ? keyFor(session, progress) : null) };
 }
 
 /**
  * Take the word on screen out for good (too easy, or one they don't want) and
  * serve another in its place. It isn't an answer: the question count doesn't move.
  */
-export async function removeCurrent(userId: string, sessionId: string, position: number, ms: number): Promise<SessionState | null> {
+export async function removeCurrent(
+  userId: string,
+  sessionId: string,
+  position: number,
+  ms: number,
+  serve: Serve = {}
+): Promise<SessionState | null> {
   const admin = createAdminClient();
   const { data } = await admin.from("words_sessions").select("*").eq("id", sessionId).eq("user_id", userId).maybeSingle();
   const session = data as SessionRow | null;
@@ -388,7 +429,7 @@ export async function removeCurrent(userId: string, sessionId: string, position:
   await admin.from("words_sessions").update({ elapsed_ms: session.elapsed_ms, requeue: session.requeue, current: null }).eq("id", session.id);
   const served = await serveNext(admin, session, progress);
   if (!served) return finish(admin, session);
-  return stateOf(session, null);
+  return stateOf(session, null, serve.key ? keyFor(session, progress) : null);
 }
 
 function blankProgress(item: string, today: string): Progress {

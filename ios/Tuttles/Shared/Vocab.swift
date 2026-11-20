@@ -7,8 +7,13 @@ import SwiftUI
 // played natively. One timed session a day: 18 questions for Oscar (Lower
 // Level), 22 for Sebastian (Middle), against a ten-minute clock. The words,
 // the schedule and the grading are all the website's; the phone draws a
-// question, relays the answer through /tuttles/api/vocab, and never sees
-// which choice is right before it's answered.
+// question and relays the answer through /tuttles/api/vocab.
+//
+// An answer shows the moment it's tapped: each question comes with its key
+// (which choice is right, and the word laid out for a miss), so the phone
+// grades it itself and sends the answer along behind. The website still grades
+// what arrives and keeps the score; it answers with the next question, which
+// is usually in hand before they've finished looking at this one.
 //
 // It follows the account picker like everything else: a kid (or the phone
 // used as one) gets their own level and session, and the parents' view shows
@@ -109,8 +114,34 @@ struct VocabHome: Decodable {
     let kids: [Kid]?
 }
 
-/// The question on screen, without its answer.
+/// The question on screen.
 struct VocabQuestion: Decodable, Hashable {
+    /// Its answer (QuestionKey in src/lib/words/types.ts), for grading it here
+    /// without waiting on the network.
+    struct Key: Decodable, Hashable {
+        let correctIndex: Int
+        /// For each choice, why it's wrong; nil for the right one.
+        let whys: [String?]
+        /// A right answer would make it mastered.
+        let masteredIfRight: Bool
+        let tip: String
+        let title: String
+        let pos: String?
+        let meaning: String
+        let example: String?
+        let hook: String
+        let parts: [VocabFeedback.Part]
+
+        /// What the website will say to this answer (`choice` nil: "Don't know").
+        func feedback(for choice: Int?) -> VocabFeedback {
+            let right = choice == correctIndex
+            let why = choice.flatMap { !right && whys.indices.contains($0) ? whys[$0] : nil }
+            return VocabFeedback(result: choice == nil ? "dontknow" : right ? "correct" : "wrong", correctIndex: correctIndex,
+                                 chosenWhy: why, tip: tip, title: title, pos: pos, meaning: meaning, example: example,
+                                 hook: hook, parts: parts, mastered: right && masteredIfRight)
+        }
+    }
+
     enum Kind: String, Decodable {
         case syn, sc, part
 
@@ -131,6 +162,8 @@ struct VocabQuestion: Decodable, Hashable {
     /// A word or part they've never been asked before.
     let isNew: Bool
     let allowDontKnow: Bool
+    /// Nil from a website that doesn't send it yet: then the answer waits for the website's word.
+    var key: Key? = nil
 }
 
 /// What comes back after an answer: how it went, and the word laid out for learning.
@@ -409,6 +442,10 @@ final class VocabRun: Identifiable {
     private(set) var crossed: Set<Int> = []
     private(set) var busy = false
     private(set) var failed = false
+    /// The answer on screen, until the website has it.
+    private var unsent: (position: Int, choice: Int?, ms: Int)?
+    /// They're ready for the next question and it isn't here yet.
+    private(set) var wantsNext = false
     /// When the question on screen started waiting for its answer.
     private var waitingSince = Date()
     /// The time the question took, once it's answered.
@@ -451,23 +488,45 @@ final class VocabRun: Identifiable {
     func answer(_ pick: Pick) async {
         guard let question, picked == nil, !busy else { return }
         let ms = Int(Date().timeIntervalSince(waitingSince) * 1000)
+        var choice: Int?
+        if case .choice(let index) = pick { choice = index }
         picked = pick
         tookMs = ms
+        // Graded here and now; the website hears about it behind what's on screen.
+        feedback = question.key?.feedback(for: choice)
+        unsent = (question.position, choice, ms)
+        await send()
+    }
+
+    /// Hands the answer on screen to the website, which sends back what's next.
+    private func send() async {
+        guard let unsent, !busy else { return }
         busy = true
         failed = false
         defer { busy = false }
-        do {
-            var choice: Int?
-            if case .choice(let index) = pick { choice = index }
-            guard let result = try await store.vocabAnswer(state, position: question.position, choice: choice, ms: ms) else {
-                // The session moved on without this phone: pick it up where it is.
-                show(try await store.vocabBegin())
+        // Graded here, there's nothing to take back: it keeps trying. Otherwise
+        // the answer is the website's to give, and a failure hands the question back.
+        let graded = feedback != nil
+        for attempt in 0..<(graded ? 4 : 1) {
+            if attempt > 0 { try? await Task.sleep(for: .seconds(Double(attempt))) }
+            do {
+                if let result = try await store.vocabAnswer(state, position: unsent.position, choice: unsent.choice, ms: unsent.ms) {
+                    if feedback == nil { feedback = result.feedback }
+                    pending = result.state
+                } else {
+                    // The session moved on without this phone (or an earlier try
+                    // did get through): pick it up where it is.
+                    let now = try await store.vocabBegin()
+                    if graded { pending = now } else { show(now) }
+                }
+                self.unsent = nil
+                if wantsNext { withAnimation(.snappy) { advance() } }
                 return
-            }
-            feedback = result.feedback
-            pending = result.state
-        } catch {
-            failed = true
+            } catch {}
+        }
+        failed = true
+        if !graded {
+            self.unsent = nil
             picked = nil
             tookMs = nil
         }
@@ -493,7 +552,13 @@ final class VocabRun: Identifiable {
 
     /// On to the next question, or the end.
     func advance() {
-        guard let pending else { return }
+        guard let pending else {
+            // Not here yet: it's shown the moment it arrives. After a failure, this is the way to try again.
+            guard feedback != nil else { return }
+            wantsNext = true
+            if failed { Task { await send() } }
+            return
+        }
         show(pending)
     }
 
@@ -511,6 +576,7 @@ final class VocabRun: Identifiable {
         feedback = nil
         picked = nil
         crossed = []
+        wantsNext = false
         tookMs = nil
         waitingSince = Date()
         shown += 1

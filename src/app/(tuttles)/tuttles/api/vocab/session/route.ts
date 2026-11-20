@@ -13,5 +13,5 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   const player = await vocabPlayer(request);
   if (player instanceof NextResponse) return player;
-  return NextResponse.json(await startOrResume(player.profile), NO_STORE);
+  return NextResponse.json(await startOrResume(player.profile, { key: true }), NO_STORE);
 }
