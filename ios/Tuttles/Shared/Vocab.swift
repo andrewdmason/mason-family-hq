@@ -298,6 +298,10 @@ enum VocabRules {
     /// How many of the words they say they know get a real question, to keep it honest.
     static func sortChecks(known: Int) -> Int { min(2, known) }
 
+    /// One missed check keeps that word in and asks one more; a second says
+    /// they're guessing, and the whole page stays in.
+    static func sortKeepsPage(misses: Int) -> Bool { misses >= 2 }
+
     /// A page they mostly don't know: from here on the sessions are the better way through.
     static func sortStops(known: Int, of total: Int) -> Bool { known * 2 < total }
 
@@ -693,7 +697,8 @@ final class VocabRun: Identifiable {
 
 /// Going through the list a page at a time, commonest first: tap the words
 /// you're not sure of, and the rest are skipped for good. Before they are, a
-/// couple of them get a real question; a miss and the page's words all stay in.
+/// couple of them get a real question. A miss keeps that word in and brings
+/// one more question; a second miss and the page's words all stay in.
 /// It stops by itself at the first page that's mostly unknown.
 @MainActor
 @Observable
@@ -704,7 +709,7 @@ final class VocabSort: Identifiable {
         case sorting
         /// A real question on one of the words they said they know.
         case checking
-        /// A check went wrong: the word laid out, and the page's words stay in.
+        /// A check went wrong: the word laid out, and what that means for the page.
         case missed
         case finished
         /// The website couldn't be reached for the next page.
@@ -725,6 +730,10 @@ final class VocabSort: Identifiable {
     private(set) var checkIndex = 0
     private(set) var picked: VocabRun.Pick?
     private(set) var feedback: VocabFeedback?
+    /// Checks missed on this page: those words stay in whatever happens.
+    private(set) var missed: Set<String> = []
+    /// Missed too often: nothing on this page is skipped.
+    var keepsPage: Bool { VocabRules.sortKeepsPage(misses: missed.count) }
     /// Words skipped this time through.
     private(set) var skipped = 0
     /// How many the page just finished skipped; nil before the first, 0 after a missed check.
@@ -761,6 +770,7 @@ final class VocabSort: Identifiable {
         let asked = known.filter { $0.question.key != nil }.shuffled().prefix(VocabRules.sortChecks(known: known.count))
         guard !asked.isEmpty else { return await close(skip: known) }
         checks = Array(asked)
+        missed = []
         checkIndex = 0
         picked = nil
         feedback = nil
@@ -775,21 +785,37 @@ final class VocabSort: Identifiable {
         picked = pick
         feedback = graded
         guard graded.isCorrect else {
+            missed.insert(check.id)
             phase = .missed
             return
         }
         try? await Task.sleep(for: .seconds(0.45))
         guard phase == .checking, self.check == check else { return }
+        await nextCheck()
+    }
+
+    /// After reading a missed check: one more question, or, after a second
+    /// miss, on with nothing on this page skipped.
+    func carryOn() async {
+        guard phase == .missed else { return }
+        guard !keepsPage else { return await close(skip: []) }
+        let asked = Set(checks.map(\.id))
+        if let extra = known.filter({ !asked.contains($0.id) && $0.question.key != nil }).randomElement() {
+            checks.append(extra)
+        }
+        await nextCheck()
+    }
+
+    /// On to the next check, or, after the last, skips what they know bar the words they missed.
+    private func nextCheck() async {
         picked = nil
         feedback = nil
         checkIndex += 1
-        if checkIndex >= checks.count { await close(skip: known) }
-    }
-
-    /// After reading a missed check: nothing on this page is skipped.
-    func carryOn() async {
-        guard phase == .missed else { return }
-        await close(skip: [])
+        if checkIndex >= checks.count {
+            await close(skip: known.filter { !missed.contains($0.id) })
+        } else {
+            phase = .checking
+        }
     }
 
     /// From the end, when it stopped at a page that was mostly unknown.
@@ -839,6 +865,7 @@ final class VocabSort: Identifiable {
             self.page = page
             unsure = []
             checks = []
+            missed = []
             picked = nil
             feedback = nil
             phase = .sorting
