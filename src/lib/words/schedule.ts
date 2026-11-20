@@ -33,6 +33,8 @@ const REQUEUE_GAP = 3;
 /** Days until an item is due again after a right answer, by the stage it moves to. */
 const GAP_BY_STAGE = [1, 3, 7, 21];
 const MASTERED_GAP_MAX = 30;
+/** Far enough off that a word already known never comes back before the test. */
+const RETIRED_GAP = 365;
 
 export function addDays(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00Z`);
@@ -133,6 +135,9 @@ export function applyAnswer(
   next.stage = base.stage + 1;
   next.due_on = addDays(today, GAP_BY_STAGE[next.stage]);
   if (next.stage >= 3) next.mastered_at = now;
+  // A word they knew before they ever saw it here, right both times and asked
+  // two ways: it's retired, and its place goes to a word they don't know.
+  if (next.stage >= 3 && base.fast) next.due_on = addDays(today, RETIRED_GAP);
   return next;
 }
 
