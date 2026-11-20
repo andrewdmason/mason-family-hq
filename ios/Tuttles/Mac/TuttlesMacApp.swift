@@ -109,6 +109,7 @@ struct MacShell: View {
         if let id = Launch.value("class").flatMap(Int.init) { return (.classes, [.classPage(id)]) }
         if CommandLine.arguments.contains("--study") { return (.study, []) }
         if CommandLine.arguments.contains("--classes") { return (.classes, []) }
+        if CommandLine.arguments.contains("--vocab") { return (.vocab, []) }
         return (.chat(UUID(), isNew: true), [])
     }
 
@@ -132,7 +133,7 @@ struct MacShell: View {
             // A view starts at its home: the parent's This week, or a new chat for the kid's.
             open(store.showingParentView ? .week : .chat(UUID(), isNew: true))
         }
-        .onAppear { if store.showingParentView, root != .week { root = .week; path = [] } }
+        .onAppear { if store.showingParentView, root != .week, root != .vocab { root = .week; path = [] } }
         .onReceive(NotificationCenter.default.publisher(for: .newChat)) { _ in
             // A parent's own chats are briefings, started from This week.
             if !store.showingParentView { open(.chat(UUID(), isNew: true)) }
@@ -161,6 +162,10 @@ struct MacShell: View {
             StudyListView(path: $path).macPage()
         case .week:
             ParentHomeView(path: $path).macPage()
+        case .vocab:
+            VocabHomeView(path: $path)
+        case .vocabList(let kid, let name):
+            VocabListView(kid: kid, name: name)
         }
     }
 

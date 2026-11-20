@@ -70,6 +70,7 @@ struct ChatsView: View {
         if let at = args.firstIndex(of: "--class"), args.count > at + 1, let id = Int(args[at + 1]) {
             return (.classes, [.classPage(id)], false)
         }
+        if args.contains("--vocab") { return (.vocab, [], false) }
         return (.chat(UUID(), isNew: true), [], args.contains("--list"))
     }
 
@@ -119,7 +120,7 @@ struct ChatsView: View {
             // A view starts at its home: the parent's This week, or a new chat for the kid's.
             open(store.showingParentView ? .week : .chat(UUID(), isNew: true))
         }
-        .onAppear { if store.showingParentView, root != .week { root = .week; path = [] } }
+        .onAppear { if store.showingParentView, root != .week, root != .vocab { root = .week; path = [] } }
         .onChange(of: menu.isOpen) {
             guard menu.isOpen else { return }
             // Opening the menu: put the keyboard away, and catch up on the chat
@@ -163,6 +164,10 @@ struct ChatsView: View {
             StudyListView(path: $path).menuButton(isRoot)
         case .week:
             ParentHomeView(path: $path).menuButton(isRoot)
+        case .vocab:
+            VocabHomeView(path: $path).menuButton(isRoot)
+        case .vocabList(let kid, let name):
+            VocabListView(kid: kid, name: name).menuButton(isRoot)
         }
     }
 
