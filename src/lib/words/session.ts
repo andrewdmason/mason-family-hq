@@ -640,7 +640,7 @@ export type Overview = {
   trouble: { id: string; title: string; meaning: string; misses: number }[];
   /** Right answers out of all answers, over the last 7 days; null before there are any. */
   accuracy: number | null;
-  /** Sorting out the words known already: whether they've been through it, and how many words are left to look at. */
+  /** Sorting out the words known already: whether they've had a go at it, and how many words are left to look at. */
   sort: { done: boolean; left: number };
 };
 
@@ -709,7 +709,8 @@ export async function loadOverview(profile: Profile): Promise<Overview> {
     },
     trouble,
     accuracy: answered > 0 ? week.reduce((n, s) => n + s.correct, 0) / answered : null,
-    sort: { done: sorted.done, left: unsorted(profile.level, progress, sorted.through).length },
+    // Done once they've sat down to it at all, however far they got: the card asking them to is a one-time thing.
+    sort: { done: sorted.done || sorted.through > 0, left: unsorted(profile.level, progress, sorted.through).length },
   };
 }
 
