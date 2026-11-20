@@ -46,6 +46,7 @@ export const PWA_APPS: PwaApp[] = [
   { key: "workouts", name: "Workouts", shortName: "Workouts", startUrl: "/workouts", pageTitle: "Workouts" },
   { key: "practice", name: "Practice Log", shortName: "Practice", startUrl: "/practice", pageTitle: "Practice Log" },
   { key: "baseball", name: "Baseball", shortName: "Baseball", startUrl: "/baseball", pageTitle: "Baseball" },
+  { key: "words", name: "ISEE Verbal Reasoning", shortName: "ISEE Verbal", startUrl: "/words", pageTitle: "ISEE Verbal Reasoning" },
   { key: "games", name: "Games", shortName: "Games", startUrl: "/games", pageTitle: "Games" },
   { key: "clips", name: "Baseball Clips", shortName: "Clips", startUrl: "/clips", pageTitle: "Baseball Clips", orientation: "any" },
 ];

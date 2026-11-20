@@ -21,6 +21,7 @@
     "verify:clips": "tsx --tsconfig scripts/tsconfig.json scripts/verify-clips-reel.mts",
     "verify:calendar": "tsx --tsconfig scripts/tsconfig.json scripts/verify-calendar-place.mts",
     "verify:todos": "tsx --tsconfig scripts/tsconfig.json scripts/verify-todos-week.mts",
+    "verify:words": "tsx --tsconfig scripts/tsconfig.json scripts/verify-words.mts",
     "verify:tuttles": "tsx --tsconfig scripts/tsconfig.json scripts/verify-tuttles-study.mts"
   },
   "dependencies": {

@@ -37,6 +37,7 @@ import {
   Music,
   Coins,
   Brain,
+  WholeWord,
   Clapperboard,
 } from "lucide-react";
 
@@ -77,6 +78,7 @@ const APPS = [
   { key: "assignments", group: "(assignments)", glyph: GraduationCap, top: "#6f8a96", bottom: "#415c68" },
   { key: "workouts", group: "(workouts)", glyph: Dumbbell, top: "#b85c40", bottom: "#883a26" },
   { key: "practice", group: "practice", glyph: Music, top: "#8475a6", bottom: "#524673" },
+  { key: "words", group: "(words)", glyph: WholeWord, top: "#4f8a7b", bottom: "#2f5e53" },
   { key: "games", group: "(games)", glyph: Brain, top: "#b5617e", bottom: "#83405a" },
   { key: "clips", group: "(clips)", glyph: Clapperboard, top: "#6b8f5e", bottom: "#41613a" },
   { key: "tuttles", group: "(tuttles)", photo: "scripts/icon-art/tuttles.jpg", top: "#d7261e", bottom: "#9e1a14" },

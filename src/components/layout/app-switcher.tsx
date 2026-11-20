@@ -25,6 +25,7 @@ import {
   NotebookPen,
   Settings,
   Users,
+  WholeWord,
 } from "lucide-react";
 import { useAppNav } from "@/components/layout/app-header";
 import { buttonVariants } from "@/components/ui/button";
@@ -149,6 +150,13 @@ const APPS: App[] = [
     match: "/clips",
     description: "At-bat videos, pitch by pitch",
     icon: Clapperboard,
+  },
+  {
+    href: "/words",
+    label: "ISEE Verbal Reasoning",
+    match: "/words",
+    description: "Daily vocabulary practice",
+    icon: WholeWord,
   },
   {
     href: "/games",
