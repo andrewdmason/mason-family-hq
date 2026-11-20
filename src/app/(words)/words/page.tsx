@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { Check, ChevronRight, Flame } from "lucide-react";
-import { chooseLevel } from "@/app/(words)/words/actions";
 import { DayDots, WordsBar, paceLine } from "@/components/words/progress-bits";
 import { buttonVariants } from "@/components/ui/button-variants";
 import { getIsAdult, requireUserId } from "@/lib/members/auth";
 import { cn } from "@/lib/utils";
+import { wordsToday } from "@/lib/words/day";
 import { daysBetween, TEST_DATE } from "@/lib/words/schedule";
 import { getProfile, loadOverview, loadStudents, type Overview } from "@/lib/words/session";
 
@@ -12,47 +12,76 @@ export const dynamic = "force-dynamic";
 
 const LEVEL_NAME = { lower: "Lower Level", middle: "Middle Level" } as const;
 
-export default async function WordsHome() {
+export default async function WordsHome({ searchParams }: { searchParams: Promise<{ view?: string }> }) {
   const userId = await requireUserId();
-  const [profile, adult] = await Promise.all([getProfile(userId), getIsAdult()]);
-  const overview = profile ? await loadOverview(profile) : null;
-  const students = adult ? await loadStudents() : [];
-  const kids = await Promise.all(
-    students.filter((s) => s.userId !== userId).map(async (s) => ({ ...s, overview: await loadOverview(s.profile) }))
-  );
+  const [profile, adult, { view }] = await Promise.all([getProfile(userId), getIsAdult(), searchParams]);
+
+  // The kids see their own page and nothing else.
+  if (!adult) {
+    return (
+      <main className="mx-auto w-full max-w-xl flex-1 px-5 py-8">
+        {profile ? (
+          <Mine overview={await loadOverview(profile)} startHref="/words/session" listHref="/words/list" />
+        ) : (
+          <p className="text-sm text-muted-foreground">This isn&rsquo;t set up for you yet. Ask a parent.</p>
+        )}
+      </main>
+    );
+  }
+
+  // A parent picks: both kids side by side, or the page exactly as one of them sees it.
+  const students = (await loadStudents()).filter((s) => s.userId !== userId);
+  const shown = students.find((s) => s.userId === view) ?? null;
+  const tabs = [{ key: null as string | null, label: "Parent view" }, ...students.map((s) => ({ key: s.userId as string | null, label: s.name }))];
 
   return (
     <main className="mx-auto w-full max-w-xl flex-1 px-5 py-8">
-      {adult && kids.length > 0 && (
-        <section className="mb-10">
-          <h1 className="font-serif text-2xl tracking-tight text-foreground">ISEE Verbal Reasoning</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{countdown(kids[0].overview.today)}</p>
-          <div className="mt-5 grid gap-4">
-            {kids.map((kid) => (
-              <KidCard key={kid.userId} name={kid.name} userId={kid.userId} overview={kid.overview} />
-            ))}
-          </div>
-        </section>
-      )}
+      <nav className="mb-6 flex gap-1 rounded-lg bg-muted p-1 text-sm" aria-label="Whose view">
+        {tabs.map((t) => (
+          <Link
+            key={t.key ?? "parent"}
+            href={t.key ? `/words?view=${t.key}` : "/words"}
+            aria-current={(shown?.userId ?? null) === t.key ? "page" : undefined}
+            className={cn(
+              "flex-1 rounded-md px-3 py-1.5 text-center",
+              (shown?.userId ?? null) === t.key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {t.label}
+          </Link>
+        ))}
+      </nav>
 
-      {overview ? (
-        <Mine overview={overview} heading={adult ? "Your own practice" : "ISEE Verbal Reasoning"} canSwitch={adult} />
-      ) : adult ? (
-        <section>
-          <h2 className="text-sm font-medium text-foreground">Try it yourself</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Your answers are kept apart from the kids&rsquo;.
+      {shown ? (
+        <>
+          <Mine
+            overview={await loadOverview(shown.profile)}
+            startHref={`/words/session?level=${shown.profile.level}`}
+            listHref={`/words/list?kid=${shown.userId}`}
+          />
+          <p className="mt-8 text-xs text-muted-foreground">
+            This is {shown.name}&rsquo;s page as {shown.name} sees it. A session you play from here uses the same words and
+            questions, but your answers are saved as yours and never change {shown.name}&rsquo;s progress.
           </p>
-          <div className="mt-3 flex gap-2">
-            {(["lower", "middle"] as const).map((level) => (
-              <form key={level} action={chooseLevel.bind(null, level)}>
-                <button className={buttonVariants({ variant: "outline" })}>{LEVEL_NAME[level]}</button>
-              </form>
-            ))}
-          </div>
-        </section>
+        </>
       ) : (
-        <p className="text-sm text-muted-foreground">This isn&rsquo;t set up for you yet. Ask a parent.</p>
+        <section>
+          <h1 className="font-serif text-2xl tracking-tight text-foreground">ISEE Verbal Reasoning</h1>
+          {students.length === 0 ? (
+            <p className="mt-2 text-sm text-muted-foreground">No kids are set up yet.</p>
+          ) : (
+            <>
+              <p className="mt-1 text-sm text-muted-foreground">{countdown(wordsToday())}</p>
+              <div className="mt-5 grid gap-4">
+                {await Promise.all(
+                  students.map(async (kid) => (
+                    <KidCard key={kid.userId} name={kid.name} userId={kid.userId} overview={await loadOverview(kid.profile)} />
+                  ))
+                )}
+              </div>
+            </>
+          )}
+        </section>
       )}
     </main>
   );
@@ -66,13 +95,12 @@ function countdown(today: string): string {
   return "ISEE vocabulary practice.";
 }
 
-function Mine({ overview, heading, canSwitch }: { overview: Overview; heading: string; canSwitch: boolean }) {
+function Mine({ overview, startHref, listHref }: { overview: Overview; startHref: string; listHref: string }) {
   const done = overview.doneToday;
-  const other = overview.level === "lower" ? "middle" : "lower";
   return (
     <section>
       <div className="flex items-baseline justify-between">
-        <h1 className="font-serif text-2xl tracking-tight text-foreground">{heading}</h1>
+        <h1 className="font-serif text-2xl tracking-tight text-foreground">ISEE Verbal Reasoning</h1>
         <span className="flex items-center gap-1 text-sm text-foreground" title="Days in a row">
           <Flame className={cn("size-4", overview.streak > 0 ? "text-orange-500" : "text-muted-foreground")} />
           <span className="tabular-nums">{overview.streak}</span>
@@ -92,7 +120,7 @@ function Mine({ overview, heading, canSwitch }: { overview: Overview; heading: s
             <p className="mt-1 text-sm text-muted-foreground">
               {done.correct} of {done.total} right, with {paceLine(done)}.
             </p>
-            <Link href="/words/session" className={cn(buttonVariants({ variant: "outline" }), "mt-4 w-full")}>
+            <Link href={startHref} className={cn(buttonVariants({ variant: "outline" }), "mt-4 w-full")}>
               {overview.inProgress ? "Keep going" : "Do another"}
             </Link>
           </>
@@ -104,7 +132,7 @@ function Mine({ overview, heading, canSwitch }: { overview: Overview; heading: s
                 ? `${overview.inProgress.answered} of ${overview.inProgress.total} answered so far.`
                 : `${overview.questions} questions in 10 minutes.`}
             </p>
-            <Link href="/words/session" className={cn(buttonVariants({ size: "lg" }), "mt-4 h-12 w-full text-base")}>
+            <Link href={startHref} className={cn(buttonVariants({ size: "lg" }), "mt-4 h-12 w-full text-base")}>
               {overview.inProgress ? "Keep going" : "Start"}
             </Link>
           </>
@@ -120,7 +148,7 @@ function Mine({ overview, heading, canSwitch }: { overview: Overview; heading: s
           <h2 className="text-sm font-medium text-foreground">
             {overview.counts.mastered} of {overview.totalWords} words mastered
           </h2>
-          <Link href="/words/list" className="flex items-center text-sm text-muted-foreground hover:text-foreground">
+          <Link href={listHref} className="flex items-center text-sm text-muted-foreground hover:text-foreground">
             All words <ChevronRight className="size-4" />
           </Link>
         </div>
@@ -132,13 +160,6 @@ function Mine({ overview, heading, canSwitch }: { overview: Overview; heading: s
 
       <Trouble overview={overview} />
 
-      {canSwitch && (
-        <form action={chooseLevel.bind(null, other)} className="mt-8">
-          <button className="text-xs text-muted-foreground underline-offset-2 hover:underline">
-            Switch to {LEVEL_NAME[other]}
-          </button>
-        </form>
-      )}
     </section>
   );
 }

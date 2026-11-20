@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getIsAdult, requireUserId } from "@/lib/members/auth";
-import { answerQuestion, getProfile, setProfile, startOrResume } from "@/lib/words/session";
-import type { Feedback, Level, SessionState } from "@/lib/words/types";
+import { requireUserId } from "@/lib/members/auth";
+import { answerQuestion, getProfile, startOrResume } from "@/lib/words/session";
+import type { Feedback, SessionState } from "@/lib/words/types";
 
 /** Today's session: the one under way, or a new one. */
 export async function beginSession(): Promise<SessionState | null> {
@@ -24,13 +24,4 @@ export async function submitAnswer(
   const result = await answerQuestion(userId, sessionId, position, choice, ms);
   if (result?.state.summary) revalidatePath("/words");
   return result;
-}
-
-/** A parent trying it for themselves picks which test to practise. The kids' levels are set for them. */
-export async function chooseLevel(level: Level): Promise<void> {
-  const userId = await requireUserId();
-  if (!(await getIsAdult())) throw new Error("Not authorized");
-  if (level !== "lower" && level !== "middle") throw new Error("Unknown level");
-  await setProfile(userId, level);
-  revalidatePath("/words");
 }
