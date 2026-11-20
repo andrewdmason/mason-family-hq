@@ -42,6 +42,11 @@ type Current = {
   correct: number;
   isNew: boolean;
   requeued: boolean;
+  /**
+   * What's asked next if this one is answered right, chosen ahead of time so
+   * the Tuttles app can show it at once. A right answer is then held to it.
+   */
+  ahead?: Current | null;
 };
 type SessionRow = {
   id: string;
@@ -117,12 +122,11 @@ function shuffle<T>(list: T[]): T[] {
 /** Send the answer along with each question (the Tuttles app, which grades on the phone). */
 export type Serve = { key?: boolean };
 
-function toClient(session: SessionRow, key?: QuestionKey | null): ClientQuestion | null {
-  const c = session.current;
+function toClient(session: SessionRow, c: Current | null | undefined, position: number, key?: QuestionKey | null): ClientQuestion | null {
   if (!c) return null;
   return {
     ...(key ? { key } : {}),
-    position: session.answered + 1,
+    position,
     total: session.total,
     kind: c.kind,
     stem: c.stem,
@@ -137,9 +141,10 @@ async function sessionItems(admin: Admin, sessionId: string): Promise<{ item: st
   return (data ?? []) as { item: string; result: Result }[];
 }
 
-/** Choose the session's next question and put it on the session. Null when there's nothing left to ask. */
-async function serveNext(admin: Admin, session: SessionRow, progress: Map<string, Progress>): Promise<Current | null> {
-  const asked = (await sessionItems(admin, session.id)).map((a) => a.item);
+type Turn = { position: number; asked: string[]; requeue: SessionRow["requeue"] };
+
+/** Choose the question for a place in the session. Null when there's nothing left to ask. */
+function choose(session: SessionRow, progress: Map<string, Progress>, turn: Turn): Current | null {
   // Anything they've removed is out of the running altogether.
   const kept = <T extends Item>(list: T[]) => list.filter((it) => !progress.get(it.id)?.removed_at);
   const pick = pickNext({
@@ -147,10 +152,10 @@ async function serveNext(admin: Admin, session: SessionRow, progress: Map<string
     parts: kept(allParts()),
     progress,
     today: session.day,
-    position: session.answered + 1,
+    position: turn.position,
     total: session.total,
-    asked,
-    requeue: session.requeue,
+    asked: turn.asked,
+    requeue: turn.requeue,
   });
   const item = pick ? findItem(session.level, pick.item) : undefined;
   if (!pick || !item) return null;
@@ -158,7 +163,7 @@ async function serveNext(admin: Admin, session: SessionRow, progress: Map<string
   const formKey = pickForm(item, progress.get(item.id));
   const form = item.forms[formKey];
   const choices = shuffle<StoredChoice>([{ text: form.answer, right: true }, ...form.traps]);
-  const current: Current = {
+  return {
     item: item.id,
     form: formKey,
     kind: form.kind,
@@ -168,6 +173,40 @@ async function serveNext(admin: Admin, session: SessionRow, progress: Map<string
     isNew: !progress.has(item.id),
     requeued: pick.why === "requeue",
   };
+}
+
+/** What a right answer to `current` leaves them having done. */
+function afterRight(session: SessionRow, progress: Map<string, Progress>, current: Current): Map<string, Progress> {
+  const after = new Map(progress);
+  after.set(current.item, applyAnswer(progress.get(current.item) ?? null, current.item, current.form, "correct", session.day, new Date().toISOString()));
+  return after;
+}
+
+/** The question that follows a right answer to `current`, the one on screen. Null on the last question. */
+function chooseAhead(session: SessionRow, progress: Map<string, Progress>, current: Current, asked: string[]): Current | null {
+  if (session.answered + 1 >= session.total) return null;
+  return choose(session, afterRight(session, progress, current), {
+    position: session.answered + 2,
+    asked: [...asked, current.item],
+    requeue: session.requeue.filter((r) => r.item !== current.item),
+  });
+}
+
+/**
+ * Put the session's next question on the session: `take` when it was chosen
+ * ahead of time, or a fresh choice. Null when there's nothing left to ask.
+ */
+async function serveNext(
+  admin: Admin,
+  session: SessionRow,
+  progress: Map<string, Progress>,
+  serve: Serve = {},
+  take?: Current | null
+): Promise<Current | null> {
+  const asked = (await sessionItems(admin, session.id)).map((a) => a.item);
+  const chosen = take ?? choose(session, progress, { position: session.answered + 1, asked, requeue: session.requeue });
+  if (!chosen) return null;
+  const current: Current = { ...chosen, ahead: serve.key ? chooseAhead(session, progress, chosen, asked) : null };
   const { error } = await admin.from("words_sessions").update({ current }).eq("id", session.id);
   if (error) throw new Error(error.message);
   session.current = current;
@@ -196,14 +235,19 @@ async function summarize(admin: Admin, session: SessionRow): Promise<SessionSumm
   };
 }
 
-function stateOf(session: SessionRow, summary: SessionSummary | null, key?: QuestionKey | null): SessionState {
+/** `progress` is given when the answers go along with the questions (the Tuttles app). */
+function stateOf(session: SessionRow, summary: SessionSummary | null, progress?: Map<string, Progress> | null): SessionState {
+  const current = summary ? null : session.current;
+  const ahead = progress ? current?.ahead : null;
   return {
     sessionId: session.id,
     elapsedMs: session.elapsed_ms,
     limitMs: session.limit_ms,
     noDontKnow: session.no_dont_know,
-    question: summary ? null : toClient(session, key),
+    question: toClient(session, current, session.answered + 1, progress && current ? keyFor(session, current, progress) : null),
     summary,
+    // The item ahead is a different one, so the answer in between doesn't change its key.
+    ...(progress ? { nextIfRight: toClient(session, ahead, session.answered + 2, ahead ? keyFor(session, ahead, progress) : null) } : {}),
   };
 }
 
@@ -242,11 +286,16 @@ export async function startOrResume(profile: Profile, serve: Serve = {}): Promis
   let progress: Map<string, Progress> | null = null;
   if (!session.current) {
     progress = await loadProgress(profile.userId, profile.level, admin);
-    const served = await serveNext(admin, session, progress);
+    const served = await serveNext(admin, session, progress, serve);
     if (!served) return finish(admin, session);
   }
   if (!serve.key) return stateOf(session, null);
-  return stateOf(session, null, keyFor(session, progress ?? (await loadProgress(profile.userId, profile.level, admin))));
+  progress ??= await loadProgress(profile.userId, profile.level, admin);
+  // A question put there before answers were looked ahead (or by the website): look ahead now.
+  if (session.current && !session.current.ahead && session.answered + 1 < session.total) {
+    await serveNext(admin, session, progress, serve, session.current);
+  }
+  return stateOf(session, null, progress);
 }
 
 async function finish(admin: Admin, session: SessionRow): Promise<SessionState> {
@@ -289,10 +338,9 @@ function nowMastered(before: Progress | null, after: Progress): boolean {
 }
 
 /** The answer to the question on the session, for grading it where it's shown. */
-function keyFor(session: SessionRow, progress: Map<string, Progress>): QuestionKey | null {
-  const current = session.current;
-  const item = current ? findItem(session.level, current.item) : undefined;
-  if (!current || !item) return null;
+function keyFor(session: SessionRow, current: Current, progress: Map<string, Progress>): QuestionKey | null {
+  const item = findItem(session.level, current.item);
+  if (!item) return null;
   const before = progress.get(item.id) ?? null;
   const ifRight = applyAnswer(before, item.id, current.form, "correct", session.day, new Date().toISOString());
   return {
@@ -393,9 +441,10 @@ export async function answerQuestion(
 
   const feedback = feedbackFor(session.level, item, current, result, chosen, mastered);
   if (session.answered >= session.total) return { feedback, state: await finish(admin, session) };
-  const served = await serveNext(admin, session, progress);
+  // A right answer gets the question it was promised: the app may be showing it already.
+  const served = await serveNext(admin, session, progress, serve, serve.key && result === "correct" ? current.ahead : null);
   if (!served) return { feedback, state: await finish(admin, session) };
-  return { feedback, state: stateOf(session, null, serve.key ? keyFor(session, progress) : null) };
+  return { feedback, state: stateOf(session, null, serve.key ? progress : null) };
 }
 
 /**
@@ -427,9 +476,9 @@ export async function removeCurrent(
   session.requeue = session.requeue.filter((r) => r.item !== itemId);
   session.current = null;
   await admin.from("words_sessions").update({ elapsed_ms: session.elapsed_ms, requeue: session.requeue, current: null }).eq("id", session.id);
-  const served = await serveNext(admin, session, progress);
+  const served = await serveNext(admin, session, progress, serve);
   if (!served) return finish(admin, session);
-  return stateOf(session, null, serve.key ? keyFor(session, progress) : null);
+  return stateOf(session, null, serve.key ? progress : null);
 }
 
 function blankProgress(item: string, today: string): Progress {

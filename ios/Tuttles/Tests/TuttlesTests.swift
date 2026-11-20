@@ -300,6 +300,19 @@ final class VocabRulesTests: XCTestCase {
         XCTAssertNil(state.summary)
         // An older website sends no key: the answer then waits for its word.
         XCTAssertNil(state.question?.key)
+        XCTAssertNil(state.nextIfRight)
+    }
+
+    /// The question that follows a right answer comes along with the one on screen.
+    func testNextIfRightDecodes() throws {
+        let json = #"""
+        {"sessionId":"s1","elapsedMs":0,"limitMs":600000,"noDontKnow":false,"summary":null,
+         "question":{"position":3,"total":18,"kind":"sc","stem":"The ____ dog.","choices":["a","b","c","d"],"isNew":true,"allowDontKnow":true},
+         "nextIfRight":{"position":4,"total":18,"kind":"syn","stem":"CALM","choices":["e","f","g","h"],"isNew":false,"allowDontKnow":true}}
+        """#
+        let state = try JSONDecoder().decode(VocabState.self, from: Data(json.utf8))
+        XCTAssertEqual(state.nextIfRight?.position, 4)
+        XCTAssertEqual(state.nextIfRight?.stem, "CALM")
     }
 
     /// A question's key grades it on the phone as the website would (feedbackFor in src/lib/words/session.ts).

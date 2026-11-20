@@ -12,8 +12,9 @@ import SwiftUI
 // An answer shows the moment it's tapped: each question comes with its key
 // (which choice is right, and the word laid out for a miss), so the phone
 // grades it itself and sends the answer along behind. The website still grades
-// what arrives and keeps the score; it answers with the next question, which
-// is usually in hand before they've finished looking at this one.
+// what arrives and keeps the score. It also says ahead of time what follows a
+// right answer, so moving on doesn't wait either; after a miss the next
+// question comes with its reply, while they're reading what they missed.
 //
 // It follows the account picker like everything else: a kid (or the phone
 // used as one) gets their own level and session, and the parents' view shows
@@ -219,6 +220,8 @@ struct VocabState: Decodable, Hashable {
     let noDontKnow: Bool
     let question: VocabQuestion?
     let summary: VocabSummary?
+    /// The question that follows a right answer to this one, so moving on doesn't wait for the website.
+    var nextIfRight: VocabQuestion? = nil
 }
 
 struct VocabAnswer: Decodable {
@@ -354,7 +357,10 @@ extension ChatStore {
     /// Answers the question on screen (`choice` nil: "Don't know"). Nil when
     /// the session has moved on without this phone: begin again to catch up.
     func vocabAnswer(_ state: VocabState, position: Int, choice: Int?, ms: Int) async throws -> VocabAnswer? {
-        if isDemo { return DemoVocab.answer(choice: choice, ms: ms) }
+        if isDemo {
+            try? await Task.sleep(for: DemoVocab.delay)
+            return DemoVocab.answer(choice: choice, ms: ms)
+        }
         return try await vocabPost("tuttles/api/vocab/answer", [
             "sessionId": state.sessionId, "position": position, "choice": choice.map { $0 as Any } ?? NSNull(), "ms": ms,
         ])
@@ -440,12 +446,23 @@ final class VocabRun: Identifiable {
     /// Choices they've ruled out on the question on screen. Theirs to keep
     /// track of: nothing is sent or saved.
     private(set) var crossed: Set<Int> = []
+    /// "Too easy" or "Do another" is on its way.
     private(set) var busy = false
     private(set) var failed = false
-    /// The answer on screen, until the website has it.
-    private var unsent: (position: Int, choice: Int?, ms: Int)?
     /// They're ready for the next question and it isn't here yet.
     private(set) var wantsNext = false
+
+    /// An answer given here that the website hasn't had yet.
+    private struct Unsent {
+        let position: Int
+        let choice: Int?
+        let ms: Int
+        /// It was graded here, so there's nothing to take back if it can't be sent.
+        let graded: Bool
+    }
+    /// Oldest first. They can be a question ahead of the website, never more.
+    private var outbox: [Unsent] = []
+    private var sender: Task<Void, Never>?
     /// When the question on screen started waiting for its answer.
     private var waitingSince = Date()
     /// The time the question took, once it's answered.
@@ -494,41 +511,87 @@ final class VocabRun: Identifiable {
         tookMs = ms
         // Graded here and now; the website hears about it behind what's on screen.
         feedback = question.key?.feedback(for: choice)
-        unsent = (question.position, choice, ms)
+        lookAhead()
+        outbox.append(Unsent(position: question.position, choice: choice, ms: ms, graded: feedback != nil))
         await send()
     }
 
-    /// Hands the answer on screen to the website, which sends back what's next.
+    /// After a right answer the website has already said what's next: line it
+    /// up, to be shown without waiting for its reply.
+    private func lookAhead() {
+        guard pending == nil, feedback?.isCorrect == true, let next = state.nextIfRight else { return }
+        // The website counts at most five minutes for a question.
+        let spent = min(max(tookMs ?? 0, 0), 300_000)
+        pending = VocabState(sessionId: state.sessionId, elapsedMs: state.elapsedMs + spent, limitMs: state.limitMs,
+                             noDontKnow: state.noDontKnow, question: next, summary: nil)
+    }
+
+    /// Hands the website every answer it hasn't had, in order. One at a time:
+    /// a second caller waits for the first, then sends what's left.
     private func send() async {
-        guard let unsent, !busy else { return }
-        busy = true
+        while let sender { await sender.value }
+        guard !outbox.isEmpty else { return }
+        let task = Task {
+            await self.drain()
+            self.sender = nil
+        }
+        sender = task
+        await task.value
+    }
+
+    private func drain() async {
         failed = false
-        defer { busy = false }
-        // Graded here, there's nothing to take back: it keeps trying. Otherwise
-        // the answer is the website's to give, and a failure hands the question back.
-        let graded = feedback != nil
-        for attempt in 0..<(graded ? 4 : 1) {
+        while let next = outbox.first {
+            guard let now = await deliver(next) else {
+                failed = true
+                if !next.graded {
+                    // The answer was the website's to give: hand the question back.
+                    outbox.removeAll()
+                    picked = nil
+                    tookMs = nil
+                }
+                return
+            }
+            outbox.removeFirst()
+            settle(now.state, feedback: now.feedback, after: next)
+        }
+    }
+
+    /// The website's reply to an answer: where the session now stands. Nil when it couldn't be reached.
+    private func deliver(_ unsent: Unsent) async -> (state: VocabState, feedback: VocabFeedback?)? {
+        for attempt in 0..<(unsent.graded ? 4 : 1) {
             if attempt > 0 { try? await Task.sleep(for: .seconds(Double(attempt))) }
             do {
                 if let result = try await store.vocabAnswer(state, position: unsent.position, choice: unsent.choice, ms: unsent.ms) {
-                    if feedback == nil { feedback = result.feedback }
-                    pending = result.state
-                } else {
-                    // The session moved on without this phone (or an earlier try
-                    // did get through): pick it up where it is.
-                    let now = try await store.vocabBegin()
-                    if graded { pending = now } else { show(now) }
+                    return (result.state, result.feedback)
                 }
-                self.unsent = nil
-                if wantsNext { withAnimation(.snappy) { advance() } }
-                return
+                // The session moved on without this phone (or an earlier try
+                // did get through): pick it up where it is.
+                return (try await store.vocabBegin(), nil)
             } catch {}
         }
-        failed = true
-        if !graded {
-            self.unsent = nil
-            picked = nil
-            tookMs = nil
+        return nil
+    }
+
+    /// Fits the website's word on what's next to what's on screen.
+    private func settle(_ now: VocabState, feedback theirs: VocabFeedback?, after unsent: Unsent) {
+        if question?.position == unsent.position, picked != nil {
+            // Still looking at that answer: this is what comes next.
+            if feedback == nil { feedback = theirs }
+            guard feedback != nil else { return show(now) }
+            pending = now
+            if wantsNext { withAnimation(.snappy) { advance() } }
+        } else if let theirs = now.question, let ours = question, theirs.position == ours.position,
+                  theirs.stem == ours.stem, theirs.choices == ours.choices {
+            // Already on the question it sends, shown ahead of its reply: keep
+            // their place in it, and take what the website adds (what follows this one).
+            state = now
+            lookAhead()
+            if wantsNext, pending != nil { withAnimation(.snappy) { advance() } }
+        } else {
+            // The website is somewhere else (another device took a turn): go with it.
+            outbox.removeAll()
+            show(now)
         }
     }
 
@@ -537,8 +600,14 @@ final class VocabRun: Identifiable {
         guard let question, picked == nil, !busy else { return }
         let ms = Int(Date().timeIntervalSince(waitingSince) * 1000)
         busy = true
-        failed = false
         defer { busy = false }
+        // The website has to be on this question too before it can take it away.
+        await send()
+        guard outbox.isEmpty, self.question == question, picked == nil else {
+            failed = !outbox.isEmpty
+            return
+        }
+        failed = false
         do {
             if let next = try await store.vocabRemove(state, position: question.position, ms: ms) {
                 show(next)
