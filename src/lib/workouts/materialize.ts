@@ -12,9 +12,22 @@ import { computeSetE1rm } from "./e1rm";
 import type {
   ParsedBlock,
   ParsedScore,
+  ParsedSet,
   ParsedWorkout,
+  WorkoutMetricType,
   WorkoutScoreType,
 } from "./types";
+
+/**
+ * How a set is logged. Reps of a loaded movement always get a place for the
+ * weight, even when the workout names none ("use 75% of your 1-rep max"): the
+ * parser calls those plain reps, and plain reps have no weight field.
+ */
+export function loggedMetricType(set: ParsedSet, isLoaded: boolean): WorkoutMetricType {
+  return set.metricType === "reps" && isLoaded && set.prescribed.reps != null
+    ? "load_reps"
+    : set.metricType;
+}
 
 function scoreColumns(score: ParsedScore): Record<string, number | null> {
   return {
@@ -134,7 +147,7 @@ export async function materializeSession(opts: {
           user_id: userId,
           entry_id: entryId,
           position: si,
-          metric_type: set.metricType,
+          metric_type: loggedMetricType(set, resolved.isLoaded),
           context: set.context,
           rx_level: set.rxLevel ?? null,
           // Prescribed (the immutable plan).

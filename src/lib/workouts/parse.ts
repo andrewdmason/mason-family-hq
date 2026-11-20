@@ -200,6 +200,13 @@ function buildSystemPrompt(vocabulary: MovementVocabularyEntry[]): string {
     "  group_label empty for standalone pieces.",
     "- Expand rep schemes (e.g. '9-12-15 Pull-ups') into one set per number.",
     "- Put loads on the sets that have them; leave load empty when bodyweight.",
+    "- A barbell, dumbbell or kettlebell movement is 'load_reps' even when no",
+    "  number is written for its weight ('use 75% of 1-rep max', 'heavy', 'pick",
+    "  a load'): leave load empty, so the athlete can log what was on the bar.",
+    "  'reps' is only for movements done with no weight at all.",
+    "- An AMRAP's rounds aren't known ahead: give each movement ONE set, for a",
+    "  single round, not a set per round you expect. (A ladder whose reps change",
+    "  each round still gets a set per step.)",
     "- Runs/rows are 'distance' sets in meters; timed holds are 'duration' in",
     "  seconds; cal rows/bikes are 'calories'.",
     "- Mark sets inside a conditioning piece as context 'metcon', and dedicated",
@@ -236,7 +243,7 @@ type RawScore = {
   distance_m?: unknown;
   calories?: unknown;
 };
-type RawBlock = {
+export type RawBlock = {
   block_type?: unknown;
   title?: unknown;
   benchmark_name?: unknown;
@@ -287,12 +294,29 @@ function normalizeMovement(raw: RawMovement): ParsedMovement | null {
   return { rawName, canonicalName, family, sets };
 }
 
-function normalizeBlock(raw: RawBlock): ParsedBlock {
+/**
+ * An AMRAP has no set number of rounds, so a movement written once is one set.
+ * The parser sometimes repeats it for the rounds it guesses at; identical
+ * repeats fold back into one. A ladder's differing sets are left alone.
+ */
+function oneRound(sets: ParsedSet[]): ParsedSet[] {
+  if (sets.length < 2) return sets;
+  const first = JSON.stringify(sets[0]);
+  return sets.every((s) => JSON.stringify(s) === first) ? [sets[0]] : sets;
+}
+
+export function normalizeBlock(raw: RawBlock): ParsedBlock {
   const score = (raw.score ?? {}) as RawScore;
+  const scoreType = oneOf(
+    score.score_type ?? raw.score_type,
+    SCORE_TYPES,
+    oneOf(raw.score_type, SCORE_TYPES, "none")
+  );
   const movements = Array.isArray(raw.movements)
     ? raw.movements
         .map((m) => normalizeMovement(m as RawMovement))
         .filter((m): m is ParsedMovement => m !== null)
+        .map((m) => (scoreType === "rounds_reps" ? { ...m, sets: oneRound(m.sets) } : m))
     : [];
   return {
     blockType: oneOf(raw.block_type, BLOCK_TYPES, "metcon"),
@@ -300,11 +324,7 @@ function normalizeBlock(raw: RawBlock): ParsedBlock {
     benchmarkName: str(raw.benchmark_name),
     groupLabel: str(raw.group_label),
     score: {
-      scoreType: oneOf(
-        score.score_type ?? raw.score_type,
-        SCORE_TYPES,
-        oneOf(raw.score_type, SCORE_TYPES, "none")
-      ),
+      scoreType,
       seconds: int(score.seconds),
       rounds: int(score.rounds),
       reps: int(score.reps),
