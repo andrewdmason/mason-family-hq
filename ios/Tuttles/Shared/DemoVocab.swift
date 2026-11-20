@@ -1,8 +1,9 @@
 import Foundation
 
 /// Vocab on made-up progress, with no sign-in or network: `--demo`, for the
-/// simulator. `--vocab` opens on it, and `--vocab-late` starts the session two
-/// questions from its end, to get to the last screen.
+/// simulator. `--vocab` opens on it, `--vocab-late` starts the session two
+/// questions from its end, to get to the last screen, and `--vocab-slow` makes
+/// every answer take two seconds to save, as on a bad connection.
 @MainActor
 enum DemoVocab {
     private struct Card {
@@ -63,17 +64,24 @@ enum DemoVocab {
 
     private static var card: Card { cards[answered % cards.count] }
 
+    /// An answer's trip to the website and back.
+    static var delay: Duration { CommandLine.arguments.contains("--vocab-slow") ? .seconds(2) : .zero }
+
+    private static func question(_ index: Int) -> VocabQuestion? {
+        guard index < total else { return nil }
+        let c = cards[index % cards.count]
+        return VocabQuestion(position: index + 1, total: total, kind: c.kind, stem: c.stem, choices: c.choices,
+                             isNew: c.isNew, allowDontKnow: true, key: key(c))
+    }
+
     private static func state() -> VocabState {
         if answered >= total {
             return VocabState(sessionId: "demo", elapsedMs: elapsed, limitMs: limit, noDontKnow: false, question: nil,
                               summary: VocabSummary(total: total, correct: correct, wrong: total - correct, dontknow: 0, elapsedMs: elapsed,
                                                     limitMs: limit, newItems: 7, masteredGained: 2, missed: missed))
         }
-        let c = card
         return VocabState(sessionId: "demo", elapsedMs: elapsed, limitMs: limit, noDontKnow: false,
-                          question: VocabQuestion(position: answered + 1, total: total, kind: c.kind, stem: c.stem, choices: c.choices,
-                                                  isNew: c.isNew, allowDontKnow: true, key: key(c)),
-                          summary: nil)
+                          question: question(answered), summary: nil, nextIfRight: question(answered + 1))
     }
 
     /// The card's answer, as the website sends it with the question.

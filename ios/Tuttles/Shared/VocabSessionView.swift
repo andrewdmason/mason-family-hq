@@ -86,7 +86,7 @@ private struct VocabQuestionView: View {
                     // A right answer moves on by itself; a miss waits for them to read it.
                     let shown = run.shown
                     Task {
-                        try? await Task.sleep(for: .seconds(feedback.mastered ? 1.5 : 0.9))
+                        try? await Task.sleep(for: .seconds(feedback.mastered ? 1.0 : 0.45))
                         if run.shown == shown { withAnimation(.snappy) { run.advance() } }
                     }
                 } else {

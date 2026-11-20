@@ -171,4 +171,9 @@ export type SessionState = {
   noDontKnow: boolean;
   question: ClientQuestion | null;
   summary: SessionSummary | null;
+  /**
+   * Only for the Tuttles app: the question that follows a right answer to this
+   * one, so the app can move on without waiting to be told what's next.
+   */
+  nextIfRight?: ClientQuestion | null;
 };
