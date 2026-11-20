@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Check, Volume2, X } from "lucide-react";
+import { Check, Undo2, Volume2, X } from "lucide-react";
 import { beginSession, submitAnswer } from "@/app/(words)/words/actions";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -31,6 +31,8 @@ export function SessionRunner({ initial }: { initial: SessionState }) {
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [picked, setPicked] = useState<number | null | undefined>(undefined);
   const [pending, setPending] = useState<SessionState | null>(null);
+  // Choices they've ruled out on the question on screen. Theirs to keep track of: nothing is sent or saved.
+  const [crossed, setCrossed] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   // Time spent on the question on screen; the server holds the rest.
@@ -55,8 +57,13 @@ export function SessionRunner({ initial }: { initial: SessionState }) {
     setPending(null);
     setFeedback(null);
     setPicked(undefined);
+    setCrossed([]);
     setRunning(0);
   }, [pending]);
+
+  const toggleCross = useCallback((i: number) => {
+    setCrossed((list) => (list.includes(i) ? list.filter((n) => n !== i) : [...list, i]));
+  }, []);
 
   const answer = useCallback(
     async (choice: number | null) => {
@@ -72,6 +79,7 @@ export function SessionRunner({ initial }: { initial: SessionState }) {
           // The session moved on without this tab (another device, or a second tap): pick it up where it is.
           const fresh = await beginSession();
           if (fresh) setState(fresh);
+          setCrossed([]);
           setPicked(undefined);
           return;
         }
@@ -111,11 +119,14 @@ export function SessionRunner({ initial }: { initial: SessionState }) {
       const byNumber = ["1", "2", "3", "4"].indexOf(e.key);
       const byLetter = LETTERS.indexOf(e.key.toUpperCase());
       const index = byNumber >= 0 ? byNumber : byLetter;
-      if (index >= 0 && index < question.choices.length) answer(index);
+      if (index < 0 || index >= question.choices.length) return;
+      // Shift with a letter crosses that choice off (or brings it back); a crossed-off choice can't be picked by key.
+      if (e.shiftKey) toggleCross(index);
+      else if (!crossed.includes(index)) answer(index);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [waiting, question, feedback, pending, answer, advance]);
+  }, [waiting, question, feedback, pending, answer, advance, crossed, toggleCross]);
 
   if (state.summary) return <Summary summary={state.summary} />;
   if (!question) return null;
@@ -164,28 +175,46 @@ export function SessionRunner({ initial }: { initial: SessionState }) {
         {question.choices.map((text, i) => {
           const isCorrect = feedback?.correctIndex === i;
           const isPicked = picked === i;
+          const isCrossed = !feedback && crossed.includes(i);
           return (
-            <button
-              key={`${question.position}-${i}`}
-              type="button"
-              disabled={picked !== undefined}
-              onClick={() => answer(i)}
-              className={cn(
-                "flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3.5 text-left text-base transition-colors",
-                picked === undefined && "hover:border-foreground/30 hover:bg-accent active:bg-accent",
-                feedback && isCorrect && "border-emerald-500 bg-emerald-50 text-emerald-900",
-                feedback && isPicked && !isCorrect && "border-destructive bg-destructive/10",
-                !feedback && isPicked && "border-foreground/40 bg-accent",
-                feedback && !isCorrect && !isPicked && "opacity-50"
-              )}
-            >
-              <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-border text-xs text-muted-foreground">
-                {LETTERS[i]}
+            <div key={`${question.position}-${i}`} className="relative">
+              <button
+                type="button"
+                disabled={picked !== undefined}
+                // Tapping a crossed-off choice brings it back; it takes a second tap to pick it.
+                onClick={() => (isCrossed ? toggleCross(i) : answer(i))}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-xl border border-border bg-card py-3.5 pl-4 pr-14 text-left text-base transition-colors",
+                  picked === undefined && !isCrossed && "hover:border-foreground/30 hover:bg-accent active:bg-accent",
+                  isCrossed && "border-dashed bg-transparent text-muted-foreground",
+                  feedback && isCorrect && "border-emerald-500 bg-emerald-50 text-emerald-900",
+                  feedback && isPicked && !isCorrect && "border-destructive bg-destructive/10",
+                  !feedback && isPicked && "border-foreground/40 bg-accent",
+                  feedback && !isCorrect && !isPicked && "opacity-50"
+                )}
+              >
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-border text-xs text-muted-foreground">
+                  {LETTERS[i]}
+                </span>
+                <span className={cn("flex-1", isCrossed && "line-through")}>{text}</span>
+              </button>
+              <span className="absolute inset-y-0 right-2 flex items-center">
+                {feedback && isCorrect && <Check className="mr-2 size-5 text-emerald-600" />}
+                {feedback && isPicked && !isCorrect && <X className="mr-2 size-5 text-destructive" />}
+                {picked === undefined && (
+                  <button
+                    type="button"
+                    onClick={() => toggleCross(i)}
+                    aria-pressed={isCrossed}
+                    aria-label={isCrossed ? `Bring back ${text}` : `Cross off ${text}`}
+                    title={isCrossed ? "Bring back" : "Cross off"}
+                    className="flex size-10 items-center justify-center rounded-full text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                  >
+                    {isCrossed ? <Undo2 className="size-4" /> : <X className="size-4" />}
+                  </button>
+                )}
               </span>
-              <span className="flex-1">{text}</span>
-              {feedback && isCorrect && <Check className="size-5 text-emerald-600" />}
-              {feedback && isPicked && !isCorrect && <X className="size-5 text-destructive" />}
-            </button>
+            </div>
           );
         })}
       </div>
