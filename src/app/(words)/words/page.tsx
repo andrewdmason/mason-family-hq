@@ -155,6 +155,7 @@ function Mine({ overview, startHref, listHref }: { overview: Overview; startHref
         <WordsBar overview={overview} />
         <p className="mt-3 text-xs text-muted-foreground">
           Word parts: {overview.parts.met} of {overview.parts.total} met, {overview.parts.mastered} mastered.
+          {overview.counts.removed > 0 && ` ${overview.counts.removed} ${overview.counts.removed === 1 ? "word" : "words"} removed as too easy.`}
         </p>
       </div>
 
@@ -217,6 +218,11 @@ function KidCard({ name, userId, overview }: { name: string; userId: string; ove
         </div>
         <WordsBar overview={overview} />
       </div>
+      {overview.counts.removed > 0 && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          {overview.counts.removed} {overview.counts.removed === 1 ? "word" : "words"} removed as too easy.
+        </p>
+      )}
       {overview.trouble.length > 0 && (
         <p className="mt-3 text-sm text-muted-foreground">
           <span className="text-foreground">Trouble words:</span> {overview.trouble.slice(0, 8).map((t) => t.title).join(", ")}

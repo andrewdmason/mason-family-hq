@@ -83,19 +83,23 @@ export type Progress = {
   wrong_count: number;
   dontknow_count: number;
   mastered_at: string | null;
+  /** Taken out by the person: never asked again unless they bring it back. */
+  removed_at?: string | null;
 };
 
-export type Status = "new" | "learning" | "almost" | "mastered";
+export type Status = "new" | "learning" | "almost" | "mastered" | "removed";
 
 export const STATUS_LABEL: Record<Status, string> = {
   new: "New",
   learning: "Learning",
   almost: "Almost",
   mastered: "Mastered",
+  removed: "Removed",
 };
 
 export function statusOf(progress: Progress | undefined | null): Status {
   if (!progress) return "new";
+  if (progress.removed_at) return "removed";
   if (progress.stage >= 3) return "mastered";
   return progress.stage === 0 ? "learning" : "almost";
 }

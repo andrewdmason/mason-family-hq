@@ -32,7 +32,7 @@ export default async function WordsListPage({ searchParams }: { searchParams: Pr
         <ChevronLeft className="size-4" /> Back
       </Link>
       <h1 className="mt-2 font-serif text-2xl tracking-tight text-foreground">{name ? `${name}’s words` : "All words"}</h1>
-      <WordList words={words} parts={parts} />
+      <WordList words={words} parts={parts} canEdit={who === userId} />
     </main>
   );
 }

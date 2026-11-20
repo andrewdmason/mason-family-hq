@@ -259,5 +259,5 @@ export function streak(finishedDays: string[], today: string): number {
 /** Words to worry about: missed at least twice and not yet mastered, the most missed first. */
 export function troubleScore(p: Progress): number {
   const misses = p.wrong_count + p.dontknow_count;
-  return p.stage < 3 && misses >= 2 ? misses : 0;
+  return !p.removed_at && p.stage < 3 && misses >= 2 ? misses : 0;
 }

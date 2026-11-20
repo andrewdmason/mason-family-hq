@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { setRemoved } from "@/app/(words)/words/actions";
 import { cn } from "@/lib/utils";
 import type { ListRow } from "@/lib/words/session";
 import { STATUS_LABEL, type Status } from "@/lib/words/types";
@@ -10,6 +11,7 @@ const DOT: Record<Status, string> = {
   almost: "bg-sky-400",
   learning: "bg-amber-400",
   new: "border border-border bg-transparent",
+  removed: "bg-muted-foreground/30",
 };
 
 type Filter = "all" | "trouble" | Status;
@@ -20,10 +22,12 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "almost", label: "Almost" },
   { key: "mastered", label: "Mastered" },
   { key: "new", label: "New" },
+  { key: "removed", label: "Removed" },
 ];
 
 /** Every word and word part with where they stand; tap one to see it laid out. */
-export function WordList({ words, parts }: { words: ListRow[]; parts: ListRow[] }) {
+export function WordList({ words, parts, canEdit }: { words: ListRow[]; parts: ListRow[]; canEdit: boolean }) {
+  const [saving, startSaving] = useTransition();
   const [tab, setTab] = useState<"words" | "parts">("words");
   const [filter, setFilter] = useState<Filter>("all");
   const [open, setOpen] = useState<string | null>(null);
@@ -31,9 +35,10 @@ export function WordList({ words, parts }: { words: ListRow[]; parts: ListRow[] 
 
   const rows = tab === "words" ? words : parts;
   const counts = useMemo(() => {
-    const c: Record<Filter, number> = { all: rows.length, trouble: 0, new: 0, learning: 0, almost: 0, mastered: 0 };
+    const c: Record<Filter, number> = { all: 0, trouble: 0, new: 0, learning: 0, almost: 0, mastered: 0, removed: 0 };
     for (const r of rows) {
       c[r.status]++;
+      if (r.status !== "removed") c.all++;
       if (r.trouble) c.trouble++;
     }
     return c;
@@ -43,7 +48,7 @@ export function WordList({ words, parts }: { words: ListRow[]; parts: ListRow[] 
     const q = query.trim().toLowerCase();
     const list = rows.filter(
       (r) =>
-        (filter === "all" || (filter === "trouble" ? r.trouble : r.status === filter)) &&
+        (filter === "all" ? r.status !== "removed" : filter === "trouble" ? r.trouble : r.status === filter) &&
         (!q || r.title.toLowerCase().includes(q) || r.meaning.toLowerCase().includes(q))
     );
     // Trouble first when looking at everything, the most missed on top; then the order they're met in.
@@ -106,7 +111,7 @@ export function WordList({ words, parts }: { words: ListRow[]; parts: ListRow[] 
                 aria-expanded={open === r.id}
               >
                 <span className={cn("size-2 shrink-0 translate-y-[-1px] rounded-full", DOT[r.status])} title={STATUS_LABEL[r.status]} />
-                <span className="font-medium text-foreground">{r.title}</span>
+                <span className={cn("font-medium text-foreground", r.status === "removed" && "text-muted-foreground line-through")}>{r.title}</span>
                 <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{r.meaning}</span>
                 {r.trouble && <span className="shrink-0 text-xs text-amber-700">missed {r.misses}</span>}
               </button>
@@ -128,9 +133,19 @@ export function WordList({ words, parts }: { words: ListRow[]; parts: ListRow[] 
                   )}
                   <p className="mt-2 text-xs text-muted-foreground">
                     {r.seen === 0
-                      ? "Not met yet."
+                      ? r.status === "removed" ? "Removed before it was asked." : "Not met yet."
                       : `${STATUS_LABEL[r.status]}. Asked ${r.seen} ${r.seen === 1 ? "time" : "times"}, right ${r.right}.${r.dueOn ? ` Next up ${r.dueOn}.` : ""}`}
                   </p>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => startSaving(() => setRemoved(r.id, r.status !== "removed"))}
+                      className="mt-2 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                    >
+                      {r.status === "removed" ? "Bring it back" : "Too easy? Remove it"}
+                    </button>
+                  )}
                 </div>
               )}
             </li>

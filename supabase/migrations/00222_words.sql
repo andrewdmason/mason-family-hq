@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS words_progress (
   wrong_count integer NOT NULL DEFAULT 0,
   dontknow_count integer NOT NULL DEFAULT 0,
   mastered_at timestamptz,
+  -- Taken out by the person themselves (too easy, or a word they don't want): never asked
+  -- again unless they bring it back from the list.
+  removed_at timestamptz,
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, level, item)
 );

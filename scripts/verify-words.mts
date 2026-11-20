@@ -88,7 +88,7 @@ function simulate(st: Student, start: string) {
     }
   }
 
-  const count = { new: 0, learning: 0, almost: 0, mastered: 0 };
+  const count = { new: 0, learning: 0, almost: 0, mastered: 0, removed: 0 };
   for (const w of words) count[statusOf(progress.get(w.id))]++;
   const partsMet = parts.filter((p) => progress.has(p.id)).length;
   const partsMastered = parts.filter((p) => statusOf(progress.get(p.id)) === "mastered").length;

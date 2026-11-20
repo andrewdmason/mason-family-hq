@@ -7,6 +7,7 @@ export const STATUS_TONE: Record<Status, string> = {
   almost: "bg-sky-400",
   learning: "bg-amber-400",
   new: "bg-muted",
+  removed: "bg-muted",
 };
 
 export function clock(ms: number): string {

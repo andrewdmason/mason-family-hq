@@ -92,7 +92,7 @@ export async function loadProgress(userId: string, level: Level, admin: Admin = 
   for (let from = 0; ; from += 1000) {
     const { data, error } = await admin
       .from("words_progress")
-      .select("item, stage, due_on, fast, first_seen_on, last_seen_on, last_correct_on, correct_days, forms_right, last_form, seen, right_count, wrong_count, dontknow_count, mastered_at")
+      .select("item, stage, due_on, fast, first_seen_on, last_seen_on, last_correct_on, correct_days, forms_right, last_form, seen, right_count, wrong_count, dontknow_count, mastered_at, removed_at")
       .eq("user_id", userId)
       .eq("level", level)
       .order("item")
@@ -135,9 +135,11 @@ async function sessionItems(admin: Admin, sessionId: string): Promise<{ item: st
 /** Choose the session's next question and put it on the session. Null when there's nothing left to ask. */
 async function serveNext(admin: Admin, session: SessionRow, progress: Map<string, Progress>): Promise<Current | null> {
   const asked = (await sessionItems(admin, session.id)).map((a) => a.item);
+  // Anything they've removed is out of the running altogether.
+  const kept = <T extends Item>(list: T[]) => list.filter((it) => !progress.get(it.id)?.removed_at);
   const pick = pickNext({
-    words: wordsFor(session.level),
-    parts: allParts(),
+    words: kept(wordsFor(session.level)),
+    parts: kept(allParts()),
     progress,
     today: session.day,
     position: session.answered + 1,
@@ -361,6 +363,79 @@ export async function answerQuestion(
   return { feedback, state: stateOf(session, null) };
 }
 
+/**
+ * Take the word on screen out for good (too easy, or one they don't want) and
+ * serve another in its place. It isn't an answer: the question count doesn't move.
+ */
+export async function removeCurrent(userId: string, sessionId: string, position: number, ms: number): Promise<SessionState | null> {
+  const admin = createAdminClient();
+  const { data } = await admin.from("words_sessions").select("*").eq("id", sessionId).eq("user_id", userId).maybeSingle();
+  const session = data as SessionRow | null;
+  if (!session || session.finished_at || !session.current) return null;
+  if (position !== session.answered + 1) return null;
+
+  const itemId = session.current.item;
+  const progress = await loadProgress(userId, session.level, admin);
+  await setRemoved(admin, userId, session.level, itemId, progress.get(itemId) ?? null, session.day, true);
+  const now = new Date().toISOString();
+  const existing = progress.get(itemId);
+  progress.set(itemId, { ...(existing ?? blankProgress(itemId, session.day)), removed_at: now });
+
+  const spent = Math.max(0, Math.min(Math.round(ms) || 0, 5 * 60 * 1000));
+  session.elapsed_ms += spent;
+  session.requeue = session.requeue.filter((r) => r.item !== itemId);
+  session.current = null;
+  await admin.from("words_sessions").update({ elapsed_ms: session.elapsed_ms, requeue: session.requeue, current: null }).eq("id", session.id);
+  const served = await serveNext(admin, session, progress);
+  if (!served) return finish(admin, session);
+  return stateOf(session, null);
+}
+
+function blankProgress(item: string, today: string): Progress {
+  return {
+    item,
+    stage: 0,
+    due_on: today,
+    fast: false,
+    first_seen_on: today,
+    last_seen_on: today,
+    last_correct_on: null,
+    correct_days: 0,
+    forms_right: [],
+    last_form: null,
+    seen: 0,
+    right_count: 0,
+    wrong_count: 0,
+    dontknow_count: 0,
+    mastered_at: null,
+  };
+}
+
+async function setRemoved(admin: Admin, userId: string, level: Level, itemId: string, existing: Progress | null, today: string, removed: boolean) {
+  const now = new Date().toISOString();
+  if (removed) {
+    const row = { ...(existing ?? blankProgress(itemId, today)), removed_at: now };
+    const { error } = await admin.from("words_progress").upsert({ user_id: userId, level, ...row, updated_at: now }, { onConflict: "user_id,level,item" });
+    if (error) throw new Error(error.message);
+    return;
+  }
+  // Brought back. A word removed before it was ever answered goes back to being new.
+  const query = admin.from("words_progress");
+  const { error } =
+    existing && existing.seen === 0
+      ? await query.delete().eq("user_id", userId).eq("level", level).eq("item", itemId)
+      : await query.update({ removed_at: null, due_on: today, updated_at: now }).eq("user_id", userId).eq("level", level).eq("item", itemId);
+  if (error) throw new Error(error.message);
+}
+
+/** Remove a word from the list, or bring a removed one back. */
+export async function setItemRemoved(profile: Profile, itemId: string, removed: boolean): Promise<void> {
+  if (!findItem(profile.level, itemId)) return;
+  const admin = createAdminClient();
+  const progress = await loadProgress(profile.userId, profile.level, admin);
+  await setRemoved(admin, profile.userId, profile.level, itemId, progress.get(itemId) ?? null, wordsToday(), removed);
+}
+
 export type Overview = {
   level: Level;
   questions: number;
@@ -401,7 +476,7 @@ export async function loadOverview(profile: Profile): Promise<Overview> {
   const open = sessions.find((s) => s.day === today && !s.finished_at) ?? null;
 
   const words = wordsFor(profile.level);
-  const counts: Record<Status, number> = { new: 0, learning: 0, almost: 0, mastered: 0 };
+  const counts: Record<Status, number> = { new: 0, learning: 0, almost: 0, mastered: 0, removed: 0 };
   for (const w of words) counts[statusOf(progress.get(w.id))]++;
   const parts = allParts();
   const trouble = [...words, ...parts]
@@ -433,9 +508,10 @@ export async function loadOverview(profile: Profile): Promise<Overview> {
     streak: streak(finishedDays, today),
     recentDays,
     counts,
-    totalWords: words.length,
+    // What they're working through: the words they've removed don't count against them.
+    totalWords: words.length - counts.removed,
     parts: {
-      met: parts.filter((p) => progress.has(p.id)).length,
+      met: parts.filter((p) => progress.has(p.id) && !progress.get(p.id)?.removed_at).length,
       mastered: parts.filter((p) => statusOf(progress.get(p.id)) === "mastered").length,
       total: parts.length,
     },

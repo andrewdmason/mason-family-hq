@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Check, Undo2, Volume2, X } from "lucide-react";
-import { beginSession, submitAnswer } from "@/app/(words)/words/actions";
+import { Check, Trash2, Undo2, Volume2, X } from "lucide-react";
+import { beginSession, removeFromSession, submitAnswer } from "@/app/(words)/words/actions";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ClientQuestion, Feedback, SessionState, SessionSummary } from "@/lib/words/types";
@@ -34,6 +34,8 @@ export function SessionRunner({ initial }: { initial: SessionState }) {
   // Choices they've ruled out on the question on screen. Theirs to keep track of: nothing is sent or saved.
   const [crossed, setCrossed] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
+  // Bumped when a word is removed, so the clock starts over for the one that replaces it.
+  const [removedCount, setRemovedCount] = useState(0);
   const [failed, setFailed] = useState(false);
   // Time spent on the question on screen; the server holds the rest.
   const [running, setRunning] = useState(0);
@@ -49,7 +51,7 @@ export function SessionRunner({ initial }: { initial: SessionState }) {
     setRunning(0);
     const timer = setInterval(() => setRunning(performance.now() - startedAt.current), 250);
     return () => clearInterval(timer);
-  }, [waiting, question?.position]);
+  }, [waiting, question?.position, removedCount]);
 
   const advance = useCallback(() => {
     if (!pending) return;
@@ -94,6 +96,24 @@ export function SessionRunner({ initial }: { initial: SessionState }) {
     },
     [question, picked, busy, state.sessionId]
   );
+
+  // "Too easy" (or just not wanted): the word is gone for good and another takes its place.
+  const remove = useCallback(async () => {
+    if (!question || picked !== undefined || busy) return;
+    const ms = performance.now() - startedAt.current;
+    setBusy(true);
+    setFailed(false);
+    try {
+      const next = (await removeFromSession(state.sessionId, question.position, ms)) ?? (await beginSession());
+      if (next) setState(next);
+      setCrossed([]);
+      setRemovedCount((n) => n + 1);
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  }, [question, picked, busy, state.sessionId]);
 
   // A right answer moves on by itself; a miss waits for them to read it.
   useEffect(() => {
@@ -177,7 +197,7 @@ export function SessionRunner({ initial }: { initial: SessionState }) {
           const isPicked = picked === i;
           const isCrossed = !feedback && crossed.includes(i);
           return (
-            <div key={`${question.position}-${i}`} className="relative">
+            <div key={`${question.position}-${removedCount}-${i}`} className="relative">
               <button
                 type="button"
                 disabled={picked !== undefined}
@@ -236,6 +256,17 @@ export function SessionRunner({ initial }: { initial: SessionState }) {
         <p className="mt-3 text-center text-xs text-muted-foreground">
           Test-day practice: rule out what you can, then take your best guess.
         </p>
+      )}
+      {!feedback && picked === undefined && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={remove}
+          className="mx-auto mt-4 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <Trash2 className="size-3.5" />
+          Too easy? Remove this {question.kind === "part" ? "word part" : "word"}
+        </button>
       )}
       {failed && <p className="mt-3 text-center text-sm text-destructive">That didn&rsquo;t go through. Try again.</p>}
 
