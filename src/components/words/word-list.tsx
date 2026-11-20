@@ -22,7 +22,7 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "almost", label: "Almost" },
   { key: "mastered", label: "Mastered" },
   { key: "new", label: "New" },
-  { key: "removed", label: "Removed" },
+  { key: "removed", label: "Skipped" },
 ];
 
 /** Every word and word part with where they stand; tap one to see it laid out. */
@@ -133,17 +133,17 @@ export function WordList({ words, parts, canEdit }: { words: ListRow[]; parts: L
                   )}
                   <p className="mt-2 text-xs text-muted-foreground">
                     {r.seen === 0
-                      ? r.status === "removed" ? "Removed before it was asked." : "Not met yet."
+                      ? r.status === "removed" ? "Skipped as known already." : "Not met yet."
                       : `${STATUS_LABEL[r.status]}. Asked ${r.seen} ${r.seen === 1 ? "time" : "times"}, right ${r.right}.${r.dueOn ? ` Next up ${r.dueOn}.` : ""}`}
                   </p>
-                  {canEdit && (
+                  {canEdit && r.status === "removed" && (
                     <button
                       type="button"
                       disabled={saving}
-                      onClick={() => startSaving(() => setRemoved(r.id, r.status !== "removed"))}
+                      onClick={() => startSaving(() => setRemoved(r.id, false))}
                       className="mt-2 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
                     >
-                      {r.status === "removed" ? "Bring it back" : "Too easy? Remove it"}
+                      Bring it back
                     </button>
                   )}
                 </div>

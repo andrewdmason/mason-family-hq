@@ -2,8 +2,10 @@ import Foundation
 
 /// Vocab on made-up progress, with no sign-in or network: `--demo`, for the
 /// simulator. `--vocab` opens on it, `--vocab-late` starts the session two
-/// questions from its end, to get to the last screen, and `--vocab-slow` makes
-/// every answer take two seconds to save, as on a bad connection.
+/// questions from its end, to get to the last screen, `--vocab-slow` makes
+/// every answer take two seconds to save, as on a bad connection, 
+/// `--vocab-second` has today's session done and a second one under way, and
+/// `--vocab-sort` opens on sorting out the words known already.
 @MainActor
 enum DemoVocab {
     private struct Card {
@@ -65,6 +67,9 @@ enum DemoVocab {
     private static var card: Card { cards[answered % cards.count] }
 
     /// An answer's trip to the website and back.
+    /// Today's session is done and another was started.
+    private static var second: Bool { CommandLine.arguments.contains("--vocab-second") }
+
     static var delay: Duration { CommandLine.arguments.contains("--vocab-slow") ? .seconds(2) : .zero }
 
     private static func question(_ index: Int) -> VocabQuestion? {
@@ -94,7 +99,7 @@ enum DemoVocab {
 
     static func begin() -> VocabState {
         let late = CommandLine.arguments.contains("--vocab-late")
-        answered = late ? total - 2 : 0
+        answered = late ? total - 2 : second ? 5 : 0
         correct = late ? 13 : 0
         elapsed = late ? 452_000 : 0
         missed = late ? [.init(title: "reluctant", meaning: "not wanting to do something"),
@@ -114,19 +119,25 @@ enum DemoVocab {
         return VocabAnswer(feedback: feedback, state: state())
     }
 
-    static func removeCurrent() -> VocabState {
-        answered += 1
-        return state()
+    private static func overview(_ level: VocabLevel, done: Bool, streak: Int, mastered: Int, almost: Int, learning: Int) -> VocabOverview {
+        if second, level == .lower {
+            let first = VocabOverview.Done(elapsedMs: 140_000, limitMs: limit, correct: 13, total: total)
+            var it = overview(level, done: true, streak: streak, mastered: mastered, almost: almost, learning: learning, first: first)
+            it.inProgress = .init(answered: 5, total: total)
+            return it
+        }
+        return overview(level, done: done, streak: streak, mastered: mastered, almost: almost, learning: learning, first: nil)
     }
 
-    private static func overview(_ level: VocabLevel, done: Bool, streak: Int, mastered: Int, almost: Int, learning: Int) -> VocabOverview {
+    private static func overview(_ level: VocabLevel, done: Bool, streak: Int, mastered: Int, almost: Int, learning: Int, first: VocabOverview.Done?) -> VocabOverview {
+        let latest = first ?? VocabOverview.Done(elapsedMs: 470_000, limitMs: limit, correct: 18, total: 22)
         let days = (0..<14).map { i in
             VocabOverview.Day(day: "2026-11-\(String(format: "%02d", 7 + i))", done: i == 13 ? done : i > 13 - streak - (done ? 0 : 1) || i % 4 == 1)
         }
         return VocabOverview(
             level: level, questions: level == .lower ? 18 : 22, today: "2026-11-20",
-            doneToday: done ? .init(elapsedMs: 470_000, limitMs: limit, correct: 18, total: 22) : nil,
-            inProgress: nil, sessionsToday: done ? 1 : 0, streak: streak, recentDays: days,
+            doneToday: done ? latest : nil,
+            inProgress: nil, sessionsToday: done ? 1 : 0, sessionsDone: done ? [latest] : [], streak: streak, recentDays: days,
             counts: ["mastered": mastered, "almost": almost, "learning": learning, "new": 500 - mastered - almost - learning - 3, "removed": 3],
             totalWords: 497, parts: .init(met: 14, mastered: 5, total: 50),
             trouble: [
@@ -135,7 +146,40 @@ enum DemoVocab {
                 .init(id: "w:meager", title: "meager", meaning: "very small in amount", misses: 2),
                 .init(id: "p:mal", title: "mal-", meaning: "bad", misses: 1),
             ],
-            accuracy: level == .lower ? 0.78 : 0.84)
+            accuracy: level == .lower ? 0.78 : 0.84,
+            sort: .init(done: level == .middle, left: sortWords.count))
+    }
+
+    /// Words for the sort, commonest first, each with a near-synonym for its question.
+    private static let sortWords: [(String, String)] = [
+        ("happy", "glad"), ("large", "big"), ("begin", "start"), ("quick", "fast"), ("angry", "mad"),
+        ("simple", "easy"), ("silent", "quiet"), ("brave", "bold"), ("ancient", "very old"), ("assist", "help"),
+        ("purchase", "buy"), ("reply", "answer"), ("error", "mistake"), ("wealthy", "rich"), ("locate", "find"),
+        ("gather", "collect"), ("damp", "slightly wet"), ("fragile", "easily broken"), ("vacant", "empty"), ("weary", "tired"),
+        ("abundant", "plentiful"), ("candid", "honest"), ("reluctant", "unwilling"), ("meager", "scanty"), ("jovial", "cheerful"),
+        ("frugal", "thrifty"), ("gullible", "easily fooled"), ("hasty", "rushed"), ("keen", "eager"), ("coax", "persuade"),
+        ("diminish", "shrink"), ("elated", "overjoyed"), ("benevolent", "kindly"), ("somber", "gloomy"), ("placid", "calm"),
+        ("arid", "dry"), ("brisk", "lively"), ("cunning", "sly"), ("dwindle", "lessen"), ("feeble", "weak"),
+        ("obstinate", "stubborn"), ("lucid", "clear"), ("prudent", "wise"), ("tedious", "boring"), ("vivid", "bright"),
+    ]
+
+    static func sortPage(after: Int?) -> VocabSortPage? {
+        let from = after ?? 0
+        let rest = Array(sortWords.enumerated().dropFirst(from).prefix(20))
+        guard !rest.isEmpty else { return nil }
+        let words = rest.map { index, word in
+            // The right answer among three other words' meanings, in a place that moves about.
+            let right = index % 4
+            var choices = (1...3).map { sortWords[(index + $0 * 7) % sortWords.count].1 }
+            choices.insert(word.1, at: right)
+            let key = VocabQuestion.Key(correctIndex: right, whys: choices.indices.map { $0 == right ? nil : "That's another word's meaning." },
+                                        masteredIfRight: false, tip: "Try it in a sentence of your own.", title: word.0, pos: nil,
+                                        meaning: word.1, example: nil, hook: "", parts: [])
+            return VocabSortPage.Word(id: "w:\(word.0)", title: word.0,
+                                      question: VocabQuestion(position: 1, total: 1, kind: .syn, stem: word.0.uppercased(), choices: choices,
+                                                              isNew: true, allowDontKnow: true, key: key))
+        }
+        return VocabSortPage(words: words, through: from + words.count, left: sortWords.count - from)
     }
 
     static func home(parent: Bool, kid: String?) -> VocabHome {

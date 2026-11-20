@@ -5,7 +5,10 @@
 // The rules, which come from what's known about remembering things:
 //   • Being tested on a word teaches it better than rereading it, so a word's
 //     first appearance is already a question.
-//   • A word answered right comes back after a growing gap (1 day, 3 days, a
+//   • A word answered right the first time it's ever asked is one they knew
+//     already: it's never asked again, and its place goes to one they don't.
+//     Only a word missed, or marked "Don't know", is asked more than once.
+//   • After that, a word answered right comes back after a growing gap (1 day, 3 days, a
 //     week, two weeks): each recall just before it would have faded is the one
 //     that makes it last.
 //   • A word missed comes back twice: a few questions later, while the tip is
@@ -107,14 +110,15 @@ export function applyAnswer(
   next.right_count += 1;
   if (!next.forms_right.includes(form)) next.forms_right = [...next.forms_right, form];
 
-  // Right the first time it's ever asked: it skips the learning steps and is
-  // checked once more, a few days on and asked another way, in case it was a guess.
+  // Right the first time it's ever asked: they knew it already, so it's done
+  // with and never asked again.
   if (!progress) {
     next.fast = true;
-    next.stage = 2;
+    next.stage = 3;
     next.correct_days = 1;
     next.last_correct_on = today;
-    next.due_on = addDays(today, 3);
+    next.mastered_at = now;
+    next.due_on = addDays(today, RETIRED_GAP);
     return next;
   }
 
@@ -135,9 +139,6 @@ export function applyAnswer(
   next.stage = base.stage + 1;
   next.due_on = addDays(today, GAP_BY_STAGE[next.stage]);
   if (next.stage >= 3) next.mastered_at = now;
-  // A word they knew before they ever saw it here, right both times and asked
-  // two ways: it's retired, and its place goes to a word they don't know.
-  if (next.stage >= 3 && base.fast) next.due_on = addDays(today, RETIRED_GAP);
   return next;
 }
 
@@ -192,6 +193,11 @@ export function pickNext(ctx: PickContext): Pick | null {
     const pb = progress.get(b.id)!;
     return pa.stage - pb.stage || pa.due_on.localeCompare(pb.due_on) || a.rank - b.rank;
   };
+  // Known at first sight and never missed: out of every pile, however short the session runs.
+  const retired = (it: Item) => {
+    const p = progress.get(it.id);
+    return !!p && p.fast && p.stage >= 3;
+  };
   const dueWords = words.filter((it) => fresh(it) && isDue(it)).sort(byUrgency);
   const dueParts = parts.filter((it) => fresh(it) && isDue(it)).sort(byUrgency);
   const due = [...dueWords, ...dueParts].sort(byUrgency);
@@ -225,7 +231,7 @@ export function pickNext(ctx: PickContext): Pick | null {
   // 4. Nothing due and today's new words are used up: look ahead at what's due
   //    soonest, the least settled first.
   const early = [...words, ...parts]
-    .filter((it) => fresh(it) && progress.has(it.id) && progress.get(it.id)!.last_seen_on !== today)
+    .filter((it) => fresh(it) && progress.has(it.id) && !retired(it) && progress.get(it.id)!.last_seen_on !== today)
     .sort((a, b) => {
       const pa = progress.get(a.id)!;
       const pb = progress.get(b.id)!;
@@ -238,9 +244,9 @@ export function pickNext(ctx: PickContext): Pick | null {
   if (nextNewWord) return { item: nextNewWord.id, why: "new" };
   if (nextNewPart) return { item: nextNewPart.id, why: "new" };
   if (waiting[0]) return { item: waiting[0].item, why: "requeue" };
-  const anything = [...words, ...parts].filter((it) => fresh(it) && progress.has(it.id)).sort(byUrgency);
+  const anything = [...words, ...parts].filter((it) => fresh(it) && progress.has(it.id) && !retired(it)).sort(byUrgency);
   if (anything[0]) return { item: anything[0].id, why: "extra" };
-  const again = [...words, ...parts].find((it) => progress.has(it.id));
+  const again = [...words, ...parts].find((it) => progress.has(it.id) && !retired(it)) ?? [...words, ...parts].find((it) => progress.has(it.id));
   return again ? { item: again.id, why: "extra" } : null;
 }
 

@@ -15,6 +15,7 @@ import {
   type Result,
   type SessionState,
   type SessionSummary,
+  type SortPage,
   type Status,
   type WrongChoice,
 } from "@/lib/words/types";
@@ -334,7 +335,8 @@ function feedbackFor(level: Level, item: Item, current: Current, result: Result,
 
 /** The answer takes the item to mastered. */
 function nowMastered(before: Progress | null, after: Progress): boolean {
-  return after.stage >= 3 && (before?.stage ?? 0) < 3;
+  // A word known at first sight is done with, but it wasn't learned here: nothing to cheer.
+  return !!before && after.stage >= 3 && before.stage < 3;
 }
 
 /** The answer to the question on the session, for grading it where it's shown. */
@@ -526,6 +528,98 @@ export async function setItemRemoved(profile: Profile, itemId: string, removed: 
   await setRemoved(admin, profile.userId, profile.level, itemId, progress.get(itemId) ?? null, wordsToday(), removed);
 }
 
+// Sorting out the words known already: a page of the commonest words not yet
+// met, to tap the ones they're not sure of. The rest are skipped, after a
+// couple of real questions on them to keep it honest.
+
+/** Words on a page of the sort. */
+export const SORT_PAGE = 20;
+
+type Sorted = { through: number; done: boolean };
+
+/** How far through the sort someone is. Nothing yet, too, when the columns aren't there. */
+async function loadSorted(admin: Admin, userId: string): Promise<Sorted> {
+  const { data } = await admin.from("words_profiles").select("sorted_through, sorted_at").eq("user_id", userId).maybeSingle();
+  const row = data as { sorted_through: number | null; sorted_at: string | null } | null;
+  return { through: row?.sorted_through ?? 0, done: !!row?.sorted_at };
+}
+
+/** The words still to sort: never met, and further down the list than they've looked. */
+function unsorted(level: Level, progress: Map<string, Progress>, after: number) {
+  return wordsFor(level).filter((w) => w.rank > after && !progress.has(w.id));
+}
+
+/** The next page of the sort after `after` (where they'd got to, when not given). Null when there's nothing left. */
+export async function loadSortPage(profile: Profile, after?: number | null): Promise<SortPage | null> {
+  const admin = createAdminClient();
+  const [progress, sorted] = await Promise.all([loadProgress(profile.userId, profile.level, admin), loadSorted(admin, profile.userId)]);
+  const rest = unsorted(profile.level, progress, after ?? sorted.through);
+  const words = rest.slice(0, SORT_PAGE);
+  if (words.length === 0) return null;
+  return {
+    through: words[words.length - 1].rank,
+    left: rest.length,
+    words: words.map((item, i) => {
+      const formKey = pickForm(item, null);
+      const form = item.forms[formKey];
+      const choices = shuffle<StoredChoice>([{ text: form.answer, right: true }, ...form.traps]);
+      const current: Current = {
+        item: item.id,
+        form: formKey,
+        kind: form.kind,
+        stem: form.stem,
+        choices,
+        correct: choices.findIndex((c) => c.right),
+        isNew: true,
+        requeued: false,
+      };
+      return {
+        id: item.id,
+        title: item.word,
+        question: {
+          position: i + 1,
+          total: words.length,
+          kind: form.kind,
+          stem: form.stem,
+          choices: choices.map((c) => c.text),
+          isNew: true,
+          allowDontKnow: true,
+          key: {
+            ...lessonFor(profile.level, item, current),
+            whys: choices.map((c) => (c.right ? null : (c.why ?? null))),
+            masteredIfRight: false,
+          },
+        },
+      };
+    }),
+  };
+}
+
+/**
+ * A page of the sort is done: skip the words they know, and remember how far
+ * they've looked. `done` when they've reached the words they mostly don't know.
+ */
+export async function saveSort(profile: Profile, through: number, skip: string[], done: boolean): Promise<void> {
+  const admin = createAdminClient();
+  const today = wordsToday();
+  const now = new Date().toISOString();
+  const [progress, sorted] = await Promise.all([loadProgress(profile.userId, profile.level, admin), loadSorted(admin, profile.userId)]);
+  // Only words of theirs that they've never been asked: a word under way is left alone.
+  const rows = [...new Set(skip)]
+    .map((id) => findItem(profile.level, id))
+    .filter((it): it is Item => !!it && it.type === "word" && !progress.has(it.id))
+    .map((it) => ({ user_id: profile.userId, level: profile.level, ...blankProgress(it.id, today), removed_at: now, updated_at: now }));
+  if (rows.length > 0) {
+    const { error } = await admin.from("words_progress").upsert(rows, { onConflict: "user_id,level,item" });
+    if (error) throw new Error(error.message);
+  }
+  const { error } = await admin
+    .from("words_profiles")
+    .update({ sorted_through: Math.max(sorted.through, Math.floor(through)), ...(done ? { sorted_at: now } : {}), updated_at: now })
+    .eq("user_id", profile.userId);
+  if (error) throw new Error(error.message);
+}
+
 export type Overview = {
   level: Level;
   questions: number;
@@ -535,6 +629,8 @@ export type Overview = {
   /** A session started today and not finished. */
   inProgress: { answered: number; total: number } | null;
   sessionsToday: number;
+  /** Every session finished today, first to last, for a day with more than one. */
+  sessionsDone: { elapsedMs: number; limitMs: number; correct: number; total: number }[];
   streak: number;
   /** The last 14 days, oldest first: was a session finished? */
   recentDays: { day: string; done: boolean }[];
@@ -544,13 +640,16 @@ export type Overview = {
   trouble: { id: string; title: string; meaning: string; misses: number }[];
   /** Right answers out of all answers, over the last 7 days; null before there are any. */
   accuracy: number | null;
+  /** Sorting out the words known already: whether they've been through it, and how many words are left to look at. */
+  sort: { done: boolean; left: number };
 };
 
 export async function loadOverview(profile: Profile): Promise<Overview> {
   const admin = createAdminClient();
   const today = wordsToday();
-  const [progress, { data: sessionRows }] = await Promise.all([
+  const [progress, sorted, { data: sessionRows }] = await Promise.all([
     loadProgress(profile.userId, profile.level, admin),
+    loadSorted(admin, profile.userId),
     admin
       .from("words_sessions")
       .select("day, total, answered, correct, wrong, dontknow, elapsed_ms, limit_ms, finished_at, started_at")
@@ -563,6 +662,8 @@ export async function loadOverview(profile: Profile): Promise<Overview> {
   const finished = sessions.filter((s) => s.finished_at);
   const finishedDays = [...new Set(finished.map((s) => s.day))];
   const done = finished.find((s) => s.day === today) ?? null;
+  // Newest first as loaded: turned round, the day in the order it went.
+  const doneToday = finished.filter((s) => s.day === today).reverse();
   const open = sessions.find((s) => s.day === today && !s.finished_at) ?? null;
 
   const words = wordsFor(profile.level);
@@ -594,7 +695,8 @@ export async function loadOverview(profile: Profile): Promise<Overview> {
     today,
     doneToday: done ? { elapsedMs: done.elapsed_ms, limitMs: done.limit_ms, correct: done.correct, total: done.total } : null,
     inProgress: open && open.answered > 0 ? { answered: open.answered, total: open.total } : null,
-    sessionsToday: finished.filter((s) => s.day === today).length,
+    sessionsToday: doneToday.length,
+    sessionsDone: doneToday.map((s) => ({ elapsedMs: s.elapsed_ms, limitMs: s.limit_ms, correct: s.correct, total: s.total })),
     streak: streak(finishedDays, today),
     recentDays,
     counts,
@@ -607,6 +709,7 @@ export async function loadOverview(profile: Profile): Promise<Overview> {
     },
     trouble,
     accuracy: answered > 0 ? week.reduce((n, s) => n + s.correct, 0) / answered : null,
+    sort: { done: sorted.done, left: unsorted(profile.level, progress, sorted.through).length },
   };
 }
 

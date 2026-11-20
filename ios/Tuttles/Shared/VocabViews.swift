@@ -189,6 +189,7 @@ struct VocabHomeView: View {
     @Binding var path: [Route]
     @Environment(ChatStore.self) private var store
     @State private var run: VocabRun?
+    @State private var sort: VocabSort?
     @State private var starting = false
     @State private var problem: String?
 
@@ -229,9 +230,18 @@ struct VocabHomeView: View {
         .cover(item: $run) { run in
             VocabSessionView(run: run)
         }
+        .cover(item: $sort) { sort in
+            VocabSortView(sort: sort)
+        }
         .onChange(of: run == nil) { _, closed in
             // Back from a session: today's card and the counts have moved.
             if closed { Task { await store.refreshVocab() } }
+        }
+        .onChange(of: sort == nil) { _, closed in
+            if closed { Task { await store.refreshVocab() } }
+        }
+        .onAppear {
+            if store.isDemo, CommandLine.arguments.contains("--vocab-sort"), sort == nil { sort = VocabSort(store: store) }
         }
         .alert("Couldn't start", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
             Button("OK") {}
@@ -251,6 +261,25 @@ struct VocabHomeView: View {
 
         today(overview)
 
+        // Until they've been through it: the quick way past the words they know.
+        if let sorting = overview.sort, !sorting.done, sorting.left > 0 {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Know a lot of these already?", systemImage: "square.grid.2x2.fill")
+                        .font(.headline)
+                    Text("Go through the words a page at a time and tap the ones you're not sure of. The rest won't come up, so your sessions go on the words you don't know.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Button { sort = VocabSort(store: store) } label: {
+                    Text("Sort my words").font(.headline).frame(maxWidth: .infinity).frame(height: 34)
+                }
+                .buttonStyle(.glass)
+            }
+            .padding(20)
+            .vocabGlass()
+        }
+
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
                 Text("\(overview.count(.mastered))").font(.system(size: 40, weight: .bold, design: .rounded)).monospacedDigit()
@@ -269,6 +298,20 @@ struct VocabHomeView: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            // Been through it once: still there to pick up again.
+            if let sorting = overview.sort, sorting.done, sorting.left > 0 {
+                Divider()
+                Button { sort = VocabSort(store: store) } label: {
+                    HStack {
+                        Label("Skip more words I know", systemImage: "square.grid.2x2")
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                    }
+                    .font(.body.weight(.medium))
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(20)
         .vocabGlass()
@@ -302,9 +345,33 @@ struct VocabHomeView: View {
                 Label("Done today", systemImage: "checkmark.seal.fill")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(VocabLook.rightText)
-                Text("\(done.correct) of \(done.total) right, with \(VocabRules.pace(elapsedMs: done.elapsedMs, limitMs: done.limitMs)).")
-                    .foregroundStyle(.secondary)
-                startButton(overview.inProgress != nil ? "Keep going" : "Do another", prominent: false)
+                let sessions = overview.finishedToday
+                if sessions.count < 2, overview.inProgress == nil {
+                    Text("\(done.correct) of \(done.total) right, with \(VocabRules.pace(elapsedMs: done.elapsedMs, limitMs: done.limitMs)).")
+                        .foregroundStyle(.secondary)
+                    startButton("Do another", prominent: false)
+                } else {
+                    // More than the day's one: each session on its own line, the one under way last.
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(sessions, id: \.number) { session in
+                            sessionRow(session.number, "\(session.done.correct) of \(session.done.total) right",
+                                       VocabRules.pace(elapsedMs: session.done.elapsedMs, limitMs: session.done.limitMs))
+                        }
+                        if let open = overview.inProgress {
+                            Divider()
+                            VStack(alignment: .leading, spacing: 8) {
+                                sessionRow(overview.nextSession, "\(open.answered) of \(open.total) answered", "under way", live: true)
+                                ProgressView(value: Double(open.answered), total: Double(max(1, open.total)))
+                                    .tint(TuttlesLook.accent)
+                            }
+                        }
+                    }
+                    if overview.inProgress != nil {
+                        startButton("Keep going with session \(overview.nextSession)", prominent: true)
+                    } else {
+                        startButton("Do another", prominent: false)
+                    }
+                }
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Today's session").font(.title2.weight(.bold))
@@ -322,6 +389,19 @@ struct VocabHomeView: View {
         }
         .padding(20)
         .vocabGlass(tint: overview.doneToday == nil ? nil : VocabLook.right.opacity(0.12))
+    }
+
+    /// One of today's sessions: which it was, how it went, and its time.
+    private func sessionRow(_ number: Int, _ result: String, _ note: String, live: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("Session \(number)").fontWeight(.semibold).foregroundStyle(live ? TuttlesLook.accent : .primary)
+            Text(result).foregroundStyle(.secondary).monospacedDigit()
+            Spacer(minLength: 4)
+            Text(note).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+        }
+        .font(.subheadline)
+        .lineLimit(1)
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder private func startButton(_ title: String, prominent: Bool) -> some View {
@@ -349,7 +429,8 @@ struct VocabHomeView: View {
         Task {
             defer { starting = false }
             do {
-                run = VocabRun(store: store, state: try await store.vocabBegin())
+                let number = store.vocab?.overview?.nextSession ?? 1
+                run = VocabRun(store: store, state: try await store.vocabBegin(), number: number)
             } catch {
                 problem = error.localizedDescription
             }
@@ -359,7 +440,7 @@ struct VocabHomeView: View {
     private func partsLine(_ overview: VocabOverview) -> String {
         var line = "Word parts: \(overview.parts.met) of \(overview.parts.total) met, \(overview.parts.mastered) mastered."
         let removed = overview.count(.removed)
-        if removed > 0 { line += " \(removed) \(removed == 1 ? "word" : "words") removed as too easy." }
+        if removed > 0 { line += " \(removed) \(removed == 1 ? "word" : "words") skipped as known already." }
         return line
     }
 
@@ -407,7 +488,7 @@ private struct VocabKidCard: View {
             }
             if overview.count(.removed) > 0 {
                 let removed = overview.count(.removed)
-                Text("\(removed) \(removed == 1 ? "word" : "words") removed as too easy.").font(.footnote).foregroundStyle(.secondary)
+                Text("\(removed) \(removed == 1 ? "word" : "words") skipped as known already.").font(.footnote).foregroundStyle(.secondary)
             }
             if !overview.trouble.isEmpty {
                 Text("\(Text("Trouble words: ").fontWeight(.semibold))\(Text(overview.trouble.prefix(8).map(\.title).joined(separator: ", ")).foregroundStyle(.secondary))")
@@ -431,10 +512,20 @@ private struct VocabKidCard: View {
 
     @ViewBuilder private func status(_ overview: VocabOverview) -> some View {
         if let done = overview.doneToday {
-            Label("Done today: \(done.correct) of \(done.total) right, \(VocabRules.pace(elapsedMs: done.elapsedMs, limitMs: done.limitMs)).",
-                  systemImage: "checkmark.seal.fill")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(VocabLook.rightText)
+            let sessions = overview.finishedToday
+            VStack(alignment: .leading, spacing: 4) {
+                Label(sessions.count > 1
+                      ? "Done today, \(sessions.count) sessions: \(sessions.map { "\($0.done.correct) of \($0.done.total)" }.formatted(.list(type: .and))) right."
+                      : "Done today: \(done.correct) of \(done.total) right, \(VocabRules.pace(elapsedMs: done.elapsedMs, limitMs: done.limitMs)).",
+                      systemImage: "checkmark.seal.fill")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(VocabLook.rightText)
+                if let open = overview.inProgress {
+                    Label("Session \(overview.nextSession) under way: \(open.answered) of \(open.total) answered.", systemImage: "hourglass")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
         } else if let open = overview.inProgress {
             Label("Started today: \(open.answered) of \(open.total) answered.", systemImage: "hourglass")
                 .font(.subheadline)
@@ -603,15 +694,15 @@ private struct VocabWordSheet: View {
                 Label(standing, systemImage: "chart.bar.fill")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                if canEdit {
+                if canEdit, row.status == .removed {
                     Button {
                         saving = true
                         Task {
-                            await setRemoved(row.status != .removed)
+                            await setRemoved(false)
                             dismiss()
                         }
                     } label: {
-                        Text(row.status == .removed ? "Bring it back" : "Too easy? Remove it").frame(maxWidth: .infinity)
+                        Text("Bring it back").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.glass)
                     .disabled(saving)
@@ -630,7 +721,7 @@ private struct VocabWordSheet: View {
     }
 
     private var standing: String {
-        if row.seen == 0 { return row.status == .removed ? "Removed before it was asked." : "Not met yet." }
+        if row.seen == 0 { return row.status == .removed ? "Skipped as known already." : "Not met yet." }
         var line = "\(row.status.label). Asked \(row.seen) \(row.seen == 1 ? "time" : "times"), right \(row.right)."
         if let due = row.dueOn, let date = StudySet.day.date(from: due) {
             line += " Next up \(date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))."
