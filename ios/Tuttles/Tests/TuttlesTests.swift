@@ -308,6 +308,8 @@ final class VocabRulesTests: XCTestCase {
         XCTAssertEqual(VocabRules.sortChecks(known: 17), 2)
         XCTAssertEqual(VocabRules.sortChecks(known: 1), 1)
         XCTAssertEqual(VocabRules.sortChecks(known: 0), 0)
+        XCTAssertFalse(VocabRules.sortKeepsPage(misses: 1))
+        XCTAssertTrue(VocabRules.sortKeepsPage(misses: 2))
         XCTAssertFalse(VocabRules.sortStops(known: 10, of: 20))
         XCTAssertTrue(VocabRules.sortStops(known: 9, of: 20))
         XCTAssertFalse(VocabRules.sortStops(known: 3, of: 5))

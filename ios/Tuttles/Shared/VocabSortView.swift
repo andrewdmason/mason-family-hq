@@ -1,8 +1,8 @@
 import SwiftUI
 
 // Sorting out the words known already: a page of words on glass to tap the
-// unsure ones on, a quick real question or two on the rest, and on to the
-// next page. Like a session it takes over the screen; closing it keeps every
+// unsure ones on, a quick real question or two on the rest (a miss keeps that
+// word in; two keep the page in), and on to the next page. Like a session it takes over the screen; closing it keeps every
 // page finished so far.
 
 struct VocabSortView: View {
@@ -133,10 +133,11 @@ struct VocabSortView: View {
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                 if let last = sort.lastSkipped {
-                    Text(last > 0 ? "\(sort.skipped) skipped so far" : "Last page kept in")
+                    Text(sort.skipped > 0 ? "\(sort.skipped) skipped so far" : "Nothing skipped yet")
                         .font(.caption.weight(.semibold))
                         .monospacedDigit()
                         .foregroundStyle(last > 0 ? VocabLook.rightText : VocabLook.amberText)
+                        .accessibilityHint(last > 0 ? "" : "The last page's words stayed in")
                 }
             }
             Spacer()
@@ -327,7 +328,7 @@ private struct VocabSortCheck: View {
                      in: .rect(cornerRadius: VocabLook.cardRadius, style: .continuous))
     }
 
-    /// The word laid out, and what the miss means for this page.
+    /// The word laid out, and what the miss means: that word stays in, or after two the whole page.
     private func missed(_ feedback: VocabFeedback) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("\(Text(feedback.title).fontWeight(.semibold))\(Text(": \(feedback.meaning)").foregroundStyle(.secondary))")
@@ -336,7 +337,9 @@ private struct VocabSortCheck: View {
                 Text("\(Text("Why not \(question.choices[index])? ").fontWeight(.semibold))\(why)").font(.subheadline)
             }
             Divider()
-            Text("So this page's words stay in. They'll come up in your sessions, and the ones you know will be gone after one right answer.")
+            Text(sort.keepsPage
+                 ? "That's two missed, so this page's words all stay in. They'll come up in your sessions, and the ones you know will be gone after one right answer."
+                 : "So \(feedback.title) stays in your sessions. One more quick check on this page.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
