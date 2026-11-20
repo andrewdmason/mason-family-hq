@@ -114,6 +114,8 @@ export type ClientQuestion = {
   /** A word or part they've never been asked before. */
   isNew: boolean;
   allowDontKnow: boolean;
+  /** Only for the Tuttles app, which grades on the phone so an answer shows at once. */
+  key?: QuestionKey;
 };
 
 export type PartNote = { part: string; meaning: string };
@@ -134,6 +136,18 @@ export type Feedback = {
   parts: PartNote[];
   /** It just became mastered. */
   mastered: boolean;
+};
+
+/**
+ * A question's answer, sent along with it so it can be graded where it's
+ * shown, without waiting on the network. The server still grades the answer
+ * when it arrives; this only says ahead of time what it will say.
+ */
+export type QuestionKey = Omit<Feedback, "result" | "chosenWhy" | "mastered"> & {
+  /** For each choice, why it's wrong: null for the right one, or when nothing is written. */
+  whys: (string | null)[];
+  /** A right answer would make it mastered. */
+  masteredIfRight: boolean;
 };
 
 export type SessionSummary = {

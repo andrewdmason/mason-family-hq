@@ -72,8 +72,16 @@ enum DemoVocab {
         let c = card
         return VocabState(sessionId: "demo", elapsedMs: elapsed, limitMs: limit, noDontKnow: false,
                           question: VocabQuestion(position: answered + 1, total: total, kind: c.kind, stem: c.stem, choices: c.choices,
-                                                  isNew: c.isNew, allowDontKnow: true),
+                                                  isNew: c.isNew, allowDontKnow: true, key: key(c)),
                           summary: nil)
+    }
+
+    /// The card's answer, as the website sends it with the question.
+    private static func key(_ c: Card) -> VocabQuestion.Key {
+        let right = c.feedback(c.correct)
+        return VocabQuestion.Key(correctIndex: c.correct, whys: c.choices.indices.map { c.feedback($0).chosenWhy },
+                                 masteredIfRight: right.mastered, tip: right.tip, title: right.title, pos: right.pos,
+                                 meaning: right.meaning, example: right.example, hook: right.hook, parts: right.parts)
     }
 
     static func begin() -> VocabState {

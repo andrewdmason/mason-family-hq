@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   const ms = typeof body?.ms === "number" ? body.ms : 0;
   if (!UUID.test(sessionId) || !Number.isInteger(position)) return NextResponse.json({ error: "bad request" }, { status: 400 });
 
-  const state = await removeCurrent(player.userId, sessionId, position, ms);
+  const state = await removeCurrent(player.userId, sessionId, position, ms, { key: true });
   if (!state) return NextResponse.json({ error: "moved on" }, { status: 409 });
   return NextResponse.json(state, NO_STORE);
 }

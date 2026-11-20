@@ -46,6 +46,8 @@ private struct VocabQuestionView: View {
 
     private static let letters = ["A", "B", "C", "D", "E"]
     private var missed: VocabFeedback? { run.feedback.flatMap { $0.isCorrect ? nil : $0 } }
+    /// The session ends with this question.
+    private var last: Bool { run.pending.map { $0.summary != nil } ?? (question.position >= question.total) }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -103,8 +105,18 @@ private struct VocabQuestionView: View {
                 Button {
                     withAnimation(.snappy) { run.advance() }
                 } label: {
-                    Text(run.pending?.summary != nil ? "Finish" : "Next").font(.headline).frame(maxWidth: .infinity).frame(height: 40)
+                    Group {
+                        // The next question is nearly always here already; on a slow line it's a moment behind.
+                        if run.wantsNext, !run.failed {
+                            ProgressView()
+                        } else {
+                            Text(run.failed ? "Try again" : last ? "Finish" : "Next").font(.headline)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 40)
                 }
+                .disabled(run.wantsNext && !run.failed)
                 .buttonStyle(.glassProminent)
                 .tint(TuttlesLook.accent)
                 .keyboardShortcut(.defaultAction)
@@ -260,6 +272,20 @@ private struct VocabQuestionView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.top, 22)
+                // A right answer moves on by itself, so a save that failed needs its own way forward.
+                if run.failed {
+                    Button { withAnimation(.snappy) { run.advance() } } label: {
+                        Text("That didn't save. Try again").font(.subheadline.weight(.medium)).foregroundStyle(VocabLook.wrong)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else if run.failed {
+                Text("That didn't save.").font(.subheadline).foregroundStyle(VocabLook.wrong)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 14)
             }
         } else {
             VStack(spacing: 6) {
