@@ -94,7 +94,7 @@ export const STATUS_LABEL: Record<Status, string> = {
   learning: "Learning",
   almost: "Almost",
   mastered: "Mastered",
-  removed: "Removed",
+  removed: "Skipped",
 };
 
 export function statusOf(progress: Progress | undefined | null): Status {
@@ -149,6 +149,16 @@ export type QuestionKey = Omit<Feedback, "result" | "chosenWhy" | "mastered"> & 
   /** A right answer would make it mastered. */
   masteredIfRight: boolean;
 };
+
+/** A word in the sort, with a question on it (and the answer) for the spot check. */
+export type SortWord = { id: string; title: string; question: ClientQuestion };
+
+/**
+ * A page of the sort: the commonest words not yet met, to say which of them
+ * are known already. `through` is how far down the list the page goes, and
+ * `left` how many words are still to look at, this page included.
+ */
+export type SortPage = { words: SortWord[]; through: number; left: number };
 
 export type SessionSummary = {
   id: string;

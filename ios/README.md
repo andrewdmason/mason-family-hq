@@ -148,8 +148,11 @@ are in `src/lib/tuttles/prompt.ts`.
   the parent view shows both kids and each one's words, read-only.
   `Shared/Vocab.swift` has the shapes and a session's rules,
   `VocabViews.swift` and `VocabSessionView.swift` the screens. `--demo --vocab`
-  opens on it, `--vocab-late` starts a session two questions from its end, and
-  `--vocab-slow` makes every answer take two seconds to save.
+  opens on it, `--vocab-late` starts a session two questions from its end,
+  `--vocab-slow` makes every answer take two seconds to save,
+  `--vocab-second` has today's session done with a second one under way, and
+  `--vocab-sort` opens on sorting out the words known already
+  (`VocabSortView.swift`).
 - `--demo` runs on canned chats with no sign-in (`--open <n>` opens one), for
   the simulator. `--website <url>` points the chat at another server.
 

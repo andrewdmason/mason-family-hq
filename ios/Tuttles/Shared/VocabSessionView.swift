@@ -20,7 +20,7 @@ struct VocabSessionView: View {
         ZStack {
             VocabBackdrop(mood: mood)
             if let summary = run.summary {
-                VocabSummaryView(summary: summary, busy: run.busy, done: { dismiss() }, again: { Task { await run.again() } })
+                VocabSummaryView(summary: summary, number: run.number, busy: run.busy, done: { dismiss() }, again: { Task { await run.again() } })
                     .transition(.opacity)
             } else if let question = run.question {
                 VocabQuestionView(run: run, question: question, close: { dismiss() })
@@ -141,7 +141,14 @@ private struct VocabQuestionView: View {
             .accessibilityLabel("Close")
 
             VStack(alignment: .leading, spacing: 5) {
-                Text("\(question.position) of \(question.total)").font(.caption.weight(.medium)).monospacedDigit().foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    if run.number > 1 {
+                        Text("Session \(run.number)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(TuttlesLook.accent)
+                    }
+                    Text("\(question.position) of \(question.total)").font(.caption.weight(.medium)).monospacedDigit().foregroundStyle(.secondary)
+                }
                 ProgressView(value: run.progress)
                     .tint(TuttlesLook.accent)
                     .animation(.snappy, value: run.progress)
@@ -312,18 +319,6 @@ private struct VocabQuestionView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                 }
-                if run.picked == nil {
-                    Button { Task { await run.remove() } } label: {
-                        Label("Too easy? Remove this \(question.kind == .part ? "word part" : "word")", systemImage: "trash")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 10)
-                            .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(run.busy)
-                }
                 if run.failed {
                     Text("That didn't go through. Try again.").font(.subheadline).foregroundStyle(VocabLook.wrong)
                 }
@@ -354,6 +349,8 @@ private struct VocabQuestionView: View {
 
 private struct VocabSummaryView: View {
     let summary: VocabSummary
+    /// Which of today's sessions just ended.
+    let number: Int
     let busy: Bool
     let done: () -> Void
     let again: () -> Void
@@ -368,7 +365,7 @@ private struct VocabSummaryView: View {
                         .foregroundStyle(VocabLook.right)
                         .symbolEffect(.bounce, value: summary)
                         .padding(.bottom, 4)
-                    Text("Done for today").font(.system(.largeTitle, design: .serif).weight(.semibold))
+                    Text(number > 1 ? "Session \(number) done" : "Done for today").font(.system(.largeTitle, design: .serif).weight(.semibold))
                     Text(spare >= 0 ? "Finished with \(VocabRules.clock(spare)) to spare."
                          : "Finished \(VocabRules.clock(spare)) over the ten minutes.")
                         .font(.title3)

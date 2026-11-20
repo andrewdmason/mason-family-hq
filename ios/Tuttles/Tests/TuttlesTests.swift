@@ -303,6 +303,47 @@ final class VocabRulesTests: XCTestCase {
         XCTAssertNil(state.nextIfRight)
     }
 
+    /// The sort: two checks at most, never more than they claim, and it stops at a page mostly unknown.
+    func testSortRules() throws {
+        XCTAssertEqual(VocabRules.sortChecks(known: 17), 2)
+        XCTAssertEqual(VocabRules.sortChecks(known: 1), 1)
+        XCTAssertEqual(VocabRules.sortChecks(known: 0), 0)
+        XCTAssertFalse(VocabRules.sortStops(known: 10, of: 20))
+        XCTAssertTrue(VocabRules.sortStops(known: 9, of: 20))
+        XCTAssertFalse(VocabRules.sortStops(known: 3, of: 5))
+
+        let json = #"""
+        {"through":20,"left":431,"words":[{"id":"w:happy","title":"happy","question":
+          {"position":1,"total":1,"kind":"syn","stem":"HAPPY","choices":["sad","glad","mad","odd"],"isNew":true,"allowDontKnow":true,
+           "key":{"correctIndex":1,"whys":["Opposite.",null,null,null],"masteredIfRight":false,"tip":"t","title":"happy","pos":"adjective",
+                  "meaning":"glad","example":null,"hook":"h","parts":[]}}}]}
+        """#
+        let page = try JSONDecoder().decode(VocabSortPage.self, from: Data(json.utf8))
+        XCTAssertEqual(page.words.first?.question.key?.feedback(for: 1).isCorrect, true)
+        XCTAssertEqual(page.words.first?.question.key?.feedback(for: 0).chosenWhy, "Opposite.")
+    }
+
+    /// A day with more than one session: each numbered in the order it went,
+    /// and from an older website, which tells only the latest, just that one.
+    func testSessionsNumbered() throws {
+        func overview(_ extra: String) throws -> VocabOverview {
+            let json = #"""
+            {"level":"lower","questions":18,"today":"2026-11-20","inProgress":{"answered":5,"total":18},"sessionsToday":2,
+             "doneToday":{"elapsedMs":300000,"limitMs":600000,"correct":16,"total":18},
+             "streak":1,"recentDays":[],"counts":{},"totalWords":499,"parts":{"met":4,"mastered":0,"total":54},"trouble":[],"accuracy":null
+            """# + extra + "}"
+            return try JSONDecoder().decode(VocabOverview.self, from: Data(json.utf8))
+        }
+        let now = try overview(#","sessionsDone":[{"elapsedMs":140000,"limitMs":600000,"correct":13,"total":18},{"elapsedMs":300000,"limitMs":600000,"correct":16,"total":18}]"#)
+        XCTAssertEqual(now.finishedToday.map(\.number), [1, 2])
+        XCTAssertEqual(now.finishedToday.map(\.done.correct), [13, 16])
+        XCTAssertEqual(now.nextSession, 3)
+        let older = try overview("")
+        XCTAssertEqual(older.finishedToday.map(\.number), [2])
+        XCTAssertEqual(older.finishedToday.first?.done.correct, 16)
+        XCTAssertEqual(older.nextSession, 3)
+    }
+
     /// The question that follows a right answer comes along with the one on screen.
     func testNextIfRightDecodes() throws {
         let json = #"""

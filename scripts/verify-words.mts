@@ -106,10 +106,8 @@ function simulate(st: Student, start: string) {
 {
   const day = "2026-12-01";
   const first = applyAnswer(null, "w:x", "syn1", "correct", day, "t");
-  check(first.fast && first.stage === 2 && first.due_on === "2026-12-04", "right first time: fast, checked again in 3 days");
-  const again = applyAnswer(first, "w:x", "sc1", "correct", "2026-12-04", "t");
-  check(again.stage === 3 && !!again.mastered_at, "right again another way: mastered");
-  const miss = applyAnswer(again, "w:x", "syn2", "wrong", "2026-12-20", "t");
+  check(first.fast && first.stage === 3 && !!first.mastered_at && first.due_on === "2027-12-01", "right first time: known already, never asked again");
+  const miss = applyAnswer(first, "w:x", "syn2", "wrong", "2026-12-20", "t");
   check(miss.stage === 0 && !miss.mastered_at && !miss.fast && miss.due_on === "2026-12-21", "a miss drops a mastered word back to learning, due tomorrow");
   const sameDay = applyAnswer(miss, "w:x", "sc2", "correct", "2026-12-20", "t");
   check(sameDay.stage === 0 && sameDay.due_on === "2026-12-21", "the catch-up later that session doesn't move it on");
