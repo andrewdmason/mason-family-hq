@@ -249,3 +249,54 @@ final class ChatFileTests: XCTestCase {
         XCTAssertEqual(file.pages, 2)
     }
 }
+
+final class VocabRulesTests: XCTestCase {
+    private func row(_ title: String, _ status: VocabStatus, misses: Int = 0, trouble: Bool = false, rank: Int) -> VocabRow {
+        VocabRow(id: "w:\(title)", title: title, pos: "adjective", meaning: "meaning of \(title)", example: nil, hook: "",
+                 parts: [], status: status, dueOn: nil, seen: 0, right: 0, misses: misses, trouble: trouble, rank: rank)
+    }
+
+    /// The clock and the pace line read as the website's do (progress-bits.tsx).
+    func testClockAndPace() {
+        XCTAssertEqual(VocabRules.clock(600_000), "10:00")
+        XCTAssertEqual(VocabRules.clock(59_999), "0:59")
+        XCTAssertEqual(VocabRules.clock(-65_000), "1:05")
+        XCTAssertEqual(VocabRules.pace(elapsedMs: 470_000, limitMs: 600_000), "2:10 to spare")
+        XCTAssertEqual(VocabRules.pace(elapsedMs: 645_000, limitMs: 600_000), "0:45 over")
+    }
+
+    func testCountdown() {
+        XCTAssertEqual(VocabRules.countdown(daysLeft: 52), "52 days until the ISEE")
+        XCTAssertEqual(VocabRules.countdown(daysLeft: 1), "The ISEE is tomorrow")
+        XCTAssertEqual(VocabRules.countdown(daysLeft: 0), "The ISEE is today")
+        XCTAssertEqual(VocabRules.countdown(daysLeft: -3), "ISEE vocabulary practice")
+    }
+
+    /// Everything: trouble first, most missed on top, then the order words are met in; removed words left out.
+    func testListOrderAndFilters() {
+        let rows = [
+            row("calm", .mastered, rank: 0),
+            row("candid", .learning, misses: 2, trouble: true, rank: 3),
+            row("idle", .removed, rank: 1),
+            row("reluctant", .learning, misses: 3, trouble: true, rank: 5),
+            row("abundant", .new, rank: 2),
+        ]
+        XCTAssertEqual(VocabRules.rows(rows, filter: .all, query: "").map(\.title), ["reluctant", "candid", "calm", "abundant"])
+        XCTAssertEqual(VocabRules.rows(rows, filter: .removed, query: "").map(\.title), ["idle"])
+        XCTAssertEqual(VocabRules.rows(rows, filter: .learning, query: "").map(\.title), ["candid", "reluctant"])
+        XCTAssertEqual(VocabRules.rows(rows, filter: .all, query: " CAN ").map(\.title), ["candid"])
+        XCTAssertEqual(VocabRules.rows(rows, filter: .all, query: "meaning of calm").map(\.title), ["calm"])
+    }
+
+    /// What the website sends decodes, with "Don't know" off on a test-day session.
+    func testStateDecodes() throws {
+        let json = #"""
+        {"sessionId":"s1","elapsedMs":1200,"limitMs":600000,"noDontKnow":true,"summary":null,
+         "question":{"position":3,"total":18,"kind":"sc","stem":"The ____ dog.","choices":["a","b","c","d"],"isNew":true,"allowDontKnow":false}}
+        """#
+        let state = try JSONDecoder().decode(VocabState.self, from: Data(json.utf8))
+        XCTAssertEqual(state.question?.kind, .sc)
+        XCTAssertEqual(state.question?.allowDontKnow, false)
+        XCTAssertNil(state.summary)
+    }
+}

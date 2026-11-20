@@ -1,7 +1,7 @@
 import SwiftUI
 
 // The menu that slides in from the left, the way Claude's and ChatGPT's do:
-// Classes and Study at the top, the chats under them, and the account and a
+// Classes, Study and Vocab at the top, the chats under them, and the account and a
 // new chat along the bottom. It's somewhere to pass through; picking anything
 // closes it on what was picked (ChatsView, TuttlesApp.swift).
 
@@ -53,9 +53,11 @@ struct SideMenu: View {
             Section {
                 if store.showingParentView {
                     place("This week", systemImage: "calendar", .week)
+                    place("Vocab", systemImage: "character.book.closed", .vocab)
                 } else {
                     place("Classes", systemImage: "books.vertical", .classes)
                     place("Study", systemImage: "checklist", .study)
+                    place("Vocab", systemImage: "character.book.closed", .vocab)
                 }
             }
             Section {

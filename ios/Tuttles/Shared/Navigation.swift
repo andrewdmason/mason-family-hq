@@ -62,6 +62,10 @@ enum Route: Hashable {
     case classes
     case study
     case week
+    /// ISEE vocabulary practice (Vocab.swift), for a kid and for the parents.
+    case vocab
+    /// Every word: their own, or one of the kids' (with their name) from the parents' view.
+    case vocabList(kid: UUID?, name: String?)
 
     /// The chat this route opens, if it's one.
     var chatID: UUID? {

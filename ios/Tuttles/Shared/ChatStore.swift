@@ -73,6 +73,8 @@ final class ChatStore {
     var classes: ClassesPayload?
     /// Their study sets (Study.swift); nil until loaded.
     var study: StudyPayload?
+    /// Vocab's first screen (Vocab.swift); nil until loaded.
+    var vocab: VocabHome?
 
     /// The kid's chats, and a parent's own briefings.
     var kidThreads: [TutorThread] { threads.filter { $0.kind != "briefing" } }
@@ -165,6 +167,7 @@ final class ChatStore {
         if let payload = classes { classes = payload.forSwitching() }
         classesLoaded = false
         study = nil
+        vocab = nil
         loadSaved()
         Task {
             async let threads: Void = refreshThreads()

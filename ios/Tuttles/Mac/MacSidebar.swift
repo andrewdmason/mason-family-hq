@@ -13,7 +13,7 @@ struct MacSidebar: View {
 
     /// A row that can be the one open.
     private enum Item: Hashable {
-        case week, classes, study
+        case week, classes, study, vocab
         case thread(UUID)
     }
 
@@ -23,6 +23,7 @@ struct MacSidebar: View {
             case .week: .week
             case .classes, .classPage: .classes
             case .study, .studySet: .study
+            case .vocab, .vocabList: .vocab
             case .chat(let id, _, _, _, _, _): .thread(id)
             case .topic: nil
             }
@@ -31,6 +32,7 @@ struct MacSidebar: View {
             case .week: open(.week)
             case .classes: open(.classes)
             case .study: open(.study)
+            case .vocab: open(.vocab)
             case .thread(let id): open(.chat(id, isNew: false))
             case nil: break
             }
@@ -42,9 +44,11 @@ struct MacSidebar: View {
             Section {
                 if store.showingParentView {
                     place("This week", "calendar").tag(Item.week)
+                    place("Vocab", "character.book.closed").tag(Item.vocab)
                 } else {
                     place("Classes", "books.vertical").tag(Item.classes)
                     place("Study", "checklist").tag(Item.study)
+                    place("Vocab", "character.book.closed").tag(Item.vocab)
                 }
             }
             Section(store.showingParentView ? "Your briefings" : "Chats") {
