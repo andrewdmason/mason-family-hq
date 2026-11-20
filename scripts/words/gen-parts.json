@@ -1,0 +1,1298 @@
+{
+ "un": {
+  "id": "un",
+  "hook": "Something unsafe is not safe and someone unkind is not kind: un- means not.",
+  "apply1": {
+   "prompt": "An unbiased judge is one who is:",
+   "answer": "not taking sides",
+   "wrong": [
+    "taking sides again",
+    "taking sides early",
+    "taking sides wrongly"
+   ],
+   "tip": "Un- means not, so unbiased means not biased. An unbiased judge does not favor either side."
+  },
+  "apply2": {
+   "prompt": "If a puzzle is unsolvable, it:",
+   "answer": "cannot be solved",
+   "wrong": [
+    "can be solved again",
+    "was solved before",
+    "was solved badly"
+   ],
+   "tip": "Un- means not, and solvable means able to be solved, so unsolvable means not able to be solved."
+  }
+ },
+ "re": {
+  "id": "re",
+  "hook": "You rewind a video to go back and replay a game to play it again: re- means again or back.",
+  "apply1": {
+   "prompt": "To reconsider a decision is to:",
+   "answer": "think about it again",
+   "wrong": [
+    "think about it beforehand",
+    "think about it wrongly",
+    "refuse to think about it"
+   ],
+   "tip": "Re- means again, and consider means think about, so to reconsider is to think about something again."
+  },
+  "apply2": {
+   "prompt": "When floodwaters recede, they:",
+   "answer": "move back",
+   "wrong": [
+    "rise higher",
+    "move forward",
+    "spread across"
+   ],
+   "tip": "Re- means back, and cede comes from a Latin word meaning go, so water that recedes goes back."
+  }
+ },
+ "pre": {
+  "id": "pre",
+  "hook": "You preheat an oven before you bake, and a prefix comes before a word: pre- means before.",
+  "apply1": {
+   "prompt": "A prehistoric animal lived:",
+   "answer": "before written history",
+   "wrong": [
+    "after written history",
+    "during written history",
+    "outside written history"
+   ],
+   "tip": "Pre- means before, so prehistoric means from the time before history was written down."
+  },
+  "apply2": {
+   "prompt": "A precaution is something you do:",
+   "answer": "beforehand to stay safe",
+   "wrong": [
+    "afterward to fix damage",
+    "again to be sure",
+    "wrongly by accident"
+   ],
+   "tip": "Pre- means before, and caution means care, so a precaution is care you take before something can go wrong."
+  }
+ },
+ "dis": {
+  "id": "dis",
+  "hook": "If you dislike something, you do not like it, and to disassemble a toy is to take it apart: dis- means not or apart.",
+  "apply1": {
+   "prompt": "A dishonest person is:",
+   "answer": "not truthful",
+   "wrong": [
+    "truthful again",
+    "truthful at first",
+    "too truthful"
+   ],
+   "tip": "Dis- means not, so dishonest means not honest, or not truthful."
+  },
+  "apply2": {
+   "prompt": "When a crowd disperses, the people:",
+   "answer": "scatter apart",
+   "wrong": [
+    "gather together",
+    "come back again",
+    "line up first"
+   ],
+   "tip": "Dis- means apart, and sperse comes from a Latin word meaning scatter, so a crowd that disperses scatters apart."
+  }
+ },
+ "mis": {
+  "id": "mis",
+  "hook": "If you misplace your keys, you put them in the wrong place: mis- means wrong or badly.",
+  "apply1": {
+   "prompt": "To misjudge a distance is to:",
+   "answer": "estimate it wrongly",
+   "wrong": [
+    "estimate it again",
+    "estimate it beforehand",
+    "estimate it exactly"
+   ],
+   "tip": "Mis- means wrongly, and judge means estimate or decide, so to misjudge is to estimate wrongly."
+  },
+  "apply2": {
+   "prompt": "To mispronounce a word is to:",
+   "answer": "say it wrongly",
+   "wrong": [
+    "say it again",
+    "say it softly",
+    "say it first"
+   ],
+   "tip": "Mis- means wrongly, and pronounce means say, so to mispronounce a word is to say it wrongly."
+  }
+ },
+ "less": {
+  "id": "less",
+  "hook": "A homeless dog is without a home and a sleepless night is without sleep: -less means without.",
+  "apply1": {
+   "prompt": "A cloudless sky is:",
+   "answer": "without clouds",
+   "wrong": [
+    "full of clouds",
+    "partly cloudy",
+    "below the clouds"
+   ],
+   "tip": "Cloud plus -less, which means without, gives cloudless: a sky without any clouds."
+  },
+  "apply2": {
+   "prompt": "A relentless storm is one that:",
+   "answer": "never eases up",
+   "wrong": [
+    "eases up quickly",
+    "is full of rain",
+    "comes back again"
+   ],
+   "tip": "To relent is to ease up, and -less means without, so relentless means without ever easing up."
+  }
+ },
+ "ful": {
+  "id": "ful",
+  "hook": "A handful is what fills your hand, and a cheerful friend is full of cheer: -ful means full of.",
+  "apply1": {
+   "prompt": "A boastful person is:",
+   "answer": "full of bragging",
+   "wrong": [
+    "without bragging",
+    "against bragging",
+    "tired of bragging"
+   ],
+   "tip": "To boast is to brag, and -ful means full of, so a boastful person is full of bragging."
+  },
+  "apply2": {
+   "prompt": "A deceitful plan is:",
+   "answer": "full of trickery",
+   "wrong": [
+    "free of trickery",
+    "afraid of trickery",
+    "bored by trickery"
+   ],
+   "tip": "Deceit means trickery, and -ful means full of, so a deceitful plan is full of trickery."
+  }
+ },
+ "able": {
+  "id": "able",
+  "hook": "Washable clothes can be washed and a readable note can be read: -able and -ible mean able to be.",
+  "apply1": {
+   "prompt": "Edible berries are able to be:",
+   "answer": "eaten",
+   "wrong": [
+    "picked",
+    "grown",
+    "sold"
+   ],
+   "tip": "Ed comes from a Latin word meaning eat, and -ible means able to be, so edible means able to be eaten."
+  },
+  "apply2": {
+   "prompt": "Legible handwriting is able to be:",
+   "answer": "read",
+   "wrong": [
+    "heard",
+    "erased",
+    "copied"
+   ],
+   "tip": "Leg comes from a Latin word meaning read, and -ible means able to be, so legible means able to be read."
+  }
+ },
+ "bene": {
+  "id": "bene",
+  "hook": "A benefit is something that is good for you: bene- means good or well.",
+  "apply1": {
+   "prompt": "A benefactor is a person who:",
+   "answer": "gives help or money",
+   "wrong": [
+    "causes harm on purpose",
+    "asks for money back",
+    "works in a factory"
+   ],
+   "tip": "Bene- means good, and fact comes from a Latin word meaning do, so a benefactor does good for others."
+  },
+  "apply2": {
+   "prompt": "A beneficial habit is one that is:",
+   "answer": "good for you",
+   "wrong": [
+    "bad for you",
+    "new to you",
+    "hard for you"
+   ],
+   "tip": "Bene- means good, so something beneficial does good for you or helps you."
+  }
+ },
+ "mal": {
+  "id": "mal",
+  "hook": "A malfunction is when a machine works wrong, and malpractice is bad work by a doctor: mal- means bad or wrong.",
+  "apply1": {
+   "prompt": "A malnourished child has:",
+   "answer": "poor nutrition",
+   "wrong": [
+    "healthy nutrition",
+    "extra nutrition",
+    "new nutrition"
+   ],
+   "tip": "Mal- means bad, and nourished means fed, so a malnourished child is badly fed and has poor nutrition."
+  },
+  "apply2": {
+   "prompt": "A malodorous room is one that:",
+   "answer": "smells bad",
+   "wrong": [
+    "smells good",
+    "smells of nothing",
+    "smells like flowers"
+   ],
+   "tip": "Mal- means bad, and odor means smell, so a malodorous room has a bad smell."
+  }
+ },
+ "sub": {
+  "id": "sub",
+  "hook": "A submarine travels under the sea, and a subtitle sits below the picture: sub- means under or below.",
+  "apply1": {
+   "prompt": "A subterranean cave is located:",
+   "answer": "under the ground",
+   "wrong": [
+    "above the ground",
+    "across the ground",
+    "between the hills"
+   ],
+   "tip": "Sub- means under, and terra is Latin for earth, so subterranean means under the ground."
+  },
+  "apply2": {
+   "prompt": "A subordinate at work is someone who:",
+   "answer": "ranks below another",
+   "wrong": [
+    "ranks above another",
+    "works between groups",
+    "works across town"
+   ],
+   "tip": "Sub- means below, and ordinate comes from a word for rank or order, so a subordinate ranks below someone else."
+  }
+ },
+ "inter": {
+  "id": "inter",
+  "hook": "An interstate highway runs between states, and an intermission comes between acts of a play: inter- means between or among.",
+  "apply1": {
+   "prompt": "An intermediary is someone who:",
+   "answer": "acts between two sides",
+   "wrong": [
+    "acts within one group",
+    "acts against both sides",
+    "acts across the ocean"
+   ],
+   "tip": "Inter- means between, and medi means middle, so an intermediary stands in the middle between two sides."
+  },
+  "apply2": {
+   "prompt": "Interstellar travel takes place:",
+   "answer": "between the stars",
+   "wrong": [
+    "inside one star",
+    "under the stars",
+    "across the ocean"
+   ],
+   "tip": "Inter- means between, and stellar means of the stars, so interstellar means between the stars."
+  }
+ },
+ "trans": {
+  "id": "trans",
+  "hook": "A transatlantic flight goes across the Atlantic, and transparent glass lets light pass through: trans- means across or through.",
+  "apply1": {
+   "prompt": "A transcontinental railroad runs:",
+   "answer": "across a continent",
+   "wrong": [
+    "under a continent",
+    "around a continent",
+    "between two cities"
+   ],
+   "tip": "Trans- means across, so a transcontinental railroad runs across a whole continent."
+  },
+  "apply2": {
+   "prompt": "A translucent curtain is one that:",
+   "answer": "lets light through",
+   "wrong": [
+    "blocks all light",
+    "glows in the dark",
+    "reflects light back"
+   ],
+   "tip": "Trans- means through, and luc comes from a Latin word meaning shine, so light shines through something translucent."
+  }
+ },
+ "in": {
+  "id": "in",
+  "hook": "Something incorrect is not correct, and someone impolite is not polite: in- and im- mean not.",
+  "apply1": {
+   "prompt": "An inaudible whisper is one that is:",
+   "answer": "not able to be heard",
+   "wrong": [
+    "heard inside a room",
+    "able to be heard again",
+    "heard before it starts"
+   ],
+   "tip": "In- means not, and audible means able to be heard, so an inaudible whisper cannot be heard."
+  },
+  "apply2": {
+   "prompt": "An immobile statue is one that:",
+   "answer": "cannot move",
+   "wrong": [
+    "moves inward",
+    "moves often",
+    "moves again"
+   ],
+   "tip": "Im- means not, and mobile means able to move, so something immobile is not able to move."
+  }
+ },
+ "dict": {
+  "id": "dict",
+  "hook": "A dictionary tells you what words mean and how to say them: dict means say or speak.",
+  "apply1": {
+   "prompt": "A singer with clear diction:",
+   "answer": "speaks words clearly",
+   "wrong": [
+    "sees notes clearly",
+    "writes lyrics clearly",
+    "carries a tune well"
+   ],
+   "tip": "Dict means say or speak, so diction is the way a person says or pronounces words."
+  },
+  "apply2": {
+   "prompt": "To contradict a friend is to:",
+   "answer": "say the opposite",
+   "wrong": [
+    "write the opposite",
+    "look the other way",
+    "agree completely"
+   ],
+   "tip": "Contra means against, and dict means say, so to contradict is to say something against what another person said."
+  }
+ },
+ "scrib": {
+  "id": "scrib",
+  "hook": "You scribble with a pencil, and actors follow a script in a play: scrib and script mean write.",
+  "apply1": {
+   "prompt": "To inscribe a ring is to:",
+   "answer": "carve words into it",
+   "wrong": [
+    "look closely at it",
+    "carry it with you",
+    "speak a vow over it"
+   ],
+   "tip": "In- means into, and scrib means write, so to inscribe a ring is to write or carve words into it."
+  },
+  "apply2": {
+   "prompt": "A prescription is something a doctor:",
+   "answer": "writes",
+   "wrong": [
+    "says",
+    "sees",
+    "carries"
+   ],
+   "tip": "Pre- means before, and script means write, so a prescription is written before you can get your medicine."
+  }
+ },
+ "spect": {
+  "id": "spect",
+  "hook": "Spectacles help you see, and a spectacular show is amazing to look at: spect means look or see.",
+  "apply1": {
+   "prompt": "To think about an event in retrospect is to:",
+   "answer": "look back on it",
+   "wrong": [
+    "look ahead to it",
+    "speak about it",
+    "write about it"
+   ],
+   "tip": "Retro means back, and spect means look, so in retrospect means looking back on something."
+  },
+  "apply2": {
+   "prompt": "A person who enjoys introspection likes to:",
+   "answer": "look inside their own mind",
+   "wrong": [
+    "speak to large crowds",
+    "write long letters",
+    "carry heavy loads"
+   ],
+   "tip": "Intro means inward, and spect means look, so introspection is looking inward at your own thoughts."
+  }
+ },
+ "port": {
+  "id": "port",
+  "hook": "A hotel porter carries your bags, and imports are goods carried into a country: port means carry.",
+  "apply1": {
+   "prompt": "A portfolio is a case for:",
+   "answer": "carrying papers",
+   "wrong": [
+    "writing papers",
+    "hiding papers",
+    "reading papers"
+   ],
+   "tip": "Port means carry, and folio means sheet of paper, so a portfolio is a case for carrying papers."
+  },
+  "apply2": {
+   "prompt": "To deport someone is to:",
+   "answer": "send them out of the country",
+   "wrong": [
+    "welcome them into the country",
+    "speak for them in court",
+    "watch them very closely"
+   ],
+   "tip": "De- means away, and port means carry, so to deport someone is to carry or send them away from a country."
+  }
+ },
+ "voc": {
+  "id": "voc",
+  "hook": "Your vocal cords make your voice, and a vocation is work you feel called to do: voc means voice or call.",
+  "apply1": {
+   "prompt": "A vociferous crowd is one that is:",
+   "answer": "loud and shouting",
+   "wrong": [
+    "easy to see",
+    "slow to move",
+    "eager to eat"
+   ],
+   "tip": "Vociferous comes from voc, voice. A vociferous crowd uses its voices loudly. Don't mix voc up with vis, which means see."
+  },
+  "apply2": {
+   "prompt": "To revoke a permission is to:",
+   "answer": "call it back",
+   "wrong": [
+    "give it again",
+    "look it over",
+    "write it down"
+   ],
+   "tip": "Revoke is re (back) plus vok (call). When you revoke something, you call it back."
+  }
+ },
+ "duc": {
+  "id": "duc",
+  "hook": "A conductor leads an orchestra and an aqueduct leads water to a city: duc and duct mean lead.",
+  "apply1": {
+   "prompt": "A medicine that induces sleep:",
+   "answer": "leads you into it",
+   "wrong": [
+    "keeps you away from it",
+    "talks you through it",
+    "makes it shorter"
+   ],
+   "tip": "Induce is in (into) plus duc (lead). Something that induces sleep leads you into sleep. Don't confuse duc with dict, which means say."
+  },
+  "apply2": {
+   "prompt": "A duct in a building is a pipe or channel that:",
+   "answer": "leads air from place to place",
+   "wrong": [
+    "holds up the ceiling",
+    "blocks noise from outside",
+    "stores extra supplies"
+   ],
+   "tip": "Duct comes from duct, lead. A duct leads air or water from one place to another."
+  }
+ },
+ "chron": {
+  "id": "chron",
+  "hook": "A chronometer measures time exactly, and a chronic cough lasts a long time: chron means time.",
+  "apply1": {
+   "prompt": "To synchronize two watches is to:",
+   "answer": "set them to the same time",
+   "wrong": [
+    "make them the same color",
+    "take them apart",
+    "put them in a case"
+   ],
+   "tip": "Synchronize is syn (together) plus chron (time) plus ize (make). You make the watches show the same time. Chrom means color."
+  },
+  "apply2": {
+   "prompt": "An anachronism is something that:",
+   "answer": "is placed in the wrong time",
+   "wrong": [
+    "is placed in the wrong country",
+    "is spelled the wrong way",
+    "is told in the wrong voice"
+   ],
+   "tip": "Anachronism holds chron, time. An anachronism is out of its time, like a cell phone in a story about knights."
+  }
+ },
+ "bio": {
+  "id": "bio",
+  "hook": "Biology is the study of life, and an antibiotic fights tiny living germs: bio means life.",
+  "apply1": {
+   "prompt": "Biodegradable trash is trash that:",
+   "answer": "is broken down by living things",
+   "wrong": [
+    "is broken down by sunlight alone",
+    "is buried deep in rock",
+    "is pressed into flat blocks"
+   ],
+   "tip": "Biodegradable is bio (life) plus degrade (break down). Living things like bacteria break it down. Geo, not bio, means earth."
+  },
+  "apply2": {
+   "prompt": "A biome is a large area known for its:",
+   "answer": "plants and animals",
+   "wrong": [
+    "rocks and soil",
+    "history and dates",
+    "roads and cities"
+   ],
+   "tip": "Biome starts with bio, life. A biome, like a desert or rainforest, is defined by the living things found there."
+  }
+ },
+ "geo": {
+  "id": "geo",
+  "hook": "Geography maps the earth, and a geode is a rock you crack open from the ground: geo means earth.",
+  "apply1": {
+   "prompt": "Geothermal energy comes from:",
+   "answer": "heat inside the earth",
+   "wrong": [
+    "heat from living plants",
+    "light from the sun",
+    "wind over the ocean"
+   ],
+   "tip": "Geothermal is geo (earth) plus therm (heat). It is heat from inside the earth. Bio, not geo, means life."
+  },
+  "apply2": {
+   "prompt": "In a geocentric model of space, what is at the center?",
+   "answer": "the earth",
+   "wrong": [
+    "the sun",
+    "the moon",
+    "a far star"
+   ],
+   "tip": "Geocentric is geo (earth) plus centric (center). A geocentric model puts the earth in the middle."
+  }
+ },
+ "graph": {
+  "id": "graph",
+  "hook": "When you sign an autograph you write your name, and a graph draws numbers as a picture: graph means write or draw.",
+  "apply1": {
+   "prompt": "Calligraphy is the art of:",
+   "answer": "beautiful handwriting",
+   "wrong": [
+    "beautiful singing",
+    "careful measuring",
+    "careful sewing"
+   ],
+   "tip": "Calligraphy is calli (beautiful) plus graph (write). It means beautiful writing. Phon, not graph, means sound."
+  },
+  "apply2": {
+   "prompt": "A seismograph is a machine that:",
+   "answer": "draws a record of earthquakes",
+   "wrong": [
+    "plays the sound of earthquakes",
+    "stops earthquakes from starting",
+    "predicts the daily weather"
+   ],
+   "tip": "Seismograph is seism (earthquake) plus graph (write or draw). It draws lines that record how the ground shakes."
+  }
+ },
+ "phon": {
+  "id": "phon",
+  "hook": "A telephone carries your voice far away, and a microphone picks up sound: phon means sound.",
+  "apply1": {
+   "prompt": "A cacophony is a mix of:",
+   "answer": "harsh sounds",
+   "wrong": [
+    "strange sights",
+    "bright colors",
+    "bad smells"
+   ],
+   "tip": "Cacophony is caco (bad) plus phon (sound). A cacophony is a mix of harsh, unpleasant sounds. Vis means see, not hear."
+  },
+  "apply2": {
+   "prompt": "Two homophones are words that:",
+   "answer": "sound the same",
+   "wrong": [
+    "are spelled the same",
+    "mean the same",
+    "never rhyme"
+   ],
+   "tip": "Homophone is homo (same) plus phon (sound). Homophones like bear and bare sound alike. Graph would point to spelling."
+  }
+ },
+ "ped": {
+  "id": "ped",
+  "hook": "You push bicycle pedals with your feet, and a tripod stands on three feet: ped and pod mean foot.",
+  "apply1": {
+   "prompt": "A pedicure is care for your:",
+   "answer": "feet",
+   "wrong": [
+    "hands",
+    "teeth",
+    "hair"
+   ],
+   "tip": "Pedicure is ped (foot) plus cure (care). It is care for your feet. Manu means hand, as in manicure."
+  },
+  "apply2": {
+   "prompt": "A quadruped is an animal that walks on:",
+   "answer": "four feet",
+   "wrong": [
+    "four hands",
+    "two wings",
+    "four fins"
+   ],
+   "tip": "Quadruped is quadr (four) plus ped (foot). A dog or horse is a quadruped because it walks on four feet."
+  }
+ },
+ "man": {
+  "id": "man",
+  "hook": "A manual car shifts gears by hand, and a manicure makes your hands look neat: man means hand.",
+  "apply1": {
+   "prompt": "Long ago, manuscripts were books that were:",
+   "answer": "written by hand",
+   "wrong": [
+    "printed by machine",
+    "read aloud",
+    "carved in stone"
+   ],
+   "tip": "Manuscript is manu (hand) plus script (write). A manuscript was written by hand."
+  },
+  "apply2": {
+   "prompt": "To manipulate clay is to:",
+   "answer": "work it with your hands",
+   "wrong": [
+    "press it with your feet",
+    "bake it in an oven",
+    "look at it closely"
+   ],
+   "tip": "Manipulate starts with man, hand. When you manipulate clay, you handle and shape it. Ped, not man, means foot."
+  }
+ },
+ "path": {
+  "id": "path",
+  "hook": "You feel sympathy for a friend who is sad, and apathy means feeling nothing: path means feeling.",
+  "apply1": {
+   "prompt": "Telepathy is the idea of sharing:",
+   "answer": "thoughts and feelings at a distance",
+   "wrong": [
+    "sounds and voices at a distance",
+    "letters and notes at a distance",
+    "pictures and maps at a distance"
+   ],
+   "tip": "Telepathy is tele (far) plus path (feeling). It is sensing another person's feelings or thoughts from far away. Phon means sound."
+  },
+  "apply2": {
+   "prompt": "Antipathy toward someone is a feeling of:",
+   "answer": "strong dislike",
+   "wrong": [
+    "strong liking",
+    "mild confusion",
+    "sudden fear"
+   ],
+   "tip": "Antipathy is anti (against) plus path (feeling). It is a feeling against someone, so it means strong dislike."
+  }
+ },
+ "mono": {
+  "id": "mono",
+  "hook": "A unicycle has one wheel and a monorail runs on one track: mono- and uni- mean one.",
+  "apply1": {
+   "prompt": "A monolingual person speaks:",
+   "answer": "one language",
+   "wrong": [
+    "many languages",
+    "two languages",
+    "no language"
+   ],
+   "tip": "Monolingual is mono (one) plus lingu (language). You speak just one language. Poly and multi mean many."
+  },
+  "apply2": {
+   "prompt": "A unanimous vote is one in which:",
+   "answer": "everyone agrees as one",
+   "wrong": [
+    "most people agree",
+    "nobody votes at all",
+    "everyone disagrees"
+   ],
+   "tip": "Unanimous is uni (one) plus anim (mind). In a unanimous vote, everyone is of one mind."
+  }
+ },
+ "multi": {
+  "id": "multi",
+  "hook": "A multicolored shirt has many colors, and a polygon has many sides: multi- and poly- mean many.",
+  "apply1": {
+   "prompt": "A multitude of people is:",
+   "answer": "a great many people",
+   "wrong": [
+    "a single person",
+    "a small group",
+    "one family"
+   ],
+   "tip": "Multitude starts with multi, many. A multitude is a huge number of people. Mono and uni mean one."
+  },
+  "apply2": {
+   "prompt": "A polysyllabic word has:",
+   "answer": "many syllables",
+   "wrong": [
+    "one syllable",
+    "no vowels",
+    "two meanings"
+   ],
+   "tip": "Polysyllabic is poly (many) plus syllabic (syllables). A word like encyclopedia is polysyllabic. Mono would mean one."
+  }
+ },
+ "micro": {
+  "id": "micro",
+  "hook": "A microscope lets you see microbes, living things far too small to see with your eyes: micro- means small.",
+  "apply1": {
+   "prompt": "A microclimate is the weather of:",
+   "answer": "a small area",
+   "wrong": [
+    "a whole continent",
+    "a single season",
+    "a distant planet"
+   ],
+   "tip": "Microclimate is micro (small) plus climate. It is the weather in one small spot, like a shady garden. Macro means large."
+  },
+  "apply2": {
+   "prompt": "A micrometer is a tool that measures:",
+   "answer": "very small distances",
+   "wrong": [
+    "very large distances",
+    "the speed of sound",
+    "the time of day"
+   ],
+   "tip": "Micrometer is micro (small) plus meter (measure). It measures tiny lengths, like the thickness of a wire."
+  }
+ },
+ "auto": {
+  "id": "auto",
+  "hook": "An automatic door opens by itself, and an autograph is your name in your own hand: auto- means self.",
+  "apply1": {
+   "prompt": "An autonomous robot can:",
+   "answer": "act by itself",
+   "wrong": [
+    "act only when steered",
+    "act only in groups",
+    "act only at night"
+   ],
+   "tip": "Autonomous is auto (self) plus nom (law or rule). An autonomous robot rules itself and acts without a person controlling it."
+  },
+  "apply2": {
+   "prompt": "An autocrat is a ruler who:",
+   "answer": "holds power alone",
+   "wrong": [
+    "shares power with a council",
+    "rules for a short time",
+    "rules from far away"
+   ],
+   "tip": "Autocrat is auto (self) plus crat (ruler). An autocrat rules by himself or herself, with no one sharing the power."
+  }
+ },
+ "circum": {
+  "id": "circum",
+  "hook": "A circus ring goes around in a circle, and circumference is the distance around: circum- means around.",
+  "apply1": {
+   "prompt": "To circumnavigate the globe is to:",
+   "answer": "sail all the way around it",
+   "wrong": [
+    "sail straight across it",
+    "sail far beneath it",
+    "draw a map of it"
+   ],
+   "tip": "Circumnavigate is circum (around) plus navigate (sail). You travel all the way around. Trans, not circum, means across."
+  },
+  "apply2": {
+   "prompt": "To circumvent a rule is to:",
+   "answer": "find a way around it",
+   "wrong": [
+    "go straight through it",
+    "vote against it",
+    "write it down"
+   ],
+   "tip": "Circumvent is circum (around) plus vent (come). You get around the rule instead of facing it. Contra means against."
+  }
+ },
+ "contra": {
+  "id": "contra",
+  "hook": "A counterattack strikes back against an attack, and contrary people take the opposite side: contra- and counter- mean against.",
+  "apply1": {
+   "prompt": "Contraband is goods that are:",
+   "answer": "brought in against the law",
+   "wrong": [
+    "brought in with the law's approval",
+    "brought in by ship",
+    "brought in for free"
+   ],
+   "tip": "Contraband is contra (against) plus band (a law or order). Contraband goods are smuggled in against the law."
+  },
+  "apply2": {
+   "prompt": "A counterclockwise turn goes:",
+   "answer": "opposite to a clock's hands",
+   "wrong": [
+    "the same way as a clock's hands",
+    "around twice",
+    "straight up and down"
+   ],
+   "tip": "Counterclockwise is counter (against) plus clockwise. You turn the opposite way from the hands on a clock."
+  }
+ },
+ "ify": {
+  "id": "ify",
+  "hook": "To simplify is to make simple, and to finalize is to make final: -ify and -ize mean to make.",
+  "apply1": {
+   "prompt": "To solidify a plan is to:",
+   "answer": "make it firm and certain",
+   "wrong": [
+    "make it less certain",
+    "talk it over",
+    "throw it away"
+   ],
+   "tip": "Solidify is solid plus ify (to make). You make the plan solid, so it is firm and settled."
+  },
+  "apply2": {
+   "prompt": "To fortify a castle is to:",
+   "answer": "make it strong",
+   "wrong": [
+    "make it weak",
+    "attack it",
+    "leave it"
+   ],
+   "tip": "Fortify is fort (strong) plus ify (to make). When you fortify a castle, you make it stronger against attack."
+  }
+ },
+ "er": {
+  "id": "er",
+  "hook": "A painter is a person who paints and a cyclist is a person who cycles: -er, -or and -ist mean a person who.",
+  "apply1": {
+   "prompt": "A spectator is someone who:",
+   "answer": "watches an event",
+   "wrong": [
+    "plays in an event",
+    "plans an event",
+    "cancels an event"
+   ],
+   "tip": "Spectator is spect (look) plus or (a person who). A spectator is a person who looks on and watches."
+  },
+  "apply2": {
+   "prompt": "A botanist is a person who:",
+   "answer": "studies plants",
+   "wrong": [
+    "studies rocks",
+    "studies stars",
+    "studies weather"
+   ],
+   "tip": "Botanist is botan (plant) plus ist (a person who). A botanist is a person who studies plants. Geo would point to rocks."
+  }
+ },
+ "aud": {
+  "id": "aud",
+  "hook": "You hear an audio clip, and an auditorium is a hall built for listening: aud means hear.",
+  "apply1": {
+   "prompt": "An auditory problem affects a person's ability to:",
+   "answer": "hear",
+   "wrong": [
+    "see",
+    "walk",
+    "speak"
+   ],
+   "tip": "Auditory comes from aud, which means hear. An auditory problem has to do with hearing, not seeing."
+  },
+  "apply2": {
+   "prompt": "An audiologist is a specialist who checks your:",
+   "answer": "hearing",
+   "wrong": [
+    "eyesight",
+    "teeth",
+    "heartbeat"
+   ],
+   "tip": "Audio plus -logist, a person who studies. An audiologist studies and tests how well you hear."
+  }
+ },
+ "mit": {
+  "id": "mit",
+  "hook": "When a teacher dismisses the class, you are sent out, and a missile is sent flying: mit and miss mean send.",
+  "apply1": {
+   "prompt": "To emit light or sound is to:",
+   "answer": "send it out",
+   "wrong": [
+    "hold it in",
+    "see it clearly",
+    "break it apart"
+   ],
+   "tip": "E- means out and mit means send. When you emit something, you send it out."
+  },
+  "apply2": {
+   "prompt": "An emissary is a person who is:",
+   "answer": "sent to deliver a message",
+   "wrong": [
+    "hired to guard a gate",
+    "chosen to judge a contest",
+    "trained to build ships"
+   ],
+   "tip": "Emissary contains miss, meaning send. An emissary is someone sent out to carry a message or do official business."
+  }
+ },
+ "ous": {
+  "id": "ous",
+  "hook": "A joyous day is full of joy and a dangerous road is full of danger: -ous means full of.",
+  "apply1": {
+   "prompt": "A perilous journey is one that is:",
+   "answer": "full of danger",
+   "wrong": [
+    "free of danger",
+    "short and easy",
+    "full of laughter"
+   ],
+   "tip": "Peril means danger, and -ous means full of. So a perilous journey is full of danger."
+  },
+  "apply2": {
+   "prompt": "A vigorous person is:",
+   "answer": "full of energy",
+   "wrong": [
+    "lacking energy",
+    "full of fear",
+    "full of anger"
+   ],
+   "tip": "Vigor means strength and energy, and -ous means full of. Don't mix it up with -less, which means without."
+  }
+ },
+ "tion": {
+  "id": "tion",
+  "hook": "Celebration is the act of celebrating and confusion is the state of being confused: -tion and -sion name an act or state.",
+  "apply1": {
+   "prompt": "If to erode means to wear away, erosion is:",
+   "answer": "the act of wearing away",
+   "wrong": [
+    "a person who wears things away",
+    "able to be worn away",
+    "never worn away"
+   ],
+   "tip": "Erode plus -sion makes erosion. The suffix turns the action into a thing: the act of wearing away."
+  },
+  "apply2": {
+   "prompt": "If to exasperate means to annoy greatly, exasperation is:",
+   "answer": "a state of great annoyance",
+   "wrong": [
+    "a person who annoys greatly",
+    "able to annoy greatly",
+    "without any annoyance"
+   ],
+   "tip": "Exasperate plus -tion makes exasperation. The suffix names the state you are in: great annoyance."
+  }
+ },
+ "anti": {
+  "id": "anti",
+  "hook": "Antibacterial soap fights germs and antifreeze works against freezing: anti- means against.",
+  "apply1": {
+   "prompt": "An antiwar protest is one that is:",
+   "answer": "against war",
+   "wrong": [
+    "in favor of war",
+    "before a war",
+    "after a war"
+   ],
+   "tip": "Anti- means against, so an antiwar protest is against war. Don't confuse it with ante-, which means before."
+  },
+  "apply2": {
+   "prompt": "If you feel antipathy toward a plan, you feel:",
+   "answer": "strong dislike for it",
+   "wrong": [
+    "strong support for it",
+    "great curiosity about it",
+    "nervous before it starts"
+   ],
+   "tip": "Anti- means against and path means feeling. Antipathy is a feeling against something, a strong dislike."
+  }
+ },
+ "ex": {
+  "id": "ex",
+  "hook": "An exit is the way out and to exhale is to breathe out: ex- means out or away.",
+  "apply1": {
+   "prompt": "To expel a student is to:",
+   "answer": "force the student out",
+   "wrong": [
+    "let the student in",
+    "move the student up a grade",
+    "praise the student publicly"
+   ],
+   "tip": "Ex- means out and pel means push. To expel someone is to push them out."
+  },
+  "apply2": {
+   "prompt": "To excavate a site is to:",
+   "answer": "dig dirt out of it",
+   "wrong": [
+    "pile dirt into it",
+    "build a wall around it",
+    "take pictures of it"
+   ],
+   "tip": "Ex- means out, and cav means hollow, as in cave. To excavate is to hollow something out by digging."
+  }
+ },
+ "de": {
+  "id": "de",
+  "hook": "To defrost a freezer takes the ice away, and to dethrone a king brings him down: de- means down or away.",
+  "apply1": {
+   "prompt": "To demote a soldier is to:",
+   "answer": "lower the soldier's rank",
+   "wrong": [
+    "raise the soldier's rank",
+    "send the soldier home",
+    "train the soldier again"
+   ],
+   "tip": "De- means down, and mote comes from move. To demote is to move someone down in rank. Promote is the opposite."
+  },
+  "apply2": {
+   "prompt": "To dehydrate fruit is to:",
+   "answer": "take the water out of it",
+   "wrong": [
+    "add water to it",
+    "cut it into pieces",
+    "cover it in sugar"
+   ],
+   "tip": "De- means away and hydr means water. To dehydrate something is to take its water away."
+  }
+ },
+ "co": {
+  "id": "co",
+  "hook": "Coworkers work together and to combine things puts them together: co-, com- and con- mean with or together.",
+  "apply1": {
+   "prompt": "Two events that coincide happen:",
+   "answer": "at the same time",
+   "wrong": [
+    "one after the other",
+    "far apart in time",
+    "never at all"
+   ],
+   "tip": "Co- means together. Events that coincide happen together, at the same time."
+  },
+  "apply2": {
+   "prompt": "When people congregate in a town square, they:",
+   "answer": "gather together",
+   "wrong": [
+    "scatter apart",
+    "argue loudly",
+    "leave quickly"
+   ],
+   "tip": "Con- means together and greg means flock or group. To congregate is to flock together."
+  }
+ },
+ "super": {
+  "id": "super",
+  "hook": "Superhuman strength goes beyond normal strength and a supersonic jet flies faster than sound: super- means above or beyond.",
+  "apply1": {
+   "prompt": "Superfluous details are ones that are:",
+   "answer": "more than needed",
+   "wrong": [
+    "less than needed",
+    "hard to understand",
+    "very important"
+   ],
+   "tip": "Super- means beyond and flu means flow. Superfluous things overflow beyond what is needed. Don't confuse super- with sub-, meaning under."
+  },
+  "apply2": {
+   "prompt": "To superimpose one picture on another is to:",
+   "answer": "place it on top",
+   "wrong": [
+    "place it underneath",
+    "place it beside",
+    "cut it in half"
+   ],
+   "tip": "Super- means above and impose means to place on. To superimpose is to place one thing above another."
+  }
+ },
+ "post": {
+  "id": "post",
+  "hook": "A postgame show airs after the game and the postwar years came after a war: post- means after.",
+  "apply1": {
+   "prompt": "A postoperative patient is one who is:",
+   "answer": "recovering after surgery",
+   "wrong": [
+    "waiting before surgery",
+    "afraid of surgery",
+    "performing surgery"
+   ],
+   "tip": "Post- means after, and operative refers to an operation. Postoperative means after surgery. Pre- would mean before."
+  },
+  "apply2": {
+   "prompt": "A posthumous award is given:",
+   "answer": "after the person has died",
+   "wrong": [
+    "before the person is born",
+    "on the person's birthday",
+    "by the person's teacher"
+   ],
+   "tip": "Post- means after. A posthumous award comes after the person's death."
+  }
+ },
+ "fore": {
+  "id": "fore",
+  "hook": "Your forehead is the front of your head and the forecast tells you the weather before it comes: fore- means before or in front.",
+  "apply1": {
+   "prompt": "To forewarn someone is to:",
+   "answer": "warn them ahead of time",
+   "wrong": [
+    "warn them afterward",
+    "warn them loudly",
+    "warn them twice"
+   ],
+   "tip": "Fore- means before. To forewarn is to warn someone before something happens."
+  },
+  "apply2": {
+   "prompt": "The foreground of a painting is the part that is:",
+   "answer": "in front, closest to you",
+   "wrong": [
+    "in back, farthest away",
+    "along the top edge",
+    "painted last"
+   ],
+   "tip": "Fore- means in front. The foreground is the ground in front, the part of the scene nearest to you."
+  }
+ },
+ "over": {
+  "id": "over",
+  "hook": "If you overeat you eat too much, and if you oversleep you sleep too long: over- means too much.",
+  "apply1": {
+   "prompt": "An overzealous fan is one who is:",
+   "answer": "too eager",
+   "wrong": [
+    "not eager enough",
+    "eager in secret",
+    "eager once a year"
+   ],
+   "tip": "Zealous means eager, and over- means too much. An overzealous fan is too eager. Under- would mean not enough."
+  },
+  "apply2": {
+   "prompt": "To overexert yourself is to:",
+   "answer": "work too hard",
+   "wrong": [
+    "work too little",
+    "work at night",
+    "work alone"
+   ],
+   "tip": "To exert yourself is to put in effort. Over- means too much, so to overexert is to push yourself too hard."
+  }
+ },
+ "vis": {
+  "id": "vis",
+  "hook": "Vision is your sense of sight and a video is something you watch: vis and vid mean see.",
+  "apply1": {
+   "prompt": "To envision your future is to:",
+   "answer": "picture it in your mind",
+   "wrong": [
+    "hear it in your mind",
+    "write it down",
+    "fear it deeply"
+   ],
+   "tip": "Envision contains vis, meaning see. To envision is to see something in your mind. Aud would be about hearing."
+  },
+  "apply2": {
+   "prompt": "Evident proof is proof that:",
+   "answer": "can be clearly seen",
+   "wrong": [
+    "can be clearly heard",
+    "is kept secret",
+    "is easily lost"
+   ],
+   "tip": "E- means out and vid means see. Evident proof stands out where you can clearly see it."
+  }
+ },
+ "struct": {
+  "id": "struct",
+  "hook": "A construction crew builds roads, and destruction is the opposite of building: struct means build.",
+  "apply1": {
+   "prompt": "An obstruction in a pipe is something that:",
+   "answer": "builds up and blocks it",
+   "wrong": [
+    "breaks it open",
+    "helps water flow",
+    "measures the water"
+   ],
+   "tip": "Ob- means against and struct means build. An obstruction is something built up against the flow, blocking it."
+  },
+  "apply2": {
+   "prompt": "To reconstruct a bridge is to:",
+   "answer": "build it again",
+   "wrong": [
+    "tear it down",
+    "paint it again",
+    "cross it again"
+   ],
+   "tip": "Re- means again and struct means build. To reconstruct is to build again. Don't confuse struct with rupt, meaning break."
+  }
+ },
+ "rupt": {
+  "id": "rupt",
+  "hook": "A volcano erupts when lava breaks out, and a bankrupt business is financially broken: rupt means break.",
+  "apply1": {
+   "prompt": "A ruptured water pipe is one that has:",
+   "answer": "burst open",
+   "wrong": [
+    "been newly built",
+    "been pulled loose",
+    "been painted over"
+   ],
+   "tip": "Rupt means break. A ruptured pipe has broken or burst open."
+  },
+  "apply2": {
+   "prompt": "Something that disrupts a meeting:",
+   "answer": "breaks up its normal flow",
+   "wrong": [
+    "builds up its normal flow",
+    "listens to it quietly",
+    "ends it on time"
+   ],
+   "tip": "Dis- means apart and rupt means break. To disrupt is to break something apart, like the flow of a meeting."
+  }
+ },
+ "tract": {
+  "id": "tract",
+  "hook": "A tractor pulls a plow, and subtraction pulls numbers away: tract means pull or drag.",
+  "apply1": {
+   "prompt": "To retract a cat's claws is to:",
+   "answer": "pull them back in",
+   "wrong": [
+    "throw them out",
+    "break them off",
+    "sharpen them"
+   ],
+   "tip": "Re- means back and tract means pull. To retract is to pull back."
+  },
+  "apply2": {
+   "prompt": "A protracted argument is one that is:",
+   "answer": "dragged out for a long time",
+   "wrong": [
+    "cut off very quickly",
+    "thrown out of court",
+    "kept a secret"
+   ],
+   "tip": "Pro- means forward and tract means drag. A protracted argument is dragged on and on."
+  }
+ },
+ "cred": {
+  "id": "cred",
+  "hook": "A bank gives you credit because it believes you will pay, and credentials make people believe you: cred means believe.",
+  "apply1": {
+   "prompt": "A credulous person is one who:",
+   "answer": "believes things too easily",
+   "wrong": [
+    "doubts everything",
+    "hears things clearly",
+    "builds things quickly"
+   ],
+   "tip": "Cred means believe and -ous means full of. A credulous person is full of belief and easily fooled."
+  },
+  "apply2": {
+   "prompt": "To discredit a witness is to:",
+   "answer": "make people stop believing them",
+   "wrong": [
+    "make people believe them more",
+    "throw them out of court",
+    "pay them for speaking"
+   ],
+   "tip": "Dis- means not or opposite, and cred means believe. To discredit someone is to make people not believe them."
+  }
+ },
+ "ject": {
+  "id": "ject",
+  "hook": "A projector throws a picture onto a screen, and a projectile is thrown through the air: ject means throw.",
+  "apply1": {
+   "prompt": "To interject a comment is to:",
+   "answer": "throw it into a conversation",
+   "wrong": [
+    "pull it out of a conversation",
+    "write it down for later",
+    "repeat it slowly"
+   ],
+   "tip": "Inter- means between and ject means throw. To interject is to throw a comment in between what others say."
+  },
+  "apply2": {
+   "prompt": "A dejected person feels:",
+   "answer": "sad and discouraged",
+   "wrong": [
+    "proud and excited",
+    "calm and rested",
+    "curious and alert"
+   ],
+   "tip": "De- means down and ject means throw. A dejected person feels thrown down, low in spirits."
+  }
+ }
+}

@@ -1,0 +1,596 @@
+[
+ {
+  "id": "un",
+  "part": "un-",
+  "kind": "prefix",
+  "meaning": "not",
+  "examples": [
+   "unhappy",
+   "unfair"
+  ],
+  "rank": 1
+ },
+ {
+  "id": "re",
+  "part": "re-",
+  "kind": "prefix",
+  "meaning": "again or back",
+  "examples": [
+   "redo",
+   "return"
+  ],
+  "rank": 2
+ },
+ {
+  "id": "pre",
+  "part": "pre-",
+  "kind": "prefix",
+  "meaning": "before",
+  "examples": [
+   "preview",
+   "predict"
+  ],
+  "rank": 3
+ },
+ {
+  "id": "dis",
+  "part": "dis-",
+  "kind": "prefix",
+  "meaning": "not or apart",
+  "examples": [
+   "disagree",
+   "disconnect"
+  ],
+  "rank": 4
+ },
+ {
+  "id": "mis",
+  "part": "mis-",
+  "kind": "prefix",
+  "meaning": "wrong or badly",
+  "examples": [
+   "misspell",
+   "mislead"
+  ],
+  "rank": 5
+ },
+ {
+  "id": "less",
+  "part": "-less",
+  "kind": "suffix",
+  "meaning": "without",
+  "examples": [
+   "fearless",
+   "careless"
+  ],
+  "rank": 6
+ },
+ {
+  "id": "ful",
+  "part": "-ful",
+  "kind": "suffix",
+  "meaning": "full of",
+  "examples": [
+   "joyful",
+   "careful"
+  ],
+  "rank": 7
+ },
+ {
+  "id": "able",
+  "part": "-able/-ible",
+  "kind": "suffix",
+  "meaning": "able to be",
+  "examples": [
+   "visible",
+   "flexible"
+  ],
+  "rank": 8
+ },
+ {
+  "id": "bene",
+  "part": "bene-",
+  "kind": "prefix",
+  "meaning": "good or well",
+  "examples": [
+   "benefit",
+   "benevolent"
+  ],
+  "rank": 9
+ },
+ {
+  "id": "mal",
+  "part": "mal-",
+  "kind": "prefix",
+  "meaning": "bad or wrong",
+  "examples": [
+   "malfunction",
+   "malicious"
+  ],
+  "rank": 10
+ },
+ {
+  "id": "sub",
+  "part": "sub-",
+  "kind": "prefix",
+  "meaning": "under or below",
+  "examples": [
+   "submerge",
+   "subway"
+  ],
+  "rank": 11
+ },
+ {
+  "id": "inter",
+  "part": "inter-",
+  "kind": "prefix",
+  "meaning": "between or among",
+  "examples": [
+   "interact",
+   "international"
+  ],
+  "rank": 12
+ },
+ {
+  "id": "trans",
+  "part": "trans-",
+  "kind": "prefix",
+  "meaning": "across or through",
+  "examples": [
+   "transport",
+   "transform"
+  ],
+  "rank": 13
+ },
+ {
+  "id": "in",
+  "part": "in-/im-",
+  "kind": "prefix",
+  "meaning": "not",
+  "examples": [
+   "invisible",
+   "impossible"
+  ],
+  "rank": 14
+ },
+ {
+  "id": "dict",
+  "part": "dict",
+  "kind": "root",
+  "meaning": "say or speak",
+  "examples": [
+   "dictate",
+   "verdict"
+  ],
+  "rank": 15
+ },
+ {
+  "id": "scrib",
+  "part": "scrib/script",
+  "kind": "root",
+  "meaning": "write",
+  "examples": [
+   "describe",
+   "manuscript"
+  ],
+  "rank": 16
+ },
+ {
+  "id": "spect",
+  "part": "spect",
+  "kind": "root",
+  "meaning": "look or see",
+  "examples": [
+   "inspect",
+   "spectator"
+  ],
+  "rank": 17
+ },
+ {
+  "id": "port",
+  "part": "port",
+  "kind": "root",
+  "meaning": "carry",
+  "examples": [
+   "portable",
+   "export"
+  ],
+  "rank": 18
+ },
+ {
+  "id": "aud",
+  "part": "aud",
+  "kind": "root",
+  "meaning": "hear",
+  "examples": [
+   "audible",
+   "audience"
+  ],
+  "rank": 19
+ },
+ {
+  "id": "mit",
+  "part": "mit/miss",
+  "kind": "root",
+  "meaning": "send",
+  "examples": [
+   "transmit",
+   "mission"
+  ],
+  "rank": 20
+ },
+ {
+  "id": "ous",
+  "part": "-ous",
+  "kind": "suffix",
+  "meaning": "full of",
+  "examples": [
+   "cautious",
+   "generous"
+  ],
+  "rank": 21
+ },
+ {
+  "id": "tion",
+  "part": "-tion/-sion",
+  "kind": "suffix",
+  "meaning": "the act or state of",
+  "examples": [
+   "decision",
+   "creation"
+  ],
+  "rank": 22
+ },
+ {
+  "id": "anti",
+  "part": "anti-",
+  "kind": "prefix",
+  "meaning": "against",
+  "examples": [
+   "antidote",
+   "antisocial"
+  ],
+  "rank": 23
+ },
+ {
+  "id": "ex",
+  "part": "ex-",
+  "kind": "prefix",
+  "meaning": "out or away",
+  "examples": [
+   "exit",
+   "exclude"
+  ],
+  "rank": 24
+ },
+ {
+  "id": "de",
+  "part": "de-",
+  "kind": "prefix",
+  "meaning": "down or away",
+  "examples": [
+   "descend",
+   "deflate"
+  ],
+  "rank": 25
+ },
+ {
+  "id": "co",
+  "part": "co-/com-/con-",
+  "kind": "prefix",
+  "meaning": "with or together",
+  "examples": [
+   "cooperate",
+   "connect"
+  ],
+  "rank": 26
+ },
+ {
+  "id": "super",
+  "part": "super-",
+  "kind": "prefix",
+  "meaning": "above or beyond",
+  "examples": [
+   "superior",
+   "supervise"
+  ],
+  "rank": 27
+ },
+ {
+  "id": "post",
+  "part": "post-",
+  "kind": "prefix",
+  "meaning": "after",
+  "examples": [
+   "postpone",
+   "postscript"
+  ],
+  "rank": 28
+ },
+ {
+  "id": "fore",
+  "part": "fore-",
+  "kind": "prefix",
+  "meaning": "before or in front",
+  "examples": [
+   "forecast",
+   "foresee"
+  ],
+  "rank": 29
+ },
+ {
+  "id": "over",
+  "part": "over-",
+  "kind": "prefix",
+  "meaning": "too much",
+  "examples": [
+   "overconfident",
+   "overflow"
+  ],
+  "rank": 30
+ },
+ {
+  "id": "vis",
+  "part": "vis/vid",
+  "kind": "root",
+  "meaning": "see",
+  "examples": [
+   "visible",
+   "video"
+  ],
+  "rank": 31
+ },
+ {
+  "id": "struct",
+  "part": "struct",
+  "kind": "root",
+  "meaning": "build",
+  "examples": [
+   "construct",
+   "structure"
+  ],
+  "rank": 32
+ },
+ {
+  "id": "rupt",
+  "part": "rupt",
+  "kind": "root",
+  "meaning": "break",
+  "examples": [
+   "erupt",
+   "interrupt"
+  ],
+  "rank": 33
+ },
+ {
+  "id": "tract",
+  "part": "tract",
+  "kind": "root",
+  "meaning": "pull or drag",
+  "examples": [
+   "attract",
+   "tractor"
+  ],
+  "rank": 34
+ },
+ {
+  "id": "cred",
+  "part": "cred",
+  "kind": "root",
+  "meaning": "believe",
+  "examples": [
+   "credible",
+   "incredible"
+  ],
+  "rank": 35
+ },
+ {
+  "id": "ject",
+  "part": "ject",
+  "kind": "root",
+  "meaning": "throw",
+  "examples": [
+   "eject",
+   "reject"
+  ],
+  "rank": 36
+ },
+ {
+  "id": "voc",
+  "part": "voc/vok",
+  "kind": "root",
+  "meaning": "voice or call",
+  "examples": [
+   "vocal",
+   "provoke"
+  ],
+  "rank": 37
+ },
+ {
+  "id": "duc",
+  "part": "duc/duct",
+  "kind": "root",
+  "meaning": "lead",
+  "examples": [
+   "conduct",
+   "educate"
+  ],
+  "rank": 38
+ },
+ {
+  "id": "chron",
+  "part": "chron",
+  "kind": "root",
+  "meaning": "time",
+  "examples": [
+   "chronological",
+   "chronic"
+  ],
+  "rank": 39
+ },
+ {
+  "id": "bio",
+  "part": "bio",
+  "kind": "root",
+  "meaning": "life",
+  "examples": [
+   "biology",
+   "biography"
+  ],
+  "rank": 40
+ },
+ {
+  "id": "geo",
+  "part": "geo",
+  "kind": "root",
+  "meaning": "earth",
+  "examples": [
+   "geography",
+   "geology"
+  ],
+  "rank": 41
+ },
+ {
+  "id": "graph",
+  "part": "graph",
+  "kind": "root",
+  "meaning": "write or draw",
+  "examples": [
+   "autograph",
+   "paragraph"
+  ],
+  "rank": 42
+ },
+ {
+  "id": "phon",
+  "part": "phon",
+  "kind": "root",
+  "meaning": "sound",
+  "examples": [
+   "telephone",
+   "symphony"
+  ],
+  "rank": 43
+ },
+ {
+  "id": "ped",
+  "part": "ped/pod",
+  "kind": "root",
+  "meaning": "foot",
+  "examples": [
+   "pedal",
+   "pedestrian"
+  ],
+  "rank": 44
+ },
+ {
+  "id": "man",
+  "part": "man/manu",
+  "kind": "root",
+  "meaning": "hand",
+  "examples": [
+   "manual",
+   "manufacture"
+  ],
+  "rank": 45
+ },
+ {
+  "id": "path",
+  "part": "path",
+  "kind": "root",
+  "meaning": "feeling",
+  "examples": [
+   "sympathy",
+   "empathy"
+  ],
+  "rank": 46
+ },
+ {
+  "id": "mono",
+  "part": "mono-/uni-",
+  "kind": "prefix",
+  "meaning": "one",
+  "examples": [
+   "monotone",
+   "uniform"
+  ],
+  "rank": 47
+ },
+ {
+  "id": "multi",
+  "part": "multi-/poly-",
+  "kind": "prefix",
+  "meaning": "many",
+  "examples": [
+   "multiply",
+   "polygon"
+  ],
+  "rank": 48
+ },
+ {
+  "id": "micro",
+  "part": "micro-",
+  "kind": "prefix",
+  "meaning": "small",
+  "examples": [
+   "microscope",
+   "microchip"
+  ],
+  "rank": 49
+ },
+ {
+  "id": "auto",
+  "part": "auto-",
+  "kind": "prefix",
+  "meaning": "self",
+  "examples": [
+   "automatic",
+   "autobiography"
+  ],
+  "rank": 50
+ },
+ {
+  "id": "circum",
+  "part": "circum-",
+  "kind": "prefix",
+  "meaning": "around",
+  "examples": [
+   "circumference",
+   "circumstance"
+  ],
+  "rank": 51
+ },
+ {
+  "id": "contra",
+  "part": "contra-/counter-",
+  "kind": "prefix",
+  "meaning": "against or opposite",
+  "examples": [
+   "contradict",
+   "counteract"
+  ],
+  "rank": 52
+ },
+ {
+  "id": "ify",
+  "part": "-ify/-ize",
+  "kind": "suffix",
+  "meaning": "to make",
+  "examples": [
+   "simplify",
+   "modernize"
+  ],
+  "rank": 53
+ },
+ {
+  "id": "er",
+  "part": "-er/-or/-ist",
+  "kind": "suffix",
+  "meaning": "a person who",
+  "examples": [
+   "teacher",
+   "inventor"
+  ],
+  "rank": 54
+ }
+]
