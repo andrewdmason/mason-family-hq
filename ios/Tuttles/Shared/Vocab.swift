@@ -4,10 +4,11 @@ import Observation
 import SwiftUI
 
 // Vocab: the website's ISEE Verbal Reasoning practice (src/lib/words, /words),
-// played natively. One timed session a day: 18 questions for Oscar (Lower
-// Level), 22 for Sebastian (Middle), against a ten-minute clock. The words,
-// the schedule and the grading are all the website's; the phone draws a
-// question and relays the answer through /tuttles/api/vocab.
+// played natively. A day is ten minutes of answering, over as many sessions
+// as that takes: 25 questions each, reviews and new words mixed, against a
+// ten-minute clock they finish far inside. The words, the schedule and the
+// grading are all the website's; the phone draws a question and relays the
+// answer through /tuttles/api/vocab.
 //
 // An answer shows the moment it's tapped: each question comes with its key
 // (which choice is right, and the word laid out for a miss), so the phone
@@ -102,6 +103,20 @@ struct VocabOverview: Decodable, Hashable {
         let left: Int
     }
     var sort: Sort? = nil
+    /// Today against the ten minutes: time spent answering over every session,
+    /// and whether that's the day done. Nil from an older website.
+    struct Goal: Decodable, Hashable {
+        let ms: Int
+        let goalMs: Int
+        let done: Bool
+
+        var fraction: Double { min(1, Double(ms) / Double(max(1, goalMs))) }
+        var leftMs: Int { max(0, goalMs - ms) }
+    }
+    var day: Goal? = nil
+
+    /// Today's practice is done. For an older website, that's a session finished.
+    var isDoneToday: Bool { day?.done ?? (doneToday != nil) }
 
     func count(_ status: VocabStatus) -> Int { counts[status.rawValue] ?? 0 }
 
@@ -247,6 +262,16 @@ struct VocabSummary: Decodable, Hashable {
     let masteredGained: Int
     /// What was missed, to look over at the end.
     let missed: [Missed]
+    /// Time spent answering today, this session included, and the day's ten
+    /// minutes. Nil from an older website.
+    var dayMs: Int? = nil
+    var goalMs: Int? = nil
+
+    /// Where the day stands now this session is over.
+    var day: VocabOverview.Goal? {
+        guard let dayMs, let goalMs else { return nil }
+        return .init(ms: dayMs, goalMs: goalMs, done: dayMs >= goalMs)
+    }
 }
 
 struct VocabState: Decodable, Hashable {
@@ -479,7 +504,7 @@ extension ChatStore {
 
 // MARK: - A session being played
 
-/// One timed session: a question at a time against the ten-minute countdown
+/// One timed session of the day's several: a question at a time against the ten-minute countdown
 /// (the website's SessionRunner, src/components/words/session-runner.tsx).
 /// The clock only runs while a question is waiting for an answer, so reading
 /// the tip after a miss costs nothing. When it runs out they finish anyway,
@@ -581,8 +606,8 @@ final class VocabRun: Identifiable {
     /// up, to be shown without waiting for its reply.
     private func lookAhead() {
         guard pending == nil, feedback?.isCorrect == true, let next = state.nextIfRight else { return }
-        // The website counts at most five minutes for a question.
-        let spent = min(max(tookMs ?? 0, 0), 300_000)
+        // The website counts at most a minute for a question.
+        let spent = min(max(tookMs ?? 0, 0), 60_000)
         pending = VocabState(sessionId: state.sessionId, elapsedMs: state.elapsedMs + spent, limitMs: state.limitMs,
                              noDontKnow: state.noDontKnow, question: next, summary: nil)
     }

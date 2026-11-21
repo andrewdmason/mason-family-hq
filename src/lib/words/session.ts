@@ -3,7 +3,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { allParts, findItem, titleOf, wordsFor } from "@/lib/words/content";
 import { wordsToday } from "@/lib/words/day";
-import { applyAnswer, isTestDaySession, pickForm, pickNext, streak, troubleScore } from "@/lib/words/schedule";
+import { applyAnswer, DAY_GOAL_MS, dayDone, isTestDaySession, pickForm, pickNext, QUESTION_MAX_MS, streak, troubleScore } from "@/lib/words/schedule";
 import {
   statusOf,
   type ClientQuestion,
@@ -24,10 +24,14 @@ import {
 // the service role (the tables have no write policies), so every function here
 // takes the user it's acting for, and callers pass the signed-in one.
 
-/** Ten minutes, like half of the real section. */
+/** A session's clock: ten minutes, like half of the real section. */
 export const SESSION_LIMIT_MS = 10 * 60 * 1000;
-/** Questions in a session, paced to the real test: 34 in 20 minutes at Lower, 40 at Middle. */
-export const QUESTIONS: Record<Level, number> = { lower: 18, middle: 22 };
+/**
+ * Questions in a session, reviews and new words mixed. The kids get through
+ * them far inside the clock, so a day is as many sessions as ten minutes of
+ * answering takes (DAY_GOAL_MS), not one.
+ */
+export const SESSION_QUESTIONS = 25;
 
 export type Profile = { userId: string; level: Level; questions: number };
 
@@ -73,7 +77,8 @@ type SessionRow = {
 export async function getProfile(userId: string): Promise<Profile | null> {
   const admin = createAdminClient();
   const { data } = await admin.from("words_profiles").select("level, questions").eq("user_id", userId).maybeSingle();
-  if (data) return { userId, level: data.level as Level, questions: data.questions as number };
+  // Everyone's sessions are the same length now, whatever was saved when they were set up.
+  if (data) return { userId, level: data.level as Level, questions: SESSION_QUESTIONS };
 
   // The kids are set up the first time they open it: Oscar is applying into
   // 6th (Lower Level), Sebastian into 8th (Middle).
@@ -85,7 +90,7 @@ export async function getProfile(userId: string): Promise<Profile | null> {
 
 export async function setProfile(userId: string, level: Level): Promise<Profile> {
   const admin = createAdminClient();
-  const questions = QUESTIONS[level];
+  const questions = SESSION_QUESTIONS;
   const { error } = await admin
     .from("words_profiles")
     .upsert({ user_id: userId, level, questions, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
@@ -214,8 +219,17 @@ async function serveNext(
   return current;
 }
 
+/** Time spent answering on a day, over every session started on it, finished or not. */
+async function dayMs(admin: Admin, userId: string, level: Level, day: string): Promise<number> {
+  const { data } = await admin.from("words_sessions").select("elapsed_ms").eq("user_id", userId).eq("level", level).eq("day", day);
+  return ((data ?? []) as { elapsed_ms: number }[]).reduce((n, s) => n + s.elapsed_ms, 0);
+}
+
 async function summarize(admin: Admin, session: SessionRow): Promise<SessionSummary> {
-  const answers = await sessionItems(admin, session.id);
+  const [answers, spentToday] = await Promise.all([
+    sessionItems(admin, session.id),
+    dayMs(admin, session.user_id, session.level, session.day),
+  ]);
   const missed = new Map<string, { title: string; meaning: string }>();
   for (const a of answers) {
     if (a.result === "correct") continue;
@@ -233,6 +247,8 @@ async function summarize(admin: Admin, session: SessionRow): Promise<SessionSumm
     newItems: session.new_items,
     masteredGained: session.mastered_gained,
     missed: [...missed.values()],
+    dayMs: spentToday,
+    goalMs: DAY_GOAL_MS,
   };
 }
 
@@ -378,7 +394,7 @@ export async function answerQuestion(
   const chosen = choice === null ? null : (current.choices[choice] ?? null);
   if (choice !== null && !chosen) return null;
   const result: Result = choice === null ? "dontknow" : choice === current.correct ? "correct" : "wrong";
-  const spent = Math.max(0, Math.min(Math.round(ms) || 0, 5 * 60 * 1000));
+  const spent = Math.max(0, Math.min(Math.round(ms) || 0, QUESTION_MAX_MS));
 
   // What they've done so far is read while the answer is written, to save a trip.
   const [{ error: insertError }, progress] = await Promise.all([
@@ -473,7 +489,7 @@ export async function removeCurrent(
   const existing = progress.get(itemId);
   progress.set(itemId, { ...(existing ?? blankProgress(itemId, session.day)), removed_at: now });
 
-  const spent = Math.max(0, Math.min(Math.round(ms) || 0, 5 * 60 * 1000));
+  const spent = Math.max(0, Math.min(Math.round(ms) || 0, QUESTION_MAX_MS));
   session.elapsed_ms += spent;
   session.requeue = session.requeue.filter((r) => r.item !== itemId);
   session.current = null;
@@ -624,7 +640,9 @@ export type Overview = {
   level: Level;
   questions: number;
   today: string;
-  /** Today's finished session, if there is one: the latest. */
+  /** Today against the ten minutes: time spent answering, over every session, and whether that's the day done. */
+  day: { ms: number; goalMs: number; done: boolean };
+  /** Today's finished session, if there is one: the latest. (Not the day done: that's `day.done`.) */
   doneToday: { elapsedMs: number; limitMs: number; correct: number; total: number } | null;
   /** A session started today and not finished. */
   inProgress: { answered: number; total: number } | null;
@@ -632,7 +650,7 @@ export type Overview = {
   /** Every session finished today, first to last, for a day with more than one. */
   sessionsDone: { elapsedMs: number; limitMs: number; correct: number; total: number }[];
   streak: number;
-  /** The last 14 days, oldest first: was a session finished? */
+  /** The last 14 days, oldest first: was the day's practice done? */
   recentDays: { day: string; done: boolean }[];
   counts: Record<Status, number>;
   totalWords: number;
@@ -660,7 +678,16 @@ export async function loadOverview(profile: Profile): Promise<Overview> {
   ]);
   const sessions = (sessionRows ?? []) as Pick<SessionRow, "day" | "total" | "answered" | "correct" | "wrong" | "dontknow" | "elapsed_ms" | "limit_ms" | "finished_at" | "started_at">[];
   const finished = sessions.filter((s) => s.finished_at);
-  const finishedDays = [...new Set(finished.map((s) => s.day))];
+  // Each day's answering time and finished sessions, which is what makes it done.
+  const byDay = new Map<string, { ms: number; finished: number }>();
+  for (const s of sessions) {
+    const d = byDay.get(s.day) ?? { ms: 0, finished: 0 };
+    d.ms += s.elapsed_ms;
+    d.finished += s.finished_at ? 1 : 0;
+    byDay.set(s.day, d);
+  }
+  const doneDays = [...byDay].filter(([day, d]) => dayDone(day, d.ms, d.finished)).map(([day]) => day);
+  const todayMs = byDay.get(today)?.ms ?? 0;
   const done = finished.find((s) => s.day === today) ?? null;
   // Newest first as loaded: turned round, the day in the order it went.
   const doneToday = finished.filter((s) => s.day === today).reverse();
@@ -683,7 +710,7 @@ export async function loadOverview(profile: Profile): Promise<Overview> {
     const d = new Date(`${today}T00:00:00Z`);
     d.setUTCDate(d.getUTCDate() - (13 - i));
     const day = d.toISOString().slice(0, 10);
-    return { day, done: finishedDays.includes(day) };
+    return { day, done: doneDays.includes(day) };
   });
   const weekAgo = recentDays[7].day;
   const week = sessions.filter((s) => s.day >= weekAgo);
@@ -693,11 +720,12 @@ export async function loadOverview(profile: Profile): Promise<Overview> {
     level: profile.level,
     questions: profile.questions,
     today,
+    day: { ms: todayMs, goalMs: DAY_GOAL_MS, done: doneDays.includes(today) },
     doneToday: done ? { elapsedMs: done.elapsed_ms, limitMs: done.limit_ms, correct: done.correct, total: done.total } : null,
     inProgress: open && open.answered > 0 ? { answered: open.answered, total: open.total } : null,
     sessionsToday: doneToday.length,
     sessionsDone: doneToday.map((s) => ({ elapsedMs: s.elapsed_ms, limitMs: s.limit_ms, correct: s.correct, total: s.total })),
-    streak: streak(finishedDays, today),
+    streak: streak(doneDays, today),
     recentDays,
     counts,
     // What they're working through: the words they've removed don't count against them.

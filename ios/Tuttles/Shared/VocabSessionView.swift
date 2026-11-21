@@ -357,26 +357,41 @@ private struct VocabSummaryView: View {
 
     var body: some View {
         let spare = summary.limitMs - summary.elapsedMs
+        let goal = summary.day
+        // The day's ten minutes aren't up yet: the next session is the way on.
+        let more = goal.map { !$0.done } ?? false
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 44))
-                        .foregroundStyle(VocabLook.right)
-                        .symbolEffect(.bounce, value: summary)
-                        .padding(.bottom, 4)
-                    Text(number > 1 ? "Session \(number) done" : "Done for today").font(.system(.largeTitle, design: .serif).weight(.semibold))
-                    Text(spare >= 0 ? "Finished with \(VocabRules.clock(spare)) to spare."
-                         : "Finished \(VocabRules.clock(spare)) over the ten minutes.")
-                        .font(.title3)
-                        .foregroundStyle(spare >= 0 ? VocabLook.rightText : VocabLook.amberText)
+                    if let goal {
+                        VocabDayRing(goal: goal, size: 104).padding(.bottom, 8)
+                    } else {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.system(size: 44))
+                            .foregroundStyle(VocabLook.right)
+                            .symbolEffect(.bounce, value: summary)
+                            .padding(.bottom, 4)
+                    }
+                    Text(goal.map { $0.done ? "Done for today" : "Session \(number) done" } ?? (number > 1 ? "Session \(number) done" : "Done for today"))
+                        .font(.system(.largeTitle, design: .serif).weight(.semibold))
+                    if let goal {
+                        Text(goal.done ? "\(VocabRules.clock(goal.ms)) of practice today."
+                             : "\(VocabRules.clock(goal.leftMs)) to go of today's ten minutes.")
+                            .font(.title3)
+                            .foregroundStyle(goal.done ? VocabLook.rightText : VocabLook.amberText)
+                    } else {
+                        Text(spare >= 0 ? "Finished with \(VocabRules.clock(spare)) to spare."
+                             : "Finished \(VocabRules.clock(spare)) over the ten minutes.")
+                            .font(.title3)
+                            .foregroundStyle(spare >= 0 ? VocabLook.rightText : VocabLook.amberText)
+                    }
                 }
                 .padding(.top, 36)
 
                 GlassEffectContainer(spacing: 10) {
                     HStack(spacing: 10) {
                         stat("\(summary.correct) of \(summary.total)", "Right")
-                        stat("\(summary.newItems)", "New today")
+                        stat("\(summary.newItems)", "New")
                         stat("\(summary.masteredGained)", "Mastered")
                     }
                 }
@@ -405,16 +420,29 @@ private struct VocabSummaryView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 10) {
-                Button(action: done) {
-                    Text("Done").font(.headline).frame(maxWidth: .infinity).frame(height: 40)
+                if more {
+                    Button(action: again) {
+                        Text("Next session").font(.headline).frame(maxWidth: .infinity).frame(height: 40)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .tint(TuttlesLook.accent)
+                    .disabled(busy)
+                    Button(action: done) {
+                        Text("Stop for now").font(.headline).frame(maxWidth: .infinity).frame(height: 34)
+                    }
+                    .buttonStyle(.glass)
+                } else {
+                    Button(action: done) {
+                        Text("Done").font(.headline).frame(maxWidth: .infinity).frame(height: 40)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .tint(TuttlesLook.accent)
+                    Button(action: again) {
+                        Text("Do another").font(.headline).frame(maxWidth: .infinity).frame(height: 34)
+                    }
+                    .buttonStyle(.glass)
+                    .disabled(busy)
                 }
-                .buttonStyle(.glassProminent)
-                .tint(TuttlesLook.accent)
-                Button(action: again) {
-                    Text("Do another").font(.headline).frame(maxWidth: .infinity).frame(height: 34)
-                }
-                .buttonStyle(.glass)
-                .disabled(busy)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 8)

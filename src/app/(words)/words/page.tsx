@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Check, ChevronRight, Flame } from "lucide-react";
-import { DayDots, WordsBar, paceLine } from "@/components/words/progress-bits";
+import { clock, DayDots, WordsBar } from "@/components/words/progress-bits";
 import { buttonVariants } from "@/components/ui/button-variants";
 import { getIsAdult, requireUserId } from "@/lib/members/auth";
 import { cn } from "@/lib/utils";
@@ -95,8 +95,14 @@ function countdown(today: string): string {
   return "ISEE vocabulary practice.";
 }
 
+/** "6:40 of 10 minutes" */
+function dayLine(day: Overview["day"]): string {
+  return `${clock(Math.min(day.ms, day.goalMs))} of ${Math.round(day.goalMs / 60000)} minutes`;
+}
+
 function Mine({ overview, startHref, listHref }: { overview: Overview; startHref: string; listHref: string }) {
-  const done = overview.doneToday;
+  const { day } = overview;
+  const sessions = overview.sessionsToday;
   return (
     <section>
       <div className="flex items-baseline justify-between">
@@ -111,14 +117,14 @@ function Mine({ overview, startHref, listHref }: { overview: Overview; startHref
       </p>
 
       <div className="mt-5 rounded-2xl border border-border bg-card p-5">
-        {done ? (
+        {day.done ? (
           <>
             <div className="flex items-center gap-2 text-emerald-700">
               <Check className="size-5" />
               <span className="font-medium">Done today</span>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              {done.correct} of {done.total} right, with {paceLine(done)}.
+              {clock(day.ms)} of practice in {sessions} {sessions === 1 ? "session" : "sessions"}.
             </p>
             <Link href={startHref} className={cn(buttonVariants({ variant: "outline" }), "mt-4 w-full")}>
               {overview.inProgress ? "Keep going" : "Do another"}
@@ -126,14 +132,17 @@ function Mine({ overview, startHref, listHref }: { overview: Overview; startHref
           </>
         ) : (
           <>
-            <div className="font-medium text-foreground">Today&rsquo;s session</div>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <div className="font-medium text-foreground">Today: {dayLine(day)}</div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-emerald-600" style={{ width: `${Math.min(100, (day.ms / day.goalMs) * 100)}%` }} />
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">
               {overview.inProgress
-                ? `${overview.inProgress.answered} of ${overview.inProgress.total} answered so far.`
-                : `${overview.questions} questions in 10 minutes.`}
+                ? `Session ${sessions + 1}: ${overview.inProgress.answered} of ${overview.inProgress.total} answered so far.`
+                : `${overview.questions} questions a session. Keep going until the ten minutes are done.`}
             </p>
             <Link href={startHref} className={cn(buttonVariants({ size: "lg" }), "mt-4 h-12 w-full text-base")}>
-              {overview.inProgress ? "Keep going" : "Start"}
+              {overview.inProgress ? "Keep going" : sessions > 0 ? `Start session ${sessions + 1}` : "Start"}
             </Link>
           </>
         )}
@@ -184,7 +193,8 @@ function Trouble({ overview }: { overview: Overview }) {
 }
 
 function KidCard({ name, userId, overview }: { name: string; userId: string; overview: Overview }) {
-  const done = overview.doneToday;
+  const { day } = overview;
+  const sessions = overview.sessionsToday;
   return (
     <div className="rounded-2xl border border-border bg-card p-5">
       <div className="flex items-baseline justify-between">
@@ -197,12 +207,12 @@ function KidCard({ name, userId, overview }: { name: string; userId: string; ove
           <span className="tabular-nums">{overview.streak}</span>
         </span>
       </div>
-      <p className={cn("mt-1 text-sm", done ? "text-emerald-700" : "text-muted-foreground")}>
-        {done
-          ? `Done today: ${done.correct} of ${done.total} right, ${paceLine(done)}.`
-          : overview.inProgress
-            ? `Started today: ${overview.inProgress.answered} of ${overview.inProgress.total} answered.`
-            : "Not done yet today."}
+      <p className={cn("mt-1 text-sm", day.done ? "text-emerald-700" : "text-muted-foreground")}>
+        {day.done
+          ? `Done today: ${clock(day.ms)} in ${sessions} ${sessions === 1 ? "session" : "sessions"}.`
+          : day.ms > 0
+            ? `${dayLine(day)} so far today.`
+            : "Not started yet today."}
       </p>
       <div className="mt-3">
         <DayDots overview={overview} />
