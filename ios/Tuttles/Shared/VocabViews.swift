@@ -141,6 +141,30 @@ struct VocabDayDots: View {
     }
 }
 
+/// Today's ten minutes as a ring that fills, with the time done in the middle.
+struct VocabDayRing: View {
+    let goal: VocabOverview.Goal
+    var size: CGFloat = 76
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Color.primary.opacity(0.10), lineWidth: size * 0.11)
+            Circle()
+                .trim(from: 0, to: goal.fraction)
+                .stroke(goal.done ? VocabLook.right : TuttlesLook.accent, style: StrokeStyle(lineWidth: size * 0.11, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(.smooth(duration: 0.8), value: goal.fraction)
+            VStack(spacing: 0) {
+                Text(VocabRules.clock(goal.ms)).font(.system(size: size * 0.25, weight: .bold, design: .rounded)).monospacedDigit()
+                Text("of \(goal.goalMs / 60_000) min").font(.system(size: size * 0.13)).foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(VocabRules.clock(goal.ms)) of \(goal.goalMs / 60_000) minutes done today")
+    }
+}
+
 /// Mastered, almost and learning as one bar across all the words, with what each colour is.
 struct VocabWordsBar: View {
     let overview: VocabOverview
@@ -215,7 +239,7 @@ struct VocabHomeView: View {
             .vocabColumn()
         }
         .scrollContentBackground(.hidden)
-        .background { VocabBackdrop(mood: store.vocab?.overview?.doneToday == nil ? .calm : .done) }
+        .background { VocabBackdrop(mood: store.vocab?.overview?.isDoneToday == true ? .done : .calm) }
         .navigationTitle("Vocab")
         .kidUsing(store.actingKid)
         .toolbar {
@@ -338,48 +362,47 @@ struct VocabHomeView: View {
         }
     }
 
-    /// Today's session: Start, Keep going, or done with another on offer.
+    /// Today: the ten minutes filling up, the sessions so far, and the way into the next one.
     private func today(_ overview: VocabOverview) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if let done = overview.doneToday {
-                Label("Done today", systemImage: "checkmark.seal.fill")
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(VocabLook.rightText)
-                let sessions = overview.finishedToday
-                if sessions.count < 2, overview.inProgress == nil {
-                    Text("\(done.correct) of \(done.total) right, with \(VocabRules.pace(elapsedMs: done.elapsedMs, limitMs: done.limitMs)).")
-                        .foregroundStyle(.secondary)
-                    startButton("Do another", prominent: false)
-                } else {
-                    // More than the day's one: each session on its own line, the one under way last.
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(sessions, id: \.number) { session in
-                            sessionRow(session.number, "\(session.done.correct) of \(session.done.total) right",
-                                       VocabRules.pace(elapsedMs: session.done.elapsedMs, limitMs: session.done.limitMs))
-                        }
-                        if let open = overview.inProgress {
-                            Divider()
-                            VStack(alignment: .leading, spacing: 8) {
-                                sessionRow(overview.nextSession, "\(open.answered) of \(open.total) answered", "under way", live: true)
-                                ProgressView(value: Double(open.answered), total: Double(max(1, open.total)))
-                                    .tint(TuttlesLook.accent)
-                            }
-                        }
-                    }
-                    if overview.inProgress != nil {
-                        startButton("Keep going with session \(overview.nextSession)", prominent: true)
-                    } else {
-                        startButton("Do another", prominent: false)
-                    }
-                }
-            } else {
+        let done = overview.isDoneToday
+        let sessions = overview.finishedToday
+        let next = overview.nextSession
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 16) {
+                if let goal = overview.day { VocabDayRing(goal: goal) }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Today's session").font(.title2.weight(.bold))
-                    Text(overview.inProgress.map { "\($0.answered) of \($0.total) answered so far." }
-                         ?? "\(overview.questions) questions in 10 minutes.")
-                        .foregroundStyle(.secondary)
+                    if done {
+                        Label("Done today", systemImage: "checkmark.seal.fill")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(VocabLook.rightText)
+                    } else {
+                        Text("Today's practice").font(.title2.weight(.bold))
+                    }
+                    Text(todayLine(overview, sessions: sessions.count)).foregroundStyle(.secondary)
                 }
-                startButton(overview.inProgress != nil ? "Keep going" : "Start", prominent: true)
+            }
+            // Each session on its own line, the one under way last.
+            if !sessions.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(sessions, id: \.number) { session in
+                        sessionRow(session.number, "\(session.done.correct) of \(session.done.total) right", VocabRules.clock(session.done.elapsedMs))
+                    }
+                    if let open = overview.inProgress {
+                        Divider()
+                        VStack(alignment: .leading, spacing: 8) {
+                            sessionRow(next, "\(open.answered) of \(open.total) answered", "under way", live: true)
+                            ProgressView(value: Double(open.answered), total: Double(max(1, open.total)))
+                                .tint(TuttlesLook.accent)
+                        }
+                    }
+                }
+            }
+            if overview.inProgress != nil {
+                startButton(next > 1 ? "Keep going with session \(next)" : "Keep going", prominent: true)
+            } else if done {
+                startButton("Do another", prominent: false)
+            } else {
+                startButton(next > 1 ? "Start session \(next)" : "Start", prominent: true)
             }
             HStack {
                 VocabDayDots(overview: overview)
@@ -388,7 +411,24 @@ struct VocabHomeView: View {
             }
         }
         .padding(20)
-        .vocabGlass(tint: overview.doneToday == nil ? nil : VocabLook.right.opacity(0.12))
+        .vocabGlass(tint: done ? VocabLook.right.opacity(0.12) : nil)
+    }
+
+    /// Under the card's title: what's left of the ten minutes, or how the day went.
+    private func todayLine(_ overview: VocabOverview, sessions: Int) -> String {
+        guard let goal = overview.day else {
+            // An older website: one session is the day.
+            if let done = overview.doneToday { return "\(done.correct) of \(done.total) right." }
+            return overview.inProgress.map { "\($0.answered) of \($0.total) answered so far." } ?? "\(overview.questions) questions in 10 minutes."
+        }
+        if goal.done { return "\(VocabRules.clock(goal.ms)) of practice in \(sessions) \(sessions == 1 ? "session" : "sessions")." }
+        if goal.ms == 0, overview.inProgress == nil {
+            return "\(overview.questions) questions a session. Keep going until the ring is full."
+        }
+        if sessions == 0, let open = overview.inProgress {
+            return "\(open.answered) of \(open.total) answered. \(VocabRules.clock(goal.leftMs)) to go."
+        }
+        return "\(VocabRules.clock(goal.leftMs)) to go."
     }
 
     /// One of today's sessions: which it was, how it went, and its time.
@@ -507,33 +547,33 @@ private struct VocabKidCard: View {
             .buttonStyle(.plain)
         }
         .padding(20)
-        .vocabGlass(tint: overview.doneToday == nil ? nil : VocabLook.right.opacity(0.12))
+        .vocabGlass(tint: overview.isDoneToday ? VocabLook.right.opacity(0.12) : nil)
     }
 
     @ViewBuilder private func status(_ overview: VocabOverview) -> some View {
-        if let done = overview.doneToday {
-            let sessions = overview.finishedToday
-            VStack(alignment: .leading, spacing: 4) {
-                Label(sessions.count > 1
-                      ? "Done today, \(sessions.count) sessions: \(sessions.map { "\($0.done.correct) of \($0.done.total)" }.formatted(.list(type: .and))) right."
-                      : "Done today: \(done.correct) of \(done.total) right, \(VocabRules.pace(elapsedMs: done.elapsedMs, limitMs: done.limitMs)).",
-                      systemImage: "checkmark.seal.fill")
+        let sessions = overview.finishedToday
+        // How the sessions went, each one's score.
+        let scores = sessions.isEmpty ? "" : " \(sessions.count) \(sessions.count == 1 ? "session" : "sessions"): "
+            + "\(sessions.map { "\($0.done.correct) of \($0.done.total)" }.formatted(.list(type: .and))) right."
+        VStack(alignment: .leading, spacing: 4) {
+            if overview.isDoneToday {
+                Label("Done today\(overview.day.map { ", \(VocabRules.clock($0.ms))" } ?? "").\(scores)", systemImage: "checkmark.seal.fill")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(VocabLook.rightText)
-                if let open = overview.inProgress {
-                    Label("Session \(overview.nextSession) under way: \(open.answered) of \(open.total) answered.", systemImage: "hourglass")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+            } else if let goal = overview.day, goal.ms > 0 {
+                Label("\(VocabRules.clock(goal.ms)) of \(goal.goalMs / 60_000) minutes so far today.\(scores)", systemImage: "hourglass")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                Label("Not started yet today.", systemImage: "circle.dashed")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
-        } else if let open = overview.inProgress {
-            Label("Started today: \(open.answered) of \(open.total) answered.", systemImage: "hourglass")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        } else {
-            Label("Not done yet today.", systemImage: "circle.dashed")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            if let open = overview.inProgress {
+                Label("Session \(overview.nextSession) under way: \(open.answered) of \(open.total) answered.", systemImage: "hourglass")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

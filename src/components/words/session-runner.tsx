@@ -310,12 +310,14 @@ function SayIt({ word, show }: { word: string; show: boolean }) {
 }
 
 function Summary({ summary }: { summary: SessionSummary }) {
-  const spare = summary.limitMs - summary.elapsedMs;
+  const left = summary.goalMs - summary.dayMs;
   return (
     <div className="mx-auto flex w-full max-w-xl flex-1 flex-col px-5 pb-8 pt-8">
-      <h1 className="font-serif text-3xl tracking-tight text-foreground">Done for today</h1>
-      <p className={cn("mt-2 text-base", spare >= 0 ? "text-emerald-700" : "text-amber-800")}>
-        {spare >= 0 ? `Finished with ${clock(spare)} to spare.` : `Finished ${clock(spare)} over the ten minutes.`}
+      <h1 className="font-serif text-3xl tracking-tight text-foreground">{left <= 0 ? "Done for today" : "Session done"}</h1>
+      <p className={cn("mt-2 text-base", left <= 0 ? "text-emerald-700" : "text-amber-800")}>
+        {left <= 0
+          ? `${clock(summary.dayMs)} of practice today.`
+          : `${clock(summary.dayMs)} of today's ten minutes done: ${clock(left)} to go.`}
       </p>
 
       <div className="mt-6 grid grid-cols-3 gap-3">
@@ -340,13 +342,26 @@ function Summary({ summary }: { summary: SessionSummary }) {
       )}
 
       <div className="mt-8 flex flex-col gap-2">
-        <Link href="/words" className={buttonVariants({ size: "lg" })}>
-          Done
-        </Link>
-        {/* A full page load, so the next session starts from a fresh one. */}
-        <a href="/words/session" className={buttonVariants({ variant: "ghost" })}>
-          Do another
-        </a>
+        {/* A full page load, so the next session starts from a fresh one. Until the day's done, it's the way on. */}
+        {left > 0 ? (
+          <>
+            <a href="/words/session" className={buttonVariants({ size: "lg" })}>
+              Next session
+            </a>
+            <Link href="/words" className={buttonVariants({ variant: "ghost" })}>
+              Stop for now
+            </Link>
+          </>
+        ) : (
+          <>
+            <Link href="/words" className={buttonVariants({ size: "lg" })}>
+              Done
+            </Link>
+            <a href="/words/session" className={buttonVariants({ variant: "ghost" })}>
+              Do another
+            </a>
+          </>
+        )}
       </div>
     </div>
   );

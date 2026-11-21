@@ -137,9 +137,9 @@ are in `src/lib/tuttles/prompt.ts`.
 - Archiving tidies a chat out of the list; parents still read every chat at
   family.mason.io/tuttles.
 - **Vocab** (in the menu beside Classes and Study) is the website's ISEE
-  Verbal Reasoning practice (`src/lib/words`, /words), native: one timed
-  session a day, 18 questions for Oscar (Lower Level) and 22 for Sebastian
-  (Middle) against a ten-minute clock, with another on offer once it's done.
+  Verbal Reasoning practice (`src/lib/words`, /words), native: a day is ten
+  minutes of answering (a ring on the home card), over as many 25-question
+  sessions as that takes, each with reviews and new words mixed.
   The words, the schedule and the grading stay on the website; the phone goes
   through `/tuttles/api/vocab` (`src/lib/tuttles/vocab.ts`) and never holds a
   question's answer before it's given. It follows the account picker: a kid,
@@ -150,7 +150,8 @@ are in `src/lib/tuttles/prompt.ts`.
   `VocabViews.swift` and `VocabSessionView.swift` the screens. `--demo --vocab`
   opens on it, `--vocab-late` starts a session two questions from its end,
   `--vocab-slow` makes every answer take two seconds to save,
-  `--vocab-second` has today's session done with a second one under way, and
+  `--vocab-second` has one session done and a second under way (with
+  `--vocab-late`, finishing it fills the day's ten minutes), and
   `--vocab-sort` opens on sorting out the words known already
   (`VocabSortView.swift`).
 - `--demo` runs on canned chats with no sign-in (`--open <n>` opens one), for

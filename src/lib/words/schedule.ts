@@ -13,8 +13,11 @@
 //     that makes it last.
 //   • A word missed comes back twice: a few questions later, while the tip is
 //     fresh, and again the next day.
-//   • Reviews come before new words. When more is due than a session holds,
-//     no new words are added, so the pile can't grow past what a day can clear.
+//   • Reviews and new words take turns through a session. When more is due
+//     than the session has room for, no new words are added, so the pile
+//     can't grow past what a day can clear.
+//   • A day is several sessions (ten minutes of answering), so the new words
+//     are rationed by the session, not the day: each one has both in it.
 //   • A word is never asked the same way twice in a row, so what's remembered
 //     is the word and not the question.
 
@@ -24,8 +27,8 @@ import type { Item, Progress, Result } from "@/lib/words/types";
 export const TEST_DATE = "2027-01-11";
 export const NEW_WORDS_STOP_DAYS = 7;
 
-/** New words a day that turned out not to be known. Words already known pass through without counting. */
-export const DAILY_NEW_UNKNOWN = 8;
+/** New words a session that turned out not to be known. Words already known pass through without counting. */
+export const SESSION_NEW_UNKNOWN = 6;
 /** New word parts a day, until they've all been met. */
 export const DAILY_NEW_PARTS = 4;
 /** One question in this many is a word part, while there are parts to learn or review. */
@@ -205,13 +208,14 @@ export function pickNext(ctx: PickContext): Pick | null {
   const newPartsToday = parts.filter((it) => progress.get(it.id)?.first_seen_on === today).length;
   const nextNewPart = newPartsToday < DAILY_NEW_PARTS ? parts.find((it) => !progress.has(it.id)) : undefined;
 
-  const newUnknownToday = words.filter((it) => {
+  // Met for the first time in this session, and not known.
+  const newUnknownHere = words.filter((it) => {
     const p = progress.get(it.id);
-    return !!p && p.first_seen_on === today && !p.fast;
+    return asked.has(it.id) && !!p && p.first_seen_on === today && !p.fast;
   }).length;
   const mayAddWords = newWordsAllowed(today);
   const nextNewWord = mayAddWords ? words.find((it) => !progress.has(it.id)) : undefined;
-  const withinBudget = newUnknownToday < DAILY_NEW_UNKNOWN;
+  const withinBudget = newUnknownHere < SESSION_NEW_UNKNOWN;
 
   // 2. Every few questions, a word part: one that's due, or a new one.
   if (position % PART_EVERY === 2) {
@@ -228,7 +232,7 @@ export function pickNext(ctx: PickContext): Pick | null {
   if (nextNewWord && withinBudget) return { item: nextNewWord.id, why: "new" };
   if (due.length > 0) return { item: due[0].id, why: "due" };
 
-  // 4. Nothing due and today's new words are used up: look ahead at what's due
+  // 4. Nothing due and this session's new words are used up: look ahead at what's due
   //    soonest, the least settled first.
   const early = [...words, ...parts]
     .filter((it) => fresh(it) && progress.has(it.id) && !retired(it) && progress.get(it.id)!.last_seen_on !== today)
@@ -250,9 +254,21 @@ export function pickNext(ctx: PickContext): Pick | null {
   return again ? { item: again.id, why: "extra" } : null;
 }
 
-/** Days in a row with a finished session, counting back from today (or from yesterday if today's isn't done yet). */
-export function streak(finishedDays: string[], today: string): number {
-  const days = new Set(finishedDays);
+/** A day's practice: ten minutes of answering, over as many sessions as that takes. */
+export const DAY_GOAL_MS = 10 * 60 * 1000;
+/** The most one question adds to the clock, so a phone left open doesn't fill the day. */
+export const QUESTION_MAX_MS = 60 * 1000;
+/** Days before this were done by finishing one session, which is how they still count. */
+export const DAY_GOAL_FROM = "2026-11-22";
+
+/** Whether a day's practice was done: `ms` answering in all, `finished` sessions seen to the end. */
+export function dayDone(day: string, ms: number, finished: number): boolean {
+  return day < DAY_GOAL_FROM ? finished > 0 : ms >= DAY_GOAL_MS;
+}
+
+/** Days done in a row, counting back from today (or from yesterday if today's isn't done yet). */
+export function streak(doneDays: string[], today: string): number {
+  const days = new Set(doneDays);
   let cursor = days.has(today) ? today : addDays(today, -1);
   let n = 0;
   while (days.has(cursor)) {

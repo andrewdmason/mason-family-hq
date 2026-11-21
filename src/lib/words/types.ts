@@ -172,6 +172,9 @@ export type SessionSummary = {
   masteredGained: number;
   /** What was missed, to look over at the end. */
   missed: { title: string; meaning: string }[];
+  /** Time spent answering today, this session included, and the day's ten minutes. */
+  dayMs: number;
+  goalMs: number;
 };
 
 export type SessionState = {

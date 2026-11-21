@@ -61,7 +61,9 @@ enum DemoVocab {
     private static var correct = 0
     private static var missed: [VocabSummary.Missed] = []
     private static var elapsed = 0
-    private static let total = 18
+    private static let total = 25
+    /// Answering time today before the session being played.
+    private static var before: Int { second ? 140_000 : 0 }
     private static let limit = 600_000
 
     private static var card: Card { cards[answered % cards.count] }
@@ -83,7 +85,8 @@ enum DemoVocab {
         if answered >= total {
             return VocabState(sessionId: "demo", elapsedMs: elapsed, limitMs: limit, noDontKnow: false, question: nil,
                               summary: VocabSummary(total: total, correct: correct, wrong: total - correct, dontknow: 0, elapsedMs: elapsed,
-                                                    limitMs: limit, newItems: 7, masteredGained: 2, missed: missed))
+                                                    limitMs: limit, newItems: 7, masteredGained: 2, missed: missed,
+                                                    dayMs: before + elapsed, goalMs: limit))
         }
         return VocabState(sessionId: "demo", elapsedMs: elapsed, limitMs: limit, noDontKnow: false,
                           question: question(answered), summary: nil, nextIfRight: question(answered + 1))
@@ -135,7 +138,7 @@ enum DemoVocab {
             VocabOverview.Day(day: "2026-11-\(String(format: "%02d", 7 + i))", done: i == 13 ? done : i > 13 - streak - (done ? 0 : 1) || i % 4 == 1)
         }
         return VocabOverview(
-            level: level, questions: level == .lower ? 18 : 22, today: "2026-11-20",
+            level: level, questions: total, today: "2026-11-20",
             doneToday: done ? latest : nil,
             inProgress: nil, sessionsToday: done ? 1 : 0, sessionsDone: done ? [latest] : [], streak: streak, recentDays: days,
             counts: ["mastered": mastered, "almost": almost, "learning": learning, "new": 500 - mastered - almost - learning - 3, "removed": 3],
@@ -147,7 +150,9 @@ enum DemoVocab {
                 .init(id: "p:mal", title: "mal-", meaning: "bad", misses: 1),
             ],
             accuracy: level == .lower ? 0.78 : 0.84,
-            sort: .init(done: level == .middle, left: sortWords.count))
+            sort: .init(done: level == .middle, left: sortWords.count),
+            day: done && first == nil ? .init(ms: 634_000, goalMs: limit, done: true)
+                : .init(ms: first?.elapsedMs ?? 0, goalMs: limit, done: false))
     }
 
     /// Words for the sort, commonest first, each with a near-synonym for its question.

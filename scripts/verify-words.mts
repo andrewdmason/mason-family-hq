@@ -97,7 +97,9 @@ function simulate(st: Student, start: string) {
   );
   check(newInLastWeek === 0, `${st.name}: ${newInLastWeek} new words in the last week`);
   check(partsMet === parts.length, `${st.name}: only ${partsMet} parts met`);
-  check(maxDue <= st.total * 3, `${st.name}: ${maxDue} due at once, more than three sessions' worth`);
+  // Three sessions' worth at one a day; at several a day, what a day and a half clears.
+  const room = st.total * Math.max(3, (st.perDay ?? 1) * 1.5);
+  check(maxDue <= room, `${st.name}: ${maxDue} due at once, more than ${room} questions can clear`);
   check(count.mastered >= 80, `${st.name}: only ${count.mastered} mastered`);
   return count;
 }
@@ -123,13 +125,14 @@ function simulate(st: Student, start: string) {
   }
 }
 
-const start = process.argv[2] ?? "2026-11-20";
-simulate({ name: "Oscar-like", level: "lower", total: 18, knows: 0.5, learns: 0.35, skips: [] }, start);
-simulate({ name: "Sebastian-like", level: "middle", total: 22, knows: 0.35, learns: 0.35, skips: [] }, start);
-simulate({ name: "Knows-little", level: "middle", total: 22, knows: 0.1, learns: 0.25, skips: [] }, start);
-simulate({ name: "Oscar-twice-a-day", level: "lower", total: 18, knows: 0.5, learns: 0.35, skips: [], perDay: 2 }, start);
-simulate({ name: "Sebastian-twice-a-day", level: "middle", total: 22, knows: 0.35, learns: 0.35, skips: [], perDay: 2 }, start);
-simulate({ name: "Misses-days", level: "lower", total: 18, knows: 0.5, learns: 0.35, skips: [5, 6, 13, 20, 21, 22, 30, 37, 38] }, start);
+const start = process.argv[2] ?? "2026-11-22";
+// Sessions are 25 questions; ten minutes a day is three or four of them at the kids' pace.
+simulate({ name: "Oscar-like", level: "lower", total: 25, knows: 0.5, learns: 0.35, skips: [], perDay: 4 }, start);
+simulate({ name: "Sebastian-like", level: "middle", total: 25, knows: 0.35, learns: 0.35, skips: [], perDay: 4 }, start);
+simulate({ name: "Knows-little", level: "middle", total: 25, knows: 0.1, learns: 0.25, skips: [], perDay: 3 }, start);
+simulate({ name: "Knows-most", level: "lower", total: 25, knows: 0.8, learns: 0.35, skips: [], perDay: 4 }, start);
+simulate({ name: "One-a-day", level: "middle", total: 25, knows: 0.35, learns: 0.35, skips: [] }, start);
+simulate({ name: "Misses-days", level: "lower", total: 25, knows: 0.5, learns: 0.35, skips: [5, 6, 13, 20, 21, 22, 30, 37, 38], perDay: 4 }, start);
 
 if (failures > 0) {
   console.log(`\n${failures} checks failed`);
