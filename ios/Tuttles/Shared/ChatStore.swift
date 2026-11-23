@@ -75,6 +75,15 @@ final class ChatStore {
     var study: StudyPayload?
     /// Vocab's first screen (Vocab.swift); nil until loaded.
     var vocab: VocabHome?
+    /// Why Vocab has nothing to show: no connection, the first time on this phone.
+    var vocabProblem: String?
+    /// Answers given on this phone that the website hasn't had yet.
+    var vocabWaiting = false
+    /// Vocab as it's kept on this phone, to be played with no connection
+    /// (VocabOffline.swift), and whose it is.
+    @ObservationIgnored var vocabLocal: VocabLocal?
+    @ObservationIgnored var vocabLocalOwner: UUID?
+    @ObservationIgnored var vocabSyncing: Task<VocabSyncOutcome, Never>?
 
     /// The kid's chats, and a parent's own briefings.
     var kidThreads: [TutorThread] { threads.filter { $0.kind != "briefing" } }
@@ -168,6 +177,9 @@ final class ChatStore {
         classesLoaded = false
         study = nil
         vocab = nil
+        vocabProblem = nil
+        vocabWaiting = false
+        vocabLocal?.playing = nil
         loadSaved()
         Task {
             async let threads: Void = refreshThreads()

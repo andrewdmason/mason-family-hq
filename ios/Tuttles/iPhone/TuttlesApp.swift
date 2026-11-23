@@ -23,6 +23,7 @@ struct TuttlesApp: App {
 struct RootView: View {
     @State private var session = Session.shared
     @State private var store = ChatStore()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -45,6 +46,11 @@ struct RootView: View {
             async let classes: Void = store.refreshClasses()
             async let study: Void = store.refreshStudy()
             _ = await (threads, classes, study)
+        }
+        // Vocab answered with no connection goes up the next time the app's
+        // opened somewhere with one, whatever screen it's on.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, session.userID != nil { Task { await store.vocabSendWaiting() } }
         }
     }
 }

@@ -8,9 +8,11 @@
  *
  *   npm run verify:words
  */
+import { existsSync, readFileSync } from "node:fs";
 import { allParts, wordsFor } from "@/lib/words/content";
 import { addDays, applyAnswer, daysBetween, newWordsAllowed, pickForm, pickNext, TEST_DATE } from "@/lib/words/schedule";
 import { statusOf, type Level, type Progress, type Result } from "@/lib/words/types";
+import { parity, PARITY_FILE } from "./words/parity";
 
 let failures = 0;
 function check(ok: boolean, what: string) {
@@ -133,6 +135,13 @@ simulate({ name: "Knows-little", level: "middle", total: 25, knows: 0.1, learns:
 simulate({ name: "Knows-most", level: "lower", total: 25, knows: 0.8, learns: 0.35, skips: [], perDay: 4 }, start);
 simulate({ name: "One-a-day", level: "middle", total: 25, knows: 0.35, learns: 0.35, skips: [] }, start);
 simulate({ name: "Misses-days", level: "lower", total: 25, knows: 0.5, learns: 0.35, skips: [5, 6, 13, 20, 21, 22, 30, 37, 38], perDay: 4 }, start);
+
+// The Tuttles app plays by its own copy of these rules, held to them by a file
+// of sessions played here. A change to the schedule has to be written into it.
+check(
+  existsSync(PARITY_FILE) && readFileSync(PARITY_FILE, "utf8") === parity(),
+  "ios/Tuttles/Tests/vocab-parity.json is out of date: run `npm run words:parity`, then make VocabEngine.swift agree (the Tuttles tests say where it doesn't)",
+);
 
 if (failures > 0) {
   console.log(`\n${failures} checks failed`);

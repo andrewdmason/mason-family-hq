@@ -20,6 +20,12 @@
 //     are rationed by the session, not the day: each one has both in it.
 //   • A word is never asked the same way twice in a row, so what's remembered
 //     is the word and not the question.
+//
+// The Tuttles app plays sessions on the phone, with no connection, by the
+// same rules: ios/Tuttles/Shared/VocabEngine.swift is this file in Swift. A
+// change here is a change there. `npm run verify:words` fails until
+// ios/Tuttles/Tests/vocab-parity.json is written again
+// (`npm run words:parity`), and the app's tests then hold the Swift to it.
 
 import type { Item, Progress, Result } from "@/lib/words/types";
 
@@ -283,3 +289,23 @@ export function troubleScore(p: Progress): number {
   const misses = p.wrong_count + p.dontknow_count;
   return !p.removed_at && p.stage < 3 && misses >= 2 ? misses : 0;
 }
+
+/**
+ * The numbers above, sent to the Tuttles app with the words so a session
+ * played on the phone follows them (a change to one needs no new app).
+ */
+export const RULES = {
+  testDate: TEST_DATE,
+  newWordsStopDays: NEW_WORDS_STOP_DAYS,
+  sessionNewUnknown: SESSION_NEW_UNKNOWN,
+  dailyNewParts: DAILY_NEW_PARTS,
+  partEvery: PART_EVERY,
+  requeueGap: REQUEUE_GAP,
+  gapByStage: GAP_BY_STAGE,
+  masteredGapMax: MASTERED_GAP_MAX,
+  retiredGap: RETIRED_GAP,
+  dayGoalMs: DAY_GOAL_MS,
+  questionMaxMs: QUESTION_MAX_MS,
+  dayGoalFrom: DAY_GOAL_FROM,
+};
+export type Rules = typeof RULES;
