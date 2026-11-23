@@ -1,0 +1,368 @@
+import Foundation
+
+// Vocab with no connection. The phone keeps the words, the schedule's numbers
+// and what the kid has done, and plays sessions by itself (VocabEngine.swift).
+// Every answer is written down here the moment it's given. When the website
+// can be reached, the answers it hasn't had are sent up and it sends back
+// where everything stands (/tuttles/api/vocab/sync, src/lib/words/offline.ts),
+// which replaces what's here; anything answered meanwhile is put back on top.
+//
+// So the phone is never waiting on the network to ask a question, and nothing
+// answered is lost to a bad connection: it stays in the outbox until the
+// website says it arrived.
+
+/// What the website sends back from a sync (Pack in src/lib/words/offline.ts).
+struct VocabPack: Decodable {
+    struct Sort: Codable, Hashable {
+        let done: Bool
+        let through: Int
+    }
+
+    /// Only when the phone's words aren't the website's.
+    let content: VocabContent?
+    let contentVersion: String
+    let rules: VocabRuleSet
+    /// The time zone a day is reckoned in.
+    let tz: String
+    let name: String
+    let level: VocabLevel
+    let questions: Int
+    let limitMs: Int
+    let progress: [VocabProgress]
+    /// The newest first.
+    let sessions: [VocabLocalSession]
+    let sort: Sort
+}
+
+/// One kid's Vocab, kept on this phone.
+@MainActor
+final class VocabLocal {
+    /// Where the website stood the last time it was heard from.
+    struct Base: Codable {
+        var rules: VocabRuleSet
+        var tz: String
+        var name: String
+        var level: VocabLevel
+        var questions: Int
+        var limitMs: Int
+        var progress: [VocabProgress]
+        var sessions: [VocabLocalSession]
+        var sort: VocabPack.Sort
+
+        init(_ pack: VocabPack) {
+            rules = pack.rules
+            tz = pack.tz
+            name = pack.name
+            level = pack.level
+            questions = pack.questions
+            limitMs = pack.limitMs
+            progress = pack.progress
+            sessions = pack.sessions
+            sort = pack.sort
+        }
+    }
+
+    /// What's been done here that the website may not have yet.
+    struct Mine: Codable {
+        /// Answers the website hasn't said it has, oldest first.
+        var outbox: [VocabEngine.Answered] = []
+        /// Sessions played here, as they stand here, until the website's copy has caught up.
+        var sessions: [VocabLocalSession] = []
+    }
+
+    /// What goes up in one sync, and what it'll settle if it gets there.
+    struct Sending {
+        let content: String
+        let sessions: [VocabLocalSession]
+        let answers: [VocabEngine.Answered]
+    }
+
+    private let folder: URL
+    private(set) var content: VocabContent
+    private(set) var base: Base
+    private(set) var mine: Mine
+    /// Their progress as it stands here: the website's, with the outbox on top.
+    private(set) var progress: VocabEngine.Progress = [:]
+    /// The session on screen. It's this phone's until it's closed: nothing
+    /// from the website changes it under them.
+    var playing: String?
+
+    var rules: VocabRuleSet { base.rules }
+    /// Answers waiting to go up.
+    var waiting: Int { mine.outbox.count }
+
+    private init(folder: URL, content: VocabContent, base: Base, mine: Mine) {
+        self.folder = folder
+        self.content = content
+        self.base = base
+        self.mine = mine
+        rebuild()
+    }
+
+    // MARK: On disk
+
+    /// Not the caches folder, which the phone may empty when it's short of
+    /// room: the outbox is the only copy of what's in it.
+    static func folder(for owner: UUID) -> URL {
+        let root = URL.applicationSupportDirectory.appending(path: Bundle.main.bundleIdentifier ?? "io.mason.tuttles")
+        return root.appending(path: "vocab").appending(path: owner.uuidString.lowercased())
+    }
+
+    /// What this phone has kept for someone; nil before it's ever reached the website for them.
+    static func load(from folder: URL) -> VocabLocal? {
+        let decoder = JSONDecoder()
+        func read<T: Decodable>(_ name: String) -> T? {
+            (try? Data(contentsOf: folder.appending(path: name))).flatMap { try? decoder.decode(T.self, from: $0) }
+        }
+        guard let content: VocabContent = read("content.json"), let base: Base = read("base.json") else { return nil }
+        return VocabLocal(folder: folder, content: content, base: base, mine: read("mine.json") ?? Mine())
+    }
+
+    /// The first sync for someone: there has to be the words in it.
+    static func start(in folder: URL, with pack: VocabPack) -> VocabLocal? {
+        guard let content = pack.content else { return nil }
+        // Anything left behind there (an outbox with no words to go with it) still goes up.
+        let left = (try? Data(contentsOf: folder.appending(path: "mine.json"))).flatMap { try? JSONDecoder().decode(Mine.self, from: $0) }
+        let local = VocabLocal(folder: folder, content: content, base: Base(pack), mine: left ?? Mine())
+        local.write(content, to: "content.json")
+        local.write(local.base, to: "base.json")
+        return local
+    }
+
+    private func write<T: Encodable>(_ value: T, to name: String) {
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        guard let data = try? JSONEncoder().encode(value) else { return }
+        try? data.write(to: folder.appending(path: name), options: .atomic)
+    }
+
+    private func saveMine() { write(mine, to: "mine.json") }
+
+    // MARK: Putting the two together
+
+    private func rebuild() {
+        var all = Dictionary(base.progress.map { ($0.item, $0) }, uniquingKeysWith: { a, _ in a })
+        for a in mine.outbox {
+            all[a.item] = VocabEngine.applyAnswer(all[a.item], item: a.item, form: a.form, result: a.result, today: a.day, now: a.at, rules: rules)
+        }
+        progress = all
+    }
+
+    /// Every session, the newest first: the website's, with this phone's own copy of the ones played here.
+    var sessions: [VocabLocalSession] {
+        let here = Set(mine.sessions.map(\.id))
+        return (mine.sessions + base.sessions.filter { !here.contains($0.id) }).sorted { $0.startedAt > $1.startedAt }
+    }
+
+    private func keep(_ session: VocabLocalSession) {
+        if let at = mine.sessions.firstIndex(where: { $0.id == session.id }) {
+            mine.sessions[at] = session
+        } else {
+            mine.sessions.append(session)
+        }
+    }
+
+    func today(_ now: Date = Date()) -> String { VocabDay.of(now, zone: base.tz) }
+
+    // MARK: Playing
+
+    /// Today's session: the one under way, or a new one.
+    func begin(now: Date = Date()) -> VocabState {
+        let day = today(now)
+        var session = sessions.first { $0.day == day && !$0.isFinished }
+            ?? VocabEngine.newSession(day: day, total: base.questions, limitMs: base.limitMs, now: now, rules: rules)
+        // (A question on words that have since been replaced can't be shown: choose again.)
+        if session.current == nil || VocabEngine.question(session, content: content) == nil { serve(&session, now: now) }
+        keep(session)
+        playing = session.id
+        saveMine()
+        return state(session)
+    }
+
+    /// Answers the question on screen (`choice` nil: "Don't know") and says
+    /// what's next. Nil when that isn't the question this phone is on: begin again.
+    func answer(session id: String, position: Int, choice: Int?, ms: Int, now: Date = Date()) -> VocabState? {
+        guard var session = mine.sessions.first(where: { $0.id == id }), position == session.answered + 1,
+              let answered = VocabEngine.record(&session, progress: &progress, choice: choice, ms: ms, now: now, rules: rules) else { return nil }
+        mine.outbox.append(answered)
+        if session.answered >= session.total {
+            session.finishedAt = VocabDay.stamp(now)
+        } else {
+            serve(&session, now: now)
+        }
+        keep(session)
+        saveMine()
+        return state(session)
+    }
+
+    /// Puts the next question on the session, or ends it when there's nothing left to ask.
+    private func serve(_ session: inout VocabLocalSession, now: Date) {
+        session.current = VocabEngine.choose(session, content: content, progress: progress, rules: rules)
+        if session.current == nil { session.finishedAt = VocabDay.stamp(now) }
+    }
+
+    private func state(_ session: VocabLocalSession) -> VocabState {
+        let summary = session.isFinished
+            ? VocabEngine.summary(session, content: content,
+                                  dayMs: sessions.filter { $0.day == session.day }.reduce(0) { $0 + $1.elapsedMs }, rules: rules)
+            : nil
+        return VocabState(sessionId: session.id, elapsedMs: session.elapsedMs, limitMs: session.limitMs, noDontKnow: session.noDontKnow,
+                          question: summary == nil ? VocabEngine.question(session, content: content) : nil, summary: summary)
+    }
+
+    /// Vocab's first screen, from what's here.
+    func home(now: Date = Date()) -> VocabHome {
+        let day = today(now)
+        let overview = VocabEngine.overview(level: base.level, questions: base.questions, today: day, content: content, progress: progress,
+                                            sessions: sessions, sortedThrough: base.sort.through, sortDone: base.sort.done, rules: rules)
+        return VocabHome(view: "kid", name: base.name, daysLeft: VocabDay.between(day, rules.testDate), overview: overview, kids: nil)
+    }
+
+    // MARK: Syncing
+
+    /// What to send now: every answer the website hasn't confirmed, and the sessions they belong to.
+    func sending() -> Sending {
+        Sending(content: content.version, sessions: mine.sessions.filter { $0.answered > 0 }, answers: mine.outbox)
+    }
+
+    /// The website has what was sent, and this is where it now stands.
+    func took(_ sent: Sending, reply pack: VocabPack, now: Date = Date()) {
+        if let fresh = pack.content {
+            content = fresh
+            write(fresh, to: "content.json")
+        }
+        base = Base(pack)
+        write(base, to: "base.json")
+
+        let arrived = Set(sent.answers)
+        mine.outbox.removeAll { arrived.contains($0) }
+        let asSent = Dictionary(sent.sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let day = today(now)
+        mine.sessions.removeAll { session in
+            // The one on screen stays this phone's while it's being played.
+            if session.id == playing, !session.isFinished { return false }
+            // Started and left untouched on a day that's gone.
+            if session.answered == 0 { return session.day != day }
+            // The website has it just as it is here, so its copy will do from now on.
+            guard let was = asSent[session.id] else { return false }
+            return was.answered == session.answered && was.finishedAt == session.finishedAt
+        }
+        saveMine()
+        rebuild()
+    }
+}
+
+// MARK: - The store's side of it
+
+/// How a try at reaching the website went.
+enum VocabSyncOutcome {
+    case synced
+    /// It couldn't be reached. What's on the phone carries on.
+    case offline
+    /// The website doesn't do this (an older one), or Vocab isn't set up for them.
+    case unavailable
+}
+
+extension ChatStore {
+    /// What this phone has kept of Vocab for whoever's using it, read once from disk.
+    func vocabOpenLocal() -> VocabLocal? {
+        if isDemo {
+            if vocabLocal == nil, CommandLine.arguments.contains("--vocab-offline") { vocabLocal = DemoVocab.local() }
+            return showingParentView ? nil : vocabLocal
+        }
+        guard !showingParentView, let owner = ownerID else { return nil }
+        if let local = vocabLocal, vocabLocalOwner == owner { return local }
+        vocabLocal = VocabLocal.load(from: VocabLocal.folder(for: owner))
+        vocabLocalOwner = owner
+        return vocabLocal
+    }
+
+    /// Sends up what's been answered here and takes back where things stand.
+    /// One at a time: a second caller waits for the one under way, then goes itself.
+    @discardableResult
+    func vocabSync() async -> VocabSyncOutcome {
+        while let under = vocabSyncing { _ = await under.value }
+        let task = Task { await self.vocabSyncOnce() }
+        vocabSyncing = task
+        let outcome = await task.value
+        vocabSyncing = nil
+        return outcome
+    }
+
+    private func vocabSyncOnce() async -> VocabSyncOutcome {
+        guard !isDemo, !showingParentView, let owner = ownerID else { return .unavailable }
+        let local = vocabOpenLocal()
+        let sent = local?.sending()
+        let encoder = JSONEncoder()
+        struct Body: Encodable {
+            let content: String?
+            let sessions: [VocabLocalSession]
+            let answers: [VocabEngine.Answered]
+        }
+        // The question on a session is this phone's business: it isn't sent.
+        let sessions = (sent?.sessions ?? []).map { session in
+            var s = session
+            s.current = nil
+            return s
+        }
+        guard let body = try? encoder.encode(Body(content: sent?.content, sessions: sessions, answers: sent?.answers ?? [])),
+              let token = try? await client.auth.session.accessToken else { return .offline }
+        var request = URLRequest(url: Self.websiteURL.appending(path: "tuttles/api/vocab/sync"))
+        request.httpMethod = "POST"
+        // The words come down the first time: give a slow line room.
+        request.timeoutInterval = local == nil ? 90 : 30
+        authorize(&request, token: token)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        guard let (data, response) = try? await URLSession.shared.data(for: request) else { return .offline }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if [403, 404, 405].contains(status) { return .unavailable }
+        guard status == 200, let pack = try? JSONDecoder().decode(VocabPack.self, from: data) else { return .offline }
+        // Someone else is using the phone now: this was the last person's.
+        guard ownerID == owner, !showingParentView else { return .offline }
+        if let local, let sent {
+            local.took(sent, reply: pack)
+        } else if let started = VocabLocal.start(in: VocabLocal.folder(for: owner), with: pack) {
+            // Anything it found waiting on disk goes up next time.
+            vocabLocal = started
+            vocabLocalOwner = owner
+        } else {
+            return .offline
+        }
+        vocabWaiting = (vocabLocal?.waiting ?? 0) > 0
+        return .synced
+    }
+
+    /// The first screen for a kid, or a phone used as one: what's on the phone
+    /// straight away, then the website's word on it if it can be reached.
+    func refreshVocabLocal() async -> Bool {
+        let asked = viewer
+        if let local = vocabOpenLocal() {
+            vocab = local.home()
+            vocabWaiting = local.waiting > 0
+        }
+        let outcome = await vocabSync()
+        guard viewer == asked else { return true }
+        guard let local = vocabLocal, vocabLocalOwner == ownerID else {
+            // Nothing kept here. An older website, or not set up: ask the way it was always asked.
+            if outcome == .unavailable { return false }
+            vocabProblem = "Vocab needs the internet once, to get your words. After that it works without."
+            return true
+        }
+        vocabProblem = nil
+        vocab = local.home()
+        vocabWaiting = local.waiting > 0
+        return true
+    }
+
+    /// Sends up anything answered here that's still waiting, if there is anything.
+    func vocabSendWaiting() async {
+        guard let local = vocabOpenLocal(), local.waiting > 0 else { return }
+        vocabWaiting = true
+        await vocabSync()
+    }
+
+    /// The session on screen was closed: it can be the website's again.
+    func vocabStopPlaying() {
+        vocabLocal?.playing = nil
+    }
+}

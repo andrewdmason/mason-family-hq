@@ -4,8 +4,10 @@ import Foundation
 /// simulator. `--vocab` opens on it, `--vocab-late` starts the session two
 /// questions from its end, to get to the last screen, `--vocab-slow` makes
 /// every answer take two seconds to save, as on a bad connection, 
-/// `--vocab-second` has today's session done and a second one under way, and
-/// `--vocab-sort` opens on sorting out the words known already.
+/// `--vocab-second` has today's session done and a second one under way,
+/// `--vocab-sort` opens on sorting out the words known already, and
+/// `--vocab-offline` plays the way the real app does, on the phone with
+/// nothing to reach (VocabOffline.swift), over a few made-up words.
 @MainActor
 enum DemoVocab {
     private struct Card {
@@ -185,6 +187,30 @@ enum DemoVocab {
                                                               isNew: true, allowDontKnow: true, key: key))
         }
         return VocabSortPage(words: words, through: from + words.count, left: sortWords.count - from)
+    }
+
+    /// Vocab kept on the phone, as after a first sync, with the website out of reach ever since.
+    static func local() -> VocabLocal? {
+        let words = sortWords.enumerated().map { index, word in
+            let others = { (step: Int) in
+                (1...3).map { VocabItem.Trap(text: sortWords[(index + $0 * step) % sortWords.count].1, why: "That's another word's meaning.") }
+            }
+            let form = { (key: String, step: Int) in
+                VocabItem.Form(key: key, kind: "syn", stem: word.0.uppercased(), answer: word.1, traps: others(step),
+                               tip: "Try it in a sentence of your own.")
+            }
+            return VocabItem(id: "w:\(word.0)", title: word.0, pos: "adjective", meaning: word.1,
+                             example: "A sentence with \(word.0) in it.", hook: "Say it in a sentence about your own day.",
+                             parts: [], rank: index + 1, forms: [form("syn1", 7), form("syn2", 11)])
+        }
+        let rules = VocabRuleSet(testDate: "2027-01-11", newWordsStopDays: 7, sessionNewUnknown: 6, dailyNewParts: 4, partEvery: 4,
+                                 requeueGap: 3, gapByStage: [1, 3, 7, 21], masteredGapMax: 30, retiredGap: 365,
+                                 dayGoalMs: limit, questionMaxMs: 60_000, dayGoalFrom: "2026-11-22")
+        let pack = VocabPack(content: VocabContent(version: "demo", level: .lower, words: words, parts: []), contentVersion: "demo",
+                             rules: rules, tz: "America/Los_Angeles", name: "Oscar", level: .lower, questions: 8, limitMs: limit,
+                             progress: [], sessions: [], sort: .init(done: true, through: 0))
+        let folder = FileManager.default.temporaryDirectory.appending(path: "tuttles-demo-vocab-\(UUID().uuidString)")
+        return VocabLocal.start(in: folder, with: pack)
     }
 
     static func home(parent: Bool, kid: String?) -> VocabHome {

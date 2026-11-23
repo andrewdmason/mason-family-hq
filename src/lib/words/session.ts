@@ -3,7 +3,8 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { allParts, findItem, titleOf, wordsFor } from "@/lib/words/content";
 import { wordsToday } from "@/lib/words/day";
-import { applyAnswer, DAY_GOAL_MS, dayDone, isTestDaySession, pickForm, pickNext, QUESTION_MAX_MS, streak, troubleScore } from "@/lib/words/schedule";
+import { buildOverview, unsortedWords, type Overview } from "@/lib/words/overview";
+import { applyAnswer, DAY_GOAL_MS, isTestDaySession, pickForm, pickNext, QUESTION_MAX_MS, troubleScore } from "@/lib/words/schedule";
 import {
   statusOf,
   type ClientQuestion,
@@ -35,7 +36,7 @@ export const SESSION_QUESTIONS = 25;
 
 export type Profile = { userId: string; level: Level; questions: number };
 
-type Admin = ReturnType<typeof createAdminClient>;
+export type Admin = ReturnType<typeof createAdminClient>;
 
 type StoredChoice = WrongChoice & { right?: boolean };
 type Current = {
@@ -53,7 +54,7 @@ type Current = {
    */
   ahead?: Current | null;
 };
-type SessionRow = {
+export type SessionRow = {
   id: string;
   user_id: string;
   level: Level;
@@ -551,10 +552,10 @@ export async function setItemRemoved(profile: Profile, itemId: string, removed: 
 /** Words on a page of the sort. */
 export const SORT_PAGE = 20;
 
-type Sorted = { through: number; done: boolean };
+export type Sorted = { through: number; done: boolean };
 
 /** How far through the sort someone is. Nothing yet, too, when the columns aren't there. */
-async function loadSorted(admin: Admin, userId: string): Promise<Sorted> {
+export async function loadSorted(admin: Admin, userId: string): Promise<Sorted> {
   const { data } = await admin.from("words_profiles").select("sorted_through, sorted_at").eq("user_id", userId).maybeSingle();
   const row = data as { sorted_through: number | null; sorted_at: string | null } | null;
   return { through: row?.sorted_through ?? 0, done: !!row?.sorted_at };
@@ -562,7 +563,7 @@ async function loadSorted(admin: Admin, userId: string): Promise<Sorted> {
 
 /** The words still to sort: never met, and further down the list than they've looked. */
 function unsorted(level: Level, progress: Map<string, Progress>, after: number) {
-  return wordsFor(level).filter((w) => w.rank > after && !progress.has(w.id));
+  return unsortedWords(wordsFor(level), progress, after);
 }
 
 /** The next page of the sort after `after` (where they'd got to, when not given). Null when there's nothing left. */
@@ -636,110 +637,38 @@ export async function saveSort(profile: Profile, through: number, skip: string[]
   if (error) throw new Error(error.message);
 }
 
-export type Overview = {
-  level: Level;
-  questions: number;
-  today: string;
-  /** Today against the ten minutes: time spent answering, over every session, and whether that's the day done. */
-  day: { ms: number; goalMs: number; done: boolean };
-  /** Today's finished session, if there is one: the latest. (Not the day done: that's `day.done`.) */
-  doneToday: { elapsedMs: number; limitMs: number; correct: number; total: number } | null;
-  /** A session started today and not finished. */
-  inProgress: { answered: number; total: number } | null;
-  sessionsToday: number;
-  /** Every session finished today, first to last, for a day with more than one. */
-  sessionsDone: { elapsedMs: number; limitMs: number; correct: number; total: number }[];
-  streak: number;
-  /** The last 14 days, oldest first: was the day's practice done? */
-  recentDays: { day: string; done: boolean }[];
-  counts: Record<Status, number>;
-  totalWords: number;
-  parts: { met: number; mastered: number; total: number };
-  trouble: { id: string; title: string; meaning: string; misses: number }[];
-  /** Right answers out of all answers, over the last 7 days; null before there are any. */
-  accuracy: number | null;
-  /** Sorting out the words known already: whether they've had a go at it, and how many words are left to look at. */
-  sort: { done: boolean; left: number };
-};
+export type { Overview } from "@/lib/words/overview";
 
 export async function loadOverview(profile: Profile): Promise<Overview> {
   const admin = createAdminClient();
-  const today = wordsToday();
-  const [progress, sorted, { data: sessionRows }] = await Promise.all([
+  const [progress, sorted, sessions] = await Promise.all([
     loadProgress(profile.userId, profile.level, admin),
     loadSorted(admin, profile.userId),
-    admin
-      .from("words_sessions")
-      .select("day, total, answered, correct, wrong, dontknow, elapsed_ms, limit_ms, finished_at, started_at")
-      .eq("user_id", profile.userId)
-      .eq("level", profile.level)
-      .order("started_at", { ascending: false })
-      .limit(400),
+    loadSessions(admin, profile),
   ]);
-  const sessions = (sessionRows ?? []) as Pick<SessionRow, "day" | "total" | "answered" | "correct" | "wrong" | "dontknow" | "elapsed_ms" | "limit_ms" | "finished_at" | "started_at">[];
-  const finished = sessions.filter((s) => s.finished_at);
-  // Each day's answering time and finished sessions, which is what makes it done.
-  const byDay = new Map<string, { ms: number; finished: number }>();
-  for (const s of sessions) {
-    const d = byDay.get(s.day) ?? { ms: 0, finished: 0 };
-    d.ms += s.elapsed_ms;
-    d.finished += s.finished_at ? 1 : 0;
-    byDay.set(s.day, d);
-  }
-  const doneDays = [...byDay].filter(([day, d]) => dayDone(day, d.ms, d.finished)).map(([day]) => day);
-  const todayMs = byDay.get(today)?.ms ?? 0;
-  const done = finished.find((s) => s.day === today) ?? null;
-  // Newest first as loaded: turned round, the day in the order it went.
-  const doneToday = finished.filter((s) => s.day === today).reverse();
-  const open = sessions.find((s) => s.day === today && !s.finished_at) ?? null;
-
-  const words = wordsFor(profile.level);
-  const counts: Record<Status, number> = { new: 0, learning: 0, almost: 0, mastered: 0, removed: 0 };
-  for (const w of words) counts[statusOf(progress.get(w.id))]++;
-  const parts = allParts();
-  const trouble = [...words, ...parts]
-    .flatMap((it) => {
-      const p = progress.get(it.id);
-      const score = p ? troubleScore(p) : 0;
-      return score > 0 ? [{ id: it.id, title: titleOf(it), meaning: it.meaning, misses: score }] : [];
-    })
-    .sort((a, b) => b.misses - a.misses)
-    .slice(0, 12);
-
-  const recentDays = Array.from({ length: 14 }, (_, i) => {
-    const d = new Date(`${today}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() - (13 - i));
-    const day = d.toISOString().slice(0, 10);
-    return { day, done: doneDays.includes(day) };
-  });
-  const weekAgo = recentDays[7].day;
-  const week = sessions.filter((s) => s.day >= weekAgo);
-  const answered = week.reduce((n, s) => n + s.answered, 0);
-
-  return {
+  return buildOverview({
     level: profile.level,
     questions: profile.questions,
-    today,
-    day: { ms: todayMs, goalMs: DAY_GOAL_MS, done: doneDays.includes(today) },
-    doneToday: done ? { elapsedMs: done.elapsed_ms, limitMs: done.limit_ms, correct: done.correct, total: done.total } : null,
-    inProgress: open && open.answered > 0 ? { answered: open.answered, total: open.total } : null,
-    sessionsToday: doneToday.length,
-    sessionsDone: doneToday.map((s) => ({ elapsedMs: s.elapsed_ms, limitMs: s.limit_ms, correct: s.correct, total: s.total })),
-    streak: streak(doneDays, today),
-    recentDays,
-    counts,
-    // What they're working through: the words they've removed don't count against them.
-    totalWords: words.length - counts.removed,
-    parts: {
-      met: parts.filter((p) => progress.has(p.id) && !progress.get(p.id)?.removed_at).length,
-      mastered: parts.filter((p) => statusOf(progress.get(p.id)) === "mastered").length,
-      total: parts.length,
-    },
-    trouble,
-    accuracy: answered > 0 ? week.reduce((n, s) => n + s.correct, 0) / answered : null,
-    // Done once they've sat down to it at all, however far they got: the card asking them to is a one-time thing.
-    sort: { done: sorted.done || sorted.through > 0, left: unsorted(profile.level, progress, sorted.through).length },
-  };
+    today: wordsToday(),
+    words: wordsFor(profile.level),
+    parts: allParts(),
+    progress,
+    sessions,
+    sorted,
+  });
+}
+
+/** Someone's sessions, the newest first: as far back as the streak and the last two weeks need. */
+export async function loadSessions(admin: Admin, profile: Profile): Promise<SessionRow[]> {
+  const { data, error } = await admin
+    .from("words_sessions")
+    .select("*")
+    .eq("user_id", profile.userId)
+    .eq("level", profile.level)
+    .order("started_at", { ascending: false })
+    .limit(400);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as SessionRow[];
 }
 
 export type ListRow = {

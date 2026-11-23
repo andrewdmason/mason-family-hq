@@ -23,6 +23,7 @@
     "verify:todos": "tsx --tsconfig scripts/tsconfig.json scripts/verify-todos-week.mts",
     "verify:workouts": "tsx --tsconfig scripts/tsconfig.json scripts/verify-workout-sets.mts",
     "verify:words": "tsx --tsconfig scripts/tsconfig.json scripts/verify-words.mts",
+    "words:parity": "tsx --tsconfig scripts/tsconfig.json scripts/words/write-parity.mts",
     "verify:tuttles": "tsx --tsconfig scripts/tsconfig.json scripts/verify-tuttles-study.mts"
   },
   "dependencies": {

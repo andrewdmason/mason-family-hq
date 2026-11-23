@@ -230,6 +230,9 @@ struct VocabHomeView: View {
                                                description: Text("Vocab isn't set up for you yet. Ask a parent."))
                             .padding(.top, 80)
                     }
+                } else if let problem = store.vocabProblem {
+                    ContentUnavailableView("No connection", systemImage: "wifi.slash", description: Text(problem))
+                        .padding(.top, 80)
                 } else {
                     ProgressView().frame(maxWidth: .infinity).padding(.top, 120)
                 }
@@ -259,7 +262,10 @@ struct VocabHomeView: View {
         }
         .onChange(of: run == nil) { _, closed in
             // Back from a session: today's card and the counts have moved.
-            if closed { Task { await store.refreshVocab() } }
+            if closed {
+                store.vocabStopPlaying()
+                Task { await store.refreshVocab() }
+            }
         }
         .onChange(of: sort == nil) { _, closed in
             if closed { Task { await store.refreshVocab() } }
@@ -409,10 +415,22 @@ struct VocabHomeView: View {
                 Spacer()
                 Text("last 14 days").font(.caption).foregroundStyle(.secondary)
             }
+            // Played with no connection: it's all kept, and goes up by itself.
+            if store.vocabWaiting {
+                Label(Self.waitingNote, systemImage: "icloud.slash")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(20)
         .vocabGlass(tint: done ? VocabLook.right.opacity(0.12) : nil)
     }
+
+    #if os(macOS)
+    private static let waitingNote = "Saved on this Mac. It'll send when there's a connection."
+    #else
+    private static let waitingNote = "Saved on this phone. It'll send when there's a connection."
+    #endif
 
     /// Under the card's title: what's left of the ten minutes, or how the day went.
     private func todayLine(_ overview: VocabOverview, sessions: Int) -> String {

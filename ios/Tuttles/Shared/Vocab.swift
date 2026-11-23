@@ -6,16 +6,20 @@ import SwiftUI
 // Vocab: the website's ISEE Verbal Reasoning practice (src/lib/words, /words),
 // played natively. A day is ten minutes of answering, over as many sessions
 // as that takes: 25 questions each, reviews and new words mixed, against a
-// ten-minute clock they finish far inside. The words, the schedule and the
-// grading are all the website's; the phone draws a question and relays the
-// answer through /tuttles/api/vocab.
+// ten-minute clock they finish far inside.
 //
-// An answer shows the moment it's tapped: each question comes with its key
-// (which choice is right, and the word laid out for a miss), so the phone
-// grades it itself and sends the answer along behind. The website still grades
-// what arrives and keeps the score. It also says ahead of time what follows a
-// right answer, so moving on doesn't wait either; after a miss the next
-// question comes with its reply, while they're reading what they missed.
+// A session is played on the phone, with or without a connection: the words,
+// the schedule's numbers and the kid's progress are kept here
+// (VocabOffline.swift), the questions are chosen here by the website's rules
+// (VocabEngine.swift), and the answers go up to the website when it can be
+// reached, where they're gone through again and what it makes of them is
+// what counts.
+//
+// Before the phone has ever reached the website for someone (and in the demo,
+// and against a website from before this), a session is the website's instead,
+// a question at a time through /tuttles/api/vocab: each question comes with
+// its key, so the phone grades it itself and sends the answer along behind,
+// and the website says ahead of time what follows a right answer.
 //
 // It follows the account picker like everything else: a kid (or the phone
 // used as one) gets their own level and session, and the parents' view shows
@@ -23,7 +27,7 @@ import SwiftUI
 
 // MARK: - What the website sends
 
-enum VocabLevel: String, Decodable, Hashable {
+enum VocabLevel: String, Codable, Hashable {
     case lower, middle
 
     var name: String { self == .lower ? "Lower Level" : "Middle Level" }
@@ -407,9 +411,16 @@ extension ChatStore {
     func refreshVocab() async {
         let asked = viewer
         if isDemo {
-            vocab = DemoVocab.home(parent: showingParentView, kid: actingKid?.name)
+            if let local = vocabOpenLocal() {
+                vocab = local.home()
+                vocabWaiting = local.waiting > 0
+            } else {
+                vocab = DemoVocab.home(parent: showingParentView, kid: actingKid?.name)
+            }
             return
         }
+        // A kid's own page is worked out on the phone, from what it keeps.
+        if !showingParentView, await refreshVocabLocal() { return }
         guard let (data, status) = try? await vocabCall("GET", "tuttles/api/vocab"), status == 200,
               let home = try? Self.decoder.decode(VocabHome.self, from: data),
               // Unless the view changed meanwhile: then this isn't its page.
@@ -419,6 +430,8 @@ extension ChatStore {
 
     /// Today's session: the one under way, or a new one.
     func vocabBegin() async throws -> VocabState {
+        // Played on the phone once it has the words: nothing to wait for.
+        if let local = vocabOpenLocal() { return local.begin() }
         if isDemo { return DemoVocab.begin() }
         guard let state: VocabState = try await vocabPost("tuttles/api/vocab/session", [:]) else {
             throw SendError.server("Tuttles couldn't be reached.")
@@ -436,6 +449,18 @@ extension ChatStore {
         return try await vocabPost("tuttles/api/vocab/answer", [
             "sessionId": state.sessionId, "position": position, "choice": choice.map { $0 as Any } ?? NSNull(), "ms": ms,
         ])
+    }
+
+    /// Answers the question of a session played on this phone, and says what's
+    /// next: at once, connection or none. The answer is kept until the website has it.
+    func vocabAnswerHere(_ state: VocabState, position: Int, choice: Int?, ms: Int) -> VocabState? {
+        guard let local = vocabLocal else { return nil }
+        // Out of step (it shouldn't be): pick the session up where the phone has it.
+        let next = local.answer(session: state.sessionId, position: position, choice: choice, ms: ms) ?? local.begin()
+        vocabWaiting = true
+        // A session's end is a good moment to send it up, while they read how it went.
+        if next.summary != nil { Task { await vocabSync() } }
+        return next
     }
 
     /// Every word and word part: their own, or one of the kids' from the parents' view.
@@ -554,11 +579,14 @@ final class VocabRun: Identifiable {
 
     /// Which of today's sessions this is: 1 for the day's own, 2 for the one after…
     private(set) var number: Int
+    /// Played on this phone (VocabOffline.swift): nothing waits on the website.
+    private let here: Bool
 
     init(store: ChatStore, state: VocabState, number: Int = 1) {
         self.store = store
         self.state = state
         self.number = number
+        here = store.vocabLocal?.playing == state.sessionId
     }
 
     var question: VocabQuestion? { state.question }
@@ -595,6 +623,13 @@ final class VocabRun: Identifiable {
         if case .choice(let index) = pick { choice = index }
         picked = pick
         tookMs = ms
+        if here {
+            // Graded, kept and the next question chosen, all on the phone.
+            feedback = question.key?.feedback(for: choice)
+            pending = store.vocabAnswerHere(state, position: question.position, choice: choice, ms: ms)
+            failed = pending == nil
+            return
+        }
         // Graded here and now; the website hears about it behind what's on screen.
         feedback = question.key?.feedback(for: choice)
         lookAhead()
