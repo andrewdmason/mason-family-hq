@@ -643,7 +643,7 @@ extension VocabEngine {
     static let stageSize = 25
     /// The most questions in a boss round, and how few it's topped up to from earlier stages.
     static let bossMost = 10
-    static let bossFewest = 5
+    static let bossFewest = 10
     /// A boss round's clock: quicker than a session's, which is the point of it.
     static let bossMsPerQuestion = 15_000
 

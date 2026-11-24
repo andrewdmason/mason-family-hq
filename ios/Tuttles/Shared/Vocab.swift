@@ -723,6 +723,13 @@ final class VocabRun: Identifiable {
         } catch { failed = true }
     }
 
+    /// The question on screen starts waiting for its answer now: a boss
+    /// round's clock holds until its boss has made their entrance.
+    func startClock() {
+        guard picked == nil else { return }
+        waitingSince = Date()
+    }
+
     /// Another go at the boss round that just got away.
     func retryBoss() {
         if let stage = summary?.boss?.stage { fightBoss(stage) }
