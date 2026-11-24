@@ -162,6 +162,13 @@ struct VocabBossBar: View {
                 Text(boss.hitsLeft == 0 ? "Boss beaten!" : "Boss · \(boss.hitsLeft) to go")
                     .contentTransition(.numericText(value: Double(boss.hitsLeft)))
                 Spacer(minLength: 4)
+                // The miss it allows, while it's still to spend.
+                if boss.spare > 0 {
+                    Image(systemName: boss.sparesLeft > 0 ? "heart.fill" : "heart.slash")
+                        .foregroundStyle(boss.sparesLeft > 0 ? VocabLook.wrong : Color.secondary)
+                        .contentTransition(.symbolEffect(.replace))
+                        .accessibilityLabel(boss.sparesLeft > 0 ? "One miss allowed" : "No misses left")
+                }
                 Text("\(min(boss.answered + (boss.over ? 0 : 1), boss.total)) of \(boss.total)").foregroundStyle(.secondary)
             }
             .font(.caption.weight(.semibold))

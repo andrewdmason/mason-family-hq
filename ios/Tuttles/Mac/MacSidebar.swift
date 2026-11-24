@@ -23,7 +23,7 @@ struct MacSidebar: View {
             case .week: .week
             case .classes, .classPage: .classes
             case .study, .studySet: .study
-            case .vocab, .vocabList, .vocabPath: .vocab
+            case .vocab, .vocabList, .vocabProgress: .vocab
             case .chat(let id, _, _, _, _, _): .thread(id)
             case .topic: nil
             }

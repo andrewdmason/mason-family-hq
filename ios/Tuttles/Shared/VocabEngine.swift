@@ -460,14 +460,19 @@ enum VocabEngine {
     }
 
     /// The question for the session's next place (choose). Nil when there's nothing left to ask.
+    /// `holdNew` keeps back the words not yet met (a boss is waiting,
+    /// VocabPath.swift): the session is reviews only, and ends when there's
+    /// nothing left to review but what it's already asked.
     static func choose(_ session: VocabLocalSession, content: VocabContent, progress: Progress, rules: VocabRuleSet,
-                       shuffle: Bool = true) -> VocabLocalSession.Current? {
+                       shuffle: Bool = true, holdNew: Bool = false) -> VocabLocalSession.Current? {
         // Anything they've removed is out of the running altogether.
         let kept = { (list: [VocabItem]) in list.filter { progress[$0.id]?.removedAt == nil } }
-        guard let pick = pickNext(words: kept(content.words), parts: kept(content.parts), progress: progress, today: session.day,
+        let words = holdNew ? kept(content.words).filter { progress[$0.id] != nil } : kept(content.words)
+        guard let pick = pickNext(words: words, parts: kept(content.parts), progress: progress, today: session.day,
                                   position: session.answered + 1, total: session.total, asked: session.asked,
                                   requeue: session.requeue, rules: rules),
               let item = content.item(pick.item) else { return nil }
+        if holdNew, pick.why == "extra", session.asked.contains(pick.item) { return nil }
         return ask(item, requeued: pick.why == "requeue", day: session.day, progress: progress, rules: rules, shuffle: shuffle)
     }
 
@@ -629,9 +634,11 @@ enum VocabEngine {
 
 /// The words in the order they're met, cut into stages of 25. A stage is
 /// cleared once every word in it has been met (or skipped as known), and gold
-/// once they're all mastered. A cleared stage has a boss round: a short timed
+/// once they're all mastered, which it then stays. A cleared stage has a boss round: a short timed
 /// session on the words of it that took some learning, with no "Don't know".
-/// Eight in ten right beats it.
+/// One miss is allowed in a round of five or more; one too many ends it.
+/// A boss waiting to be beaten is a gate: no new words until it's beaten, or
+/// has got away three times, after which they can go on without the crown.
 extension VocabEngine {
     static let stageSize = 25
     /// The most questions in a boss round, and how few it's topped up to from earlier stages.
@@ -640,8 +647,21 @@ extension VocabEngine {
     /// A boss round's clock: quicker than a session's, which is the point of it.
     static let bossMsPerQuestion = 15_000
 
-    /// Right answers that beat a boss round of `total` questions: eight in ten.
-    static func bossNeeded(_ total: Int) -> Int { (total * 4 + 4) / 5 }
+    /// Right answers that beat a boss round of `total` questions: all but
+    /// one, or all of them when there are fewer than five.
+    static func bossNeeded(_ total: Int) -> Int { total >= 5 ? total - 1 : total }
+    /// Lost this many times, a boss stops being a gate.
+    static let bossTries = 3
+
+    /// A boss round that can't be won any more: a miss more than it allows.
+    static func bossLost(_ session: VocabLocalSession) -> Bool {
+        session.boss != nil && session.answered - session.correct > session.total - bossNeeded(session.total)
+    }
+
+    /// Times a stage's boss has got away: rounds played and not won.
+    static func bossFails(stage: Int, sessions: [VocabLocalSession]) -> Int {
+        sessions.filter { $0.boss == stage && $0.isFinished && $0.answered > 0 && !bossBeaten($0) }.count
+    }
 
     /// A boss round seen to the end with enough of it right.
     static func bossBeaten(_ session: VocabLocalSession) -> Bool {
@@ -690,17 +710,24 @@ extension VocabEngine {
     }
 
     /// Where they are on the way through the words.
-    static func path(content: VocabContent, progress: Progress, sessions: [VocabLocalSession], size: Int = stageSize) -> VocabPath {
+    /// `gold` are the stages that have been gold before: once earned it's
+    /// kept, whatever a later miss does to one of the words.
+    static func path(content: VocabContent, progress: Progress, sessions: [VocabLocalSession], size: Int = stageSize,
+                     gold: Set<Int> = []) -> VocabPath {
         let beaten = Set(sessions.filter(bossBeaten).compactMap(\.boss))
         return VocabPath(stages: stages(content.words, size: size).enumerated().map { index, words in
             let statuses = words.map { progress[$0.id]?.status ?? .new }
             let cleared = !statuses.contains(.new)
+            let fails = bossFails(stage: index + 1, sessions: sessions)
             let boss: VocabStage.Boss = beaten.contains(index + 1) ? .beaten
                 : !cleared ? .locked
-                : words.contains { learned(progress[$0.id]) } ? .ready : .none
+                : !words.contains { learned(progress[$0.id]) } ? .none
+                : fails >= bossTries ? .skipped : .ready
             return VocabStage(number: index + 1,
                               words: zip(words, statuses).map { .init(id: $0.id, title: $0.title, status: $1) },
-                              boss: boss)
+                              boss: boss,
+                              bossFails: fails,
+                              gold: gold.contains(index + 1) || statuses.allSatisfy { $0 == .mastered || $0 == .removed })
         })
     }
 }

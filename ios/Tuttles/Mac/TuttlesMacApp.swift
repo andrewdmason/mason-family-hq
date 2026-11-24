@@ -166,8 +166,8 @@ struct MacShell: View {
             VocabHomeView(path: $path)
         case .vocabList(let kid, let name):
             VocabListView(kid: kid, name: name)
-        case .vocabPath:
-            VocabPathView()
+        case .vocabProgress:
+            VocabProgressView()
         }
     }
 

@@ -16,7 +16,10 @@ struct VocabStage: Codable, Hashable, Identifiable {
         case none
         /// Not every word found yet.
         case locked
+        /// Waiting to be beaten, and a gate until it is: no new words meanwhile.
         case ready
+        /// It got away three times: they've gone on without the crown, which is still there to win.
+        case skipped
         case beaten
     }
 
@@ -30,6 +33,10 @@ struct VocabStage: Codable, Hashable, Identifiable {
     let number: Int
     let words: [Word]
     let boss: Boss
+    /// Times its boss has got away.
+    let bossFails: Int
+    /// Every word mastered, now or at some time before: gold is kept once earned.
+    let gold: Bool
 
     var id: Int { number }
     var total: Int { words.count }
@@ -37,7 +44,6 @@ struct VocabStage: Codable, Hashable, Identifiable {
     var met: Int { words.filter { $0.status != .new }.count }
     var mastered: Int { words.filter { $0.status == .mastered || $0.status == .removed }.count }
     var cleared: Bool { met >= total }
-    var gold: Bool { mastered >= total }
 
     private static let places: [(String, String)] = [
         ("Trailhead", "signpost.right.fill"), ("Pine Woods", "tree.fill"), ("Creek Crossing", "water.waves"),
@@ -62,7 +68,7 @@ struct VocabPath: Codable, Hashable {
 
     /// The stage they're on: the first with words still to find. Nil once every word's been found.
     var current: VocabStage? { stages.first { !$0.cleared } }
-    /// A boss round waiting to be played, the earliest first.
+    /// The boss in the way, if there is one: no new words until it's beaten (or skipped).
     var bossReady: VocabStage? { stages.first { $0.boss == .ready } }
 }
 
@@ -85,9 +91,16 @@ struct VocabBoss: Codable, Hashable {
     let correct: Int
     let answered: Int
     let over: Bool
+    /// Times this stage's boss has got away, this round included once it's lost.
+    var fails = 0
 
     var name: String { VocabStage.name(stage) }
     var hitsLeft: Int { max(0, needed - correct) }
+    /// Misses the round allows in all, and how many are left.
+    var spare: Int { total - needed }
+    var sparesLeft: Int { max(0, spare - (answered - correct)) }
+    /// It's got away often enough that they can go on without beating it.
+    var canSkip: Bool { !beaten && fails >= VocabEngine.bossTries }
     var beaten: Bool { over && answered >= total && correct >= needed }
 }
 
@@ -100,8 +113,6 @@ struct VocabStageNode: View {
     /// The stage they're on.
     var current = false
     var size: CGFloat = 78
-    @State private var pulsing = false
-    @State private var shine = false
     @Environment(\.accessibilityReduceMotion) private var still
 
     private var reached: Bool { current || stage.cleared }
@@ -109,11 +120,18 @@ struct VocabStageNode: View {
     var body: some View {
         ZStack {
             // The halo that says "you are here".
+            // (Drawn from the clock, not animated from a change of state: a
+            // repeating animation started as the view appears takes whatever
+            // else is settling into place on screen along with it, for ever.)
             if current, !still {
-                Circle()
-                    .stroke(TuttlesLook.accent.opacity(0.5), lineWidth: 3)
-                    .scaleEffect(pulsing ? 1.42 : 1.02)
-                    .opacity(pulsing ? 0 : 0.9)
+                TimelineView(.animation) { timeline in
+                    let part = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6
+                    let out = 1 - (1 - part) * (1 - part)
+                    Circle()
+                        .stroke(TuttlesLook.accent.opacity(0.5), lineWidth: 3)
+                        .scaleEffect(1.02 + 0.40 * out)
+                        .opacity(0.9 * (1 - out))
+                }
             }
             // A marker with some depth to it: a darker one just below.
             Circle().fill(edge).offset(y: size * 0.07)
@@ -121,11 +139,14 @@ struct VocabStageNode: View {
                 .overlay {
                     if stage.gold, !still {
                         // A band of light going across, now and then.
-                        LinearGradient(colors: [.clear, .white.opacity(0.7), .clear], startPoint: .leading, endPoint: .trailing)
-                            .frame(width: size * 0.5)
-                            .rotationEffect(.degrees(20))
-                            .offset(x: shine ? size : -size)
-                            .blendMode(.plusLighter)
+                        TimelineView(.animation) { timeline in
+                            let part = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 3.2) / 3.2
+                            LinearGradient(colors: [.clear, .white.opacity(0.7), .clear], startPoint: .leading, endPoint: .trailing)
+                                .frame(width: size * 0.5)
+                                .rotationEffect(.degrees(20))
+                                .offset(x: -size + 2 * size * min(1, part / 0.35))
+                                .blendMode(.plusLighter)
+                        }
                     }
                 }
                 .clipShape(.circle)
@@ -145,11 +166,6 @@ struct VocabStageNode: View {
         }
         .frame(width: size, height: size)
         .overlay(alignment: .topTrailing) { badge }
-        .onAppear {
-            guard !still else { return }
-            withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) { pulsing = true }
-            withAnimation(.linear(duration: 1.1).delay(0.6).repeatForever(autoreverses: false).speed(0.4)) { shine = true }
-        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(stage.name), \(stage.met) of \(stage.total) words found")
     }
@@ -193,6 +209,15 @@ struct VocabStageNode: View {
                 .background(VocabLook.boss, in: .circle)
                 .shadow(color: VocabLook.boss.opacity(0.5), radius: 4)
                 .offset(x: size * 0.08, y: -size * 0.08)
+        case .skipped:
+            // Passed by, with the crown still to win.
+            Image(systemName: "bolt.fill")
+                .font(.system(size: size * 0.20, weight: .bold))
+                .foregroundStyle(VocabLook.boss)
+                .frame(width: size * 0.38, height: size * 0.38)
+                .background(Color(light: .white, dark: Color(white: 0.14)), in: .circle)
+                .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+                .offset(x: size * 0.08, y: -size * 0.08)
         case .none, .locked:
             EmptyView()
         }
@@ -201,88 +226,69 @@ struct VocabStageNode: View {
 
 // MARK: - On Vocab's first screen
 
-/// Where they are on the path: the stage they're on, the whole way as a
-/// strip, a boss round if one's waiting, and the way in to the map.
-struct VocabPathCard: View {
+extension VocabPath {
+    /// What the way into a session is called: it's the next stretch of the climb.
+    func startTitle(inProgress: Bool) -> String {
+        guard let stage = current else { return inProgress ? "Keep going" : "Practice" }
+        return inProgress ? "Keep climbing \(stage.name)" : "Climb \(stage.name)"
+    }
+}
+
+/// The way on from the path, one button: a session, or, when a boss is in
+/// the way, its round.
+struct VocabStartButtons: View {
     let path: VocabPath
-    /// Takes on a stage's boss.
+    let inProgress: Bool
+    /// Today's ten minutes are done: another session is extra.
+    var done = false
+    let starting: Bool
+    let start: () -> Void
     let fight: (VocabStage) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if let stage = path.current {
-                HStack(spacing: 16) {
-                    VocabStageNode(stage: stage, current: true, size: 76)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Stage \(stage.number) of \(path.stages.count)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                        Text(stage.name).font(.title2.weight(.bold))
-                        Text(left(stage)).foregroundStyle(.secondary)
-                    }
-                }
-            } else if let top = path.stages.last {
-                HStack(spacing: 16) {
-                    VocabStageNode(stage: top, size: 76)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("The summit").font(.title2.weight(.bold))
-                        Text("Every word found. Now turn them all gold.").foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            // The whole way up, a mark a stage.
-            HStack(spacing: 3) {
-                ForEach(path.stages) { stage in
-                    Capsule()
-                        .fill(stage.gold ? VocabLook.gold : stage.cleared ? VocabLook.right
-                              : stage.number == path.current?.number ? TuttlesLook.accent : Color.primary.opacity(0.10))
-                        .frame(height: 8)
-                }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(path.stages.filter(\.cleared).count) of \(path.stages.count) stages cleared")
-
-            if let stage = path.bossReady {
-                Button { fight(stage) } label: {
-                    Label("Boss round: \(stage.name)", systemImage: "bolt.fill")
+        VStack(spacing: 10) {
+            if let boss = path.bossReady {
+                Button { fight(boss) } label: {
+                    Label("Boss round: \(boss.name)", systemImage: "bolt.fill")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 36)
+                        .frame(height: 40)
                 }
                 .buttonStyle(.glassProminent)
                 .tint(VocabLook.boss)
+            } else if done, !inProgress {
+                Button(action: start) { label("Do another", tint: nil) }
+                    .buttonStyle(.glass)
+                    .disabled(starting)
+            } else {
+                Button(action: start) { label(path.startTitle(inProgress: inProgress), tint: .white) }
+                    .buttonStyle(.glassProminent)
+                    .tint(TuttlesLook.accent)
+                    .disabled(starting)
             }
-
-            Divider()
-            NavigationLink(value: Route.vocabPath) {
-                HStack {
-                    Label("See the whole path", systemImage: "map.fill")
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
-                }
-                .font(.body.weight(.medium))
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
         }
-        .padding(20)
-        .vocabGlass()
     }
 
-    private func left(_ stage: VocabStage) -> String {
-        let left = stage.total - stage.met
-        if stage.met == 0 { return "\(stage.total) words to find." }
-        return "\(stage.met) of \(stage.total) found, \(left) to go."
+    private func label(_ title: String, tint: Color?) -> some View {
+        HStack(spacing: 8) {
+            if starting { ProgressView().tint(tint) }
+            Text(title).font(.headline)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: tint == nil ? 34 : 40)
     }
 }
 
 // MARK: - The whole path
 
 /// The map: every stage from the trailhead at the bottom to the summit, which
-/// is the test. Tap a stage for its words; a cleared one offers its boss.
-struct VocabPathView: View {
-    @Environment(ChatStore.self) private var store
-    @State private var run: VocabRun?
-    @State private var open: VocabStage?
+/// is the test. It's Vocab's first screen for a kid (VocabViews.swift), opened
+/// on the stage they're on. Tapping a stage opens it.
+struct VocabMap: View {
+    let path: VocabPath
+    /// Days until the ISEE.
+    let daysLeft: Int
+    let open: (VocabStage) -> Void
 
     private static let rowHeight: CGFloat = 118
     private static let node: CGFloat = 78
@@ -290,54 +296,25 @@ struct VocabPathView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                if let home = store.vocab, let path = home.path {
-                    VStack(spacing: 0) {
-                        summit(home.daysLeft)
-                        ForEach(path.stages.reversed()) { stage in
-                            row(stage, path).id(stage.number)
-                        }
+                VStack(spacing: 0) {
+                    summit(daysLeft)
+                    ForEach(path.stages.reversed()) { stage in
+                        row(stage, path).id(stage.number)
                     }
-                    .padding(.vertical, 24)
-                    .vocabColumn()
-                } else {
-                    ContentUnavailableView("No path yet", systemImage: "map",
-                                           description: Text("Your path shows up once this phone has your words."))
-                        .padding(.top, 80)
                 }
+                .padding(.vertical, 24)
+                .vocabColumn()
             }
             .defaultScrollAnchor(.bottom)
             .onAppear {
-                // Open on the stage they're on.
-                if let number = store.vocab?.path?.current?.number { proxy.scrollTo(number, anchor: .center) }
+                if let number = path.current?.number { proxy.scrollTo(number, anchor: .center) }
+            }
+            // On to a new stage: follow them up.
+            .onChange(of: path.current?.number) { _, number in
+                if let number { withAnimation(.smooth) { proxy.scrollTo(number, anchor: .center) } }
             }
         }
-        .scrollContentBackground(.hidden)
-        .background { VocabBackdrop() }
-        .navigationTitle("Your path")
-        .inlineTitle()
-        .kidUsing(store.actingKid)
-        .task { if store.vocab == nil { await store.refreshVocab() } }
-        .sheet(item: $open) { stage in
-            VocabStageSheet(stage: stage, current: store.vocab?.path?.current?.number == stage.number) {
-                open = nil
-                fight(stage)
-            }
-        }
-        .cover(item: $run) { run in
-            VocabSessionView(run: run)
-        }
-        .onChange(of: run == nil) { _, closed in
-            if closed {
-                store.vocabStopPlaying()
-                Task { await store.refreshVocab() }
-            }
-        }
-        .animation(.default, value: store.vocab?.path)
-    }
-
-    private func fight(_ stage: VocabStage) {
-        guard let state = store.vocabBeginBoss(stage: stage.number) else { return }
-        run = VocabRun(store: store, state: state)
+        .animation(.default, value: path)
     }
 
     /// How far left or right of the middle a stage sits: the path winds.
@@ -350,7 +327,7 @@ struct VocabPathView: View {
         let right = x < 0
         let width: CGFloat = 132
         return ZStack {
-            Button { open = stage } label: {
+            Button { open(stage) } label: {
                 VocabStageNode(stage: stage, current: isCurrent, size: Self.node)
             }
             .buttonStyle(.plain)
@@ -383,8 +360,11 @@ struct VocabPathView: View {
     }
 
     private func caption(_ stage: VocabStage, current: Bool) -> String {
-        if stage.boss == .ready { return "Boss round ready" }
-        if stage.gold { return "All \(stage.total) mastered" }
+        if stage.boss == .ready { return "Beat the boss to go on" }
+        if stage.gold {
+            let slipped = stage.total - stage.mastered
+            return slipped == 0 ? "All \(stage.total) mastered" : "Gold · \(slipped) back in practice"
+        }
         if stage.cleared { return "\(stage.mastered) of \(stage.total) mastered" }
         if current || stage.met > 0 { return "\(stage.met) of \(stage.total) found" }
         return "\(stage.total) words"
@@ -422,7 +402,7 @@ private struct VocabTrail: Shape {
 // MARK: - A stage's words
 
 /// A stage opened up: the words found in it, coloured by how they stand, and its boss.
-private struct VocabStageSheet: View {
+struct VocabStageSheet: View {
     let stage: VocabStage
     let current: Bool
     let fight: () -> Void
@@ -488,10 +468,12 @@ private struct VocabStageSheet: View {
 
     @ViewBuilder private var boss: some View {
         switch stage.boss {
-        case .ready:
+        case .ready, .skipped:
             VStack(alignment: .leading, spacing: 12) {
                 Label("Boss round", systemImage: "bolt.fill").font(.headline).foregroundStyle(VocabLook.boss)
-                Text("The trickiest words from here, against the clock, with no \"Don't know\". Get 8 in 10 right to win the crown.")
+                Text(stage.boss == .skipped
+                     ? "You've gone on without it, but the crown is still here to win. The trickiest words from here, against the clock, with no \"Don't know\"."
+                     : "Beat it to open the next stage. The trickiest words from here, against the clock, with no \"Don't know\". In a full round you can miss one.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Button(action: fight) {

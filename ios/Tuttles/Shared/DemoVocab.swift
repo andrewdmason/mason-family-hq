@@ -5,7 +5,6 @@ import Foundation
 /// questions from its end, to get to the last screen, `--vocab-slow` makes
 /// every answer take two seconds to save, as on a bad connection, 
 /// `--vocab-second` has today's session done and a second one under way,
-/// `--vocab-sort` opens on sorting out the words known already,
 /// `--vocab-offline` plays the way the real app does, on the phone with
 /// nothing to reach (VocabOffline.swift), over a few made-up words, and
 /// `--vocab-path` is that with some of the path walked already: a gold stage
@@ -159,7 +158,7 @@ enum DemoVocab {
                 : .init(ms: first?.elapsedMs ?? 0, goalMs: limit, done: false))
     }
 
-    /// Words for the sort, commonest first, each with a near-synonym for its question.
+    /// Made-up words, commonest first, each with a near-synonym for its question.
     private static let sortWords: [(String, String)] = [
         ("happy", "glad"), ("large", "big"), ("begin", "start"), ("quick", "fast"), ("angry", "mad"),
         ("simple", "easy"), ("silent", "quiet"), ("brave", "bold"), ("ancient", "very old"), ("assist", "help"),
@@ -171,25 +170,6 @@ enum DemoVocab {
         ("arid", "dry"), ("brisk", "lively"), ("cunning", "sly"), ("dwindle", "lessen"), ("feeble", "weak"),
         ("obstinate", "stubborn"), ("lucid", "clear"), ("prudent", "wise"), ("tedious", "boring"), ("vivid", "bright"),
     ]
-
-    static func sortPage(after: Int?) -> VocabSortPage? {
-        let from = after ?? 0
-        let rest = Array(sortWords.enumerated().dropFirst(from).prefix(20))
-        guard !rest.isEmpty else { return nil }
-        let words = rest.map { index, word in
-            // The right answer among three other words' meanings, in a place that moves about.
-            let right = index % 4
-            var choices = (1...3).map { sortWords[(index + $0 * 7) % sortWords.count].1 }
-            choices.insert(word.1, at: right)
-            let key = VocabQuestion.Key(correctIndex: right, whys: choices.indices.map { $0 == right ? nil : "That's another word's meaning." },
-                                        masteredIfRight: false, tip: "Try it in a sentence of your own.", title: word.0, pos: nil,
-                                        meaning: word.1, example: nil, hook: "", parts: [])
-            return VocabSortPage.Word(id: "w:\(word.0)", title: word.0,
-                                      question: VocabQuestion(position: 1, total: 1, kind: .syn, stem: word.0.uppercased(), choices: choices,
-                                                              isNew: true, allowDontKnow: true, key: key))
-        }
-        return VocabSortPage(words: words, through: from + words.count, left: sortWords.count - from)
-    }
 
     /// Vocab kept on the phone, as after a first sync, with the website out of reach ever since.
     static func local(path: Bool = false) -> VocabLocal? {
@@ -231,7 +211,7 @@ enum DemoVocab {
             return VocabProgress(item: word.id, stage: stage, dueOn: stage >= 3 ? VocabDay.add(today, 30) : today, fast: known,
                                  firstSeenOn: before, lastSeenOn: before, lastCorrectOn: stage > 0 ? before : nil,
                                  correctDays: stage, formsRight: stage > 0 ? ["syn1"] : [], lastForm: "syn1", seen: known ? 1 : 3,
-                                 rightCount: known ? 1 : stage, wrongCount: known ? 0 : 1, dontknowCount: 0,
+                                 rightCount: known ? 1 : stage, wrongCount: known ? 0 : stage <= 1 ? 3 : 1, dontknowCount: 0,
                                  masteredAt: stage >= 3 ? "2026-11-21T20:00:00.000Z" : nil, removedAt: nil)
         }
     }
