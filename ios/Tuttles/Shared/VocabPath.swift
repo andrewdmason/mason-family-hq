@@ -249,8 +249,11 @@ struct VocabStartButtons: View {
         VStack(spacing: 10) {
             if let boss = path.bossReady {
                 Button { fight(boss) } label: {
-                    Label("Boss round: \(boss.name)", systemImage: "bolt.fill")
+                    // Whoever's in the way, by name.
+                    Text("\(boss.character.face)  Take on \(boss.character.name)")
                         .font(.headline)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                         .frame(maxWidth: .infinity)
                         .frame(height: 40)
                 }
@@ -360,7 +363,7 @@ struct VocabMap: View {
     }
 
     private func caption(_ stage: VocabStage, current: Bool) -> String {
-        if stage.boss == .ready { return "Beat the boss to go on" }
+        if stage.boss == .ready { return "Beat \(stage.character.name) to go on" }
         if stage.gold {
             let slipped = stage.total - stage.mastered
             return slipped == 0 ? "All \(stage.total) mastered" : "Gold · \(slipped) back in practice"
@@ -470,14 +473,20 @@ struct VocabStageSheet: View {
         switch stage.boss {
         case .ready, .skipped:
             VStack(alignment: .leading, spacing: 12) {
-                Label("Boss round", systemImage: "bolt.fill").font(.headline).foregroundStyle(VocabLook.boss)
+                HStack(spacing: 12) {
+                    Text(stage.character.face).font(.system(size: 44)).accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("The boss").font(.caption.weight(.semibold)).foregroundStyle(VocabLook.bossText)
+                        Text(stage.character.fullName).font(.headline)
+                    }
+                }
                 Text(stage.boss == .skipped
                      ? "You've gone on without it, but the crown is still here to win. The trickiest words from here, against the clock, with no \"Don't know\"."
                      : "Beat it to open the next stage. The trickiest words from here, against the clock, with no \"Don't know\". In a full round you can miss one.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Button(action: fight) {
-                    Text("Take on the boss").font(.headline).frame(maxWidth: .infinity).frame(height: 36)
+                    Text("Take on \(stage.character.name)").font(.headline).frame(maxWidth: .infinity).frame(height: 36)
                 }
                 .buttonStyle(.glassProminent)
                 .tint(VocabLook.boss)
@@ -485,7 +494,7 @@ struct VocabStageSheet: View {
             .padding(18)
             .vocabGlass(tint: VocabLook.boss.opacity(0.12), radius: 22)
         case .beaten:
-            Label("Boss beaten", systemImage: "crown.fill")
+            Label("\(stage.character.fullName): beaten", systemImage: "crown.fill")
                 .font(.headline)
                 .foregroundStyle(VocabLook.amberText)
         case .locked:

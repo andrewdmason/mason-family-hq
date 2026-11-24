@@ -9,6 +9,8 @@ import SwiftUI
 struct VocabSessionView: View {
     let run: VocabRun
     @Environment(\.dismiss) private var dismiss
+    /// The boss round whose boss has made their entrance (VocabBosses.swift).
+    @State private var introduced: String?
 
     private var mood: VocabMood {
         if run.summary != nil { return .done }
@@ -25,8 +27,18 @@ struct VocabSessionView: View {
                     .transition(.opacity)
                     // Each finish is its own, so a second go at a boss celebrates (or not) afresh.
                     .id(run.shown)
+            } else if let boss = run.boss, let question = run.question, question.position == 1, run.picked == nil,
+                      introduced != run.state.sessionId {
+                // A boss round opens on its boss. The clock waits for them.
+                VocabBossIntro(boss: boss, begin: {
+                    run.startClock()
+                    withAnimation(.snappy) { introduced = run.state.sessionId }
+                }, close: { dismiss() })
+                    .transition(.opacity)
+                    .id(run.state.sessionId)
             } else if let question = run.question {
                 VocabQuestionView(run: run, question: question, close: { dismiss() })
+                    .transition(.opacity)
             }
         }
         .animation(.default, value: run.summary != nil)
@@ -539,7 +551,7 @@ private struct VocabSummaryView: View {
                 } else if let stage = summary.bossWaiting {
                     // A boss is in the way: it's the way on.
                     Button { fight(stage) } label: {
-                        Label("Take on the boss", systemImage: "bolt.fill").font(.headline).frame(maxWidth: .infinity).frame(height: 40)
+                        Label("Take on \(VocabBossCharacter.of(stage: stage).name)", systemImage: "bolt.fill").font(.headline).frame(maxWidth: .infinity).frame(height: 40)
                     }
                     .buttonStyle(.glassProminent)
                     .tint(VocabLook.boss)
@@ -584,14 +596,31 @@ private struct VocabSummaryView: View {
     /// How a boss round came out: the crown, or how close it was.
     private func bossHeader(_ boss: VocabBoss, _ goal: VocabOverview.Goal?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Image(systemName: boss.beaten ? "crown.fill" : "bolt.fill")
-                .font(.system(size: 54))
-                .foregroundStyle(boss.beaten ? AnyShapeStyle(VocabLook.gold.gradient) : AnyShapeStyle(VocabLook.boss.gradient))
-                .symbolEffect(.bounce, value: moved)
-                .scaleEffect(moved ? 1 : 0.4)
-                .padding(.bottom, 6)
-            Text(boss.beaten ? "Boss beaten!" : "The boss got away")
+            // Them: knocked flat with the crown on your side of it, or looking pleased with themselves.
+            HStack(alignment: .bottom, spacing: 10) {
+                Text(boss.character.face)
+                    .font(.system(size: 64))
+                    .rotationEffect(.degrees(boss.beaten && moved ? 180 : 0))
+                    .opacity(boss.beaten ? 0.85 : 1)
+                    .scaleEffect(moved ? 1 : 0.4)
+                if boss.beaten {
+                    Image(systemName: "crown.fill")
+                        .font(.system(size: 46))
+                        .foregroundStyle(VocabLook.gold.gradient)
+                        .symbolEffect(.bounce, value: moved)
+                        .scaleEffect(moved ? 1 : 0.4)
+                }
+            }
+            .padding(.bottom, 6)
+            .accessibilityHidden(true)
+            Text(boss.beaten ? "\(boss.character.name) is beaten!" : "\(boss.character.name) got away")
                 .font(.system(.largeTitle, design: .serif).weight(.semibold))
+                .minimumScaleFactor(0.7)
+                .lineLimit(2)
+            // What they have to say about it.
+            if boss.beaten {
+                Text("“\(boss.character.sore)”").font(.title3).italic().foregroundStyle(.secondary)
+            }
             Text(boss.beaten ? "\(boss.name) is yours: \(boss.correct) of \(boss.total) right."
                  : boss.correct < boss.answered ? "\(boss.spare > 0 ? "Two misses" : "A miss") and it's gone. It takes \(boss.needed) of \(boss.total) right to win \(boss.name)."
                  : "You left before the end. It takes \(boss.needed) of \(boss.total) right to win \(boss.name).")

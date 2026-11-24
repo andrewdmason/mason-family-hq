@@ -158,8 +158,15 @@ struct VocabBossBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 5) {
-                Image(systemName: "bolt.fill").symbolEffect(.bounce, value: boss.correct)
-                Text(boss.hitsLeft == 0 ? "Boss beaten!" : "Boss · \(boss.hitsLeft) to go")
+                // Them, flinching at each hit.
+                Text(boss.character.face)
+                    .font(.system(size: 17))
+                    .scaleEffect(1.25)
+                    .modifier(VocabShake(travel: 4, animatableData: CGFloat(boss.correct)))
+                    .accessibilityHidden(true)
+                Text(boss.hitsLeft == 0 ? "\(boss.character.name) is beaten!" : "\(boss.character.name) · \(boss.hitsLeft) to go")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                     .contentTransition(.numericText(value: Double(boss.hitsLeft)))
                 Spacer(minLength: 4)
                 // The miss it allows, while it's still to spend.
@@ -189,7 +196,7 @@ struct VocabBossBar: View {
         }
         .animation(.spring(duration: 0.45, bounce: 0.3), value: boss.correct)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Boss round, \(boss.hitsLeft) more right answers to win")
+        .accessibilityLabel("Boss round against \(boss.character.fullName), \(boss.hitsLeft) more right answers to win")
     }
 }
 
