@@ -27,6 +27,7 @@ function session(v: unknown): OfflineSession | null {
     noDontKnow: s.noDontKnow === true,
     startedAt: s.startedAt,
     finishedAt: (s.finishedAt as string | null | undefined) ?? null,
+    boss: whole(s.boss, 1, 100) ? s.boss : null,
   };
 }
 
@@ -56,7 +57,7 @@ function answer(v: unknown): OfflineAnswer | null {
  *
  *   POST { content, sessions, answers }
  *     content    the version of the words the phone holds, or null
- *     sessions   [{ id, day, total, limitMs, noDontKnow, startedAt, finishedAt }]
+ *     sessions   [{ id, day, total, limitMs, noDontKnow, startedAt, finishedAt, boss }]
  *     answers    [{ session, position, item, form, chosen, result, ms, at }]
  *   → Pack: the words (when the phone's aren't these), the schedule's numbers,
  *     the kid's progress and their sessions.

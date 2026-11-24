@@ -304,4 +304,109 @@ final class VocabLocalTests: XCTestCase {
         XCTAssertNotEqual(tomorrow.sessionId, first.sessionId)
         XCTAssertEqual(local.sessions.first?.day, "2026-11-24")
     }
+    // MARK: The path and its boss rounds
+
+    /// The first stage (of five words, here) found: three known at first sight, two that took learning.
+    private func firstStageFound() -> [VocabProgress] {
+        (1...5).map { n in
+            let known = n <= 3
+            return VocabProgress(item: "w:w00\(n)", stage: known ? 3 : 1, dueOn: "2026-12-30", fast: known, firstSeenOn: "2026-11-20",
+                                 lastSeenOn: "2026-11-21", lastCorrectOn: "2026-11-21", correctDays: 1, formsRight: ["syn1"], lastForm: "syn1",
+                                 seen: known ? 1 : 3, rightCount: 1, wrongCount: known ? 0 : 2, dontknowCount: 0,
+                                 masteredAt: known ? "2026-11-20T20:00:00.000Z" : nil, removedAt: nil)
+        }
+    }
+
+    /// A stage is cleared once its words are all found, and then has a boss
+    /// round on the ones that took learning. Winning it is kept, and goes up.
+    func testAStageAndItsBoss() throws {
+        let local = try XCTUnwrap(VocabLocal.start(in: folder, with: pack(progress: firstStageFound())))
+        local.stageSize = 5
+        var path = local.path()
+        XCTAssertEqual(path.stages.count, 28)
+        XCTAssertTrue(path.stages[0].cleared)
+        XCTAssertFalse(path.stages[0].gold)
+        XCTAssertEqual(path.stages[0].boss, .ready)
+        XCTAssertEqual(path.stages[1].boss, .locked)
+        XCTAssertEqual(path.current?.number, 2)
+
+        // Only the two that took learning: a word known at first sight is never asked again.
+        var state = try XCTUnwrap(local.beginBoss(stage: 1, now: noon))
+        XCTAssertEqual(state.question?.total, 2)
+        XCTAssertEqual(state.question?.allowDontKnow, false)
+        XCTAssertEqual(state.boss?.hitsLeft, 2)
+        state = try XCTUnwrap(local.answer(session: state.sessionId, position: 1, choice: state.question?.key?.correctIndex, ms: 4_000, now: noon))
+        XCTAssertEqual(state.boss?.hitsLeft, 1)
+        // Still being played: the website doesn't hear of it yet.
+        XCTAssertTrue(local.sending().sessions.isEmpty)
+        XCTAssertTrue(local.sending().answers.isEmpty)
+        state = try XCTUnwrap(local.answer(session: state.sessionId, position: 2, choice: state.question?.key?.correctIndex, ms: 4_000, now: noon))
+        XCTAssertEqual(state.summary?.boss?.beaten, true)
+
+        path = local.path()
+        XCTAssertEqual(path.stages[0].boss, .beaten)
+        let sent = local.sending()
+        XCTAssertEqual(sent.sessions.map(\.boss), [1])
+        XCTAssertEqual(sent.answers.count, 2)
+        // Its time counts toward the day like any other session's.
+        XCTAssertEqual(local.home(now: noon).overview?.day?.ms, 8_000)
+
+        // Still beaten once the website's copy of the session is all there is.
+        local.took(sent, reply: try reply(to: sent, from: local))
+        XCTAssertEqual(local.path().stages[0].boss, .beaten)
+        XCTAssertEqual(try XCTUnwrap(VocabLocal.load(from: folder)).sessions.first?.boss, 1)
+    }
+
+    /// A boss round is one go: left part-way it's over and not won, and
+    /// today's ordinary session doesn't pick it up.
+    func testABossLeftPartWay() throws {
+        let local = try XCTUnwrap(VocabLocal.start(in: folder, with: pack(progress: firstStageFound())))
+        local.stageSize = 5
+        var state = try XCTUnwrap(local.beginBoss(stage: 1, now: noon))
+        let boss = state.sessionId
+        // A miss doesn't come round again in a boss round.
+        let wrong = (0..<4).first { $0 != state.question?.key?.correctIndex }
+        state = try XCTUnwrap(local.answer(session: boss, position: 1, choice: wrong, ms: 4_000, now: noon))
+        XCTAssertEqual(state.question?.position, 2)
+
+        let session = local.begin(now: noon)
+        XCTAssertNotEqual(session.sessionId, boss)
+        XCTAssertEqual(session.question?.total, 5)
+        XCTAssertNil(session.boss)
+        XCTAssertEqual(local.path().stages[0].boss, .ready)
+        XCTAssertEqual(local.sending().sessions.first { $0.id == boss }?.isFinished, true)
+
+        // One opened and never answered was never played.
+        _ = try XCTUnwrap(local.beginBoss(stage: 1, now: noon))
+        local.endBosses(now: noon)
+        XCTAssertEqual(local.sessions.filter { $0.boss != nil }.count, 1)
+    }
+
+    /// A stage whose words were all known at first sight has no boss, and a
+    /// session's end says how far it took them along the stage it started in.
+    func testTheClimb() throws {
+        let known = firstStageFound().map { p -> VocabProgress in
+            var p = p
+            p.stage = 3
+            p.fast = true
+            return p
+        }
+        let local = try XCTUnwrap(VocabLocal.start(in: folder, with: pack(progress: known)))
+        local.stageSize = 5
+        XCTAssertEqual(local.path().stages[0].boss, VocabStage.Boss.none)
+        XCTAssertTrue(local.path().stages[0].gold)
+        XCTAssertNil(local.beginBoss(stage: 1, now: noon))
+
+        var state = local.begin(now: noon)
+        var position = 1
+        while let question = state.question {
+            state = try XCTUnwrap(local.answer(session: state.sessionId, position: position, choice: question.key?.correctIndex, ms: 5_000, now: noon))
+            position += 1
+        }
+        let climb = try XCTUnwrap(state.summary?.climb)
+        XCTAssertEqual(climb.stage.number, 2)
+        XCTAssertEqual(climb.metBefore, 0)
+        XCTAssertEqual(climb.found, climb.stage.met)
+        XCTAssertGreaterThan(climb.found, 0)
+    }
 }

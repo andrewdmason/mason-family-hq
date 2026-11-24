@@ -5,9 +5,11 @@ import Foundation
 /// questions from its end, to get to the last screen, `--vocab-slow` makes
 /// every answer take two seconds to save, as on a bad connection, 
 /// `--vocab-second` has today's session done and a second one under way,
-/// `--vocab-sort` opens on sorting out the words known already, and
+/// `--vocab-sort` opens on sorting out the words known already,
 /// `--vocab-offline` plays the way the real app does, on the phone with
-/// nothing to reach (VocabOffline.swift), over a few made-up words.
+/// nothing to reach (VocabOffline.swift), over a few made-up words, and
+/// `--vocab-path` is that with some of the path walked already: a gold stage
+/// with its boss beaten, one with its boss waiting, and one part-way through.
 @MainActor
 enum DemoVocab {
     private struct Card {
@@ -190,7 +192,7 @@ enum DemoVocab {
     }
 
     /// Vocab kept on the phone, as after a first sync, with the website out of reach ever since.
-    static func local() -> VocabLocal? {
+    static func local(path: Bool = false) -> VocabLocal? {
         let words = sortWords.enumerated().map { index, word in
             let others = { (step: Int) in
                 (1...3).map { VocabItem.Trap(text: sortWords[(index + $0 * step) % sortWords.count].1, why: "That's another word's meaning.") }
@@ -208,9 +210,43 @@ enum DemoVocab {
                                  dayGoalMs: limit, questionMaxMs: 60_000, dayGoalFrom: "2026-11-22")
         let pack = VocabPack(content: VocabContent(version: "demo", level: .lower, words: words, parts: []), contentVersion: "demo",
                              rules: rules, tz: "America/Los_Angeles", name: "Oscar", level: .lower, questions: 8, limitMs: limit,
-                             progress: [], sessions: [], sort: .init(done: true, through: 0))
+                             progress: path ? walked(words) : [], sessions: path ? [beatenBoss] : [],
+                             sort: .init(done: true, through: 0))
         let folder = FileManager.default.temporaryDirectory.appending(path: "tuttles-demo-vocab-\(UUID().uuidString)")
-        return VocabLocal.start(in: folder, with: pack)
+        let local = VocabLocal.start(in: folder, with: pack)
+        // Stages of five, so these few words make a path worth looking at.
+        if path { local?.stageSize = 5 }
+        return local
+    }
+
+    /// The first 14 words as someone a few days in would have them: five
+    /// mastered, five met with two still being learned, four of the next five found.
+    private static func walked(_ words: [VocabItem]) -> [VocabProgress] {
+        let today = VocabDay.of(Date(), zone: "America/Los_Angeles")
+        let before = VocabDay.add(today, -3)
+        return words.prefix(14).enumerated().map { index, word in
+            // Known at first sight, mostly; a few that took (or are taking) learning.
+            let stage: Int = [2: 3, 6: 2, 8: 1, 11: 0, 13: 1][index] ?? 3
+            let known = ![2, 6, 8, 11, 13].contains(index)
+            return VocabProgress(item: word.id, stage: stage, dueOn: stage >= 3 ? VocabDay.add(today, 30) : today, fast: known,
+                                 firstSeenOn: before, lastSeenOn: before, lastCorrectOn: stage > 0 ? before : nil,
+                                 correctDays: stage, formsRight: stage > 0 ? ["syn1"] : [], lastForm: "syn1", seen: known ? 1 : 3,
+                                 rightCount: known ? 1 : stage, wrongCount: known ? 0 : 1, dontknowCount: 0,
+                                 masteredAt: stage >= 3 ? "2026-11-21T20:00:00.000Z" : nil, removedAt: nil)
+        }
+    }
+
+    /// The first stage's boss round, won a few days ago.
+    private static var beatenBoss: VocabLocalSession {
+        let day = VocabDay.add(VocabDay.of(Date(), zone: "America/Los_Angeles"), -2)
+        var session = VocabLocalSession(id: "00000000-0000-0000-0000-0000000000b1", day: day, total: 5, limitMs: 75_000,
+                                        noDontKnow: true, startedAt: "\(day)T20:00:00.000Z")
+        session.answered = 5
+        session.correct = 5
+        session.elapsedMs = 41_000
+        session.finishedAt = "\(day)T20:01:00.000Z"
+        session.boss = 1
+        return session
     }
 
     static func home(parent: Bool, kid: String?) -> VocabHome {

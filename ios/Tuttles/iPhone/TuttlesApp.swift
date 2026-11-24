@@ -174,6 +174,8 @@ struct ChatsView: View {
             VocabHomeView(path: $path).menuButton(isRoot)
         case .vocabList(let kid, let name):
             VocabListView(kid: kid, name: name).menuButton(isRoot)
+        case .vocabPath:
+            VocabPathView().menuButton(isRoot)
         }
     }
 
