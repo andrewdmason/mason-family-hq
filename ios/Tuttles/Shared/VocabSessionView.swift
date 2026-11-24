@@ -2,7 +2,8 @@ import AVFoundation
 import SwiftUI
 
 // A Vocab session on screen: the clock and how far along at the top, one
-// question on glass, and after a miss the word laid out to learn from. It
+// question on glass, and after a miss the word laid out to learn from, over
+// the top of it, with a few seconds before there's a way on. It
 // takes over the screen, so there's nothing to wander off to; closing it
 // keeps the session, which picks up where it was.
 
@@ -69,7 +70,7 @@ private struct VocabQuestionView: View {
     private var last: Bool { run.pending.map { $0.summary != nil } ?? (question.position >= question.total) }
 
     var body: some View {
-        ScrollViewReader { proxy in
+        ScrollViewReader { _ in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     stem
@@ -82,13 +83,6 @@ private struct VocabQuestionView: View {
                     }
                     .padding(.top, 24)
                     below
-                    if let missed {
-                        lesson(missed)
-                            .padding(.top, 18)
-                            .padding(.bottom, 14)
-                            .id("lesson")
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 20)
@@ -108,43 +102,27 @@ private struct VocabQuestionView: View {
                         try? await Task.sleep(for: .seconds(feedback.mastered ? 1.0 : 0.45))
                         if run.shown == shown { withAnimation(.snappy) { run.advance() } }
                     }
-                } else {
-                    // Once the card is laid out, bring it up from under the Next button.
-                    Task {
-                        try? await Task.sleep(for: .seconds(0.25))
-                        withAnimation(.smooth) { proxy.scrollTo("lesson", anchor: .bottom) }
-                    }
                 }
             }
         }
         // A bar, so what scrolls up under it blurs away rather than running into the clock.
         .safeAreaBar(edge: .top, spacing: 0) { bar }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if missed != nil {
-                Button {
-                    withAnimation(.snappy) { run.advance() }
-                } label: {
-                    Group {
-                        // The next question is nearly always here already; on a slow line it's a moment behind.
-                        if run.wantsNext, !run.failed {
-                            ProgressView()
-                        } else {
-                            Text(run.failed ? "Try again" : last ? "Finish" : "Next").font(.headline)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 40)
+        // A miss: the word comes up over the question, to be read before going on.
+        .overlay {
+            if let missed {
+                VocabMissModal(waiting: run.wantsNext && !run.failed,
+                               // (The miss that ends a boss round: on to how it came out.)
+                               title: run.failed ? "Try again" : !last ? "Next" : run.boss != nil ? "See how it went" : "Finish",
+                               next: { withAnimation(.snappy) { run.advance() } }) {
+                    lesson(missed)
                 }
-                .disabled(run.wantsNext && !run.failed)
-                .buttonStyle(.glassProminent)
-                .tint(TuttlesLook.accent)
-                .keyboardShortcut(.defaultAction)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 8)
-                .vocabColumn()
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                // Each miss has its own, with its own five seconds.
+                .id(run.shown)
+                .transition(.opacity)
             }
         }
+        // (A moment after the answer, so they see which choice was right first.)
+        .animation(.easeOut(duration: 0.25).delay(run.feedback == nil ? 0 : 0.7), value: missed != nil)
         .animation(.snappy, value: run.feedback)
         .animation(.snappy, value: run.crossed)
     }
@@ -258,11 +236,17 @@ private struct VocabQuestionView: View {
                 }
             }
             if question.kind == .syn {
-                Text(question.stem)
-                    .font(.system(size: 40, weight: .semibold, design: .serif))
-                    .kerning(1.5)
-                    .minimumScaleFactor(0.6)
-                    .lineLimit(1)
+                HStack(spacing: 12) {
+                    Text(question.stem)
+                        .font(.system(size: 40, weight: .semibold, design: .serif))
+                        .kerning(1.5)
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    // Hearing it is half of knowing it. (Only here, where the word is the question: in a
+                    // sentence to complete, the word is the answer.)
+                    VocabSpeakButton(word: question.key?.title ?? question.stem.lowercased())
+                }
             } else {
                 Text(question.stem).font(.title3.weight(.medium)).lineSpacing(5)
             }
@@ -408,21 +392,157 @@ private struct VocabQuestionView: View {
         }
     }
 
-    /// After a miss: the word, why their pick was wrong, and what to try next time.
+    /// After a miss: that it was one, then the word and what it means above
+    /// everything else, their pick and why it was wrong in a line, and one
+    /// thing to hold on to for next time.
     private func lesson(_ feedback: VocabFeedback) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            VocabWordCard(title: feedback.title, pos: feedback.pos, meaning: feedback.meaning, example: feedback.example,
-                          hook: feedback.hook, parts: feedback.parts, speak: feedback.isWord)
-            if let why = feedback.chosenWhy, case .choice(let index) = run.picked, question.choices.indices.contains(index) {
-                Divider()
-                Text("\(Text("Why not \(question.choices[index])? ").fontWeight(.semibold))\(why)").font(.subheadline)
+            Label(run.picked == .dontKnow ? "You didn't know this one" : "Missed", systemImage: "xmark.circle.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(VocabLook.amberText)
+
+            // The thing to remember: the word, and what it means.
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(feedback.title)
+                        .font(.system(.largeTitle, design: .serif).weight(.semibold))
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                    if let pos = feedback.pos { Text(pos).font(.footnote).italic().foregroundStyle(.secondary) }
+                    Spacer(minLength: 0)
+                    if feedback.isWord { VocabSpeakButton(word: feedback.title) }
+                }
+                Text(feedback.meaning)
+                    .font(.title2.weight(.medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                if let example = feedback.example {
+                    Text(example)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 4)
+                }
             }
-            Divider()
-            Text("\(Text("Next time: ").fontWeight(.semibold))\(feedback.tip)").font(.subheadline)
+
+            if !feedback.parts.isEmpty {
+                VocabFlow(spacing: 6) {
+                    ForEach(feedback.parts, id: \.part) { part in
+                        Text("\(Text(part.part).fontWeight(.semibold)) means \(part.meaning)")
+                            .font(.footnote)
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 6)
+                            .background(Color.primary.opacity(0.07), in: .capsule)
+                    }
+                }
+            }
+
+            // What they picked, and why it wasn't it: once, together.
+            if case .choice(let index) = run.picked, question.choices.indices.contains(index) {
+                Text("\(Text("You picked \(question.choices[index]). ").fontWeight(.semibold))\(feedback.chosenWhy ?? "")")
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // One thing to hold on to.
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: "lightbulb.fill").foregroundStyle(VocabLook.amber)
+                VStack(alignment: .leading, spacing: 4) {
+                    if !feedback.hook.isEmpty { Text(feedback.hook) }
+                    Text(feedback.tip).foregroundStyle(feedback.hook.isEmpty ? .primary : .secondary)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .font(.subheadline)
+            .padding(14)
+            .background(VocabLook.amber.opacity(0.13), in: .rect(cornerRadius: 16, style: .continuous))
         }
-        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .vocabGlass()
+    }
+}
+
+/// Says a word out loud.
+struct VocabSpeakButton: View {
+    let word: String
+
+    var body: some View {
+        Button { VocabVoice.say(word) } label: {
+            Image(systemName: "speaker.wave.2.fill").frame(width: 40, height: 40)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .accessibilityLabel("Hear \(word)")
+    }
+}
+
+// MARK: - After a miss
+
+/// The missed word, over the question: what it means, why their pick was
+/// wrong and what to try next time. The way on isn't there for the first five
+/// seconds, so it gets read rather than tapped past.
+private struct VocabMissModal<Lesson: View>: View {
+    /// They've asked for the next question and it isn't here yet.
+    let waiting: Bool
+    let title: String
+    let next: () -> Void
+    @ViewBuilder let lesson: Lesson
+    @State private var opened = Date()
+
+    private static var readFor: Double { 5 }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.5).ignoresSafeArea()
+            VStack(spacing: 18) {
+                // As tall as it needs to be; scrolling only when that's more than the screen.
+                ViewThatFits(in: .vertical) {
+                    lesson
+                    ScrollView { lesson }
+                }
+                TimelineView(.periodic(from: opened, by: 0.05)) { timeline in
+                    let left = Self.readFor - timeline.date.timeIntervalSince(opened)
+                    Button(action: next) {
+                        HStack(spacing: 10) {
+                            if waiting {
+                                ProgressView()
+                            } else {
+                                // The five seconds, as a ring going round with what's left inside it.
+                                if left > 0 {
+                                    ZStack {
+                                        Circle().stroke(Color.primary.opacity(0.18), lineWidth: 3)
+                                        Circle()
+                                            .trim(from: 0, to: min(1, max(0, 1 - left / Self.readFor)))
+                                            .stroke(Color.primary.opacity(0.6), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                                            .rotationEffect(.degrees(-90))
+                                        Text("\(Int(left.rounded(.up)))")
+                                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                                            .monospacedDigit()
+                                    }
+                                    .frame(width: 26, height: 26)
+                                    .accessibilityLabel("\(Int(left.rounded(.up))) seconds")
+                                }
+                                Text(title).font(.headline)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                    }
+                    .disabled(left > 0 || waiting)
+                    .buttonStyle(.glassProminent)
+                    .tint(TuttlesLook.accent)
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(22)
+            // Solid, so the question behind doesn't show through what they're reading.
+            .background(Color(light: Color(red: 0.995, green: 0.985, blue: 0.97), dark: Color(white: 0.15)),
+                        in: .rect(cornerRadius: VocabLook.cardRadius, style: .continuous))
+            .shadow(color: .black.opacity(0.25), radius: 30, y: 12)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 40)
+            .frame(maxWidth: 560)
+        }
+        .accessibilityAddTraits(.isModal)
     }
 }
 
