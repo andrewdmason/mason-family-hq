@@ -303,28 +303,6 @@ final class VocabRulesTests: XCTestCase {
         XCTAssertNil(state.nextIfRight)
     }
 
-    /// The sort: two checks at most, never more than they claim, and it stops at a page mostly unknown.
-    func testSortRules() throws {
-        XCTAssertEqual(VocabRules.sortChecks(known: 17), 2)
-        XCTAssertEqual(VocabRules.sortChecks(known: 1), 1)
-        XCTAssertEqual(VocabRules.sortChecks(known: 0), 0)
-        XCTAssertFalse(VocabRules.sortKeepsPage(misses: 1))
-        XCTAssertTrue(VocabRules.sortKeepsPage(misses: 2))
-        XCTAssertFalse(VocabRules.sortStops(known: 10, of: 20))
-        XCTAssertTrue(VocabRules.sortStops(known: 9, of: 20))
-        XCTAssertFalse(VocabRules.sortStops(known: 3, of: 5))
-
-        let json = #"""
-        {"through":20,"left":431,"words":[{"id":"w:happy","title":"happy","question":
-          {"position":1,"total":1,"kind":"syn","stem":"HAPPY","choices":["sad","glad","mad","odd"],"isNew":true,"allowDontKnow":true,
-           "key":{"correctIndex":1,"whys":["Opposite.",null,null,null],"masteredIfRight":false,"tip":"t","title":"happy","pos":"adjective",
-                  "meaning":"glad","example":null,"hook":"h","parts":[]}}}]}
-        """#
-        let page = try JSONDecoder().decode(VocabSortPage.self, from: Data(json.utf8))
-        XCTAssertEqual(page.words.first?.question.key?.feedback(for: 1).isCorrect, true)
-        XCTAssertEqual(page.words.first?.question.key?.feedback(for: 0).chosenWhy, "Opposite.")
-    }
-
     /// A day with more than one session: each numbered in the order it went,
     /// and from an older website, which tells only the latest, just that one.
     func testSessionsNumbered() throws {

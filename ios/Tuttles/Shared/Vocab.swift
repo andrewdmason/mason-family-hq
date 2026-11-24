@@ -157,23 +157,6 @@ struct VocabHome: Decodable {
     var path: VocabPath? = nil
 }
 
-/// A page of the sort (SortPage in src/lib/words/types.ts): the commonest
-/// words not yet met, to say which of them are known already.
-struct VocabSortPage: Decodable, Hashable {
-    struct Word: Decodable, Hashable, Identifiable {
-        let id: String
-        let title: String
-        /// A question on it, with its answer, for the spot check.
-        let question: VocabQuestion
-    }
-
-    let words: [Word]
-    /// How far down the list this page goes.
-    let through: Int
-    /// Words still to look at, this page included.
-    let left: Int
-}
-
 /// The question on screen.
 struct VocabQuestion: Decodable, Hashable {
     /// Its answer (QuestionKey in src/lib/words/types.ts), for grading it here
@@ -224,6 +207,8 @@ struct VocabQuestion: Decodable, Hashable {
     let allowDontKnow: Bool
     /// Nil from a website that doesn't send it yet: then the answer waits for the website's word.
     var key: Key? = nil
+    /// The stage a review word comes from, when it isn't the one they're on. Only for a session played on the phone.
+    var from: String? = nil
 }
 
 /// What comes back after an answer: how it went, and the word laid out for learning.
@@ -277,6 +262,8 @@ struct VocabSummary: Decodable, Hashable {
     var climb: VocabClimb? = nil
     /// How a boss round came out; nil for an ordinary session.
     var boss: VocabBoss? = nil
+    /// The stage whose boss is in the way now an ordinary session is over.
+    var bossWaiting: Int? = nil
 
     /// Where the day stands now this session is over.
     var day: VocabOverview.Goal? {
@@ -297,6 +284,8 @@ struct VocabState: Decodable, Hashable {
     var nextIfRight: VocabQuestion? = nil
     /// A boss round, and how it stands; nil for an ordinary session.
     var boss: VocabBoss? = nil
+    /// The stage of the path they're on, as it stands. Only for a session played on the phone.
+    var stage: VocabStage? = nil
 }
 
 struct VocabAnswer: Decodable {
@@ -333,16 +322,6 @@ struct VocabList: Decodable {
 // MARK: - The rules that are the website's
 
 enum VocabRules {
-    /// How many of the words they say they know get a real question, to keep it honest.
-    static func sortChecks(known: Int) -> Int { min(2, known) }
-
-    /// One missed check keeps that word in and asks one more; a second says
-    /// they're guessing, and the whole page stays in.
-    static func sortKeepsPage(misses: Int) -> Bool { misses >= 2 }
-
-    /// A page they mostly don't know: from here on the sessions are the better way through.
-    static func sortStops(known: Int, of total: Int) -> Bool { known * 2 < total }
-
     /// "9:41", from milliseconds either side of zero (clock in progress-bits.tsx).
     static func clock(_ ms: Int) -> String {
         let s = abs(ms) / 1000
@@ -493,24 +472,6 @@ extension ChatStore {
         guard status == 200 else { throw SendError.server(Self.vocabError(data)) }
     }
 
-    /// The next page of the sort: from where they'd got to, or after a place in
-    /// the list. Nil when there are no words left to look at.
-    func vocabSortPage(after: Int?) async throws -> VocabSortPage? {
-        if isDemo { return DemoVocab.sortPage(after: after) }
-        struct Reply: Decodable { let page: VocabSortPage? }
-        let query = after.map { [URLQueryItem(name: "after", value: String($0))] } ?? []
-        let (data, status) = try await vocabCall("GET", "tuttles/api/vocab/sort", query: query)
-        guard status == 200 else { throw SendError.server(Self.vocabError(data)) }
-        return try Self.decoder.decode(Reply.self, from: data).page
-    }
-
-    /// A page of the sort is done: these words are skipped, and that's how far they've looked.
-    func vocabSortSave(through: Int, skip: [String], done: Bool) async throws {
-        if isDemo { return }
-        let (data, status) = try await vocabCall("POST", "tuttles/api/vocab/sort", json: ["through": through, "skip": skip, "done": done])
-        guard status == 200 else { throw SendError.server(Self.vocabError(data)) }
-    }
-
     /// A POST's reply, or nil when the website says the session has moved on (409).
     private func vocabPost<T: Decodable>(_ route: String, _ json: [String: Any]) async throws -> T? {
         let (data, status) = try await vocabCall("POST", route, json: json)
@@ -610,6 +571,8 @@ final class VocabRun: Identifiable {
     var summary: VocabSummary? { state.summary }
     /// The boss round this is, as it stands with the answer just given.
     var boss: VocabBoss? { (pending ?? state).boss }
+    /// The stage they're on, as it stands with the answer just given.
+    var stage: VocabStage? { (pending ?? state).stage }
     var waiting: Bool { question != nil && picked == nil }
 
     /// Milliseconds left on the clock at `now`; under zero is over time.
@@ -762,7 +725,12 @@ final class VocabRun: Identifiable {
 
     /// Another go at the boss round that just got away.
     func retryBoss() {
-        guard let stage = summary?.boss?.stage, let next = store.vocabBeginBoss(stage: stage) else {
+        if let stage = summary?.boss?.stage { fightBoss(stage) }
+    }
+
+    /// Straight on into a stage's boss round.
+    func fightBoss(_ stage: Int) {
+        guard let next = store.vocabBeginBoss(stage: stage) else {
             failed = true
             return
         }
@@ -780,209 +748,5 @@ final class VocabRun: Identifiable {
         tookMs = nil
         waitingSince = Date()
         shown += 1
-    }
-}
-
-// MARK: - Sorting out the words known already
-
-/// Going through the list a page at a time, commonest first: tap the words
-/// you're not sure of, and the rest are skipped for good. Before they are, a
-/// couple of them get a real question. A miss keeps that word in and brings
-/// one more question; a second miss and the page's words all stay in.
-/// It stops by itself at the first page that's mostly unknown.
-@MainActor
-@Observable
-final class VocabSort: Identifiable {
-    enum Phase: Equatable {
-        case loading
-        /// A page of words, tapping the ones they're not sure of.
-        case sorting
-        /// A real question on one of the words they said they know.
-        case checking
-        /// A check went wrong: the word laid out, and what that means for the page.
-        case missed
-        case finished
-        /// The website couldn't be reached for the next page.
-        case failed
-    }
-
-    private struct Save {
-        let through: Int
-        let skip: [String]
-        let done: Bool
-    }
-
-    private let store: ChatStore
-    private(set) var phase: Phase = .loading
-    private(set) var page: VocabSortPage?
-    private(set) var unsure: Set<String> = []
-    private(set) var checks: [VocabSortPage.Word] = []
-    private(set) var checkIndex = 0
-    private(set) var picked: VocabRun.Pick?
-    private(set) var feedback: VocabFeedback?
-    /// Checks missed on this page: those words stay in whatever happens.
-    private(set) var missed: Set<String> = []
-    /// Missed too often: nothing on this page is skipped.
-    var keepsPage: Bool { VocabRules.sortKeepsPage(misses: missed.count) }
-    /// Words skipped this time through.
-    private(set) var skipped = 0
-    /// How many the page just finished skipped; nil before the first, 0 after a missed check.
-    private(set) var lastSkipped: Int?
-    /// There are no words left to look at.
-    private(set) var reachedEnd = false
-    /// A page's words didn't save, after several tries.
-    private(set) var saveFailed = false
-    private(set) var saving = false
-
-    private var ahead: Task<VocabSortPage?, Error>?
-    private var unsaved: [Save] = []
-
-    init(store: ChatStore) {
-        self.store = store
-    }
-
-    var known: [VocabSortPage.Word] { page?.words.filter { !unsure.contains($0.id) } ?? [] }
-    var check: VocabSortPage.Word? { checks.indices.contains(checkIndex) ? checks[checkIndex] : nil }
-
-    func start() async {
-        guard page == nil else { return }
-        await turn { try await self.store.vocabSortPage(after: nil) }
-    }
-
-    func toggle(_ word: VocabSortPage.Word) {
-        guard phase == .sorting else { return }
-        if unsure.contains(word.id) { unsure.remove(word.id) } else { unsure.insert(word.id) }
-    }
-
-    /// "I know the rest": on to the spot check, or straight on when there's nothing they claim.
-    func confirm() async {
-        guard phase == .sorting else { return }
-        let asked = known.filter { $0.question.key != nil }.shuffled().prefix(VocabRules.sortChecks(known: known.count))
-        guard !asked.isEmpty else { return await close(skip: known) }
-        checks = Array(asked)
-        missed = []
-        checkIndex = 0
-        picked = nil
-        feedback = nil
-        phase = .checking
-    }
-
-    /// Answers the check on screen. Right moves on by itself; a miss waits to be read.
-    func answer(_ pick: VocabRun.Pick) async {
-        guard phase == .checking, picked == nil, let check, let key = check.question.key else { return }
-        let choice: Int? = if case .choice(let index) = pick { index } else { nil }
-        let graded = key.feedback(for: choice)
-        picked = pick
-        feedback = graded
-        guard graded.isCorrect else {
-            missed.insert(check.id)
-            phase = .missed
-            return
-        }
-        try? await Task.sleep(for: .seconds(0.45))
-        guard phase == .checking, self.check == check else { return }
-        await nextCheck()
-    }
-
-    /// After reading a missed check: one more question, or, after a second
-    /// miss, on with nothing on this page skipped.
-    func carryOn() async {
-        guard phase == .missed else { return }
-        guard !keepsPage else { return await close(skip: []) }
-        let asked = Set(checks.map(\.id))
-        if let extra = known.filter({ !asked.contains($0.id) && $0.question.key != nil }).randomElement() {
-            checks.append(extra)
-        }
-        await nextCheck()
-    }
-
-    /// On to the next check, or, after the last, skips what they know bar the words they missed.
-    private func nextCheck() async {
-        picked = nil
-        feedback = nil
-        checkIndex += 1
-        if checkIndex >= checks.count {
-            await close(skip: known.filter { !missed.contains($0.id) })
-        } else {
-            phase = .checking
-        }
-    }
-
-    /// From the end, when it stopped at a page that was mostly unknown.
-    func keepGoing() async {
-        guard phase == .finished || phase == .failed, !reachedEnd else { return }
-        await next()
-    }
-
-    /// Tries again to save what didn't.
-    func retrySave() async {
-        saveFailed = false
-        await drain()
-    }
-
-    private func close(skip: [VocabSortPage.Word]) async {
-        guard let page else { return }
-        let stop = VocabRules.sortStops(known: known.count, of: page.words.count)
-        skipped += skip.count
-        lastSkipped = skip.count
-        unsaved.append(Save(through: page.through, skip: skip.map(\.id), done: stop))
-        Task { await drain() }
-        if stop {
-            phase = .finished
-        } else {
-            await next()
-        }
-    }
-
-    private func next() async {
-        let ahead = self.ahead
-        let through = page?.through
-        await turn {
-            if let ahead { return try await ahead.value }
-            return try await self.store.vocabSortPage(after: through)
-        }
-    }
-
-    /// Shows the page `load` gets, and starts fetching the one after it.
-    private func turn(_ load: @escaping () async throws -> VocabSortPage?) async {
-        if ahead == nil || phase == .failed { phase = .loading }
-        do {
-            guard let page = try await load() else {
-                reachedEnd = true
-                phase = .finished
-                return
-            }
-            self.page = page
-            unsure = []
-            checks = []
-            missed = []
-            picked = nil
-            feedback = nil
-            phase = .sorting
-            let store = self.store
-            ahead = Task { try await store.vocabSortPage(after: page.through) }
-        } catch {
-            ahead = nil
-            phase = .failed
-        }
-    }
-
-    /// Sends the finished pages in order, a few tries each.
-    private func drain() async {
-        guard !saving else { return }
-        saving = true
-        defer { saving = false }
-        while let save = unsaved.first {
-            var sent = false
-            for attempt in 0..<3 where !sent {
-                if attempt > 0 { try? await Task.sleep(for: .seconds(1)) }
-                sent = (try? await store.vocabSortSave(through: save.through, skip: save.skip, done: save.done)) != nil
-            }
-            guard sent else {
-                saveFailed = true
-                return
-            }
-            unsaved.removeFirst()
-        }
     }
 }

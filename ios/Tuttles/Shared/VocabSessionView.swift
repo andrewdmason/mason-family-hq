@@ -21,7 +21,7 @@ struct VocabSessionView: View {
             VocabBackdrop(mood: mood)
             if let summary = run.summary {
                 VocabSummaryView(summary: summary, number: run.number, busy: run.busy, done: { dismiss() },
-                                 again: { Task { await run.again() } }, retry: { run.retryBoss() })
+                                 again: { Task { await run.again() } }, retry: { run.retryBoss() }, fight: { run.fightBoss($0) })
                     .transition(.opacity)
                     // Each finish is its own, so a second go at a boss celebrates (or not) afresh.
                     .id(run.shown)
@@ -152,26 +152,47 @@ private struct VocabQuestionView: View {
             } else {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 6) {
-                        if run.number > 1 {
+                        if let stage = run.stage {
+                            // The stretch of the climb this is, and how much of it is found.
+                            HStack(spacing: 4) {
+                                Image(systemName: stage.symbol).symbolEffect(.bounce, value: stage.met)
+                                Text(stage.name).lineLimit(1)
+                                Text("\(stage.met)/\(stage.total)")
+                                    .monospacedDigit()
+                                    .contentTransition(.numericText(value: Double(stage.met)))
+                            }
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(TuttlesLook.accent)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("\(stage.name), \(stage.met) of \(stage.total) words found")
+                        } else if run.number > 1 {
                             Text("Session \(run.number)")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(TuttlesLook.accent)
                         }
-                        Text("\(question.position) of \(question.total)").font(.caption.weight(.medium)).monospacedDigit().foregroundStyle(.secondary)
+                        if run.stage == nil {
+                            Text("\(question.position) of \(question.total)").font(.caption.weight(.medium)).monospacedDigit().foregroundStyle(.secondary)
+                        }
                         Spacer(minLength: 4)
                         // Right answers in a row, once there are a few.
                         if run.combo >= 3 {
                             HStack(spacing: 3) {
                                 Image(systemName: "flame.fill").symbolEffect(.bounce, value: run.combo)
-                                Text("\(run.combo) in a row").contentTransition(.numericText(value: Double(run.combo)))
+                                Text(run.stage == nil ? "\(run.combo) in a row" : "\(run.combo)")
+                                    .contentTransition(.numericText(value: Double(run.combo)))
                             }
                             .font(.caption.weight(.bold))
                             .monospacedDigit()
                             .foregroundStyle(VocabLook.flame)
                             .transition(.scale(scale: 0.4).combined(with: .opacity))
-                            .accessibilityElement(children: .combine)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("\(run.combo) right in a row")
+                        }
+                        if run.stage != nil {
+                            Text("\(question.position) of \(question.total)").font(.caption.weight(.medium)).monospacedDigit().foregroundStyle(.secondary)
                         }
                     }
+                    .animation(.snappy, value: run.stage?.met)
                     ProgressView(value: run.progress)
                         .tint(TuttlesLook.accent)
                         .animation(.snappy, value: run.progress)
@@ -202,7 +223,8 @@ private struct VocabQuestionView: View {
 
     private var stem: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
+            // The chips drop to a line of their own when the question's line is full.
+            VocabFlow(spacing: 8) {
                 Text(question.kind.ask).font(.subheadline).foregroundStyle(.secondary)
                 if question.isNew {
                     Text("New")
@@ -211,6 +233,16 @@ private struct VocabQuestionView: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
                         .background(TuttlesLook.accent, in: .capsule)
+                }
+                // A review from a stage already behind them.
+                if let from = question.from {
+                    Label(from, systemImage: "shield.lefthalf.filled")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(VocabLook.rightText)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(VocabLook.right.opacity(0.16), in: .capsule)
+                        .accessibilityLabel("A word from \(from)")
                 }
             }
             if question.kind == .syn {
@@ -393,6 +425,9 @@ private struct VocabSummaryView: View {
     let again: () -> Void
     /// Another go at the boss round.
     let retry: () -> Void
+    /// Straight on into a stage's boss round.
+    let fight: (Int) -> Void
+    @Environment(ChatStore.self) private var store
     /// The ring and the stage's bar start where they were before the session, then move.
     @State private var moved = false
 
@@ -453,6 +488,12 @@ private struct VocabSummaryView: View {
                     }
                 }
 
+                // The prize for a boss beaten (VocabJokes.swift). Each kid's are a few along from the other's.
+                if let boss = summary.boss, boss.beaten,
+                   let joke = VocabJokes.joke(stage: boss.stage, shift: store.vocab?.overview?.level == .middle ? 13 : 0) {
+                    VocabJokeCard(joke: joke)
+                }
+
                 if let climb = summary.climb { climbCard(climb) }
 
                 if !summary.missed.isEmpty {
@@ -486,7 +527,7 @@ private struct VocabSummaryView: View {
                     .buttonStyle(.glassProminent)
                     .tint(VocabLook.boss)
                     Button(action: done) {
-                        Text("Not now").font(.headline).frame(maxWidth: .infinity).frame(height: 34)
+                        Text(boss.canSkip ? "Skip the boss" : "Not now").font(.headline).frame(maxWidth: .infinity).frame(height: 34)
                     }
                     .buttonStyle(.glass)
                 } else if summary.boss != nil {
@@ -495,6 +536,18 @@ private struct VocabSummaryView: View {
                     }
                     .buttonStyle(.glassProminent)
                     .tint(TuttlesLook.accent)
+                } else if let stage = summary.bossWaiting {
+                    // A boss is in the way: it's the way on.
+                    Button { fight(stage) } label: {
+                        Label("Take on the boss", systemImage: "bolt.fill").font(.headline).frame(maxWidth: .infinity).frame(height: 40)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .tint(VocabLook.boss)
+                    Button(action: more ? again : done) {
+                        Text(more ? "Next session" : "Done").font(.headline).frame(maxWidth: .infinity).frame(height: 34)
+                    }
+                    .buttonStyle(.glass)
+                    .disabled(more && busy)
                 } else if more {
                     Button(action: again) {
                         Text("Next session").font(.headline).frame(maxWidth: .infinity).frame(height: 40)
@@ -540,10 +593,16 @@ private struct VocabSummaryView: View {
             Text(boss.beaten ? "Boss beaten!" : "The boss got away")
                 .font(.system(.largeTitle, design: .serif).weight(.semibold))
             Text(boss.beaten ? "\(boss.name) is yours: \(boss.correct) of \(boss.total) right."
-                 : boss.answered < boss.total ? "You left before the end. It takes \(boss.needed) of \(boss.total) right."
-                 : "\(boss.correct) of \(boss.total) right. It takes \(boss.needed) to win \(boss.name).")
+                 : boss.correct < boss.answered ? "\(boss.spare > 0 ? "Two misses" : "A miss") and it's gone. It takes \(boss.needed) of \(boss.total) right to win \(boss.name)."
+                 : "You left before the end. It takes \(boss.needed) of \(boss.total) right to win \(boss.name).")
                 .font(.title3)
                 .foregroundStyle(boss.beaten ? VocabLook.rightText : VocabLook.bossText)
+ if !boss.beaten {
+                let left = VocabEngine.bossTries - boss.fails
+                Text(boss.canSkip ? "That's \(boss.fails) tries. You can go on to the next stage now, and come back for the crown."
+                     : "\(left) more \(left == 1 ? "try" : "tries") and you can skip it.")
+                    .font(.subheadline.weight(.medium))
+            }
             if let goal {
                 Text(goal.done ? "Today's ten minutes are done." : "That counts: \(VocabRules.clock(goal.leftMs)) to go of today's ten minutes.")
                     .font(.subheadline)
@@ -581,7 +640,7 @@ private struct VocabSummaryView: View {
             }
             .frame(height: 10)
             if climb.justCleared, stage.boss == .ready {
-                Label("Its boss round is waiting on your path.", systemImage: "bolt.fill")
+                Label("Beat its boss to open the next stage.", systemImage: "bolt.fill")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(VocabLook.bossText)
             }

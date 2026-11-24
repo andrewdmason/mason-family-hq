@@ -68,6 +68,9 @@ final class VocabLocal {
         var outbox: [VocabEngine.Answered] = []
         /// Sessions played here, as they stand here, until the website's copy has caught up.
         var sessions: [VocabLocalSession] = []
+        /// The stages that have been gold. Kept only here: gold is theirs
+        /// once earned, even after a word of the stage is missed again.
+        var gold: [Int]?
     }
 
     /// What goes up in one sync, and what it'll settle if it gets there.
@@ -218,7 +221,19 @@ final class VocabLocal {
 
     /// The words as a path of stages, as they stand here.
     func path() -> VocabPath {
-        VocabEngine.path(content: content, progress: progress, sessions: sessions, size: stageSize)
+        let kept = Set(mine.gold ?? [])
+        let path = VocabEngine.path(content: content, progress: progress, sessions: sessions, size: stageSize, gold: kept)
+        let gold = Set(path.stages.filter(\.gold).map(\.number))
+        if gold != kept {
+            mine.gold = gold.sorted()
+            saveMine()
+        }
+        return path
+    }
+
+    /// The stage a word belongs to, 1 for the first; nil for a word part.
+    private func stage(of item: String) -> Int? {
+        content.words.firstIndex { $0.id == item }.map { $0 / max(1, stageSize) + 1 }
     }
 
     /// Answers the question on screen (`choice` nil: "Don't know") and says
@@ -227,7 +242,9 @@ final class VocabLocal {
         guard var session = mine.sessions.first(where: { $0.id == id }), position == session.answered + 1,
               let answered = VocabEngine.record(&session, progress: &progress, choice: choice, ms: ms, now: now, rules: rules) else { return nil }
         mine.outbox.append(answered)
-        if session.answered >= session.total {
+        // A boss round that can't be won any more ends there.
+        if session.answered >= session.total || VocabEngine.bossLost(session) {
+            session.current = nil
             session.finishedAt = VocabDay.stamp(now)
         } else {
             serve(&session, now: now)
@@ -239,8 +256,9 @@ final class VocabLocal {
 
     /// Puts the next question on the session, or ends it when there's nothing left to ask.
     private func serve(_ session: inout VocabLocalSession, now: Date) {
+        // A boss in the way holds the new words back: reviews only until it's beaten.
         session.current = session.boss == nil
-            ? VocabEngine.choose(session, content: content, progress: progress, rules: rules)
+            ? VocabEngine.choose(session, content: content, progress: progress, rules: rules, holdNew: path().bossReady != nil)
             : VocabEngine.chooseBoss(session, content: content, progress: progress, rules: rules)
         if session.current == nil { session.finishedAt = VocabDay.stamp(now) }
     }
@@ -248,7 +266,8 @@ final class VocabLocal {
     private func state(_ session: VocabLocalSession) -> VocabState {
         let boss = session.boss.map { stage in
             VocabBoss(stage: stage, total: session.total, needed: VocabEngine.bossNeeded(session.total),
-                      correct: session.correct, answered: session.answered, over: session.isFinished)
+                      correct: session.correct, answered: session.answered, over: session.isFinished,
+                      fails: VocabEngine.bossFails(stage: stage, sessions: sessions))
         }
         var summary: VocabSummary?
         if session.isFinished {
@@ -259,9 +278,20 @@ final class VocabLocal {
                 summary?.climb = VocabClimb(stage: stage, metBefore: min(from.met, stage.met))
             }
         }
+        // An ordinary session is a stretch of the climb: it carries the stage they're on.
+        let path = boss == nil ? path() : nil
+        // (With a boss in the way, that's its stage: the session is practice for it.)
+        let stage = path.flatMap { $0.bossReady ?? $0.current ?? $0.stages.last }
+        if boss == nil { summary?.bossWaiting = path?.bossReady?.number }
+        var question = summary == nil ? VocabEngine.question(session, content: content) : nil
+        // A word from further back down is ground they're holding, and says where it's from.
+        if let stage, let current = session.current, !current.isNew, let from = self.stage(of: current.item), from != stage.number {
+            question?.from = VocabStage.name(from)
+        }
         var state = VocabState(sessionId: session.id, elapsedMs: session.elapsedMs, limitMs: session.limitMs, noDontKnow: session.noDontKnow,
-                               question: summary == nil ? VocabEngine.question(session, content: content) : nil, summary: summary)
+                               question: question, summary: summary)
         state.boss = boss
+        state.stage = stage
         return state
     }
 
