@@ -34,7 +34,7 @@ enum VocabLevel: String, Codable, Hashable {
 }
 
 /// Where someone is with a word (statusOf in src/lib/words/types.ts).
-enum VocabStatus: String, Decodable, Hashable, CaseIterable {
+enum VocabStatus: String, Codable, Hashable, CaseIterable {
     case new, learning, almost, mastered, removed
 
     var label: String {
@@ -152,6 +152,9 @@ struct VocabHome: Decodable {
     /// A kid's own; nil when Vocab isn't set up for them.
     let overview: VocabOverview?
     let kids: [Kid]?
+    /// The words as a path of stages (VocabPath.swift). Worked out on the
+    /// phone from what it keeps: nil until it has the words, and for a parent.
+    var path: VocabPath? = nil
 }
 
 /// A page of the sort (SortPage in src/lib/words/types.ts): the commonest
@@ -270,6 +273,10 @@ struct VocabSummary: Decodable, Hashable {
     /// minutes. Nil from an older website.
     var dayMs: Int? = nil
     var goalMs: Int? = nil
+    /// How far the session took them along the path. Only for one played on the phone.
+    var climb: VocabClimb? = nil
+    /// How a boss round came out; nil for an ordinary session.
+    var boss: VocabBoss? = nil
 
     /// Where the day stands now this session is over.
     var day: VocabOverview.Goal? {
@@ -288,6 +295,8 @@ struct VocabState: Decodable, Hashable {
     let summary: VocabSummary?
     /// The question that follows a right answer to this one, so moving on doesn't wait for the website.
     var nextIfRight: VocabQuestion? = nil
+    /// A boss round, and how it stands; nil for an ordinary session.
+    var boss: VocabBoss? = nil
 }
 
 struct VocabAnswer: Decodable {
@@ -439,6 +448,11 @@ extension ChatStore {
         return state
     }
 
+    /// A stage's boss round. Nil when there isn't one to play (nothing kept on this phone, or no words for it).
+    func vocabBeginBoss(stage: Int) -> VocabState? {
+        vocabOpenLocal()?.beginBoss(stage: stage)
+    }
+
     /// Answers the question on screen (`choice` nil: "Don't know"). Nil when
     /// the session has moved on without this phone: begin again to catch up.
     func vocabAnswer(_ state: VocabState, position: Int, choice: Int?, ms: Int) async throws -> VocabAnswer? {
@@ -577,6 +591,9 @@ final class VocabRun: Identifiable {
     /// Counts the questions shown, so each one's views are its own.
     private(set) var shown = 0
 
+    /// Right answers in a row, for the flame by the count.
+    private(set) var combo = 0
+
     /// Which of today's sessions this is: 1 for the day's own, 2 for the one after…
     private(set) var number: Int
     /// Played on this phone (VocabOffline.swift): nothing waits on the website.
@@ -591,6 +608,8 @@ final class VocabRun: Identifiable {
 
     var question: VocabQuestion? { state.question }
     var summary: VocabSummary? { state.summary }
+    /// The boss round this is, as it stands with the answer just given.
+    var boss: VocabBoss? { (pending ?? state).boss }
     var waiting: Bool { question != nil && picked == nil }
 
     /// Milliseconds left on the clock at `now`; under zero is over time.
@@ -623,6 +642,7 @@ final class VocabRun: Identifiable {
         if case .choice(let index) = pick { choice = index }
         picked = pick
         tookMs = ms
+        combo = choice == question.key?.correctIndex && choice != nil ? combo + 1 : 0
         if here {
             // Graded, kept and the next question chosen, all on the phone.
             feedback = question.key?.feedback(for: choice)
@@ -738,6 +758,16 @@ final class VocabRun: Identifiable {
             show(try await store.vocabBegin())
             if finished { number += 1 }
         } catch { failed = true }
+    }
+
+    /// Another go at the boss round that just got away.
+    func retryBoss() {
+        guard let stage = summary?.boss?.stage, let next = store.vocabBeginBoss(stage: stage) else {
+            failed = true
+            return
+        }
+        combo = 0
+        show(next)
     }
 
     private func show(_ next: VocabState) {

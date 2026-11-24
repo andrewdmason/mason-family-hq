@@ -38,6 +38,8 @@ enum VocabMood {
     case miss
     /// A session finished.
     case done
+    /// A boss round, waiting for an answer.
+    case boss
 }
 
 /// What the glass sits on: a still mesh of paper, blush and the icon's red,
@@ -68,6 +70,7 @@ struct VocabBackdrop: View {
             case .calm: Color(red: 0.34, green: 0.09, blue: 0.08)
             case .right, .done: Color(red: 0.07, green: 0.27, blue: 0.17)
             case .miss: Color(red: 0.33, green: 0.20, blue: 0.05)
+            case .boss: Color(red: 0.20, green: 0.11, blue: 0.40)
             }
             return [
                 glow, umber, base,
@@ -81,6 +84,7 @@ struct VocabBackdrop: View {
         case .calm: (Color(red: 0.98, green: 0.86, blue: 0.81), Color(red: 0.97, green: 0.75, blue: 0.70))
         case .right, .done: (Color(red: 0.86, green: 0.94, blue: 0.85), Color(red: 0.71, green: 0.90, blue: 0.76))
         case .miss: (Color(red: 0.99, green: 0.91, blue: 0.76), Color(red: 0.99, green: 0.82, blue: 0.58))
+        case .boss: (Color(red: 0.90, green: 0.86, blue: 0.98), Color(red: 0.78, green: 0.70, blue: 0.97))
         }
         return [
             glow, soft, cream,
@@ -111,6 +115,7 @@ struct VocabStreak: View {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: "flame.fill").foregroundStyle(days > 0 ? VocabLook.flame : Color.secondary)
+                .symbolEffect(.bounce, value: days)
             Text("\(days)").monospacedDigit().fontWeight(.semibold)
         }
         .font(.subheadline)
@@ -290,6 +295,11 @@ struct VocabHomeView: View {
             .padding(.horizontal, 4)
 
         today(overview)
+
+        // The way through the words, as a climb (VocabPath.swift).
+        if let path = home.path, !path.stages.isEmpty {
+            VocabPathCard(path: path, fight: fight)
+        }
 
         // Until they've been through it: the quick way past the words they know.
         if let sorting = overview.sort, !sorting.done, sorting.left > 0 {
@@ -493,6 +503,12 @@ struct VocabHomeView: View {
                 problem = error.localizedDescription
             }
         }
+    }
+
+    /// Takes on a stage's boss round.
+    private func fight(_ stage: VocabStage) {
+        guard !starting, let state = store.vocabBeginBoss(stage: stage.number) else { return }
+        run = VocabRun(store: store, state: state, number: store.vocab?.overview?.nextSession ?? 1)
     }
 
     private func partsLine(_ overview: VocabOverview) -> String {

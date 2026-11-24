@@ -244,6 +244,10 @@ struct VocabLocalSession: Codable, Hashable, Identifiable {
     var missed: [String] = []
     /// Only on the phone it's being played on.
     var current: Current?
+    /// The stage whose boss round this is; nil for an ordinary session.
+    var boss: Int?
+    /// A boss round's words, in the order they're asked. Only on the phone it's being played on.
+    var lineup: [String]?
 
     var isFinished: Bool { finishedAt != nil }
 }
@@ -464,15 +468,21 @@ enum VocabEngine {
                                   position: session.answered + 1, total: session.total, asked: session.asked,
                                   requeue: session.requeue, rules: rules),
               let item = content.item(pick.item) else { return nil }
+        return ask(item, requeued: pick.why == "requeue", day: session.day, progress: progress, rules: rules, shuffle: shuffle)
+    }
+
+    /// A question on an item, asked the way it's due to be asked next.
+    private static func ask(_ item: VocabItem, requeued: Bool, day: String, progress: Progress, rules: VocabRuleSet,
+                            shuffle: Bool) -> VocabLocalSession.Current? {
         let before = progress[item.id]
         let key = pickForm(item, before)
         guard let form = item.forms.first(where: { $0.key == key }) else { return nil }
         var choices = [VocabLocalSession.Choice(text: form.answer, why: nil, right: true)]
             + form.traps.map { VocabLocalSession.Choice(text: $0.text, why: $0.why, right: false) }
         if shuffle { choices.shuffle() }
-        let ifRight = applyAnswer(before, item: item.id, form: key, result: "correct", today: session.day, now: "", rules: rules)
+        let ifRight = applyAnswer(before, item: item.id, form: key, result: "correct", today: day, now: "", rules: rules)
         return VocabLocalSession.Current(item: item.id, form: key, choices: choices, correct: choices.firstIndex(where: \.right) ?? 0,
-                                         isNew: before == nil, requeued: pick.why == "requeue",
+                                         isNew: before == nil, requeued: requeued,
                                          masteredIfRight: nowMastered(before, ifRight))
     }
 
@@ -532,7 +542,8 @@ enum VocabEngine {
         // A miss comes round once more this session; a miss on that second go waits for tomorrow.
         session.requeue.removeAll { $0.item == current.item }
         if result != "correct" {
-            if !current.requeued { session.requeue.append(.init(item: current.item, at: position)) }
+            // (Not in a boss round, which asks each word once.)
+            if !current.requeued, session.boss == nil { session.requeue.append(.init(item: current.item, at: position)) }
             if !session.missed.contains(current.item) { session.missed.append(current.item) }
         }
         session.answered = position
@@ -576,7 +587,7 @@ enum VocabEngine {
         let done = { (s: VocabLocalSession) in Done(elapsedMs: s.elapsedMs, limitMs: s.limitMs, correct: s.correct, total: s.total) }
         // Newest first as given: turned round, the day in the order it went.
         let doneToday = finished.filter { $0.day == today }.reversed().map(done)
-        let open = sessions.first { $0.day == today && !$0.isFinished }
+        let open = sessions.first { $0.day == today && !$0.isFinished && $0.boss == nil }
 
         var counts: [String: Int] = Dictionary(uniqueKeysWithValues: VocabStatus.allCases.map { ($0.rawValue, 0) })
         for w in content.words { counts[(progress[w.id]?.status ?? .new).rawValue, default: 0] += 1 }
@@ -611,5 +622,85 @@ enum VocabEngine {
             sort: .init(done: sortDone || sortedThrough > 0,
                         left: content.words.filter { $0.rank > sortedThrough && progress[$0.id] == nil }.count),
             day: .init(ms: byDay[today]?.ms ?? 0, goalMs: rules.dayGoalMs, done: doneDays.contains(today)))
+    }
+}
+
+// MARK: - The path (only here: the website doesn't lay the words out this way)
+
+/// The words in the order they're met, cut into stages of 25. A stage is
+/// cleared once every word in it has been met (or skipped as known), and gold
+/// once they're all mastered. A cleared stage has a boss round: a short timed
+/// session on the words of it that took some learning, with no "Don't know".
+/// Eight in ten right beats it.
+extension VocabEngine {
+    static let stageSize = 25
+    /// The most questions in a boss round, and how few it's topped up to from earlier stages.
+    static let bossMost = 10
+    static let bossFewest = 5
+    /// A boss round's clock: quicker than a session's, which is the point of it.
+    static let bossMsPerQuestion = 15_000
+
+    /// Right answers that beat a boss round of `total` questions: eight in ten.
+    static func bossNeeded(_ total: Int) -> Int { (total * 4 + 4) / 5 }
+
+    /// A boss round seen to the end with enough of it right.
+    static func bossBeaten(_ session: VocabLocalSession) -> Bool {
+        session.boss != nil && session.isFinished && session.answered >= session.total
+            && session.correct >= bossNeeded(session.total)
+    }
+
+    /// Met, kept, and not known at first sight: a word they've had to learn here.
+    /// (One known at first sight is never asked again, boss round or no.)
+    private static func learned(_ progress: VocabProgress?) -> Bool {
+        guard let progress else { return false }
+        return progress.removedAt == nil && !(progress.fast && progress.stage >= 3)
+    }
+
+    private static func stages(_ words: [VocabItem], size: Int) -> [[VocabItem]] {
+        let size = max(1, size)
+        return stride(from: 0, to: words.count, by: size).map { Array(words[$0..<min($0 + size, words.count)]) }
+    }
+
+    /// The words a stage's boss round asks, the least settled first: the
+    /// stage's own, and when those are few, some from the stages before it.
+    /// Empty when the stage has no words that took learning: then it has no boss.
+    static func bossLineup(stage number: Int, content: VocabContent, progress: Progress, size: Int = stageSize) -> [String] {
+        let all = stages(content.words, size: size)
+        guard all.indices.contains(number - 1) else { return [] }
+        let leastSettled = { (a: VocabItem, b: VocabItem) -> Bool in
+            let (sa, sb) = (progress[a.id]?.stage ?? 0, progress[b.id]?.stage ?? 0)
+            return sa != sb ? sa < sb : a.rank < b.rank
+        }
+        let own = ordered(all[number - 1].filter { learned(progress[$0.id]) }, by: leastSettled)
+        guard !own.isEmpty else { return [] }
+        var lineup = Array(own.prefix(bossMost))
+        if lineup.count < bossFewest {
+            let earlier = ordered(all[..<(number - 1)].joined().filter { learned(progress[$0.id]) }, by: leastSettled)
+            lineup += earlier.prefix(bossFewest - lineup.count)
+        }
+        return lineup.map(\.id)
+    }
+
+    /// The next question of a boss round: its words in order, each asked once.
+    static func chooseBoss(_ session: VocabLocalSession, content: VocabContent, progress: Progress, rules: VocabRuleSet,
+                           shuffle: Bool = true) -> VocabLocalSession.Current? {
+        let asked = Set(session.asked)
+        guard let id = session.lineup?.first(where: { !asked.contains($0) }), let item = content.item(id) else { return nil }
+        return ask(item, requeued: false, day: session.day, progress: progress, rules: rules, shuffle: shuffle)
+    }
+
+    /// Where they are on the way through the words.
+    static func path(content: VocabContent, progress: Progress, sessions: [VocabLocalSession], size: Int = stageSize) -> VocabPath {
+        let beaten = Set(sessions.filter(bossBeaten).compactMap(\.boss))
+        return VocabPath(stages: stages(content.words, size: size).enumerated().map { index, words in
+            let statuses = words.map { progress[$0.id]?.status ?? .new }
+            let cleared = !statuses.contains(.new)
+            let boss: VocabStage.Boss = beaten.contains(index + 1) ? .beaten
+                : !cleared ? .locked
+                : words.contains { learned(progress[$0.id]) } ? .ready : .none
+            return VocabStage(number: index + 1,
+                              words: zip(words, statuses).map { .init(id: $0.id, title: $0.title, status: $1) },
+                              boss: boss)
+        })
     }
 }

@@ -54,6 +54,8 @@ export type PackSession = {
   asked: string[];
   /** The ones missed, for the end screen. */
   missed: string[];
+  /** The stage whose boss round this was; null for an ordinary session. */
+  boss: number | null;
 };
 
 export type Pack = {
@@ -118,6 +120,7 @@ export async function loadPack(profile: Profile, name: string, have: string | nu
         requeue: s.finished_at ? [] : s.requeue,
         asked: mine.map((a) => a.item),
         missed: [...new Set(mine.filter((a) => a.result !== "correct").map((a) => a.item))],
+        boss: s.boss ?? null,
       };
     }),
     sort: sorted,
@@ -153,6 +156,8 @@ export type OfflineSession = {
   noDontKnow: boolean;
   startedAt: string;
   finishedAt: string | null;
+  /** The stage whose boss round this is. The phone sends a boss round only once it's over. */
+  boss?: number | null;
 };
 
 /** An answer given on the phone: which question it was, what they picked in words (null: "Don't know"), and when. */
@@ -237,6 +242,8 @@ export async function applyOffline(profile: Profile, sessionsIn: OfflineSession[
           limit_ms: s.limitMs,
           no_dont_know: s.noDontKnow,
           started_at: stamp(s.startedAt),
+          // Only named when there is one, so an ordinary session doesn't depend on the column.
+          ...(s.boss ? { boss: s.boss } : {}),
         })),
       )
       .select("*");

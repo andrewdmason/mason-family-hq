@@ -86,6 +86,11 @@ final class VocabLocal {
     /// The session on screen. It's this phone's until it's closed: nothing
     /// from the website changes it under them.
     var playing: String?
+    /// Words to a stage of the path. (The demo's are fewer, to have a path to show.)
+    var stageSize = VocabEngine.stageSize
+    /// The stage each session played here started in, and how many of its
+    /// words had been met, for the end screen to show how far it got them.
+    private var startedFrom: [String: (stage: Int, met: Int)] = [:]
 
     var rules: VocabRuleSet { base.rules }
     /// Answers waiting to go up.
@@ -97,6 +102,8 @@ final class VocabLocal {
         self.base = base
         self.mine = mine
         rebuild()
+        // A boss round under way when the app was last closed: it's over.
+        endBosses()
     }
 
     // MARK: On disk
@@ -168,14 +175,50 @@ final class VocabLocal {
     /// Today's session: the one under way, or a new one.
     func begin(now: Date = Date()) -> VocabState {
         let day = today(now)
-        var session = sessions.first { $0.day == day && !$0.isFinished }
+        endBosses(now: now)
+        var session = sessions.first { $0.day == day && !$0.isFinished && $0.boss == nil }
             ?? VocabEngine.newSession(day: day, total: base.questions, limitMs: base.limitMs, now: now, rules: rules)
         // (A question on words that have since been replaced can't be shown: choose again.)
         if session.current == nil || VocabEngine.question(session, content: content) == nil { serve(&session, now: now) }
         keep(session)
         playing = session.id
+        if startedFrom[session.id] == nil, let stage = path().current { startedFrom[session.id] = (stage.number, stage.met) }
         saveMine()
         return state(session)
+    }
+
+    /// A stage's boss round, from its first question. Nil when the stage has no words for one.
+    func beginBoss(stage: Int, now: Date = Date()) -> VocabState? {
+        endBosses(now: now)
+        let lineup = VocabEngine.bossLineup(stage: stage, content: content, progress: progress, size: stageSize)
+        guard !lineup.isEmpty else { return nil }
+        var session = VocabEngine.newSession(day: today(now), total: lineup.count,
+                                             limitMs: lineup.count * VocabEngine.bossMsPerQuestion, now: now, rules: rules)
+        session.noDontKnow = true
+        session.boss = stage
+        session.lineup = lineup
+        serve(&session, now: now)
+        keep(session)
+        playing = session.id
+        saveMine()
+        return state(session)
+    }
+
+    /// A boss round is one go: left part-way, it's over, and one never
+    /// answered at all was never played.
+    func endBosses(now: Date = Date()) {
+        guard mine.sessions.contains(where: { $0.boss != nil && !$0.isFinished }) else { return }
+        for at in mine.sessions.indices where mine.sessions[at].boss != nil && !mine.sessions[at].isFinished {
+            mine.sessions[at].finishedAt = VocabDay.stamp(now)
+            mine.sessions[at].current = nil
+        }
+        mine.sessions.removeAll { $0.boss != nil && $0.answered == 0 }
+        saveMine()
+    }
+
+    /// The words as a path of stages, as they stand here.
+    func path() -> VocabPath {
+        VocabEngine.path(content: content, progress: progress, sessions: sessions, size: stageSize)
     }
 
     /// Answers the question on screen (`choice` nil: "Don't know") and says
@@ -196,17 +239,30 @@ final class VocabLocal {
 
     /// Puts the next question on the session, or ends it when there's nothing left to ask.
     private func serve(_ session: inout VocabLocalSession, now: Date) {
-        session.current = VocabEngine.choose(session, content: content, progress: progress, rules: rules)
+        session.current = session.boss == nil
+            ? VocabEngine.choose(session, content: content, progress: progress, rules: rules)
+            : VocabEngine.chooseBoss(session, content: content, progress: progress, rules: rules)
         if session.current == nil { session.finishedAt = VocabDay.stamp(now) }
     }
 
     private func state(_ session: VocabLocalSession) -> VocabState {
-        let summary = session.isFinished
-            ? VocabEngine.summary(session, content: content,
-                                  dayMs: sessions.filter { $0.day == session.day }.reduce(0) { $0 + $1.elapsedMs }, rules: rules)
-            : nil
-        return VocabState(sessionId: session.id, elapsedMs: session.elapsedMs, limitMs: session.limitMs, noDontKnow: session.noDontKnow,
-                          question: summary == nil ? VocabEngine.question(session, content: content) : nil, summary: summary)
+        let boss = session.boss.map { stage in
+            VocabBoss(stage: stage, total: session.total, needed: VocabEngine.bossNeeded(session.total),
+                      correct: session.correct, answered: session.answered, over: session.isFinished)
+        }
+        var summary: VocabSummary?
+        if session.isFinished {
+            summary = VocabEngine.summary(session, content: content,
+                                          dayMs: sessions.filter { $0.day == session.day }.reduce(0) { $0 + $1.elapsedMs }, rules: rules)
+            summary?.boss = boss
+            if boss == nil, let from = startedFrom[session.id], let stage = path().stages.first(where: { $0.number == from.stage }) {
+                summary?.climb = VocabClimb(stage: stage, metBefore: min(from.met, stage.met))
+            }
+        }
+        var state = VocabState(sessionId: session.id, elapsedMs: session.elapsedMs, limitMs: session.limitMs, noDontKnow: session.noDontKnow,
+                               question: summary == nil ? VocabEngine.question(session, content: content) : nil, summary: summary)
+        state.boss = boss
+        return state
     }
 
     /// Vocab's first screen, from what's here.
@@ -214,14 +270,19 @@ final class VocabLocal {
         let day = today(now)
         let overview = VocabEngine.overview(level: base.level, questions: base.questions, today: day, content: content, progress: progress,
                                             sessions: sessions, sortedThrough: base.sort.through, sortDone: base.sort.done, rules: rules)
-        return VocabHome(view: "kid", name: base.name, daysLeft: VocabDay.between(day, rules.testDate), overview: overview, kids: nil)
+        return VocabHome(view: "kid", name: base.name, daysLeft: VocabDay.between(day, rules.testDate), overview: overview, kids: nil,
+                         path: path())
     }
 
     // MARK: Syncing
 
     /// What to send now: every answer the website hasn't confirmed, and the sessions they belong to.
+    /// A boss round goes up once it's over, not before: the website would
+    /// take one left open for today's session and carry on with it.
     func sending() -> Sending {
-        Sending(content: content.version, sessions: mine.sessions.filter { $0.answered > 0 }, answers: mine.outbox)
+        let held = Set(mine.sessions.filter { $0.boss != nil && !$0.isFinished }.map(\.id))
+        return Sending(content: content.version, sessions: mine.sessions.filter { $0.answered > 0 && !held.contains($0.id) },
+                       answers: mine.outbox.filter { !held.contains($0.session) })
     }
 
     /// The website has what was sent, and this is where it now stands.
@@ -266,7 +327,13 @@ extension ChatStore {
     /// What this phone has kept of Vocab for whoever's using it, read once from disk.
     func vocabOpenLocal() -> VocabLocal? {
         if isDemo {
-            if vocabLocal == nil, CommandLine.arguments.contains("--vocab-offline") { vocabLocal = DemoVocab.local() }
+            if vocabLocal == nil {
+                if CommandLine.arguments.contains("--vocab-path") {
+                    vocabLocal = DemoVocab.local(path: true)
+                } else if CommandLine.arguments.contains("--vocab-offline") {
+                    vocabLocal = DemoVocab.local()
+                }
+            }
             return showingParentView ? nil : vocabLocal
         }
         guard !showingParentView, let owner = ownerID else { return nil }
@@ -364,5 +431,7 @@ extension ChatStore {
     /// The session on screen was closed: it can be the website's again.
     func vocabStopPlaying() {
         vocabLocal?.playing = nil
+        // A boss round left part-way is over, and can go up now.
+        vocabLocal?.endBosses()
     }
 }

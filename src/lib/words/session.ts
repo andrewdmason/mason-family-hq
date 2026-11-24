@@ -73,6 +73,8 @@ export type SessionRow = {
   mastered_gained: number;
   started_at: string;
   finished_at: string | null;
+  /** The stage whose boss round this was, in the Tuttles app; null for an ordinary session. */
+  boss?: number | null;
 };
 
 export async function getProfile(userId: string): Promise<Profile | null> {

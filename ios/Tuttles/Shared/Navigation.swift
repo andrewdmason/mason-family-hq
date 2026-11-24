@@ -66,6 +66,8 @@ enum Route: Hashable {
     case vocab
     /// Every word: their own, or one of the kids' (with their name) from the parents' view.
     case vocabList(kid: UUID?, name: String?)
+    /// Their words as a path of stages (VocabPath.swift).
+    case vocabPath
 
     /// The chat this route opens, if it's one.
     var chatID: UUID? {
