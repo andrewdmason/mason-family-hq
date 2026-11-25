@@ -10,7 +10,8 @@ import SwiftUI
 struct VocabSessionView: View {
     let run: VocabRun
     @Environment(\.dismiss) private var dismiss
-    /// The boss round whose boss has made their entrance (VocabBosses.swift).
+    /// The session whose boss has had their say: a boss round's entrance, or
+    /// the heckle before an ordinary one (VocabBosses.swift).
     @State private var introduced: String?
 
     private var mood: VocabMood {
@@ -32,6 +33,15 @@ struct VocabSessionView: View {
                       introduced != run.state.sessionId {
                 // A boss round opens on its boss. The clock waits for them.
                 VocabBossIntro(boss: boss, begin: {
+                    run.startClock()
+                    withAnimation(.snappy) { introduced = run.state.sessionId }
+                }, close: { dismiss() })
+                    .transition(.opacity)
+                    .id(run.state.sessionId)
+            } else if run.boss == nil, let heckle = run.state.heckle, let question = run.question, question.position == 1, run.picked == nil,
+                      introduced != run.state.sessionId {
+                // An ordinary session opens on the stage's boss, with something to say. The clock waits here too.
+                VocabHeckleView(heckle: heckle, begin: {
                     run.startClock()
                     withAnimation(.snappy) { introduced = run.state.sessionId }
                 }, close: { dismiss() })
@@ -624,6 +634,11 @@ private struct VocabSummaryView: View {
                 if let boss = summary.boss, boss.beaten,
                    let joke = VocabJokes.joke(stage: boss.stage, shift: store.vocab?.overview?.level == .middle ? 13 : 0) {
                     VocabJokeCard(joke: joke)
+                }
+
+                // The prize for an ordinary session: a chest, and the fact in it (VocabFacts.swift).
+                if summary.boss == nil, let prize = summary.prize {
+                    VocabChestCard(prize: prize, found: summary.factsFound ?? 1) { store.vocabLocal?.open(prize) }
                 }
 
                 if let climb = summary.climb { climbCard(climb) }

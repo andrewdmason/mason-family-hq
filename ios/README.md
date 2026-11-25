@@ -154,6 +154,12 @@ are in `src/lib/tuttles/prompt.ts`.
   `--vocab-late`, finishing it fills the day's ten minutes), and
   `--vocab-sort` opens on sorting out the words known already
   (`VocabSortView.swift`).
+  An ordinary session played on the phone opens on the stage's boss with
+  something to say (`VocabBosses.swift` has each boss's lines, in order) and
+  ends in a chest holding a gross fact (`VocabFacts.swift`: wood, silver or
+  gold by how the session went, the fact drawn from the ones not yet found).
+  Chests and which line comes next are kept only on the phone, with the rest
+  of what it keeps for Vocab. `--vocab-offline` is the way to see both.
 - `--demo` runs on canned chats with no sign-in (`--open <n>` opens one), for
   the simulator. `--website <url>` points the chat at another server.
 

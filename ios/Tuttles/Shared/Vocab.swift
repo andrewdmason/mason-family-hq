@@ -264,6 +264,10 @@ struct VocabSummary: Decodable, Hashable {
     var boss: VocabBoss? = nil
     /// The stage whose boss is in the way now an ordinary session is over.
     var bossWaiting: Int? = nil
+    /// The chest an ordinary session earned (VocabFacts.swift), and how many
+    /// facts they've found with it. Only for a session played on the phone.
+    var prize: VocabPrize? = nil
+    var factsFound: Int? = nil
 
     /// Where the day stands now this session is over.
     var day: VocabOverview.Goal? {
@@ -286,6 +290,9 @@ struct VocabState: Decodable, Hashable {
     var boss: VocabBoss? = nil
     /// The stage of the path they're on, as it stands. Only for a session played on the phone.
     var stage: VocabStage? = nil
+    /// What the stage's boss has to say before the first question of an
+    /// ordinary session (VocabBosses.swift). Only for a session played on the phone.
+    var heckle: VocabHeckle? = nil
 }
 
 struct VocabAnswer: Decodable {

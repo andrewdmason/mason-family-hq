@@ -71,6 +71,30 @@ final class VocabLocal {
         /// The stages that have been gold. Kept only here: gold is theirs
         /// once earned, even after a word of the stage is missed again.
         var gold: [Int]?
+        /// The chests won, oldest first (VocabFacts.swift). Kept only here.
+        var prizes: [VocabPrize]?
+        /// For a session being played: the answers its chest leaves out. A
+        /// brand-new word not known isn't held against them, and nor does
+        /// getting it right count when it comes round again, just after
+        /// they've been shown it.
+        var unknown: [String: Int]?
+        /// The brand-new words a session being played has had missed.
+        var fresh: [String: [String]]?
+        /// Of the answers left out, the right ones.
+        var spared: [String: Int]?
+        /// How many times each stage's boss has had something to say before
+        /// a session ("3"), and while waiting for their round ("3w"); and
+        /// whether they've said their last line ("3z").
+        var heckled: [String: Int]?
+        /// The latest of those, and the session it was said before.
+        var heckle: Said?
+    }
+
+    struct Said: Codable {
+        let session: String
+        let heckle: VocabHeckle
+        /// It was said with their round waiting.
+        var waiting: Bool? = nil
     }
 
     /// What goes up in one sync, and what it'll settle if it gets there.
@@ -98,6 +122,17 @@ final class VocabLocal {
     var rules: VocabRuleSet { base.rules }
     /// Answers waiting to go up.
     var waiting: Int { mine.outbox.count }
+    /// The chests won, oldest first.
+    var prizes: [VocabPrize] { mine.prizes ?? [] }
+    /// The facts they've had out of a chest they opened, that are still facts.
+    var found: Set<Int> { VocabFacts.found(in: prizes) }
+
+    /// A chest is opened: what's in it is theirs now.
+    func open(_ prize: VocabPrize) {
+        guard let at = mine.prizes?.firstIndex(where: { $0.session == prize.session }), mine.prizes?[at].isOpen == false else { return }
+        mine.prizes?[at].opened = true
+        saveMine()
+    }
 
     private init(folder: URL, content: VocabContent, base: Base, mine: Mine) {
         self.folder = folder
@@ -186,8 +221,53 @@ final class VocabLocal {
         keep(session)
         playing = session.id
         if startedFrom[session.id] == nil, let stage = path().current { startedFrom[session.id] = (stage.number, stage.met) }
+        if session.answered == 0, !session.isFinished { heckle(before: session) }
+        // (With nothing left to ask, it ended there: it has its chest all the same.)
+        if session.isFinished { award(session) }
         saveMine()
         return state(session)
+    }
+
+    /// The boss of the stage they're on has something to say before a
+    /// session's first question: the next thing in their list each time, and
+    /// the same thing if the session is opened again before it's begun
+    /// (unless the path has moved on meanwhile: a boss since beaten has
+    /// nothing more to say). Their last line waits until the stage is nearly cleared.
+    private func heckle(before session: VocabLocalSession) {
+        let path = path()
+        guard let stage = path.bossReady ?? path.current else {
+            mine.heckle = nil
+            return
+        }
+        let waiting = stage.boss == .ready
+        if let said = mine.heckle, said.session == session.id, said.heckle.stage == stage.number, said.waiting ?? waiting == waiting { return }
+        let key = waiting ? "\(stage.number)w" : "\(stage.number)", last = "\(stage.number)z"
+        let said = mine.heckled?[key] ?? 0
+        // Four words in five found: their round is close.
+        let parting = !waiting && said > 0 && mine.heckled?[last] == nil && stage.met * 5 >= stage.total * 4
+        mine.heckled = (mine.heckled ?? [:]).merging(parting ? [last: 1] : [key: said + 1]) { _, new in new }
+        mine.heckle = Said(session: session.id, heckle: VocabHeckle(stage: stage.number, line: stage.character.heckle(said, waiting: waiting, parting: parting)),
+                           waiting: waiting)
+    }
+
+    /// An ordinary session's chest, once it's over: what it's made of goes
+    /// by how they did, and what's in it is drawn from the facts they haven't had.
+    private func award(_ session: VocabLocalSession) {
+        let unknown = mine.unknown?[session.id] ?? 0, spared = mine.spared?[session.id] ?? 0
+        forget(session.id)
+        guard session.boss == nil, session.isFinished, session.answered >= min(session.total, VocabFacts.fewest),
+              !prizes.contains(where: { $0.session == session.id }) else { return }
+        let chest = VocabChest.earned(right: session.correct - spared, counted: session.answered - unknown)
+        var random = SystemRandomNumberGenerator()
+        guard let fact = VocabFacts.draw(chest, have: Set(prizes.map(\.fact)), using: &random) else { return }
+        mine.prizes = prizes + [VocabPrize(session: session.id, fact: fact.id, chest: chest, day: session.day, opened: false)]
+    }
+
+    /// Drops what was being kept for a session's chest.
+    private func forget(_ session: String) {
+        mine.unknown?[session] = nil
+        mine.fresh?[session] = nil
+        mine.spared?[session] = nil
     }
 
     /// A stage's boss round, from its first question. Nil when the stage has no words for one.
@@ -239,9 +319,21 @@ final class VocabLocal {
     /// Answers the question on screen (`choice` nil: "Don't know") and says
     /// what's next. Nil when that isn't the question this phone is on: begin again.
     func answer(session id: String, position: Int, choice: Int?, ms: Int, now: Date = Date()) -> VocabState? {
-        guard var session = mine.sessions.first(where: { $0.id == id }), position == session.answered + 1,
-              let answered = VocabEngine.record(&session, progress: &progress, choice: choice, ms: ms, now: now, rules: rules) else { return nil }
+        guard var session = mine.sessions.first(where: { $0.id == id }), position == session.answered + 1 else { return nil }
+        let new = session.current?.isNew == true, item = session.current?.item
+        guard let answered = VocabEngine.record(&session, progress: &progress, choice: choice, ms: ms, now: now, rules: rules) else { return nil }
         mine.outbox.append(answered)
+        if session.boss == nil, let item {
+            if new, answered.result != "correct" {
+                // A brand-new word they didn't know isn't held against the session's chest.
+                mine.unknown = (mine.unknown ?? [:]).merging([id: 1], uniquingKeysWith: +)
+                mine.fresh = (mine.fresh ?? [:]).merging([id: [item]], uniquingKeysWith: +)
+            } else if !new, answered.result == "correct", mine.fresh?[id]?.contains(item) == true {
+                // And getting it right when it comes round again, just shown, isn't one for it either.
+                mine.unknown = (mine.unknown ?? [:]).merging([id: 1], uniquingKeysWith: +)
+                mine.spared = (mine.spared ?? [:]).merging([id: 1], uniquingKeysWith: +)
+            }
+        }
         // A boss round that can't be won any more ends there.
         if session.answered >= session.total || VocabEngine.bossLost(session) {
             session.current = nil
@@ -250,6 +342,7 @@ final class VocabLocal {
             serve(&session, now: now)
         }
         keep(session)
+        if session.isFinished { award(session) }
         saveMine()
         return state(session)
     }
@@ -277,6 +370,11 @@ final class VocabLocal {
             if boss == nil, let from = startedFrom[session.id], let stage = path().stages.first(where: { $0.number == from.stage }) {
                 summary?.climb = VocabClimb(stage: stage, metBefore: min(from.met, stage.met))
             }
+            if let prize = prizes.first(where: { $0.session == session.id }) {
+                summary?.prize = prize
+                // Counting this one, which is about to be opened.
+                summary?.factsFound = found.union(VocabFacts.fact(prize.fact).map { [$0.id] } ?? []).count
+            }
         }
         // An ordinary session is a stretch of the climb: it carries the stage they're on.
         let path = boss == nil ? path() : nil
@@ -292,6 +390,7 @@ final class VocabLocal {
                                question: question, summary: summary)
         state.boss = boss
         state.stage = stage
+        if boss == nil, summary == nil, session.answered == 0, let said = mine.heckle, said.session == session.id { state.heckle = said.heckle }
         return state
     }
 
@@ -337,6 +436,9 @@ final class VocabLocal {
             guard let was = asSent[session.id] else { return false }
             return was.answered == session.answered && was.finishedAt == session.finishedAt
         }
+        // What was being kept for the chest of a session that's gone, or left on a day that's over.
+        let open = Set(mine.sessions.filter { !$0.isFinished && $0.day == day }.map(\.id))
+        for id in Set((mine.unknown ?? [:]).keys).union((mine.fresh ?? [:]).keys).union((mine.spared ?? [:]).keys) where !open.contains(id) { forget(id) }
         saveMine()
         rebuild()
     }
