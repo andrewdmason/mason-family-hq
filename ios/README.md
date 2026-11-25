@@ -160,6 +160,9 @@ are in `src/lib/tuttles/prompt.ts`.
   gold by how the session went, the fact drawn from the ones not yet found).
   Chests and which line comes next are kept only on the phone, with the rest
   of what it keeps for Vocab. `--vocab-offline` is the way to see both.
+  The map of stages is drawn on a landscape (`VocabLandscape.swift`): each
+  stage's ground and scenery in code, moving a little, with the stages still
+  ahead under a haze. `--vocab-path --vocab-climb` shows all twenty.
 - `--demo` runs on canned chats with no sign-in (`--open <n>` opens one), for
   the simulator. `--website <url>` points the chat at another server.
 
