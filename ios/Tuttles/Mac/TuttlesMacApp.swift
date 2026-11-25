@@ -168,6 +168,8 @@ struct MacShell: View {
             VocabListView(kid: kid, name: name)
         case .vocabProgress:
             VocabProgressView()
+        case .vocabFacts:
+            VocabFactsView()
         }
     }
 

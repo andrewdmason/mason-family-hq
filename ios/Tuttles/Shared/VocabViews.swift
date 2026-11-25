@@ -416,6 +416,7 @@ struct VocabProgressCards: View {
     /// The way into a session, when these are the first screen.
     var start: (() -> Void)? = nil
     var starting = false
+    @Environment(ChatStore.self) private var store
 
     var body: some View {
         Text("\(overview.level.name) · \(VocabRules.countdown(daysLeft: home.daysLeft))")
@@ -437,6 +438,14 @@ struct VocabProgressCards: View {
                 row("All words", "list.bullet")
             }
             .buttonStyle(.plain)
+            // What's come out of their chests, when sessions are played on this phone.
+            if !store.showingParentView, let local = store.vocabLocal {
+                Divider()
+                NavigationLink(value: Route.vocabFacts) {
+                    row("Gross facts", "shippingbox.fill", note: "\(local.found.count) of \(VocabFacts.all.count)")
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(20)
         .vocabGlass()
@@ -470,10 +479,11 @@ struct VocabProgressCards: View {
         .vocabGlass()
     }
 
-    private func row(_ title: String, _ symbol: String) -> some View {
+    private func row(_ title: String, _ symbol: String, note: String? = nil) -> some View {
         HStack {
             Label(title, systemImage: symbol)
             Spacer()
+            if let note { Text(note).font(.subheadline).monospacedDigit().foregroundStyle(.secondary) }
             Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
         }
         .font(.body.weight(.medium))

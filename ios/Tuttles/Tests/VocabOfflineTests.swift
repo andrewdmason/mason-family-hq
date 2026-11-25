@@ -530,4 +530,170 @@ final class VocabLocalTests: XCTestCase {
         XCTAssertNil(state.question)
         XCTAssertEqual(state.summary?.boss?.beaten, false)
     }
+
+    /// Plays the session on screen to its end. `miss` says which questions to get wrong.
+    private func play(_ local: VocabLocal, from first: VocabState, miss: (VocabQuestion) -> Bool = { _ in false }) throws -> VocabState {
+        var state = first
+        while let question = state.question {
+            let choice = miss(question) ? nil : question.key?.correctIndex
+            state = try XCTUnwrap(local.answer(session: state.sessionId, position: question.position, choice: choice, ms: 3_000, now: noon))
+        }
+        return state
+    }
+
+    /// An ordinary session ends in a chest with a fact in it: gold when it
+    /// went well, a different fact each time, and kept when the app's opened again.
+    func testAChestAtTheEnd() throws {
+        let local = try XCTUnwrap(VocabLocal.start(in: folder, with: pack()))
+        // A brand-new word not known isn't held against the chest.
+        var state = try play(local, from: local.begin(now: noon)) { $0.position == 1 && $0.isNew }
+        XCTAssertEqual(state.summary?.correct, 4)
+        let first = try XCTUnwrap(state.summary?.prize)
+        XCTAssertEqual(first.chest, .gold)
+        XCTAssertEqual(VocabFacts.fact(first.fact)?.tier, .gold)
+        XCTAssertEqual(state.summary?.factsFound, 1)
+        // Shut, it isn't one they've found; opened, it is, and stays opened.
+        XCTAssertEqual(first.opened, false)
+        XCTAssertTrue(local.found.isEmpty)
+        local.open(first)
+        XCTAssertEqual(local.found, [first.fact])
+        XCTAssertEqual(try XCTUnwrap(VocabLocal.load(from: folder)).found, [first.fact])
+
+        // Nothing right at all, new words or the ones that came round again: wood.
+        state = try play(local, from: local.begin(now: noon)) { _ in true }
+        let second = try XCTUnwrap(state.summary?.prize)
+        XCTAssertEqual(second.chest, .wood)
+        XCTAssertNotEqual(second.fact, first.fact)
+        XCTAssertEqual(state.summary?.factsFound, 2)
+
+        XCTAssertEqual(local.prizes.map(\.fact), [first.fact, second.fact])
+        XCTAssertEqual(local.prizes.map(\.isOpen), [true, false])
+        XCTAssertEqual(try XCTUnwrap(VocabLocal.load(from: folder)).prizes, local.prizes)
+        // And they stay through a sync.
+        let sent = local.sending()
+        local.took(sent, reply: try reply(to: sent, from: local))
+        XCTAssertEqual(local.prizes.map(\.fact), [first.fact, second.fact])
+    }
+
+    /// A brand-new word missed is left out of the chest's count, and so is
+    /// getting it right when it comes straight round again: knowing none of
+    /// the new words isn't gold.
+    func testNewWordsShownAndAskedAgainArentGold() throws {
+        let local = try XCTUnwrap(VocabLocal.start(in: folder, with: pack(questions: 10)))
+        // Every new word not known; every one right on its second go.
+        let state = try play(local, from: local.begin(now: noon)) { $0.isNew }
+        let summary = try XCTUnwrap(state.summary)
+        XCTAssertGreaterThan(summary.correct, 0)
+        XCTAssertEqual(summary.prize?.chest, .wood)
+    }
+
+    /// A fact dropped from the list since isn't counted as found anywhere.
+    func testADroppedFactIsntCounted() {
+        let real = VocabFacts.all[0].id
+        let prizes = [VocabPrize(session: "a", fact: real, chest: .wood, day: "2026-11-23"),
+                      VocabPrize(session: "b", fact: 999_999, chest: .wood, day: "2026-11-23"),
+                      VocabPrize(session: "c", fact: VocabFacts.all[1].id, chest: .wood, day: "2026-11-23", opened: false)]
+        XCTAssertEqual(VocabFacts.found(in: prizes), [real])
+    }
+
+    /// A boss round has its own prize: no chest.
+    func testNoChestForABoss() throws {
+        let local = try XCTUnwrap(VocabLocal.start(in: folder, with: pack(progress: firstStageFound())))
+        local.stageSize = 5
+        let state = try play(local, from: try XCTUnwrap(local.beginBoss(stage: 1, now: noon)))
+        XCTAssertEqual(state.summary?.boss?.beaten, true)
+        XCTAssertNil(state.summary?.prize)
+        XCTAssertTrue(local.prizes.isEmpty)
+    }
+
+    func testWhatAChestIsMadeOf() {
+        XCTAssertEqual(VocabChest.earned(right: 25, counted: 25), .gold)
+        XCTAssertEqual(VocabChest.earned(right: 18, counted: 20), .gold)
+        XCTAssertEqual(VocabChest.earned(right: 17, counted: 20), .silver)
+        XCTAssertEqual(VocabChest.earned(right: 15, counted: 20), .silver)
+        XCTAssertEqual(VocabChest.earned(right: 14, counted: 20), .wood)
+        XCTAssertEqual(VocabChest.earned(right: 0, counted: 0), .wood)
+    }
+
+    /// A chest holds a fact of its own tier they haven't had, then the
+    /// nearest tier that still has one, then an old one.
+    func testWhatsInAChest() throws {
+        var random = SystemRandomNumberGenerator()
+        XCTAssertEqual(Set(VocabFacts.all.map(\.id)).count, VocabFacts.all.count)
+        XCTAssertGreaterThan(VocabFacts.all.count, 150)
+        let gold = Set(VocabFacts.facts(.gold).map(\.id)), silver = Set(VocabFacts.facts(.silver).map(\.id))
+        XCTAssertEqual(VocabFacts.draw(.gold, have: [], using: &random)?.tier, .gold)
+        XCTAssertEqual(VocabFacts.draw(.gold, have: gold, using: &random)?.tier, .silver)
+        XCTAssertEqual(VocabFacts.draw(.gold, have: gold.union(silver), using: &random)?.tier, .wood)
+        XCTAssertEqual(VocabFacts.draw(.wood, have: Set(VocabFacts.facts(.wood).map(\.id)), using: &random)?.tier, .silver)
+        XCTAssertEqual(VocabFacts.draw(.silver, have: Set(VocabFacts.all.map(\.id)), using: &random)?.tier, .silver)
+        // Every one of them fits on the card.
+        for fact in VocabFacts.all { XCTAssertLessThan(fact.text.count, 240, fact.text) }
+    }
+
+    /// The stage's boss has something to say before each ordinary session:
+    /// the next thing each time, the same thing if the session's opened
+    /// again unbegun, and nothing once it's under way.
+    func testTheBossHasSomethingToSay() throws {
+        let rocky = VocabBossCharacter.of(stage: 1)
+        let local = try XCTUnwrap(VocabLocal.start(in: folder, with: pack()))
+        var state = local.begin(now: noon)
+        XCTAssertEqual(state.heckle, VocabHeckle(stage: 1, line: rocky.heckles[0]))
+        XCTAssertEqual(local.begin(now: noon).heckle?.line, rocky.heckles[0])
+        XCTAssertEqual(try XCTUnwrap(VocabLocal.load(from: folder)).begin(now: noon).heckle?.line, rocky.heckles[0])
+
+        state = try XCTUnwrap(local.answer(session: state.sessionId, position: 1, choice: nil, ms: 3_000, now: noon))
+        XCTAssertNil(state.heckle)
+        XCTAssertNil(local.begin(now: noon).heckle)
+        _ = try play(local, from: state)
+        XCTAssertEqual(local.begin(now: noon).heckle?.line, rocky.heckles[1])
+    }
+
+    /// Their last line waits for the stage to be nearly cleared, and is said once.
+    func testTheBossSaysGoodbyeNearTheEnd() throws {
+        let rocky = VocabBossCharacter.of(stage: 1)
+        // Four of the stage's five words found, none of them taking a boss to beat yet.
+        let local = try XCTUnwrap(VocabLocal.start(in: folder, with: pack(progress: Array(firstStageFound().prefix(4)))))
+        local.stageSize = 5
+        var state = local.begin(now: noon)
+        XCTAssertEqual(state.heckle?.line, rocky.heckles[0])
+        // Left unbegun, and a new day: a new session, and they've spoken once before.
+        let tomorrow = noon.addingTimeInterval(86_400)
+        state = local.begin(now: tomorrow)
+        XCTAssertEqual(state.heckle?.line, rocky.heckles[5])
+        XCTAssertEqual(local.begin(now: tomorrow.addingTimeInterval(86_400)).heckle?.line, rocky.heckles[1])
+    }
+
+    /// With their round waiting they say something else, and a boss round opens on its own entrance.
+    func testTheBossIsWaiting() throws {
+        let local = try XCTUnwrap(VocabLocal.start(in: folder, with: pack(progress: firstStageFound())))
+        local.stageSize = 5
+        let waiting = local.begin(now: noon)
+        XCTAssertEqual(waiting.heckle, VocabHeckle(stage: 1, line: VocabBossCharacter.of(stage: 1).waiting[0]))
+        let boss = try XCTUnwrap(local.beginBoss(stage: 1, now: noon))
+        XCTAssertNil(boss.heckle)
+
+        // Beaten before that session was begun: they've nothing more to say
+        // before it, and it's the next stage's boss who has.
+        XCTAssertEqual(try play(local, from: boss).summary?.boss?.beaten, true)
+        let after = local.begin(now: noon)
+        XCTAssertEqual(after.sessionId, waiting.sessionId)
+        XCTAssertEqual(after.heckle, VocabHeckle(stage: 2, line: VocabBossCharacter.of(stage: 2).heckles[0]))
+    }
+
+    /// Every boss has their lines, in order, and the middle ones come round again past the end.
+    func testEveryBossHasLines() {
+        XCTAssertEqual(VocabBossCharacter.cast.count, 20)
+        for boss in VocabBossCharacter.cast {
+            XCTAssertEqual(boss.heckles.count, 6, boss.name)
+            XCTAssertEqual(boss.waiting.count, 2, boss.name)
+            XCTAssertEqual(Set(boss.heckles + boss.waiting + [boss.taunt, boss.sore]).count, 10, boss.name)
+            for line in boss.heckles + boss.waiting { XCTAssertLessThan(line.count, 170, line) }
+        }
+        let boss = VocabBossCharacter.of(stage: 3)
+        XCTAssertEqual((0..<7).map { boss.heckle($0, waiting: false) },
+                       [boss.heckles[0], boss.heckles[1], boss.heckles[2], boss.heckles[3], boss.heckles[4], boss.heckles[1], boss.heckles[2]])
+        XCTAssertEqual(boss.heckle(3, waiting: false, parting: true), boss.heckles[5])
+        XCTAssertEqual(boss.heckle(2, waiting: true), boss.waiting[0])
+    }
 }
