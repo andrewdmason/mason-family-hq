@@ -9,6 +9,8 @@ import Foundation
 /// nothing to reach (VocabOffline.swift), over a few made-up words, and
 /// `--vocab-path` is that with some of the path walked already: a gold stage
 /// with its boss beaten, one with its boss waiting, and one part-way through.
+/// `--vocab-climb` with it cuts the words into twenty stages, so the whole
+/// climb is there to look at, from the trailhead to the summit.
 @MainActor
 enum DemoVocab {
     private struct Card {
@@ -188,14 +190,15 @@ enum DemoVocab {
         let rules = VocabRuleSet(testDate: "2027-01-11", newWordsStopDays: 7, sessionNewUnknown: 6, dailyNewParts: 4, partEvery: 4,
                                  requeueGap: 3, gapByStage: [1, 3, 7, 21], masteredGapMax: 30, retiredGap: 365,
                                  dayGoalMs: limit, questionMaxMs: 60_000, dayGoalFrom: "2026-11-22")
-        let pack = VocabPack(content: VocabContent(version: "demo", level: .lower, words: words, parts: []), contentVersion: "demo",
+        let climb = path && CommandLine.arguments.contains("--vocab-climb")
+        let pack = VocabPack(content: VocabContent(version: "demo", level: .lower, words: climb ? Array(words.prefix(40)) : words, parts: []), contentVersion: "demo",
                              rules: rules, tz: "America/Los_Angeles", name: "Oscar", level: .lower, questions: 8, limitMs: limit,
                              progress: path ? walked(words) : [], sessions: path ? [beatenBoss] : [],
                              sort: .init(done: true, through: 0))
         let folder = FileManager.default.temporaryDirectory.appending(path: "tuttles-demo-vocab-\(UUID().uuidString)")
         let local = VocabLocal.start(in: folder, with: pack)
         // Stages of five, so these few words make a path worth looking at.
-        if path { local?.stageSize = 5 }
+        if path { local?.stageSize = climb ? 2 : 5 }
         return local
     }
 

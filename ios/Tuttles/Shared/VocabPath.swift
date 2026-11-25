@@ -293,9 +293,6 @@ struct VocabMap: View {
     let daysLeft: Int
     let open: (VocabStage) -> Void
 
-    private static let rowHeight: CGFloat = 118
-    private static let node: CGFloat = 78
-
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -304,13 +301,20 @@ struct VocabMap: View {
                     ForEach(path.stages.reversed()) { stage in
                         row(stage, path).id(stage.number)
                     }
+                    Color.clear.frame(height: VocabLay.foot)
                 }
-                .padding(.vertical, 24)
                 .vocabColumn()
+                // The country it all climbs through (VocabLandscape.swift).
+                .background { VocabLandscape(path: path) }
             }
             .defaultScrollAnchor(.bottom)
-            .onAppear {
-                if let number = path.current?.number { proxy.scrollTo(number, anchor: .center) }
+            .task {
+                // It opens on the stage they're on. Asked again once the page
+                // has settled under its title, which can undo the first.
+                guard let number = path.current?.number else { return }
+                proxy.scrollTo(number, anchor: .center)
+                try? await Task.sleep(for: .milliseconds(120))
+                proxy.scrollTo(number, anchor: .center)
             }
             // On to a new stage: follow them up.
             .onChange(of: path.current?.number) { _, number in
@@ -320,18 +324,15 @@ struct VocabMap: View {
         .animation(.default, value: path)
     }
 
-    /// How far left or right of the middle a stage sits: the path winds.
-    private func sway(_ number: Int) -> CGFloat { CGFloat(sin(Double(number) * 1.05)) * 84 }
-
     private func row(_ stage: VocabStage, _ path: VocabPath) -> some View {
         let isCurrent = path.current?.number == stage.number
-        let x = sway(stage.number)
-        // The words go on the roomier side.
+        let x = VocabLay.sway(stage.number, of: path.stages.count)
+        // The words go on the roomier side, on a plate that reads over any ground.
         let right = x < 0
-        let width: CGFloat = 132
+        let width = VocabLay.label + 20
         return ZStack {
             Button { open(stage) } label: {
-                VocabStageNode(stage: stage, current: isCurrent, size: Self.node)
+                VocabStageNode(stage: stage, current: isCurrent, size: VocabLay.node)
             }
             .buttonStyle(.plain)
             .offset(x: x)
@@ -342,24 +343,21 @@ struct VocabMap: View {
                     .foregroundStyle(isCurrent || stage.cleared ? .primary : .secondary)
                 Text(caption(stage, current: isCurrent))
                     .font(.caption)
-                    .foregroundStyle(stage.boss == .ready ? AnyShapeStyle(VocabLook.boss) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(stage.boss == .ready ? AnyShapeStyle(VocabLook.bossText) : AnyShapeStyle(.secondary))
             }
             .multilineTextAlignment(right ? .leading : .trailing)
+            .frame(maxWidth: VocabLay.label, alignment: right ? .leading : .trailing)
+            .fixedSize()
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.regularMaterial, in: .rect(cornerRadius: 12, style: .continuous))
+            .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
             .frame(width: width, alignment: right ? .leading : .trailing)
-            .offset(x: x + (right ? 1 : -1) * (Self.node / 2 + 12 + width / 2))
+            .offset(x: x + (right ? 1 : -1) * (VocabLay.node / 2 + 8 + width / 2))
             .allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: Self.rowHeight)
-        .background {
-            // The trail down to the stage before, walked once that one's cleared.
-            if stage.number > 1 {
-                let walked = path.stages[stage.number - 2].cleared
-                VocabTrail(from: x, to: sway(stage.number - 1))
-                    .stroke(walked ? VocabLook.right.opacity(0.75) : Color.primary.opacity(0.14),
-                            style: StrokeStyle(lineWidth: walked ? 9 : 7, lineCap: .round, dash: walked ? [] : [2, 14]))
-            }
-        }
+        .frame(height: VocabLay.row)
     }
 
     private func caption(_ stage: VocabStage, current: Bool) -> String {
@@ -373,32 +371,19 @@ struct VocabMap: View {
         return "\(stage.total) words"
     }
 
+    /// The test, named on the sky over its mountain.
     private func summit(_ daysLeft: Int) -> some View {
-        VStack(spacing: 6) {
-            Image(systemName: "mountain.2.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(TuttlesLook.accent.gradient)
+        VStack(spacing: 2) {
             Text("The ISEE").font(.system(.title2, design: .serif).weight(.semibold))
             Text(VocabRules.countdown(daysLeft: daysLeft)).font(.subheadline).foregroundStyle(.secondary)
         }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 9)
+        .background(.regularMaterial, in: .rect(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
+        .padding(.top, 18)
         .frame(maxWidth: .infinity)
-        .padding(.bottom, 18)
-    }
-}
-
-/// The line from one stage's marker down to the one below it.
-private struct VocabTrail: Shape {
-    let from: CGFloat
-    let to: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let start = CGPoint(x: rect.midX + from, y: rect.midY)
-        let end = CGPoint(x: rect.midX + to, y: rect.midY + rect.height)
-        path.move(to: start)
-        path.addCurve(to: end, control1: CGPoint(x: start.x, y: rect.midY + rect.height * 0.55),
-                      control2: CGPoint(x: end.x, y: rect.midY + rect.height * 0.45))
-        return path
+        .frame(height: VocabLay.peak, alignment: .top)
     }
 }
 
