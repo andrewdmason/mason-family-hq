@@ -9,6 +9,8 @@ struct TutorThread: Identifiable, Codable, Equatable {
     let id: UUID
     var title: String?
     var updatedAt: Date
+    /// When it was started. Nil for one this phone saved before it kept this.
+    var createdAt: Date?
     var archivedAt: Date?
     /// The class it's about (a Canvas course id), or nil.
     var courseId: Int?
@@ -22,6 +24,7 @@ struct TutorThread: Identifiable, Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case id, title, kind
         case updatedAt = "updated_at"
+        case createdAt = "created_at"
         case archivedAt = "archived_at"
         case courseId = "course_id"
         case studySetId = "study_set_id"
@@ -89,19 +92,38 @@ final class ChatStore {
     var kidThreads: [TutorThread] { threads.filter { $0.kind != "briefing" } }
     var briefings: [TutorThread] { threads.filter { $0.kind == "briefing" } }
 
+    /// Briefings begun here that the list hasn't caught up with yet.
+    @ObservationIgnored private var startedBriefings: Set<UUID> = []
+
+    /// A parent's chat about one of a kid's topics. Their other chats are
+    /// their own: the tutor is talking to them, not to the kid.
+    func isBriefing(_ threadID: UUID) -> Bool {
+        startedBriefings.contains(threadID) || threads.contains { $0.id == threadID && $0.kind == "briefing" }
+    }
+
+    /// A parent's history: their briefings and the chats they've started.
+    var parentChats: [TutorThread] { isDemo ? threads : Self.parentChats(in: threads) }
+
+    /// The plain chats saved under a parent before `since` were made for the
+    /// kids, on this phone before it had the kids' views. They're still on
+    /// the website, and stay out of the parent's own history.
+    nonisolated static func parentChats(in threads: [TutorThread], since: Date = parentChatsSince) -> [TutorThread] {
+        threads.filter { $0.kind == "briefing" || ($0.createdAt ?? .distantPast) >= since }
+    }
+
+    /// 26 November 2026, 22:00 UTC: when parents got a view of their own.
+    nonisolated static let parentChatsSince = Date(timeIntervalSince1970: 1_795_730_400)
+
     /// The signed-in member is a parent (or it's the demo).
     var isParent: Bool { isDemo || ["owner", "parent"].contains(Session.shared.role ?? "") }
 
     /// Who a parent's phone is being used as. It stays chosen, across launches,
     /// until a parent picks another.
     enum Viewer: Hashable {
-        /// The Parent Dashboard: This week, how each kid is doing, and the
-        /// words to practice with them.
+        /// The parent as themselves ("Andrew"): the Parent Dashboard, This
+        /// week and how each kid is doing, and beside them the parent's own
+        /// Vocab, Math and house (`playingAsSelf`).
         case parent
-        /// A parent using the app as themselves: their own chats, Vocab, Math
-        /// and house, kept apart from the kids' (at Sebastian's level), so
-        /// trying things out never touches the kids' progress.
-        case me
         /// The phone used as a kid, in the kid's own chats: by a kid without a
         /// phone, or by a parent looking in on one who has their own.
         case kid(UUID)
@@ -115,10 +137,11 @@ final class ChatStore {
             guard viewer != oldValue else { return }
             switch viewer {
             case .parent: UserDefaults.standard.set("parent", forKey: Self.viewerKey)
-            case .me: UserDefaults.standard.set("me", forKey: Self.viewerKey)
             case .kid(let id): UserDefaults.standard.set(id.uuidString.lowercased(), forKey: Self.viewerKey)
             case .unchosen: break
             }
+            // Whoever it is now starts at their home, not a parent's own place.
+            onMine = false
             switchedViewer()
         }
     }
@@ -130,12 +153,17 @@ final class ChatStore {
 
     private static var savedViewer: Viewer {
         let defaults = UserDefaults.standard
-        switch defaults.string(forKey: viewerKey) {
-        case "parent": return .parent
-        case "me": return .me
-        case let saved?: return UUID(uuidString: saved).map(Viewer.kid) ?? .unchosen
         // Before there was a kid choice: a yes/no for the parent view.
-        case nil: return defaults.bool(forKey: "tuttles.parentView") ? .parent : .unchosen
+        return viewer(saved: defaults.string(forKey: viewerKey), parentView: defaults.bool(forKey: "tuttles.parentView"))
+    }
+
+    /// The choice as it was saved. "me" is from when a parent's own practice
+    /// was a choice apart from the Parent Dashboard: they're one now.
+    static func viewer(saved: String?, parentView: Bool = false) -> Viewer {
+        switch saved {
+        case "parent", "me": .parent
+        case let saved?: UUID(uuidString: saved).map(Viewer.kid) ?? .unchosen
+        case nil: parentView ? .parent : .unchosen
         }
     }
 
@@ -147,12 +175,48 @@ final class ChatStore {
         viewer = .kid(kid.id)
     }
 
-    var showingParentView: Bool { isParent && viewer == .parent }
+    /// A parent using the app as themselves: the menu is the parents', and
+    /// the chats are their own (`parentChats`).
+    var asParent: Bool { isParent && viewer == .parent }
 
-    /// A parent using the app as themselves (Viewer.me).
-    var playingAsSelf: Bool { isParent && viewer == .me }
+    /// The parent is on one of their own places (the menu's "Yours": Vocab,
+    /// Math, House) rather than the kids'. The app's shell says so as it opens each place
+    /// (`play(own:)`); `--mine` starts the simulator there.
+    private(set) var onMine = CommandLine.arguments.contains("--mine")
 
-    /// The parent's first name, for the account picker ("Andrew (you)").
+    /// The parents' view of the kids: This week, and how they're doing at
+    /// Vocab, Math and their houses. Nothing of the parent's own.
+    var showingParentView: Bool { asParent && !onMine }
+
+    /// A parent at their own Vocab, Math or house: kept apart from the kids'
+    /// (at Sebastian's level), so trying things out never touches the kids'
+    /// progress.
+    var playingAsSelf: Bool { asParent && onMine }
+
+    /// The place being opened is one of the parent's own, or isn't. Vocab's
+    /// page is held once for whoever it's about, so it starts over.
+    func play(own: Bool) {
+        guard own != onMine else { return }
+        let was = using
+        onMine = own
+        guard using != was else { return }
+        vocab = nil
+        vocabProblem = nil
+        vocabWaiting = false
+        vocabLocal?.playing = nil
+    }
+
+    /// Whose things are on screen: who the phone is being used as, and for a
+    /// parent, the kids' or their own. A reply that comes back after this has
+    /// changed was for someone else's page.
+    struct Using: Hashable {
+        let viewer: Viewer
+        let own: Bool
+    }
+
+    var using: Using { Using(viewer: viewer, own: playingAsSelf) }
+
+    /// The parent's first name, for the account picker ("Andrew").
     var myName: String {
         Session.shared.name?.split(separator: " ").first.map(String.init) ?? "Me"
     }
@@ -176,11 +240,14 @@ final class ChatStore {
 
     /// A request to the website, signed as the member, naming the kid the
     /// phone is being used as if it is (src/lib/tuttles/tutoring-as.ts).
-    func authorize(_ request: inout URLRequest, token: String) {
+    /// `mine`: for a parent as themselves, it's about the parent (their own
+    /// Vocab, Math or house, or a chat of theirs) rather than the kids, which
+    /// the rest of a parent's view is (This week, the kids' pages, briefings).
+    func authorize(_ request: inout URLRequest, token: String, mine: Bool = false) {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let kid = actingKid {
             request.setValue(kid.id.uuidString.lowercased(), forHTTPHeaderField: "X-Tuttles-Kid")
-        } else if playingAsSelf, let me = Session.shared.userID {
+        } else if mine, asParent, let me = Session.shared.userID {
             // Naming themselves: the website keeps this parent's practice as
             // their own, apart from the kids' (src/lib/tuttles/tutoring-as.ts).
             request.setValue(me.uuidString.lowercased(), forHTTPHeaderField: "X-Tuttles-Kid")
@@ -262,7 +329,7 @@ final class ChatStore {
     /// wait on the network to open; the refreshes replace it.
     func loadSaved() {
         guard !isDemo, let userID = ownerID else { return }
-        if threads.isEmpty, let data = try? Data(contentsOf: Self.savedFile(threadsFile, userID)),
+        if threads.isEmpty, let data = try? Data(contentsOf: Self.savedFile("threads", userID)),
            let saved = try? Self.decoder.decode([TutorThread].self, from: data) {
             threads = saved
             threadsLoaded = true
@@ -272,22 +339,13 @@ final class ChatStore {
             week = saved
             weekLoaded = true
         }
-        if classes == nil, let data = try? Data(contentsOf: Self.savedFile(classesFile, userID)),
+        if classes == nil, let data = try? Data(contentsOf: Self.savedFile("classes", userID)),
            let saved = try? Self.decoder.decode(ClassesPayload.self, from: data) {
             classes = saved
             classesLoaded = true
         }
         settleViewer()
     }
-
-    /// A parent's classes as themselves aren't the ones the Parent Dashboard is
-    /// about (a kid's), though both are saved under the parent.
-    private var classesFile: String { playingAsSelf ? "classes-self" : "classes" }
-    /// The same for the chats: a parent's own list leaves out the ones from before (refreshThreads).
-    private var threadsFile: String { playingAsSelf ? "threads-self" : "threads" }
-
-    /// When a parent could first use the app as themselves (Viewer.me).
-    static let parentSelfSince = "2026-11-26T22:00:00Z"
 
     private static func savedFile(_ name: String, _ userID: UUID) -> URL {
         #if os(macOS)
@@ -314,22 +372,16 @@ final class ChatStore {
             return
         }
         do {
-            var query = client.from("tutor_threads")
-                .select("id, title, updated_at, archived_at, course_id, kind, study_set_id")
+            let fresh: [TutorThread] = try await client.from("tutor_threads")
+                .select("id, title, updated_at, created_at, archived_at, course_id, kind, study_set_id")
                 .eq("student_id", value: ownerID?.uuidString.lowercased() ?? "")
                 .is("archived_at", value: nil)
-            // A parent as themselves starts clean: the chats saved under them
-            // before then were made for the kids (on this phone before it had
-            // the kids' views, or in the parents' view). They're still on the
-            // website, and briefings stay in the Parent Dashboard.
-            if playingAsSelf { query = query.gte("created_at", value: Self.parentSelfSince) }
-            let fresh: [TutorThread] = try await query
                 .order("updated_at", ascending: false)
                 .limit(200)
                 .execute()
                 .value
             if fresh != threads { threads = fresh }
-            if let data = try? Self.encoder.encode(fresh) { save(data, as: threadsFile) }
+            if let data = try? Self.encoder.encode(fresh) { save(data, as: "threads") }
             listError = nil
         } catch {
             listError = "Couldn't load your chats."
@@ -362,7 +414,7 @@ final class ChatStore {
         }
         guard status == 200, let payload = try? Self.decoder.decode(ClassesPayload.self, from: data) else { return }
         classes = payload
-        save(data, as: classesFile)
+        save(data, as: "classes")
         settleViewer()
     }
 
@@ -528,7 +580,8 @@ final class ChatStore {
         var request = URLRequest(url: Self.chatURL)
         request.httpMethod = "POST"
         request.timeoutInterval = 120
-        authorize(&request, token: token)
+        if briefing != nil { startedBriefings.insert(threadID) }
+        authorize(&request, token: token, mine: !isBriefing(threadID))
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = ["threadId": threadID.uuidString.lowercased(), "text": text, "images": paths]
         if !sentFiles.isEmpty { body["files"] = sentFiles }

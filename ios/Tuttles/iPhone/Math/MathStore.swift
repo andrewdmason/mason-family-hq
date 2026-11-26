@@ -360,7 +360,7 @@ final class MathStore {
         var request = URLRequest(url: ChatStore.websiteURL.appending(path: "tuttles/api/math/sync"))
         request.httpMethod = "POST"
         request.timeoutInterval = 30
-        store.authorize(&request, token: token)
+        store.authorize(&request, token: token, mine: store.playingAsSelf)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = data
         guard let (reply, response) = try? await URLSession.shared.data(for: request),

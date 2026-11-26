@@ -164,18 +164,28 @@ are in `src/lib/tuttles/prompt.ts`.
   stage's ground and scenery in code, moving a little, with the stages still
   ahead under a haze. `--vocab-path --vocab-climb` shows all twenty.
 - A parent's account menu picks who the phone is being used as: one of the
-  kids, the parent themselves ("Andrew (you)"), or the **Parent Dashboard**.
-  As themselves (`ChatStore.Viewer.me`), a parent has their own chats, Vocab,
-  Math and house, kept apart from the kids' and played at Sebastian's level
-  (Middle): the phone names the parent's own id in `X-Tuttles-Kid`, and the
-  website sets them up the first time (`parentSelf` in
+  kids, or the parent themselves ("Andrew", `ChatStore.Viewer.parent`). As
+  themselves a parent has one menu with two groups. The first is about the
+  kids, the **Parent Dashboard** (This week, both kids' Vocab and Math, the
+  houses), opening on a page of its own (`Shared/ParentDashboard.swift`,
+  `/tuttles/api/parent/dashboard`): for each kid, the words to practice with
+  them today and their last four weeks by day and by week. The second,
+  "Yours", is the parent's own Vocab, Math and house (`Route.myVocab`,
+  `.myMath`, `.myHouse`), kept apart from the kids' and played at Sebastian's
+  level (Middle). The shell tells the store which group the open place is in
+  (`ChatStore.play(own:)`), and Vocab's, Math's and the house's requests
+  then name the parent's own id in `X-Tuttles-Kid` (`authorize(mine:)`);
+  the website sets them up the first time (`parentSelf` in
   `src/lib/tuttles/tutoring-as.ts`, `PARENT_LEVEL` in `src/lib/tuttles/vocab.ts`).
-  Parents never appear on the street, the Math board or the summaries, which
-  list only the kids. The Parent Dashboard is what was the parents' view (This
-  week, both kids' Vocab and Math, the houses), opening on a page of its own
-  (`Shared/ParentDashboard.swift`, `/tuttles/api/parent/dashboard`): for each
-  kid, the words to practice with them today and their last four weeks by
-  day and by week. `--demo --dashboard -tuttles.viewer.demo parent` opens on it.
+  A parent's chat list is their own: their briefings and the chats they've
+  started (`ChatStore.parentChats`; the plain ones from before 26 November
+  2026 were made for the kids and stay out). A chat they start is theirs,
+  typed or spoken: it names the parent's own id too, and the tutor talks to
+  them as an adult (`parentInstructions` in `src/lib/tuttles/prompt.ts`); a
+  briefing stays about the kid. Parents never appear on the street,
+  the Math board or the summaries, which list only the kids.
+  `--demo --dashboard -tuttles.viewer.demo parent` opens on the dashboard;
+  `--vocab --mine` (or `--math`, `--house`) on the parent's own.
 - `--demo` runs on canned chats with no sign-in (`--open <n>` opens one). The
   simulator is the demo without the flag, so tapping its icon there opens
   straight in; `--live` is the real app there, sign-in and all, and so is
