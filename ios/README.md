@@ -183,8 +183,10 @@ are in `src/lib/tuttles/prompt.ts`.
   the Math board or the summaries, which list only the kids.
   `--demo --dashboard -tuttles.viewer.demo parent` opens on the dashboard;
   `--vocab --mine` (or `--math`, `--house`) on the parent's own.
-- `--demo` runs on canned chats with no sign-in (`--open <n>` opens one), for
-  the simulator. `--website <url>` points the chat at another server.
+- `--demo` runs on canned chats with no sign-in (`--open <n>` opens one). The
+  simulator is the demo without the flag, so tapping its icon there opens
+  straight in; `--live` is the real app there, sign-in and all, and so is
+  `--website <url>`, which points the chat at another server.
 
 ### Math (iPhone only)
 

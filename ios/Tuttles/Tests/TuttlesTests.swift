@@ -391,6 +391,15 @@ final class ParentDashboardTests: XCTestCase {
         XCTAssertEqual(payload.kids.count, 2)
         XCTAssertTrue(payload.kids.allSatisfy { $0.days.count == 28 && $0.weeks.count == 4 })
     }
+
+    /// The simulator opens in the demo unless it's asked for the real thing; a phone never does.
+    @MainActor func testTheSimulatorOpensInTheDemo() {
+        XCTAssertTrue(ChatStore.demo(launchedWith: ["Tuttles"], onSimulator: true))
+        XCTAssertFalse(ChatStore.demo(launchedWith: ["Tuttles", "--live"], onSimulator: true))
+        XCTAssertFalse(ChatStore.demo(launchedWith: ["Tuttles", "--website", "http://localhost:4000"], onSimulator: true))
+        XCTAssertFalse(ChatStore.demo(launchedWith: ["Tuttles"], onSimulator: false))
+        XCTAssertTrue(ChatStore.demo(launchedWith: ["Tuttles", "--demo"], onSimulator: false))
+    }
 }
 
 final class ParentAsThemselvesTests: XCTestCase {
