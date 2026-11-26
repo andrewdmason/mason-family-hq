@@ -53,10 +53,19 @@ struct SideMenu: View {
         List {
             Section {
                 if store.showingParentView {
+                    place("Dashboard", systemImage: "chart.bar.xaxis", .dashboard)
                     place("This week", systemImage: "calendar", .week)
+                    place("Kids' Vocab", systemImage: "character.book.closed", .vocab)
+                    place("Kids' Math", systemImage: "figure.run", .math)
+                    place("Houses", systemImage: "house", .house)
+                    switchRow("Use as \(store.myName)", systemImage: "person.crop.circle", to: .me)
+                } else if store.playingAsSelf {
+                    // A parent's own: no Canvas classes, and the Parent Dashboard a tap away.
+                    place("Study", systemImage: "checklist", .study)
                     place("Vocab", systemImage: "character.book.closed", .vocab)
                     place("Math", systemImage: "figure.run", .math)
-                    place("Houses", systemImage: "house", .house)
+                    place("House", systemImage: "house", .house)
+                    switchRow("Parent Dashboard", systemImage: "chart.bar.xaxis", to: .parent)
                 } else {
                     place("Classes", systemImage: "books.vertical", .classes)
                     place("Study", systemImage: "checklist", .study)
@@ -123,6 +132,10 @@ struct SideMenu: View {
                 Text("Tuttles").font(.largeTitle.bold())
                 if let kid = store.actingKid {
                     Text("\(kid.name) is using Tuttles").font(.subheadline).foregroundStyle(.secondary)
+                } else if store.playingAsSelf {
+                    Text("\(store.myName)'s own, apart from the kids'").font(.subheadline).foregroundStyle(.secondary)
+                } else if store.showingParentView {
+                    Text("Parent Dashboard").font(.subheadline).foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -165,6 +178,26 @@ struct SideMenu: View {
         }
         .buttonStyle(.plain)
         .listRowBackground(highlight(current == route))
+        .listRowSeparator(.hidden)
+    }
+
+    /// A row that switches who the app is being used as, like the account menu's picker.
+    private func switchRow(_ title: String, systemImage: String, to viewer: ChatStore.Viewer) -> some View {
+        Button { store.viewer = viewer } label: {
+            HStack(spacing: 14) {
+                Image(systemName: systemImage)
+                    .font(.body)
+                    .frame(width: 26)
+                Text(title)
+                Spacer()
+                Image(systemName: "arrow.left.arrow.right").font(.footnote).foregroundStyle(.tertiary)
+            }
+            .font(.title3)
+            .foregroundStyle(.secondary)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
     }
 

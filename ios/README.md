@@ -163,6 +163,19 @@ are in `src/lib/tuttles/prompt.ts`.
   The map of stages is drawn on a landscape (`VocabLandscape.swift`): each
   stage's ground and scenery in code, moving a little, with the stages still
   ahead under a haze. `--vocab-path --vocab-climb` shows all twenty.
+- A parent's account menu picks who the phone is being used as: one of the
+  kids, the parent themselves ("Andrew (you)"), or the **Parent Dashboard**.
+  As themselves (`ChatStore.Viewer.me`), a parent has their own chats, Vocab,
+  Math and house, kept apart from the kids' and played at Sebastian's level
+  (Middle): the phone names the parent's own id in `X-Tuttles-Kid`, and the
+  website sets them up the first time (`parentSelf` in
+  `src/lib/tuttles/tutoring-as.ts`, `PARENT_LEVEL` in `src/lib/tuttles/vocab.ts`).
+  Parents never appear on the street, the Math board or the summaries, which
+  list only the kids. The Parent Dashboard is what was the parents' view (This
+  week, both kids' Vocab and Math, the houses), opening on a page of its own
+  (`Shared/ParentDashboard.swift`, `/tuttles/api/parent/dashboard`): for each
+  kid, the words to practice with them today and their last four weeks by
+  day and by week. `--demo --dashboard -tuttles.viewer.demo parent` opens on it.
 - `--demo` runs on canned chats with no sign-in (`--open <n>` opens one), for
   the simulator. `--website <url>` points the chat at another server.
 

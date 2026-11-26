@@ -26,7 +26,8 @@
     "words:parity": "tsx --tsconfig scripts/tsconfig.json scripts/words/write-parity.mts",
     "verify:tuttles": "tsx --tsconfig scripts/tsconfig.json scripts/verify-tuttles-study.mts",
     "verify:tuttles-math": "tsx --tsconfig scripts/tsconfig.json scripts/verify-tuttles-math.mts",
-    "verify:tuttles-house": "tsx --tsconfig scripts/tsconfig.json scripts/verify-tuttles-house.mts"
+    "verify:tuttles-house": "tsx --tsconfig scripts/tsconfig.json scripts/verify-tuttles-house.mts",
+    "verify:tuttles-dashboard": "tsx --tsconfig scripts/tsconfig.json scripts/verify-tuttles-dashboard.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",

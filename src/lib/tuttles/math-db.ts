@@ -163,7 +163,7 @@ async function loadRuns(admin: Admin, userId: string): Promise<RunBests[]> {
 
 type AnswerRow = { question: string; topic: string; section: "qr" | "ma"; chosen: number | null; correct: boolean; ms: number; answered_at: string };
 
-async function loadAnswers(admin: Admin, userId: string): Promise<Answered[]> {
+export async function loadAnswers(admin: Admin, userId: string): Promise<Answered[]> {
   const out: Answered[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await admin

@@ -2,7 +2,13 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { tuttlesCaller } from "@/lib/tuttles/context";
-import { getProfile, type Profile } from "@/lib/words/session";
+import { getProfile, setProfile, type Profile } from "@/lib/words/session";
+
+/**
+ * The level a parent plays at as themselves: Sebastian's (Middle), the one in
+ * between, so a parent sees what the kids see.
+ */
+export const PARENT_LEVEL = "middle" as const;
 
 // Vocab in the Tuttles app: the ISEE vocabulary practice of /words
 // (src/lib/words), played natively. The routes under /tuttles/api/vocab are
@@ -24,7 +30,11 @@ export async function vocabCaller(request: Request): Promise<VocabCaller | { err
   if ("error" in caller) return caller;
   const { student } = caller;
   if (student.preview) return { parentView: true, userId: student.ownerId };
-  return { parentView: false, userId: student.ownerId, name: student.name, profile: await getProfile(student.ownerId) };
+  // A parent as themselves is set up the first time, like a kid: a profile of
+  // their own, so their answers, sessions, runs and house are kept apart from
+  // the kids'. (One set up on /words already is kept as it is.)
+  const profile = (await getProfile(student.ownerId)) ?? (student.parentSelf ? await setProfile(student.ownerId, PARENT_LEVEL) : null);
+  return { parentView: false, userId: student.ownerId, name: student.name, profile };
 }
 
 /** The kid whose session this is, or the response that says why there isn't one. */

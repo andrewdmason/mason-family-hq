@@ -131,9 +131,9 @@ struct MacShell: View {
         }
         .onChange(of: store.viewer) {
             // A view starts at its home: the parent's This week, or a new chat for the kid's.
-            open(store.showingParentView ? .week : .chat(UUID(), isNew: true))
+            open(store.showingParentView ? .dashboard : .chat(UUID(), isNew: true))
         }
-        .onAppear { if store.showingParentView, root != .week, root != .vocab { root = .week; path = [] } }
+        .onAppear { if store.showingParentView, ![Route.dashboard, .week, .vocab].contains(root) { root = .dashboard; path = [] } }
         .onReceive(NotificationCenter.default.publisher(for: .newChat)) { _ in
             // A parent's own chats are briefings, started from This week.
             if !store.showingParentView { open(.chat(UUID(), isNew: true)) }
@@ -175,6 +175,8 @@ struct MacShell: View {
             ContentUnavailableView("Math is on the iPhone", systemImage: "figure.run")
         case .house:
             ContentUnavailableView("The house is on the iPhone", systemImage: "house")
+        case .dashboard:
+            ParentDashboardView().macPage()
         }
     }
 

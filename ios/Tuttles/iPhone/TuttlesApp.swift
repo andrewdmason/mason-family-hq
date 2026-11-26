@@ -79,6 +79,7 @@ struct ChatsView: View {
         if args.contains("--vocab") { return (.vocab, [], false) }
         if args.contains("--math") { return (.math, [], false) }
         if args.contains("--house") { return (.house, [], false) }
+        if args.contains("--dashboard") { return (.dashboard, [], false) }
         return (.chat(UUID(), isNew: true), [], args.contains("--list"))
     }
 
@@ -125,11 +126,11 @@ struct ChatsView: View {
             MemorySheet(memory: store.classes?.memory, name: store.classes?.student.name ?? "")
         }
         .onChange(of: store.viewer) {
-            // A view starts at its home: the parent's This week, or a new chat for the kid's.
+            // A view starts at its home: the Parent Dashboard, or a new chat for the kid's (or a parent's own).
             // The menu stays out, so the next pick is a tap away.
-            open(store.showingParentView ? .week : .chat(UUID(), isNew: true), closingMenu: false)
+            open(store.showingParentView ? .dashboard : .chat(UUID(), isNew: true), closingMenu: false)
         }
-        .onAppear { if store.showingParentView, root != .week, root != .vocab, root != .math { root = .week; path = [] } }
+        .onAppear { if store.showingParentView, ![Route.dashboard, .week, .vocab, .math, .house].contains(root) { root = .dashboard; path = [] } }
         .onChange(of: menu.isOpen) {
             guard menu.isOpen else { return }
             // Opening the menu: put the keyboard away, and catch up on the chat
@@ -185,6 +186,8 @@ struct ChatsView: View {
             MathHomeView().menuButton(isRoot)
         case .house:
             HouseHomeView().menuButton(isRoot)
+        case .dashboard:
+            ParentDashboardView().menuButton(isRoot)
         }
     }
 
@@ -244,7 +247,9 @@ struct AccountMenu: View {
                     ForEach(store.kids) { kid in
                         Label(kid.name, systemImage: "person.fill").tag(ChatStore.Viewer.kid(kid.id))
                     }
-                    Label("Parent view", systemImage: "person.2").tag(ChatStore.Viewer.parent)
+                    // The parent as themselves: their own practice, apart from the kids'.
+                    Label("\(store.myName) (you)", systemImage: "person.crop.circle").tag(ChatStore.Viewer.me)
+                    Label("Parent Dashboard", systemImage: "person.2").tag(ChatStore.Viewer.parent)
                 }
             }
             Button(store.showingParentView ? "What Tuttles knows about \(store.classes?.student.name ?? "them")" : "What Tuttles knows about you",
