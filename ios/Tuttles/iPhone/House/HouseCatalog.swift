@@ -79,7 +79,7 @@ struct HouseRoom: Identifiable, Hashable {
     let id: String
     let name: String
     let blurb: String
-    /// Where it sits in the house: across, up, back. Each room is up one and back one from the one below.
+    /// Where it goes if they've not said (a house from before they could): across, floor, back. See HouseLayout.swift.
     let cell: [Int]
     /// Gems to unlock; 0 for a room bought with coins.
     let gems: Int
@@ -211,7 +211,7 @@ enum HouseCatalog {
         ])
 
     private static let living = HouseRoom(
-        id: "living", name: "Living Room", blurb: "Somewhere to sit and be found.", cell: [0, 1, -1], gems: 0, stand: [3.3, 3.1],
+        id: "living", name: "Living Room", blurb: "Somewhere to sit and be found.", cell: [0, 0, -1], gems: 0, stand: [3.3, 3.1],
         spots: [
             walls("living", ("Linen", "efe6d6", "c2b08f"), [
                 ("Butter", "Sunday morning, as a colour.", "f6e3a1", "d3b862", 500),
@@ -283,7 +283,7 @@ enum HouseCatalog {
         ])
 
     private static let kitchen = HouseRoom(
-        id: "kitchen", name: "Kitchen", blurb: "Something is always nearly ready.", cell: [-1, 1, 0], gems: 0, stand: [1.3, 1.6],
+        id: "kitchen", name: "Kitchen", blurb: "Something is always nearly ready.", cell: [-1, 0, 0], gems: 0, stand: [1.3, 1.6],
         spots: [
             walls("kitchen", ("White Tile", "f4f4ee", "b9c4c4"), [
                 ("Mint", "Clean in a way you can taste.", "c8ecd9", "8fc4aa", 500),
@@ -355,7 +355,7 @@ enum HouseCatalog {
         ])
 
     private static let bathroom = HouseRoom(
-        id: "bathroom", name: "Bathroom", blurb: "Echoes nicely.", cell: [-1, 2, -1], gems: 0, stand: [2.9, 2.4],
+        id: "bathroom", name: "Bathroom", blurb: "Echoes nicely.", cell: [-1, 1, 0], gems: 0, stand: [2.9, 2.4],
         spots: [
             walls("bathroom", ("Pale Blue", "d6ecf4", "9fc4d3"), [
                 ("Seafoam", "The colour of a wave thinking it over.", "bfe8dc", "86c2b2", 500),
@@ -410,7 +410,7 @@ enum HouseCatalog {
         ])
 
     private static let den = HouseRoom(
-        id: "den", name: "Den", blurb: "For games, and for hiding from the rest of the house.", cell: [0, 2, -2], gems: 0, stand: [3.2, 2.5],
+        id: "den", name: "Den", blurb: "For games, and for hiding from the rest of the house.", cell: [0, 1, -1], gems: 0, stand: [3.2, 2.5],
         spots: [
             walls("den", ("Grey", "d9dce0", "a3a9b0"), [
                 ("Arcade Purple", "The colour behind your eyelids after a long game.", "5b3f8f", "3b2866", 900),
@@ -471,7 +471,7 @@ enum HouseCatalog {
         ])
 
     private static let garden = HouseRoom(
-        id: "garden", name: "Roof Garden", blurb: "Outside, but yours.", cell: [-2, 2, 0], gems: 0, stand: [3.3, 3.4],
+        id: "garden", name: "Garden", blurb: "Outside, but yours.", cell: [0, 1, 0], gems: 0, stand: [3.3, 3.4],
         spots: [
             walls("garden", ("Fence", "c9a36b", "8a6a3f"), [
                 ("White Fence", "Painted on a Saturday.", "f4f1e6", "c9c2ad", 500),
@@ -523,7 +523,7 @@ enum HouseCatalog {
         ])
 
     private static let basement = HouseRoom(
-        id: "basement", name: "The Basement", blurb: "Under the house. Further under than it should be.", cell: [-2, 3, -1], gems: 8, stand: [3.3, 3.2],
+        id: "basement", name: "The Basement", blurb: "Under the house. Further under than it should be.", cell: [0, -1, 0], gems: 8, stand: [3.3, 3.2],
         spots: [
             walls("basement", ("Bare Concrete", "9a9c9f", "6b6d70"), [
                 ("Red Curtains", "All the way round. They move with no draught.", "8f1a22", "5a0f14", 2500),
@@ -564,7 +564,7 @@ enum HouseCatalog {
         ])
 
     private static let observatory = HouseRoom(
-        id: "observatory", name: "The Observatory", blurb: "The top of the house. The sky is closer here than outside.", cell: [-1, 3, -2], gems: 12, stand: [3.3, 3.3],
+        id: "observatory", name: "The Observatory", blurb: "The top of the house. The sky is closer here than outside.", cell: [-1, 2, 0], gems: 12, stand: [3.3, 3.3],
         spots: [
             walls("observatory", ("Midnight", "1b2148", "0f1330"), [
                 ("Star Chart", "Every star, and a few they haven't found.", "101638", "ffe9a3", 2000),

@@ -41,6 +41,8 @@ struct HouseState: Codable, Equatable {
     var tookStars = false
     /// Vocab done before there was a purse has been paid for.
     var backPaid = false
+    /// Where each of their rooms stands (HouseLayout.swift): [across, floor, back].
+    var cells: [String: [Int]] = [HouseCatalog.first: [0, 0, 0]]
 
     init() {}
 
@@ -58,11 +60,25 @@ struct HouseState: Codable, Equatable {
         days = (try? c.decode([Paid].self, forKey: .days)) ?? []
         tookStars = (try? c.decode(Bool.self, forKey: .tookStars)) ?? false
         backPaid = (try? c.decode(Bool.self, forKey: .backPaid)) ?? false
+        // A house from before they chose where rooms go gets them put somewhere that holds together.
+        cells = HouseLayout.settle(rooms, from: (try? c.decode([String: [Int]].self, forKey: .cells)) ?? [:])
     }
 
     // MARK: Reading it
 
     func has(room: String) -> Bool { rooms.contains(room) }
+
+    /// Where a room of theirs stands.
+    func cell(of room: String) -> [Int] { cells[room] ?? HouseCatalog.room(room)?.cell ?? [0, 0, 0] }
+
+    /// Which of their rooms is in a cell.
+    func room(at cell: [Int]) -> String? { rooms.first { self.cell(of: $0) == cell } }
+
+    /// The floors their house has, lowest first.
+    var floors: [Int] { Set(rooms.map { cell(of: $0)[1] }).sorted() }
+
+    /// Where a room could go: one to buy, or one of theirs to move.
+    func places(for room: String) -> [[Int]] { HouseLayout.places(for: room, in: cells) }
 
     func owns(_ item: HouseItem) -> Bool { item.free || owned.contains(item.id) }
 
@@ -124,17 +140,32 @@ struct HouseState: Codable, Equatable {
         }
     }
 
-    /// Buy a room, if it's one to buy and there's enough. True if it's theirs now.
+    /// Buy a room, if it's one to buy and there's enough, and put it here (or
+    /// wherever it fits, with no cell). True if it's theirs now.
     @discardableResult
-    mutating func unlock(_ room: HouseRoom) -> Bool {
+    mutating func unlock(_ room: HouseRoom, at cell: [Int]? = nil) -> Bool {
         if has(room: room.id) { return true }
+        if let cell, !places(for: room.id).contains(cell) { return false }
         let price = price(of: room)
         guard canAfford(coins: price.coins, gems: price.gems) else { return false }
         coins -= price.coins
         gems -= price.gems
         rooms.append(room.id)
+        if let cell { cells[room.id] = cell }
+        settle()
         return true
     }
+
+    /// Move a room of theirs to another cell, if the house still holds together. Free.
+    @discardableResult
+    mutating func move(_ room: String, to cell: [Int]) -> Bool {
+        guard has(room: room), places(for: room).contains(cell) else { return false }
+        cells[room] = cell
+        return true
+    }
+
+    /// Every room somewhere, and the house in one piece.
+    mutating func settle() { cells = HouseLayout.settle(rooms, from: cells) }
 
     /// Put a thing in its spot, buying it first if it isn't theirs. True if it's there now.
     @discardableResult
@@ -280,8 +311,15 @@ final class HouseStore {
     // MARK: Spending
 
     @discardableResult
-    func unlock(_ room: HouseRoom) -> Bool {
-        guard saved.state.unlock(room) else { return false }
+    func unlock(_ room: HouseRoom, at cell: [Int]? = nil) -> Bool {
+        guard saved.state.unlock(room, at: cell) else { return false }
+        save()
+        return true
+    }
+
+    @discardableResult
+    func move(_ room: String, to cell: [Int]) -> Bool {
+        guard saved.state.move(room, to: cell) else { return false }
         save()
         return true
     }
@@ -374,6 +412,7 @@ final class HouseStore {
                 saved.state.owned.append(item.id)
                 saved.state.placed[HouseCatalog.key(room.id, spot.id)] = item.id
             } }
+            saved.state.settle()
         }
         saved.state.backPaid = true
         saved.state.tookStars = true
