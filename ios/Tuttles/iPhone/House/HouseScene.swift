@@ -36,6 +36,9 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
 
     let scene = SCNScene()
     let cameraNode = SCNNode()
+    /// The town they stand in (HouseLand.swift), and its trees.
+    private let ground = HouseLand.ground()
+    private var trees: SCNNode?
     private var houses: [HouseShown] = []
     private var nodes: [String: SCNNode] = [:]
     private var characters: [String: MathCharacter] = [:]
@@ -92,6 +95,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         ambient.light?.color = UIColor(red: 0.95, green: 0.97, blue: 1, alpha: 1)
         scene.rootNode.addChildNode(ambient)
         scene.background.contents = Self.sky
+        scene.rootNode.addChildNode(ground)
     }
 
     /// Pale blue, with a few clouds low down.
@@ -114,19 +118,31 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         for node in nodes.values { node.removeFromParentNode() }
         nodes = [:]
         lock.lock(); characters = [:]; lock.unlock()
-        // One above the other up the screen, a little to the side: a phone is
-        // tall. Seen from one fixed corner with no perspective, two things
-        // only hide each other where they overlap on screen, and these don't.
-        let right = Self.right, up = simd_normalize(simd_cross(Self.back, right))
-        var top: Float = 0
+        // Each on a block of the town, one behind the other up the screen (a
+        // phone is tall), as many blocks back as it takes for the one in front
+        // not to hide any of it. Seen from one fixed corner with no
+        // perspective, two things only hide each other where they overlap on
+        // screen.
+        let up = simd_normalize(simd_cross(Self.back, Self.right))
+        let step = SIMD3<Float>(-HouseLand.block, 0, -HouseLand.block)
+        var top: Float = 0, at = SIMD3<Float>(0, 0, 0), blocks: [SIMD2<Int>] = []
         for (i, house) in houses.enumerated() {
             let node = build(house)
-            let box = Self.box(house.state, right: right, up: up)
-            if i > 0 { node.simdPosition = up * (top - box.u0 + 2.6) + right * (i % 2 == 1 ? 3.2 : -3.2) }
-            top = simd_dot(node.simdPosition, up) + box.u1
+            let box = Self.box(house.state, right: Self.right, up: up)
+            if i > 0 {
+                at += step
+                while simd_dot(at, up) + box.u0 < top + 2.6 { at += step }
+            }
+            node.simdPosition = at
+            blocks.append(SIMD2(Int((at.x / HouseLand.block).rounded()), Int((at.z / HouseLand.block).rounded())))
+            top = simd_dot(at, up) + box.u1
             scene.rootNode.addChildNode(node)
             nodes[house.kid] = node
         }
+        trees?.removeFromParentNode()
+        let trees = HouseLand.trees(around: blocks.isEmpty ? [SIMD2(0, 0)] : blocks)
+        scene.rootNode.addChildNode(trees)
+        self.trees = trees
         frame(animated: false)
     }
 
@@ -207,6 +223,12 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
                 root.addChildNode(tile)
             }
         }
+        let yard = SCNNode()
+        yard.name = "yard"
+        yard.addChildNode(HouseLand.fence())
+        // Trees at the back of the lot; not while choosing where a room goes, so they're not in the way.
+        if !(house.mine && placing != nil) { yard.addChildNode(HouseLand.garden(state, seed: house.kid)) }
+        root.addChildNode(yard)
         // Whose it is, over the top of it.
         let top = state.rooms.map { state.cell(of: $0) }.max { $0[1] < $1[1] } ?? [0, 0, 0]
         let sign = HouseProps.sign([house.mine ? "My house" : "\(house.name)'s house"], width: 5.2)
@@ -489,9 +511,21 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     }
 
     /// On the street each house says whose it is. Inside one, it's the only one there.
+    /// Looking at the basement, the ground is taken away and it stands in earth.
     private func tidy() {
+        var under = placing?.room == "basement"
+        switch focus {
+        case .street: break
+        case .house: under = under || floor == -1
+        case .room(let kid, let id): under = houses.first { $0.kid == kid }?.state.cell(of: id)[1] == -1
+        }
+        // Underground: no grass or trees, just earth round the basement.
+        ground.isHidden = under
+        trees?.isHidden = under
+        scene.background.contents = under ? UIColor(red: 0.45, green: 0.33, blue: 0.24, alpha: 1) : Self.sky
         for (kid, node) in nodes {
             node.childNode(withName: "label", recursively: false)?.isHidden = focus != .street
+            node.childNode(withName: "yard", recursively: false)?.isHidden = under
             switch focus {
             case .street: node.isHidden = false
             case .house(let k), .room(let k, _): node.isHidden = k != kid

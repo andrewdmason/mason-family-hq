@@ -216,7 +216,11 @@ in each room fixed spots, each with its own things to choose between.
 - It's SceneKit from one fixed corner (`HouseScene.swift`). A room is a floor
   and two walls. A wall with a room behind it is down to the knee with a gap,
   except from inside that room; a house can be looked at a floor at a time,
-  and in a room nothing in front of it or over it is shown. Furniture and pets are Kenney's kits; rugs, floors,
+  and in a room nothing in front of it or over it is shown. The houses stand
+  in a town (`HouseLand.swift`): one ground picture of a block and its roads,
+  repeated; each house on a block of its own with a fence and trees at the
+  back, the street going up the screen, trees on the blocks between. Looking
+  at the basement takes the ground away and shows it in earth. Furniture and pets are Kenney's kits; rugs, floors,
   pictures, windows and the odd things are drawn in code (`HouseProps.swift`).
 - The house goes to `/tuttles/api/house/sync` whole, newest wins, and the
   street comes back and is kept, so the other house shows with no connection.
