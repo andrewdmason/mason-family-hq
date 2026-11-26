@@ -182,7 +182,9 @@ to break free, wrong and the run is over with the worked answer shown.
   is built in code. Sounds are in `Math/MathAssets/audio`, rebuilt by
   `scripts/math-audio`. Both folders have a `CREDITS.txt`.
 - Questions ship in the app (`Math/MathAssets/bank`), written by
-  `scripts/math/import.mts` from a spreadsheet of real questions, so it plays
+  `scripts/math/import.mts` from Andrew's sheet of questions (a copy, the
+  fixes found by checking every answer, and the figures are in
+  `scripts/math/source`), so it plays
   with no connection. Runs, answers, stars and purchases are kept on the phone
   (`MathStore.swift`) and go to `/tuttles/api/math/sync` when there's signal;
   the parents' view reads `/tuttles/api/math/summary`.
@@ -190,7 +192,8 @@ to break free, wrong and the run is over with the worked answer shown.
 - For the simulator, with `--demo --math`: `--math-run` starts running,
   `--math-auto` plays by itself, `--math-god` can't be caught, `--math-level 6`
   starts in the sixth zone, `--math-shop` opens the shop, `--math-stars 5000`
-  fills the purse, `--math-lower` uses the Lower Level bank.
+  fills the purse, `--math-lower` uses the Lower Level bank, and
+  `--math-figures middle 12` shows six of that level's figures from the 13th.
 
 ## Tuttles (Mac)
 

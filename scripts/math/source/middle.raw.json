@@ -1,0 +1,6374 @@
+[
+{
+"row": 2,
+"cells": [
+"M001",
+"middle",
+"Mathematics Achievement",
+"Solving for Expressions",
+"word problem",
+"If x = 1 and y = 2, what is 3x² − 2xy + y?",
+3.0,
+1.0,
+9.0,
+7.0,
+"B",
+"3(1) − 2(1)(2) + (2) = 1.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 3,
+"cells": [
+"M002",
+"middle",
+"Quantitative Reasoning",
+"Word Problems with Ratios",
+"word problem",
+"The ratio of boys to girls in a club is 2:5. There are 56 members. How many are boys?",
+54.0,
+40.0,
+16.0,
+28.0,
+"C",
+"2+5=7 parts; 56÷7=8; boys = 2×8 = 16.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 4,
+"cells": [
+"M003",
+"middle",
+"Quantitative Reasoning",
+"Probability of 2 Independent Events",
+"word problem",
+"What is the probability that a coin lands heads and a number cube shows a 6?",
+{
+"date": "2026-01-02"
+},
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-01-12"
+},
+{
+"date": "2026-01-06"
+},
+"C",
+"Multiply the independent probabilities: 1/12.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 5,
+"cells": [
+"M004",
+"middle",
+"Quantitative Reasoning",
+"Ratios of Similar 2-D Figures",
+"word problem",
+"Two similar rectangles have a side-length ratio of 1:4. The smaller has area 3 square units. What is the area of the larger?",
+48.0,
+7.0,
+12.0,
+192.0,
+"A",
+"Area scales by 4² = 16: 3×16 = 48.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 6,
+"cells": [
+"M005",
+"middle",
+"Quantitative Reasoning",
+"Shaded Area, given Inscribed Shapes",
+"word problem",
+"A circle is inscribed in a square with side length 12. What is the area of the region inside the square but outside the circle?",
+"144 − 36π",
+"144 − 144π",
+"36π − 144",
+"48 − 36π",
+"A",
+"Square 144; circle radius 6, area 36π; difference 144 − 36π.",
+2.0,
+"Square of side 12 with a circle inscribed touching all four sides; region between square and circle shaded.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 7,
+"cells": [
+"M006",
+"middle",
+"Mathematics Achievement",
+"Multi-step Solving Equations",
+"computation",
+"Solve: 5x + 5 = 1x + 5",
+0.0,
+2.0,
+1.0,
+"'-2",
+"A",
+"4x = 0 → x = 0.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 8,
+"cells": [
+"M007",
+"middle",
+"Quantitative Reasoning",
+"Word Problems with Ratios",
+"word problem",
+"The ratio of boys to girls in a club is 2:7. There are 27 members. How many are boys?",
+25.0,
+6.0,
+13.0,
+21.0,
+"B",
+"2+7=9 parts; 27÷9=3; boys = 2×3 = 6.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 9,
+"cells": [
+"M008",
+"middle",
+"Quantitative Reasoning",
+"Probability of 2 Selections without Replacement",
+"word problem",
+"A jar has 2 red and 2 blue chips. Two chips are drawn one at a time without replacement. What is the probability both are red?",
+{
+"date": "2026-01-04"
+},
+1.0,
+{
+"date": "2026-01-06"
+},
+{
+"date": "2026-01-02"
+},
+"C",
+"1/2 × 1/3 = 1/6.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 10,
+"cells": [
+"M009",
+"middle",
+"Mathematics Achievement",
+"Prime Numbers",
+"computation",
+"Which of the following is a prime number?",
+77.0,
+81.0,
+59.0,
+87.0,
+"C",
+"59 has no factors other than 1 and itself; the others are composite.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 11,
+"cells": [
+"M010",
+"middle",
+"Mathematics Achievement",
+"Solving 1 Variable Equations",
+"computation",
+"If 4x + 7 = -13, what is x?",
+5.0,
+"'-3",
+"'-4",
+"'-5",
+"D",
+"4x = -20 → x = -5.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 12,
+"cells": [
+"M011",
+"middle",
+"Mathematics Achievement",
+"Adding and Subtracting Integers",
+"computation",
+"What is (-18) − (-14) + (-2)?",
+6.0,
+"'-2",
+"'-34",
+"'-6",
+"D",
+"-18 − (-14) = -4; + (-2) = -6.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 13,
+"cells": [
+"M012",
+"middle",
+"Mathematics Achievement",
+"Systems of Equations",
+"computation",
+"Solve the system: x + y = 2 and 1x − 1y = -10.",
+"x = 6, y = -4",
+"x = -4, y = 6",
+"x = 4, y = -2",
+"x = -3, y = 5",
+"B",
+"Substitute y = 2 − x into the second equation → x = -4, y = 6.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 14,
+"cells": [
+"M013",
+"middle",
+"Mathematics Achievement",
+"Prime Numbers",
+"computation",
+"Which of the following is a prime number?",
+63.0,
+51.0,
+57.0,
+43.0,
+"D",
+"43 has no factors other than 1 and itself; the others are composite.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 15,
+"cells": [
+"M014",
+"middle",
+"Quantitative Reasoning",
+"Stem & Leaf Plot",
+"word problem",
+"Use the stem-and-leaf plot (2 | 4; 3 | 6 9; 4 | 3 6; 5 | 5 6; 6 | 2 9; key: 2 | 3 = 23). What is the median of the data?",
+48.0,
+43.0,
+46.0,
+55.0,
+"C",
+"Data in order: 24, 36, 39, 43, 46, 55, 56, 62, 69. Median = 46.",
+2.0,
+"Stem-and-leaf plot with stems 2, 3, 4, 5, 6; leaves: 2: 4; 3: 6 9; 4: 3 6; 5: 5 6; 6: 2 9. Key: 2 | 3 = 23.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 16,
+"cells": [
+"M015",
+"middle",
+"Mathematics Achievement",
+"Evaluating Percents of Numbers",
+"computation",
+"What is 120% of 200?",
+1.67,
+360.0,
+240.0,
+2400.0,
+"C",
+"120/100 × 200 = 240.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 17,
+"cells": [
+"M016",
+"middle",
+"Mathematics Achievement",
+"Multiplying and Dividing Decimals",
+"computation",
+"What is 0.2 × 3.3?",
+0.066,
+6.6,
+0.66,
+3.5,
+"C",
+"0.2 × 3.3 = 0.66.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 18,
+"cells": [
+"M017",
+"middle",
+"Mathematics Achievement",
+"Solving Problems with Geometric Formulas",
+"word problem",
+"A cylinder has radius 5 and height 5. What is its volume?",
+"25π",
+"250π",
+"50π",
+"125π",
+"D",
+"V = πr²h = 125π.",
+3.0,
+"Right circular cylinder with radius 5 and height 5 labeled.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 19,
+"cells": [
+"M018",
+"middle",
+"Quantitative Reasoning",
+"Relationships btwn. Area/Circumference and Radius",
+"quantitative comparison",
+"A circle has radius 6. Column A: the circumference of the circle   Column B: the area of the circle",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"B",
+"C = 12π, A = 36π.",
+2.0,
+"Circle with radius 6 drawn and labeled.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 20,
+"cells": [
+"M019",
+"middle",
+"Mathematics Achievement",
+"Vertical and Supplementary Angles",
+"word problem",
+"Two lines intersect. One of the angles formed measures 46°. What is the measure of an angle adjacent to it?",
+"46°",
+"44°",
+"314°",
+"134°",
+"D",
+"Adjacent angles are supplementary: 180 − 46 = 134°.",
+3.0,
+"Two intersecting lines; one angle marked 46°; the adjacent angle marked x.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 21,
+"cells": [
+"M020",
+"middle",
+"Quantitative Reasoning",
+"Finding Missing Value, Known Mean",
+"word problem",
+"Rosa's first 4 test scores are 75, 84, 78, 82. What must she score on test 5 to have a mean of exactly 76?",
+76.0,
+61.0,
+56.0,
+66.0,
+"B",
+"Total needed = 76×5 = 380; current sum 319; needs 61.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 22,
+"cells": [
+"M021",
+"middle",
+"Quantitative Reasoning",
+"Comparing \"Open-Ended\" Variable Expressions",
+"quantitative comparison",
+"x is a number. Column A: x²   Column B: x",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"D",
+"If x = 2, x² > x; if x = 1/2, x² < x; if x = 1, they are equal.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 23,
+"cells": [
+"M022",
+"middle",
+"Quantitative Reasoning",
+"Distance, Rate, and Time",
+"word problem",
+"A train travels 160 miles in 4 hours. What is its average speed?",
+"30 mph",
+"640 mph",
+"45 mph",
+"40 mph",
+"D",
+"r = d/t = 160/4 = 40.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 24,
+"cells": [
+"M023",
+"middle",
+"Mathematics Achievement",
+"Pythagorean Theorem",
+"word problem",
+"A right triangle has a hypotenuse of 5 and one leg of 3. What is the other leg?",
+4.0,
+5.0,
+2.0,
+8.0,
+"A",
+"√(5² − 3²) = √16 = 4.",
+3.0,
+"Right triangle with one leg 3, hypotenuse 5, other leg labeled ?.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 25,
+"cells": [
+"M024",
+"middle",
+"Quantitative Reasoning",
+"Probability of 2 Selections without Replacement",
+"word problem",
+"A jar has 4 red and 3 blue chips. Two chips are drawn one at a time without replacement. What is the probability both are red?",
+"1 1/7",
+{
+"date": "2026-02-07"
+},
+{
+"date": "2026-04-07"
+},
+"16/49",
+"B",
+"4/7 × 1/2 = 2/7.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 26,
+"cells": [
+"M025",
+"middle",
+"Mathematics Achievement",
+"Estimating Square Roots",
+"word problem",
+"The square root of 76 is between which two consecutive whole numbers?",
+"between 7 and 8",
+"between 9 and 10",
+"between 8 and 9",
+"between 37 and 38",
+"C",
+"8² = 64 < 76 < 81 = 9².",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 27,
+"cells": [
+"M026",
+"middle",
+"Mathematics Achievement",
+"Transformations (reflection, rotation, translation)",
+"word problem",
+"Point P(4, 2) is rotated 180° about the origin. What are the coordinates of its image?",
+"(-2, 4)",
+"(2, 4)",
+"(-4, -2)",
+"(4, -2)",
+"C",
+"A 180° rotation negates both coordinates.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 28,
+"cells": [
+"M027",
+"middle",
+"Mathematics Achievement",
+"Solving for Missing Sides, given Similar Figures",
+"word problem",
+"Triangle ABC is similar to triangle DEF. AB = 5, BC = 10, and DE = 15. What is EF?",
+20.0,
+30.0,
+31.0,
+15.0,
+"B",
+"Scale factor 3: EF = 10×3 = 30.",
+2.0,
+"Two similar triangles ABC and DEF, ABC smaller; AB=5, BC=10 labeled on ABC; DE=15 labeled, EF labeled ?.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 29,
+"cells": [
+"M028",
+"middle",
+"Mathematics Achievement",
+"Transformations (reflection, rotation, translation)",
+"word problem",
+"Point P(3, 6) is rotated 180° about the origin. What are the coordinates of its image?",
+"(6, 3)",
+"(-3, -6)",
+"(-6, 3)",
+"(3, -6)",
+"B",
+"A 180° rotation negates both coordinates.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 30,
+"cells": [
+"M029",
+"middle",
+"Mathematics Achievement",
+"Solving for Missing Sides, given Similar Figures",
+"word problem",
+"Triangle ABC is similar to triangle DEF. AB = 7, BC = 4, and DE = 21. What is EF?",
+18.0,
+13.0,
+12.0,
+21.0,
+"C",
+"Scale factor 3: EF = 4×3 = 12.",
+2.0,
+"Two similar triangles ABC and DEF, ABC smaller; AB=7, BC=4 labeled on ABC; DE=21 labeled, EF labeled ?.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 31,
+"cells": [
+"M030",
+"middle",
+"Mathematics Achievement",
+"Finding Slope, given Linear Equations",
+"word problem",
+"What is the slope of the line -6x + 2y = -7?",
+"-7/2",
+"'-3",
+3.0,
+"-1/3",
+"C",
+"Solve for y: y = (3)x − 7/2; slope = 3.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 32,
+"cells": [
+"M031",
+"middle",
+"Mathematics Achievement",
+"Solving for Expressions",
+"word problem",
+"If x = 6 and y = 1, what is 3x² − 2xy + y?",
+97.0,
+99.0,
+121.0,
+313.0,
+"A",
+"3(36) − 2(6)(1) + (1) = 97.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 33,
+"cells": [
+"M032",
+"middle",
+"Quantitative Reasoning",
+"Finding Missing Value, Known Mean",
+"word problem",
+"Rosa's first 5 test scores are 65, 79, 73, 66, 69. What must she score on test 6 to have a mean of exactly 72?",
+86.0,
+75.0,
+72.0,
+80.0,
+"D",
+"Total needed = 72×6 = 432; current sum 352; needs 80.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 34,
+"cells": [
+"M033",
+"middle",
+"Mathematics Achievement",
+"Multiplying and Dividing Decimals",
+"computation",
+"What is 0.3 × 3.29?",
+9.87,
+0.0987,
+0.987,
+3.59,
+"C",
+"0.3 × 3.29 = 0.987.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 35,
+"cells": [
+"M034",
+"middle",
+"Quantitative Reasoning",
+"Finding MMMR, given Frequency Tables",
+"word problem",
+"A frequency table shows the number of pets owned by students: 1 pet: 1 students, 2 pets: 1 students, 3 pets: 3 students, 4 pets: 5 students, 5 pets: 6 students. What is the mode?",
+3.0,
+4.0,
+5.0,
+6.0,
+"C",
+"5 has the highest frequency (6).",
+3.0,
+"Two-column table: 'Number of Pets' 1–5 and 'Number of Students' 1, 1, 3, 5, 6.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 36,
+"cells": [
+"M035",
+"middle",
+"Mathematics Achievement",
+"Transformations (reflection, rotation, translation)",
+"word problem",
+"Point P(2, 4) is reflected across the x-axis. What are the coordinates of its image?",
+"(4, 2)",
+"(-2, 4)",
+"(2, -4)",
+"(-2, -4)",
+"C",
+"Reflecting over the x-axis negates y.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 37,
+"cells": [
+"M036",
+"middle",
+"Quantitative Reasoning",
+"Revenue − Cost = Profit Problems",
+"word problem",
+"A lemonade stand spends $30 on a table rental and $1.5 per cup on supplies. Each cup sells for $4. If they sell 77 cups, what is the profit?",
+{
+"number": 192.5,
+"shown": "$192.50"
+},
+{
+"number": 308.0,
+"shown": "$308.00"
+},
+{
+"number": 162.5,
+"shown": "$162.50"
+},
+{
+"number": 132.5,
+"shown": "$132.50"
+},
+"C",
+"Revenue $308.00 − supplies $115.50 − rental $30.00 = $162.50.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 38,
+"cells": [
+"M037",
+"middle",
+"Mathematics Achievement",
+"Solving for Remaining Angles",
+"word problem",
+"Two angles of a triangle measure 74° and 59°. What is the third angle?",
+"227°",
+"47°",
+"133°",
+"57°",
+"B",
+"180 − 74 − 59 = 47°.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 39,
+"cells": [
+"M038",
+"middle",
+"Quantitative Reasoning",
+"Patterns with Exponentials",
+"word problem",
+"Each term in the sequence 1, 3, 9, 27, … is 3 times the previous term. What is the 6th term?",
+729.0,
+18.0,
+243.0,
+242.0,
+"C",
+"1 × 3^5 = 243.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 40,
+"cells": [
+"M039",
+"middle",
+"Mathematics Achievement",
+"Dividing Mixed Numbers",
+"computation",
+"What is 3 1/4 ÷ 3 1/2?",
+"11 3/8",
+"13/14",
+"1 1/13",
+"1 3/7",
+"B",
+"Convert to improper fractions and multiply by the reciprocal: 13/14.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 41,
+"cells": [
+"M040",
+"middle",
+"Mathematics Achievement",
+"Equivalent Fractions, Decimals, and Percents",
+"computation",
+"Which percent is equal to 3/8?",
+{
+"number": 0.375,
+"shown": "37.50%"
+},
+{
+"number": 0.0375,
+"shown": "3.75%"
+},
+{
+"number": 0.38,
+"shown": "38%"
+},
+{
+"number": 0.00375,
+"shown": "0.38%"
+},
+"A",
+"3/8 = 0.375 = 37.5%.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 42,
+"cells": [
+"M041",
+"middle",
+"Quantitative Reasoning",
+"Solving for Remaining Angles",
+"quantitative comparison",
+"In a triangle, two angles measure 63° and 48°. Column A: the third angle   Column B: 90°",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"B",
+"Third angle = 180 − 63 − 48 = 69°.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 43,
+"cells": [
+"M042",
+"middle",
+"Quantitative Reasoning",
+"Time to Completion, given Same Rate",
+"word problem",
+"6 painters can paint a house in 4 days. Working at the same rate, how many days would it take 9 painters?",
+"3 2/3",
+"2 2/3",
+6.0,
+1.0,
+"B",
+"6×4 = 24 painter-days; ÷ 9 = 2 2/3.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 44,
+"cells": [
+"M043",
+"middle",
+"Mathematics Achievement",
+"Solving 1 Variable Equations",
+"computation",
+"If 9x + 9 = 45, what is x?",
+5.0,
+6.0,
+"'-4",
+4.0,
+"D",
+"9x = 36 → x = 4.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 45,
+"cells": [
+"M044",
+"middle",
+"Quantitative Reasoning",
+"Interpreting Linear Equations from Word Problems",
+"word problem",
+"A bike rental costs $39 plus $9 per hour. Which equation gives the total cost C for h hours, and what is the cost for 3 hours?",
+"C = 39h + 9; $126",
+"C = 48h; $144",
+"C = 9h + 39; $66",
+"C = 9h − 39; $-12",
+"C",
+"Fixed fee 39 + 9 per hour: 9(3) + 39 = 66.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 46,
+"cells": [
+"M045",
+"middle",
+"Mathematics Achievement",
+"Ordering Negative Decimals",
+"computation",
+"Which list orders -1.9, -1.063, -1.421, -1.6 from least to greatest?",
+"-1.421, -1.6, -1.9, -1.063",
+"-1.9, -1.063, -1.421, -1.6",
+"-1.063, -1.421, -1.6, -1.9",
+"-1.9, -1.6, -1.421, -1.063",
+"D",
+"The more negative a number, the smaller it is.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 47,
+"cells": [
+"M046",
+"middle",
+"Quantitative Reasoning",
+"Shaded Area, given Inscribed Shapes",
+"word problem",
+"A circle is inscribed in a square with side length 6. What is the area of the region inside the square but outside the circle?",
+"9π − 36",
+"24 − 9π",
+"36 − 36π",
+"36 − 9π",
+"D",
+"Square 36; circle radius 3, area 9π; difference 36 − 9π.",
+2.0,
+"Square of side 6 with a circle inscribed touching all four sides; region between square and circle shaded.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 48,
+"cells": [
+"M047",
+"middle",
+"Quantitative Reasoning",
+"Word Problems with Proportions",
+"word problem",
+"A recipe uses 4 cups of flour to make 18 cookies. How many cups are needed for 54 cookies?",
+24.0,
+12.0,
+"1 1/3",
+13.0,
+"B",
+"4/18 = x/54 → x = 12.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 49,
+"cells": [
+"M048",
+"middle",
+"Mathematics Achievement",
+"Translating Math Expressions",
+"computation",
+"Which expression represents \"a number divided by 4, increased by 7\"?",
+"4/x + 7",
+"x/4 + 7",
+"x/(4 + 7)",
+"(x + 7)/4",
+"B",
+"\"a number divided by 4, increased by 7\" → x/4 + 7.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 50,
+"cells": [
+"M049",
+"middle",
+"Quantitative Reasoning",
+"Probability of 2 Independent Events",
+"word problem",
+"What is the probability that three coins all land heads?",
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-01-04"
+},
+{
+"date": "2026-01-08"
+},
+{
+"date": "2026-01-02"
+},
+"C",
+"Multiply the independent probabilities: 1/8.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 51,
+"cells": [
+"M050",
+"middle",
+"Quantitative Reasoning",
+"Comparing Slopes - Quantitative Comparison",
+"quantitative comparison",
+"Line j: y = -x + 1. Line k: y = (1/2)x − 5. Column A: slope of line j   Column B: slope of line k",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"B",
+"Slopes are -1 and 1/2.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 52,
+"cells": [
+"M051",
+"middle",
+"Mathematics Achievement",
+"Dividing Mixed Numbers",
+"computation",
+"What is 3 1/2 ÷ 3 1/4?",
+"1 1/13",
+"13/14",
+"1 15/26",
+"11 3/8",
+"A",
+"Convert to improper fractions and multiply by the reciprocal: 1 1/13.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 53,
+"cells": [
+"M052",
+"middle",
+"Quantitative Reasoning",
+"Interpreting Meaning of Terms in Linear Equations",
+"word problem",
+"The amount in Leo's savings account after w weeks is A = 139 + 18w. What does 18 represent?",
+"the total after one week",
+"the amount Leo adds each week",
+"the amount Leo started with",
+"the number of weeks Leo saves",
+"B",
+"18 is the rate of change: dollars added per week; 139 is the starting amount.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 54,
+"cells": [
+"M053",
+"middle",
+"Quantitative Reasoning",
+"Patterns with Exponentials",
+"word problem",
+"Each term in the sequence 4, 12, 36, 108, … is 3 times the previous term. What is the 6th term?",
+968.0,
+972.0,
+72.0,
+2916.0,
+"B",
+"4 × 3^5 = 972.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 55,
+"cells": [
+"M054",
+"middle",
+"Mathematics Achievement",
+"Vertices Forming Quadrilaterals on a Coordinate Plane",
+"word problem",
+"Three vertices of a rectangle are (-5, -3), (0, -3), and (0, 0). What is the fourth vertex?",
+"(-5, 0)",
+"(-2, 2)",
+"(0, -6)",
+"(-10, 0)",
+"A",
+"The missing corner shares x with (-5, -3) and y with (0, 0).",
+2.0,
+"Coordinate grid −8 to 8 on both axes with points (-5, -3), (0, -3), (0, 0) plotted.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 56,
+"cells": [
+"M055",
+"middle",
+"Quantitative Reasoning",
+"Probability of 2 Independent Events",
+"word problem",
+"What is the probability that two number cubes both show an even number?",
+{
+"date": "2026-01-04"
+},
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-01-02"
+},
+{
+"date": "2026-01-06"
+},
+"A",
+"Multiply the independent probabilities: 1/4.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 57,
+"cells": [
+"M056",
+"middle",
+"Mathematics Achievement",
+"Square Root of Sum of Squares",
+"computation",
+"What is √(9² + 40²)?",
+49.0,
+41.0,
+1681.0,
+42.0,
+"B",
+"81 + 1600 = 1681; √1681 = 41.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 58,
+"cells": [
+"M057",
+"middle",
+"Mathematics Achievement",
+"Percent Increase and Decrease",
+"word problem",
+"A jacket originally priced at $40 is on sale for 40% off. What is the new price?",
+{
+"number": 32.0,
+"shown": "$32.00"
+},
+{
+"number": 80.0,
+"shown": "$80.00"
+},
+{
+"number": 16.0,
+"shown": "$16.00"
+},
+{
+"number": 24.0,
+"shown": "$24.00"
+},
+"D",
+"40% of 40 = 16; subtract → $24.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 59,
+"cells": [
+"M058",
+"middle",
+"Mathematics Achievement",
+"Circle Area and Radius",
+"word problem",
+"The area of a circle is 81π square inches. What is its diameter?",
+"9 in",
+"36 in",
+"18 in",
+"40 in",
+"C",
+"r² = 81 → r = 9; d = 18.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 60,
+"cells": [
+"M059",
+"middle",
+"Quantitative Reasoning",
+"Probability of 2 Selections without Replacement",
+"word problem",
+"A jar has 4 red and 2 blue chips. Two chips are drawn one at a time without replacement. What is the probability both are red?",
+{
+"date": "2026-04-09"
+},
+"1 1/3",
+{
+"date": "2026-02-05"
+},
+{
+"date": "2026-02-03"
+},
+"C",
+"2/3 × 3/5 = 2/5.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 61,
+"cells": [
+"M060",
+"middle",
+"Mathematics Achievement",
+"Circle Area and Radius",
+"word problem",
+"A circle has a radius of 3 cm. What is its area?",
+"3π sq cm",
+"9π sq cm",
+"6π sq cm",
+"36π sq cm",
+"B",
+"A = πr² = 9π.",
+3.0,
+"Circle with center O and radius 3 cm labeled.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 62,
+"cells": [
+"M061",
+"middle",
+"Quantitative Reasoning",
+"Stem & Leaf Plot",
+"word problem",
+"Use the stem-and-leaf plot (2 | 5; 3 | 4 9; 4 | 0 9; 5 | 2 7; 6 | 3 6; key: 2 | 3 = 23). What is the median of the data?",
+40.0,
+47.0,
+52.0,
+49.0,
+"D",
+"Data in order: 25, 34, 39, 40, 49, 52, 57, 63, 66. Median = 49.",
+2.0,
+"Stem-and-leaf plot with stems 2, 3, 4, 5, 6; leaves: 2: 5; 3: 4 9; 4: 0 9; 5: 2 7; 6: 3 6. Key: 2 | 3 = 23.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 63,
+"cells": [
+"M062",
+"middle",
+"Mathematics Achievement",
+"Vertices Forming Quadrilaterals on a Coordinate Plane",
+"word problem",
+"Three vertices of a rectangle are (-2, 0), (0, 0), and (0, 5). What is the fourth vertex?",
+"(-4, 5)",
+"(0, -5)",
+"(3, 2)",
+"(-2, 5)",
+"D",
+"The missing corner shares x with (-2, 0) and y with (0, 5).",
+2.0,
+"Coordinate grid −8 to 8 on both axes with points (-2, 0), (0, 0), (0, 5) plotted.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 64,
+"cells": [
+"M063",
+"middle",
+"Quantitative Reasoning",
+"Finding Missing Value, Known Mean",
+"word problem",
+"Rosa's first 4 test scores are 78, 84, 73, 78. What must she score on test 5 to have a mean of exactly 77?",
+77.0,
+78.0,
+72.0,
+67.0,
+"C",
+"Total needed = 77×5 = 385; current sum 313; needs 72.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 65,
+"cells": [
+"M064",
+"middle",
+"Mathematics Achievement",
+"Multiple Percent Changes",
+"word problem",
+"A price is increased by 50% and then the new price is decreased by 20%. What is the overall change from the original price?",
+"increase of 25%",
+"increase of 70%",
+"increase of 30%",
+"increase of 20%",
+"D",
+"1.5 × 0.8 = 1.2, so the new price is 120% of the original: increase of 20%.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 66,
+"cells": [
+"M065",
+"middle",
+"Mathematics Achievement",
+"Solving for Converse Answer, given Percent & Amount",
+"word problem",
+"30 is 40% of what number?",
+12.0,
+75.0,
+105.0,
+70.0,
+"B",
+"30 ÷ 0.4 = 75.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 67,
+"cells": [
+"M066",
+"middle",
+"Mathematics Achievement",
+"Finding Slope, given Two Points",
+"word problem",
+"What is the slope of the line through (1, 5) and (2, 7)?",
+"'-2",
+2.0,
+3.0,
+{
+"date": "2026-01-02"
+},
+"B",
+"(y₂−y₁)/(x₂−x₁) = 2/1 = 2.",
+3.0,
+"Coordinate plane with points (1, 5) and (2, 7) plotted and a line drawn through them.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 68,
+"cells": [
+"M067",
+"middle",
+"Quantitative Reasoning",
+"Interpreting Linear Equations from Word Problems",
+"word problem",
+"A bike rental costs $26 plus $3 per hour. Which equation gives the total cost C for h hours, and what is the cost for 7 hours?",
+"C = 29h; $203",
+"C = 3h + 26; $47",
+"C = 3h − 26; $-5",
+"C = 26h + 3; $185",
+"B",
+"Fixed fee 26 + 3 per hour: 3(7) + 26 = 47.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 69,
+"cells": [
+"M068",
+"middle",
+"Quantitative Reasoning",
+"Mixture Problems",
+"word problem",
+"5 liters of a 20% juice drink are mixed with 7 liters of a 50% juice drink. What percent juice is the mixture?",
+"42 1/2%",
+{
+"number": 0.7,
+"shown": "70%"
+},
+"37 1/2%",
+{
+"number": 0.35,
+"shown": "35%"
+},
+"C",
+"(5×20 + 7×50) ÷ 12 = 37 1/2%.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 70,
+"cells": [
+"M069",
+"middle",
+"Quantitative Reasoning",
+"Box and Whisker Plots",
+"word problem",
+"A box-and-whisker plot shows minimum 10, first quartile 15, median 19, third quartile 25, and maximum 32. What is the interquartile range?",
+25.0,
+22.0,
+10.0,
+19.0,
+"C",
+"Interquartile range = 10.",
+2.0,
+"Horizontal box-and-whisker plot on a number line 5–37: whisker from 10 to 15, box from 15 to 25 with median line at 19, whisker from 25 to 32.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 71,
+"cells": [
+"M070",
+"middle",
+"Quantitative Reasoning",
+"Stem & Leaf Plot",
+"word problem",
+"Use the stem-and-leaf plot (2 | 8; 4 | 2 5; 5 | 1 6; 6 | 1 5 7 9; key: 2 | 3 = 23). What is the range of the data?",
+54.0,
+61.0,
+51.0,
+41.0,
+"D",
+"Data in order: 28, 42, 45, 51, 56, 61, 65, 67, 69. Range = 41.",
+2.0,
+"Stem-and-leaf plot with stems 2, 4, 5, 6; leaves: 2: 8; 4: 2 5; 5: 1 6; 6: 1 5 7 9. Key: 2 | 3 = 23.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 72,
+"cells": [
+"M071",
+"middle",
+"Quantitative Reasoning",
+"Comparing Slopes - Quantitative Comparison",
+"quantitative comparison",
+"Line j: y = 2x + 1. Line k: y = 3x − 5. Column A: slope of line j   Column B: slope of line k",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"B",
+"Slopes are 2 and 3.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 73,
+"cells": [
+"M072",
+"middle",
+"Mathematics Achievement",
+"Multiple Percent Changes",
+"word problem",
+"A price is increased by 20% and then the new price is decreased by 25%. What is the overall change from the original price?",
+"decrease of 10%",
+"decrease of 5%",
+"increase of 45%",
+"decrease of 12%",
+"A",
+"1.2 × 0.75 = 0.9, so the new price is 90% of the original: decrease of 10%.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 74,
+"cells": [
+"M073",
+"middle",
+"Quantitative Reasoning",
+"Box and Whisker Plots",
+"word problem",
+"A box-and-whisker plot shows minimum 16, first quartile 21, median 28, third quartile 32, and maximum 47. What is the median?",
+32.0,
+28.0,
+11.0,
+31.0,
+"B",
+"Median = 28.",
+2.0,
+"Horizontal box-and-whisker plot on a number line 11–52: whisker from 16 to 21, box from 21 to 32 with median line at 28, whisker from 32 to 47.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 75,
+"cells": [
+"M074",
+"middle",
+"Quantitative Reasoning",
+"Comparing Rates",
+"word problem",
+"Store A sells 8 pencils for $2.40. Store B sells 10 pencils for $3.30. Which store has the lower price per pencil, and what is it?",
+"They are the same price",
+"Store B, $0.33 each",
+"Store A, $0.30 each",
+"Store A, $0.35 each",
+"C",
+"A: $0.30 each; B: $0.33 each.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 76,
+"cells": [
+"M075",
+"middle",
+"Quantitative Reasoning",
+"Fundamental Counting Principle",
+"word problem",
+"A café offers 2 sandwiches, 3 sides, and 4 drinks. How many different meals of one sandwich, one side, and one drink are possible?",
+48.0,
+10.0,
+9.0,
+24.0,
+"D",
+"2 × 3 × 4 = 24.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 77,
+"cells": [
+"M076",
+"middle",
+"Mathematics Achievement",
+"Compound Fractions",
+"computation",
+"Simplify: (3/5) ÷ (3/6)",
+"2 1/5",
+{
+"date": "2026-05-06"
+},
+{
+"date": "2026-03-10"
+},
+"1 1/5",
+"D",
+"Multiply by the reciprocal: 3/5 × 6/3 = 1 1/5.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 78,
+"cells": [
+"M077",
+"middle",
+"Quantitative Reasoning",
+"Complementary Events",
+"word problem",
+"The probability that it rains tomorrow is 1/8. What is the probability that it does NOT rain tomorrow?",
+{
+"date": "2026-01-02"
+},
+{
+"date": "2026-01-09"
+},
+{
+"date": "2026-07-08"
+},
+{
+"date": "2026-01-08"
+},
+"C",
+"1 − 1/8 = 7/8.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 79,
+"cells": [
+"M078",
+"middle",
+"Mathematics Achievement",
+"Percent Increase and Decrease",
+"word problem",
+"A jacket originally priced at $80 is marked up 15% more. What is the new price?",
+{
+"number": 12.0,
+"shown": "$12.00"
+},
+{
+"number": 98.0,
+"shown": "$98.00"
+},
+{
+"number": 92.0,
+"shown": "$92.00"
+},
+{
+"number": 65.0,
+"shown": "$65.00"
+},
+"C",
+"15% of 80 = 12; add → $92.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 80,
+"cells": [
+"M079",
+"middle",
+"Mathematics Achievement",
+"Solving Problems with Geometric Formulas",
+"word problem",
+"A cylinder has radius 5 and height 6. What is its volume?",
+"300π",
+"150π",
+"30π",
+"60π",
+"B",
+"V = πr²h = 150π.",
+3.0,
+"Right circular cylinder with radius 5 and height 6 labeled.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 81,
+"cells": [
+"M080",
+"middle",
+"Quantitative Reasoning",
+"Comparing MMMR",
+"quantitative comparison",
+"Data set: 13, 22, 14, 28, 27. Column A: the mean   Column B: the median",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"B",
+"Mean = 20 4/5, median = 22.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 82,
+"cells": [
+"M081",
+"middle",
+"Mathematics Achievement",
+"Interior Angles of Regular Polygons",
+"word problem",
+"What is the measure of each interior angle of a regular octagon?",
+"45°",
+"147°",
+"135°",
+"1080°",
+"C",
+"(n−2)×180÷n = 135°.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 83,
+"cells": [
+"M082",
+"middle",
+"Mathematics Achievement",
+"Estimating Square Roots",
+"word problem",
+"The square root of 12 is between which two consecutive whole numbers?",
+"between 3 and 4",
+"between 2 and 3",
+"between 5 and 6",
+"between 4 and 5",
+"A",
+"3² = 9 < 12 < 16 = 4².",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 84,
+"cells": [
+"M083",
+"middle",
+"Quantitative Reasoning",
+"Solving for Subsets in a Venn Diagram",
+"word problem",
+"In a group of 25 students, 14 take Spanish, 10 take French, 4 take both, and 5 take neither. How many take only Spanish?",
+10.0,
+14.0,
+15.0,
+18.0,
+"A",
+"14 − 4 = 10.",
+2.0,
+"Two overlapping circles Spanish and French in a rectangle of 25; overlap 4; outside both 5.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 85,
+"cells": [
+"M084",
+"middle",
+"Mathematics Achievement",
+"LCM (Least Common Multiple)",
+"word problem",
+"What is the least common multiple of 20 and 30?",
+600.0,
+10.0,
+80.0,
+60.0,
+"D",
+"LCM = 20×30÷GCF(10) = 60.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 86,
+"cells": [
+"M085",
+"middle",
+"Quantitative Reasoning",
+"Square of Sum vs. Sum of Squares",
+"quantitative comparison",
+"a = 3 and b = 9. Column A: (a + b)²   Column B: a² + b²",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"A",
+"(a+b)² = 144; a²+b² = 90.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 87,
+"cells": [
+"M086",
+"middle",
+"Quantitative Reasoning",
+"Comparing MMMR",
+"quantitative comparison",
+"Data set: 3, 29, 17, 28, 21. Column A: the mean   Column B: the median",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"B",
+"Mean = 19 3/5, median = 21.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 88,
+"cells": [
+"M087",
+"middle",
+"Quantitative Reasoning",
+"Data Collection & Random Sampling",
+"word problem",
+"Which method would give the most representative sample for finding the favorite lunch of students at a school?",
+"surveying only the soccer team",
+"surveying every 5th student on the attendance list",
+"surveying students in the lunch line for pizza",
+"surveying the student's own friends",
+"B",
+"A random sample from the whole population avoids bias.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 89,
+"cells": [
+"M088",
+"middle",
+"Quantitative Reasoning",
+"Inference from Sample Statistics",
+"word problem",
+"In a random sample of 60 students, 18 said they walk to school. There are 900 students at the school. About how many walk to school?",
+180.0,
+135.0,
+270.0,
+630.0,
+"C",
+"18/60 × 900 = 270.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 90,
+"cells": [
+"M089",
+"middle",
+"Mathematics Achievement",
+"Vertices Forming Quadrilaterals on a Coordinate Plane",
+"word problem",
+"Three vertices of a rectangle are (0, -3), (6, -3), and (6, 2). What is the fourth vertex?",
+"(6, -8)",
+"(0, 2)",
+"(-6, 2)",
+"(5, 3)",
+"B",
+"The missing corner shares x with (0, -3) and y with (6, 2).",
+2.0,
+"Coordinate grid −8 to 8 on both axes with points (0, -3), (6, -3), (6, 2) plotted.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 91,
+"cells": [
+"M090",
+"middle",
+"Quantitative Reasoning",
+"Interpreting Linear Equations from Word Problems",
+"word problem",
+"A bike rental costs $33 plus $4 per hour. Which equation gives the total cost C for h hours, and what is the cost for 5 hours?",
+"C = 33h + 4; $169",
+"C = 4h − 33; $-13",
+"C = 37h; $185",
+"C = 4h + 33; $53",
+"D",
+"Fixed fee 33 + 4 per hour: 4(5) + 33 = 53.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 92,
+"cells": [
+"M091",
+"middle",
+"Quantitative Reasoning",
+"Time to Completion, given Same Rate",
+"word problem",
+"4 painters can paint a house in 10 days. Working at the same rate, how many days would it take 12 painters?",
+"4 1/3",
+2.0,
+30.0,
+"3 1/3",
+"D",
+"4×10 = 40 painter-days; ÷ 12 = 3 1/3.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 93,
+"cells": [
+"M092",
+"middle",
+"Mathematics Achievement",
+"Solving Proportions",
+"computation",
+"Solve for x: 2/9 = 10/x",
+47.0,
+17.0,
+45.0,
+14.0,
+"C",
+"Scale factor 5: x = 9×5 = 45.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 94,
+"cells": [
+"M093",
+"middle",
+"Mathematics Achievement",
+"Surface Area <> Volume of Cube",
+"word problem",
+"A cube has a surface area of 54 square cm. What is its volume?",
+"64 cubic cm",
+"27 cubic cm",
+"9 cubic cm",
+"18 cubic cm",
+"B",
+"6s² = 54 → s = 3; V = 27.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 95,
+"cells": [
+"M094",
+"middle",
+"Mathematics Achievement",
+"Evaluating Percents of Numbers",
+"computation",
+"What is 35% of 200?",
+5.71,
+700.0,
+105.0,
+70.0,
+"D",
+"35/100 × 200 = 70.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 96,
+"cells": [
+"M095",
+"middle",
+"Mathematics Achievement",
+"Solving for Converse Answer, given Percent & Amount",
+"word problem",
+"18 is 25% of what number?",
+43.0,
+4.0,
+72.0,
+90.0,
+"C",
+"18 ÷ 0.25 = 72.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 97,
+"cells": [
+"M096",
+"middle",
+"Mathematics Achievement",
+"Translating Math Expressions",
+"computation",
+"Which expression represents \"the product of 5 and the sum of a number and 4\"?",
+"5 + 4x",
+"5(x + 4)",
+"5x + 4",
+"x + 5·4",
+"B",
+"\"the product of 5 and the sum of a number and 4\" → 5(x + 4).",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 98,
+"cells": [
+"M097",
+"middle",
+"Quantitative Reasoning",
+"LCM Word Problems",
+"word problem",
+"One bus leaves the station every 8 minutes and another every 12 minutes. If both leave together at 8:00, after how many minutes will they next leave together?",
+96.0,
+24.0,
+4.0,
+20.0,
+"B",
+"LCM(8,12) = 24 minutes.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 99,
+"cells": [
+"M098",
+"middle",
+"Mathematics Achievement",
+"Equivalent Fractions, Decimals, and Percents",
+"computation",
+"Which percent is equal to 7/20?",
+{
+"number": 0.35,
+"shown": "35%"
+},
+{
+"number": 7.2,
+"shown": "720%"
+},
+{
+"number": 0.035,
+"shown": "3.50%"
+},
+{
+"number": 0.0035,
+"shown": "0.35%"
+},
+"A",
+"7/20 = 0.35 = 35%.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 100,
+"cells": [
+"M099",
+"middle",
+"Quantitative Reasoning",
+"Ratios between Similar 3-D Figures",
+"word problem",
+"Every edge of a box is multiplied by 3. The original volume was 6 cubic inches. What is the new volume?",
+33.0,
+18.0,
+162.0,
+54.0,
+"C",
+"Volume scales by 3³ = 27.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 101,
+"cells": [
+"M100",
+"middle",
+"Mathematics Achievement",
+"Finding Slope, given Linear Equations",
+"word problem",
+"What is the slope of the line −x + 2y = 8?",
+"-1/2",
+4.0,
+"'-2",
+{
+"date": "2026-01-02"
+},
+"D",
+"Solve for y: y = (1/2)x + 4; slope = 1/2.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 102,
+"cells": [
+"M101",
+"middle",
+"Mathematics Achievement",
+"Evaluating Percents of Numbers",
+"computation",
+"What is 30% of 160?",
+480.0,
+48.0,
+5.33,
+78.0,
+"B",
+"30/100 × 160 = 48.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 103,
+"cells": [
+"M102",
+"middle",
+"Mathematics Achievement",
+"Product of Prime Numbers",
+"word problem",
+"What is the prime factorization of 84?",
+"2^2 × 3 × 7",
+"2^2 × 3^2",
+"2 × 3 × 7 × 4",
+"2^3 × 3 × 7",
+"A",
+"84 = 2^2 × 3 × 7.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 104,
+"cells": [
+"M103",
+"middle",
+"Mathematics Achievement",
+"Exponents",
+"computation",
+"What is 3^2?",
+5.0,
+9.0,
+3.0,
+6.0,
+"B",
+"3 multiplied by itself 2 times = 9.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 105,
+"cells": [
+"M104",
+"middle",
+"Mathematics Achievement",
+"Percent Increase and Decrease",
+"word problem",
+"A jacket originally priced at $80 is on sale for 10% off. What is the new price?",
+{
+"number": 90.0,
+"shown": "$90.00"
+},
+{
+"number": 76.0,
+"shown": "$76.00"
+},
+{
+"number": 8.0,
+"shown": "$8.00"
+},
+{
+"number": 72.0,
+"shown": "$72.00"
+},
+"D",
+"10% of 80 = 8; subtract → $72.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 106,
+"cells": [
+"M105",
+"middle",
+"Quantitative Reasoning",
+"Finding Changes in MMMR after Adjusting Data Values",
+"word problem",
+"The mean of 5 numbers is 26. If 5 is added to each number, what is the new mean?",
+51.0,
+27.0,
+26.0,
+31.0,
+"D",
+"Adding 5 to every value raises the mean by 5.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 107,
+"cells": [
+"M106",
+"middle",
+"Mathematics Achievement",
+"Vertices Forming Quadrilaterals on a Coordinate Plane",
+"word problem",
+"Three vertices of a rectangle are (-2, -3), (1, -3), and (1, 3). What is the fourth vertex?",
+"(-2, 3)",
+"(1, -9)",
+"(4, 0)",
+"(-5, 3)",
+"A",
+"The missing corner shares x with (-2, -3) and y with (1, 3).",
+2.0,
+"Coordinate grid −8 to 8 on both axes with points (-2, -3), (1, -3), (1, 3) plotted.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 108,
+"cells": [
+"M107",
+"middle",
+"Quantitative Reasoning",
+"Finding Changes in MMMR after Adjusting Data Values",
+"word problem",
+"The mean of 4 numbers is 14. If 5 is added to each number, what is the new mean?",
+34.0,
+19.0,
+14.0,
+"15 1/4",
+"B",
+"Adding 5 to every value raises the mean by 5.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 109,
+"cells": [
+"M108",
+"middle",
+"Quantitative Reasoning",
+"Complementary Events",
+"word problem",
+"The probability that it rains tomorrow is 2/7. What is the probability that it does NOT rain tomorrow?",
+{
+"date": "2026-05-07"
+},
+"3 1/2",
+{
+"date": "2026-02-07"
+},
+{
+"date": "2026-01-02"
+},
+"A",
+"1 − 2/7 = 5/7.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 110,
+"cells": [
+"M109",
+"middle",
+"Quantitative Reasoning",
+"Probability of 2 Selections with Replacement",
+"word problem",
+"A jar has 2 red and 4 blue chips. Two chips are drawn one at a time with replacement. What is the probability both are red?",
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-01-09"
+},
+{
+"date": "2026-01-15"
+},
+{
+"date": "2026-02-03"
+},
+"B",
+"1/3 × 1/3 = 1/9.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 111,
+"cells": [
+"M110",
+"middle",
+"Mathematics Achievement",
+"Finding Slope, given Two Points",
+"word problem",
+"What is the slope of the line through (-2, 4) and (-1, -2)?",
+"-1/6",
+6.0,
+"'-6",
+"'-5",
+"C",
+"(y₂−y₁)/(x₂−x₁) = -6/1 = -6.",
+3.0,
+"Coordinate plane with points (-2, 4) and (-1, -2) plotted and a line drawn through them.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 112,
+"cells": [
+"M111",
+"middle",
+"Mathematics Achievement",
+"Translating Math Expressions",
+"computation",
+"Which expression represents \"the square of a number, decreased by 5\"?",
+"5 − x²",
+"x² − 5",
+"(x − 5)²",
+"2x − 5",
+"B",
+"\"the square of a number, decreased by 5\" → x² − 5.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 113,
+"cells": [
+"M112",
+"middle",
+"Mathematics Achievement",
+"Equations of Parallel/Perpendicular Lines",
+"word problem",
+"Line L has equation y = (-2/3)x + 4. What is the slope of a line parallel to L?",
+"-2/3",
+"-3/2",
+{
+"date": "2026-02-03"
+},
+{
+"date": "2026-03-02"
+},
+"A",
+"Parallel lines have equal slopes; perpendicular slopes are negative reciprocals.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 114,
+"cells": [
+"M113",
+"middle",
+"Mathematics Achievement",
+"Square Root of Sum of Squares",
+"computation",
+"What is √(3² + 4²)?",
+5.0,
+6.0,
+7.0,
+25.0,
+"A",
+"9 + 16 = 25; √25 = 5.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 115,
+"cells": [
+"M114",
+"middle",
+"Mathematics Achievement",
+"Operations with Negative Numbers",
+"computation",
+"What is (-8) × 9 × (-3)?",
+"'-2",
+225.0,
+216.0,
+"'-216",
+"C",
+"Two negatives give a positive: 216.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 116,
+"cells": [
+"M115",
+"middle",
+"Quantitative Reasoning",
+"Mixture Problems",
+"word problem",
+"7 liters of a 15% juice drink are mixed with 3 liters of a 35% juice drink. What percent juice is the mixture?",
+{
+"number": 0.25,
+"shown": "25%"
+},
+{
+"number": 0.26,
+"shown": "26%"
+},
+{
+"number": 0.21,
+"shown": "21%"
+},
+{
+"number": 0.5,
+"shown": "50%"
+},
+"C",
+"(7×15 + 3×35) ÷ 10 = 21%.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 117,
+"cells": [
+"M116",
+"middle",
+"Quantitative Reasoning",
+"Finding Missing Value, Known Mean",
+"word problem",
+"Rosa's first 5 test scores are 80, 70, 77, 81, 78. What must she score on test 6 to have a mean of exactly 74?",
+74.0,
+53.0,
+64.0,
+58.0,
+"D",
+"Total needed = 74×6 = 444; current sum 386; needs 58.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 118,
+"cells": [
+"M117",
+"middle",
+"Mathematics Achievement",
+"Simplifying Rational Expressions with Exponents",
+"computation",
+"Simplify: x^10 ÷ x^3",
+"x^7",
+"1/x^7",
+"x^8",
+"x^13",
+"A",
+"Same base: subtract exponents.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 119,
+"cells": [
+"M118",
+"middle",
+"Mathematics Achievement",
+"Multiplying and Dividing Decimals",
+"computation",
+"What is 0.4 × 3.4?",
+1.36,
+0.136,
+13.6,
+3.8,
+"A",
+"0.4 × 3.4 = 1.36.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 120,
+"cells": [
+"M119",
+"middle",
+"Quantitative Reasoning",
+"Patterns with Exponentials",
+"word problem",
+"Each term in the sequence 2, 4, 8, 16, … is 2 times the previous term. What is the 7th term?",
+256.0,
+128.0,
+28.0,
+126.0,
+"B",
+"2 × 2^6 = 128.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 121,
+"cells": [
+"M120",
+"middle",
+"Mathematics Achievement",
+"Equations of Parallel/Perpendicular Lines",
+"word problem",
+"Line L has equation y = 3x + 4. What is the slope of a line perpendicular to L?",
+"'-3",
+"-1/3",
+3.0,
+{
+"date": "2026-01-03"
+},
+"B",
+"Parallel lines have equal slopes; perpendicular slopes are negative reciprocals.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 122,
+"cells": [
+"M121",
+"middle",
+"Quantitative Reasoning",
+"Inference from Sample Statistics",
+"word problem",
+"In a random sample of 80 students, 20 said they walk to school. There are 1200 students at the school. About how many walk to school?",
+300.0,
+200.0,
+900.0,
+150.0,
+"A",
+"20/80 × 1200 = 300.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 123,
+"cells": [
+"M122",
+"middle",
+"Quantitative Reasoning",
+"Ratios between Similar 3-D Figures",
+"word problem",
+"Every edge of a box is multiplied by 3. The original volume was 9 cubic inches. What is the new volume?",
+243.0,
+27.0,
+81.0,
+36.0,
+"A",
+"Volume scales by 3³ = 27.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 124,
+"cells": [
+"M123",
+"middle",
+"Quantitative Reasoning",
+"Interpreting Scatter Plots",
+"word problem",
+"A scatter plot shows outside temperature (x-axis) vs. hot chocolate sales (y-axis) and has a negative correlation. Which statement best describes the data?",
+"As one increases, the other tends to decrease.",
+"As one increases, the other tends to increase.",
+"One causes the other to change by exactly the same amount.",
+"There is no clear relationship.",
+"A",
+"A negative correlation means: as one increases, the other tends to decrease.",
+2.0,
+"Scatter plot of about 15 points, x-axis 'outside temperature', y-axis 'hot chocolate sales', showing a clear downward trend.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 125,
+"cells": [
+"M124",
+"middle",
+"Mathematics Achievement",
+"Multiple Percent Changes",
+"word problem",
+"A price is increased by 10% and then the new price is decreased by 50%. What is the overall change from the original price?",
+"decrease of 40%",
+"decrease of 45%",
+"decrease of 5%",
+"increase of 60%",
+"B",
+"1.1 × 0.5 = 0.55, so the new price is 55% of the original: decrease of 45%.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 126,
+"cells": [
+"M125",
+"middle",
+"Mathematics Achievement",
+"Multi-step Solving Equations",
+"computation",
+"Solve: 9x − 1 = 1x + 71",
+"'-9",
+9.0,
+7.0,
+10.0,
+"B",
+"8x = 72 → x = 9.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 127,
+"cells": [
+"M126",
+"middle",
+"Quantitative Reasoning",
+"Ratios of Similar 2-D Figures",
+"word problem",
+"Two similar rectangles have a side-length ratio of 1:4. The smaller has area 5 square units. What is the area of the larger?",
+20.0,
+9.0,
+320.0,
+80.0,
+"D",
+"Area scales by 4² = 16: 5×16 = 80.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 128,
+"cells": [
+"M127",
+"middle",
+"Quantitative Reasoning",
+"Solving for Subsets in a Venn Diagram",
+"word problem",
+"In a group of 23 students, 14 take Spanish, 10 take French, 7 take both, and 6 take neither. How many take only Spanish?",
+13.0,
+14.0,
+7.0,
+21.0,
+"C",
+"14 − 7 = 7.",
+2.0,
+"Two overlapping circles Spanish and French in a rectangle of 23; overlap 7; outside both 6.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 129,
+"cells": [
+"M128",
+"middle",
+"Quantitative Reasoning",
+"Revenue − Cost = Profit Problems",
+"word problem",
+"A lemonade stand spends $20 on a table rental and $4 per cup on supplies. Each cup sells for $10. If they sell 75 cups, what is the profit?",
+{
+"number": 450.0,
+"shown": "$450.00"
+},
+{
+"number": 750.0,
+"shown": "$750.00"
+},
+{
+"number": 410.0,
+"shown": "$410.00"
+},
+{
+"number": 430.0,
+"shown": "$430.00"
+},
+"D",
+"Revenue $750.00 − supplies $300.00 − rental $20.00 = $430.00.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 130,
+"cells": [
+"M129",
+"middle",
+"Quantitative Reasoning",
+"Comparing MMMR",
+"quantitative comparison",
+"Data set: 1, 10, 27, 25, 5. Column A: the mean   Column B: the median",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"A",
+"Mean = 13 3/5, median = 10.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 131,
+"cells": [
+"M130",
+"middle",
+"Mathematics Achievement",
+"Pythagorean Theorem",
+"word problem",
+"A right triangle has legs of 5 and 12. What is the length of the hypotenuse?",
+13.0,
+14.0,
+17.0,
+169.0,
+"A",
+"√(5²+12²) = √169 = 13.",
+3.0,
+"Right triangle with legs labeled 5 and 12, hypotenuse labeled ?. Right-angle mark shown.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 132,
+"cells": [
+"M131",
+"middle",
+"Mathematics Achievement",
+"Compound Fractions",
+"computation",
+"Simplify: (3/5) ÷ (2/5)",
+{
+"date": "2026-02-03"
+},
+{
+"date": "2026-06-25"
+},
+"1 1/2",
+"2 1/2",
+"C",
+"Multiply by the reciprocal: 3/5 × 5/2 = 1 1/2.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 133,
+"cells": [
+"M132",
+"middle",
+"Mathematics Achievement",
+"Compound Fractions",
+"computation",
+"Simplify: (3/4) ÷ (1/3)",
+{
+"date": "2026-04-09"
+},
+"3 1/4",
+"2 1/4",
+{
+"date": "2026-01-04"
+},
+"C",
+"Multiply by the reciprocal: 3/4 × 3/1 = 2 1/4.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 134,
+"cells": [
+"M133",
+"middle",
+"Quantitative Reasoning",
+"Interpreting Meaning of Terms in Linear Equations",
+"word problem",
+"The amount in Leo's savings account after w weeks is A = 243 + 19w. What does 19 represent?",
+"the amount Leo started with",
+"the number of weeks Leo saves",
+"the total after one week",
+"the amount Leo adds each week",
+"D",
+"19 is the rate of change: dollars added per week; 243 is the starting amount.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 135,
+"cells": [
+"M134",
+"middle",
+"Mathematics Achievement",
+"Surface Area <> Volume of Cube",
+"word problem",
+"A cube has a surface area of 486 square cm. What is its volume?",
+"729 cubic cm",
+"1000 cubic cm",
+"81 cubic cm",
+"54 cubic cm",
+"A",
+"6s² = 486 → s = 9; V = 729.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 136,
+"cells": [
+"M135",
+"middle",
+"Quantitative Reasoning",
+"Line Segment Split by Multiple Midpoints",
+"word problem",
+"Segment AB has length 64. M is the midpoint of AB, and N is the midpoint of AM. What is the length of NB?",
+48.0,
+32.0,
+8.0,
+16.0,
+"A",
+"AM = 32, NM = 16, NB = NM + MB = 16 + 32 = 48.",
+3.0,
+"Horizontal segment from A to B (length 64); M at the midpoint; N midway between A and M.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 137,
+"cells": [
+"M136",
+"middle",
+"Quantitative Reasoning",
+"Distance, Rate, and Time",
+"word problem",
+"How long does it take to drive 82.5 miles at 55 miles per hour?",
+"6.7 hours",
+"1 hours",
+"2.5 hours",
+"1.5 hours",
+"D",
+"t = d/r = 82.5/55 = 1.5.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 138,
+"cells": [
+"M137",
+"middle",
+"Mathematics Achievement",
+"Systems of Equations",
+"computation",
+"Solve the system: x + y = 12 and 4x − 2y = 24.",
+"x = -8, y = 20",
+"x = 4, y = 8",
+"x = 8, y = 4",
+"x = 9, y = 3",
+"C",
+"Substitute y = 12 − x into the second equation → x = 8, y = 4.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 139,
+"cells": [
+"M138",
+"middle",
+"Quantitative Reasoning",
+"Inference from Sample Statistics",
+"word problem",
+"In a random sample of 50 students, 12 said they walk to school. There are 600 students at the school. About how many walk to school?",
+72.0,
+144.0,
+120.0,
+456.0,
+"B",
+"12/50 × 600 = 144.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 140,
+"cells": [
+"M139",
+"middle",
+"Mathematics Achievement",
+"Multiple Percent Changes",
+"word problem",
+"A price is increased by 25% and then the new price is decreased by 25%. What is the overall change from the original price?",
+"decrease of 6.25%",
+"no change",
+"increase of 50%",
+"decrease of 8.25%",
+"A",
+"1.25 × 0.75 = 0.9375, so the new price is 93.75% of the original: decrease of 6.25%.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 141,
+"cells": [
+"M140",
+"middle",
+"Mathematics Achievement",
+"Multiplying and Dividing Decimals",
+"computation",
+"What is 0.7 × 3.9?",
+2.73,
+0.273,
+4.6,
+27.3,
+"A",
+"0.7 × 3.9 = 2.73.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 142,
+"cells": [
+"M141",
+"middle",
+"Quantitative Reasoning",
+"Finding Changes in MMMR after Adjusting Data Values",
+"word problem",
+"The mean of 5 numbers is 23. If 4 is added to each number, what is the new mean?",
+23.0,
+"23 4/5",
+27.0,
+43.0,
+"C",
+"Adding 4 to every value raises the mean by 4.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 143,
+"cells": [
+"M142",
+"middle",
+"Mathematics Achievement",
+"Compound Fractions",
+"computation",
+"Simplify: (2/4) ÷ (1/6)",
+4.0,
+{
+"date": "2026-01-12"
+},
+{
+"date": "2026-01-03"
+},
+3.0,
+"D",
+"Multiply by the reciprocal: 2/4 × 6/1 = 3.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 144,
+"cells": [
+"M143",
+"middle",
+"Quantitative Reasoning",
+"Finding Missing Value, Known Mean",
+"word problem",
+"Rosa's first 3 test scores are 84, 74, 74. What must she score on test 4 to have a mean of exactly 78?",
+84.0,
+78.0,
+75.0,
+80.0,
+"D",
+"Total needed = 78×4 = 312; current sum 232; needs 80.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 145,
+"cells": [
+"M144",
+"middle",
+"Quantitative Reasoning",
+"Comparing Rates",
+"word problem",
+"Store A sells 9 pencils for $4.50. Store B sells 15 pencils for $6.00. Which store has the lower price per pencil, and what is it?",
+"Store A, $0.50 each",
+"They are the same price",
+"Store B, $0.45 each",
+"Store B, $0.40 each",
+"D",
+"A: $0.50 each; B: $0.40 each.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 146,
+"cells": [
+"M145",
+"middle",
+"Mathematics Achievement",
+"Product of Prime Numbers",
+"word problem",
+"What is the prime factorization of 90?",
+"2 × 3^2 × 5",
+"2^2 × 3^2 × 5",
+"3^2 × 5 × 4",
+"2 × 3^2 × 7",
+"A",
+"90 = 2 × 3^2 × 5.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 147,
+"cells": [
+"M146",
+"middle",
+"Quantitative Reasoning",
+"Remaining Amount after Reducing by Multiple Fractions",
+"word problem",
+"Ana had $144. She spent 1/4 of it on a game, then 1/3 of what was left on lunch. How much does she have now?",
+{
+"number": 60.0,
+"shown": "$60.00"
+},
+{
+"number": 108.0,
+"shown": "$108.00"
+},
+{
+"number": 36.0,
+"shown": "$36.00"
+},
+{
+"number": 72.0,
+"shown": "$72.00"
+},
+"D",
+"After the game: 108; spent 36 on lunch → $72.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 148,
+"cells": [
+"M147",
+"middle",
+"Quantitative Reasoning",
+"Fundamental Counting Principle",
+"word problem",
+"A café offers 3 sandwiches, 5 sides, and 4 drinks. How many different meals of one sandwich, one side, and one drink are possible?",
+12.0,
+120.0,
+19.0,
+60.0,
+"D",
+"3 × 5 × 4 = 60.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 149,
+"cells": [
+"M148",
+"middle",
+"Quantitative Reasoning",
+"Stem & Leaf Plot",
+"word problem",
+"Use the stem-and-leaf plot (2 | 4 6 7; 3 | 1 3; 4 | 7; 5 | 0 5; 6 | 3; key: 2 | 3 = 23). What is the median of the data?",
+47.0,
+40.0,
+31.0,
+33.0,
+"D",
+"Data in order: 24, 26, 27, 31, 33, 47, 50, 55, 63. Median = 33.",
+2.0,
+"Stem-and-leaf plot with stems 2, 3, 4, 5, 6; leaves: 2: 4 6 7; 3: 1 3; 4: 7; 5: 0 5; 6: 3. Key: 2 | 3 = 23.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 150,
+"cells": [
+"M149",
+"middle",
+"Mathematics Achievement",
+"Ordering Negative Decimals",
+"computation",
+"Which list orders -1.8, -1.59, -1.793, -1.354 from least to greatest?",
+"-1.8, -1.793, -1.59, -1.354",
+"-1.59, -1.793, -1.8, -1.354",
+"-1.354, -1.59, -1.793, -1.8",
+"-1.8, -1.59, -1.793, -1.354",
+"A",
+"The more negative a number, the smaller it is.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 151,
+"cells": [
+"M150",
+"middle",
+"Mathematics Achievement",
+"Circle Area and Radius",
+"word problem",
+"A circle has a radius of 10 cm. What is its area?",
+"400π sq cm",
+"10π sq cm",
+"100π sq cm",
+"20π sq cm",
+"C",
+"A = πr² = 100π.",
+3.0,
+"Circle with center O and radius 10 cm labeled.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 152,
+"cells": [
+"M151",
+"middle",
+"Mathematics Achievement",
+"Simplifying Rational Expressions with Exponents",
+"computation",
+"Simplify: y^6 · y^6",
+"2y^12",
+"y^12",
+"y^36",
+"y^13",
+"B",
+"Same base: add exponents.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 153,
+"cells": [
+"M152",
+"middle",
+"Mathematics Achievement",
+"Pythagorean Theorem",
+"word problem",
+"A right triangle has legs of 9 and 12. What is the length of the hypotenuse?",
+225.0,
+21.0,
+16.0,
+15.0,
+"D",
+"√(9²+12²) = √225 = 15.",
+3.0,
+"Right triangle with legs labeled 9 and 12, hypotenuse labeled ?. Right-angle mark shown.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 154,
+"cells": [
+"M153",
+"middle",
+"Quantitative Reasoning",
+"Mixture Problems",
+"word problem",
+"7 liters of a 10% juice drink are mixed with 8 liters of a 30% juice drink. What percent juice is the mixture?",
+{
+"number": 0.2,
+"shown": "20%"
+},
+{
+"number": 0.4,
+"shown": "40%"
+},
+"20 2/3%",
+"25 2/3%",
+"C",
+"(7×10 + 8×30) ÷ 15 = 20 2/3%.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 155,
+"cells": [
+"M154",
+"middle",
+"Quantitative Reasoning",
+"Systems of Equations Word Problems",
+"word problem",
+"A theater sold 35 tickets for $286. Adult tickets cost $10 and child tickets cost $6. How many adult tickets were sold?",
+17.0,
+19.0,
+21.0,
+16.0,
+"B",
+"Let A + C = 35, 10A + 6C = 286 → A = 19.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 156,
+"cells": [
+"M155",
+"middle",
+"Mathematics Achievement",
+"Operations with Negative Numbers",
+"computation",
+"What is (-6) × 5 × (-2)?",
+"'-3",
+60.0,
+"'-60",
+65.0,
+"B",
+"Two negatives give a positive: 60.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 157,
+"cells": [
+"M156",
+"middle",
+"Mathematics Achievement",
+"Exponents",
+"computation",
+"What is 5^4?",
+20.0,
+625.0,
+9.0,
+125.0,
+"B",
+"5 multiplied by itself 4 times = 625.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 158,
+"cells": [
+"M157",
+"middle",
+"Mathematics Achievement",
+"Solving for Expressions",
+"word problem",
+"If x = 5 and y = -2, what is 3x² − 2xy + y?",
+243.0,
+93.0,
+95.0,
+53.0,
+"B",
+"3(25) − 2(5)(-2) + (-2) = 93.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 159,
+"cells": [
+"M158",
+"middle",
+"Quantitative Reasoning",
+"Data Collection & Random Sampling",
+"word problem",
+"Which method would give the most representative sample for finding the average height of 7th graders in a district?",
+"measuring the basketball team",
+"measuring randomly chosen 7th graders from every school",
+"measuring students in one classroom",
+"measuring the first 10 students to arrive",
+"B",
+"A random sample from the whole population avoids bias.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 160,
+"cells": [
+"M159",
+"middle",
+"Mathematics Achievement",
+"Transformations (reflection, rotation, translation)",
+"word problem",
+"Point P(2, 5) is translated 3 units left and 4 units down. What are the new coordinates?",
+"(-1, 1)",
+"(-2, 2)",
+"(5, 1)",
+"(-1, 9)",
+"A",
+"Left subtracts from x; down subtracts from y.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 161,
+"cells": [
+"M160",
+"middle",
+"Quantitative Reasoning",
+"Word Problems with Ratios",
+"word problem",
+"The ratio of boys to girls in a club is 4:7. There are 99 members. How many are boys?",
+95.0,
+49.0,
+36.0,
+63.0,
+"C",
+"4+7=11 parts; 99÷11=9; boys = 4×9 = 36.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 162,
+"cells": [
+"M161",
+"middle",
+"Quantitative Reasoning",
+"Ratios between Similar 3-D Figures",
+"word problem",
+"Every edge of a box is multiplied by 2. The original volume was 13 cubic inches. What is the new volume?",
+26.0,
+52.0,
+104.0,
+21.0,
+"C",
+"Volume scales by 2³ = 8.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 163,
+"cells": [
+"M162",
+"middle",
+"Quantitative Reasoning",
+"Word Problems with Ratios",
+"word problem",
+"The ratio of boys to girls in a club is 3:5. There are 40 members. How many are boys?",
+15.0,
+25.0,
+37.0,
+20.0,
+"A",
+"3+5=8 parts; 40÷8=5; boys = 3×5 = 15.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 164,
+"cells": [
+"M163",
+"middle",
+"Quantitative Reasoning",
+"Probability of 2 Selections without Replacement",
+"word problem",
+"A jar has 5 red and 6 blue chips. Two chips are drawn one at a time without replacement. What is the probability both are red?",
+{
+"date": "2026-02-11"
+},
+"25/121",
+{
+"date": "2026-10-11"
+},
+{
+"date": "2026-05-11"
+},
+"A",
+"5/11 × 2/5 = 2/11.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 165,
+"cells": [
+"M164",
+"middle",
+"Quantitative Reasoning",
+"Fundamental Counting Principle",
+"word problem",
+"A café offers 6 sandwiches, 5 sides, and 3 drinks. How many different meals of one sandwich, one side, and one drink are possible?",
+33.0,
+90.0,
+14.0,
+180.0,
+"B",
+"6 × 5 × 3 = 90.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 166,
+"cells": [
+"M165",
+"middle",
+"Mathematics Achievement",
+"Manipulating Equations",
+"computation",
+"Solve P = 2l + 2w for l.",
+"l = (P − w)/2",
+"l = (P − 2w)/2",
+"l = P/2 − 2w",
+"l = P − 2w",
+"B",
+"Isolate l: l = (P − 2w)/2.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 167,
+"cells": [
+"M166",
+"middle",
+"Mathematics Achievement",
+"Operations with Negative Numbers",
+"computation",
+"What is (-7) × 2 × (-6)?",
+86.0,
+"'-84",
+84.0,
+"'-11",
+"C",
+"Two negatives give a positive: 84.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 168,
+"cells": [
+"M167",
+"middle",
+"Quantitative Reasoning",
+"Word Problems with Ratios",
+"word problem",
+"The ratio of boys to girls in a club is 5:8. There are 52 members. How many are boys?",
+26.0,
+32.0,
+47.0,
+20.0,
+"D",
+"5+8=13 parts; 52÷13=4; boys = 5×4 = 20.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 169,
+"cells": [
+"M168",
+"middle",
+"Quantitative Reasoning",
+"Distance, Rate, and Time",
+"word problem",
+"A train travels 157.5 miles in 3.5 hours. What is its average speed?",
+"45 mph",
+"50 mph",
+"551.25 mph",
+"35 mph",
+"A",
+"r = d/t = 157.5/3.5 = 45.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 170,
+"cells": [
+"M169",
+"middle",
+"Mathematics Achievement",
+"Solving Proportions",
+"computation",
+"Solve for x: 2/5 = 10/x",
+10.0,
+25.0,
+13.0,
+27.0,
+"B",
+"Scale factor 5: x = 5×5 = 25.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 171,
+"cells": [
+"M170",
+"middle",
+"Quantitative Reasoning",
+"Complementary Events",
+"word problem",
+"The probability that it rains tomorrow is 3/10. What is the probability that it does NOT rain tomorrow?",
+{
+"date": "2026-01-02"
+},
+{
+"date": "2026-07-10"
+},
+"3 1/3",
+{
+"date": "2026-03-10"
+},
+"B",
+"1 − 3/10 = 7/10.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 172,
+"cells": [
+"M171",
+"middle",
+"Quantitative Reasoning",
+"Box and Whisker Plots",
+"word problem",
+"A box-and-whisker plot shows minimum 12, first quartile 20, median 25, third quartile 35, and maximum 47. What is the range?",
+15.0,
+22.0,
+35.0,
+25.0,
+"C",
+"Range = 35.",
+2.0,
+"Horizontal box-and-whisker plot on a number line 7–52: whisker from 12 to 20, box from 20 to 35 with median line at 25, whisker from 35 to 47.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 173,
+"cells": [
+"M172",
+"middle",
+"Quantitative Reasoning",
+"Finding MMMR, given Frequency Tables",
+"word problem",
+"A frequency table shows the number of pets owned by students: 1 pet: 6 students, 2 pets: 5 students, 3 pets: 2 students, 4 pets: 5 students, 5 pets: 5 students. What is the mode?",
+1.0,
+3.0,
+6.0,
+5.0,
+"A",
+"1 has the highest frequency (6).",
+3.0,
+"Two-column table: 'Number of Pets' 1–5 and 'Number of Students' 6, 5, 2, 5, 5.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 174,
+"cells": [
+"M173",
+"middle",
+"Mathematics Achievement",
+"Adding and Subtracting Integers",
+"computation",
+"What is (18) − (4) + (7)?",
+21.0,
+"'-21",
+7.0,
+29.0,
+"A",
+"18 − (4) = 14; + (7) = 21.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 175,
+"cells": [
+"M174",
+"middle",
+"Mathematics Achievement",
+"Solving for Expressions",
+"word problem",
+"If x = -1 and y = 1, what is 3x² − 2xy + y?",
+12.0,
+8.0,
+6.0,
+2.0,
+"C",
+"3(1) − 2(-1)(1) + (1) = 6.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 176,
+"cells": [
+"M175",
+"middle",
+"Quantitative Reasoning",
+"Finding MMMR, given Frequency Tables",
+"word problem",
+"A frequency table shows the number of pets owned by students: 1 pet: 6 students, 2 pets: 5 students, 3 pets: 4 students, 4 pets: 2 students, 5 pets: 1 students. What is the mode?",
+2.0,
+3.0,
+1.0,
+6.0,
+"C",
+"1 has the highest frequency (6).",
+3.0,
+"Two-column table: 'Number of Pets' 1–5 and 'Number of Students' 6, 5, 4, 2, 1.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 177,
+"cells": [
+"M176",
+"middle",
+"Mathematics Achievement",
+"Estimating Square Roots",
+"word problem",
+"The square root of 120 is between which two consecutive whole numbers?",
+"between 59 and 60",
+"between 11 and 12",
+"between 9 and 10",
+"between 10 and 11",
+"D",
+"10² = 100 < 120 < 121 = 11².",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 178,
+"cells": [
+"M177",
+"middle",
+"Mathematics Achievement",
+"Order of Operations",
+"computation",
+"Evaluate: 5 + 5² × 2 − 3 + 6",
+58.0,
+203.0,
+28.0,
+108.0,
+"A",
+"5² = 25; × 2 = 50; 5 + 50 − 3 + 6 = 58.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 179,
+"cells": [
+"M178",
+"middle",
+"Mathematics Achievement",
+"Equivalent Fractions, Decimals, and Percents",
+"computation",
+"Which percent is equal to 2/3?",
+{
+"number": 0.0667,
+"shown": "6.67%"
+},
+{
+"number": 0.00667,
+"shown": "0.67%"
+},
+{
+"number": 0.667,
+"shown": "66.70%"
+},
+{
+"number": 0.23,
+"shown": "23%"
+},
+"C",
+"2/3 = 0.6667 = 66.7%.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 180,
+"cells": [
+"M179",
+"middle",
+"Mathematics Achievement",
+"Multiplying and Dividing Decimals",
+"computation",
+"What is 8.3 × 4.81?",
+39.923,
+399.23,
+13.11,
+3.9923,
+"A",
+"8.3 × 4.81 = 39.923.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 181,
+"cells": [
+"M180",
+"middle",
+"Mathematics Achievement",
+"Solving for Converse Answer, given Percent & Amount",
+"word problem",
+"42 is 60% of what number?",
+70.0,
+102.0,
+112.0,
+25.0,
+"A",
+"42 ÷ 0.6 = 70.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 182,
+"cells": [
+"M181",
+"middle",
+"Mathematics Achievement",
+"Solving Problems with Geometric Formulas",
+"word problem",
+"A cylinder has radius 6 and height 10. What is its volume?",
+"120π",
+"60π",
+"720π",
+"360π",
+"D",
+"V = πr²h = 360π.",
+3.0,
+"Right circular cylinder with radius 6 and height 10 labeled.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 183,
+"cells": [
+"M182",
+"middle",
+"Quantitative Reasoning",
+"Word Problems with Proportions",
+"word problem",
+"A recipe uses 4 cups of flour to make 36 cookies. How many cups are needed for 54 cookies?",
+6.0,
+7.0,
+12.0,
+"2 2/3",
+"A",
+"4/36 = x/54 → x = 6.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 184,
+"cells": [
+"M183",
+"middle",
+"Mathematics Achievement",
+"Compound Fractions",
+"computation",
+"Simplify: (3/5) ÷ (2/6)",
+{
+"date": "2026-05-09"
+},
+"1 4/5",
+"2 4/5",
+{
+"date": "2026-01-05"
+},
+"B",
+"Multiply by the reciprocal: 3/5 × 6/2 = 1 4/5.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 185,
+"cells": [
+"M184",
+"middle",
+"Mathematics Achievement",
+"Percent Increase and Decrease",
+"word problem",
+"The number of club members changed from 250 to 275. What was the percent increase?",
+{
+"number": 0.091,
+"shown": "9.10%"
+},
+{
+"number": 0.15,
+"shown": "15%"
+},
+{
+"number": 0.1,
+"shown": "10%"
+},
+{
+"number": 0.25,
+"shown": "25%"
+},
+"C",
+"Change 25 ÷ original 250 = 10%.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 186,
+"cells": [
+"M185",
+"middle",
+"Mathematics Achievement",
+"Multi-step Solving Equations",
+"computation",
+"Solve: 6x + 1 = 2x + 17",
+"'-4",
+5.0,
+2.0,
+4.0,
+"D",
+"4x = 16 → x = 4.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 187,
+"cells": [
+"M186",
+"middle",
+"Quantitative Reasoning",
+"Weighted Averages",
+"word problem",
+"Class A has 10 students with an average score of 83. Class B has 9 students averaging 64. What is the average of all 19 students?",
+72.0,
+74.0,
+"73 1/2",
+76.0,
+"B",
+"(10×83 + 9×64) ÷ 19 = 74.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 188,
+"cells": [
+"M187",
+"middle",
+"Quantitative Reasoning",
+"Comparing MMMR",
+"quantitative comparison",
+"Data set: 7, 8, 22, 9, 2. Column A: the mean   Column B: the median",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"A",
+"Mean = 9 3/5, median = 8.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 189,
+"cells": [
+"M188",
+"middle",
+"Quantitative Reasoning",
+"Fundamental Counting Principle",
+"word problem",
+"A café offers 5 sandwiches, 5 sides, and 4 drinks. How many different meals of one sandwich, one side, and one drink are possible?",
+200.0,
+14.0,
+100.0,
+29.0,
+"C",
+"5 × 5 × 4 = 100.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 190,
+"cells": [
+"M189",
+"middle",
+"Quantitative Reasoning",
+"Interpreting Linear Equations from Word Problems",
+"word problem",
+"A bike rental costs $37 plus $11 per hour. Which equation gives the total cost C for h hours, and what is the cost for 5 hours?",
+"C = 48h; $240",
+"C = 11h + 37; $92",
+"C = 37h + 11; $196",
+"C = 11h − 37; $18",
+"B",
+"Fixed fee 37 + 11 per hour: 11(5) + 37 = 92.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 191,
+"cells": [
+"M190",
+"middle",
+"Quantitative Reasoning",
+"Quantitative Comparison",
+"quantitative comparison",
+"Column A: 20% of 40   Column B: 40% of 20",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"C",
+"Both equal 8.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 192,
+"cells": [
+"M191",
+"middle",
+"Quantitative Reasoning",
+"LCM Word Problems",
+"word problem",
+"One bus leaves the station every 4 minutes and another every 10 minutes. If both leave together at 8:00, after how many minutes will they next leave together?",
+20.0,
+40.0,
+14.0,
+2.0,
+"A",
+"LCM(4,10) = 20 minutes.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 193,
+"cells": [
+"M192",
+"middle",
+"Mathematics Achievement",
+"LCM (Least Common Multiple)",
+"word problem",
+"What is the least common multiple of 24 and 36?",
+864.0,
+12.0,
+96.0,
+72.0,
+"D",
+"LCM = 24×36÷GCF(12) = 72.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 194,
+"cells": [
+"M193",
+"middle",
+"Quantitative Reasoning",
+"Interpreting Scatter Plots",
+"word problem",
+"A scatter plot shows shoe size (x-axis) vs. favorite number (y-axis) and has no correlation. Which statement best describes the data?",
+"One causes the other to change by exactly the same amount.",
+"As one increases, the other tends to decrease.",
+"As one increases, the other tends to increase.",
+"There is no clear relationship.",
+"D",
+"No correlation means: there is no clear relationship.",
+2.0,
+"Scatter plot of about 15 points, x-axis 'shoe size', y-axis 'favorite number', showing a random, patternless trend.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 195,
+"cells": [
+"M194",
+"middle",
+"Quantitative Reasoning",
+"Ratios between Similar 3-D Figures",
+"word problem",
+"Every edge of a box is multiplied by 2. The original volume was 16 cubic inches. What is the new volume?",
+24.0,
+32.0,
+64.0,
+128.0,
+"D",
+"Volume scales by 2³ = 8.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 196,
+"cells": [
+"M195",
+"middle",
+"Quantitative Reasoning",
+"Time to Completion, given Same Rate",
+"word problem",
+"6 painters can paint a house in 5 days. Working at the same rate, how many days would it take 12 painters?",
+"3 1/2",
+"2 1/2",
+1.0,
+10.0,
+"B",
+"6×5 = 30 painter-days; ÷ 12 = 2 1/2.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 197,
+"cells": [
+"M196",
+"middle",
+"Mathematics Achievement",
+"Finding Slope, given Linear Equations",
+"word problem",
+"What is the slope of the line x + 2y = 10?",
+{
+"date": "2026-01-02"
+},
+"-1/2",
+2.0,
+5.0,
+"B",
+"Solve for y: y = (-1/2)x + 5; slope = -1/2.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 198,
+"cells": [
+"M197",
+"middle",
+"Mathematics Achievement",
+"Evaluating Percents of Numbers",
+"computation",
+"What is 120% of 400?",
+3.33,
+480.0,
+600.0,
+4800.0,
+"B",
+"120/100 × 400 = 480.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 199,
+"cells": [
+"M198",
+"middle",
+"Quantitative Reasoning",
+"Systems of Equations Word Problems",
+"word problem",
+"A theater sold 33 tickets for $274. Adult tickets cost $10 and child tickets cost $6. How many adult tickets were sold?",
+16.0,
+14.0,
+19.0,
+21.0,
+"C",
+"Let A + C = 33, 10A + 6C = 274 → A = 19.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 200,
+"cells": [
+"M199",
+"middle",
+"Mathematics Achievement",
+"Equivalent Fractions, Decimals, and Percents",
+"computation",
+"Which percent is equal to 11/20?",
+{
+"number": 11.2,
+"shown": "1120%"
+},
+{
+"number": 0.0055,
+"shown": "0.55%"
+},
+{
+"number": 0.055,
+"shown": "5.50%"
+},
+{
+"number": 0.55,
+"shown": "55%"
+},
+"D",
+"11/20 = 0.55 = 55%.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 201,
+"cells": [
+"M200",
+"middle",
+"Mathematics Achievement",
+"Systems of Equations",
+"computation",
+"Solve the system: x + y = 6 and 1x − 4y = 11.",
+"x = 7, y = -1",
+"x = -1, y = 7",
+"x = 8, y = -2",
+"x = -7, y = 13",
+"A",
+"Substitute y = 6 − x into the second equation → x = 7, y = -1.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 202,
+"cells": [
+"M201",
+"middle",
+"Mathematics Achievement",
+"Solving Proportions",
+"computation",
+"Solve for x: 9/15 = 54/x",
+60.0,
+21.0,
+90.0,
+99.0,
+"C",
+"Scale factor 6: x = 15×6 = 90.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 203,
+"cells": [
+"M202",
+"middle",
+"Mathematics Achievement",
+"Square Root of Sum of Squares",
+"computation",
+"What is √(8² + 15²)?",
+18.0,
+23.0,
+17.0,
+289.0,
+"C",
+"64 + 225 = 289; √289 = 17.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 204,
+"cells": [
+"M203",
+"middle",
+"Quantitative Reasoning",
+"Weighted Averages",
+"word problem",
+"Class A has 20 students with an average score of 71. Class B has 12 students averaging 63. What is the average of all 32 students?",
+66.0,
+67.0,
+70.0,
+68.0,
+"D",
+"(20×71 + 12×63) ÷ 32 = 68.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 205,
+"cells": [
+"M204",
+"middle",
+"Mathematics Achievement",
+"Operations with Negative Numbers",
+"computation",
+"What is (-3) × 7 × (-6)?",
+"'-2",
+133.0,
+"'-126",
+126.0,
+"D",
+"Two negatives give a positive: 126.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 206,
+"cells": [
+"M205",
+"middle",
+"Quantitative Reasoning",
+"Word Problems with Proportions",
+"word problem",
+"A recipe uses 3 cups of flour to make 30 cookies. How many cups are needed for 60 cookies?",
+"1 1/2",
+7.0,
+12.0,
+6.0,
+"D",
+"3/30 = x/60 → x = 6.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 207,
+"cells": [
+"M206",
+"middle",
+"Mathematics Achievement",
+"Solving 1 Variable Equations",
+"computation",
+"If 2x − 2 = -16, what is x?",
+"'-7",
+"'-6",
+7.0,
+"'-9",
+"A",
+"2x = -14 → x = -7.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 208,
+"cells": [
+"M207",
+"middle",
+"Mathematics Achievement",
+"Systems of Equations",
+"computation",
+"Solve the system: x + y = -1 and 4x − 3y = -25.",
+"x = 4, y = -5",
+"x = -4, y = 3",
+"x = -3, y = 2",
+"x = 3, y = -4",
+"B",
+"Substitute y = -1 − x into the second equation → x = -4, y = 3.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 209,
+"cells": [
+"M208",
+"middle",
+"Quantitative Reasoning",
+"Shaded Area, given Inscribed Shapes",
+"word problem",
+"A circle is inscribed in a square with side length 10. What is the area of the region inside the square but outside the circle?",
+"25π − 100",
+"100 − 100π",
+"40 − 25π",
+"100 − 25π",
+"D",
+"Square 100; circle radius 5, area 25π; difference 100 − 25π.",
+2.0,
+"Square of side 10 with a circle inscribed touching all four sides; region between square and circle shaded.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 210,
+"cells": [
+"M209",
+"middle",
+"Quantitative Reasoning",
+"Ratios of Similar 2-D Figures",
+"word problem",
+"Two similar rectangles have a side-length ratio of 1:2. The smaller has area 12 square units. What is the area of the larger?",
+24.0,
+96.0,
+14.0,
+48.0,
+"D",
+"Area scales by 2² = 4: 12×4 = 48.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 211,
+"cells": [
+"M210",
+"middle",
+"Mathematics Achievement",
+"Product of Prime Numbers",
+"word problem",
+"What is the prime factorization of 150?",
+"2 × 3 × 5 × 7",
+"2 × 3 × 5^2",
+"3 × 5^2 × 4",
+"2^2 × 3 × 5^2",
+"B",
+"150 = 2 × 3 × 5^2.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 212,
+"cells": [
+"M211",
+"middle",
+"Mathematics Achievement",
+"Multi-step Solving Equations",
+"computation",
+"Solve: 7x + 9 = 1x + 51",
+7.0,
+10.0,
+8.0,
+"'-7",
+"A",
+"6x = 42 → x = 7.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 213,
+"cells": [
+"M212",
+"middle",
+"Quantitative Reasoning",
+"Mixture Problems",
+"word problem",
+"2 liters of a 20% juice drink are mixed with 4 liters of a 50% juice drink. What percent juice is the mixture?",
+{
+"number": 0.35,
+"shown": "35%"
+},
+{
+"number": 0.45,
+"shown": "45%"
+},
+{
+"number": 0.7,
+"shown": "70%"
+},
+{
+"number": 0.4,
+"shown": "40%"
+},
+"D",
+"(2×20 + 4×50) ÷ 6 = 40%.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 214,
+"cells": [
+"M213",
+"middle",
+"Mathematics Achievement",
+"Translating Math Expressions",
+"computation",
+"Which expression represents \"a number divided by 5, increased by 7\"?",
+"(x + 7)/5",
+"x/5 + 7",
+"5/x + 7",
+"x/(5 + 7)",
+"B",
+"\"a number divided by 5, increased by 7\" → x/5 + 7.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 215,
+"cells": [
+"M214",
+"middle",
+"Quantitative Reasoning",
+"Finding Changes in MMMR after Adjusting Data Values",
+"word problem",
+"The mean of 7 numbers is 23. If 4 is added to each number, what is the new mean?",
+"23 4/7",
+51.0,
+27.0,
+23.0,
+"C",
+"Adding 4 to every value raises the mean by 4.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 216,
+"cells": [
+"M215",
+"middle",
+"Mathematics Achievement",
+"Manipulating Equations",
+"computation",
+"Solve V = Bh for h.",
+"h = V/B",
+"h = VB",
+"h = B/V",
+"h = V − B",
+"A",
+"Isolate h: h = V/B.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 217,
+"cells": [
+"M216",
+"middle",
+"Mathematics Achievement",
+"Simplifying Rational Expressions with Exponents",
+"computation",
+"Simplify: x^6 ÷ x^4",
+"x^2",
+"x^3",
+"1/x^2",
+"x^10",
+"A",
+"Same base: subtract exponents.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 218,
+"cells": [
+"M217",
+"middle",
+"Mathematics Achievement",
+"Adding and Subtracting Integers",
+"computation",
+"What is (20) − (-11) + (2)?",
+11.0,
+29.0,
+"'-33",
+33.0,
+"D",
+"20 − (-11) = 31; + (2) = 33.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 219,
+"cells": [
+"M218",
+"middle",
+"Mathematics Achievement",
+"Dividing Mixed Numbers",
+"computation",
+"What is 3 1/4 ÷ 1 1/4?",
+"2 3/5",
+"3 1/10",
+{
+"date": "2026-05-13"
+},
+"4 1/16",
+"A",
+"Convert to improper fractions and multiply by the reciprocal: 2 3/5.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 220,
+"cells": [
+"M219",
+"middle",
+"Quantitative Reasoning",
+"Time to Completion, given Same Rate",
+"word problem",
+"4 painters can paint a house in 4 days. Working at the same rate, how many days would it take 7 painters?",
+1.0,
+"2 2/7",
+"3 2/7",
+7.0,
+"B",
+"4×4 = 16 painter-days; ÷ 7 = 2 2/7.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 221,
+"cells": [
+"M220",
+"middle",
+"Quantitative Reasoning",
+"Word Problems with Proportions",
+"word problem",
+"A recipe uses 4 cups of flour to make 30 cookies. How many cups are needed for 45 cookies?",
+6.0,
+12.0,
+"2 2/3",
+7.0,
+"A",
+"4/30 = x/45 → x = 6.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 222,
+"cells": [
+"M221",
+"middle",
+"Mathematics Achievement",
+"Dividing Mixed Numbers",
+"computation",
+"What is 4 1/4 ÷ 3 1/3?",
+"40/51",
+"1 11/40",
+"1 31/40",
+"14 1/6",
+"B",
+"Convert to improper fractions and multiply by the reciprocal: 1 11/40.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 223,
+"cells": [
+"M222",
+"middle",
+"Quantitative Reasoning",
+"Box and Whisker Plots",
+"word problem",
+"A box-and-whisker plot shows minimum 20, first quartile 31, median 40, third quartile 44, and maximum 54. What is the interquartile range?",
+40.0,
+44.0,
+13.0,
+34.0,
+"C",
+"Interquartile range = 13.",
+2.0,
+"Horizontal box-and-whisker plot on a number line 15–59: whisker from 20 to 31, box from 31 to 44 with median line at 40, whisker from 44 to 54.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 224,
+"cells": [
+"M223",
+"middle",
+"Mathematics Achievement",
+"Equivalent Fractions, Decimals, and Percents",
+"computation",
+"Which percent is equal to 5/6?",
+{
+"number": 0.00833,
+"shown": "0.83%"
+},
+{
+"number": 0.56,
+"shown": "56%"
+},
+{
+"number": 0.833,
+"shown": "83.30%"
+},
+{
+"number": 0.0833,
+"shown": "8.33%"
+},
+"C",
+"5/6 = 0.8333 = 83.3%.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 225,
+"cells": [
+"M224",
+"middle",
+"Quantitative Reasoning",
+"Distance, Rate, and Time",
+"word problem",
+"A train travels 110 miles in 2 hours. What is its average speed?",
+"55 mph",
+"220 mph",
+"45 mph",
+"60 mph",
+"A",
+"r = d/t = 110/2 = 55.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 226,
+"cells": [
+"M225",
+"middle",
+"Mathematics Achievement",
+"Prime Numbers",
+"computation",
+"Which of the following is a prime number?",
+63.0,
+77.0,
+69.0,
+59.0,
+"D",
+"59 has no factors other than 1 and itself; the others are composite.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 227,
+"cells": [
+"M226",
+"middle",
+"Quantitative Reasoning",
+"Interpreting Meaning of Terms in Linear Equations",
+"word problem",
+"The amount in Leo's savings account after w weeks is A = 241 + 6w. What does 6 represent?",
+"the amount Leo adds each week",
+"the amount Leo started with",
+"the number of weeks Leo saves",
+"the total after one week",
+"A",
+"6 is the rate of change: dollars added per week; 241 is the starting amount.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 228,
+"cells": [
+"M227",
+"middle",
+"Mathematics Achievement",
+"Adding and Subtracting Integers",
+"computation",
+"What is (20) − (-1) + (3)?",
+24.0,
+18.0,
+"'-24",
+22.0,
+"A",
+"20 − (-1) = 21; + (3) = 24.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 229,
+"cells": [
+"M228",
+"middle",
+"Mathematics Achievement",
+"Ordering Negative Decimals",
+"computation",
+"Which list orders -1.2, -1.6, -1.8, -1.74 from least to greatest?",
+"-1.8, -1.74, -1.6, -1.2",
+"-1.6, -1.74, -1.8, -1.2",
+"-1.2, -1.6, -1.8, -1.74",
+"-1.2, -1.6, -1.74, -1.8",
+"A",
+"The more negative a number, the smaller it is.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 230,
+"cells": [
+"M229",
+"middle",
+"Mathematics Achievement",
+"Solving 1 Variable Equations",
+"computation",
+"If 2x + 8 = 26, what is x?",
+17.0,
+"'-9",
+9.0,
+10.0,
+"C",
+"2x = 18 → x = 9.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 231,
+"cells": [
+"M230",
+"middle",
+"Quantitative Reasoning",
+"Data Collection & Random Sampling",
+"word problem",
+"Which method would give the most representative sample for finding how many residents of a town support a new park?",
+"randomly selecting 200 residents from the town directory",
+"asking members of the parks committee",
+"asking only residents who live next to the site",
+"asking people at the dog park",
+"A",
+"A random sample from the whole population avoids bias.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 232,
+"cells": [
+"M231",
+"middle",
+"Mathematics Achievement",
+"Surface Area <> Volume of Cube",
+"word problem",
+"A cube has a surface area of 294 square cm. What is its volume?",
+"49 cubic cm",
+"42 cubic cm",
+"343 cubic cm",
+"512 cubic cm",
+"C",
+"6s² = 294 → s = 7; V = 343.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 233,
+"cells": [
+"M232",
+"middle",
+"Quantitative Reasoning",
+"LCM Word Problems",
+"word problem",
+"One bus leaves the station every 6 minutes and another every 8 minutes. If both leave together at 8:00, after how many minutes will they next leave together?",
+14.0,
+24.0,
+2.0,
+48.0,
+"B",
+"LCM(6,8) = 24 minutes.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 234,
+"cells": [
+"M233",
+"middle",
+"Mathematics Achievement",
+"Order of Operations",
+"computation",
+"Evaluate: 8 + 5² × 3 − 11 + 5",
+227.0,
+501.0,
+77.0,
+32.0,
+"C",
+"5² = 25; × 3 = 75; 8 + 75 − 11 + 5 = 77.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 235,
+"cells": [
+"M234",
+"middle",
+"Quantitative Reasoning",
+"Box and Whisker Plots",
+"word problem",
+"A box-and-whisker plot shows minimum 15, first quartile 22, median 29, third quartile 35, and maximum 40. What is the range?",
+13.0,
+29.0,
+35.0,
+25.0,
+"D",
+"Range = 25.",
+2.0,
+"Horizontal box-and-whisker plot on a number line 10–45: whisker from 15 to 22, box from 22 to 35 with median line at 29, whisker from 35 to 40.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 236,
+"cells": [
+"M235",
+"middle",
+"Quantitative Reasoning",
+"Revenue − Cost = Profit Problems",
+"word problem",
+"A lemonade stand spends $30 on a table rental and $2 per cup on supplies. Each cup sells for $5. If they sell 65 cups, what is the profit?",
+{
+"number": 135.0,
+"shown": "$135.00"
+},
+{
+"number": 325.0,
+"shown": "$325.00"
+},
+{
+"number": 165.0,
+"shown": "$165.00"
+},
+{
+"number": 195.0,
+"shown": "$195.00"
+},
+"C",
+"Revenue $325.00 − supplies $130.00 − rental $30.00 = $165.00.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 237,
+"cells": [
+"M236",
+"middle",
+"Quantitative Reasoning",
+"Line Segment Split by Multiple Midpoints",
+"word problem",
+"Segment AB has length 48. M is the midpoint of AB, and N is the midpoint of AM. What is the length of NB?",
+36.0,
+12.0,
+6.0,
+24.0,
+"A",
+"AM = 24, NM = 12, NB = NM + MB = 12 + 24 = 36.",
+3.0,
+"Horizontal segment from A to B (length 48); M at the midpoint; N midway between A and M.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 238,
+"cells": [
+"M237",
+"middle",
+"Mathematics Achievement",
+"Solving for Expressions",
+"word problem",
+"If x = 4 and y = -1, what is 3x² − 2xy + y?",
+39.0,
+57.0,
+55.0,
+151.0,
+"C",
+"3(16) − 2(4)(-1) + (-1) = 55.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 239,
+"cells": [
+"M238",
+"middle",
+"Quantitative Reasoning",
+"LCM Word Problems",
+"word problem",
+"One bus leaves the station every 10 minutes and another every 15 minutes. If both leave together at 8:00, after how many minutes will they next leave together?",
+25.0,
+5.0,
+150.0,
+30.0,
+"D",
+"LCM(10,15) = 30 minutes.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 240,
+"cells": [
+"M239",
+"middle",
+"Quantitative Reasoning",
+"Square of Sum vs. Sum of Squares",
+"quantitative comparison",
+"a > 0 and b < 0. Column A: (a + b)²   Column B: a² + b²",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"B",
+"(a+b)² = a² + 2ab + b², and 2ab < 0 when a and b have opposite signs, so B is greater.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 241,
+"cells": [
+"M240",
+"middle",
+"Quantitative Reasoning",
+"Weighted Averages",
+"word problem",
+"Class A has 15 students with an average score of 72. Class B has 10 students averaging 62. What is the average of all 25 students?",
+67.0,
+70.0,
+66.0,
+68.0,
+"D",
+"(15×72 + 10×62) ÷ 25 = 68.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 242,
+"cells": [
+"M241",
+"middle",
+"Mathematics Achievement",
+"Finding Slope, given Two Points",
+"word problem",
+"What is the slope of the line through (-2, -2) and (1, -6)?",
+{
+"date": "2026-04-03"
+},
+"-4/3",
+"-3/4",
+"-1/3",
+"B",
+"(y₂−y₁)/(x₂−x₁) = -4/3 = -4/3.",
+3.0,
+"Coordinate plane with points (-2, -2) and (1, -6) plotted and a line drawn through them.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 243,
+"cells": [
+"M242",
+"middle",
+"Mathematics Achievement",
+"Equations of Parallel/Perpendicular Lines",
+"word problem",
+"Line L has equation y = (1/3)x + 4. What is the slope of a line perpendicular to L?",
+{
+"date": "2026-01-03"
+},
+3.0,
+"-1/3",
+"'-3",
+"D",
+"Parallel lines have equal slopes; perpendicular slopes are negative reciprocals.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 244,
+"cells": [
+"M243",
+"middle",
+"Mathematics Achievement",
+"Square Root of Sum of Squares",
+"computation",
+"What is √(6² + 8²)?",
+11.0,
+100.0,
+10.0,
+14.0,
+"C",
+"36 + 64 = 100; √100 = 10.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 245,
+"cells": [
+"M244",
+"middle",
+"Mathematics Achievement",
+"Exponents",
+"computation",
+"What is 4^4?",
+8.0,
+64.0,
+256.0,
+16.0,
+"C",
+"4 multiplied by itself 4 times = 256.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 246,
+"cells": [
+"M245",
+"middle",
+"Mathematics Achievement",
+"Exponents",
+"computation",
+"What is 5^2?",
+10.0,
+7.0,
+25.0,
+5.0,
+"C",
+"5 multiplied by itself 2 times = 25.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 247,
+"cells": [
+"M246",
+"middle",
+"Mathematics Achievement",
+"Prime Numbers",
+"computation",
+"Which of the following is a prime number?",
+77.0,
+57.0,
+69.0,
+59.0,
+"D",
+"59 has no factors other than 1 and itself; the others are composite.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 248,
+"cells": [
+"M247",
+"middle",
+"Quantitative Reasoning",
+"Revenue − Cost = Profit Problems",
+"word problem",
+"A lemonade stand spends $50 on a table rental and $2 per cup on supplies. Each cup sells for $5. If they sell 35 cups, what is the profit?",
+{
+"number": 55.0,
+"shown": "$55.00"
+},
+{
+"number": 175.0,
+"shown": "$175.00"
+},
+{
+"number": 105.0,
+"shown": "$105.00"
+},
+{
+"number": 5.0,
+"shown": "$5.00"
+},
+"A",
+"Revenue $175.00 − supplies $70.00 − rental $50.00 = $55.00.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 249,
+"cells": [
+"M248",
+"middle",
+"Quantitative Reasoning",
+"Time to Completion, given Same Rate",
+"word problem",
+"4 painters can paint a house in 5 days. Working at the same rate, how many days would it take 7 painters?",
+"3 6/7",
+"2 6/7",
+"8 3/4",
+2.0,
+"B",
+"4×5 = 20 painter-days; ÷ 7 = 2 6/7.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 250,
+"cells": [
+"M249",
+"middle",
+"Mathematics Achievement",
+"Interior Angles of Regular Polygons",
+"word problem",
+"What is the measure of each interior angle of a regular pentagon?",
+"72°",
+"120°",
+"108°",
+"540°",
+"C",
+"(n−2)×180÷n = 108°.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 251,
+"cells": [
+"M250",
+"middle",
+"Mathematics Achievement",
+"LCM (Least Common Multiple)",
+"word problem",
+"What is the least common multiple of 27 and 36?",
+135.0,
+9.0,
+108.0,
+972.0,
+"C",
+"LCM = 27×36÷GCF(9) = 108.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 252,
+"cells": [
+"M251",
+"middle",
+"Quantitative Reasoning",
+"Finding Changes in MMMR after Adjusting Data Values",
+"word problem",
+"The mean of 4 numbers is 27. If 3 is added to each number, what is the new mean?",
+27.0,
+30.0,
+"27 3/4",
+39.0,
+"B",
+"Adding 3 to every value raises the mean by 3.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 253,
+"cells": [
+"M252",
+"middle",
+"Mathematics Achievement",
+"Circle Area and Radius",
+"word problem",
+"The area of a circle is 25π square inches. What is its diameter?",
+"10 in",
+"5 in",
+"20 in",
+"12 in",
+"A",
+"r² = 25 → r = 5; d = 10.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 254,
+"cells": [
+"M253",
+"middle",
+"Mathematics Achievement",
+"Finding Slope, given Linear Equations",
+"word problem",
+"What is the slope of the line −x + 3y = -6?",
+"'-2",
+"'-3",
+{
+"date": "2026-01-03"
+},
+"-1/3",
+"C",
+"Solve for y: y = (1/3)x − 2; slope = 1/3.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 255,
+"cells": [
+"M254",
+"middle",
+"Quantitative Reasoning",
+"Mixture Problems",
+"word problem",
+"6 liters of a 40% juice drink are mixed with 8 liters of a 60% juice drink. What percent juice is the mixture?",
+{
+"number": 1.0,
+"shown": "100%"
+},
+"56 3/7%",
+"51 3/7%",
+{
+"number": 0.5,
+"shown": "50%"
+},
+"C",
+"(6×40 + 8×60) ÷ 14 = 51 3/7%.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 256,
+"cells": [
+"M255",
+"middle",
+"Quantitative Reasoning",
+"Systems of Equations Word Problems",
+"word problem",
+"A theater sold 29 tickets for $197. Adult tickets cost $9 and child tickets cost $5. How many adult tickets were sold?",
+15.0,
+14.0,
+13.0,
+16.0,
+"C",
+"Let A + C = 29, 9A + 5C = 197 → A = 13.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 257,
+"cells": [
+"M256",
+"middle",
+"Quantitative Reasoning",
+"Solving for Subsets in a Venn Diagram",
+"word problem",
+"In a group of 34 students, 14 take Spanish, 22 take French, 6 take both, and 4 take neither. How many take only Spanish?",
+8.0,
+12.0,
+14.0,
+20.0,
+"A",
+"14 − 6 = 8.",
+2.0,
+"Two overlapping circles Spanish and French in a rectangle of 34; overlap 6; outside both 4.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 258,
+"cells": [
+"M257",
+"middle",
+"Mathematics Achievement",
+"LCM (Least Common Multiple)",
+"word problem",
+"What is the least common multiple of 15 and 25?",
+75.0,
+375.0,
+5.0,
+90.0,
+"A",
+"LCM = 15×25÷GCF(5) = 75.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 259,
+"cells": [
+"M258",
+"middle",
+"Quantitative Reasoning",
+"Weighted Averages",
+"word problem",
+"Class A has 10 students with an average score of 80. Class B has 8 students averaging 71. What is the average of all 18 students?",
+74.0,
+76.0,
+78.0,
+"75 1/2",
+"B",
+"(10×80 + 8×71) ÷ 18 = 76.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 260,
+"cells": [
+"M259",
+"middle",
+"Quantitative Reasoning",
+"Probability of 2 Independent Events",
+"word problem",
+"What is the probability that a coin lands heads twice in a row?",
+{
+"date": "2026-01-04"
+},
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-01-06"
+},
+{
+"date": "2026-01-02"
+},
+"A",
+"Multiply the independent probabilities: 1/4.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 261,
+"cells": [
+"M260",
+"middle",
+"Mathematics Achievement",
+"Order of Operations",
+"computation",
+"Evaluate: 5 + 4² × 2 − 4 + 3",
+68.0,
+20.0,
+36.0,
+161.0,
+"C",
+"4² = 16; × 2 = 32; 5 + 32 − 4 + 3 = 36.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 262,
+"cells": [
+"M261",
+"middle",
+"Mathematics Achievement",
+"Estimating Square Roots",
+"word problem",
+"The square root of 105 is between which two consecutive whole numbers?",
+"between 51 and 52",
+"between 11 and 12",
+"between 10 and 11",
+"between 9 and 10",
+"C",
+"10² = 100 < 105 < 121 = 11².",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 263,
+"cells": [
+"M262",
+"middle",
+"Mathematics Achievement",
+"Vertices Forming Quadrilaterals on a Coordinate Plane",
+"word problem",
+"Three vertices of a rectangle are (-3, -3), (1, -3), and (1, -1). What is the fourth vertex?",
+"(-1, 1)",
+"(-7, -1)",
+"(-3, -1)",
+"(1, -5)",
+"C",
+"The missing corner shares x with (-3, -3) and y with (1, -1).",
+2.0,
+"Coordinate grid −8 to 8 on both axes with points (-3, -3), (1, -3), (1, -1) plotted.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 264,
+"cells": [
+"M263",
+"middle",
+"Mathematics Achievement",
+"Multiple Percent Changes",
+"word problem",
+"A price is increased by 20% and then the new price is decreased by 10%. What is the overall change from the original price?",
+"increase of 13%",
+"increase of 30%",
+"increase of 10%",
+"increase of 8%",
+"D",
+"1.2 × 0.9 = 1.08, so the new price is 108% of the original: increase of 8%.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 265,
+"cells": [
+"M264",
+"middle",
+"Mathematics Achievement",
+"Product of Prime Numbers",
+"word problem",
+"What is the prime factorization of 60?",
+"2^2 × 3 × 7",
+"2 × 3 × 5 × 4",
+"2^3 × 3 × 5",
+"2^2 × 3 × 5",
+"D",
+"60 = 2^2 × 3 × 5.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 266,
+"cells": [
+"M265",
+"middle",
+"Mathematics Achievement",
+"Estimating Square Roots",
+"word problem",
+"The square root of 130 is between which two consecutive whole numbers?",
+"between 10 and 11",
+"between 64 and 65",
+"between 12 and 13",
+"between 11 and 12",
+"D",
+"11² = 121 < 130 < 144 = 12².",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 267,
+"cells": [
+"M266",
+"middle",
+"Quantitative Reasoning",
+"Remaining Amount after Reducing by Multiple Fractions",
+"word problem",
+"Ana had $72. She spent 1/4 of it on a game, then 1/3 of what was left on lunch. How much does she have now?",
+{
+"number": 36.0,
+"shown": "$36.00"
+},
+{
+"number": 18.0,
+"shown": "$18.00"
+},
+{
+"number": 54.0,
+"shown": "$54.00"
+},
+{
+"number": 30.0,
+"shown": "$30.00"
+},
+"A",
+"After the game: 54; spent 18 on lunch → $36.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 268,
+"cells": [
+"M267",
+"middle",
+"Quantitative Reasoning",
+"Comparing Rates",
+"word problem",
+"Store A sells 12 pencils for $3.60. Store B sells 20 pencils for $5.00. Which store has the lower price per pencil, and what is it?",
+"Store A, $0.30 each",
+"They are the same price",
+"Store B, $0.25 each",
+"Store B, $0.30 each",
+"C",
+"A: $0.30 each; B: $0.25 each.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 269,
+"cells": [
+"M268",
+"middle",
+"Mathematics Achievement",
+"Solving for Missing Sides, given Similar Figures",
+"word problem",
+"Triangle ABC is similar to triangle DEF. AB = 6, BC = 5, and DE = 18. What is EF?",
+17.0,
+15.0,
+16.0,
+18.0,
+"B",
+"Scale factor 3: EF = 5×3 = 15.",
+2.0,
+"Two similar triangles ABC and DEF, ABC smaller; AB=6, BC=5 labeled on ABC; DE=18 labeled, EF labeled ?.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 270,
+"cells": [
+"M269",
+"middle",
+"Mathematics Achievement",
+"Equations of Parallel/Perpendicular Lines",
+"word problem",
+"Line L has equation y = (1/2)x + 4. What is the slope of a line parallel to L?",
+2.0,
+"'-2",
+{
+"date": "2026-01-02"
+},
+"-1/2",
+"C",
+"Parallel lines have equal slopes; perpendicular slopes are negative reciprocals.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 271,
+"cells": [
+"M270",
+"middle",
+"Mathematics Achievement",
+"Solving Problems with Geometric Formulas",
+"word problem",
+"A cylinder has radius 3 and height 9. What is its volume?",
+"54π",
+"81π",
+"162π",
+"27π",
+"B",
+"V = πr²h = 81π.",
+3.0,
+"Right circular cylinder with radius 3 and height 9 labeled.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 272,
+"cells": [
+"M271",
+"middle",
+"Quantitative Reasoning",
+"Square of Sum vs. Sum of Squares",
+"quantitative comparison",
+"a = 2 and b = -5. Column A: (a + b)²   Column B: a² + b²",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"B",
+"(a+b)² = 9; a²+b² = 29.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 273,
+"cells": [
+"M272",
+"middle",
+"Quantitative Reasoning",
+"Square of Sum vs. Sum of Squares",
+"quantitative comparison",
+"a = 2 and b = -2. Column A: (a + b)²   Column B: a² + b²",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"B",
+"(a+b)² = 0; a²+b² = 8.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 274,
+"cells": [
+"M273",
+"middle",
+"Mathematics Achievement",
+"Solving for Converse Answer, given Percent & Amount",
+"word problem",
+"15 is 20% of what number?",
+75.0,
+35.0,
+90.0,
+3.0,
+"A",
+"15 ÷ 0.2 = 75.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 275,
+"cells": [
+"M274",
+"middle",
+"Mathematics Achievement",
+"Solving 1 Variable Equations",
+"computation",
+"If 9x + 15 = -12, what is x?",
+"'-1",
+3.0,
+"'-3",
+"'-2",
+"C",
+"9x = -27 → x = -3.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 276,
+"cells": [
+"M275",
+"middle",
+"Mathematics Achievement",
+"Finding Slope, given Two Points",
+"word problem",
+"What is the slope of the line through (-4, -1) and (-2, -7)?",
+3.0,
+"'-2",
+"-1/3",
+"'-3",
+"D",
+"(y₂−y₁)/(x₂−x₁) = -6/2 = -3.",
+3.0,
+"Coordinate plane with points (-4, -1) and (-2, -7) plotted and a line drawn through them.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 277,
+"cells": [
+"M276",
+"middle",
+"Mathematics Achievement",
+"Manipulating Equations",
+"computation",
+"Solve y = mx + b for x.",
+"x = (y + b)/m",
+"x = m(y − b)",
+"x = y/m − b",
+"x = (y − b)/m",
+"D",
+"Isolate x: x = (y − b)/m.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 278,
+"cells": [
+"M277",
+"middle",
+"Quantitative Reasoning",
+"Line Segment Split by Multiple Midpoints",
+"word problem",
+"Segment AB has length 32. M is the midpoint of AB, and N is the midpoint of AM. What is the length of NB?",
+16.0,
+8.0,
+24.0,
+4.0,
+"C",
+"AM = 16, NM = 8, NB = NM + MB = 8 + 16 = 24.",
+3.0,
+"Horizontal segment from A to B (length 32); M at the midpoint; N midway between A and M.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 279,
+"cells": [
+"M278",
+"middle",
+"Quantitative Reasoning",
+"Comparing \"Open-Ended\" Variable Expressions",
+"quantitative comparison",
+"x > 3. Column A: x + 3   Column B: 6",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"A",
+"Since x > 3, x + 3 > 6.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 280,
+"cells": [
+"M279",
+"middle",
+"Quantitative Reasoning",
+"Remaining Amount after Reducing by Multiple Fractions",
+"word problem",
+"Ana had $120. She spent 1/4 of it on a game, then 1/3 of what was left on lunch. How much does she have now?",
+{
+"number": 90.0,
+"shown": "$90.00"
+},
+{
+"number": 50.0,
+"shown": "$50.00"
+},
+{
+"number": 60.0,
+"shown": "$60.00"
+},
+{
+"number": 30.0,
+"shown": "$30.00"
+},
+"C",
+"After the game: 90; spent 30 on lunch → $60.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 281,
+"cells": [
+"M280",
+"middle",
+"Quantitative Reasoning",
+"Revenue − Cost = Profit Problems",
+"word problem",
+"A lemonade stand spends $20 on a table rental and $2 per cup on supplies. Each cup sells for $5. If they sell 51 cups, what is the profit?",
+{
+"number": 255.0,
+"shown": "$255.00"
+},
+{
+"number": 113.0,
+"shown": "$113.00"
+},
+{
+"number": 133.0,
+"shown": "$133.00"
+},
+{
+"number": 153.0,
+"shown": "$153.00"
+},
+"C",
+"Revenue $255.00 − supplies $102.00 − rental $20.00 = $133.00.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 282,
+"cells": [
+"M281",
+"middle",
+"Mathematics Achievement",
+"Simplifying Rational Expressions with Exponents",
+"computation",
+"Simplify: y^7 ÷ y^6",
+"1/y^1",
+"y^13",
+"y^3",
+"y^1",
+"D",
+"Same base: subtract exponents.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 283,
+"cells": [
+"M282",
+"middle",
+"Mathematics Achievement",
+"Manipulating Equations",
+"computation",
+"Solve A = lw for w.",
+"w = A/l",
+"w = Al",
+"w = A − l",
+"w = l/A",
+"A",
+"Isolate w: w = A/l.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 284,
+"cells": [
+"M283",
+"middle",
+"Mathematics Achievement",
+"Solving for Missing Sides, given Similar Figures",
+"word problem",
+"Triangle ABC is similar to triangle DEF. AB = 7, BC = 8, and DE = 10 1/2. What is EF?",
+12.0,
+"11 1/2",
+13.0,
+"10 1/2",
+"A",
+"Scale factor 1 1/2: EF = 8×1 1/2 = 12.",
+2.0,
+"Two similar triangles ABC and DEF, ABC smaller; AB=7, BC=8 labeled on ABC; DE=10 1/2 labeled, EF labeled ?.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 285,
+"cells": [
+"M284",
+"middle",
+"Quantitative Reasoning",
+"Interpreting Meaning of Terms in Linear Equations",
+"word problem",
+"The amount in Leo's savings account after w weeks is A = 69 + 14w. What does 14 represent?",
+"the number of weeks Leo saves",
+"the total after one week",
+"the amount Leo started with",
+"the amount Leo adds each week",
+"D",
+"14 is the rate of change: dollars added per week; 69 is the starting amount.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 286,
+"cells": [
+"M285",
+"middle",
+"Quantitative Reasoning",
+"Comparing Fractions, Decimals, and Percents",
+"quantitative comparison",
+"Column A: 3/5   Column B: 0.6",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"C",
+"3/5 ≈ 0.600; 3/5 ≈ 0.600.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 287,
+"cells": [
+"M286",
+"middle",
+"Quantitative Reasoning",
+"Solving for Subsets in a Venn Diagram",
+"word problem",
+"In a group of 40 students, 16 take Spanish, 22 take French, 4 take both, and 6 take neither. How many take only Spanish?",
+20.0,
+18.0,
+16.0,
+12.0,
+"D",
+"16 − 4 = 12.",
+2.0,
+"Two overlapping circles Spanish and French in a rectangle of 40; overlap 4; outside both 6.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 288,
+"cells": [
+"M287",
+"middle",
+"Mathematics Achievement",
+"Surface Area <> Volume of Cube",
+"word problem",
+"A cube has a surface area of 384 square cm. What is its volume?",
+"64 cubic cm",
+"512 cubic cm",
+"729 cubic cm",
+"48 cubic cm",
+"B",
+"6s² = 384 → s = 8; V = 512.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 289,
+"cells": [
+"M288",
+"middle",
+"Quantitative Reasoning",
+"Comparing Rates",
+"word problem",
+"Store A sells 24 pencils for $7.20. Store B sells 15 pencils for $5.40. Which store has the lower price per pencil, and what is it?",
+"Store B, $0.36 each",
+"They are the same price",
+"Store A, $0.35 each",
+"Store A, $0.30 each",
+"D",
+"A: $0.30 each; B: $0.36 each.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 290,
+"cells": [
+"M289",
+"middle",
+"Quantitative Reasoning",
+"Interpreting Meaning of Terms in Linear Equations",
+"word problem",
+"The amount in Leo's savings account after w weeks is A = 50 + 11w. What does 11 represent?",
+"the number of weeks Leo saves",
+"the amount Leo started with",
+"the amount Leo adds each week",
+"the total after one week",
+"C",
+"11 is the rate of change: dollars added per week; 50 is the starting amount.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 291,
+"cells": [
+"M290",
+"middle",
+"Quantitative Reasoning",
+"Distance, Rate, and Time",
+"word problem",
+"A car travels at 45 miles per hour for 2 hours. How far does it go?",
+"135 miles",
+"45 miles",
+"47 miles",
+"90 miles",
+"D",
+"d = rt = 45×2 = 90.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 292,
+"cells": [
+"M291",
+"middle",
+"Mathematics Achievement",
+"Order of Operations",
+"computation",
+"Evaluate: 6 + 5² × 4 − 10 + 2",
+476.0,
+398.0,
+98.0,
+38.0,
+"C",
+"5² = 25; × 4 = 100; 6 + 100 − 10 + 2 = 98.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 293,
+"cells": [
+"M292",
+"middle",
+"Mathematics Achievement",
+"Ordering Negative Decimals",
+"computation",
+"Which list orders -1.7, -0.833, -0.7, -1.8 from least to greatest?",
+"-0.7, -0.833, -1.7, -1.8",
+"-1.8, -1.7, -0.833, -0.7",
+"-1.7, -0.833, -0.7, -1.8",
+"-0.833, -1.7, -1.8, -0.7",
+"B",
+"The more negative a number, the smaller it is.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 294,
+"cells": [
+"M293",
+"middle",
+"Quantitative Reasoning",
+"Nth Term, given Arithmetic Sequence",
+"computation",
+"What is the 20th term of the sequence 12, 14, 16, 18, …?",
+50.0,
+240.0,
+52.0,
+48.0,
+"A",
+"a + (n−1)d = 12 + 19×2 = 50.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 295,
+"cells": [
+"M294",
+"middle",
+"Quantitative Reasoning",
+"Ratios of Similar 2-D Figures",
+"word problem",
+"Two similar rectangles have a side-length ratio of 1:2. The smaller has area 7 square units. What is the area of the larger?",
+9.0,
+28.0,
+56.0,
+14.0,
+"B",
+"Area scales by 2² = 4: 7×4 = 28.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 296,
+"cells": [
+"M295",
+"middle",
+"Mathematics Achievement",
+"Equations of Parallel/Perpendicular Lines",
+"word problem",
+"Line L has equation y = -3x + 4. What is the slope of a line parallel to L?",
+"'-3",
+3.0,
+"-1/3",
+{
+"date": "2026-01-03"
+},
+"A",
+"Parallel lines have equal slopes; perpendicular slopes are negative reciprocals.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 297,
+"cells": [
+"M296",
+"middle",
+"Quantitative Reasoning",
+"Comparing Exponential Expressions",
+"quantitative comparison",
+"Column A: 5^3   Column B: 6^2",
+"The quantity in Column A is greater.",
+"The quantity in Column B is greater.",
+"The two quantities are equal.",
+"The relationship cannot be determined from the information given.",
+"A",
+"A = 125, B = 36.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 298,
+"cells": [
+"M297",
+"middle",
+"Quantitative Reasoning",
+"Interpreting Scatter Plots",
+"word problem",
+"A scatter plot shows hours studied (x-axis) vs. test score (y-axis) and has a positive correlation. Which statement best describes the data?",
+"One causes the other to change by exactly the same amount.",
+"As one increases, the other tends to increase.",
+"As one increases, the other tends to decrease.",
+"There is no clear relationship.",
+"B",
+"A positive correlation means: as one increases, the other tends to increase.",
+2.0,
+"Scatter plot of about 15 points, x-axis 'hours studied', y-axis 'test score', showing a clear upward trend.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 299,
+"cells": [
+"M298",
+"middle",
+"Mathematics Achievement",
+"Solving Proportions",
+"computation",
+"Solve for x: 3/12 = 15/x",
+63.0,
+60.0,
+24.0,
+17.0,
+"B",
+"Scale factor 5: x = 12×5 = 60.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 300,
+"cells": [
+"M299",
+"middle",
+"Mathematics Achievement",
+"Evaluating Percents of Numbers",
+"computation",
+"What is 15% of 400?",
+75.0,
+26.67,
+600.0,
+60.0,
+"D",
+"15/100 × 400 = 60.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 301,
+"cells": [
+"M300",
+"middle",
+"Mathematics Achievement",
+"Pythagorean Theorem",
+"word problem",
+"A right triangle has a hypotenuse of 20 and one leg of 12. What is the other leg?",
+16.0,
+8.0,
+17.0,
+32.0,
+"A",
+"√(20² − 12²) = √256 = 16.",
+3.0,
+"Right triangle with one leg 12, hypotenuse 20, other leg labeled ?.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+}
+]

@@ -11,12 +11,13 @@ import { fileURLToPath } from "node:url";
 export type Level = "lower" | "middle";
 export type Section = "qr" | "ma";
 export type QuestionType = "word" | "computation" | "comparison";
-export type Source = "placeholder" | "real" | "variant";
+/** "real" is copied from a published source; "written" was written for this bank in the test's style. */
+export type Source = "placeholder" | "real" | "written" | "variant";
 
 export const LEVELS: Level[] = ["lower", "middle"];
 export const SECTIONS: Section[] = ["qr", "ma"];
 export const TYPES: QuestionType[] = ["word", "computation", "comparison"];
-export const SOURCES: Source[] = ["placeholder", "real", "variant"];
+export const SOURCES: Source[] = ["placeholder", "real", "written", "variant"];
 export const TOPICS = [
   "whole numbers",
   "fractions",
@@ -51,6 +52,8 @@ export type Question = {
   id: string;
   section: Section;
   topic: Topic;
+  /** The finer-grained topic name the question came with, when it had one. The app ignores it. */
+  subtopic?: string;
   type: QuestionType;
   prompt: string;
   columnA: string | null;
@@ -76,6 +79,7 @@ export const bankFile = (dir: string, level: Level) => path.join(dir, `math-${le
 export const idPrefix = (level: Level) => (level === "lower" ? "L" : "M");
 
 /** "L-0001", "M-3fa92c1d" and, for a variant, "M-3fa92c1d-v2". */
+export const isQuestionId = (s: string) => ID.test(s);
 const ID = /^([LM])-[0-9a-z]{4,}(-v[1-9][0-9]*)?$/;
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -344,6 +348,7 @@ export function diagramProblems(d: unknown): { errors: string[]; warnings: strin
   return { errors, warnings };
 }
 
+const OPTIONAL_KEYS = ["subtopic"];
 const QUESTION_KEYS = ["id", "section", "topic", "type", "prompt", "columnA", "columnB", "choices", "answer", "explanation", "difficulty", "diagram", "source", "of", "ref"];
 
 /** Everything wrong with one question taken alone (its links to other questions are checked in validateBank). */
@@ -353,7 +358,7 @@ export function questionProblems(q: unknown, level: Level): { errors: string[]; 
   if (!isObject(q)) return { errors: ["not an object"], warnings };
 
   for (const key of QUESTION_KEYS) if (!(key in q)) errors.push(`"${key}" is missing`);
-  for (const key of Object.keys(q)) if (!QUESTION_KEYS.includes(key)) warnings.push(`unknown field "${key}"`);
+  for (const key of Object.keys(q)) if (!QUESTION_KEYS.includes(key) && !OPTIONAL_KEYS.includes(key)) warnings.push(`unknown field "${key}"`);
 
   const id = q.id;
   if (typeof id !== "string" || !ID.test(id)) errors.push(`id ${JSON.stringify(id)} is not like "L-0001" or "M-0001"`);
@@ -362,7 +367,8 @@ export function questionProblems(q: unknown, level: Level): { errors: string[]; 
   if (!SECTIONS.includes(q.section as Section)) errors.push(`section ${JSON.stringify(q.section)} is not qr or ma`);
   if (!TOPICS.includes(q.topic as Topic)) errors.push(`topic ${JSON.stringify(q.topic)} is not a known topic`);
   if (!TYPES.includes(q.type as QuestionType)) errors.push(`type ${JSON.stringify(q.type)} is not word, computation or comparison`);
-  if (!SOURCES.includes(q.source as Source)) errors.push(`source ${JSON.stringify(q.source)} is not placeholder, real or variant`);
+  if (!SOURCES.includes(q.source as Source)) errors.push(`source ${JSON.stringify(q.source)} is not placeholder, real, written or variant`);
+  if ("subtopic" in q && (typeof q.subtopic !== "string" || q.subtopic.trim() === "")) errors.push("subtopic must be a non-empty string when present");
   if (![1, 2, 3].includes(q.difficulty as number)) errors.push(`difficulty ${JSON.stringify(q.difficulty)} is not 1, 2 or 3`);
 
   const texts: [string, unknown][] = [
@@ -415,7 +421,7 @@ export function questionProblems(q: unknown, level: Level): { errors: string[]; 
   }
 
   if (q.ref !== null && typeof q.ref !== "string") errors.push("ref must be a string or null");
-  if (q.source === "real" && !q.ref) warnings.push("a real question with no ref (book and page)");
+  if ((q.source === "real" || q.source === "written") && !q.ref) warnings.push(`a ${q.source} question with no ref (where it came from)`);
   if (q.source === "variant") {
     if (typeof q.of !== "string") errors.push('a variant needs "of", the id of the real question it came from');
     else if (typeof id === "string" && !id.startsWith(`${q.of}-v`)) warnings.push(`variant id does not start with "${q.of}-v"`);
@@ -461,7 +467,7 @@ export function validateBank(bank: unknown, expectLevel?: Level): Problem[] {
     if (q.source !== "variant" || typeof q.of !== "string") continue;
     const parent = byId.get(q.of);
     if (!parent) err(id, `variant of "${q.of}", which is not in this bank`);
-    else if (parent.source !== "real") err(id, `variant of "${q.of}", which is not a real question`);
+    else if (parent.source !== "real" && parent.source !== "written") err(id, `variant of "${q.of}", which is not a real or written question`);
   }
   return out;
 }

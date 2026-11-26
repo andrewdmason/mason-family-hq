@@ -88,9 +88,11 @@ struct MathDiagramView: View {
             let accent = TuttlesLook.accent.opacity(0.55)
             func pt(_ p: [Double]?) -> CGPoint { CGPoint(x: (p?.first ?? 0) * k, y: (p?.last ?? 0) * k) }
             func shade(_ name: String?) -> Color? { name == "light" ? light : name == "accent" ? accent : nil }
-            func label(_ s: String, at p: CGPoint, size: String? = "m", anchor: UnitPoint = .center, bold: Bool = false) {
-                let points: CGFloat = (size == "s" ? 3.6 : size == "l" ? 5.4 : 4.4) * k
-                context.draw(Text(s).font(.system(size: max(9, points), weight: bold ? .bold : .medium, design: .rounded)).foregroundStyle(ink), at: p, anchor: anchor)
+            /// `fit`: a width the words must stay inside, made smaller if they wouldn't.
+            func label(_ s: String, at p: CGPoint, size: String? = "m", anchor: UnitPoint = .center, bold: Bool = false, fit: CGFloat? = nil) {
+                var points: CGFloat = (size == "s" ? 3.6 : size == "l" ? 5.4 : 4.4) * k
+                if let fit, !s.isEmpty { points = min(points, fit / (CGFloat(s.count) * (bold ? 0.6 : 0.56))) }
+                context.draw(Text(s).font(.system(size: fit == nil ? max(9, points) : max(6, points), weight: bold ? .bold : .medium, design: .rounded)).foregroundStyle(ink), at: p, anchor: anchor)
             }
             let stroke = StrokeStyle(lineWidth: max(1.2, 0.55 * k), lineCap: .round, lineJoin: .round)
 
@@ -232,10 +234,10 @@ struct MathDiagramView: View {
                     let cols = item.cols ?? [], rows = item.rows ?? []
                     let rowH = 7.5 * k, colW = w / CGFloat(max(1, cols.count))
                     context.fill(Path(CGRect(x: ox, y: oy, width: w, height: rowH)), with: .color(light))
-                    for (c, name) in cols.enumerated() { label(name, at: CGPoint(x: ox + colW * (CGFloat(c) + 0.5), y: oy + rowH / 2), size: "s", bold: true) }
+                    for (c, name) in cols.enumerated() { label(name, at: CGPoint(x: ox + colW * (CGFloat(c) + 0.5), y: oy + rowH / 2), size: "s", bold: true, fit: colW * 0.94) }
                     for (r, row) in rows.enumerated() {
                         for (c, cell) in row.enumerated() where c < cols.count {
-                            label(cell, at: CGPoint(x: ox + colW * (CGFloat(c) + 0.5), y: oy + rowH * (CGFloat(r) + 1.5)), size: "s")
+                            label(cell, at: CGPoint(x: ox + colW * (CGFloat(c) + 0.5), y: oy + rowH * (CGFloat(r) + 1.5)), size: "s", fit: colW * 0.94)
                         }
                     }
                     var grid = Path()

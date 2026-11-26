@@ -10,11 +10,37 @@ struct MathHomeView: View {
     @Environment(ChatStore.self) private var store
 
     var body: some View {
-        if store.showingParentView {
+        if let at = CommandLine.arguments.firstIndex(of: "--math-figures"), CommandLine.arguments.count > at + 2 {
+            MathFigureGallery(level: CommandLine.arguments[at + 1] == "lower" ? .lower : .middle, from: Int(CommandLine.arguments[at + 2]) ?? 0)
+        } else if store.showingParentView {
             MathParentView()
         } else {
             MathPlayView()
         }
+    }
+}
+
+/// For the simulator (`--math-figures middle 12`): the questions that have a
+/// figure, six to a screen from the given one, to check how they draw.
+private struct MathFigureGallery: View {
+    let level: VocabLevel
+    let from: Int
+
+    var body: some View {
+        let questions = Array(MathBank.questions(level).filter { $0.diagram != nil }.dropFirst(from).prefix(6))
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
+            ForEach(questions) { q in
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(q.id).font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                    MathText(q.prompt, size: 10)
+                    if let d = q.diagram { MathDiagramView(diagram: d) }
+                }
+                .padding(6)
+                .background(Color.tuttlesCard, in: .rect(cornerRadius: 10))
+            }
+        }
+        .padding(6)
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 }
 

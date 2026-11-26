@@ -1,0 +1,778 @@
+{
+  "csv": "questions.csv",
+  "diagram": [
+    {
+      "id": "L-0001",
+      "level": "lower",
+      "row": 2,
+      "question": "A rectangle is 16 cm long and 2 cm wide. What is its perimeter?",
+      "description": "Rectangle labeled 16 cm on the long side and 2 cm on the short side."
+    },
+    {
+      "id": "L-0005",
+      "level": "lower",
+      "row": 6,
+      "question": "The bar graph shows books read this year: Fay 50, Cal 30, Eli 10, Ava 15. How ma",
+      "description": "Vertical bar graph titled 'Books Read'; x-axis: Fay, Cal, Eli, Ava; y-axis 0–60 in steps of 5; bar heights: Fay=50, Cal=30, Eli=10, Ava=15."
+    },
+    {
+      "id": "L-0008",
+      "level": "lower",
+      "row": 9,
+      "question": "The figure is a $10 \\times 9$ rectangle with a $2 \\times 4$ rectangle cut out of",
+      "description": "L-shaped polygon: a rectangle 10 units wide and 9 units tall with a 2-unit-wide by 4-unit-tall rectangle removed from the top-right corner. Label outer sides 10 and 9; label the notch sides 2 and 4."
+    },
+    {
+      "id": "L-0023",
+      "level": "lower",
+      "row": 24,
+      "question": "A number line from 0 to 1 is divided into 5 equal parts. Point P is at the 4th t",
+      "description": "Number line from 0 to 1 with 4 evenly spaced interior tick marks; point P marked at tick 4."
+    },
+    {
+      "id": "L-0037",
+      "level": "lower",
+      "row": 38,
+      "question": "The figure is an $8 \\times 10$ rectangle with a $4 \\times 5$ rectangle cut out o",
+      "description": "L-shaped polygon: a rectangle 8 units wide and 10 units tall with a 4-unit-wide by 5-unit-tall rectangle removed from the top-right corner. Label outer sides 8 and 10; label the notch sides 4 and 5."
+    },
+    {
+      "id": "L-0042",
+      "level": "lower",
+      "row": 43,
+      "question": "A number line from 0 to 1 is divided into 5 equal parts. Point P is at the 2nd t",
+      "description": "Number line from 0 to 1 with 4 evenly spaced interior tick marks; point P marked at tick 2."
+    },
+    {
+      "id": "L-0043",
+      "level": "lower",
+      "row": 44,
+      "question": "A box is 4 cm long, 5 cm wide, and 3 cm tall. What is its volume?",
+      "description": "Rectangular prism labeled length 4 cm, width 5 cm, height 3 cm."
+    },
+    {
+      "id": "L-0044",
+      "level": "lower",
+      "row": 45,
+      "question": "A number line from 0 to 1 is divided into 10 equal parts. Point P is at the 2nd ",
+      "description": "Number line from 0 to 1 with 9 evenly spaced interior tick marks; point P marked at tick 2."
+    },
+    {
+      "id": "L-0046",
+      "level": "lower",
+      "row": 47,
+      "question": "A number line from 0 to 1 is divided into 4 equal parts. Point P is at the 1st t",
+      "description": "Number line from 0 to 1 with 3 evenly spaced interior tick marks; point P marked at tick 1."
+    },
+    {
+      "id": "L-0050",
+      "level": "lower",
+      "row": 51,
+      "question": "In a class, 12 students play soccer and 16 play basketball. 2 play both. Every s",
+      "description": "Two overlapping circles labeled Soccer and Basketball; overlap region labeled 2; Soccer-only region 10; Basketball-only region 14."
+    },
+    {
+      "id": "L-0051",
+      "level": "lower",
+      "row": 52,
+      "question": "A rectangle is 15 cm long and 13 cm wide. What is its perimeter?",
+      "description": "Rectangle labeled 15 cm on the long side and 13 cm on the short side."
+    },
+    {
+      "id": "L-0056",
+      "level": "lower",
+      "row": 57,
+      "question": "A rectangle is 20 cm long and 14 cm wide. What is its perimeter?",
+      "description": "Rectangle labeled 20 cm on the long side and 14 cm on the short side."
+    },
+    {
+      "id": "L-0069",
+      "level": "lower",
+      "row": 70,
+      "question": "A box is 6 cm long, 6 cm wide, and 6 cm tall. What is its volume?",
+      "description": "Rectangular prism labeled length 6 cm, width 6 cm, height 6 cm."
+    },
+    {
+      "id": "L-0089",
+      "level": "lower",
+      "row": 90,
+      "question": "A rectangle is divided into 10 equal squares, and 1 of them are shaded. What fra",
+      "description": "Grid of 2 rows × 5 columns of equal squares; shade the first 1 squares reading left-to-right, top-to-bottom."
+    },
+    {
+      "id": "L-0095",
+      "level": "lower",
+      "row": 96,
+      "question": "A box is 6 cm long, 4 cm wide, and 3 cm tall. What is its volume?",
+      "description": "Rectangular prism labeled length 6 cm, width 4 cm, height 3 cm."
+    },
+    {
+      "id": "L-0100",
+      "level": "lower",
+      "row": 101,
+      "question": "A rectangle is 9 cm long and 15 cm wide. What is its perimeter?",
+      "description": "Rectangle labeled 9 cm on the long side and 15 cm on the short side."
+    },
+    {
+      "id": "L-0101",
+      "level": "lower",
+      "row": 102,
+      "question": "The figure is an $11 \\times 6$ rectangle with a $5 \\times 3$ rectangle cut out o",
+      "description": "L-shaped polygon: a rectangle 11 units wide and 6 units tall with a 5-unit-wide by 3-unit-tall rectangle removed from the top-right corner. Label outer sides 11 and 6; label the notch sides 5 and 3."
+    },
+    {
+      "id": "L-0102",
+      "level": "lower",
+      "row": 103,
+      "question": "A rectangle is divided into 12 equal squares, and 2 of them are shaded. What fra",
+      "description": "Grid of 2 rows × 6 columns of equal squares; shade the first 2 squares reading left-to-right, top-to-bottom."
+    },
+    {
+      "id": "L-0103",
+      "level": "lower",
+      "row": 104,
+      "question": "A rectangle is divided into 20 equal squares, and 1 of them are shaded. What fra",
+      "description": "Grid of 4 rows × 5 columns of equal squares; shade the first 1 squares reading left-to-right, top-to-bottom."
+    },
+    {
+      "id": "L-0108",
+      "level": "lower",
+      "row": 109,
+      "question": "The bar graph shows books read this year: Eli 50, Dee 35, Cal 25, Fay 55. How ma",
+      "description": "Vertical bar graph titled 'Books Read'; x-axis: Eli, Dee, Cal, Fay; y-axis 0–60 in steps of 5; bar heights: Eli=50, Dee=35, Cal=25, Fay=55."
+    },
+    {
+      "id": "L-0112",
+      "level": "lower",
+      "row": 113,
+      "question": "A rectangle is 12 cm long and 3 cm wide. What is its perimeter?",
+      "description": "Rectangle labeled 12 cm on the long side and 3 cm on the short side."
+    },
+    {
+      "id": "L-0114",
+      "level": "lower",
+      "row": 115,
+      "question": "A rectangle is divided into 12 equal squares, and 8 of them are shaded. What fra",
+      "description": "Grid of 2 rows × 6 columns of equal squares; shade the first 8 squares reading left-to-right, top-to-bottom."
+    },
+    {
+      "id": "L-0117",
+      "level": "lower",
+      "row": 118,
+      "question": "In a class, 18 students play soccer and 8 play basketball. 4 play both. Every st",
+      "description": "Two overlapping circles labeled Soccer and Basketball; overlap region labeled 4; Soccer-only region 14; Basketball-only region 4."
+    },
+    {
+      "id": "L-0119",
+      "level": "lower",
+      "row": 120,
+      "question": "In a class, 11 students play soccer and 10 play basketball. 7 play both. Every s",
+      "description": "Two overlapping circles labeled Soccer and Basketball; overlap region labeled 7; Soccer-only region 4; Basketball-only region 3."
+    },
+    {
+      "id": "L-0125",
+      "level": "lower",
+      "row": 126,
+      "question": "The bar graph shows books read this year: Ava 10, Cal 25, Ben 30, Dee 30. How ma",
+      "description": "Vertical bar graph titled 'Books Read'; x-axis: Ava, Cal, Ben, Dee; y-axis 0–60 in steps of 5; bar heights: Ava=10, Cal=25, Ben=30, Dee=30."
+    },
+    {
+      "id": "L-0128",
+      "level": "lower",
+      "row": 129,
+      "question": "A rectangle is divided into 20 equal squares, and 19 of them are shaded. What fr",
+      "description": "Grid of 4 rows × 5 columns of equal squares; shade the first 19 squares reading left-to-right, top-to-bottom."
+    },
+    {
+      "id": "L-0134",
+      "level": "lower",
+      "row": 135,
+      "question": "What is the smaller angle between the hands of a clock at exactly 2:00?",
+      "description": "Analog clock showing 2:00."
+    },
+    {
+      "id": "L-0137",
+      "level": "lower",
+      "row": 138,
+      "question": "In a class, 13 students play soccer and 13 play basketball. 7 play both. Every s",
+      "description": "Two overlapping circles labeled Soccer and Basketball; overlap region labeled 7; Soccer-only region 6; Basketball-only region 6."
+    },
+    {
+      "id": "L-0139",
+      "level": "lower",
+      "row": 140,
+      "question": "A number line from 0 to 1 is divided into 8 equal parts. Point P is at the 2nd t",
+      "description": "Number line from 0 to 1 with 7 evenly spaced interior tick marks; point P marked at tick 2."
+    },
+    {
+      "id": "L-0140",
+      "level": "lower",
+      "row": 141,
+      "question": "A box is 8 cm long, 6 cm wide, and 5 cm tall. What is its volume?",
+      "description": "Rectangular prism labeled length 8 cm, width 6 cm, height 5 cm."
+    },
+    {
+      "id": "L-0153",
+      "level": "lower",
+      "row": 154,
+      "question": "The figure is an $11 \\times 8$ rectangle with a $4 \\times 4$ rectangle cut out o",
+      "description": "L-shaped polygon: a rectangle 11 units wide and 8 units tall with a 4-unit-wide by 4-unit-tall rectangle removed from the top-right corner. Label outer sides 11 and 8; label the notch sides 4 and 4."
+    },
+    {
+      "id": "L-0156",
+      "level": "lower",
+      "row": 157,
+      "question": "A box is 2 cm long, 2 cm wide, and 4 cm tall. What is its volume?",
+      "description": "Rectangular prism labeled length 2 cm, width 2 cm, height 4 cm."
+    },
+    {
+      "id": "L-0157",
+      "level": "lower",
+      "row": 158,
+      "question": "A rectangle is 10 cm long and 13 cm wide. What is its perimeter?",
+      "description": "Rectangle labeled 10 cm on the long side and 13 cm on the short side."
+    },
+    {
+      "id": "L-0160",
+      "level": "lower",
+      "row": 161,
+      "question": "In a class, 12 students play soccer and 14 play basketball. 3 play both. Every s",
+      "description": "Two overlapping circles labeled Soccer and Basketball; overlap region labeled 3; Soccer-only region 9; Basketball-only region 11."
+    },
+    {
+      "id": "L-0161",
+      "level": "lower",
+      "row": 162,
+      "question": "The bar graph shows books read this year: Dee 55, Fay 45, Eli 15, Ava 10. How ma",
+      "description": "Vertical bar graph titled 'Books Read'; x-axis: Dee, Fay, Eli, Ava; y-axis 0–60 in steps of 5; bar heights: Dee=55, Fay=45, Eli=15, Ava=10."
+    },
+    {
+      "id": "L-0169",
+      "level": "lower",
+      "row": 170,
+      "question": "The figure is a $14 \\times 8$ rectangle with a $2 \\times 3$ rectangle cut out of",
+      "description": "L-shaped polygon: a rectangle 14 units wide and 8 units tall with a 2-unit-wide by 3-unit-tall rectangle removed from the top-right corner. Label outer sides 14 and 8; label the notch sides 2 and 3."
+    },
+    {
+      "id": "L-0173",
+      "level": "lower",
+      "row": 174,
+      "question": "What is the smaller angle between the hands of a clock at exactly 4:00?",
+      "description": "Analog clock showing 4:00."
+    },
+    {
+      "id": "L-0174",
+      "level": "lower",
+      "row": 175,
+      "question": "A rectangle is divided into 12 equal squares, and 9 of them are shaded. What fra",
+      "description": "Grid of 2 rows × 6 columns of equal squares; shade the first 9 squares reading left-to-right, top-to-bottom."
+    },
+    {
+      "id": "L-0175",
+      "level": "lower",
+      "row": 176,
+      "question": "A number line from 0 to 1 is divided into 8 equal parts. Point P is at the 5th t",
+      "description": "Number line from 0 to 1 with 7 evenly spaced interior tick marks; point P marked at tick 5."
+    },
+    {
+      "id": "L-0177",
+      "level": "lower",
+      "row": 178,
+      "question": "A rectangle is 18 cm long and 4 cm wide. What is its perimeter?",
+      "description": "Rectangle labeled 18 cm on the long side and 4 cm on the short side."
+    },
+    {
+      "id": "L-0187",
+      "level": "lower",
+      "row": 188,
+      "question": "What is the smaller angle between the hands of a clock at exactly 1:00?",
+      "description": "Analog clock showing 1:00."
+    },
+    {
+      "id": "L-0191",
+      "level": "lower",
+      "row": 192,
+      "question": "A rectangle is divided into 15 equal squares, and 10 of them are shaded. What fr",
+      "description": "Grid of 3 rows × 5 columns of equal squares; shade the first 10 squares reading left-to-right, top-to-bottom."
+    },
+    {
+      "id": "L-0192",
+      "level": "lower",
+      "row": 193,
+      "question": "The bar graph shows books read this year: Eli 45, Ben 45, Cal 20, Ava 30. How ma",
+      "description": "Vertical bar graph titled 'Books Read'; x-axis: Eli, Ben, Cal, Ava; y-axis 0–60 in steps of 5; bar heights: Eli=45, Ben=45, Cal=20, Ava=30."
+    },
+    {
+      "id": "L-0194",
+      "level": "lower",
+      "row": 195,
+      "question": "A rectangle is divided into 10 equal squares, and 9 of them are shaded. What fra",
+      "description": "Grid of 2 rows × 5 columns of equal squares; shade the first 9 squares reading left-to-right, top-to-bottom."
+    },
+    {
+      "id": "L-0206",
+      "level": "lower",
+      "row": 207,
+      "question": "A box is 5 cm long, 4 cm wide, and 2 cm tall. What is its volume?",
+      "description": "Rectangular prism labeled length 5 cm, width 4 cm, height 2 cm."
+    },
+    {
+      "id": "L-0214",
+      "level": "lower",
+      "row": 215,
+      "question": "A box is 4 cm long, 5 cm wide, and 2 cm tall. What is its volume?",
+      "description": "Rectangular prism labeled length 4 cm, width 5 cm, height 2 cm."
+    },
+    {
+      "id": "L-0218",
+      "level": "lower",
+      "row": 219,
+      "question": "A box is 4 cm long, 2 cm wide, and 5 cm tall. What is its volume?",
+      "description": "Rectangular prism labeled length 4 cm, width 2 cm, height 5 cm."
+    },
+    {
+      "id": "L-0223",
+      "level": "lower",
+      "row": 224,
+      "question": "The figure is an $8 \\times 12$ rectangle with a $2 \\times 5$ rectangle cut out o",
+      "description": "L-shaped polygon: a rectangle 8 units wide and 12 units tall with a 2-unit-wide by 5-unit-tall rectangle removed from the top-right corner. Label outer sides 8 and 12; label the notch sides 2 and 5."
+    },
+    {
+      "id": "L-0227",
+      "level": "lower",
+      "row": 228,
+      "question": "The figure is a $12 \\times 12$ rectangle with a $6 \\times 6$ rectangle cut out o",
+      "description": "L-shaped polygon: a rectangle 12 units wide and 12 units tall with a 6-unit-wide by 6-unit-tall rectangle removed from the top-right corner. Label outer sides 12 and 12; label the notch sides 6 and 6."
+    },
+    {
+      "id": "L-0233",
+      "level": "lower",
+      "row": 234,
+      "question": "The bar graph shows books read this year: Dee 60, Eli 25, Ben 10, Ava 10. How ma",
+      "description": "Vertical bar graph titled 'Books Read'; x-axis: Dee, Eli, Ben, Ava; y-axis 0–60 in steps of 5; bar heights: Dee=60, Eli=25, Ben=10, Ava=10."
+    },
+    {
+      "id": "L-0256",
+      "level": "lower",
+      "row": 257,
+      "question": "In a class, 11 students play soccer and 13 play basketball. 2 play both. Every s",
+      "description": "Two overlapping circles labeled Soccer and Basketball; overlap region labeled 2; Soccer-only region 9; Basketball-only region 11."
+    },
+    {
+      "id": "L-0261",
+      "level": "lower",
+      "row": 262,
+      "question": "The figure is an $11 \\times 7$ rectangle with a $5 \\times 3$ rectangle cut out o",
+      "description": "L-shaped polygon: a rectangle 11 units wide and 7 units tall with a 5-unit-wide by 3-unit-tall rectangle removed from the top-right corner. Label outer sides 11 and 7; label the notch sides 5 and 3."
+    },
+    {
+      "id": "L-0266",
+      "level": "lower",
+      "row": 267,
+      "question": "The bar graph shows books read this year: Ava 25, Fay 45, Dee 10, Eli 20. How ma",
+      "description": "Vertical bar graph titled 'Books Read'; x-axis: Ava, Fay, Dee, Eli; y-axis 0–60 in steps of 5; bar heights: Ava=25, Fay=45, Dee=10, Eli=20."
+    },
+    {
+      "id": "L-0268",
+      "level": "lower",
+      "row": 269,
+      "question": "In a class, 12 students play soccer and 9 play basketball. 4 play both. Every st",
+      "description": "Two overlapping circles labeled Soccer and Basketball; overlap region labeled 4; Soccer-only region 8; Basketball-only region 5."
+    },
+    {
+      "id": "L-0272",
+      "level": "lower",
+      "row": 273,
+      "question": "A number line from 0 to 1 is divided into 4 equal parts. Point P is at the 3rd t",
+      "description": "Number line from 0 to 1 with 3 evenly spaced interior tick marks; point P marked at tick 3."
+    },
+    {
+      "id": "L-0275",
+      "level": "lower",
+      "row": 276,
+      "question": "A rectangle is 13 cm long and 5 cm wide. What is its perimeter?",
+      "description": "Rectangle labeled 13 cm on the long side and 5 cm on the short side."
+    },
+    {
+      "id": "L-0281",
+      "level": "lower",
+      "row": 282,
+      "question": "In a class, 18 students play soccer and 9 play basketball. 4 play both. Every st",
+      "description": "Two overlapping circles labeled Soccer and Basketball; overlap region labeled 4; Soccer-only region 14; Basketball-only region 5."
+    },
+    {
+      "id": "L-0284",
+      "level": "lower",
+      "row": 285,
+      "question": "The bar graph shows books read this year: Cal 55, Ava 25, Fay 20, Dee 10. How ma",
+      "description": "Vertical bar graph titled 'Books Read'; x-axis: Cal, Ava, Fay, Dee; y-axis 0–60 in steps of 5; bar heights: Cal=55, Ava=25, Fay=20, Dee=10."
+    },
+    {
+      "id": "L-0292",
+      "level": "lower",
+      "row": 293,
+      "question": "What is the smaller angle between the hands of a clock at exactly 3:00?",
+      "description": "Analog clock showing 3:00."
+    },
+    {
+      "id": "L-0294",
+      "level": "lower",
+      "row": 295,
+      "question": "A number line from 0 to 1 is divided into 5 equal parts. Point P is at the 3rd t",
+      "description": "Number line from 0 to 1 with 4 evenly spaced interior tick marks; point P marked at tick 3."
+    },
+    {
+      "id": "M-0005",
+      "level": "middle",
+      "row": 306,
+      "question": "A circle is inscribed in a square with side length 12. What is the area of the r",
+      "description": "Square of side 12 with a circle inscribed touching all four sides; region between square and circle shaded."
+    },
+    {
+      "id": "M-0014",
+      "level": "middle",
+      "row": 315,
+      "question": "Use the stem-and-leaf plot (2 | 4; 3 | 6 9; 4 | 3 6; 5 | 5 6; 6 | 2 9; key: 2 | ",
+      "description": "Stem-and-leaf plot with stems 2, 3, 4, 5, 6; leaves: 2: 4; 3: 6 9; 4: 3 6; 5: 5 6; 6: 2 9. Key: 2 | 3 = 23."
+    },
+    {
+      "id": "M-0017",
+      "level": "middle",
+      "row": 318,
+      "question": "A cylinder has radius 5 and height 5. What is its volume?",
+      "description": "Right circular cylinder with radius 5 and height 5 labeled."
+    },
+    {
+      "id": "M-0018",
+      "level": "middle",
+      "row": 319,
+      "question": "A circle has radius 6.",
+      "description": "Circle with radius 6 drawn and labeled."
+    },
+    {
+      "id": "M-0019",
+      "level": "middle",
+      "row": 320,
+      "question": "Two lines intersect. One of the angles formed measures 46°. What is the measure ",
+      "description": "Two intersecting lines; one angle marked 46°; the adjacent angle marked x."
+    },
+    {
+      "id": "M-0023",
+      "level": "middle",
+      "row": 324,
+      "question": "A right triangle has a hypotenuse of 5 and one leg of 3. What is the other leg?",
+      "description": "Right triangle with one leg 3, hypotenuse 5, other leg labeled ?."
+    },
+    {
+      "id": "M-0027",
+      "level": "middle",
+      "row": 328,
+      "question": "Triangle ABC is similar to triangle DEF. $AB = 5$, $BC = 10$, and $DE = 15$. Wha",
+      "description": "Two similar triangles ABC and DEF, ABC smaller; AB=5, BC=10 labeled on ABC; DE=15 labeled, EF labeled ?."
+    },
+    {
+      "id": "M-0029",
+      "level": "middle",
+      "row": 330,
+      "question": "Triangle ABC is similar to triangle DEF. $AB = 7$, $BC = 4$, and $DE = 21$. What",
+      "description": "Two similar triangles ABC and DEF, ABC smaller; AB=7, BC=4 labeled on ABC; DE=21 labeled, EF labeled ?."
+    },
+    {
+      "id": "M-0034",
+      "level": "middle",
+      "row": 335,
+      "question": "A frequency table shows the number of pets owned by students: 1 pet: 1 students,",
+      "description": "Two-column table: 'Number of Pets' 1–5 and 'Number of Students' 1, 1, 3, 5, 6."
+    },
+    {
+      "id": "M-0046",
+      "level": "middle",
+      "row": 347,
+      "question": "A circle is inscribed in a square with side length 6. What is the area of the re",
+      "description": "Square of side 6 with a circle inscribed touching all four sides; region between square and circle shaded."
+    },
+    {
+      "id": "M-0054",
+      "level": "middle",
+      "row": 355,
+      "question": "Three vertices of a rectangle are $(-5, -3)$, $(0, -3)$, and $(0, 0)$. What is t",
+      "description": "Coordinate grid −8 to 8 on both axes with points (-5, -3), (0, -3), (0, 0) plotted."
+    },
+    {
+      "id": "M-0060",
+      "level": "middle",
+      "row": 361,
+      "question": "A circle has a radius of 3 cm. What is its area?",
+      "description": "Circle with center O and radius 3 cm labeled."
+    },
+    {
+      "id": "M-0061",
+      "level": "middle",
+      "row": 362,
+      "question": "Use the stem-and-leaf plot (2 | 5; 3 | 4 9; 4 | 0 9; 5 | 2 7; 6 | 3 6; key: 2 | ",
+      "description": "Stem-and-leaf plot with stems 2, 3, 4, 5, 6; leaves: 2: 5; 3: 4 9; 4: 0 9; 5: 2 7; 6: 3 6. Key: 2 | 3 = 23."
+    },
+    {
+      "id": "M-0062",
+      "level": "middle",
+      "row": 363,
+      "question": "Three vertices of a rectangle are $(-2, 0)$, $(0, 0)$, and $(0, 5)$. What is the",
+      "description": "Coordinate grid −8 to 8 on both axes with points (-2, 0), (0, 0), (0, 5) plotted."
+    },
+    {
+      "id": "M-0066",
+      "level": "middle",
+      "row": 367,
+      "question": "What is the slope of the line through $(1, 5)$ and $(2, 7)$?",
+      "description": "Coordinate plane with points (1, 5) and (2, 7) plotted and a line drawn through them."
+    },
+    {
+      "id": "M-0069",
+      "level": "middle",
+      "row": 370,
+      "question": "A box-and-whisker plot shows minimum 10, first quartile 15, median 19, third qua",
+      "description": "Horizontal box-and-whisker plot on a number line 5–37: whisker from 10 to 15, box from 15 to 25 with median line at 19, whisker from 25 to 32."
+    },
+    {
+      "id": "M-0070",
+      "level": "middle",
+      "row": 371,
+      "question": "Use the stem-and-leaf plot (2 | 8; 4 | 2 5; 5 | 1 6; 6 | 1 5 7 9; key: 2 | 3 = 2",
+      "description": "Stem-and-leaf plot with stems 2, 4, 5, 6; leaves: 2: 8; 4: 2 5; 5: 1 6; 6: 1 5 7 9. Key: 2 | 3 = 23."
+    },
+    {
+      "id": "M-0073",
+      "level": "middle",
+      "row": 374,
+      "question": "A box-and-whisker plot shows minimum 16, first quartile 21, median 28, third qua",
+      "description": "Horizontal box-and-whisker plot on a number line 11–52: whisker from 16 to 21, box from 21 to 32 with median line at 28, whisker from 32 to 47."
+    },
+    {
+      "id": "M-0079",
+      "level": "middle",
+      "row": 380,
+      "question": "A cylinder has radius 5 and height 6. What is its volume?",
+      "description": "Right circular cylinder with radius 5 and height 6 labeled."
+    },
+    {
+      "id": "M-0083",
+      "level": "middle",
+      "row": 384,
+      "question": "In a group of 25 students, 14 take Spanish, 10 take French, 4 take both, and 5 t",
+      "description": "Two overlapping circles Spanish and French in a rectangle of 25; overlap 4; outside both 5."
+    },
+    {
+      "id": "M-0089",
+      "level": "middle",
+      "row": 390,
+      "question": "Three vertices of a rectangle are $(0, -3)$, $(6, -3)$, and $(6, 2)$. What is th",
+      "description": "Coordinate grid −8 to 8 on both axes with points (0, -3), (6, -3), (6, 2) plotted."
+    },
+    {
+      "id": "M-0106",
+      "level": "middle",
+      "row": 407,
+      "question": "Three vertices of a rectangle are $(-2, -3)$, $(1, -3)$, and $(1, 3)$. What is t",
+      "description": "Coordinate grid −8 to 8 on both axes with points (-2, -3), (1, -3), (1, 3) plotted."
+    },
+    {
+      "id": "M-0110",
+      "level": "middle",
+      "row": 411,
+      "question": "What is the slope of the line through $(-2, 4)$ and $(-1, -2)$?",
+      "description": "Coordinate plane with points (-2, 4) and (-1, -2) plotted and a line drawn through them."
+    },
+    {
+      "id": "M-0123",
+      "level": "middle",
+      "row": 424,
+      "question": "A scatter plot shows outside temperature ($x$-axis) vs. hot chocolate sales ($y$",
+      "description": "Scatter plot of about 15 points, x-axis 'outside temperature', y-axis 'hot chocolate sales', showing a clear downward trend."
+    },
+    {
+      "id": "M-0127",
+      "level": "middle",
+      "row": 428,
+      "question": "In a group of 23 students, 14 take Spanish, 10 take French, 7 take both, and 6 t",
+      "description": "Two overlapping circles Spanish and French in a rectangle of 23; overlap 7; outside both 6."
+    },
+    {
+      "id": "M-0130",
+      "level": "middle",
+      "row": 431,
+      "question": "A right triangle has legs of 5 and 12. What is the length of the hypotenuse?",
+      "description": "Right triangle with legs labeled 5 and 12, hypotenuse labeled ?. Right-angle mark shown."
+    },
+    {
+      "id": "M-0135",
+      "level": "middle",
+      "row": 436,
+      "question": "Segment AB has length 64. M is the midpoint of AB, and N is the midpoint of AM. ",
+      "description": "Horizontal segment from A to B (length 64); M at the midpoint; N midway between A and M."
+    },
+    {
+      "id": "M-0148",
+      "level": "middle",
+      "row": 449,
+      "question": "Use the stem-and-leaf plot (2 | 4 6 7; 3 | 1 3; 4 | 7; 5 | 0 5; 6 | 3; key: 2 | ",
+      "description": "Stem-and-leaf plot with stems 2, 3, 4, 5, 6; leaves: 2: 4 6 7; 3: 1 3; 4: 7; 5: 0 5; 6: 3. Key: 2 | 3 = 23."
+    },
+    {
+      "id": "M-0150",
+      "level": "middle",
+      "row": 451,
+      "question": "A circle has a radius of 10 cm. What is its area?",
+      "description": "Circle with center O and radius 10 cm labeled."
+    },
+    {
+      "id": "M-0152",
+      "level": "middle",
+      "row": 453,
+      "question": "A right triangle has legs of 9 and 12. What is the length of the hypotenuse?",
+      "description": "Right triangle with legs labeled 9 and 12, hypotenuse labeled ?. Right-angle mark shown."
+    },
+    {
+      "id": "M-0171",
+      "level": "middle",
+      "row": 472,
+      "question": "A box-and-whisker plot shows minimum 12, first quartile 20, median 25, third qua",
+      "description": "Horizontal box-and-whisker plot on a number line 7–52: whisker from 12 to 20, box from 20 to 35 with median line at 25, whisker from 35 to 47."
+    },
+    {
+      "id": "M-0172",
+      "level": "middle",
+      "row": 473,
+      "question": "A frequency table shows the number of pets owned by students: 1 pet: 6 students,",
+      "description": "Two-column table: 'Number of Pets' 1–5 and 'Number of Students' 6, 5, 2, 5, 5."
+    },
+    {
+      "id": "M-0175",
+      "level": "middle",
+      "row": 476,
+      "question": "A frequency table shows the number of pets owned by students: 1 pet: 6 students,",
+      "description": "Two-column table: 'Number of Pets' 1–5 and 'Number of Students' 6, 5, 4, 2, 1."
+    },
+    {
+      "id": "M-0181",
+      "level": "middle",
+      "row": 482,
+      "question": "A cylinder has radius 6 and height 10. What is its volume?",
+      "description": "Right circular cylinder with radius 6 and height 10 labeled."
+    },
+    {
+      "id": "M-0193",
+      "level": "middle",
+      "row": 494,
+      "question": "A scatter plot shows shoe size ($x$-axis) vs. favorite number ($y$-axis) and has",
+      "description": "Scatter plot of about 15 points, x-axis 'shoe size', y-axis 'favorite number', showing a random, patternless trend."
+    },
+    {
+      "id": "M-0208",
+      "level": "middle",
+      "row": 509,
+      "question": "A circle is inscribed in a square with side length 10. What is the area of the r",
+      "description": "Square of side 10 with a circle inscribed touching all four sides; region between square and circle shaded."
+    },
+    {
+      "id": "M-0222",
+      "level": "middle",
+      "row": 523,
+      "question": "A box-and-whisker plot shows minimum 20, first quartile 31, median 40, third qua",
+      "description": "Horizontal box-and-whisker plot on a number line 15–59: whisker from 20 to 31, box from 31 to 44 with median line at 40, whisker from 44 to 54."
+    },
+    {
+      "id": "M-0234",
+      "level": "middle",
+      "row": 535,
+      "question": "A box-and-whisker plot shows minimum 15, first quartile 22, median 29, third qua",
+      "description": "Horizontal box-and-whisker plot on a number line 10–45: whisker from 15 to 22, box from 22 to 35 with median line at 29, whisker from 35 to 40."
+    },
+    {
+      "id": "M-0236",
+      "level": "middle",
+      "row": 537,
+      "question": "Segment AB has length 48. M is the midpoint of AB, and N is the midpoint of AM. ",
+      "description": "Horizontal segment from A to B (length 48); M at the midpoint; N midway between A and M."
+    },
+    {
+      "id": "M-0241",
+      "level": "middle",
+      "row": 542,
+      "question": "What is the slope of the line through $(-2, -2)$ and $(1, -6)$?",
+      "description": "Coordinate plane with points (-2, -2) and (1, -6) plotted and a line drawn through them."
+    },
+    {
+      "id": "M-0256",
+      "level": "middle",
+      "row": 557,
+      "question": "In a group of 34 students, 14 take Spanish, 22 take French, 6 take both, and 4 t",
+      "description": "Two overlapping circles Spanish and French in a rectangle of 34; overlap 6; outside both 4."
+    },
+    {
+      "id": "M-0262",
+      "level": "middle",
+      "row": 563,
+      "question": "Three vertices of a rectangle are $(-3, -3)$, $(1, -3)$, and $(1, -1)$. What is ",
+      "description": "Coordinate grid −8 to 8 on both axes with points (-3, -3), (1, -3), (1, -1) plotted."
+    },
+    {
+      "id": "M-0268",
+      "level": "middle",
+      "row": 569,
+      "question": "Triangle ABC is similar to triangle DEF. $AB = 6$, $BC = 5$, and $DE = 18$. What",
+      "description": "Two similar triangles ABC and DEF, ABC smaller; AB=6, BC=5 labeled on ABC; DE=18 labeled, EF labeled ?."
+    },
+    {
+      "id": "M-0270",
+      "level": "middle",
+      "row": 571,
+      "question": "A cylinder has radius 3 and height 9. What is its volume?",
+      "description": "Right circular cylinder with radius 3 and height 9 labeled."
+    },
+    {
+      "id": "M-0275",
+      "level": "middle",
+      "row": 576,
+      "question": "What is the slope of the line through $(-4, -1)$ and $(-2, -7)$?",
+      "description": "Coordinate plane with points (-4, -1) and (-2, -7) plotted and a line drawn through them."
+    },
+    {
+      "id": "M-0277",
+      "level": "middle",
+      "row": 578,
+      "question": "Segment AB has length 32. M is the midpoint of AB, and N is the midpoint of AM. ",
+      "description": "Horizontal segment from A to B (length 32); M at the midpoint; N midway between A and M."
+    },
+    {
+      "id": "M-0283",
+      "level": "middle",
+      "row": 584,
+      "question": "Triangle ABC is similar to triangle DEF. $AB = 7$, $BC = 8$, and $DE = 10\\frac{1",
+      "description": "Two similar triangles ABC and DEF, ABC smaller; AB=7, BC=8 labeled on ABC; DE=10 1/2 labeled, EF labeled ?."
+    },
+    {
+      "id": "M-0286",
+      "level": "middle",
+      "row": 587,
+      "question": "In a group of 40 students, 16 take Spanish, 22 take French, 4 take both, and 6 t",
+      "description": "Two overlapping circles Spanish and French in a rectangle of 40; overlap 4; outside both 6."
+    },
+    {
+      "id": "M-0297",
+      "level": "middle",
+      "row": 598,
+      "question": "A scatter plot shows hours studied ($x$-axis) vs. test score ($y$-axis) and has ",
+      "description": "Scatter plot of about 15 points, x-axis 'hours studied', y-axis 'test score', showing a clear upward trend."
+    },
+    {
+      "id": "M-0300",
+      "level": "middle",
+      "row": 601,
+      "question": "A right triangle has a hypotenuse of 20 and one leg of 12. What is the other leg",
+      "description": "Right triangle with one leg 12, hypotenuse 20, other leg labeled ?."
+    }
+  ],
+  "explanation": [],
+  "difficulty": [],
+  "heldBack": []
+}

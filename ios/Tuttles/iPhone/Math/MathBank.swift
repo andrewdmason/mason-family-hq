@@ -3,8 +3,9 @@ import Foundation
 // The questions. They ship inside the app (MathAssets/bank, built by
 // scripts/math/import.mts from Andrew's spreadsheet of real ISEE questions),
 // one file per level, so a run never needs a connection. Each says where it
-// came from: "real", a "variant" of a real one with the numbers changed, or a
-// "placeholder" written before the real ones arrived.
+// came from: "real" (copied from a published test), "written" (made in the
+// test's style, as Andrew's sheet is), a "variant" of one of those with the
+// numbers changed, or a "placeholder" from before the sheet arrived.
 
 struct MathQuestion: Codable, Identifiable, Hashable {
     let id: String
@@ -172,7 +173,7 @@ enum MathBank {
             if s == nil { score += 40 } else if (s?.right ?? 0) == 0 { score += 25 } else { score -= Double(s?.right ?? 0) * 6 }
             if let last = s?.last { score += min(20, Date().timeIntervalSince(last) / 86400 * 3) }
             score -= Double(abs(q.difficulty - wanted)) * 14
-            score += ["real": 12.0, "variant": 6.0][q.source] ?? 0
+            score += ["real": 12.0, "written": 12.0, "variant": 6.0][q.source] ?? 0
             return score + Double.random(in: 0..<10, using: &rng)
         }
         return all.max { rank($0) < rank($1) }

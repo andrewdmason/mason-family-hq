@@ -10,14 +10,23 @@
  *                         (by default a level drops them once it has real ones)
  *   --include-undrawn     also write questions whose CSV row describes a diagram
  *                         nobody has drawn yet (by default they wait in todo.json)
- *   --sidecars DIR        where to look for the sidecar files (default: this folder)
- *   --version NAME        the bank's "version" (default: "real-" + a hash of its questions)
+ *   --sidecars DIR        also read sidecar files from DIR (this folder is always read)
+ *   --version NAME        the bank's "version" (default: "import-" + a hash of its questions)
  *
  * CSV columns (header row, any order, any case, spaces or underscores; other
  * columns are ignored): level, section, topic, type, question, choice_a to
  * choice_d, answer (A-D or the answer's text), explanation, difficulty,
  * diagram (a description in words), source (book and page), column_a,
- * column_b.
+ * column_b. Optional extras: id (the sheet's own id, "M001" or "M-0001",
+ * used instead of the hash; two rows with one id stop the import), subtopic,
+ * origin ("real", the default, for a question copied from a published
+ * source, or "written" for one written in the test's style), and markup
+ * ("bank" when the row's text already follows the bank's rules for maths and
+ * money, so dollar signs are left exactly as they are).
+ *
+ * A topic that is not one of the bank's 13 is looked up in topics.json (the
+ * fine-grained name is kept as the question's "subtopic"), then guessed from
+ * its words, and otherwise the row is held back.
  *
  * A question's id comes from its level and a hash of its text, so importing
  * again keeps every id. What a spreadsheet can't hold is read from sidecar
@@ -26,7 +35,15 @@
  *   explanations.json  { id: "line one\nline two\nThe answer is 5." }
  *   difficulty.json    { id: 1 | 2 | 3 }
  *   variants.json      { id: [ question without id/source/of, ... ] }
- * A value in the CSV wins over the sidecar. todo.json lists the ids still
+ * and, one per level, from the people who drew the figures and checked the
+ * answers:
+ *   diagrams-<level>.json     { diagrams: { id: Diagram }, problems: { id: "why it can't be drawn" } }
+ *   corrections-<level>.json  { checked, corrections: { id: { why, answer?, choices?, prompt?, columnA?,
+ *                               columnB?, explanation?, difficulty?, drop? } } }
+ * A corrected field replaces the question's, "drop" leaves the question out,
+ * and a correction for an id the CSV does not have stops the import. A
+ * question whose figure is under "problems" waits like an undrawn one.
+ * Otherwise a value in the CSV wins over the sidecar. todo.json lists the ids still
  * missing a drawing, an explanation or a difficulty, and every row held back.
  */
 import { createHash } from "node:crypto";
@@ -39,6 +56,7 @@ import {
   COMPARISON_CHOICES,
   here,
   idPrefix,
+  isQuestionId,
   LEVELS,
   questionProblems,
   TOPICS,
@@ -49,6 +67,7 @@ import {
   type Question,
   type QuestionType,
   type Section,
+  type Source,
   type Topic,
 } from "./bank.mjs";
 
@@ -94,6 +113,10 @@ export function parseCsv(text: string): { line: number; cells: string[] }[] {
 }
 
 const FIELDS: Record<string, string[]> = {
+  id: ["id"],
+  subtopic: ["subtopic"],
+  origin: ["origin"],
+  markup: ["markup"],
   level: ["level"],
   section: ["section"],
   topic: ["topic"],
@@ -191,7 +214,16 @@ export function fixDollars(s: string): string {
   return parts.map((p) => (p === "\\$" ? p : p.replace(/\$(?=\.?\d)/g, "\\$"))).join("");
 }
 
-const clean = (s: string | undefined) => fixDollars((s ?? "").replace(/\r/g, "").trim());
+const clean = (s: string | undefined, asIs = false) => {
+  const t = (s ?? "").replace(/\r/g, "").trim();
+  return asIs ? t : fixDollars(t);
+};
+
+/** The sheet's own id for a row, in the bank's form: "M001" and "m-1" both become "M-0001". */
+export function readId(given: string): string {
+  const m = /^([LMlm])-?(\d{1,6})$/.exec(given.trim());
+  return m ? `${m[1].toUpperCase()}-${m[2].padStart(4, "0")}` : given.trim();
+}
 
 function readAnswer(raw: string, choices: string[], comparison: boolean): number | null {
   const k = key(raw);
@@ -229,7 +261,9 @@ export type Options = {
   out?: string;
   /** Where todo.json goes when it should not sit in `out`. */
   todo?: string;
-  sidecars?: string;
+  sidecars?: string | string[];
+  /** The table of fine-grained topic names to the bank's 13 (default: topics.json in this folder). */
+  topics?: string;
   /** Folder whose existing bank files supply the placeholder questions. */
   placeholders?: string;
   keepPlaceholders?: boolean;
@@ -238,20 +272,36 @@ export type Options = {
 };
 
 type Missing = { id: string; level: Level; row: number; question: string };
+
+/** One entry of corrections-<level>.json: the fields given replace the question's; "drop" leaves it out of the bank. */
+export type Correction = {
+  why: string;
+  answer?: number;
+  choices?: string[];
+  prompt?: string;
+  columnA?: string;
+  columnB?: string;
+  explanation?: string;
+  difficulty?: 1 | 2 | 3;
+  drop?: boolean;
+};
+const CORRECTION_KEYS = ["why", "answer", "choices", "prompt", "columnA", "columnB", "explanation", "difficulty", "drop"];
 type Held = { row: number | null; id: string | null; level: Level | null; question: string; reasons: string[] };
 
 export type Result = {
   banks: Partial<Record<Level, Bank>>;
-  counts: Record<Level, { real: number; variants: number; placeholders: number; section: Record<string, number>; topic: Record<string, number>; type: Record<string, number> }>;
+  counts: Record<Level, { real: number; written: number; variants: number; placeholders: number; diagrams: number; section: Record<string, number>; topic: Record<string, number>; type: Record<string, number>; difficulty: Record<string, number> }>;
   rows: number;
   mappedTopics: Record<string, string>;
   unknownTopics: string[];
   dollarsEscaped: number;
   todo: {
-    diagram: (Missing & { description: string })[];
+    diagram: (Missing & { description: string; problem?: string })[];
     explanation: Missing[];
     difficulty: Missing[];
     heldBack: Held[];
+    corrected: { id: string; level: Level; fields: string[]; why: string }[];
+    dropped: { id: string; level: Level; why: string }[];
   };
   notes: string[];
   written: string[];
@@ -262,20 +312,40 @@ function readJson<T>(file: string, otherwise: T): T {
 }
 
 export function runImport(opts: Options): Result {
-  const sidecars = opts.sidecars ?? here;
-  const diagrams = readJson<Record<string, Diagram>>(path.join(sidecars, "diagrams.json"), {});
-  const explanations = readJson<Record<string, string>>(path.join(sidecars, "explanations.json"), {});
-  const difficulties = readJson<Record<string, number>>(path.join(sidecars, "difficulty.json"), {});
-  const variants = readJson<Record<string, Partial<Question>[]>>(path.join(sidecars, "variants.json"), {});
+  // Sidecar files may sit in more than one folder; a later folder's entry for an id wins.
+  const folders = [...new Set((Array.isArray(opts.sidecars) ? opts.sidecars : [opts.sidecars ?? here]).map((d) => path.resolve(d)))];
+  const merged = <T,>(name: string): Record<string, T> => Object.assign({}, ...folders.map((d) => readJson<Record<string, T>>(path.join(d, name), {})));
+  const diagrams = merged<Diagram>("diagrams.json");
+  const explanations = merged<string>("explanations.json");
+  const difficulties = merged<number>("difficulty.json");
+  const variants = merged<Partial<Question>[]>("variants.json");
+  // Per-level files from the people who drew the figures and checked the answers.
+  const diagramProblems: Record<string, string> = {};
+  const corrections: Record<string, Correction> = {};
+  for (const folder of folders) {
+    for (const level of LEVELS) {
+      const drawn = readJson<{ diagrams?: Record<string, Diagram>; problems?: Record<string, string> }>(path.join(folder, `diagrams-${level}.json`), {});
+      Object.assign(diagrams, drawn.diagrams ?? {});
+      Object.assign(diagramProblems, drawn.problems ?? {});
+      const file = path.join(folder, `corrections-${level}.json`);
+      for (const [id, c] of Object.entries(readJson<{ corrections?: Record<string, Correction> }>(file, {}).corrections ?? {})) {
+        const unknown = Object.keys(c).filter((k) => !CORRECTION_KEYS.includes(k));
+        if (unknown.length) throw new Error(`${file}: the correction for ${id} has a field this importer does not know: ${unknown.join(", ")}`);
+        if (corrections[id]) throw new Error(`${file}: ${id} is corrected in more than one file`);
+        corrections[id] = c;
+      }
+    }
+  }
+  const topicTable = new Map(Object.entries(readJson<Record<string, string>>(opts.topics ?? path.join(here, "topics.json"), {})).map(([from, to]) => [key(from), to]));
 
   const result: Result = {
     banks: {},
-    counts: Object.fromEntries(LEVELS.map((l) => [l, { real: 0, variants: 0, placeholders: 0, section: {}, topic: {}, type: {} }])) as Result["counts"],
+    counts: Object.fromEntries(LEVELS.map((l) => [l, { real: 0, written: 0, variants: 0, placeholders: 0, diagrams: 0, section: {}, topic: {}, type: {}, difficulty: {} }])) as Result["counts"],
     rows: 0,
     mappedTopics: {},
     unknownTopics: [],
     dollarsEscaped: 0,
-    todo: { diagram: [], explanation: [], difficulty: [], heldBack: [] },
+    todo: { diagram: [], explanation: [], difficulty: [], heldBack: [], corrected: [], dropped: [] },
     notes: [],
     written: [],
   };
@@ -289,24 +359,31 @@ export function runImport(opts: Options): Result {
   if (absent.length) throw new Error(`the CSV has no column for: ${absent.join(", ")} (found: ${table[0].cells.join(", ")})`);
 
   // First pass: read every row far enough to know its level and text, so ids can be settled.
-  type Row = { line: number; get: (f: string) => string; raw: (f: string) => string; level: Level | null; idKey: string; id: string | null };
+  type Row = { line: number; get: (f: string) => string; raw: (f: string) => string; level: Level | null; idKey: string; id: string | null; given: string | null };
   const rows: Row[] = table.slice(1).map(({ line, cells }) => {
     const raw = (f: string) => (column[f] >= 0 ? (cells[column[f]] ?? "") : "");
     const get = (f: string) => {
       const before = raw(f).replace(/\r/g, "").trim();
-      const after = clean(raw(f));
+      const after = clean(raw(f), key(raw("markup")) === "bank");
       if (after !== before) result.dollarsEscaped++;
       return after;
     };
     const level = readLevel(raw("level"));
-    return { line, raw, get, level, idKey: level ? questionKey(level, raw("question"), raw("columnA"), raw("columnB")) : "", id: null };
+    const given = raw("id").trim() ? readId(raw("id")) : null;
+    return { line, raw, get, level, idKey: level ? questionKey(level, raw("question"), raw("columnA"), raw("columnB")) : "", id: given, given };
   });
   result.rows = rows.length;
 
+  // Ids the sheet gave are used as they are, and two rows may never share one.
+  const givenBy = new Map<string, number[]>();
+  for (const r of rows) if (r.given) givenBy.set(r.given, [...(givenBy.get(r.given) ?? []), r.line]);
+  const repeated = [...givenBy].filter(([, lines]) => lines.length > 1);
+  if (repeated.length) throw new Error(`the CSV uses an id more than once: ${repeated.map(([id, lines]) => `${id} (lines ${lines.join(", ")})`).join("; ")}`);
+
   // Rows that share a level and text (two "Which is greatest?") are told apart by their choices as well.
   const sharing = new Map<string, Row[]>();
-  for (const r of rows) if (r.level) sharing.set(r.idKey, [...(sharing.get(r.idKey) ?? []), r]);
-  const taken = new Map<string, Row>();
+  for (const r of rows) if (r.level && !r.given) sharing.set(r.idKey, [...(sharing.get(r.idKey) ?? []), r]);
+  const taken = new Map<string, Row>(rows.filter((r) => r.given).map((r) => [r.given as string, r]));
   const duplicates = new Set<Row>();
   for (const group of sharing.values()) {
     for (const r of group) {
@@ -318,6 +395,13 @@ export function runImport(opts: Options): Result {
       r.id = id;
     }
   }
+
+  // A correction or a drawing for a question that is not in the CSV means the files have drifted apart.
+  const known = new Set(rows.map((r) => r.id).filter(Boolean));
+  const strays = Object.keys(corrections).filter((id) => !known.has(id));
+  if (strays.length) throw new Error(`corrections for ids that are not in the CSV: ${strays.join(", ")}`);
+  const lost = [...new Set([...Object.keys(diagrams), ...Object.keys(diagramProblems)])].filter((id) => !known.has(id));
+  if (lost.length) result.notes.push(`diagrams for ids that are not in the CSV, ignored: ${lost.join(", ")}`);
 
   const real: Record<Level, Question[]> = { lower: [], middle: [] };
   const hold = (r: Row, reasons: string[]) => result.todo.heldBack.push({ row: r.line, id: r.id, level: r.level, question: squash(r.raw("question")).slice(0, 80), reasons });
@@ -334,12 +418,24 @@ export function runImport(opts: Options): Result {
       hold(r, [`the same question as line ${taken.get(id)?.line}`]);
       continue;
     }
+    const fix: Correction | undefined = corrections[id];
+    if (fix?.drop) {
+      result.todo.dropped.push({ id, level, why: fix.why });
+      continue;
+    }
+    if (r.given && (!isQuestionId(id) || /-v\d+$/.test(id))) reasons.push(`id "${r.raw("id").trim()}" is not like L001 or M-0001`);
+    else if (r.given && id[0] !== idPrefix(level)) reasons.push(`id ${id} does not belong to the ${level} level`);
+    const origin = key(r.raw("origin"));
+    if (origin !== "" && origin !== "real" && origin !== "written") reasons.push(`origin "${r.raw("origin").trim()}" is not real or written`);
+    const source: Source = origin === "written" ? "written" : "real";
     const section = readSection(r.raw("section"));
     if (!section) reasons.push(`section "${r.raw("section")}" is not quantitative reasoning or mathematics achievement`);
     const type = readType(r.raw("type"));
     if (!type) reasons.push(`type "${r.raw("type")}" is not word problem, computation or quantitative comparison`);
     const topicText = squash(r.raw("topic"));
-    const topic = readTopic(topicText);
+    const listed = topicTable.get(key(topicText));
+    const topic = listed && TOPICS.includes(listed as Topic) && !TOPICS.includes(key(topicText) as Topic) ? { topic: listed as Topic, exact: true } : readTopic(topicText);
+    const subtopic = squash(r.raw("subtopic")) || (TOPICS.includes(key(topicText) as Topic) ? "" : topicText);
     if (!topic) {
       reasons.push(`topic "${topicText}" is not one this bank knows`);
       if (!result.unknownTopics.includes(topicText)) result.unknownTopics.push(topicText);
@@ -352,16 +448,18 @@ export function runImport(opts: Options): Result {
     if (answer === null) reasons.push(`answer "${squash(r.raw("answer"))}" is not A to D and matches no choice`);
 
     const who: Missing = { id, level, row: r.line, question: squash(r.raw("question")).slice(0, 80) };
-    const explanation = r.get("explanation") || (explanations[id] ?? "").trim();
+    const explanation = fix?.explanation ?? (r.get("explanation") || (explanations[id] ?? "").trim());
     if (!explanation) result.todo.explanation.push(who);
     const fromCsv = readDifficulty(r.raw("difficulty"));
     if (r.raw("difficulty").trim() && !fromCsv) reasons.push(`difficulty "${r.raw("difficulty").trim()}" is not 1, 2 or 3`);
-    const difficulty = fromCsv ?? ([1, 2, 3].includes(difficulties[id]) ? (difficulties[id] as 1 | 2 | 3) : null);
+    const difficulty = fix?.difficulty ?? fromCsv ?? ([1, 2, 3].includes(difficulties[id]) ? (difficulties[id] as 1 | 2 | 3) : null);
     if (!difficulty) result.todo.difficulty.push(who);
     const description = squash(r.raw("diagram"));
-    const diagram = diagrams[id] ?? null;
-    const undrawn = description !== "" && !diagram;
-    if (undrawn) result.todo.diagram.push({ ...who, description });
+    // A figure someone tried to draw and could not (the description is wrong or unclear) counts as not drawn.
+    const problem = diagramProblems[id];
+    const diagram = problem ? null : (diagrams[id] ?? null);
+    const undrawn = problem !== undefined || (description !== "" && !diagram);
+    if (undrawn) result.todo.diagram.push({ ...who, description, ...(problem ? { problem } : {}) });
 
     if (reasons.length) {
       hold(r, reasons);
@@ -371,6 +469,7 @@ export function runImport(opts: Options): Result {
       id,
       section: section as Section,
       topic: (topic as { topic: Topic }).topic,
+      ...(subtopic ? { subtopic } : {}),
       type: type as QuestionType,
       prompt: r.get("question"),
       columnA: comparison ? r.get("columnA") : null,
@@ -380,17 +479,23 @@ export function runImport(opts: Options): Result {
       explanation,
       difficulty: difficulty ?? 2, // a guess until someone rates it; listed in todo.json
       diagram,
-      source: "real",
+      source,
       of: null,
       ref: squash(r.raw("source")) || null,
     };
+    if (fix) {
+      // Corrections are written in the bank's own markup, so they go in exactly as given.
+      const fields = (["answer", "choices", "prompt", "columnA", "columnB", "explanation", "difficulty"] as const).filter((k) => fix[k] !== undefined);
+      Object.assign(q, Object.fromEntries(fields.map((k) => [k, fix[k]])));
+      result.todo.corrected.push({ id, level, fields, why: fix.why });
+    }
     const found = questionProblems(q, level).errors;
     if (found.length) {
-      hold(r, found);
+      hold(r, fix ? found.map((f) => `after its correction: ${f}`) : found);
       continue;
     }
     if (undrawn && !opts.includeUndrawn) {
-      hold(r, ["waiting for its diagram to be drawn (diagrams.json)"]);
+      hold(r, [problem ? `its diagram could not be drawn: ${problem}` : "waiting for its diagram to be drawn (diagrams.json)"]);
       continue;
     }
     real[level].push(q);
@@ -441,14 +546,16 @@ export function runImport(opts: Options): Result {
     const c = result.counts[level];
     for (const q of questions) {
       if (q.source === "variant") c.variants++;
+      else if (q.source === "written") c.written++;
       else c.real++;
-      for (const k of ["section", "topic", "type"] as const) c[k][q[k]] = (c[k][q[k]] ?? 0) + 1;
+      if (q.diagram) c.diagrams++;
+      for (const k of ["section", "topic", "type", "difficulty"] as const) c[k][q[k]] = (c[k][q[k]] ?? 0) + 1;
     }
     if (opts.keepPlaceholders) {
       questions.push(...placeholders);
       c.placeholders = placeholders.length;
     }
-    const bank: Bank = { version: opts.version ?? `real-${hash(JSON.stringify(questions))}`, level, questions };
+    const bank: Bank = { version: opts.version ?? `import-${hash(JSON.stringify(questions))}`, level, questions };
     const errors = validateBank(bank, level).filter((p) => p.level === "error");
     if (errors.length) throw new Error(`the ${level} bank would not pass the checker: ${errors.map((e) => `${e.id}: ${e.message}`).join("; ")}`);
     result.banks[level] = bank;
@@ -482,10 +589,18 @@ export function report(r: Result): string {
   lines.push(`${r.rows} rows read`);
   for (const level of LEVELS) {
     const c = r.counts[level];
-    lines.push(`\n${level}: ${c.real} real${c.variants ? `, ${c.variants} variants` : ""}${c.placeholders ? `, ${c.placeholders} placeholders kept` : ""}`);
+    lines.push(`\n${level}: ${c.real} real${c.written ? `, ${c.written} written` : ""}${c.variants ? `, ${c.variants} variants` : ""}${c.placeholders ? `, ${c.placeholders} placeholders kept` : ""}`);
     lines.push(`  by section: ${list(c.section)}`);
     lines.push(`  by topic:   ${list(c.topic)}`);
     lines.push(`  by type:    ${list(c.type)}`);
+    lines.push(`  by difficulty: ${list(c.difficulty)}`);
+    lines.push(`  with a drawn diagram: ${c.diagrams}`);
+    const fixed = r.todo.corrected.filter((x) => x.level === level);
+    const dropped = r.todo.dropped.filter((x) => x.level === level);
+    const held = r.todo.heldBack.filter((x) => x.level === level);
+    lines.push(`  corrected: ${fixed.length}${fixed.length ? ` (${fixed.map((x) => x.id).join(", ")})` : ""}`);
+    lines.push(`  dropped by a correction: ${dropped.length}${dropped.length ? ` (${dropped.map((x) => x.id).join(", ")})` : ""}`);
+    lines.push(`  held back: ${held.length}`);
   }
   if (Object.keys(r.mappedTopics).length) {
     lines.push("\nTopics read as a known topic:");
@@ -493,9 +608,9 @@ export function report(r: Result): string {
   }
   if (r.unknownTopics.length) lines.push(`\nTopics not recognised (their rows are held back): ${r.unknownTopics.map((t) => `"${t}"`).join(", ")}`);
   if (r.dollarsEscaped) lines.push(`\n${r.dollarsEscaped} field${r.dollarsEscaped === 1 ? "" : "s"} had a money dollar sign escaped (\\$)`);
-  const still = (title: string, items: { id: string; row: number; question: string; description?: string }[]) => {
+  const still = (title: string, items: { id: string; row: number; question: string; description?: string; problem?: string }[]) => {
     lines.push(`\n${title}: ${items.length}`);
-    for (const m of items.slice(0, 20)) lines.push(`  ${m.id} (line ${m.row}) ${m.description ? `[${m.description}] ` : ""}${m.question}`);
+    for (const m of items.slice(0, 20)) lines.push(`  ${m.id} (line ${m.row}) ${m.problem ? `{could not be drawn: ${m.problem}} ` : ""}${m.description ? `[${m.description}] ` : ""}${m.question}`);
     if (items.length > 20) lines.push(`  ... and ${items.length - 20} more, all in todo.json`);
   };
   still("Still need a diagram drawn (diagrams.json)", r.todo.diagram);
@@ -539,7 +654,8 @@ function main() {
       csv: args[0],
       out: write ? BANK_DIR : out,
       todo: write ? path.join(here, "todo.json") : undefined,
-      sidecars,
+      // The usual sidecars in this folder, plus the ones (corrections-*.json, diagrams-*.json too) in the folder named.
+      sidecars: sidecars ? [here, sidecars] : undefined,
       version,
       keepPlaceholders,
       includeUndrawn,
