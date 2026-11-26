@@ -302,7 +302,14 @@ extension MathZone {
                     n.add(MathShape.sphere(2, MathMat.color("3fa34d"), segments: 10), x, 3.6, z)
                 }
             }
-            // Things beside the path.
+            // Things beside the path. A parked bus is kept out of the tile's
+            // one flattened mesh, which was putting it in the middle of the
+            // road, where it looked like a bus to run up and wasn't one.
+            func parked() -> SCNNode {
+                let bus = MathProps.bus()
+                bus.name = MathModels.kitName
+                return bus
+            }
             switch variant {
             case 0:
                 n.add(MathProps.bench(), 4.2, 0, -6, ry: .pi / 2)
@@ -313,9 +320,9 @@ extension MathZone {
                 n.add(MathShape.cylinder(0.09, 3.4, MathMat.color("7f8c8d"), segments: 8), 4.6, 1.7, -10)
                 n.add(MathShape.box(1.5, 1.0, 0.08, MathMat.sign("", paper: "ffffff", border: "e74c3c")), 4.6, 3.6, -10, ry: -.pi / 2)
                 n.add(MathShape.cylinder(0.3, 0.04, MathMat.color("e67e22"), segments: 12), 4.2, 3.2, -10)
-                n.add(MathProps.bus(), -5.4, 0, -14)
+                n.add(parked(), -5.4, 0, -14)
             default:
-                n.add(MathProps.bus(), -5.4, 0, -8)
+                n.add(parked(), -5.4, 0, -8)
                 for i in 0..<5 { n.add(MathShape.box(0.06, 0.9, 1.2, MathMat.color("7f8c8d")), 4 + Float(i) * 0.35, 0.45, -18) }
             }
             // Hopscotch.
