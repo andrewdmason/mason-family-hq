@@ -150,8 +150,10 @@ struct MacAccountMenu: View {
                 }
                 .pickerStyle(.inline)
             }
-            Button(store.asParent ? "What Tuttles knows about \(store.classes?.student.name ?? "them")" : "What Tuttles knows about you",
-                   systemImage: "brain.head.profile") { showMemory = true }
+            // Tuttles keeps a memory of the kids only: as a parent there's none to show.
+            if !store.asParent {
+                Button("What Tuttles knows about you", systemImage: "brain.head.profile") { showMemory = true }
+            }
             Section(Session.shared.email ?? "Signed in") {
                 Button("Sign out", role: .destructive) { Task { await Session.shared.signOut() } }
             }
