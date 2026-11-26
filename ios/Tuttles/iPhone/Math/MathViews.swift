@@ -288,6 +288,8 @@ struct MathPlayView: View {
     @State private var session: MathSession?
     @State private var showingShop = false
     @State private var fired = false
+    @State private var gate = MathGate.checking
+    @Environment(\.navigate) private var navigate
     private let math = MathStore.shared
 
     var body: some View {
@@ -315,8 +317,9 @@ struct MathPlayView: View {
             session = made
             MathAudio.shared.setMusic("music-menu")
             MathAudio.shared.setZone(sound: "amb-hall", mood: 0)
+            gate = await store.mathGate()
             await math.sync(with: store)
-            if CommandLine.arguments.contains("--math-run") { made.start() }
+            if CommandLine.arguments.contains("--math-run"), gate.isOpen { made.start() }
             if CommandLine.arguments.contains("--math-shop") { showingShop = true }
         }
         .onChange(of: session?.stage) { _, stage in
@@ -325,6 +328,16 @@ struct MathPlayView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { session?.pause(true) } else { MathAudio.shared.prepare() }
+            // Back to the app on a new day, or after Vocab elsewhere: the gate may have moved.
+            if phase == .active, session?.stage == .home { Task { await checkGate() } }
+        }
+        // Back from Vocab, opened from here: the music again, and the gate may be open now.
+        .onAppear {
+            guard session != nil else { return }
+            MathAudio.shared.prepare()
+            MathAudio.shared.setMusic("music-menu")
+            MathAudio.shared.setZone(sound: "amb-hall", mood: 0)
+            Task { await checkGate() }
         }
         .onDisappear {
             session?.leave()
@@ -333,6 +346,12 @@ struct MathPlayView: View {
         .sheet(isPresented: $showingShop, onDismiss: { session?.reset() }) {
             MathLookView()
         }
+    }
+
+    private func checkGate() async {
+        let now = await store.mathGate()
+        // A run under way carries on; the gate only stands in front of Run.
+        if gate != now { withAnimation { gate = now } }
     }
 
     private func swipes(_ session: MathSession) -> some Gesture {
@@ -354,7 +373,8 @@ struct MathPlayView: View {
     @ViewBuilder private func overlay(_ session: MathSession) -> some View {
         switch session.stage {
         case .home:
-            MathHomeOverlay(start: { session.start() }, shop: { showingShop = true })
+            MathHomeOverlay(gate: gate, start: { if gate.isOpen { session.start() } }, shop: { showingShop = true },
+                            vocab: { navigate.go(.vocab) })
                 .transition(.opacity)
         case .running:
             MathHUDView(session: session)
@@ -409,8 +429,10 @@ struct MathSceneView: UIViewRepresentable {
 // MARK: Home
 
 struct MathHomeOverlay: View {
+    let gate: MathGate
     let start: () -> Void
     let shop: () -> Void
+    let vocab: () -> Void
     private let math = MathStore.shared
 
     var body: some View {
@@ -436,6 +458,9 @@ struct MathHomeOverlay: View {
                     goal
                     board
                 }
+                if case .locked(let ms, let goalMs) = gate {
+                    MathLockedCard(ms: ms, goalMs: goalMs)
+                }
                 HStack(spacing: 12) {
                     Button(action: shop) {
                         Label("Look", systemImage: "person.fill")
@@ -444,11 +469,25 @@ struct MathHomeOverlay: View {
                             .frame(width: 118, height: 58)
                     }
                     .glassEffect(.regular.interactive(), in: .capsule)
-                    Button(action: start) {
-                        Label("Run", systemImage: "figure.run")
-                            .font(.system(.title2, design: .rounded).weight(.black))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, minHeight: 58)
+                    Group {
+                        switch gate {
+                        case .open:
+                            Button(action: start) {
+                                Label("Run", systemImage: "figure.run")
+                                    .font(.system(.title2, design: .rounded).weight(.black))
+                                    .foregroundStyle(.white)
+                                    .frame(maxWidth: .infinity, minHeight: 58)
+                            }
+                        case .locked:
+                            Button(action: vocab) {
+                                Label("Do Vocab", systemImage: "character.book.closed")
+                                    .font(.system(.title3, design: .rounded).weight(.black))
+                                    .foregroundStyle(.white)
+                                    .frame(maxWidth: .infinity, minHeight: 58)
+                            }
+                        case .checking:
+                            ProgressView().tint(.white).frame(maxWidth: .infinity, minHeight: 58)
+                        }
                     }
                     .glassEffect(.regular.tint(TuttlesLook.accent).interactive(), in: .capsule)
                     .frame(maxWidth: .infinity)

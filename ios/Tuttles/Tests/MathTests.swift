@@ -128,4 +128,22 @@ final class MathTests: XCTestCase {
                       "voice-5", "music-run", "music-menu", "amb-hall", "amb-outside", "amb-cafeteria", "amb-gym", "amb-strange"]
         for name in wanted { XCTAssertTrue(have.contains(name), name) }
     }
+
+    func testMathWaitsForTodaysVocab() {
+        // Oscar hasn't done today's ten minutes; Sebastian has.
+        let oscar = DemoVocab.home(parent: false, kid: "Oscar").overview
+        let sebastian = DemoVocab.home(parent: false, kid: "Sebastian").overview
+        XCTAssertEqual(MathGate.from(oscar), .locked(ms: 0, goalMs: oscar!.day!.goalMs))
+        XCTAssertEqual(MathGate.from(sebastian), .open)
+        // Not set up for Vocab: nothing to wait for.
+        XCTAssertEqual(MathGate.from(nil), .open)
+    }
+
+    func testMathGateCountsPartOfTheTenMinutes() {
+        var overview = DemoVocab.home(parent: false, kid: "Oscar").overview!
+        overview.day = .init(ms: 372_000, goalMs: 600_000, done: false)
+        XCTAssertEqual(MathGate.from(overview), .locked(ms: 372_000, goalMs: 600_000))
+        overview.day = .init(ms: 600_000, goalMs: 600_000, done: true)
+        XCTAssertEqual(MathGate.from(overview), .open)
+    }
 }
