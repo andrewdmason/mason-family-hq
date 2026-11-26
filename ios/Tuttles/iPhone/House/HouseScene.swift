@@ -5,7 +5,8 @@ import UIKit
 // is a square of floor with two walls behind it, and each house's rooms stand
 // where its owner put them (HouseLayout.swift). Where a room has another
 // behind it, the wall between comes down to the knee with a gap in it, so
-// you can see in; it's only all the way up when you're in that room. Rooms
+// you can see in; it's only all the way up when you're in that room. In a
+// house, its floors are pulled apart so each can be seen into. Rooms
 // that would hide others can be put away a floor at a time, and in a room
 // whatever's in front of it or over it isn't shown. The camera never turns:
 // it only moves and zooms, between the whole street, one house and one room.
@@ -212,14 +213,14 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         for id in state.rooms {
             guard let room = HouseCatalog.room(id), shows(state.cell(of: id), of: house) else { continue }
             let node = self.room(room, of: house)
-            node.simdPosition = Self.at(state.cell(of: id))
+            node.simdPosition = at(state.cell(of: id), of: house.kid)
             root.addChildNode(node)
         }
         // Where the room being placed could go.
         if house.mine, let placing, focus == .house(house.kid) {
             for cell in placing.cells where shows(cell, of: house) && state.room(at: cell) == nil {
                 let tile = self.tile(placing.room, at: cell, of: house)
-                tile.simdPosition = Self.at(cell)
+                tile.simdPosition = at(cell, of: house.kid)
                 root.addChildNode(tile)
             }
         }
@@ -241,7 +242,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         lock.lock(); characters[house.kid] = character; lock.unlock()
         var home = HouseCatalog.rooms[0]
         if case .room(let kid, let id) = focus, kid == house.kid, state.has(room: id), let r = HouseCatalog.room(id) { home = r }
-        character.node.simdPosition = Self.at(state.cell(of: home.id)) + SIMD3(home.stand[0], 0, home.stand[1])
+        character.node.simdPosition = at(state.cell(of: home.id), of: house.kid) + SIMD3(home.stand[0], 0, home.stand[1])
         character.node.isHidden = !shows(state.cell(of: home.id), of: house)
         // Facing out, towards whoever's looking.
         character.node.eulerAngles.y = .pi * 1.25
@@ -337,8 +338,13 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     private static let knee: [(Float, Float)] = [(-0.3, 1.4), (2.6, HouseCatalog.side)]
 
     /// Where a cell is in a house.
-    private static func at(_ cell: [Int]) -> SIMD3<Float> {
-        SIMD3(Float(cell[0]) * HouseCatalog.side, Float(cell[1]) * HouseCatalog.height, Float(cell[2]) * HouseCatalog.side)
+    /// How far apart the floors are pulled in a house in focus, so the
+    /// floor above doesn't hide the room under it.
+    static let spread: Float = 2.2
+
+    private func at(_ cell: [Int], of kid: String) -> SIMD3<Float> {
+        let gap = focus == .house(kid) ? Self.spread : 0
+        return SIMD3(Float(cell[0]) * HouseCatalog.side, Float(cell[1]) * (HouseCatalog.height + gap), Float(cell[2]) * HouseCatalog.side)
     }
 
     /// Whether a room in this cell is shown, for the floor picked and the room in focus.
@@ -460,7 +466,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         let S = HouseCatalog.side, H = HouseCatalog.height
         func box(_ house: HouseShown, _ cell: [Int], pad: Float) -> [SIMD3<Float>] {
             guard let origin = nodes[house.kid]?.simdPosition else { return [] }
-            let o = origin + Self.at(cell)
+            let o = origin + at(cell, of: house.kid)
             var out: [SIMD3<Float>] = []
             for x in [-pad, S + pad] { for y in [-pad, H + pad] { for z in [-pad, S + pad] { out.append(o + SIMD3(x, y, z)) } } }
             return out
