@@ -267,10 +267,8 @@ struct VocabSummary: Decodable, Hashable {
     var boss: VocabBoss? = nil
     /// The stage whose boss is in the way now an ordinary session is over.
     var bossWaiting: Int? = nil
-    /// The chest an ordinary session earned (VocabFacts.swift), and how many
-    /// facts they've found with it. Only for a session played on the phone.
+    /// The chest an ordinary session earned (VocabChest.swift). Only for a session played on the phone.
     var prize: VocabPrize? = nil
-    var factsFound: Int? = nil
     /// The coins and gems the session paid into the house's purse. Only for one played on the phone.
     var pay: VocabEarning? = nil
 

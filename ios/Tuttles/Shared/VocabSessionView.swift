@@ -572,6 +572,15 @@ private struct VocabSummaryView: View {
     @Environment(ChatStore.self) private var store
     /// The ring and the stage's bar start where they were before the session, then move.
     @State private var moved = false
+    /// The session's chest has been opened here (VocabChest.swift).
+    @State private var opened = false
+
+    /// The chest an ordinary session earned, still shut: the end opens on
+    /// it, full screen, and the numbers wait behind until it's been opened.
+    private var chest: VocabPrize? {
+        guard summary.boss == nil, !opened, let prize = summary.prize, !prize.isOpen else { return nil }
+        return prize
+    }
 
     /// Something to throw confetti for: a boss beaten, a stage cleared, or
     /// this session being the one that finished the day's ten minutes.
@@ -657,11 +666,6 @@ private struct VocabSummaryView: View {
                     VocabJokeCard(joke: joke)
                 }
 
-                // The prize for an ordinary session: a chest, and the fact in it (VocabFacts.swift).
-                if summary.boss == nil, let prize = summary.prize {
-                    VocabChestCard(prize: prize, found: summary.factsFound ?? 1) { store.vocabLocal?.open(prize) }
-                }
-
                 if let climb = summary.climb { climbCard(climb) }
 
                 if !summary.missed.isEmpty {
@@ -744,9 +748,21 @@ private struct VocabSummaryView: View {
             .padding(.bottom, 8)
             .vocabColumn()
         }
-        .overlay { if celebrating { VocabConfetti() } }
+        .overlay { if celebrating, chest == nil { VocabConfetti() } }
         .sensoryFeedback(.success, trigger: moved) { _, now in now && celebrating }
-        .onAppear { withAnimation(.smooth(duration: 1.0).delay(0.3)) { moved = true } }
+        .overlay {
+            if let chest {
+                VocabChestOpening(chest: chest.chest, coins: summary.pay?.coins ?? VocabPay.bonus(chest.chest), waiting: more,
+                                  opening: { store.vocabLocal?.open(chest) },
+                                  done: { withAnimation(.smooth(duration: 0.45)) { opened = true } })
+                    .transition(.opacity)
+            }
+        }
+        // The day's ring moves once the numbers are what's on screen.
+        .task(id: chest == nil) {
+            guard chest == nil else { return }
+            withAnimation(.smooth(duration: 1.0).delay(0.3)) { moved = true }
+        }
     }
 
     /// How a boss round came out: the crown, or how close it was.

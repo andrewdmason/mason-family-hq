@@ -68,8 +68,6 @@ enum Route: Hashable {
     case vocabList(kid: UUID?, name: String?)
     /// How a kid is doing, off their path: today, the words mastered, the ones giving trouble.
     case vocabProgress
-    /// The gross facts a kid has had out of their chests (VocabFacts.swift).
-    case vocabFacts
     /// ISEE math practice as an endless runner (iPhone/Math), for a kid, and
     /// how the kids are doing at it, for the parents. iPhone only.
     case math

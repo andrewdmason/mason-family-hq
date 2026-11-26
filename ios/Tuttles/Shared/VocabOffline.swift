@@ -71,7 +71,7 @@ final class VocabLocal {
         /// The stages that have been gold. Kept only here: gold is theirs
         /// once earned, even after a word of the stage is missed again.
         var gold: [Int]?
-        /// The chests won, oldest first (VocabFacts.swift). Kept only here.
+        /// The chests won, oldest first (VocabChest.swift). Kept only here.
         var prizes: [VocabPrize]?
         /// For a session being played: the answers its chest leaves out. A
         /// brand-new word not known isn't held against them, and nor does
@@ -127,8 +127,6 @@ final class VocabLocal {
     var waiting: Int { mine.outbox.count }
     /// The chests won, oldest first.
     var prizes: [VocabPrize] { mine.prizes ?? [] }
-    /// The facts they've had out of a chest they opened, that are still facts.
-    var found: Set<Int> { VocabFacts.found(in: prizes) }
 
     /// What's been won and not yet put in the purse.
     var earnings: [VocabEarning] { mine.earned ?? [] }
@@ -151,7 +149,7 @@ final class VocabLocal {
         mine.earned = Array((earnings + [earning]).suffix(300))
     }
 
-    /// A chest is opened: what's in it is theirs now.
+    /// A chest is opened: the end of its session won't open on it again.
     func open(_ prize: VocabPrize) {
         guard let at = mine.prizes?.firstIndex(where: { $0.session == prize.session }), mine.prizes?[at].isOpen == false else { return }
         mine.prizes?[at].opened = true
@@ -274,17 +272,16 @@ final class VocabLocal {
                            waiting: waiting)
     }
 
-    /// An ordinary session's chest, once it's over: what it's made of goes
-    /// by how they did, and what's in it is drawn from the facts they haven't had.
+    /// An ordinary session's chest, once it's over: what it's made of, and
+    /// so the coins in it, goes by how they did.
     private func award(_ session: VocabLocalSession) {
         let unknown = mine.unknown?[session.id] ?? 0, spared = mine.spared?[session.id] ?? 0
         forget(session.id)
-        guard session.boss == nil, session.isFinished, session.answered >= min(session.total, VocabFacts.fewest),
+        guard session.boss == nil, session.isFinished, session.answered >= min(session.total, VocabChest.fewest),
               !prizes.contains(where: { $0.session == session.id }) else { return }
         let chest = VocabChest.earned(right: session.correct - spared, counted: session.answered - unknown)
-        var random = SystemRandomNumberGenerator()
-        guard let fact = VocabFacts.draw(chest, have: Set(prizes.map(\.fact)), using: &random) else { return }
-        mine.prizes = prizes + [VocabPrize(session: session.id, fact: fact.id, chest: chest, day: session.day, opened: false)]
+        // (The last few hundred are plenty: they're only looked up by a session still on the phone.)
+        mine.prizes = Array((prizes + [VocabPrize(session: session.id, chest: chest, day: session.day, opened: false)]).suffix(300))
         earn(VocabPay.chest(chest, session: session.id, day: session.day))
     }
 
@@ -407,11 +404,7 @@ final class VocabLocal {
             if boss == nil, let from = startedFrom[session.id], let stage = path().stages.first(where: { $0.number == from.stage }) {
                 summary?.climb = VocabClimb(stage: stage, metBefore: min(from.met, stage.met))
             }
-            if let prize = prizes.first(where: { $0.session == session.id }) {
-                summary?.prize = prize
-                // Counting this one, which is about to be opened.
-                summary?.factsFound = found.union(VocabFacts.fact(prize.fact).map { [$0.id] } ?? []).count
-            }
+            summary?.prize = prizes.first { $0.session == session.id }
         }
         // An ordinary session is a stretch of the climb: it carries the stage they're on.
         let path = boss == nil ? path() : nil

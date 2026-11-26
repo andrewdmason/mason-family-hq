@@ -456,14 +456,6 @@ struct VocabProgressCards: View {
                 row("All words", "list.bullet")
             }
             .buttonStyle(.plain)
-            // What's come out of their chests, when sessions are played on this phone.
-            if !store.showingParentView, let local = store.vocabLocal {
-                Divider()
-                NavigationLink(value: Route.vocabFacts) {
-                    row("Gross facts", "shippingbox.fill", note: "\(local.found.count) of \(VocabFacts.all.count)")
-                }
-                .buttonStyle(.plain)
-            }
         }
         .padding(20)
         .vocabGlass()
