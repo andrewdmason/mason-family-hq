@@ -10,7 +10,9 @@ import Supabase
 // phone gets it.
 //
 // What the game pays goes into the house's purse (iPhone/House/HouseStore.swift),
-// as coins: the same purse Vocab pays into. A run still counts them as stars.
+// as coins: the same purse Vocab pays into. A run counts stars, its only
+// score, and they're made into coins when it's over: 10 to a coin
+// (Shared/HousePay.swift).
 
 /// A run, as the website keeps it.
 struct MathRun: Codable, Hashable {
@@ -25,6 +27,24 @@ struct MathRun: Codable, Hashable {
     var answered: Int
     var correct: Int
     var bestStreak: Int
+    /// The economy it was played under (HouseState.economy): from 2, `stars`
+    /// is the score. Nil from before.
+    var economy: Int? = nil
+}
+
+/// A run on the stars top 10.
+struct MathTopRun: Codable, Hashable, Identifiable {
+    let id: UUID
+    let name: String
+    let me: Bool
+    let stars: Int
+    let at: Date
+}
+
+/// The stars top 10s: today's and of all time.
+struct MathTop: Codable, Hashable {
+    var today: [MathTopRun] = []
+    var all: [MathTopRun] = []
 }
 
 struct MathAnswer: Codable, Hashable {
@@ -72,7 +92,12 @@ final class MathStore {
         var owned: [String] = []
         var wearing: [String: String] = [:]
         var look: MathLook?
+        /// The best score from before stars were the score: kept so an older copy still reads.
         var bestScore = 0
+        /// The most stars in a run.
+        var bestStars: Int?
+        /// Stars short of a coin, from runs before: they count towards the next.
+        var starCarry: Int?
         var bestWaves = 0
         var bestStreak = 0
         /// The days the goal was reached ("2026-11-25"), newest last.
@@ -91,6 +116,7 @@ final class MathStore {
         var runs: [MathRun] = []
         var answers: [MathAnswer] = []
         var board: [MathBoardRow] = []
+        var top: MathTop?
         var musicOn = true
         var effectsOn = true
         var runsPlayed = 0
@@ -153,6 +179,22 @@ final class MathStore {
     var stars: Int { HouseStore.shared.coins }
     var wallet: Wallet { saved.wallet }
     var board: [MathBoardRow] { saved.board }
+
+    /// The stars top 10s, as the website last told them, with this phone's
+    /// runs it hasn't heard of yet put in.
+    var top: MathTop {
+        let kept = saved.top ?? MathTop()
+        let today = Self.day()
+        let mine = saved.runs.filter { ($0.economy ?? 0) >= HouseState.economy }.map {
+            MathTopRun(id: $0.id, name: name, me: true, stars: $0.stars, at: $0.endedAt)
+        }
+        func merged(_ list: [MathTopRun], _ more: [MathTopRun]) -> [MathTopRun] {
+            let have = Set(list.map(\.id))
+            return Array((list + more.filter { !have.contains($0.id) }).sorted { $0.stars != $1.stars ? $0.stars > $1.stars : $0.at < $1.at }.prefix(10))
+        }
+        return MathTop(today: merged(kept.today.filter { Self.day($0.at) == today }, mine.filter { Self.day($0.at) == today }),
+                       all: merged(kept.all, mine))
+    }
     var runsPlayed: Int { saved.runsPlayed }
     var waiting: Int { saved.answers.count }
 
@@ -211,16 +253,9 @@ final class MathStore {
         return MathBank.next(level: saved.level ?? .middle, runLevel: runLevel, seen: saved.seen, asked: asked, using: &rng)?.shuffled(using: &rng)
     }
 
-    /// What a right answer pays: more for a hard one, a quick one, and a run of them.
-    static func payout(difficulty: Int, fraction left: Double, streak: Int) -> Int {
-        let base = 50 + 20 * Double(difficulty) + 40 * max(0, min(1, left))
-        return Int((base * min(3, 1 + 0.25 * Double(max(0, streak - 1)))).rounded())
-    }
-
-    /// An answer's been given. Returns the coins it paid, the day's bonus if
-    /// this was the one that reached the goal, and whether it made the day a
-    /// strong one, which pays a gem.
-    func record(_ answer: MathAnswer, question: MathQuestion, left: Double, streak: Int) -> (stars: Int, goalBonus: Int, gem: Bool) {
+    /// An answer's been given. Returns the stars it won the run
+    /// (MathPay.answer), and whether it made the day a strong one, which pays a gem.
+    func record(_ answer: MathAnswer, question: MathQuestion, left: Double, streak: Int) -> (stars: Int, gem: Bool) {
         var seen = saved.seen[question.id] ?? MathBank.Seen()
         seen.times += 1
         seen.last = answer.at
@@ -228,7 +263,7 @@ final class MathStore {
         if answer.correct {
             seen.right += 1
             saved.comeback.removeAll { $0 == question.id }
-            paid = Self.payout(difficulty: question.difficulty, fraction: left, streak: streak)
+            paid = MathPay.answer(difficulty: question.difficulty, left: left, streak: streak)
         } else if !saved.comeback.contains(question.id) {
             saved.comeback.append(question.id)
             if saved.comeback.count > 12 { saved.comeback.removeFirst() }
@@ -238,13 +273,10 @@ final class MathStore {
         let today = Self.day()
         saved.days[today, default: 0] += 1
         if answer.correct { saved.right = (saved.right ?? [:]).merging([today: 1], uniquingKeysWith: +) }
-        var bonus = 0
         if (saved.days[today] ?? 0) >= Self.dayGoal, saved.wallet.goalDays.last != today {
             saved.wallet.goalDays.append(today)
             if saved.wallet.goalDays.count > 400 { saved.wallet.goalDays.removeFirst() }
-            bonus = min(300, 100 + 20 * (streak_() - 1))
         }
-        HouseStore.shared.add(coins: paid + bonus)
         // The day's 20 done with enough of them right: a gem, the once.
         var gem = false
         if (saved.days[today] ?? 0) >= Self.dayGoal, (saved.right?[today] ?? 0) >= MathPay.strongDay,
@@ -256,21 +288,27 @@ final class MathStore {
         if saved.days.count > 40 { for key in saved.days.keys.sorted().dropLast(40) { saved.days[key] = nil } }
         if let right = saved.right, right.count > 40 { for key in right.keys.sorted().dropLast(40) { saved.right?[key] = nil } }
         save(wallet: true)
-        return (paid, bonus, gem)
+        return (paid, gem)
     }
 
-    private func streak_() -> Int { streak }
-
-    /// A run's over (or the app's closing on one): bank its stars and note it for the website.
-    func finish(_ run: MathRun, pickedUp: Int) {
+    /// A run's over (or the app's closing on one): make its stars coins and
+    /// note it for the website. Returns the coins.
+    @discardableResult
+    func finish(_ run: MathRun) -> Int {
+        var run = run
+        run.economy = HouseState.economy
+        run.score = run.stars
         saved.runs.removeAll { $0.id == run.id }
         saved.runs.append(run)
-        HouseStore.shared.add(coins: pickedUp)
-        saved.wallet.bestScore = max(saved.wallet.bestScore, run.score)
+        let pay = MathPay.coins(stars: run.stars, carried: saved.wallet.starCarry ?? 0)
+        saved.wallet.starCarry = pay.left
+        HouseStore.shared.add(coins: pay.coins)
+        saved.wallet.bestStars = max(saved.wallet.bestStars ?? 0, run.stars)
         saved.wallet.bestWaves = max(saved.wallet.bestWaves, run.waves)
         saved.wallet.bestStreak = max(saved.wallet.bestStreak, run.bestStreak)
         saved.runsPlayed += 1
         save(wallet: true)
+        return pay.coins
     }
 
     // MARK: The website
@@ -284,8 +322,9 @@ final class MathStore {
         let level: VocabLevel
         let state: State?
         let board: [MathBoardRow]
+        let top: MathTop?
 
-        enum Keys: String, CodingKey { case name, level, state, board }
+        enum Keys: String, CodingKey { case name, level, state, board, top }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: Keys.self)
@@ -294,6 +333,7 @@ final class MathStore {
             // A state this build can't read is left where it is.
             state = try? c.decode(State.self, forKey: .state)
             board = (try? c.decode([MathBoardRow].self, forKey: .board)) ?? []
+            top = try? c.decode(MathTop.self, forKey: .top)
         }
     }
 
@@ -333,11 +373,11 @@ final class MathStore {
         saved.level = pack.level
         saved.name = pack.name
         saved.board = pack.board
+        if let top = pack.top { saved.top = top }
         if let theirs = pack.state, theirs.rev > saved.rev {
             // Another phone, or this one before it was wiped, got further.
             saved.wallet = theirs.json
             saved.rev = theirs.rev
-            HouseStore.shared.take(stars: theirs.json.stars)
         }
         save()
     }
@@ -346,10 +386,4 @@ final class MathStore {
 
     /// Right answers today, of the day's count.
     var rightToday: Int { saved.right?[Self.day()] ?? 0 }
-
-    /// This phone has had something of Math's to keep.
-    var hasOwn: Bool { saved.rev > 0 }
-
-    /// Stars from when Math kept its own, to hand to the house the once.
-    var oldStars: Int { saved.wallet.stars }
 }

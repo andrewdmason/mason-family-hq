@@ -37,12 +37,14 @@ struct HouseState: Codable, Equatable {
     var paid: [String] = []
     /// What each day brought from each game, newest last.
     var days: [Paid] = []
-    /// Math's stars have been brought across as coins.
-    var tookStars = false
-    /// Vocab done before there was a purse has been paid for.
-    var backPaid = false
+    /// Which way of paying it was kept under. 1 was the first (big numbers,
+    /// back pay); a house from before `HouseState.economy` starts again.
+    var economy = HouseState.economy
     /// Where each of their rooms stands (HouseLayout.swift): [across, floor, back].
     var cells: [String: [Int]] = [HouseCatalog.first: [0, 0, 0]]
+
+    /// The economy of 2026-11-26: coins about a tenth of what they were, no back pay.
+    static let economy = 2
 
     init() {}
 
@@ -58,8 +60,7 @@ struct HouseState: Codable, Equatable {
         placed = (try? c.decode([String: String].self, forKey: .placed)) ?? [:]
         paid = (try? c.decode([String].self, forKey: .paid)) ?? []
         days = (try? c.decode([Paid].self, forKey: .days)) ?? []
-        tookStars = (try? c.decode(Bool.self, forKey: .tookStars)) ?? false
-        backPaid = (try? c.decode(Bool.self, forKey: .backPaid)) ?? false
+        economy = (try? c.decode(Int.self, forKey: .economy)) ?? 1
         // A house from before they chose where rooms go gets them put somewhere that holds together.
         cells = HouseLayout.settle(rooms, from: (try? c.decode([String: [Int]].self, forKey: .cells)) ?? [:])
     }
@@ -227,6 +228,7 @@ final class HouseStore {
             self.owner = owner
             saved = (try? Data(contentsOf: file(owner))).flatMap { try? JSONDecoder().decode(Saved.self, from: $0) } ?? Saved()
             lastPaid = nil
+            startAgainIfOld()
         }
         if let name, !name.isEmpty { saved.name = name }
     }
@@ -271,41 +273,39 @@ final class HouseStore {
         save()
     }
 
-    /// Take what Vocab has won since the purse last looked, and whatever's
-    /// owed from before there was a purse.
+    /// A house kept under the first economy starts again, empty, under this
+    /// one (Andrew, 2026-11-26: no back pay; the houses were a day old). The
+    /// rev goes on up, so the website takes this over the old one.
+    private func startAgainIfOld() {
+        guard owner != nil, saved.state.economy < HouseState.economy else { return }
+        saved.state = HouseState()
+        save()
+    }
+
+    /// Take what Vocab has won, once today's ten minutes are done. Until then
+    /// it waits in Vocab. A chest from a day that ended without them is lost;
+    /// a boss waits for whichever day they're done next.
     func collect(from vocab: VocabLocal?) {
         guard owner != nil, let vocab else { return }
-        if !saved.state.backPaid {
-            let stages = vocab.path().stages
-            let beaten = stages.filter { $0.boss == .beaten }
-            let back = VocabPay.backPay(cleared: stages.filter(\.cleared).count, beaten: beaten.count)
-            // Those bosses are paid for by this, not again.
-            let waiting = Set(vocab.earnings.map(\.key))
-            for stage in beaten where !waiting.contains(VocabPay.bossKey(stage.number)) && !saved.state.paid.contains(VocabPay.bossKey(stage.number)) {
-                saved.state.paid.append(VocabPay.bossKey(stage.number))
-            }
-            saved.state.add(coins: back.coins, gems: back.gems, from: "start", day: MathStore.day())
-            saved.state.backPaid = true
-            save()
-        }
         let earnings = vocab.earnings
         guard !earnings.isEmpty else { return }
+        let overview = vocab.home().overview
+        let today = overview?.today ?? vocab.today()
+        let lost = earnings.filter { !VocabPay.stillGood($0, today: today) }
+        // Whoever isn't set up for Vocab has no ten minutes to wait for.
+        let done = overview.map(\.isDoneToday) ?? true
+        let paying = done ? earnings.filter { VocabPay.stillGood($0, today: today) } : []
         var coins = 0, gems = 0
-        for e in earnings where saved.state.pay(key: e.key, coins: e.coins, gems: e.gems, from: "vocab", day: MathStore.day()) {
+        for e in paying where saved.state.pay(key: e.key, coins: e.coins, gems: e.gems, from: "vocab", day: MathStore.day()) {
             coins += e.coins
             gems += e.gems
         }
-        if coins > 0 || gems > 0 { lastPaid = (coins, gems, Date()) }
-        save()
-        vocab.settle(Set(earnings.map(\.key)))
-    }
-
-    /// Math's stars, from before they were coins, come across the once.
-    func take(stars: Int) {
-        guard owner != nil, !saved.state.tookStars else { return }
-        saved.state.tookStars = true
-        saved.state.add(coins: stars, gems: 0, from: "start", day: MathStore.day())
-        save()
+        if coins > 0 || gems > 0 {
+            lastPaid = (coins, gems, Date())
+            save()
+        }
+        let settled = Set((lost + paying).map(\.key))
+        if !settled.isEmpty { vocab.settle(settled) }
     }
 
     // MARK: Spending
@@ -396,6 +396,7 @@ final class HouseStore {
             saved.rev = theirs.rev
         }
         save(changed: false)
+        startAgainIfOld()
     }
 
     // MARK: For the simulator
@@ -414,8 +415,6 @@ final class HouseStore {
             } }
             saved.state.settle()
         }
-        saved.state.backPaid = true
-        saved.state.tookStars = true
         saved.street = street
     }
 }
@@ -433,8 +432,6 @@ extension ChatStore {
         let local = vocabOpenLocal()
         math.open(for: owner, name: name, level: local?.base.level)
         house.open(for: owner, name: name)
-        // Stars from when Math kept its own. (A phone with nothing of Math's yet waits to hear from the website.)
-        if math.hasOwn { house.take(stars: math.oldStars) }
         house.collect(from: local)
     }
 }

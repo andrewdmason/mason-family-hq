@@ -29,6 +29,7 @@ import {
   stateForPhone,
   summarize,
   topicStats,
+  topRuns,
   type Answered,
   type SyncInput,
 } from "@/lib/tuttles/math";
@@ -190,6 +191,14 @@ check("the same id twice in a call is one: a run's later copy, an answer's first
   assert.equal(out.runs[0].score, 250);
   assert.equal(out.answers.length, 1);
   assert.equal(out.answers[0].correct, true);
+});
+
+check("a run says its economy: 1 when it doesn't, and a bad one is dropped", () => {
+  assert.equal(taken({ runs: [run()] }).runs[0].economy, 1);
+  assert.equal(taken({ runs: [run({ economy: 2 })] }).runs[0].economy, 2);
+  const out = taken({ runs: [run({ economy: 0 }), run({ id: "11111111-1111-4111-8111-111111111111", economy: "2" })] });
+  assert.equal(out.runs.length, 0);
+  assert.equal(out.dropped.runs, 2);
 });
 
 check("more than a call may carry is refused whole", () => {
@@ -357,11 +366,38 @@ check("bests are each thing's own best, not one run's", () => {
   assert.deepEqual(bestOf([]), { score: 0, waves: 0, depth: 0, streak: 0 });
   assert.deepEqual(
     bestOf([
-      { score: 900, waves: 3, depth: 4, bestStreak: 2 },
-      { score: 400, waves: 8, depth: 1, bestStreak: 11 },
+      { stars: 900, economy: 2, waves: 3, depth: 4, bestStreak: 2 },
+      { stars: 400, economy: 2, waves: 8, depth: 1, bestStreak: 11 },
     ]),
     { score: 900, waves: 8, depth: 4, streak: 11 },
   );
+  // Stars from before they were the score don't count for it.
+  assert.equal(bestOf([{ stars: 5000, economy: 1, waves: 1, depth: 0, bestStreak: 0 }]).score, 0);
+});
+
+check("the top 10s: runs not players, today's by the family's day, ties to the earlier", () => {
+  const names = new Map([
+    ["seb", "Sebastian Mason"],
+    ["oscar", "Oscar"],
+  ]);
+  const at = (h: number, day = "2026-11-26") => `${day}T${String(h).padStart(2, "0")}:00:00Z`;
+  const runs = [
+    ...Array.from({ length: 12 }, (_, i) => ({ id: `s${i}`, userId: "seb", stars: 100 + i, endedAt: at(18, "2026-11-20") })),
+    { id: "o1", userId: "oscar", stars: 300, endedAt: at(20) },
+    { id: "o2", userId: "oscar", stars: 300, endedAt: at(19) },
+    // 7pm in Los Angeles on the 25th, though it's the 26th in UTC.
+    { id: "late", userId: "seb", stars: 999, endedAt: at(3) },
+    { id: "who", userId: "someone", stars: 5000, endedAt: at(20) },
+  ];
+  const top = topRuns(runs, names, "oscar", "2026-11-26", TZ);
+  assert.equal(top.all.length, 10);
+  assert.deepEqual(top.all.slice(0, 3).map((r) => r.id), ["late", "o2", "o1"]);
+  assert.equal(top.all[1].name, "Oscar");
+  assert.equal(top.all[1].me, true);
+  assert.equal(top.all[0].name, "Sebastian");
+  assert.equal(top.all[0].me, false);
+  assert.deepEqual(top.today.map((r) => r.id), ["o2", "o1"]);
+  assert.ok(!top.all.some((r) => r.id === "who"));
 });
 
 check("the board has both brothers, one who hasn't played included", () => {
@@ -370,7 +406,18 @@ check("the board has both brothers, one who hasn't played included", () => {
     { kid: "oscar", name: "Oscar" },
   ];
   const tallies = new Map([
-    ["seb", { runs: [{ score: 900, waves: 3, depth: 4, bestStreak: 2 }, { score: 400, waves: 8, depth: 1, bestStreak: 11 }], answeredToday: 12, answeredTotal: 340, correctTotal: 251 }],
+    [
+      "seb",
+      {
+        runs: [
+          { stars: 900, economy: 2, waves: 3, depth: 4, bestStreak: 2 },
+          { stars: 400, economy: 2, waves: 8, depth: 1, bestStreak: 11 },
+        ],
+        answeredToday: 12,
+        answeredTotal: 340,
+        correctTotal: 251,
+      },
+    ],
   ]);
   const out = board(kids, "oscar", tallies);
   assert.deepEqual(out[0], {
@@ -413,7 +460,7 @@ check("a kid's summary is all of it together", () => {
     today: "2026-11-25",
     tz: TZ,
     answers,
-    runs: [{ score: 700, waves: 5, depth: 2, bestStreak: 6 }],
+    runs: [{ stars: 700, economy: 2, waves: 5, depth: 2, bestStreak: 6 }],
   });
   assert.deepEqual(s.today, { day: "2026-11-25", answered: 8, correct: 6 });
   assert.equal(s.days.length, 14);

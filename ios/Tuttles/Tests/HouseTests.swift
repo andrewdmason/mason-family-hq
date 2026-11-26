@@ -121,18 +121,18 @@ final class HouseTests: XCTestCase {
         var state = HouseState()
         let living = try XCTUnwrap(HouseCatalog.room("living")), kitchen = try XCTUnwrap(HouseCatalog.room("kitchen"))
         let basement = try XCTUnwrap(HouseCatalog.room("basement"))
-        XCTAssertEqual(state.price(of: living).coins, 5000)
+        XCTAssertEqual(state.price(of: living).coins, 800)
         XCTAssertFalse(state.unlock(living))
-        state.add(coins: 14000, gems: 8, from: "math", day: "d")
+        state.add(coins: 2000, gems: 8, from: "math", day: "d")
         XCTAssertTrue(state.unlock(living))
-        XCTAssertEqual(state.coins, 9000)
+        XCTAssertEqual(state.coins, 1200)
         // Whichever they choose next is the second room's price.
-        XCTAssertEqual(state.price(of: kitchen).coins, 9000)
+        XCTAssertEqual(state.price(of: kitchen).coins, 1200)
         // A gem room is gems, and doesn't make the coin rooms dearer.
         XCTAssertEqual(state.price(of: basement).gems, 8)
         XCTAssertTrue(state.unlock(basement))
         XCTAssertEqual(state.gems, 0)
-        XCTAssertEqual(state.price(of: kitchen).coins, 9000)
+        XCTAssertEqual(state.price(of: kitchen).coins, 1200)
         XCTAssertTrue(state.unlock(kitchen))
         XCTAssertEqual(state.coins, 0)
         XCTAssertEqual(state.rooms, ["bedroom", "living", "basement", "kitchen"])
@@ -140,39 +140,73 @@ final class HouseTests: XCTestCase {
         XCTAssertEqual(state.coins, 0)
     }
 
-    /// The prices against what a day pays: about 4,500 coins for both games'
-    /// goals, and the test six and a half weeks off when this was built.
+    /// The prices against what a day pays: about 300 coins for both games'
+    /// goals done well, and the test six and a half weeks off (2026-11-26).
     func testThePricesSuitWhatADayPays() {
-        let day = 4500
+        let day = 300
         let coinRooms = HouseCatalog.rooms.filter { $0.gems == 0 }
         // A room is about a week, each dearer than the last.
         let prices = (1..<coinRooms.count).map { HouseCatalog.roomPrice(owned: $0) }
         XCTAssertEqual(prices, prices.sorted())
-        XCTAssertTrue(prices.allSatisfy { (day...day * 6).contains($0) }, "\(prices)")
+        XCTAssertTrue(prices.allSatisfy { (day * 2...day * 9).contains($0) }, "\(prices)")
         // Something to buy every day, in every room.
         var cheapest = 0, best = 0
         for room in coinRooms {
             for spot in room.spots {
                 let coins = spot.items.filter { $0.coins > 0 }.map(\.coins)
                 guard let low = coins.min(), let high = coins.max() else { continue }
-                XCTAssertLessThanOrEqual(low, day / 2, "\(room.id).\(spot.id)")
+                XCTAssertLessThanOrEqual(low, day, "\(room.id).\(spot.id)")
                 cheapest += low
                 best += high
             }
         }
-        // Six rooms with something in every spot is about half the days there
-        // are, for a kid who never misses one; the best of everything is most
-        // of them, so at a likelier pace there's always something out of reach.
+        // Six rooms with something in every spot is most of the days to the
+        // test, for a kid who never misses one; the best of everything is
+        // more than there are, so there's always something out of reach.
         let rooms = prices.reduce(0, +)
-        XCTAssertTrue((20...32).contains((rooms + cheapest) / day), "\((rooms + cheapest) / day) days")
-        XCTAssertTrue((32...50).contains((rooms + best) / day), "\((rooms + best) / day) days")
+        XCTAssertTrue((34...46).contains((rooms + cheapest) / day), "\((rooms + cheapest) / day) days")
+        XCTAssertTrue((50...66).contains((rooms + best) / day), "\((rooms + best) / day) days")
 
-        // Vocab's ten minutes (about a hundred answers, four chests) against Math's day.
-        let vocab = 4 * VocabPay.chest(.silver, right: 21, session: "s").coins
-        XCTAssertTrue((1000...1800).contains(vocab), "\(vocab)")
-        XCTAssertEqual(VocabPay.backPay(cleared: 4, beaten: 3).coins, 1350)
-        XCTAssertEqual(VocabPay.backPay(cleared: 40, beaten: 40).coins, 6000)
-        XCTAssertEqual(VocabPay.backPay(cleared: 40, beaten: 40).gems, 3)
+        // Vocab's ten minutes (four chests, mostly silver and gold) against Math's day: rough parity.
+        let vocab = 2 * VocabPay.bonus(.silver) + 2 * VocabPay.bonus(.gold)
+        XCTAssertTrue((100...160).contains(vocab), "\(vocab)")
+        // Math's: 15 right of 20 at a middling pace and run, and the track's stars, 10 to a coin.
+        let answers = (1...15).map { MathPay.answer(difficulty: 2, left: 0.5, streak: ($0 - 1) % 4 + 1) }.reduce(0, +)
+        let math = MathPay.coins(stars: answers + 700, carried: 0).coins
+        XCTAssertTrue((140...220).contains(math), "\(math)")
+    }
+
+    /// Vocab's winnings wait for the day's ten minutes: a chest only on its own day, a boss any day.
+    func testVocabWinningsWaitForTheTenMinutes() {
+        let chest = VocabPay.chest(.gold, session: "s", day: "2026-11-26")
+        let boss = VocabPay.boss(stage: 3, day: "2026-11-25")
+        XCTAssertEqual(chest.coins, 40)
+        XCTAssertEqual(boss.coins, 50)
+        XCTAssertEqual(boss.gems, 1)
+        XCTAssertTrue(VocabPay.stillGood(chest, today: "2026-11-26"))
+        XCTAssertFalse(VocabPay.stillGood(chest, today: "2026-11-27"), "a chest is lost at midnight")
+        XCTAssertTrue(VocabPay.stillGood(boss, today: "2026-11-27"), "a boss waits")
+        // From before they waited: dropped.
+        XCTAssertFalse(VocabPay.stillGood(VocabEarning(key: "chest:x", coins: 300, gems: 0), today: "2026-11-26"))
+    }
+
+    /// Math pays by stars, 10 to a coin, the rest carried to the next run.
+    func testMathStarsMakeCoins() {
+        XCTAssertEqual(MathPay.coins(stars: 137, carried: 0).coins, 13)
+        XCTAssertEqual(MathPay.coins(stars: 137, carried: 0).left, 7)
+        XCTAssertEqual(MathPay.coins(stars: 5, carried: 7).coins, 1)
+        XCTAssertEqual(MathPay.coins(stars: 5, carried: 7).left, 2)
+        XCTAssertEqual(MathPay.pickup(double: false), 1)
+        XCTAssertEqual(MathPay.pickup(double: true), 2)
+    }
+
+    /// A house kept under the first economy reads as one, so the phone starts it again.
+    func testAnOldHouseIsOfTheFirstEconomy() throws {
+        let old = try JSONDecoder().decode(HouseState.self, from: Data(#"{"coins":12000,"backPaid":true}"#.utf8))
+        XCTAssertEqual(old.economy, 1)
+        XCTAssertEqual(HouseState().economy, HouseState.economy)
+        let copy = try JSONDecoder().decode(HouseState.self, from: JSONEncoder().encode(HouseState()))
+        XCTAssertEqual(copy.economy, HouseState.economy)
     }
 
     // MARK: Where rooms go

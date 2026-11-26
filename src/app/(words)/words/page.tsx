@@ -170,7 +170,7 @@ function MathCard({ kid }: { kid: KidSummary }) {
       )}
       {kid.runs > 0 && (
         <p className="mt-3 text-xs text-muted-foreground">
-          Best so far: {best.score.toLocaleString("en-US")} points, {best.waves} {best.waves === 1 ? "wave" : "waves"}, {best.streak} right in a row.
+          Most stars in a run: {best.score.toLocaleString("en-US")}, {best.waves} {best.waves === 1 ? "wave" : "waves"}, {best.streak} right in a row.
         </p>
       )}
     </div>

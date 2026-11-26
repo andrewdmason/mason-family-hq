@@ -630,13 +630,22 @@ private struct VocabSummaryView: View {
                     }
                 }
 
-                // What it paid into the house's purse (HousePay.swift).
+                // What it paid into the house's purse (HousePay.swift). Until
+                // the day's ten minutes are done, it waits.
                 if let pay = summary.pay {
-                    HStack(spacing: 14) {
-                        Label("+\(pay.coins.formatted()) coins", systemImage: "circle.fill").foregroundStyle(VocabLook.amberText)
-                        if pay.gems > 0 { Label("+\(pay.gems) gem", systemImage: "diamond.fill").foregroundStyle(.cyan) }
+                    let waiting = goal.map { !$0.done } ?? false
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 14) {
+                            Label("+\(pay.coins.formatted()) coins\(waiting ? " waiting" : "")", systemImage: "circle.fill").foregroundStyle(VocabLook.amberText)
+                            if pay.gems > 0 { Label("+\(pay.gems) gem", systemImage: "diamond.fill").foregroundStyle(.cyan) }
+                        }
+                        .font(.system(.headline, design: .rounded).weight(.heavy))
+                        if waiting {
+                            Text("Your coins go in when today's ten minutes are done.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .font(.system(.headline, design: .rounded).weight(.heavy))
                     .padding(.horizontal, 18).padding(.vertical, 10)
                     .vocabGlass(tint: VocabLook.gold.opacity(0.14))
                     .accessibilityElement(children: .combine)

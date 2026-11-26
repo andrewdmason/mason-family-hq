@@ -78,7 +78,7 @@ struct MathParentView: View {
                     } header: {
                         Text("\(kid.name) · \(kid.level.name)")
                     } footer: {
-                        Text("\(kid.runs) runs · best \(kid.best.score.formatted()) · furthest: \(MathZone.all[MathZone.index(forLevel: kid.best.depth)].name) · \(kid.best.streak) right in a row")
+                        Text("\(kid.runs) runs · most stars \(kid.best.score.formatted()) · furthest: \(MathZone.all[MathZone.index(forLevel: kid.best.depth)].name) · \(kid.best.streak) right in a row")
                     }
                 }
             } else if let problem {

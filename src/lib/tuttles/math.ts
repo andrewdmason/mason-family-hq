@@ -21,6 +21,13 @@ export const MAX_ANSWERS = 2000;
 /** The most the phone's own state may come to, as JSON. */
 export const MAX_STATE_BYTES = 64 * 1024;
 
+/**
+ * The economy from which a run's stars are its score (2026-11-26): runs
+ * played before it counted stars another way, so the bests and the top 10
+ * count only runs from this one on.
+ */
+export const STARS_ECONOMY = 2;
+
 export type Section = "qr" | "ma";
 
 /** A go at the game, as the phone sends it. */
@@ -38,6 +45,8 @@ export type MathRun = {
   answered: number;
   correct: number;
   bestStreak: number;
+  /** The economy it was played under: 1 from a phone that doesn't say. */
+  economy: number;
 };
 
 /** A question answered, as the phone sends it. */
@@ -96,6 +105,7 @@ function run(v: unknown): MathRun | string {
   if (!when(v.startedAt)) return "startedAt must be a time";
   if (!when(v.endedAt)) return "endedAt must be a time";
   for (const key of RUN_COUNTS) if (!whole(v[key])) return `${key} must be a whole number, 0 or more`;
+  if (v.economy != null && !whole(v.economy, 1, 100)) return "economy must be 1 to 100, or left out";
   const n = v as Record<(typeof RUN_COUNTS)[number], number>;
   return {
     id: v.id.toLowerCase(),
@@ -109,6 +119,7 @@ function run(v: unknown): MathRun | string {
     answered: n.answered,
     correct: n.correct,
     bestStreak: n.bestStreak,
+    economy: (v.economy as number | null | undefined) ?? 1,
   };
 }
 
@@ -218,7 +229,7 @@ export type Answered = {
 };
 
 /** What the sums need of a run. */
-export type RunBests = { score: number; waves: number; depth: number; bestStreak: number };
+export type RunBests = { stars: number; economy: number; waves: number; depth: number; bestStreak: number };
 
 export type DayCount = { day: string; answered: number; correct: number };
 
@@ -290,11 +301,14 @@ export function recentMisses(answers: Answered[], n = 30): Miss[] {
     .slice(0, n);
 }
 
-/** The best of each thing over some runs: not one run's, each its own best. */
+/**
+ * The best of each thing over some runs: not one run's, each its own best.
+ * The score is the most stars in a run, of the runs since stars were the score.
+ */
 export function bestOf(runs: RunBests[]): { score: number; waves: number; depth: number; streak: number } {
   const best = { score: 0, waves: 0, depth: 0, streak: 0 };
   for (const r of runs) {
-    best.score = Math.max(best.score, r.score);
+    if (r.economy >= STARS_ECONOMY) best.score = Math.max(best.score, r.stars);
     best.waves = Math.max(best.waves, r.waves);
     best.depth = Math.max(best.depth, r.depth);
     best.streak = Math.max(best.streak, r.bestStreak);
@@ -341,6 +355,40 @@ export function board(kids: { kid: string; name: string }[], me: string, tallies
       correctTotal: t.correctTotal,
     };
   });
+}
+
+/** A run on the stars top 10. */
+export type TopRun = { id: string; name: string; me: boolean; stars: number; at: string };
+
+/** A run as the top 10 is made from: whose, how many stars, when it ended. */
+export type StarRun = { id: string; userId: string; stars: number; endedAt: string };
+
+/**
+ * The stars top 10s: the ten runs with the most stars today (by the day it
+ * ended in `tz`) and of all time. Runs, not players: one kid can be on it
+ * more than once. Two the same: the earlier first, as it got there first.
+ * Only the people in `names` are on it.
+ */
+export function topRuns(
+  runs: StarRun[],
+  names: Map<string, string>,
+  me: string,
+  today: string,
+  tz: string,
+  n = 10,
+): { today: TopRun[]; all: TopRun[] } {
+  const dayOf = dayIn(tz);
+  const rows = runs
+    .filter((r) => names.has(r.userId))
+    .sort((a, b) => b.stars - a.stars || Date.parse(a.endedAt) - Date.parse(b.endedAt) || a.id.localeCompare(b.id))
+    .map((r) => ({
+      id: r.id,
+      name: firstName(names.get(r.userId) ?? ""),
+      me: r.userId === me,
+      stars: r.stars,
+      at: new Date(r.endedAt).toISOString(),
+    }));
+  return { today: rows.filter((r) => dayOf(r.at) === today).slice(0, n), all: rows.slice(0, n) };
 }
 
 /** Whether the state kept here is news to a phone that sent `sent` (null: it has none). */

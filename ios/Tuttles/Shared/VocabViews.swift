@@ -652,6 +652,11 @@ private struct VocabKidCard: View {
                 Label("\(VocabRules.clock(goal.ms)) of \(goal.goalMs / 60_000) minutes so far today.\(scores)", systemImage: "hourglass")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                if let coins = overview.waitingCoins, coins > 0 {
+                    Label("\(coins.formatted()) coins waiting. They go in at \(goal.goalMs / 60_000) minutes.", systemImage: "circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(VocabLook.amberText)
+                }
             } else {
                 Label("Not started yet today.", systemImage: "circle.dashed")
                     .font(.subheadline)

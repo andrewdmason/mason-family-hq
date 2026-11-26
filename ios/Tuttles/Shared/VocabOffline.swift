@@ -133,6 +133,12 @@ final class VocabLocal {
     /// What's been won and not yet put in the purse.
     var earnings: [VocabEarning] { mine.earned ?? [] }
 
+    /// Coins won and waiting for today's ten minutes: today's chests, and any boss's.
+    func waitingCoins(now: Date = Date()) -> Int {
+        let day = today(now)
+        return earnings.filter { VocabPay.stillGood($0, today: day) }.reduce(0) { $0 + $1.coins }
+    }
+
     /// The purse has these: they needn't be kept here any longer.
     func settle(_ keys: Set<String>) {
         guard let earned = mine.earned, earned.contains(where: { keys.contains($0.key) }) else { return }
@@ -279,13 +285,13 @@ final class VocabLocal {
         var random = SystemRandomNumberGenerator()
         guard let fact = VocabFacts.draw(chest, have: Set(prizes.map(\.fact)), using: &random) else { return }
         mine.prizes = prizes + [VocabPrize(session: session.id, fact: fact.id, chest: chest, day: session.day, opened: false)]
-        earn(VocabPay.chest(chest, right: session.correct, session: session.id))
+        earn(VocabPay.chest(chest, session: session.id, day: session.day))
     }
 
     /// A boss beaten pays coins and a gem, the once.
     private func pay(boss session: VocabLocalSession) {
         guard let stage = session.boss, session.isFinished, session.correct >= VocabEngine.bossNeeded(session.total) else { return }
-        earn(VocabPay.boss(stage: stage))
+        earn(VocabPay.boss(stage: stage, day: session.day))
     }
 
     /// Drops what was being kept for a session's chest.
@@ -430,8 +436,10 @@ final class VocabLocal {
         let day = today(now)
         let overview = VocabEngine.overview(level: base.level, questions: base.questions, today: day, content: content, progress: progress,
                                             sessions: sessions, sortedThrough: base.sort.through, sortDone: base.sort.done, rules: rules)
-        return VocabHome(view: "kid", name: base.name, daysLeft: VocabDay.between(day, rules.testDate), overview: overview, kids: nil,
-                         path: path())
+        var home = VocabHome(view: "kid", name: base.name, daysLeft: VocabDay.between(day, rules.testDate), overview: overview, kids: nil,
+                             path: path())
+        home.overview?.waitingCoins = waitingCoins(now: now)
+        return home
     }
 
     // MARK: Syncing

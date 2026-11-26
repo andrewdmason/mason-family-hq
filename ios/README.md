@@ -214,11 +214,17 @@ house on a street the two share: rooms bought with coins (two with gems), and
 in each room fixed spots, each with its own things to choose between.
 
 - One purse for both games (`HouseStore.swift`). What each game pays, and why
-  those amounts, is `Shared/HousePay.swift`: coins for right answers, chests
-  and bosses in Vocab and for answers and the track in Math; a gem for a boss
-  beaten, and for a day's 20 Math questions with 15 right. Vocab's winnings
-  wait in its own store until the purse takes them, each under a key so
-  nothing is paid twice.
+  those amounts, is `Shared/HousePay.swift` (the economy of 2026-11-26, about
+  300 coins for a good day of both): Vocab pays by the chest at the end of a
+  session and for bosses, and Math by a run's stars, its only score, 10 to a
+  coin; a gem for a boss beaten, and for a day's 20 Math questions with 15
+  right. Vocab's winnings wait in its own store until the day's ten minutes
+  are done (a chest not banked by midnight is lost, a boss waits), each under
+  a key so nothing is paid twice. A house kept under the first economy
+  (`HouseState.economy` 1, with back pay) starts again empty.
+- Math's end screen has a stars top 10 of runs, today's and of all time
+  (`top` from `/tuttles/api/math/sync`, `topRuns` in `src/lib/tuttles/math.ts`):
+  the kids' runs since stars were the score, and a parent's own when they play.
 - Rooms, spots, things and prices are all in `HouseCatalog.swift`; the prices
   are checked against a day's pay in `Tests/HouseTests.swift`.
 - Each kid puts each room where they like and can move it later, free
