@@ -227,8 +227,11 @@ final class MathSession {
         let correct = choice == q.answer
         chosen = .some(choice)
         streak = correct ? streak + 1 : 0
+        // The choices were shuffled for the screen; what's kept is where the
+        // one tapped sits in the bank, which is what a parent's phone reads.
+        let banked = choice.flatMap { i in q.choices.indices.contains(i) ? MathBank.question(q.id)?.choices.firstIndex(of: q.choices[i]) : nil } ?? choice
         let record = MathAnswer(id: UUID(), run: run.id, question: q.id, topic: q.topic, section: q.section, difficulty: q.difficulty,
-                                chosen: choice, correct: correct, ms: Int((total - left) * 1000), at: Date())
+                                chosen: banked, correct: correct, ms: Int((total - left) * 1000), at: Date())
         let before = store.goalReachedToday
         let result = store.record(record, question: q, left: left / max(1, total), streak: streak)
         paid = result.stars
