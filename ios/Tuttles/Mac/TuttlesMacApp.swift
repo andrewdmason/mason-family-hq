@@ -173,6 +173,8 @@ struct MacShell: View {
         case .math:
             // The game is the iPhone's.
             ContentUnavailableView("Math is on the iPhone", systemImage: "figure.run")
+        case .house:
+            ContentUnavailableView("The house is on the iPhone", systemImage: "house")
         }
     }
 

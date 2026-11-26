@@ -2,12 +2,15 @@ import Foundation
 import Observation
 import Supabase
 
-// What Math keeps on the phone for one kid: their stars, what they've bought
-// and are wearing, what they've done with each question, today's count, and
-// whatever the website hasn't been told yet. The game never waits on the
-// network. When there is one, the runs and answers waiting go up
-// (/tuttles/api/math/sync, src/lib/tuttles/math.ts) and the brothers' board
-// comes back; the stars and purchases go up too, so a new phone gets them.
+// What Math keeps on the phone for one kid: how they look, what they've done
+// with each question, today's count, and whatever the website hasn't been
+// told yet. The game never waits on the network. When there is one, the runs
+// and answers waiting go up (/tuttles/api/math/sync, src/lib/tuttles/math.ts)
+// and the brothers' board comes back; how they look goes up too, so a new
+// phone gets it.
+//
+// What the game pays goes into the house's purse (iPhone/House/HouseStore.swift),
+// as coins: the same purse Vocab pays into. A run still counts them as stars.
 
 /// A run, as the website keeps it.
 struct MathRun: Codable, Hashable {
@@ -61,10 +64,12 @@ final class MathStore {
 
     /// What goes to the website so it survives a new phone.
     struct Wallet: Codable, Equatable {
+        /// From when Math had a purse and a shop of its own. The stars were
+        /// taken across to the house as coins (HouseStore.take); the rest is
+        /// kept only so an older copy still reads.
         var stars = 0
         var earned = 0
         var owned: [String] = []
-        /// What's on, by slot: "outfit", "finish", "board", "trail", "teacher".
         var wearing: [String: String] = [:]
         var look: MathLook?
         var bestScore = 0
@@ -89,6 +94,8 @@ final class MathStore {
         var musicOn = true
         var effectsOn = true
         var runsPlayed = 0
+        /// Answers got right, by day: what a strong day is counted from.
+        var right: [String: Int]?
     }
 
     private var saved = Saved()
@@ -142,7 +149,8 @@ final class MathStore {
 
     var level: VocabLevel? { saved.level }
     var name: String { saved.name ?? "You" }
-    var stars: Int { saved.wallet.stars }
+    /// What's in the purse: the house's.
+    var stars: Int { HouseStore.shared.coins }
     var wallet: Wallet { saved.wallet }
     var board: [MathBoardRow] { saved.board }
     var runsPlayed: Int { saved.runsPlayed }
@@ -153,52 +161,11 @@ final class MathStore {
         save()
     }
 
-    /// Their own face, hair and skin, in whatever they've put on.
-    var look: MathLook {
-        var look = saved.wallet.look ?? .plain
-        if let outfit = MathCatalog.item(saved.wallet.wearing["outfit"]), case .outfit(let body, let top, let bottom, let shoes) = outfit.what, !top.isEmpty {
-            look.body = body
-            look.top = top
-            look.bottom = bottom
-            look.shoes = shoes
-        }
-        if let finish = MathCatalog.item(saved.wallet.wearing["finish"]), case .finish(let f) = finish.what { look.finish = f }
-        return look
-    }
+    /// Their own face, hair, skin and clothes.
+    var look: MathLook { saved.wallet.look ?? .plain }
 
-    /// The look underneath the outfit, for the editor.
-    var ownLook: MathLook { saved.wallet.look ?? .plain }
-
-    func setOwnLook(_ look: MathLook) {
+    func setLook(_ look: MathLook) {
         saved.wallet.look = look
-        save(wallet: true)
-    }
-
-    func owns(_ item: MathItem) -> Bool { item.price == 0 || saved.wallet.owned.contains(item.id) }
-
-    func wearing(_ item: MathItem) -> Bool {
-        saved.wallet.wearing[item.slot] == item.id || (saved.wallet.wearing[item.slot] == nil && item.isDefault)
-    }
-
-    func worn(_ slot: String) -> MathItem? {
-        MathCatalog.item(saved.wallet.wearing[slot]) ?? MathCatalog.items.first { $0.slot == slot && $0.isDefault }
-    }
-
-    /// Buy it if there are the stars for it. True if it's theirs now.
-    @discardableResult
-    func buy(_ item: MathItem) -> Bool {
-        if owns(item) { return true }
-        guard saved.wallet.stars >= item.price else { return false }
-        saved.wallet.stars -= item.price
-        saved.wallet.owned.append(item.id)
-        saved.wallet.wearing[item.slot] = item.id
-        save(wallet: true)
-        return true
-    }
-
-    func wear(_ item: MathItem) {
-        guard owns(item) else { return }
-        saved.wallet.wearing[item.slot] = item.isDefault ? nil : item.id
         save(wallet: true)
     }
 
@@ -250,8 +217,10 @@ final class MathStore {
         return Int((base * min(3, 1 + 0.25 * Double(max(0, streak - 1)))).rounded())
     }
 
-    /// An answer's been given. Returns the stars it paid, and the day's bonus if this was the one that reached the goal.
-    func record(_ answer: MathAnswer, question: MathQuestion, left: Double, streak: Int) -> (stars: Int, goalBonus: Int) {
+    /// An answer's been given. Returns the coins it paid, the day's bonus if
+    /// this was the one that reached the goal, and whether it made the day a
+    /// strong one, which pays a gem.
+    func record(_ answer: MathAnswer, question: MathQuestion, left: Double, streak: Int) -> (stars: Int, goalBonus: Int, gem: Bool) {
         var seen = saved.seen[question.id] ?? MathBank.Seen()
         seen.times += 1
         seen.last = answer.at
@@ -268,18 +237,26 @@ final class MathStore {
         saved.answers.append(answer)
         let today = Self.day()
         saved.days[today, default: 0] += 1
+        if answer.correct { saved.right = (saved.right ?? [:]).merging([today: 1], uniquingKeysWith: +) }
         var bonus = 0
         if (saved.days[today] ?? 0) >= Self.dayGoal, saved.wallet.goalDays.last != today {
             saved.wallet.goalDays.append(today)
             if saved.wallet.goalDays.count > 400 { saved.wallet.goalDays.removeFirst() }
             bonus = min(300, 100 + 20 * (streak_() - 1))
         }
-        saved.wallet.stars += paid + bonus
-        saved.wallet.earned += paid + bonus
+        HouseStore.shared.add(coins: paid + bonus)
+        // The day's 20 done with enough of them right: a gem, the once.
+        var gem = false
+        if (saved.days[today] ?? 0) >= Self.dayGoal, (saved.right?[today] ?? 0) >= MathPay.strongDay,
+           !HouseStore.shared.state.paid.contains(MathPay.gemKey(today)) {
+            HouseStore.shared.pay(key: MathPay.gemKey(today), coins: 0, gems: 1, from: "math")
+            gem = true
+        }
         // Old days aren't needed here: the website has them.
         if saved.days.count > 40 { for key in saved.days.keys.sorted().dropLast(40) { saved.days[key] = nil } }
+        if let right = saved.right, right.count > 40 { for key in right.keys.sorted().dropLast(40) { saved.right?[key] = nil } }
         save(wallet: true)
-        return (paid, bonus)
+        return (paid, bonus, gem)
     }
 
     private func streak_() -> Int { streak }
@@ -288,8 +265,7 @@ final class MathStore {
     func finish(_ run: MathRun, pickedUp: Int) {
         saved.runs.removeAll { $0.id == run.id }
         saved.runs.append(run)
-        saved.wallet.stars += pickedUp
-        saved.wallet.earned += pickedUp
+        HouseStore.shared.add(coins: pickedUp)
         saved.wallet.bestScore = max(saved.wallet.bestScore, run.score)
         saved.wallet.bestWaves = max(saved.wallet.bestWaves, run.waves)
         saved.wallet.bestStreak = max(saved.wallet.bestStreak, run.bestStreak)
@@ -361,15 +337,19 @@ final class MathStore {
             // Another phone, or this one before it was wiped, got further.
             saved.wallet = theirs.json
             saved.rev = theirs.rev
+            HouseStore.shared.take(stars: theirs.json.stars)
         }
         save()
     }
 
     // MARK: For the simulator
 
-    /// `--math-stars 5000`: a full purse, to try the shop.
-    func demo(stars: Int) {
-        saved.wallet.stars = stars
-        save()
-    }
+    /// Right answers today, of the day's count.
+    var rightToday: Int { saved.right?[Self.day()] ?? 0 }
+
+    /// This phone has had something of Math's to keep.
+    var hasOwn: Bool { saved.rev > 0 }
+
+    /// Stars from when Math kept its own, to hand to the house the once.
+    var oldStars: Int { saved.wallet.stars }
 }

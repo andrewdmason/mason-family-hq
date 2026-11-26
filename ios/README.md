@@ -185,15 +185,40 @@ to break free, wrong and the run is over with the worked answer shown.
   `scripts/math/import.mts` from Andrew's sheet of questions (a copy, the
   fixes found by checking every answer, and the figures are in
   `scripts/math/source`), so it plays
-  with no connection. Runs, answers, stars and purchases are kept on the phone
+  with no connection. Runs, answers and how the kid looks are kept on the phone
   (`MathStore.swift`) and go to `/tuttles/api/math/sync` when there's signal;
   the parents' view reads `/tuttles/api/math/summary`.
-- The shop is for show only: nothing bought makes a question easier.
+- What it pays goes into the house's purse as coins (below). Everyone runs as
+  themselves; their look is free to change ("Look" on Math's first screen).
 - For the simulator, with `--demo --math`: `--math-run` starts running,
   `--math-auto` plays by itself, `--math-god` can't be caught, `--math-level 6`
-  starts in the sixth zone, `--math-shop` opens the shop, `--math-stars 5000`
-  fills the purse, `--math-lower` uses the Lower Level bank, and
+  starts in the sixth zone, `--math-shop` opens the look editor,
+  `--math-lower` uses the Lower Level bank, and
   `--math-figures middle 12` shows six of that level's figures from the 13th.
+
+`Tuttles/iPhone/House`: what Vocab and Math are played for. Each kid has a
+house on a street the two share: rooms bought with coins (two with gems), and
+in each room fixed spots, each with its own things to choose between.
+
+- One purse for both games (`HouseStore.swift`). What each game pays, and why
+  those amounts, is `Shared/HousePay.swift`: coins for right answers, chests
+  and bosses in Vocab and for answers and the track in Math; a gem for a boss
+  beaten, and for a day's 20 Math questions with 15 right. Vocab's winnings
+  wait in its own store until the purse takes them, each under a key so
+  nothing is paid twice.
+- Rooms, spots, things and prices are all in `HouseCatalog.swift`; the prices
+  are checked against a day's pay in `Tests/HouseTests.swift`.
+- It's SceneKit from one fixed corner (`HouseScene.swift`). A room is a floor
+  and two walls, and each room sits one up and one back from the one below, so
+  none hides another. Furniture and pets are Kenney's kits; rugs, floors,
+  pictures, windows and the odd things are drawn in code (`HouseProps.swift`).
+- The house goes to `/tuttles/api/house/sync` whole, newest wins, and the
+  street comes back and is kept, so the other house shows with no connection.
+  The parents see the street and each purse.
+- For the simulator, with `--demo --house`: `--house-coins 50000` and
+  `--house-gems 40` fill the purse, `--house-room den` opens on a room,
+  `--house-fill 0` gives every room with each spot's first thing in it (`2`:
+  its third), and `--house-sizes` prints each kit model's size.
 
 ## Tuttles (Mac)
 

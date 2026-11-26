@@ -1,0 +1,401 @@
+import Foundation
+import Observation
+import MasonKit
+import Supabase
+
+// The purse and the house, for one kid, kept on the phone. Coins and gems are
+// won in Vocab and Math (Shared/HousePay.swift) and spent here on rooms and
+// what goes in them (HouseCatalog.swift). None of it waits on the network.
+// When there is one, the whole of it goes up (/tuttles/api/house/sync,
+// src/lib/tuttles/house.ts), so a new phone gets it back and so the other
+// house on the street can be seen; the brothers' houses come back, and are
+// kept, so the street is there with no connection too.
+
+/// A house and its purse: what goes to the website.
+struct HouseState: Codable, Equatable {
+    /// Something paid in, for the parents to see where it came from.
+    struct Paid: Codable, Equatable {
+        let day: String
+        /// "vocab", "math" or "start".
+        let from: String
+        var coins: Int
+        var gems: Int
+    }
+
+    var coins = 0
+    var gems = 0
+    /// Everything ever paid in.
+    var earned = 0
+    var gemsEarned = 0
+    /// The rooms that are theirs, in the order they got them.
+    var rooms: [String] = [HouseCatalog.first]
+    /// Everything bought.
+    var owned: [String] = []
+    /// What's in each spot ("bedroom.bed"), by the thing's id.
+    var placed: [String: String] = [:]
+    /// What's been paid for already ("chest:…", "boss:3", "mathgem:2026-11-26"), newest last.
+    var paid: [String] = []
+    /// What each day brought from each game, newest last.
+    var days: [Paid] = []
+    /// Math's stars have been brought across as coins.
+    var tookStars = false
+    /// Vocab done before there was a purse has been paid for.
+    var backPaid = false
+
+    init() {}
+
+    // Anything missing is as it would be in a new house, so an older phone's copy still reads.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        coins = (try? c.decode(Int.self, forKey: .coins)) ?? 0
+        gems = (try? c.decode(Int.self, forKey: .gems)) ?? 0
+        earned = (try? c.decode(Int.self, forKey: .earned)) ?? 0
+        gemsEarned = (try? c.decode(Int.self, forKey: .gemsEarned)) ?? 0
+        rooms = (try? c.decode([String].self, forKey: .rooms)) ?? [HouseCatalog.first]
+        owned = (try? c.decode([String].self, forKey: .owned)) ?? []
+        placed = (try? c.decode([String: String].self, forKey: .placed)) ?? [:]
+        paid = (try? c.decode([String].self, forKey: .paid)) ?? []
+        days = (try? c.decode([Paid].self, forKey: .days)) ?? []
+        tookStars = (try? c.decode(Bool.self, forKey: .tookStars)) ?? false
+        backPaid = (try? c.decode(Bool.self, forKey: .backPaid)) ?? false
+    }
+
+    // MARK: Reading it
+
+    func has(room: String) -> Bool { rooms.contains(room) }
+
+    func owns(_ item: HouseItem) -> Bool { item.free || owned.contains(item.id) }
+
+    /// What's in a spot: what they put there, or what it came with.
+    func item(in spot: HouseSpot, of room: String) -> HouseItem? {
+        if let id = placed[HouseCatalog.key(room, spot.id)] {
+            // "" is a spot they've emptied.
+            return id.isEmpty ? nil : spot.items.first { $0.id == id } ?? spot.starter
+        }
+        return spot.starter
+    }
+
+    /// Spots with something in them, over all the spots of the rooms they have: how furnished it is.
+    var filled: (Int, Int) {
+        var have = 0, of = 0
+        for room in HouseCatalog.rooms where has(room: room.id) {
+            for spot in room.spots where spot.starter == nil {
+                of += 1
+                if item(in: spot, of: room.id) != nil { have += 1 }
+            }
+        }
+        return (have, of)
+    }
+
+    /// Rooms bought with coins, the first included.
+    var coinRooms: Int { rooms.filter { HouseCatalog.room($0)?.gems == 0 }.count }
+
+    func price(of room: HouseRoom) -> (coins: Int, gems: Int) {
+        room.gems > 0 ? (0, room.gems) : (HouseCatalog.roomPrice(owned: coinRooms), 0)
+    }
+
+    func canAfford(coins: Int, gems: Int) -> Bool { self.coins >= coins && self.gems >= gems }
+
+    // MARK: Changing it
+
+    /// Pay something in, once for each key. False if that key's been paid.
+    @discardableResult
+    mutating func pay(key: String, coins: Int, gems: Int, from: String, day: String) -> Bool {
+        guard !paid.contains(key) else { return false }
+        paid.append(key)
+        if paid.count > 600 { paid.removeFirst(paid.count - 600) }
+        add(coins: coins, gems: gems, from: from, day: day)
+        return true
+    }
+
+    /// Pay something in that has no key: Math's answers and stars, as they're won.
+    mutating func add(coins: Int, gems: Int, from: String, day: String) {
+        guard coins > 0 || gems > 0 else { return }
+        self.coins += coins
+        self.gems += gems
+        earned += coins
+        gemsEarned += gems
+        if let at = days.lastIndex(where: { $0.day == day && $0.from == from }) {
+            days[at].coins += coins
+            days[at].gems += gems
+        } else {
+            days.append(Paid(day: day, from: from, coins: coins, gems: gems))
+            if days.count > 90 { days.removeFirst(days.count - 90) }
+        }
+    }
+
+    /// Buy a room, if it's one to buy and there's enough. True if it's theirs now.
+    @discardableResult
+    mutating func unlock(_ room: HouseRoom) -> Bool {
+        if has(room: room.id) { return true }
+        let price = price(of: room)
+        guard canAfford(coins: price.coins, gems: price.gems) else { return false }
+        coins -= price.coins
+        gems -= price.gems
+        rooms.append(room.id)
+        return true
+    }
+
+    /// Put a thing in its spot, buying it first if it isn't theirs. True if it's there now.
+    @discardableResult
+    mutating func place(_ item: HouseItem, in spot: HouseSpot, of room: String) -> Bool {
+        guard has(room: room), spot.items.contains(item) else { return false }
+        if !owns(item) {
+            guard canAfford(coins: item.coins, gems: item.gems) else { return false }
+            coins -= item.coins
+            gems -= item.gems
+            owned.append(item.id)
+        }
+        placed[HouseCatalog.key(room, spot.id)] = item.id
+        return true
+    }
+
+    /// Take what's in a spot out. It's still theirs. (A spot's own free thing can't be: walls need a colour.)
+    mutating func clear(_ spot: HouseSpot, of room: String) {
+        guard spot.starter == nil else {
+            placed[HouseCatalog.key(room, spot.id)] = nil
+            return
+        }
+        placed[HouseCatalog.key(room, spot.id)] = ""
+    }
+}
+
+/// One house on the street: whose, and how it stands.
+struct HouseNeighbour: Codable, Equatable, Identifiable {
+    let kid: String
+    let name: String
+    let me: Bool
+    var state: HouseState?
+    /// How they look, from Math (MathLook).
+    var look: MathLook?
+    var id: String { kid }
+}
+
+@MainActor
+@Observable
+final class HouseStore {
+    static let shared = HouseStore()
+
+    private struct Saved: Codable {
+        var rev = 0
+        var state = HouseState()
+        var name: String?
+        var street: [HouseNeighbour] = []
+    }
+
+    private var saved = Saved()
+    private(set) var owner: UUID?
+    @ObservationIgnored private var syncing = false
+    /// The last thing paid in, for whatever's on screen to make something of.
+    private(set) var lastPaid: (coins: Int, gems: Int, at: Date)?
+
+    // MARK: Whose
+
+    func open(for owner: UUID, name: String?) {
+        if self.owner != owner {
+            self.owner = owner
+            saved = (try? Data(contentsOf: file(owner))).flatMap { try? JSONDecoder().decode(Saved.self, from: $0) } ?? Saved()
+            lastPaid = nil
+        }
+        if let name, !name.isEmpty { saved.name = name }
+    }
+
+    private func file(_ owner: UUID) -> URL {
+        let root = URL.applicationSupportDirectory.appending(path: Bundle.main.bundleIdentifier ?? "io.mason.tuttles")
+        return root.appending(path: "house").appending(path: owner.uuidString.lowercased() + ".json")
+    }
+
+    private func save(changed: Bool = true) {
+        if changed { saved.rev += 1 }
+        guard let owner, let data = try? JSONEncoder().encode(saved) else { return }
+        let url = file(owner)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
+    }
+
+    // MARK: Read
+
+    var state: HouseState { saved.state }
+    var coins: Int { saved.state.coins }
+    var gems: Int { saved.state.gems }
+    var name: String { saved.name ?? "You" }
+    /// The other houses on the street, as last heard.
+    var others: [HouseNeighbour] { saved.street.filter { !$0.me } }
+    /// Everyone's, theirs first, for the parents.
+    var street: [HouseNeighbour] { saved.street }
+
+    // MARK: Paying in
+
+    /// Something with a key: paid once however often it's sent.
+    func pay(key: String, coins: Int, gems: Int, from: String) {
+        guard owner != nil, saved.state.pay(key: key, coins: coins, gems: gems, from: from, day: MathStore.day()) else { return }
+        lastPaid = (coins, gems, Date())
+        save()
+    }
+
+    /// Math's coins as they're won.
+    func add(coins: Int, from: String = "math") {
+        guard owner != nil, coins > 0 else { return }
+        saved.state.add(coins: coins, gems: 0, from: from, day: MathStore.day())
+        save()
+    }
+
+    /// Take what Vocab has won since the purse last looked, and whatever's
+    /// owed from before there was a purse.
+    func collect(from vocab: VocabLocal?) {
+        guard owner != nil, let vocab else { return }
+        if !saved.state.backPaid {
+            let stages = vocab.path().stages
+            let beaten = stages.filter { $0.boss == .beaten }
+            let back = VocabPay.backPay(cleared: stages.filter(\.cleared).count, beaten: beaten.count)
+            // Those bosses are paid for by this, not again.
+            let waiting = Set(vocab.earnings.map(\.key))
+            for stage in beaten where !waiting.contains(VocabPay.bossKey(stage.number)) && !saved.state.paid.contains(VocabPay.bossKey(stage.number)) {
+                saved.state.paid.append(VocabPay.bossKey(stage.number))
+            }
+            saved.state.add(coins: back.coins, gems: back.gems, from: "start", day: MathStore.day())
+            saved.state.backPaid = true
+            save()
+        }
+        let earnings = vocab.earnings
+        guard !earnings.isEmpty else { return }
+        var coins = 0, gems = 0
+        for e in earnings where saved.state.pay(key: e.key, coins: e.coins, gems: e.gems, from: "vocab", day: MathStore.day()) {
+            coins += e.coins
+            gems += e.gems
+        }
+        if coins > 0 || gems > 0 { lastPaid = (coins, gems, Date()) }
+        save()
+        vocab.settle(Set(earnings.map(\.key)))
+    }
+
+    /// Math's stars, from before they were coins, come across the once.
+    func take(stars: Int) {
+        guard owner != nil, !saved.state.tookStars else { return }
+        saved.state.tookStars = true
+        saved.state.add(coins: stars, gems: 0, from: "start", day: MathStore.day())
+        save()
+    }
+
+    // MARK: Spending
+
+    @discardableResult
+    func unlock(_ room: HouseRoom) -> Bool {
+        guard saved.state.unlock(room) else { return false }
+        save()
+        return true
+    }
+
+    @discardableResult
+    func place(_ item: HouseItem, in spot: HouseSpot, of room: String) -> Bool {
+        guard saved.state.place(item, in: spot, of: room) else { return false }
+        save()
+        return true
+    }
+
+    func clear(_ spot: HouseSpot, of room: String) {
+        saved.state.clear(spot, of: room)
+        save()
+    }
+
+    // MARK: The website
+
+    private struct Reply: Decodable {
+        struct Kept: Decodable {
+            let rev: Int
+            let json: HouseState
+        }
+        let state: Kept?
+        let street: [HouseNeighbour]
+
+        enum Keys: String, CodingKey { case state, street }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: Keys.self)
+            state = try? c.decode(Kept.self, forKey: .state)
+            // A house this build can't read is left out rather than losing the street.
+            struct Loose: Decodable {
+                let value: HouseNeighbour?
+                init(from decoder: Decoder) throws { value = try? HouseNeighbour(from: decoder) }
+            }
+            street = ((try? c.decode([Loose].self, forKey: .street)) ?? []).compactMap(\.value)
+        }
+    }
+
+    /// Send the house up and take the street back. Quietly does nothing with
+    /// no connection. In the parents' view nothing is sent: it's only looked at.
+    func sync(with store: ChatStore) async {
+        guard !store.isDemo, !syncing else { return }
+        let parents = store.showingParentView
+        guard parents || (owner != nil && owner == store.ownerID) else { return }
+        syncing = true
+        defer { syncing = false }
+        struct Body: Encodable {
+            struct Kept: Encodable {
+                let rev: Int
+                let json: HouseState
+            }
+            let state: Kept?
+        }
+        let owner = owner
+        // A phone that's never had anything sends no house, so a reinstall takes the website's.
+        let body = Body(state: parents || saved.rev == 0 ? nil : .init(rev: saved.rev, json: saved.state))
+        guard let data = try? JSONEncoder().encode(body), let token = try? await store.client.auth.session.accessToken else { return }
+        var request = URLRequest(url: ChatStore.websiteURL.appending(path: "tuttles/api/house/sync"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        store.authorize(&request, token: token)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
+        guard let (reply, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let pack = try? JSONDecoder().decode(Reply.self, from: reply),
+              self.owner == owner else { return }
+        saved.street = pack.street
+        if !parents, let theirs = pack.state, theirs.rev > saved.rev {
+            // Another phone, or this one before it was wiped, got further.
+            saved.state = theirs.json
+            saved.rev = theirs.rev
+        }
+        save(changed: false)
+    }
+
+    // MARK: For the simulator
+
+    /// `--house-coins 50000 --house-gems 40`: a full purse, to try the shop.
+    /// `--house-fill 0`: every room, with each spot's first thing in it (1: its second, and so on).
+    func demo(coins: Int?, gems: Int?, fill: Int? = nil, street: [HouseNeighbour]) {
+        if let coins { saved.state.coins = coins }
+        if let gems { saved.state.gems = gems }
+        if let fill {
+            saved.state.rooms = HouseCatalog.rooms.map(\.id)
+            for room in HouseCatalog.rooms { for spot in room.spots {
+                let item = spot.items[min(fill, spot.items.count - 1)]
+                saved.state.owned.append(item.id)
+                saved.state.placed[HouseCatalog.key(room.id, spot.id)] = item.id
+            } }
+        }
+        saved.state.backPaid = true
+        saved.state.tookStars = true
+        saved.street = street
+    }
+}
+
+extension ChatStore {
+    /// Opens Math's things and the purse for whoever the phone is being used
+    /// as, and puts in the purse whatever's been won since it last looked.
+    /// Cheap to call often: it's how Vocab's coins get there.
+    func openHouse() {
+        guard !showingParentView else { return }
+        let owner = ownerID ?? UUID(uuidString: "00000000-0000-0000-0000-00000000d0e0")!
+        let demoName = CommandLine.arguments.contains("--math-oscar") ? "Oscar" : "Sebastian"
+        let name = isDemo ? demoName : actingKid?.name ?? Session.shared.name?.split(separator: " ").first.map(String.init)
+        let math = MathStore.shared, house = HouseStore.shared
+        let local = vocabOpenLocal()
+        math.open(for: owner, name: name, level: local?.base.level)
+        house.open(for: owner, name: name)
+        // Stars from when Math kept its own. (A phone with nothing of Math's yet waits to hear from the website.)
+        if math.hasOwn { house.take(stars: math.oldStars) }
+        house.collect(from: local)
+    }
+}

@@ -73,6 +73,9 @@ enum Route: Hashable {
     /// ISEE math practice as an endless runner (iPhone/Math), for a kid, and
     /// how the kids are doing at it, for the parents. iPhone only.
     case math
+    /// The house each kid builds with what Vocab and Math pay (iPhone/House),
+    /// and both houses, for the parents. iPhone only.
+    case house
 
     /// The chat this route opens, if it's one.
     var chatID: UUID? {

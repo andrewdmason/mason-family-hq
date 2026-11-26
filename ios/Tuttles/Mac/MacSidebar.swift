@@ -25,7 +25,7 @@ struct MacSidebar: View {
             case .study, .studySet: .study
             case .vocab, .vocabList, .vocabProgress, .vocabFacts: .vocab
             case .chat(let id, _, _, _, _, _): .thread(id)
-            case .topic, .math: nil
+            case .topic, .math, .house: nil
             }
         } set: { item in
             switch item {

@@ -57,6 +57,7 @@ final class MathSession {
         let chosen: Int?
         let line: String
         let goalBonus: Int
+        var gem = false
         let newBest: Bool
     }
 
@@ -82,6 +83,8 @@ final class MathSession {
     @ObservationIgnored private var bubbleID = 0
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private var goalBonus = 0
+    /// The run made the day a strong one: a gem.
+    @ObservationIgnored private var gem = false
     /// Stars from answers, shown in the run's count but already in the purse.
     @ObservationIgnored private var granted = 0
     private let store = MathStore.shared
@@ -94,22 +97,8 @@ final class MathSession {
 
     private static func makeGame() -> MathGame {
         let store = MathStore.shared
-        var setup = MathGame.Setup(look: store.look, teacher: MathCatalog.items.first { $0.id == "teacher-grey" }.flatMap {
-            if case .teacher(let look, _) = $0.what { return look }
-            return nil
-        } ?? .plain)
-        if let teacher = store.worn("teacher"), case .teacher(var look, let height) = teacher.what {
-            // The Other You wears what you're wearing.
-            if teacher.id == "teacher-you" {
-                let mine = store.look
-                look.head = mine.head
-                look.body = mine.body
-            }
-            setup.teacher = look
-            setup.teacherHeight = height
-        }
-        if let board = store.worn("board"), case .board(let deck, let wheels) = board.what { setup.board = (deck, wheels) }
-        if let trail = store.worn("trail"), case .trail(let color) = trail.what { setup.trail = color }
+        var setup = MathGame.Setup(look: store.look, teacher: MathCast.teacher)
+        setup.teacherHeight = MathCast.teacherHeight
         MathZone.you = setup.look
         return MathGame(setup: setup, audio: MathAudio.shared)
     }
@@ -120,7 +109,7 @@ final class MathSession {
         game.onZone = { [weak self] zone in self?.show(banner: zone.name) }
         game.onMoment = { [weak self] moment in
             guard let self else { return }
-            let teacher = MathStore.shared.worn("teacher")?.id
+            let teacher: String? = MathCast.teacherID
             switch moment {
             case .start: self.say(MathTeacherLines.line(.start, teacher: teacher))
             case .close: self.say(MathTeacherLines.line(.close, teacher: teacher))
@@ -153,6 +142,7 @@ final class MathSession {
         asked = []
         streak = 0
         goalBonus = 0
+        gem = false
         granted = 0
         stage = .running
         audio.setMusic("music-run")
@@ -198,7 +188,7 @@ final class MathSession {
         question = q
         chosen = nil
         paid = 0
-        line = MathTeacherLines.line(.caught, teacher: store.worn("teacher")?.id)
+        line = MathTeacherLines.line(.caught, teacher: MathCast.teacherID)
         total = TimeInterval(q.seconds)
         deadline = Date().addingTimeInterval(total)
         stage = .question
@@ -233,6 +223,7 @@ final class MathSession {
         let result = store.record(record, question: q, left: left / max(1, total), streak: streak)
         paid = result.stars
         goalBonus += result.goalBonus
+        if result.gem { gem = true }
         if !before, store.goalReachedToday {
             goalJustReached = true
             audio.play("goal", volume: 0.8, delay: 0.5)
@@ -242,7 +233,7 @@ final class MathSession {
         run.bestStreak = max(run.bestStreak, streak)
         self.run = run
         audio.play(correct ? "correct" : "wrong")
-        let teacher = store.worn("teacher")?.id
+        let teacher: String? = MathCast.teacherID
         Task {
             try? await Task.sleep(for: .seconds(correct ? 1.1 : 1.5))
             if correct {
@@ -271,7 +262,7 @@ final class MathSession {
         run.stars = hud.stars
         let best = run.score > store.wallet.bestScore && store.wallet.bestScore > 0
         store.finish(run, pickedUp: max(0, hud.stars - granted))
-        ending = Ending(run: run, missed: missed, chosen: chosen, line: line, goalBonus: goalBonus, newBest: best)
+        ending = Ending(run: run, missed: missed, chosen: chosen, line: line, goalBonus: goalBonus, gem: gem, newBest: best)
         self.run = nil
         paused = false
         game.hold(false)
@@ -314,13 +305,7 @@ struct MathPlayView: View {
         .statusBarHidden(session?.stage == .running)
         .task {
             guard session == nil else { return }
-            let owner = store.ownerID ?? UUID(uuidString: "00000000-0000-0000-0000-00000000d0e0")!
-            let demoName = CommandLine.arguments.contains("--math-oscar") ? "Oscar" : "Sebastian"
-            math.open(for: owner, name: store.isDemo ? demoName : store.actingKid?.name ?? Session.shared.name?.split(separator: " ").first.map(String.init),
-                      level: store.vocabLocal?.base.level)
-            if let at = CommandLine.arguments.firstIndex(of: "--math-stars"), CommandLine.arguments.count > at + 1, let n = Int(CommandLine.arguments[at + 1]) {
-                math.demo(stars: n)
-            }
+            store.openHouse()
             if store.isDemo, math.level == nil { math.setLevel(CommandLine.arguments.contains("--math-lower") ? .lower : .middle) }
             MathAudio.shared.prepare()
             let made = MathSession()
@@ -343,7 +328,7 @@ struct MathPlayView: View {
             menu?.locked = false
         }
         .sheet(isPresented: $showingShop, onDismiss: { session?.reset() }) {
-            MathShopView()
+            MathLookView()
         }
     }
 
@@ -429,7 +414,7 @@ struct MathHomeOverlay: View {
         VStack(spacing: 0) {
             HStack {
                 Spacer()
-                MathStarsPill(stars: math.stars)
+                HousePurse()
             }
             .padding(.horizontal, 16)
             .padding(.top, 6)
@@ -450,7 +435,7 @@ struct MathHomeOverlay: View {
                 }
                 HStack(spacing: 12) {
                     Button(action: shop) {
-                        Label("Shop", systemImage: "bag.fill")
+                        Label("Look", systemImage: "person.fill")
                             .font(.system(.headline, design: .rounded).weight(.heavy))
                             .foregroundStyle(.primary)
                             .frame(width: 118, height: 58)
@@ -521,21 +506,6 @@ struct MathHomeOverlay: View {
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: 22))
-    }
-}
-
-struct MathStarsPill: View {
-    let stars: Int
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "star.fill").foregroundStyle(.yellow)
-            Text(stars.formatted()).font(.system(.headline, design: .rounded).weight(.heavy).monospacedDigit())
-                .contentTransition(.numericText())
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .glassEffect(.regular, in: .capsule)
     }
 }
 
@@ -724,15 +694,24 @@ struct MathOverView: View {
                             .foregroundStyle(ending.newBest ? .yellow : .white.opacity(0.7))
                     }
                     HStack(spacing: 10) {
-                        stat("\(ending.run.stars)", "stars", "star.fill", .yellow)
+                        stat("\(ending.run.stars)", "coins", "circle.fill", .yellow)
                         stat("\(ending.run.correct)/\(ending.run.answered)", "right", "checkmark.circle.fill", .green)
                         stat("\(ending.run.distance) m", MathZone.all[MathZone.index(forLevel: ending.run.depth)].name, "figure.run", .white)
                     }
                     .padding(.horizontal, 14)
                     if ending.goalBonus > 0 {
-                        Label("Today's 20 done: +\(ending.goalBonus) stars", systemImage: "checkmark.seal.fill")
+                        Label("Today's 20 done: +\(ending.goalBonus) coins", systemImage: "checkmark.seal.fill")
                             .font(.system(.subheadline, design: .rounded).weight(.heavy))
                             .foregroundStyle(.green)
+                    }
+                    if ending.gem {
+                        Label("A strong day: +1 gem", systemImage: "diamond.fill")
+                            .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                            .foregroundStyle(.cyan)
+                    } else if math.goalReachedToday, math.rightToday < MathPay.strongDay, !HouseStore.shared.state.paid.contains(MathPay.gemKey(MathStore.day())) {
+                        Text("\(MathPay.strongDay - math.rightToday) more right today for a gem")
+                            .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.75))
                     } else if !math.goalReachedToday {
                         Text("\(max(0, MathStore.dayGoal - math.answeredToday)) more questions for today")
                             .font(.system(.subheadline, design: .rounded).weight(.semibold))
