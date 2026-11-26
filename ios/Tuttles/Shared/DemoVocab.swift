@@ -10,7 +10,9 @@ import Foundation
 /// `--vocab-path` is that with some of the path walked already: a gold stage
 /// with its boss beaten, one with its boss waiting, and one part-way through.
 /// `--vocab-climb` with it cuts the words into twenty stages, so the whole
-/// climb is there to look at, from the trailhead to the summit.
+/// climb is there to look at, from the trailhead to the summit. With either
+/// of those two, `--vocab-late` has the session one question from its end and
+/// its chest, and `--vocab-wrong <n>` has the first n of them missed.
 @MainActor
 enum DemoVocab {
     private struct Card {
@@ -199,6 +201,18 @@ enum DemoVocab {
         let local = VocabLocal.start(in: folder, with: pack)
         // Stages of five, so these few words make a path worth looking at.
         if path { local?.stageSize = climb ? 2 : 5 }
+        // `--vocab-late`: the session's been played here up to its last
+        // question, the first `--vocab-wrong <n>` of them missed.
+        let args = CommandLine.arguments
+        if let local, args.contains("--vocab-late") {
+            let wrong = args.firstIndex(of: "--vocab-wrong").flatMap { args.indices.contains($0 + 1) ? Int(args[$0 + 1]) : nil } ?? 0
+            var state = local.begin()
+            while let question = state.question, question.position < question.total,
+                  let next = local.answer(session: state.sessionId, position: question.position,
+                                          choice: question.position <= wrong ? nil : question.key?.correctIndex, ms: 4_000) {
+                state = next
+            }
+        }
         return local
     }
 

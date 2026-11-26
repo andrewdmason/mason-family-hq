@@ -156,10 +156,13 @@ are in `src/lib/tuttles/prompt.ts`.
   (`VocabSortView.swift`).
   An ordinary session played on the phone opens on the stage's boss with
   something to say (`VocabBosses.swift` has each boss's lines, in order) and
-  ends in a chest holding a gross fact (`VocabFacts.swift`: wood, silver or
-  gold by how the session went, the fact drawn from the ones not yet found).
+  ends on its chest, full screen (`VocabChest.swift`: wood, silver or gold by
+  how the session went): tapped, it bursts open and its coins pour out and are
+  counted, and then the session's numbers follow. Its sounds are made in code
+  (`VocabChestSound.swift`), ambient like Math's: quiet when the phone is on silent.
   Chests and which line comes next are kept only on the phone, with the rest
-  of what it keeps for Vocab. `--vocab-offline` is the way to see both.
+  of what it keeps for Vocab. `--vocab-offline` is the way to see both
+  (with `--vocab-late`, one question from the chest).
   The map of stages is drawn on a landscape (`VocabLandscape.swift`): each
   stage's ground and scenery in code, moving a little, with the stages still
   ahead under a haze. `--vocab-path --vocab-climb` shows all twenty.

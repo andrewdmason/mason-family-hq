@@ -180,8 +180,6 @@ struct ChatsView: View {
             VocabListView(kid: kid, name: name).menuButton(isRoot)
         case .vocabProgress:
             VocabProgressView().menuButton(isRoot)
-        case .vocabFacts:
-            VocabFactsView().menuButton(isRoot)
         case .math:
             MathHomeView().menuButton(isRoot)
         case .house:

@@ -544,8 +544,8 @@ final class VocabLocalTests: XCTestCase {
         return state
     }
 
-    /// An ordinary session ends in a chest with a fact in it: gold when it
-    /// went well, a different fact each time, and kept when the app's opened again.
+    /// An ordinary session ends in a chest: gold when it went well, shut
+    /// until they open it, and kept when the app's opened again.
     func testAChestAtTheEnd() throws {
         let local = try XCTUnwrap(VocabLocal.start(in: folder, with: pack()))
         // A brand-new word not known isn't held against the chest.
@@ -553,9 +553,6 @@ final class VocabLocalTests: XCTestCase {
         XCTAssertEqual(state.summary?.correct, 4)
         let first = try XCTUnwrap(state.summary?.prize)
         XCTAssertEqual(first.chest, .gold)
-        XCTAssertEqual(VocabFacts.fact(first.fact)?.tier, .gold)
-        XCTAssertEqual(state.summary?.factsFound, 1)
-        // Shut, it isn't one they've found; opened, it is, and stays opened.
         // It pays for the chest (not each right answer), once the purse takes it.
         let pay = try XCTUnwrap(state.summary?.pay)
         XCTAssertEqual(pay, VocabEarning(key: VocabPay.chestKey(state.sessionId), coins: VocabPay.bonus(.gold), gems: 0, day: local.today(noon)))
@@ -565,26 +562,49 @@ final class VocabLocalTests: XCTestCase {
         local.settle([pay.key])
         XCTAssertTrue(local.earnings.isEmpty)
         XCTAssertTrue(try XCTUnwrap(VocabLocal.load(from: folder)).earnings.isEmpty)
+        // Shut until it's opened, and then it stays opened.
         XCTAssertEqual(first.opened, false)
-        XCTAssertTrue(local.found.isEmpty)
         local.open(first)
-        XCTAssertEqual(local.found, [first.fact])
-        XCTAssertEqual(try XCTUnwrap(VocabLocal.load(from: folder)).found, [first.fact])
+        XCTAssertEqual(local.prizes.map(\.isOpen), [true])
+        XCTAssertEqual(try XCTUnwrap(VocabLocal.load(from: folder)).prizes.map(\.isOpen), [true])
 
         // Nothing right at all, new words or the ones that came round again: wood.
         state = try play(local, from: local.begin(now: noon)) { _ in true }
         let second = try XCTUnwrap(state.summary?.prize)
         XCTAssertEqual(second.chest, .wood)
-        XCTAssertNotEqual(second.fact, first.fact)
-        XCTAssertEqual(state.summary?.factsFound, 2)
 
-        XCTAssertEqual(local.prizes.map(\.fact), [first.fact, second.fact])
+        XCTAssertEqual(local.prizes.map(\.chest), [.gold, .wood])
         XCTAssertEqual(local.prizes.map(\.isOpen), [true, false])
         XCTAssertEqual(try XCTUnwrap(VocabLocal.load(from: folder)).prizes, local.prizes)
         // And they stay through a sync.
         let sent = local.sending()
         local.took(sent, reply: try reply(to: sent, from: local))
-        XCTAssertEqual(local.prizes.map(\.fact), [first.fact, second.fact])
+        XCTAssertEqual(local.prizes.map(\.chest), [.gold, .wood])
+    }
+
+    /// Every sound of a chest opening is there to be heard, and none of them clips.
+    func testTheChestsSounds() {
+        for sound in VocabChestSound.Sound.allCases {
+            let samples = VocabChestSound.samples(sound)
+            let peak = samples.reduce(0) { max($0, abs($1)) }
+            XCTAssertGreaterThan(samples.count, Int(0.2 * VocabChestSound.rate), "\(sound)")
+            XCTAssertGreaterThan(peak, 0.5, "\(sound)")
+            XCTAssertLessThanOrEqual(peak, 1, "\(sound)")
+            XCTAssertFalse(samples.contains { !$0.isFinite }, "\(sound)")
+            // It starts and ends on nothing, so it doesn't click.
+            XCTAssertEqual(samples.first ?? 1, 0, accuracy: 0.001, "\(sound)")
+            XCTAssertEqual(samples.last ?? 1, 0, accuracy: 0.001, "\(sound)")
+        }
+        // The coins climb.
+        XCTAssertNotEqual(VocabChestSound.samples(.coin(0)), VocabChestSound.samples(.coin(5)))
+    }
+
+    /// A chest kept from when chests held a fact still reads.
+    func testAChestFromWhenTheyHeldFacts() throws {
+        let old = Data(#"[{"session":"a","fact":2003,"chest":"gold","day":"2026-11-23","opened":false},{"session":"b","fact":4,"chest":"wood","day":"2026-11-23"}]"#.utf8)
+        let prizes = try JSONDecoder().decode([VocabPrize].self, from: old)
+        XCTAssertEqual(prizes.map(\.chest), [.gold, .wood])
+        XCTAssertEqual(prizes.map(\.isOpen), [false, true])
     }
 
     /// A brand-new word missed is left out of the chest's count, and so is
@@ -597,15 +617,6 @@ final class VocabLocalTests: XCTestCase {
         let summary = try XCTUnwrap(state.summary)
         XCTAssertGreaterThan(summary.correct, 0)
         XCTAssertEqual(summary.prize?.chest, .wood)
-    }
-
-    /// A fact dropped from the list since isn't counted as found anywhere.
-    func testADroppedFactIsntCounted() {
-        let real = VocabFacts.all[0].id
-        let prizes = [VocabPrize(session: "a", fact: real, chest: .wood, day: "2026-11-23"),
-                      VocabPrize(session: "b", fact: 999_999, chest: .wood, day: "2026-11-23"),
-                      VocabPrize(session: "c", fact: VocabFacts.all[1].id, chest: .wood, day: "2026-11-23", opened: false)]
-        XCTAssertEqual(VocabFacts.found(in: prizes), [real])
     }
 
     /// A boss round has its own prize: no chest.
@@ -625,22 +636,6 @@ final class VocabLocalTests: XCTestCase {
         XCTAssertEqual(VocabChest.earned(right: 15, counted: 20), .silver)
         XCTAssertEqual(VocabChest.earned(right: 14, counted: 20), .wood)
         XCTAssertEqual(VocabChest.earned(right: 0, counted: 0), .wood)
-    }
-
-    /// A chest holds a fact of its own tier they haven't had, then the
-    /// nearest tier that still has one, then an old one.
-    func testWhatsInAChest() throws {
-        var random = SystemRandomNumberGenerator()
-        XCTAssertEqual(Set(VocabFacts.all.map(\.id)).count, VocabFacts.all.count)
-        XCTAssertGreaterThan(VocabFacts.all.count, 150)
-        let gold = Set(VocabFacts.facts(.gold).map(\.id)), silver = Set(VocabFacts.facts(.silver).map(\.id))
-        XCTAssertEqual(VocabFacts.draw(.gold, have: [], using: &random)?.tier, .gold)
-        XCTAssertEqual(VocabFacts.draw(.gold, have: gold, using: &random)?.tier, .silver)
-        XCTAssertEqual(VocabFacts.draw(.gold, have: gold.union(silver), using: &random)?.tier, .wood)
-        XCTAssertEqual(VocabFacts.draw(.wood, have: Set(VocabFacts.facts(.wood).map(\.id)), using: &random)?.tier, .silver)
-        XCTAssertEqual(VocabFacts.draw(.silver, have: Set(VocabFacts.all.map(\.id)), using: &random)?.tier, .silver)
-        // Every one of them fits on the card.
-        for fact in VocabFacts.all { XCTAssertLessThan(fact.text.count, 240, fact.text) }
     }
 
     /// The stage's boss has something to say before each ordinary session:
