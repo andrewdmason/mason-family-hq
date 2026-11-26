@@ -95,8 +95,13 @@ final class ChatStore {
     /// Who a parent's phone is being used as. It stays chosen, across launches,
     /// until a parent picks another.
     enum Viewer: Hashable {
-        /// The parents' own view (This week).
+        /// The Parent Dashboard: This week, how each kid is doing, and the
+        /// words to practice with them.
         case parent
+        /// A parent using the app as themselves: their own chats, Vocab, Math
+        /// and house, kept apart from the kids' (at Sebastian's level), so
+        /// trying things out never touches the kids' progress.
+        case me
         /// The phone used as a kid, in the kid's own chats: by a kid without a
         /// phone, or by a parent looking in on one who has their own.
         case kid(UUID)
@@ -110,6 +115,7 @@ final class ChatStore {
             guard viewer != oldValue else { return }
             switch viewer {
             case .parent: UserDefaults.standard.set("parent", forKey: Self.viewerKey)
+            case .me: UserDefaults.standard.set("me", forKey: Self.viewerKey)
             case .kid(let id): UserDefaults.standard.set(id.uuidString.lowercased(), forKey: Self.viewerKey)
             case .unchosen: break
             }
@@ -126,6 +132,7 @@ final class ChatStore {
         let defaults = UserDefaults.standard
         switch defaults.string(forKey: viewerKey) {
         case "parent": return .parent
+        case "me": return .me
         case let saved?: return UUID(uuidString: saved).map(Viewer.kid) ?? .unchosen
         // Before there was a kid choice: a yes/no for the parent view.
         case nil: return defaults.bool(forKey: "tuttles.parentView") ? .parent : .unchosen
@@ -141,6 +148,14 @@ final class ChatStore {
     }
 
     var showingParentView: Bool { isParent && viewer == .parent }
+
+    /// A parent using the app as themselves (Viewer.me).
+    var playingAsSelf: Bool { isParent && viewer == .me }
+
+    /// The parent's first name, for the account picker ("Andrew (you)").
+    var myName: String {
+        Session.shared.name?.split(separator: " ").first.map(String.init) ?? "Me"
+    }
 
     /// The kid this parent's phone is being used as, if it is.
     var actingKid: FamilyKid? {
@@ -165,6 +180,10 @@ final class ChatStore {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let kid = actingKid {
             request.setValue(kid.id.uuidString.lowercased(), forHTTPHeaderField: "X-Tuttles-Kid")
+        } else if playingAsSelf, let me = Session.shared.userID {
+            // Naming themselves: the website keeps this parent's practice as
+            // their own, apart from the kids' (src/lib/tuttles/tutoring-as.ts).
+            request.setValue(me.uuidString.lowercased(), forHTTPHeaderField: "X-Tuttles-Kid")
         }
     }
 
@@ -240,13 +259,17 @@ final class ChatStore {
             week = saved
             weekLoaded = true
         }
-        if classes == nil, let data = try? Data(contentsOf: Self.savedFile("classes", userID)),
+        if classes == nil, let data = try? Data(contentsOf: Self.savedFile(classesFile, userID)),
            let saved = try? Self.decoder.decode(ClassesPayload.self, from: data) {
             classes = saved
             classesLoaded = true
         }
         settleViewer()
     }
+
+    /// A parent's classes as themselves aren't the ones the Parent Dashboard is
+    /// about (a kid's), though both are saved under the parent.
+    private var classesFile: String { playingAsSelf ? "classes-self" : "classes" }
 
     private static func savedFile(_ name: String, _ userID: UUID) -> URL {
         #if os(macOS)
@@ -315,7 +338,7 @@ final class ChatStore {
         }
         guard status == 200, let payload = try? Self.decoder.decode(ClassesPayload.self, from: data) else { return }
         classes = payload
-        save(data, as: "classes")
+        save(data, as: classesFile)
         settleViewer()
     }
 

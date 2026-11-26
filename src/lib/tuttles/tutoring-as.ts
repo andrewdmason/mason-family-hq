@@ -13,11 +13,18 @@ export type TutoredStudent = {
   birthdate: string | null;
   /** A parent in their own view, which is about a kid: the chats (their briefings) stay their own. */
   preview: boolean;
+  /**
+   * A parent using the app as themselves (the app's "Andrew" or "Jenny"):
+   * their own chats, Vocab, Math and house, kept apart from the kids' so a
+   * parent can try things without touching the kids' progress.
+   */
+  parentSelf?: boolean;
 };
 
 /**
  * The header a parent's phone sends when it's being used as a kid (the app's
- * "Oscar" and "Sebastian" views): the kid's user id. The chats are the kid's
+ * "Oscar" and "Sebastian" views): the kid's user id. A parent's own id here
+ * is the parent using the app as themselves. The chats are the kid's
  * own, as if the kid had signed in, whether it's the kid holding the phone or
  * a parent looking in.
  */
@@ -29,7 +36,9 @@ export const KID_HEADER = "x-tuttles-kid";
  * `asKid`: a parent's phone being used as a kid, by the kid or by the parent.
  * The named kid is tutored as themselves and owns the chats: they show on the
  * kid's own phone and count in their history, summary and memory. Only a
- * parent may ask, and only for a kid; anything else is refused (null).
+ * parent may ask, and only for a kid; anything else is refused (null). A
+ * parent who names themselves is tutored as themselves (`parentSelf`): their
+ * own practice, apart from the kids'.
  *
  * A parent who names no kid is in the parents' own view (This week and their
  * briefings). It's about one kid, the oldest with Canvas connected (only
@@ -48,6 +57,10 @@ export async function tutoredStudent(
   const me = members?.find((m) => m.user_id === userId);
   if (!me) return null;
   const isParent = me.role === "owner" || me.role === "parent";
+
+  if (asKid && isParent && asKid === userId) {
+    return { studentId: userId, ownerId: userId, name: me.name ?? "the student", birthdate: me.birthdate, preview: false, parentSelf: true };
+  }
 
   if (asKid) {
     const kid = isParent ? members?.find((m) => m.user_id === asKid && m.role === "kid") : null;

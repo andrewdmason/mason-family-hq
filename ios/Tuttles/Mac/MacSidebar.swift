@@ -13,13 +13,14 @@ struct MacSidebar: View {
 
     /// A row that can be the one open.
     private enum Item: Hashable {
-        case week, classes, study, vocab
+        case dashboard, week, classes, study, vocab
         case thread(UUID)
     }
 
     private var selection: Binding<Item?> {
         Binding {
             switch current {
+            case .dashboard: .dashboard
             case .week: .week
             case .classes, .classPage: .classes
             case .study, .studySet: .study
@@ -29,6 +30,7 @@ struct MacSidebar: View {
             }
         } set: { item in
             switch item {
+            case .dashboard: open(.dashboard)
             case .week: open(.week)
             case .classes: open(.classes)
             case .study: open(.study)
@@ -43,7 +45,11 @@ struct MacSidebar: View {
         List(selection: selection) {
             Section {
                 if store.showingParentView {
+                    place("Dashboard", "chart.bar.xaxis").tag(Item.dashboard)
                     place("This week", "calendar").tag(Item.week)
+                    place("Kids' Vocab", "character.book.closed").tag(Item.vocab)
+                } else if store.playingAsSelf {
+                    place("Study", "checklist").tag(Item.study)
                     place("Vocab", "character.book.closed").tag(Item.vocab)
                 } else {
                     place("Classes", "books.vertical").tag(Item.classes)
@@ -135,7 +141,9 @@ struct MacAccountMenu: View {
                     ForEach(store.kids) { kid in
                         Label(kid.name, systemImage: "person.fill").tag(ChatStore.Viewer.kid(kid.id))
                     }
-                    Label("Parent view", systemImage: "person.2").tag(ChatStore.Viewer.parent)
+                    // The parent as themselves: their own practice, apart from the kids'.
+                    Label("\(store.myName) (you)", systemImage: "person.crop.circle").tag(ChatStore.Viewer.me)
+                    Label("Parent Dashboard", systemImage: "person.2").tag(ChatStore.Viewer.parent)
                 }
                 .pickerStyle(.inline)
             }
@@ -156,7 +164,9 @@ struct MacAccountMenu: View {
                     if let kid = store.actingKid {
                         Text("\(kid.name) is using Tuttles").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     } else if store.showingParentView {
-                        Text("Parent view").font(.caption).foregroundStyle(.secondary)
+                        Text("Parent Dashboard").font(.caption).foregroundStyle(.secondary)
+                    } else if store.playingAsSelf {
+                        Text("Your own, apart from the kids'").font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Spacer(minLength: 0)

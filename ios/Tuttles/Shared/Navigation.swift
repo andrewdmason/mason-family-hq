@@ -76,6 +76,9 @@ enum Route: Hashable {
     /// The house each kid builds with what Vocab and Math pay (iPhone/House),
     /// and both houses, for the parents. iPhone only.
     case house
+    /// The Parent Dashboard's own page: each kid's last four weeks, and the
+    /// words to practice with them today (ParentDashboard.swift).
+    case dashboard
 
     /// The chat this route opens, if it's one.
     var chatID: UUID? {

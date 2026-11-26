@@ -367,3 +367,28 @@ final class VocabRulesTests: XCTestCase {
         XCTAssertFalse(dontKnow.mastered)
     }
 }
+
+final class ParentDashboardTests: XCTestCase {
+    /// What /tuttles/api/parent/dashboard sends (src/lib/tuttles/dashboard.ts) reads in whole.
+    func testDecodesTheWebsitesDashboard() throws {
+        let json = """
+        {"today":"2026-11-26","kids":[{"id":"k1","name":"Sebastian","level":"middle","totalWords":600,"mastered":42,
+          "days":[{"day":"2026-11-26","vocabMs":650000,"vocabAnswered":35,"vocabCorrect":29,"vocabDone":true,"mathAnswered":2,"mathCorrect":1,"mastered":42}],
+          "weeks":[{"start":"2026-11-20","vocabMs":650000,"vocabAnswered":35,"vocabCorrect":29,"vocabDaysDone":1,"mathAnswered":2,"mathCorrect":1,"masteredGained":3}],
+          "practice":[{"id":"w:candid","title":"candid","kind":"word","pos":"adj","meaning":"honest","example":"A candid answer.","hook":"","status":"learning","misses":4,"reason":"trouble"}]}]}
+        """
+        let payload = try JSONDecoder().decode(DashboardPayload.self, from: Data(json.utf8))
+        let kid = try XCTUnwrap(payload.kids.first)
+        XCTAssertEqual(kid.days.first?.vocabMinutes ?? 0, 650_000 / 60_000.0, accuracy: 0.001)
+        XCTAssertEqual(kid.weeks.first?.masteredGained, 3)
+        XCTAssertEqual(kid.practice.map(\.title), ["candid"])
+        XCTAssertEqual(Calendar.current.component(.day, from: DashboardDates.date("2026-11-26")), 26)
+    }
+
+    /// The demo's made-up four weeks hold together.
+    func testDemoHasFourWeeks() {
+        let payload = DemoDashboard.payload
+        XCTAssertEqual(payload.kids.count, 2)
+        XCTAssertTrue(payload.kids.allSatisfy { $0.days.count == 28 && $0.weeks.count == 4 })
+    }
+}
