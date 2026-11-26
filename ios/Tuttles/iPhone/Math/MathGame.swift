@@ -560,8 +560,16 @@ final class MathGame: NSObject, SCNSceneRendererDelegate {
             grounded = false
         } else {
             if ground > y + 0.55 {
-                crash(into: nil)
-                return
+                // Into the side of a bus. When nothing can catch them (just
+                // freed, or the board took the hit) they go up onto the roof
+                // rather than through it.
+                if safe <= 0, !setup.god {
+                    crash(into: nil)
+                    return
+                }
+                y = ground
+                vy = 0
+                grounded = true
             }
             if !grounded {
                 vy -= Self.gravity * dt
