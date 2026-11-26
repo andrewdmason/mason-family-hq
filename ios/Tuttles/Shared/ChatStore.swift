@@ -234,9 +234,22 @@ final class ChatStore {
         return classes?.classes.first { $0.id == courseID }
     }
 
-    /// Canned chats, with no sign-in or network: `--demo`, for the simulator.
+    /// Canned chats, with no sign-in or network: `--demo`. The simulator is
+    /// the demo without being asked, so tapping its icon there opens straight
+    /// in; `--live` (or `--website <url>`) is the real thing, sign-in and all.
     let isDemo = ChatStore.demo
-    private static let demo = CommandLine.arguments.contains("--demo")
+    private static let demo = demo(launchedWith: CommandLine.arguments, onSimulator: onSimulator)
+
+    static func demo(launchedWith args: [String], onSimulator: Bool) -> Bool {
+        if args.contains("--demo") { return true }
+        return onSimulator && !args.contains("--live") && !args.contains("--website")
+    }
+
+    #if targetEnvironment(simulator)
+    private static let onSimulator = true
+    #else
+    private static let onSimulator = false
+    #endif
 
     var client: SupabaseClient { Session.shared.client }
 
