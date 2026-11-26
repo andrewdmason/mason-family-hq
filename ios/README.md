@@ -166,6 +166,32 @@ are in `src/lib/tuttles/prompt.ts`.
 - `--demo` runs on canned chats with no sign-in (`--open <n>` opens one), for
   the simulator. `--website <url>` points the chat at another server.
 
+### Math (iPhone only)
+
+`Tuttles/iPhone/Math`: ISEE math practice as an endless runner in the manner of
+Subway Surfers. The kid runs through the school, a teacher behind throwing math
+problems into the way; anything hit means a question against the clock, right
+to break free, wrong and the run is over with the worked answer shown.
+
+- Dodging gets harder over each wave's thirty seconds or so and resets on a
+  right answer (`MathGame.swift`, top comment); the pace it resets to and the
+  questions' difficulty step up each time. Each right answer moves the run on
+  to the next of eleven zones (`MathZones.swift`), five ordinary and six wrong.
+- It's SceneKit. Characters and a few props are Kenney's public-domain kits in
+  `.glb` (`Math/MathAssets/models`, read by `MathGLB.swift`); the school itself
+  is built in code. Sounds are in `Math/MathAssets/audio`, rebuilt by
+  `scripts/math-audio`. Both folders have a `CREDITS.txt`.
+- Questions ship in the app (`Math/MathAssets/bank`), written by
+  `scripts/math/import.mts` from a spreadsheet of real questions, so it plays
+  with no connection. Runs, answers, stars and purchases are kept on the phone
+  (`MathStore.swift`) and go to `/tuttles/api/math/sync` when there's signal;
+  the parents' view reads `/tuttles/api/math/summary`.
+- The shop is for show only: nothing bought makes a question easier.
+- For the simulator, with `--demo --math`: `--math-run` starts running,
+  `--math-auto` plays by itself, `--math-god` can't be caught, `--math-level 6`
+  starts in the sixth zone, `--math-shop` opens the shop, `--math-stars 5000`
+  fills the purse, `--math-lower` uses the Lower Level bank.
+
 ## Tuttles (Mac)
 
 Tuttles at a desk, for the family Mac mini (scheme `TuttlesMac`), where each

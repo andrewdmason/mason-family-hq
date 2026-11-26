@@ -170,6 +170,9 @@ struct MacShell: View {
             VocabProgressView()
         case .vocabFacts:
             VocabFactsView()
+        case .math:
+            // The game is the iPhone's.
+            ContentUnavailableView("Math is on the iPhone", systemImage: "figure.run")
         }
     }
 

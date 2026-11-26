@@ -1,0 +1,1305 @@
+{
+  "version": "placeholder-1",
+  "level": "lower",
+  "questions": [
+    {
+      "id": "L-0001",
+      "section": "qr",
+      "topic": "whole numbers",
+      "type": "word",
+      "prompt": "Maya has 24 stickers. She gives 9 to her brother and then buys 12 more. How many stickers does she have now?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "27",
+        "45",
+        "15",
+        "21"
+      ],
+      "answer": 0,
+      "explanation": "After giving 9 away she has $24 - 9 = 15$.\nBuying 12 more gives $15 + 12 = 27$.\nThe answer is 27.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0002",
+      "section": "ma",
+      "topic": "whole numbers",
+      "type": "computation",
+      "prompt": "What is $306 - 148$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "168",
+        "242",
+        "454",
+        "158"
+      ],
+      "answer": 3,
+      "explanation": "Regroup 306 as 2 hundreds, 9 tens and 16 ones.\n$16 - 8 = 8$, $9 - 4 = 5$ and $2 - 1 = 1$.\nThe answer is 158.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0003",
+      "section": "ma",
+      "topic": "fractions",
+      "type": "computation",
+      "prompt": "What is $\\frac{1}{4} + \\frac{1}{2}$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "$\\frac{2}{6}$",
+        "$\\frac{3}{4}$",
+        "$\\frac{1}{8}$",
+        "$\\frac{2}{4}$"
+      ],
+      "answer": 1,
+      "explanation": "Change $\\frac{1}{2}$ into fourths: $\\frac{1}{2} = \\frac{2}{4}$.\n$\\frac{1}{4} + \\frac{2}{4} = \\frac{3}{4}$.\nThe answer is $\\frac{3}{4}$.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0004",
+      "section": "qr",
+      "topic": "patterns",
+      "type": "word",
+      "prompt": "A pattern begins 3, 7, 11, 15. Each number is 4 more than the one before it. What is the 7th number in the pattern?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "23",
+        "27",
+        "31",
+        "28"
+      ],
+      "answer": 1,
+      "explanation": "Keep adding 4: the 5th number is 19 and the 6th is 23.\nThe 7th is $23 + 4 = 27$.\nThe answer is 27.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0005",
+      "section": "ma",
+      "topic": "decimals",
+      "type": "computation",
+      "prompt": "What is $3.4 + 2.75$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "3.09",
+        "6.15",
+        "5.15",
+        "61.5"
+      ],
+      "answer": 1,
+      "explanation": "Line up the decimal points and write 3.4 as 3.40.\n$3.40 + 2.75 = 6.15$.\nThe answer is 6.15.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0006",
+      "section": "qr",
+      "topic": "measurement",
+      "type": "word",
+      "prompt": "A movie starts at 2:45 p.m. and lasts 1 hour 30 minutes. What time does it end?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "3:15 p.m.",
+        "4:15 p.m.",
+        "3:45 p.m.",
+        "5:15 p.m."
+      ],
+      "answer": 1,
+      "explanation": "One hour after 2:45 is 3:45.\nThirty minutes more: 15 minutes reaches 4:00, and 15 more makes 4:15.\nThe answer is 4:15 p.m.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0007",
+      "section": "ma",
+      "topic": "geometry",
+      "type": "word",
+      "prompt": "What is the perimeter of the rectangle shown?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "36 cm",
+        "13 cm",
+        "22 cm",
+        "26 cm"
+      ],
+      "answer": 3,
+      "explanation": "Perimeter is the distance all the way around.\n$9 + 4 + 9 + 4 = 26$.\nThe answer is 26 cm.",
+      "difficulty": 1,
+      "diagram": {
+        "w": 100,
+        "h": 60,
+        "items": [
+          {
+            "t": "poly",
+            "pts": [
+              [
+                20,
+                15
+              ],
+              [
+                80,
+                15
+              ],
+              [
+                80,
+                45
+              ],
+              [
+                20,
+                45
+              ]
+            ],
+            "closed": true,
+            "fill": "light"
+          },
+          {
+            "t": "text",
+            "at": [
+              50,
+              10
+            ],
+            "s": "9 cm",
+            "size": "m",
+            "anchor": "c"
+          },
+          {
+            "t": "text",
+            "at": [
+              83,
+              31
+            ],
+            "s": "4 cm",
+            "size": "m",
+            "anchor": "l"
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0008",
+      "section": "qr",
+      "topic": "data",
+      "type": "word",
+      "prompt": "The bar graph shows how many books four students read. How many more books did Ana read than Ben?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "10",
+        "8",
+        "6",
+        "4"
+      ],
+      "answer": 2,
+      "explanation": "Ana's bar reaches 8 and Ben's bar reaches 2.\n$8 - 2 = 6$.\nThe answer is 6.",
+      "difficulty": 1,
+      "diagram": {
+        "w": 100,
+        "h": 70,
+        "items": [
+          {
+            "t": "bars",
+            "x": 14,
+            "y": 8,
+            "w": 78,
+            "h": 52,
+            "labels": [
+              "Ana",
+              "Ben",
+              "Cal",
+              "Dee"
+            ],
+            "values": [
+              8,
+              2,
+              6,
+              4
+            ],
+            "max": 10,
+            "step": 2,
+            "title": "Books Read",
+            "ylabel": null
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0009",
+      "section": "ma",
+      "topic": "number sense",
+      "type": "word",
+      "prompt": "Which number is a multiple of both 4 and 6?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "24",
+        "10",
+        "16",
+        "18"
+      ],
+      "answer": 0,
+      "explanation": "A multiple of both must divide evenly by 4 and by 6.\n$24 \\div 4 = 6$ and $24 \\div 6 = 4$, with nothing left over.\nThe answer is 24.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0010",
+      "section": "qr",
+      "topic": "fractions",
+      "type": "word",
+      "prompt": "A pizza is cut into 8 equal slices. Sam eats 3 of the slices. What fraction of the pizza is left?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "$\\frac{3}{8}$",
+        "$\\frac{5}{8}$",
+        "$\\frac{3}{5}$",
+        "$\\frac{5}{3}$"
+      ],
+      "answer": 1,
+      "explanation": "$8 - 3 = 5$ slices are left.\nThat is 5 of the 8 equal slices.\nThe answer is $\\frac{5}{8}$.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0011",
+      "section": "ma",
+      "topic": "estimation",
+      "type": "computation",
+      "prompt": "What is 4,768 rounded to the nearest hundred?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "4,700",
+        "4,770",
+        "5,000",
+        "4,800"
+      ],
+      "answer": 3,
+      "explanation": "4,768 is between 4,700 and 4,800.\nThe tens digit is 6, which is 5 or more, so round up.\nThe answer is 4,800.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0012",
+      "section": "qr",
+      "topic": "probability",
+      "type": "word",
+      "prompt": "A bag holds 3 red marbles, 5 blue marbles and 4 green marbles. One marble is picked without looking. What is the probability that it is blue?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "$\\frac{5}{12}$",
+        "$\\frac{5}{7}$",
+        "$\\frac{1}{3}$",
+        "$\\frac{7}{12}$"
+      ],
+      "answer": 0,
+      "explanation": "There are $3 + 5 + 4 = 12$ marbles in all.\n5 of the 12 are blue.\nThe answer is $\\frac{5}{12}$.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0013",
+      "section": "qr",
+      "topic": "whole numbers",
+      "type": "word",
+      "prompt": "A school orders 14 boxes of pencils. Each box holds 36 pencils. How many pencils does the school order?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "180",
+        "50",
+        "504",
+        "360"
+      ],
+      "answer": 2,
+      "explanation": "$36 \\times 10 = 360$ and $36 \\times 4 = 144$.\n$360 + 144 = 504$.\nThe answer is 504.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0014",
+      "section": "ma",
+      "topic": "whole numbers",
+      "type": "computation",
+      "prompt": "What is $7 + 3 \\times (8 - 2)$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "60",
+        "25",
+        "29",
+        "78"
+      ],
+      "answer": 1,
+      "explanation": "Parentheses first: $8 - 2 = 6$.\nMultiply before adding: $3 \\times 6 = 18$.\n$7 + 18 = 25$, so the answer is 25.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0015",
+      "section": "qr",
+      "topic": "fractions",
+      "type": "word",
+      "prompt": "Lena had 20 grapes. She ate $\\frac{3}{4}$ of them. How many grapes did she eat?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "5",
+        "17",
+        "80",
+        "15"
+      ],
+      "answer": 3,
+      "explanation": "One fourth of 20 is $20 \\div 4 = 5$.\nThree fourths is $3 \\times 5 = 15$.\nThe answer is 15.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0016",
+      "section": "qr",
+      "topic": "decimals",
+      "type": "word",
+      "prompt": "Tom buys 3 notebooks that cost \\$2.35 each. He pays with a \\$10 bill. How much change does he get?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "\\$7.05",
+        "\\$2.95",
+        "\\$7.65",
+        "\\$3.05"
+      ],
+      "answer": 1,
+      "explanation": "The notebooks cost $3 \\times 2.35 = 7.05$ dollars.\n$10.00 - 7.05 = 2.95$.\nThe answer is \\$2.95.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0017",
+      "section": "qr",
+      "topic": "percent",
+      "type": "word",
+      "prompt": "A shirt costs \\$40. It is on sale for 25% off. What is the sale price?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "\\$10",
+        "\\$15",
+        "\\$30",
+        "\\$50"
+      ],
+      "answer": 2,
+      "explanation": "25% is one fourth, and one fourth of 40 is 10.\nTake the \\$10 off: $40 - 10 = 30$.\nThe answer is \\$30.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0018",
+      "section": "qr",
+      "topic": "ratios",
+      "type": "word",
+      "prompt": "A recipe uses 2 cups of flour for every 3 cups of milk. How many cups of flour are needed with 12 cups of milk?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "18",
+        "11",
+        "6",
+        "8"
+      ],
+      "answer": 3,
+      "explanation": "12 cups of milk is $12 \\div 3 = 4$ batches.\nEach batch needs 2 cups of flour: $4 \\times 2 = 8$.\nThe answer is 8.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0019",
+      "section": "ma",
+      "topic": "algebra",
+      "type": "computation",
+      "prompt": "If $3 \\times n + 6 = 21$, what is the value of $n$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "15",
+        "9",
+        "5",
+        "7"
+      ],
+      "answer": 2,
+      "explanation": "Take 6 from both sides: $3 \\times n = 15$.\nDivide by 3: $n = 15 \\div 3 = 5$.\nThe answer is 5.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0020",
+      "section": "qr",
+      "topic": "algebra",
+      "type": "word",
+      "prompt": "Jo thinks of a number. She doubles it and then subtracts 5. The result is 13. What is Jo's number?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "4",
+        "21",
+        "9",
+        "36"
+      ],
+      "answer": 2,
+      "explanation": "Work backward. Undo the subtracting: $13 + 5 = 18$.\nUndo the doubling: $18 \\div 2 = 9$.\nThe answer is 9.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0021",
+      "section": "ma",
+      "topic": "geometry",
+      "type": "word",
+      "prompt": "What is the area of the right triangle shown?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "108 square cm",
+        "54 square cm",
+        "36 square cm",
+        "90 square cm"
+      ],
+      "answer": 1,
+      "explanation": "The area of a triangle is half of base times height.\nThe base is 12 and the height is 9: $12 \\times 9 = 108$, and half of 108 is 54.\nThe answer is 54 square cm.",
+      "difficulty": 2,
+      "diagram": {
+        "w": 100,
+        "h": 68,
+        "items": [
+          {
+            "t": "poly",
+            "pts": [
+              [
+                22,
+                55
+              ],
+              [
+                82,
+                55
+              ],
+              [
+                22,
+                10
+              ]
+            ],
+            "closed": true,
+            "fill": "light"
+          },
+          {
+            "t": "rightAngle",
+            "at": [
+              22,
+              55
+            ],
+            "a": [
+              82,
+              55
+            ],
+            "b": [
+              22,
+              10
+            ]
+          },
+          {
+            "t": "text",
+            "at": [
+              52,
+              62
+            ],
+            "s": "12 cm",
+            "size": "m",
+            "anchor": "c"
+          },
+          {
+            "t": "text",
+            "at": [
+              19,
+              34
+            ],
+            "s": "9 cm",
+            "size": "m",
+            "anchor": "r"
+          },
+          {
+            "t": "text",
+            "at": [
+              56,
+              29
+            ],
+            "s": "15 cm",
+            "size": "m",
+            "anchor": "l"
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0022",
+      "section": "qr",
+      "topic": "measurement",
+      "type": "word",
+      "prompt": "A ribbon 3 meters long is cut into pieces that are each 25 centimeters long. How many pieces are there?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "75",
+        "120",
+        "275",
+        "12"
+      ],
+      "answer": 3,
+      "explanation": "3 meters is 300 centimeters.\n$300 \\div 25 = 12$.\nThe answer is 12.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0023",
+      "section": "ma",
+      "topic": "data",
+      "type": "word",
+      "prompt": "The table shows the points Kai scored in four games. What is the mean (average) number of points he scored in a game?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "11",
+        "44",
+        "7",
+        "10.5"
+      ],
+      "answer": 0,
+      "explanation": "Add the points: $12 + 8 + 15 + 9 = 44$.\nDivide by the 4 games: $44 \\div 4 = 11$.\nThe answer is 11.",
+      "difficulty": 2,
+      "diagram": {
+        "w": 100,
+        "h": 64,
+        "items": [
+          {
+            "t": "table",
+            "x": 22,
+            "y": 8,
+            "w": 56,
+            "cols": [
+              "Game",
+              "Points"
+            ],
+            "rows": [
+              [
+                "1",
+                "12"
+              ],
+              [
+                "2",
+                "8"
+              ],
+              [
+                "3",
+                "15"
+              ],
+              [
+                "4",
+                "9"
+              ]
+            ]
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0024",
+      "section": "ma",
+      "topic": "data",
+      "type": "word",
+      "prompt": "A team scored 2, 5, 1, 5 and 4 goals in its five games. What is the median number of goals?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "1",
+        "5",
+        "4",
+        "3.4"
+      ],
+      "answer": 2,
+      "explanation": "Put the numbers in order: 1, 2, 4, 5, 5.\nThe median is the middle number of the five.\nThe answer is 4.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0025",
+      "section": "qr",
+      "topic": "probability",
+      "type": "word",
+      "prompt": "A spinner has 8 equal sections numbered 1 to 8. What is the probability of spinning a number greater than 5?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "$\\frac{5}{8}$",
+        "$\\frac{1}{2}$",
+        "$\\frac{3}{5}$",
+        "$\\frac{3}{8}$"
+      ],
+      "answer": 3,
+      "explanation": "The numbers greater than 5 are 6, 7 and 8.\nThat is 3 of the 8 equal sections.\nThe answer is $\\frac{3}{8}$.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0026",
+      "section": "ma",
+      "topic": "number sense",
+      "type": "word",
+      "prompt": "What is the greatest common factor of 24 and 36?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "6",
+        "12",
+        "4",
+        "72"
+      ],
+      "answer": 1,
+      "explanation": "Factors of 24: 1, 2, 3, 4, 6, 8, 12, 24.\nFactors of 36: 1, 2, 3, 4, 6, 9, 12, 18, 36.\nThe largest number in both lists is 12, so the answer is 12.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0027",
+      "section": "ma",
+      "topic": "estimation",
+      "type": "computation",
+      "prompt": "Which is the best estimate of $49 \\times 612$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "30,000",
+        "3,000",
+        "24,000",
+        "300,000"
+      ],
+      "answer": 0,
+      "explanation": "Round 49 to 50 and 612 to 600.\n$50 \\times 600 = 30,000$.\nThe answer is 30,000.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0028",
+      "section": "ma",
+      "topic": "fractions",
+      "type": "word",
+      "prompt": "The marks on the number line shown are equally spaced. What number is at point P?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "$\\frac{3}{5}$",
+        "$\\frac{3}{4}$",
+        "$\\frac{3}{6}$",
+        "0.3"
+      ],
+      "answer": 0,
+      "explanation": "The marks split the distance from 0 to 1 into 5 equal parts, so each part is $\\frac{1}{5}$.\nP is 3 parts after 0.\nThe answer is $\\frac{3}{5}$.",
+      "difficulty": 2,
+      "diagram": {
+        "w": 100,
+        "h": 44,
+        "items": [
+          {
+            "t": "numberLine",
+            "y": 26,
+            "x0": 12,
+            "x1": 88,
+            "min": 0,
+            "max": 1,
+            "step": 0.2,
+            "labels": "ends",
+            "points": [
+              {
+                "v": 0.6,
+                "label": "P"
+              }
+            ]
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0029",
+      "section": "ma",
+      "topic": "geometry",
+      "type": "word",
+      "prompt": "In the figure shown, $ABC$ is a straight line. What is the value of $x$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "25",
+        "295",
+        "65",
+        "115"
+      ],
+      "answer": 3,
+      "explanation": "The angles on a straight line add up to $180^\\circ$.\n$180 - 65 = 115$.\nThe answer is 115.",
+      "difficulty": 2,
+      "diagram": {
+        "w": 100,
+        "h": 56,
+        "items": [
+          {
+            "t": "line",
+            "a": [
+              10,
+              44
+            ],
+            "b": [
+              90,
+              44
+            ],
+            "dash": false,
+            "arrow": "none"
+          },
+          {
+            "t": "line",
+            "a": [
+              50,
+              44
+            ],
+            "b": [
+              62.7,
+              16.8
+            ],
+            "dash": false,
+            "arrow": "none"
+          },
+          {
+            "t": "arc",
+            "c": [
+              50,
+              44
+            ],
+            "r": 9,
+            "from": 0,
+            "to": 65
+          },
+          {
+            "t": "arc",
+            "c": [
+              50,
+              44
+            ],
+            "r": 6,
+            "from": 65,
+            "to": 180
+          },
+          {
+            "t": "dot",
+            "at": [
+              50,
+              44
+            ]
+          },
+          {
+            "t": "text",
+            "at": [
+              63,
+              38
+            ],
+            "s": "65°",
+            "size": "s",
+            "anchor": "l"
+          },
+          {
+            "t": "text",
+            "at": [
+              41,
+              34
+            ],
+            "s": "x°",
+            "size": "s",
+            "anchor": "r"
+          },
+          {
+            "t": "text",
+            "at": [
+              10,
+              51
+            ],
+            "s": "A",
+            "size": "m",
+            "anchor": "c"
+          },
+          {
+            "t": "text",
+            "at": [
+              50,
+              51
+            ],
+            "s": "B",
+            "size": "m",
+            "anchor": "c"
+          },
+          {
+            "t": "text",
+            "at": [
+              90,
+              51
+            ],
+            "s": "C",
+            "size": "m",
+            "anchor": "c"
+          },
+          {
+            "t": "text",
+            "at": [
+              66,
+              15
+            ],
+            "s": "D",
+            "size": "m",
+            "anchor": "l"
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0030",
+      "section": "ma",
+      "topic": "geometry",
+      "type": "word",
+      "prompt": "Point P is shown on the grid. Which point is 3 units to the right of P and 2 units up from it?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "$(4, 4)$",
+        "$(5, 3)$",
+        "$(3, 5)$",
+        "$(5, 1)$"
+      ],
+      "answer": 1,
+      "explanation": "P is at $(2, 1)$.\nMoving right adds to the first number and moving up adds to the second: $2 + 3 = 5$ and $1 + 2 = 3$.\nThe answer is $(5, 3)$.",
+      "difficulty": 2,
+      "diagram": {
+        "w": 100,
+        "h": 64,
+        "items": [
+          {
+            "t": "grid",
+            "x": 24,
+            "y": 6,
+            "w": 52,
+            "h": 52,
+            "xmin": 0,
+            "xmax": 6,
+            "ymin": 0,
+            "ymax": 6,
+            "points": [
+              {
+                "p": [
+                  2,
+                  1
+                ],
+                "label": "P"
+              }
+            ],
+            "segments": []
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0031",
+      "section": "qr",
+      "topic": "whole numbers",
+      "type": "word",
+      "prompt": "Tickets to a play cost \\$10 for each adult and \\$5 for each child. A group of 3 adults and some children pays \\$65 in all. How many children are in the group?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "11",
+        "13",
+        "7",
+        "35"
+      ],
+      "answer": 2,
+      "explanation": "The 3 adults pay $3 \\times 10 = 30$ dollars.\nThat leaves $65 - 30 = 35$ dollars for the children.\n$35 \\div 5 = 7$, so the answer is 7.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0032",
+      "section": "ma",
+      "topic": "fractions",
+      "type": "computation",
+      "prompt": "What is $2\\frac{1}{3} - \\frac{5}{6}$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "$2\\frac{1}{2}$",
+        "$3\\frac{1}{6}$",
+        "$1\\frac{1}{3}$",
+        "$1\\frac{1}{2}$"
+      ],
+      "answer": 3,
+      "explanation": "Write both in sixths: $2\\frac{1}{3} = \\frac{14}{6}$.\n$\\frac{14}{6} - \\frac{5}{6} = \\frac{9}{6}$.\n$\\frac{9}{6} = 1\\frac{3}{6}$, so the answer is $1\\frac{1}{2}$.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0033",
+      "section": "qr",
+      "topic": "ratios",
+      "type": "word",
+      "prompt": "In a class of 28 students, the ratio of boys to girls is 3 to 4. How many girls are in the class?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "12",
+        "21",
+        "16",
+        "7"
+      ],
+      "answer": 2,
+      "explanation": "3 parts boys and 4 parts girls make 7 equal parts.\nEach part is $28 \\div 7 = 4$ students.\nGirls are 4 parts: $4 \\times 4 = 16$, so the answer is 16.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0034",
+      "section": "ma",
+      "topic": "geometry",
+      "type": "word",
+      "prompt": "All the corners of the figure shown are right angles. What is the area of the figure?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "60 square m",
+        "80 square m",
+        "36 square m",
+        "78 square m"
+      ],
+      "answer": 0,
+      "explanation": "Cut it into a bottom rectangle, 10 by 3, with area $10 \\times 3 = 30$.\nThe top rectangle is 6 wide and $8 - 3 = 5$ tall, with area $6 \\times 5 = 30$.\n$30 + 30 = 60$, so the answer is 60 square m.",
+      "difficulty": 3,
+      "diagram": {
+        "w": 100,
+        "h": 64,
+        "items": [
+          {
+            "t": "poly",
+            "pts": [
+              [
+                25,
+                52
+              ],
+              [
+                75,
+                52
+              ],
+              [
+                75,
+                37
+              ],
+              [
+                55,
+                37
+              ],
+              [
+                55,
+                12
+              ],
+              [
+                25,
+                12
+              ]
+            ],
+            "closed": true,
+            "fill": "light"
+          },
+          {
+            "t": "text",
+            "at": [
+              50,
+              59
+            ],
+            "s": "10 m",
+            "size": "m",
+            "anchor": "c"
+          },
+          {
+            "t": "text",
+            "at": [
+              22,
+              34
+            ],
+            "s": "8 m",
+            "size": "m",
+            "anchor": "r"
+          },
+          {
+            "t": "text",
+            "at": [
+              40,
+              8
+            ],
+            "s": "6 m",
+            "size": "m",
+            "anchor": "c"
+          },
+          {
+            "t": "text",
+            "at": [
+              78,
+              46
+            ],
+            "s": "3 m",
+            "size": "m",
+            "anchor": "l"
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0035",
+      "section": "qr",
+      "topic": "measurement",
+      "type": "word",
+      "prompt": "A faucet drips 15 milliliters of water every minute. How many liters of water does it drip in 4 hours?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "3,600",
+        "0.06",
+        "36",
+        "3.6"
+      ],
+      "answer": 3,
+      "explanation": "4 hours is $4 \\times 60 = 240$ minutes.\n$15 \\times 240 = 3,600$ milliliters.\nThere are 1,000 milliliters in a liter, so the answer is 3.6.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0036",
+      "section": "qr",
+      "topic": "data",
+      "type": "word",
+      "prompt": "Mia scored 7, 9, 10 and 8 on four quizzes. What must she score on the fifth quiz for her mean score to be exactly 8?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "6",
+        "8",
+        "8.5",
+        "40"
+      ],
+      "answer": 0,
+      "explanation": "A mean of 8 on 5 quizzes needs a total of $5 \\times 8 = 40$.\nSo far she has $7 + 9 + 10 + 8 = 34$.\n$40 - 34 = 6$, so the answer is 6.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0037",
+      "section": "qr",
+      "topic": "probability",
+      "type": "word",
+      "prompt": "A jar holds 4 red marbles, 6 blue marbles and some green marbles. The probability of picking a red marble is $\\frac{1}{5}$. How many green marbles are in the jar?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "10",
+        "20",
+        "5",
+        "16"
+      ],
+      "answer": 0,
+      "explanation": "The 4 red marbles are $\\frac{1}{5}$ of the jar, so the jar holds $4 \\times 5 = 20$ marbles.\n$20 - 4 - 6 = 10$ are green.\nThe answer is 10.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0038",
+      "section": "qr",
+      "topic": "patterns",
+      "type": "word",
+      "prompt": "One square table seats 4 people. Two tables pushed together in a row seat 6, and three in a row seat 8. How many people can sit at 10 tables pushed together in a row?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "40",
+        "20",
+        "22",
+        "24"
+      ],
+      "answer": 2,
+      "explanation": "Each table added to the row adds 2 seats.\nGoing from 1 table to 10 adds 9 tables: $4 + 9 \\times 2 = 22$.\nThe answer is 22.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0039",
+      "section": "ma",
+      "topic": "decimals",
+      "type": "computation",
+      "prompt": "What is $4.2 \\div 0.07$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "60",
+        "6",
+        "0.6",
+        "600"
+      ],
+      "answer": 0,
+      "explanation": "Multiply both numbers by 100 so you divide by a whole number: $420 \\div 7$.\n$42 \\div 7 = 6$, so $420 \\div 7 = 60$.\nThe answer is 60.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "L-0040",
+      "section": "ma",
+      "topic": "percent",
+      "type": "computation",
+      "prompt": "18 is what percent of 72?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "4%",
+        "54%",
+        "25%",
+        "90%"
+      ],
+      "answer": 2,
+      "explanation": "Write it as a fraction: $\\frac{18}{72} = \\frac{1}{4}$.\nOne fourth is the same as 25 out of 100.\nThe answer is 25%.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    }
+  ]
+}

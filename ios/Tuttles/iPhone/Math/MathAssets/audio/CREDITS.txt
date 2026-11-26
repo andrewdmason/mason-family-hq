@@ -1,0 +1,66 @@
+Math runner audio: sources and licences
+=======================================
+
+Every file here is either public domain (CC0 1.0) material from Kenney (www.kenney.nl)
+or was synthesised from scratch by scripts/math-audio/build.py, or a mix of the two.
+The synthesised sounds are original work made for this app and are likewise released
+as CC0 1.0. No attribution is required for any of it.
+
+Kenney packs used (each pack's own License.txt says Creative Commons Zero, CC0):
+  kenney-music-loops       Music Loops (1.1)
+  kenney-impact-sounds     Impact Sounds (1.0)
+  kenney-interface-sounds  Interface Sounds (1.0)
+  http://creativecommons.org/publicdomain/zero/1.0/
+
+Rebuild with: python3 scripts/math-audio/build.py <jam-folder>
+
+file -- source -- licence
+-------------------------
+star-1.wav -- synthesised: two-note sine blip, pitch step 1 of 3 -- CC0 1.0
+star-2.wav -- synthesised: two-note sine blip, pitch step 2 of 3 -- CC0 1.0
+star-3.wav -- synthesised: two-note sine blip, pitch step 3 of 3 -- CC0 1.0
+jump.wav -- synthesised: rising triangle/sine sweep -- CC0 1.0
+land.wav -- kenney-impact-sounds: footstep_concrete_004.ogg, impactSoft_medium_000.ogg -- layered and pitched -- CC0 1.0
+slide.wav -- synthesised: band-passed noise scrape with a falling centre -- CC0 1.0
+lane.wav -- synthesised: short band-passed noise whoosh -- CC0 1.0
+step-1.wav -- kenney-impact-sounds: footstep_concrete_000.ogg -- filtered -- CC0 1.0
+step-2.wav -- kenney-impact-sounds: footstep_concrete_001.ogg -- filtered -- CC0 1.0
+step-3.wav -- kenney-impact-sounds: footstep_concrete_002.ogg -- filtered -- CC0 1.0
+step-4.wav -- kenney-impact-sounds: footstep_concrete_003.ogg -- filtered -- CC0 1.0
+throw.wav -- synthesised: resonant noise whoosh sweeping up and back -- CC0 1.0
+thud.wav -- kenney-impact-sounds: impactPunch_heavy_000.ogg, impactSoft_heavy_000.ogg -- layered and pitched down, plus a synthesised low thump -- CC0 1.0
+warn.wav -- synthesised: woodblock-like damped tone -- CC0 1.0
+crash.wav -- kenney-impact-sounds: impactWood_heavy_000.ogg, impactMetal_medium_000.ogg, impactPlank_medium_000.ogg, impactTin_medium_000.ogg, impactWood_medium_001.ogg -- five impacts layered into a clatter -- CC0 1.0
+caught.wav -- kenney-impact-sounds: impactPunch_medium_000.ogg -- pitched down, under a synthesised low falling tone and a close low dyad -- CC0 1.0
+power.wav -- synthesised: rising arpeggio of chime tones with a noise shimmer -- CC0 1.0
+magnet.wav -- synthesised: ring-modulated sawtooth with gated noise crackle -- CC0 1.0
+jetpack.wav -- synthesised: filtered noise roar with flutter; a seamless 3.2 s loop -- CC0 1.0
+spring.wav -- synthesised: triangle tone with a wobbling, rising pitch -- CC0 1.0
+board.wav -- kenney-impact-sounds: impactWood_medium_002.ogg, impactGeneric_light_000.ogg -- impacts over synthesised rolling-wheel noise -- CC0 1.0
+shield-break.wav -- kenney-impact-sounds: impactWood_heavy_001.ogg, impactPlank_medium_002.ogg, impactWood_light_001.ogg, impactWood_light_003.ogg -- wood impacts layered, with a synthesised falling tone -- CC0 1.0
+correct.wav -- synthesised: two rising chime dyads (G major) -- CC0 1.0
+wrong.wav -- synthesised: two low filtered sawtooth notes, falling -- CC0 1.0
+tick.wav -- synthesised: damped click -- CC0 1.0
+tick-urgent.wav -- synthesised: brighter, higher damped click -- CC0 1.0
+free.wav -- synthesised: rising noise whoosh into a chime arpeggio -- CC0 1.0
+wave-up.wav -- synthesised: quick rising arpeggio into a major chord -- CC0 1.0
+gameover.wav -- synthesised: four falling detuned notes ending on a tritone, over a low drone -- CC0 1.0
+door.wav -- kenney-impact-sounds: impactWood_heavy_003.ogg, impactMetal_heavy_000.ogg -- pitched-down impacts with reverb after a synthesised low whoosh -- CC0 1.0
+buy.wav -- kenney-impact-sounds: impactTin_medium_000.ogg -- under synthesised high chimes ('ka-ching') -- CC0 1.0
+equip.wav -- kenney-interface-sounds: drop_002.ogg -- with a tiny synthesised pop -- CC0 1.0
+tap.wav -- kenney-interface-sounds: click_001.ogg -- trimmed -- CC0 1.0
+deny.wav -- synthesised: two blunt low triangle notes -- CC0 1.0
+bell.wav -- synthesised: inharmonic metal partials struck 22 times a second, then ringing out -- CC0 1.0
+goal.wav -- synthesised: short brass-like fanfare (filtered sawtooths) -- CC0 1.0
+voice-1.wav -- synthesised: low sawtooth through two moving formant filters ('wah-wah' teacher murmur, no speech) -- CC0 1.0
+voice-2.wav -- synthesised: low sawtooth through two moving formant filters ('wah-wah' teacher murmur, no speech) -- CC0 1.0
+voice-3.wav -- synthesised: low sawtooth through two moving formant filters ('wah-wah' teacher murmur, no speech) -- CC0 1.0
+voice-4.wav -- synthesised: low sawtooth through two moving formant filters ('wah-wah' teacher murmur, no speech) -- CC0 1.0
+voice-5.wav -- synthesised: low sawtooth through two moving formant filters ('wah-wah' teacher murmur, no speech) -- CC0 1.0
+music-run.m4a -- kenney-music-loops: Flowing Rocks.ogg -- Flowing Rocks x3, trimmed to exactly 64 beats so it repeats in time; the last pass opens with a four-bar low-pass sweep added here -- CC0 1.0
+music-menu.m4a -- kenney-music-loops: Mishief Stroll.ogg -- Mishief Stroll, one pass, padded with 73 ms of silence to exactly 32 beats so it repeats in time -- CC0 1.0
+amb-hall.m4a -- kenney-impact-sounds: impactMetal_light_000.ogg, impactWood_heavy_002.ogg -- synthesised room tone (filtered noise) and distant murmur (low sawtooth 'voices'); two far-off clunks from the pack files -- CC0 1.0
+amb-outside.m4a -- synthesised: gusting filtered-noise wind and leaf rustle, sine-sweep bird calls -- CC0 1.0
+amb-cafeteria.m4a -- kenney-impact-sounds: impactPlate_light_000.ogg, impactPlate_light_001.ogg, impactPlate_light_002.ogg, impactPlate_medium_000.ogg, impactPlate_medium_001.ogg, impactTin_medium_000.ogg, impactTin_medium_001.ogg, impactGlass_light_000.ogg, impactGeneric_light_000.ogg -- synthesised murmur (low sawtooth 'voices') and room tone, with plate, tin and glass clatter from the pack files scattered through it -- CC0 1.0
+amb-gym.m4a -- synthesised: reverberant room tone, sneaker squeaks and a distant bouncing ball -- CC0 1.0
+amb-strange.m4a -- synthesised: detuned low sine tones (55 / 55.35 / 82.1 / 110.6 / 164.3 Hz), a slow throb, mid and faint high tones beating against each other, 60 Hz hum with harmonics and flicker, three reversed chord swells -- CC0 1.0

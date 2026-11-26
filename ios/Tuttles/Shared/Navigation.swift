@@ -70,6 +70,9 @@ enum Route: Hashable {
     case vocabProgress
     /// The gross facts a kid has had out of their chests (VocabFacts.swift).
     case vocabFacts
+    /// ISEE math practice as an endless runner (iPhone/Math), for a kid, and
+    /// how the kids are doing at it, for the parents. iPhone only.
+    case math
 
     /// The chat this route opens, if it's one.
     var chatID: UUID? {

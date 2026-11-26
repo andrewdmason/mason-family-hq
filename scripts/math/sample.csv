@@ -1,0 +1,9 @@
+Level,Section,Topic,Type,Question,Choice A,Choice B,choice_c,choice_d,Answer,Explanation,Difficulty,Diagram,Source,Column A,Column B,Notes
+Middle,Quantitative Reasoning,Percent,Quantitative Comparison,A coat that costs $80 is marked 25% off.,,,,,C,"25% of 80 is 20.
+$80 - 20 = 60$, the same as Column B.
+The two quantities are equal.",2,,"Sample Book, p. 12",The sale price of the coat,$60,made-up row
+lower,MA,Geometry and Measurement,word problem,What is the area of the rectangle shown?,8 square inches,15 square inches,16 square inches,30 square inches,15 square inches,,,A rectangle with its sides labelled 5 in and 3 in,"Sample Book, p. 40",,,made-up row
+Lower,qr,"Fractions, decimals",,"Ana has 12 apples, 8 pears, and 4 plums. What fraction of her fruit is apples?",$\frac{1}{2}$,$\frac{1}{3}$,$\frac{1}{4}$,$\frac{2}{3}$,A,"She has $12 + 8 + 4 = 24$ pieces of fruit.
+12 of the 24 are apples, and $\frac{12}{24} = \frac{1}{2}$.
+The answer is $\frac{1}{2}$.",1,,"Sample Book, p. 41",,,"made-up row, says ""quoted"""
+middle,mathematics achievement,Algebra,Computation,"If $3x + 5 = 20$, what is the value of $x$?",5,15,$\frac{25}{3}$,45,a,,1,,"Sample Book, p. 77",,,made-up row

@@ -77,6 +77,7 @@ struct ChatsView: View {
             return (.classes, [.classPage(id)], false)
         }
         if args.contains("--vocab") { return (.vocab, [], false) }
+        if args.contains("--math") { return (.math, [], false) }
         return (.chat(UUID(), isNew: true), [], args.contains("--list"))
     }
 
@@ -126,7 +127,7 @@ struct ChatsView: View {
             // A view starts at its home: the parent's This week, or a new chat for the kid's.
             open(store.showingParentView ? .week : .chat(UUID(), isNew: true))
         }
-        .onAppear { if store.showingParentView, root != .week, root != .vocab { root = .week; path = [] } }
+        .onAppear { if store.showingParentView, root != .week, root != .vocab, root != .math { root = .week; path = [] } }
         .onChange(of: menu.isOpen) {
             guard menu.isOpen else { return }
             // Opening the menu: put the keyboard away, and catch up on the chat
@@ -178,6 +179,8 @@ struct ChatsView: View {
             VocabProgressView().menuButton(isRoot)
         case .vocabFacts:
             VocabFactsView().menuButton(isRoot)
+        case .math:
+            MathHomeView().menuButton(isRoot)
         }
     }
 

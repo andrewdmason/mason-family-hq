@@ -1,0 +1,1262 @@
+{
+  "version": "placeholder-1",
+  "level": "middle",
+  "questions": [
+    {
+      "id": "M-0001",
+      "section": "ma",
+      "topic": "whole numbers",
+      "type": "computation",
+      "prompt": "What is $-8 + 15$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "$-23$",
+        "23",
+        "7",
+        "$-7$"
+      ],
+      "answer": 2,
+      "explanation": "Start at $-8$ on the number line and move 15 to the right.\n8 steps reach 0, and the other 7 steps reach 7.\nThe answer is 7.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0002",
+      "section": "ma",
+      "topic": "fractions",
+      "type": "computation",
+      "prompt": "What is $\\frac{2}{3} \\times \\frac{3}{8}$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "$\\frac{16}{9}$",
+        "$\\frac{1}{4}$",
+        "$\\frac{5}{11}$",
+        "$\\frac{25}{24}$"
+      ],
+      "answer": 1,
+      "explanation": "Multiply the tops and multiply the bottoms: $\\frac{2 \\times 3}{3 \\times 8} = \\frac{6}{24}$.\nDivide top and bottom by 6.\nThe answer is $\\frac{1}{4}$.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0003",
+      "section": "ma",
+      "topic": "decimals",
+      "type": "computation",
+      "prompt": "What is $12.5 \\div 0.5$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "6.25",
+        "2.5",
+        "25",
+        "250"
+      ],
+      "answer": 2,
+      "explanation": "Multiply both numbers by 10: $125 \\div 5$.\n$125 \\div 5 = 25$.\nThe answer is 25.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0004",
+      "section": "qr",
+      "topic": "percent",
+      "type": "word",
+      "prompt": "A class has 30 students, and 40% of them walk to school. How many students walk to school?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "12",
+        "18",
+        "120",
+        "75"
+      ],
+      "answer": 0,
+      "explanation": "10% of 30 is 3.\n40% is 4 times that: $4 \\times 3 = 12$.\nThe answer is 12.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0005",
+      "section": "qr",
+      "topic": "ratios",
+      "type": "word",
+      "prompt": "A car travels 150 miles in 3 hours at a steady speed. At that speed, how many miles does it travel in 5 hours?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "450",
+        "750",
+        "250",
+        "90"
+      ],
+      "answer": 2,
+      "explanation": "The speed is $150 \\div 3 = 50$ miles each hour.\nIn 5 hours it goes $50 \\times 5 = 250$ miles.\nThe answer is 250.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0006",
+      "section": "ma",
+      "topic": "algebra",
+      "type": "computation",
+      "prompt": "If $4x - 7 = 21$, what is the value of $x$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "3.5",
+        "28",
+        "112",
+        "7"
+      ],
+      "answer": 3,
+      "explanation": "Add 7 to both sides: $4x = 28$.\nDivide both sides by 4: $x = 7$.\nThe answer is 7.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0007",
+      "section": "ma",
+      "topic": "geometry",
+      "type": "word",
+      "prompt": "In the triangle shown, what is the value of $x$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "110",
+        "250",
+        "70",
+        "40"
+      ],
+      "answer": 2,
+      "explanation": "The three angles of a triangle add up to $180^\\circ$.\n$50 + 60 = 110$, and $180 - 110 = 70$.\nThe answer is 70.",
+      "difficulty": 1,
+      "diagram": {
+        "w": 100,
+        "h": 64,
+        "items": [
+          {
+            "t": "poly",
+            "pts": [
+              [
+                22,
+                54
+              ],
+              [
+                78,
+                54
+              ],
+              [
+                55.2,
+                14.5
+              ]
+            ],
+            "closed": true,
+            "fill": "none"
+          },
+          {
+            "t": "text",
+            "at": [
+              33,
+              51
+            ],
+            "s": "50°",
+            "size": "s",
+            "anchor": "c"
+          },
+          {
+            "t": "text",
+            "at": [
+              68,
+              51
+            ],
+            "s": "60°",
+            "size": "s",
+            "anchor": "c"
+          },
+          {
+            "t": "text",
+            "at": [
+              55,
+              26
+            ],
+            "s": "x°",
+            "size": "s",
+            "anchor": "c"
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0008",
+      "section": "qr",
+      "topic": "data",
+      "type": "word",
+      "prompt": "The noon temperatures on five days were 12, 15, 9, 15 and 19 degrees. What is the range of these temperatures?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "10",
+        "15",
+        "14",
+        "7"
+      ],
+      "answer": 0,
+      "explanation": "The range is the highest value minus the lowest value.\nThe highest is 19 and the lowest is 9: $19 - 9 = 10$.\nThe answer is 10.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0009",
+      "section": "qr",
+      "topic": "probability",
+      "type": "word",
+      "prompt": "A fair number cube has faces numbered 1 to 6. What is the probability of rolling a prime number?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "$\\frac{2}{3}$",
+        "$\\frac{1}{3}$",
+        "$\\frac{1}{6}$",
+        "$\\frac{1}{2}$"
+      ],
+      "answer": 3,
+      "explanation": "The prime numbers from 1 to 6 are 2, 3 and 5. (1 is not prime.)\nThat is 3 of the 6 faces, and $\\frac{3}{6} = \\frac{1}{2}$.\nThe answer is $\\frac{1}{2}$.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0010",
+      "section": "ma",
+      "topic": "number sense",
+      "type": "computation",
+      "prompt": "What is the value of $2^3 \\times 3^2$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "36",
+        "54",
+        "72",
+        "17"
+      ],
+      "answer": 2,
+      "explanation": "$2^3 = 2 \\times 2 \\times 2 = 8$ and $3^2 = 3 \\times 3 = 9$.\n$8 \\times 9 = 72$.\nThe answer is 72.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0011",
+      "section": "qr",
+      "topic": "measurement",
+      "type": "word",
+      "prompt": "One batch of bread uses 750 grams of flour. How many batches can be made from a 1.5-kilogram bag of flour?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "2",
+        "5",
+        "20",
+        "0.5"
+      ],
+      "answer": 0,
+      "explanation": "1.5 kilograms is 1,500 grams.\n$1,500 \\div 750 = 2$.\nThe answer is 2.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0012",
+      "section": "ma",
+      "topic": "estimation",
+      "type": "computation",
+      "prompt": "Which is the best estimate of $\\frac{398 \\times 21}{79}$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "10",
+        "100",
+        "1,000",
+        "8,000"
+      ],
+      "answer": 1,
+      "explanation": "Round to 400, 20 and 80.\n$400 \\times 20 = 8,000$ and $8,000 \\div 80 = 100$.\nThe answer is 100.",
+      "difficulty": 1,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0013",
+      "section": "qr",
+      "topic": "fractions",
+      "type": "comparison",
+      "prompt": "",
+      "columnA": "$\\frac{3}{5}$ of 40",
+      "columnB": "40% of 65",
+      "choices": [
+        "The quantity in Column A is greater.",
+        "The quantity in Column B is greater.",
+        "The two quantities are equal.",
+        "The relationship cannot be determined from the information given."
+      ],
+      "answer": 1,
+      "explanation": "Column A: $40 \\div 5 = 8$ and $3 \\times 8 = 24$.\nColumn B: 10% of 65 is 6.5, so 40% is $4 \\times 6.5 = 26$.\n26 is more than 24, so Column B is greater.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0014",
+      "section": "qr",
+      "topic": "algebra",
+      "type": "comparison",
+      "prompt": "$x$ is a negative number.",
+      "columnA": "$x^2$",
+      "columnB": "$x^3$",
+      "choices": [
+        "The quantity in Column A is greater.",
+        "The quantity in Column B is greater.",
+        "The two quantities are equal.",
+        "The relationship cannot be determined from the information given."
+      ],
+      "answer": 0,
+      "explanation": "A negative times a negative is positive, so $x^2$ is positive.\nMultiply by the negative $x$ once more and $x^3$ is negative.\nA positive is always more than a negative, so Column A is greater.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0015",
+      "section": "qr",
+      "topic": "geometry",
+      "type": "comparison",
+      "prompt": "A rectangle is 9 units long and 4 units wide. A square has sides 6 units long.",
+      "columnA": "The area of the rectangle",
+      "columnB": "The area of the square",
+      "choices": [
+        "The quantity in Column A is greater.",
+        "The quantity in Column B is greater.",
+        "The two quantities are equal.",
+        "The relationship cannot be determined from the information given."
+      ],
+      "answer": 2,
+      "explanation": "Rectangle: $9 \\times 4 = 36$ square units.\nSquare: $6 \\times 6 = 36$ square units.\nBoth are 36, so the two quantities are equal.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0016",
+      "section": "qr",
+      "topic": "number sense",
+      "type": "comparison",
+      "prompt": "$y$ is greater than 0.",
+      "columnA": "$y^2$",
+      "columnB": "$y$",
+      "choices": [
+        "The quantity in Column A is greater.",
+        "The quantity in Column B is greater.",
+        "The two quantities are equal.",
+        "The relationship cannot be determined from the information given."
+      ],
+      "answer": 3,
+      "explanation": "If $y = 2$, then $y^2 = 4$, which is more than $y$.\nIf $y = \\frac{1}{2}$, then $y^2 = \\frac{1}{4}$, which is less than $y$.\nIt changes with $y$, so the relationship cannot be determined.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0017",
+      "section": "qr",
+      "topic": "whole numbers",
+      "type": "word",
+      "prompt": "At 6 a.m. the temperature was $-4$ degrees. It rose 9 degrees by noon and then fell 12 degrees by midnight. What was the temperature at midnight?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "1",
+        "$-7$",
+        "17",
+        "$-25$"
+      ],
+      "answer": 1,
+      "explanation": "Rising 9 from $-4$ gives $-4 + 9 = 5$.\nFalling 12 from 5 gives $5 - 12 = -7$.\nThe answer is $-7$.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0018",
+      "section": "ma",
+      "topic": "fractions",
+      "type": "computation",
+      "prompt": "What is $1\\frac{1}{2} \\div \\frac{3}{4}$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "$1\\frac{1}{8}$",
+        "2",
+        "$\\frac{1}{2}$",
+        "$2\\frac{1}{4}$"
+      ],
+      "answer": 1,
+      "explanation": "Write $1\\frac{1}{2}$ as $\\frac{3}{2}$.\nTo divide, flip the second fraction and multiply: $\\frac{3}{2} \\times \\frac{4}{3} = \\frac{12}{6}$.\n$12 \\div 6 = 2$, so the answer is 2.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0019",
+      "section": "qr",
+      "topic": "decimals",
+      "type": "word",
+      "prompt": "A 12-ounce box of cereal costs \\$3.00. An 18-ounce box costs \\$3.60. How much less does the larger box cost per ounce?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "\\$0.60",
+        "\\$0.05",
+        "\\$0.10",
+        "\\$0.20"
+      ],
+      "answer": 1,
+      "explanation": "Small box: $3.00 \\div 12 = 0.25$ dollars per ounce.\nLarge box: $3.60 \\div 18 = 0.20$ dollars per ounce.\n$0.25 - 0.20 = 0.05$, so the answer is \\$0.05.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0020",
+      "section": "ma",
+      "topic": "percent",
+      "type": "word",
+      "prompt": "The price of a game rises from \\$80 to \\$100. What is the percent increase?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "25%",
+        "20%",
+        "80%",
+        "125%"
+      ],
+      "answer": 0,
+      "explanation": "The price rose by $100 - 80 = 20$ dollars.\nCompare the rise with the starting price: $\\frac{20}{80} = \\frac{1}{4}$.\nOne fourth is 25 out of 100, so the answer is 25%.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0021",
+      "section": "qr",
+      "topic": "ratios",
+      "type": "word",
+      "prompt": "On a map, 2 centimeters stands for 15 kilometers. Two towns are 7 centimeters apart on the map. How far apart are the towns?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "52.5 km",
+        "105 km",
+        "45 km",
+        "210 km"
+      ],
+      "answer": 0,
+      "explanation": "1 centimeter stands for $15 \\div 2 = 7.5$ kilometers.\n$7 \\times 7.5 = 52.5$.\nThe answer is 52.5 km.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0022",
+      "section": "ma",
+      "topic": "algebra",
+      "type": "computation",
+      "prompt": "What is the value of $3a^2 - 2b$ when $a = 4$ and $b = 5$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "134",
+        "38",
+        "14",
+        "58"
+      ],
+      "answer": 1,
+      "explanation": "Square first: $a^2 = 4 \\times 4 = 16$, so $3a^2 = 48$.\n$2b = 2 \\times 5 = 10$.\n$48 - 10 = 38$, so the answer is 38.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0023",
+      "section": "ma",
+      "topic": "geometry",
+      "type": "word",
+      "prompt": "What is the area, in square centimeters, of the circle shown?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "$12\\pi$",
+        "$36\\pi$",
+        "$6\\pi$",
+        "$144\\pi$"
+      ],
+      "answer": 1,
+      "explanation": "The area of a circle is $\\pi$ times the radius squared.\nThe radius is 6, and $6^2 = 36$.\nThe answer is $36\\pi$.",
+      "difficulty": 2,
+      "diagram": {
+        "w": 100,
+        "h": 60,
+        "items": [
+          {
+            "t": "circle",
+            "c": [
+              50,
+              30
+            ],
+            "r": 22,
+            "fill": "light"
+          },
+          {
+            "t": "dot",
+            "at": [
+              50,
+              30
+            ]
+          },
+          {
+            "t": "line",
+            "a": [
+              50,
+              30
+            ],
+            "b": [
+              72,
+              30
+            ],
+            "dash": false,
+            "arrow": "none"
+          },
+          {
+            "t": "text",
+            "at": [
+              61,
+              26
+            ],
+            "s": "6 cm",
+            "size": "s",
+            "anchor": "c"
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0024",
+      "section": "ma",
+      "topic": "measurement",
+      "type": "word",
+      "prompt": "A runner covers 400 meters in 80 seconds. At that speed, how many kilometers does she run in 10 minutes?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "3",
+        "3,000",
+        "0.05",
+        "30"
+      ],
+      "answer": 0,
+      "explanation": "Her speed is $400 \\div 80 = 5$ meters each second.\n10 minutes is 600 seconds, and $5 \\times 600 = 3,000$ meters.\n3,000 meters is 3 kilometers, so the answer is 3.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0025",
+      "section": "ma",
+      "topic": "data",
+      "type": "word",
+      "prompt": "The circle graph shows how the 200 students at a school get there. How many students ride the bus?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "45",
+        "110",
+        "155",
+        "90"
+      ],
+      "answer": 3,
+      "explanation": "The graph shows that 45% of the students ride the bus.\n45% of 200 is $0.45 \\times 200 = 90$.\nThe answer is 90.",
+      "difficulty": 2,
+      "diagram": {
+        "w": 100,
+        "h": 64,
+        "items": [
+          {
+            "t": "pie",
+            "c": [
+              50,
+              32
+            ],
+            "r": 18,
+            "slices": [
+              {
+                "v": 45,
+                "label": "Bus 45%",
+                "shade": 0
+              },
+              {
+                "v": 25,
+                "label": "Walk 25%",
+                "shade": 1
+              },
+              {
+                "v": 20,
+                "label": "Car 20%",
+                "shade": 2
+              },
+              {
+                "v": 10,
+                "label": "Bike 10%",
+                "shade": 3
+              }
+            ]
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0026",
+      "section": "qr",
+      "topic": "probability",
+      "type": "word",
+      "prompt": "A coin is flipped and a number cube numbered 1 to 6 is rolled. What is the probability of getting heads and a number greater than 4?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "$\\frac{5}{6}$",
+        "$\\frac{1}{4}$",
+        "$\\frac{1}{6}$",
+        "$\\frac{1}{3}$"
+      ],
+      "answer": 2,
+      "explanation": "Heads has probability $\\frac{1}{2}$.\nGreater than 4 means 5 or 6: $\\frac{2}{6} = \\frac{1}{3}$.\nFor both to happen, multiply: $\\frac{1}{2} \\times \\frac{1}{3}$, so the answer is $\\frac{1}{6}$.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0027",
+      "section": "ma",
+      "topic": "number sense",
+      "type": "computation",
+      "prompt": "What is $\\sqrt{144} - \\sqrt{25}$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "$\\sqrt{119}$",
+        "59.5",
+        "7",
+        "119"
+      ],
+      "answer": 2,
+      "explanation": "$\\sqrt{144} = 12$, because $12 \\times 12 = 144$.\n$\\sqrt{25} = 5$, because $5 \\times 5 = 25$.\n$12 - 5 = 7$, so the answer is 7.",
+      "difficulty": 2,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0028",
+      "section": "ma",
+      "topic": "geometry",
+      "type": "word",
+      "prompt": "Triangle $ABC$ is shown on the coordinate grid. What is its area in square units?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "24",
+        "12",
+        "10",
+        "14"
+      ],
+      "answer": 1,
+      "explanation": "Side $AB$ runs from $x = 1$ to $x = 7$, so the base is 6.\n$C$ is 4 units above $AB$, so the height is 4.\nHalf of $6 \\times 4$ is 12, so the answer is 12.",
+      "difficulty": 2,
+      "diagram": {
+        "w": 100,
+        "h": 68,
+        "items": [
+          {
+            "t": "grid",
+            "x": 22,
+            "y": 6,
+            "w": 56,
+            "h": 56,
+            "xmin": 0,
+            "xmax": 8,
+            "ymin": 0,
+            "ymax": 8,
+            "points": [
+              {
+                "p": [
+                  1,
+                  1
+                ],
+                "label": "A"
+              },
+              {
+                "p": [
+                  7,
+                  1
+                ],
+                "label": "B"
+              },
+              {
+                "p": [
+                  3,
+                  5
+                ],
+                "label": "C"
+              }
+            ],
+            "segments": [
+              [
+                [
+                  1,
+                  1
+                ],
+                [
+                  7,
+                  1
+                ]
+              ],
+              [
+                [
+                  7,
+                  1
+                ],
+                [
+                  3,
+                  5
+                ]
+              ],
+              [
+                [
+                  3,
+                  5
+                ],
+                [
+                  1,
+                  1
+                ]
+              ]
+            ]
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0029",
+      "section": "qr",
+      "topic": "number sense",
+      "type": "word",
+      "prompt": "What number is halfway between point A and point B on the number line shown?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "4",
+        "8",
+        "2",
+        "1"
+      ],
+      "answer": 3,
+      "explanation": "A is at $-3$ and B is at 5, so they are $5 + 3 = 8$ apart.\nHalfway is 4 steps from each: $-3 + 4 = 1$.\nThe answer is 1.",
+      "difficulty": 2,
+      "diagram": {
+        "w": 100,
+        "h": 44,
+        "items": [
+          {
+            "t": "numberLine",
+            "y": 26,
+            "x0": 10,
+            "x1": 90,
+            "min": -4,
+            "max": 6,
+            "step": 1,
+            "labels": "all",
+            "points": [
+              {
+                "v": -3,
+                "label": "A"
+              },
+              {
+                "v": 5,
+                "label": "B"
+              }
+            ]
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0030",
+      "section": "ma",
+      "topic": "patterns",
+      "type": "word",
+      "prompt": "The table shows a rule that turns each $x$ into $y$. Following the same rule, what is $y$ when $x$ is 10?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "30",
+        "17",
+        "50",
+        "32"
+      ],
+      "answer": 3,
+      "explanation": "Each time $x$ goes up by 1, $y$ goes up by 3.\nThe rule is $y = 3 \\times x + 2$. (Check: $3 \\times 1 + 2 = 5$.)\n$3 \\times 10 + 2 = 32$, so the answer is 32.",
+      "difficulty": 2,
+      "diagram": {
+        "w": 100,
+        "h": 64,
+        "items": [
+          {
+            "t": "table",
+            "x": 26,
+            "y": 8,
+            "w": 48,
+            "cols": [
+              "x",
+              "y"
+            ],
+            "rows": [
+              [
+                "1",
+                "5"
+              ],
+              [
+                "2",
+                "8"
+              ],
+              [
+                "3",
+                "11"
+              ],
+              [
+                "4",
+                "14"
+              ]
+            ]
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0031",
+      "section": "qr",
+      "topic": "data",
+      "type": "comparison",
+      "prompt": "The mean of five numbers is 12. Four of the numbers are 10, 14, 9 and 13.",
+      "columnA": "The fifth number",
+      "columnB": "12",
+      "choices": [
+        "The quantity in Column A is greater.",
+        "The quantity in Column B is greater.",
+        "The two quantities are equal.",
+        "The relationship cannot be determined from the information given."
+      ],
+      "answer": 0,
+      "explanation": "The five numbers add up to $5 \\times 12 = 60$.\nThe four known numbers add up to $10 + 14 + 9 + 13 = 46$.\nThe fifth is $60 - 46 = 14$, which is more than 12, so Column A is greater.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0032",
+      "section": "qr",
+      "topic": "percent",
+      "type": "comparison",
+      "prompt": "The price of a jacket is raised by 20%. Later the new price is cut by 20%.",
+      "columnA": "The final price",
+      "columnB": "The original price",
+      "choices": [
+        "The quantity in Column A is greater.",
+        "The quantity in Column B is greater.",
+        "The two quantities are equal.",
+        "The relationship cannot be determined from the information given."
+      ],
+      "answer": 1,
+      "explanation": "Try \\$100: raising it 20% gives \\$120.\n20% of 120 is 24, so the cut gives $120 - 24 = 96$ dollars.\n\\$96 is less than \\$100, so Column B is greater.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0033",
+      "section": "qr",
+      "topic": "percent",
+      "type": "word",
+      "prompt": "A shop buys a bike for \\$120 and marks the price up by 50%. It then sells the bike for 30% off the marked price. How much profit does the shop make?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "\\$6",
+        "\\$24",
+        "\\$126",
+        "\\$60"
+      ],
+      "answer": 0,
+      "explanation": "Marked price: half of 120 is 60, and $120 + 60 = 180$.\n30% of 180 is 54, so it sells for $180 - 54 = 126$.\nProfit is $126 - 120 = 6$, so the answer is \\$6.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0034",
+      "section": "ma",
+      "topic": "algebra",
+      "type": "computation",
+      "prompt": "If $\\frac{2x + 3}{5} = 7$, what is the value of $x$?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "16",
+        "19",
+        "2",
+        "32"
+      ],
+      "answer": 0,
+      "explanation": "Multiply both sides by 5: $2x + 3 = 35$.\nSubtract 3: $2x = 32$.\nDivide by 2: $x = 16$, so the answer is 16.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0035",
+      "section": "qr",
+      "topic": "algebra",
+      "type": "word",
+      "prompt": "The sum of three consecutive odd numbers is 87. What is the largest of the three numbers?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "29",
+        "27",
+        "31",
+        "30"
+      ],
+      "answer": 2,
+      "explanation": "The middle number is the mean: $87 \\div 3 = 29$.\nOdd numbers are 2 apart, so the three are 27, 29 and 31.\nThe answer is 31.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0036",
+      "section": "ma",
+      "topic": "geometry",
+      "type": "word",
+      "prompt": "What is the area of the trapezoid shown?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "110 square cm",
+        "27 square cm",
+        "560 square cm",
+        "55 square cm"
+      ],
+      "answer": 3,
+      "explanation": "Area of a trapezoid: add the two parallel sides, halve the sum, then multiply by the height.\n$8 + 14 = 22$, half of 22 is 11, and $11 \\times 5 = 55$.\nThe answer is 55 square cm.",
+      "difficulty": 3,
+      "diagram": {
+        "w": 100,
+        "h": 60,
+        "items": [
+          {
+            "t": "poly",
+            "pts": [
+              [
+                22,
+                46
+              ],
+              [
+                78,
+                46
+              ],
+              [
+                62,
+                26
+              ],
+              [
+                30,
+                26
+              ]
+            ],
+            "closed": true,
+            "fill": "light"
+          },
+          {
+            "t": "line",
+            "a": [
+              30,
+              26
+            ],
+            "b": [
+              30,
+              46
+            ],
+            "dash": true,
+            "arrow": "none"
+          },
+          {
+            "t": "rightAngle",
+            "at": [
+              30,
+              46
+            ],
+            "a": [
+              30,
+              26
+            ],
+            "b": [
+              78,
+              46
+            ]
+          },
+          {
+            "t": "text",
+            "at": [
+              50,
+              53
+            ],
+            "s": "14 cm",
+            "size": "m",
+            "anchor": "c"
+          },
+          {
+            "t": "text",
+            "at": [
+              46,
+              21
+            ],
+            "s": "8 cm",
+            "size": "m",
+            "anchor": "c"
+          },
+          {
+            "t": "text",
+            "at": [
+              33,
+              37
+            ],
+            "s": "5 cm",
+            "size": "s",
+            "anchor": "l"
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0037",
+      "section": "qr",
+      "topic": "ratios",
+      "type": "word",
+      "prompt": "Pump A can fill a tank in 6 hours. Pump B can fill the same tank in 3 hours. How long does it take to fill the tank with both pumps working together?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "9 hours",
+        "4.5 hours",
+        "2 hours",
+        "3 hours"
+      ],
+      "answer": 2,
+      "explanation": "In one hour pump A fills $\\frac{1}{6}$ of the tank and pump B fills $\\frac{1}{3}$.\nTogether that is $\\frac{1}{6} + \\frac{2}{6} = \\frac{1}{2}$ of the tank each hour.\nHalf a tank each hour fills it in 2 hours, so the answer is 2 hours.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0038",
+      "section": "ma",
+      "topic": "data",
+      "type": "word",
+      "prompt": "The bar graph shows how many students in a class own 0, 1, 2 or 3 pets. What is the mean number of pets per student?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "5",
+        "1.5",
+        "6.5",
+        "1.3"
+      ],
+      "answer": 3,
+      "explanation": "Students: $4 + 8 + 6 + 2 = 20$.\nPets: $0 \\times 4 + 1 \\times 8 + 2 \\times 6 + 3 \\times 2 = 26$.\n$26 \\div 20 = 1.3$, so the answer is 1.3.",
+      "difficulty": 3,
+      "diagram": {
+        "w": 100,
+        "h": 72,
+        "items": [
+          {
+            "t": "bars",
+            "x": 16,
+            "y": 8,
+            "w": 76,
+            "h": 54,
+            "labels": [
+              "0 pets",
+              "1 pet",
+              "2 pets",
+              "3 pets"
+            ],
+            "values": [
+              4,
+              8,
+              6,
+              2
+            ],
+            "max": 10,
+            "step": 2,
+            "title": "Pets Owned",
+            "ylabel": "Students"
+          }
+        ]
+      },
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0039",
+      "section": "qr",
+      "topic": "probability",
+      "type": "word",
+      "prompt": "A bag holds 5 red marbles and 3 blue marbles. Two marbles are picked, one after the other, and the first is not put back. What is the probability that both are red?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "$\\frac{25}{64}$",
+        "$\\frac{5}{8}$",
+        "$\\frac{3}{5}$",
+        "$\\frac{5}{14}$"
+      ],
+      "answer": 3,
+      "explanation": "First pick: 5 of the 8 marbles are red, $\\frac{5}{8}$.\nSecond pick: 4 of the 7 left are red, $\\frac{4}{7}$.\n$\\frac{5}{8} \\times \\frac{4}{7} = \\frac{20}{56}$, so the answer is $\\frac{5}{14}$.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    },
+    {
+      "id": "M-0040",
+      "section": "ma",
+      "topic": "number sense",
+      "type": "word",
+      "prompt": "How many whole numbers from 1 to 99 are multiples of both 4 and 6?",
+      "columnA": null,
+      "columnB": null,
+      "choices": [
+        "4",
+        "40",
+        "16",
+        "8"
+      ],
+      "answer": 3,
+      "explanation": "A multiple of both 4 and 6 is a multiple of 12, their least common multiple.\nThe multiples of 12 up to 99 are 12, 24, 36, 48, 60, 72, 84 and 96.\nThat is 8 numbers, so the answer is 8.",
+      "difficulty": 3,
+      "diagram": null,
+      "source": "placeholder",
+      "of": null,
+      "ref": null
+    }
+  ]
+}
