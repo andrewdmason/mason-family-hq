@@ -1,0 +1,6785 @@
+[
+{
+"row": 2,
+"cells": [
+"L001",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Rectangles",
+"word problem",
+"A rectangle is 16 cm long and 2 cm wide. What is its perimeter?",
+"32 cm",
+"38 cm",
+"36 cm",
+"18 cm",
+"C",
+"P = 2 × (16 + 2) = 36 cm.",
+1.0,
+"Rectangle labeled 16 cm on the long side and 2 cm on the short side.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 3,
+"cells": [
+"L002",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Equilateral Figure",
+"word problem",
+"Each side of a regular pentagon is 9 cm. What is its perimeter?",
+"45 cm",
+"54 cm",
+"81 cm",
+"36 cm",
+"A",
+"5 sides × 9 = 45 cm.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 4,
+"cells": [
+"L003",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Equilateral Figure",
+"word problem",
+"Each side of a regular pentagon is 13 cm. What is its perimeter?",
+"65 cm",
+"78 cm",
+"169 cm",
+"52 cm",
+"A",
+"5 sides × 13 = 65 cm.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 5,
+"cells": [
+"L004",
+"lower",
+"Quantitative Reasoning",
+"Coins & Bills Problems",
+"word problem",
+"Jake has 6 quarters, 2 dimes, and 5 nickels. How much money does he have?",
+{
+"number": 2.0,
+"shown": "$2.00"
+},
+{
+"number": 1.85,
+"shown": "$1.85"
+},
+{
+"number": 1.3,
+"shown": "$1.30"
+},
+{
+"number": 1.95,
+"shown": "$1.95"
+},
+"D",
+"6×25¢ + 2×10¢ + 5×5¢ = $1.95.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 6,
+"cells": [
+"L005",
+"lower",
+"Quantitative Reasoning",
+"Comparing Bar Graph Values",
+"word problem",
+"The bar graph shows books read this year: Fay 50, Cal 30, Eli 10, Ava 15. How many more books did Fay read than Cal?",
+20.0,
+15.0,
+25.0,
+80.0,
+"A",
+"50 − 30 = 20.",
+2.0,
+"Vertical bar graph titled 'Books Read'; x-axis: Fay, Cal, Eli, Ava; y-axis 0–60 in steps of 5; bar heights: Fay=50, Cal=30, Eli=10, Ava=15.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 7,
+"cells": [
+"L006",
+"lower",
+"Mathematics Achievement",
+"Order of Operations",
+"computation",
+"What is 9 + 5 × 6 − 3?",
+38.0,
+24.0,
+36.0,
+81.0,
+"C",
+"Multiply first: 5×6=30; 9+30−3=36.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 8,
+"cells": [
+"L007",
+"lower",
+"Quantitative Reasoning",
+"Solving Problems with Rates",
+"word problem",
+"Lena reads 5 pages every minute. At that rate, how many pages will she read in 5 minutes?",
+25.0,
+30.0,
+10.0,
+20.0,
+"A",
+"5 × 5 = 25.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 9,
+"cells": [
+"L008",
+"lower",
+"Quantitative Reasoning",
+"Area and Perimeter of Complex Polygons",
+"word problem",
+"The figure is a 10 × 9 rectangle with a 2 × 4 rectangle cut out of one corner. What is the area of the figure in square units?",
+82.0,
+38.0,
+84.0,
+90.0,
+"A",
+"10×9 − 2×4 = 90 − 8 = 82.",
+3.0,
+"L-shaped polygon: a rectangle 10 units wide and 9 units tall with a 2-unit-wide by 4-unit-tall rectangle removed from the top-right corner. Label outer sides 10 and 9; label the notch sides 2 and 4.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 10,
+"cells": [
+"L009",
+"lower",
+"Mathematics Achievement",
+"Best Unit of Measure",
+"word problem",
+"Which unit is best for measuring the mass of a paper clip?",
+"kilograms",
+"grams",
+"meters",
+"liters",
+"B",
+"Grams are the most sensible size for the mass of a paper clip.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 11,
+"cells": [
+"L010",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Addition & Subtraction",
+"computation",
+"What is 1,971 + 4,271?",
+{
+"number": 6232.0,
+"shown": "6,232"
+},
+{
+"number": 6242.0,
+"shown": "6,242"
+},
+{
+"number": 5242.0,
+"shown": "5,242"
+},
+{
+"number": 6342.0,
+"shown": "6,342"
+},
+"B",
+"1,971 + 4,271 = 6,242.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 12,
+"cells": [
+"L011",
+"lower",
+"Quantitative Reasoning",
+"Factors and Multiples",
+"word problem",
+"Which number is a factor of 18?",
+17.0,
+4.0,
+16.0,
+2.0,
+"D",
+"18 ÷ 2 = 9 with no remainder.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 13,
+"cells": [
+"L012",
+"lower",
+"Quantitative Reasoning",
+"Rounding / Estimation",
+"computation",
+"What is 11,219 rounded to the nearest thousand?",
+{
+"number": 12000.0,
+"shown": "12,000"
+},
+{
+"number": 9000.0,
+"shown": "9,000"
+},
+{
+"number": 11000.0,
+"shown": "11,000"
+},
+{
+"number": 10000.0,
+"shown": "10,000"
+},
+"C",
+"Look at the digit right of the thousands place to round 11,219 to 11,000.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 14,
+"cells": [
+"L013",
+"lower",
+"Quantitative Reasoning",
+"Rounding / Estimation",
+"computation",
+"What is 66,696 rounded to the nearest thousand?",
+{
+"number": 65000.0,
+"shown": "65,000"
+},
+{
+"number": 68000.0,
+"shown": "68,000"
+},
+{
+"number": 67000.0,
+"shown": "67,000"
+},
+{
+"number": 66000.0,
+"shown": "66,000"
+},
+"C",
+"Look at the digit right of the thousands place to round 66,696 to 67,000.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 15,
+"cells": [
+"L014",
+"lower",
+"Quantitative Reasoning",
+"Finding the Mean",
+"word problem",
+"What is the mean (average) of 6, 13, 16, 9, 15, 13?",
+72.0,
+10.0,
+13.0,
+12.0,
+"D",
+"Sum = 72, ÷ 6 = 12.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 16,
+"cells": [
+"L015",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Equilateral Figure",
+"word problem",
+"Each side of a equilateral triangle is 3 cm. What is its perimeter?",
+"6 cm",
+"11 cm",
+"12 cm",
+"9 cm",
+"D",
+"3 sides × 3 = 9 cm.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 17,
+"cells": [
+"L016",
+"lower",
+"Quantitative Reasoning",
+"Nth Term, given Arithmetic Sequence",
+"word problem",
+"The pattern 6, 10, 14, 18, … continues. What is the 12th number?",
+72.0,
+50.0,
+46.0,
+54.0,
+"B",
+"Start 6, add 4 each time: 6 + 4×11 = 50.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 18,
+"cells": [
+"L017",
+"lower",
+"Mathematics Achievement",
+"Value of Digits",
+"word problem",
+"In the number 181,442, what is the value of the digit in the hundreds place?",
+4.0,
+400.0,
+{
+"number": 4000.0,
+"shown": "4,000"
+},
+40.0,
+"B",
+"The hundreds digit is 4, so its value is 400.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 19,
+"cells": [
+"L018",
+"lower",
+"Mathematics Achievement",
+"Value of Digits",
+"word problem",
+"In the number 786,317, what is the value of the digit in the ten thousands place?",
+{
+"number": 800000.0,
+"shown": "800,000"
+},
+8.0,
+{
+"number": 80000.0,
+"shown": "80,000"
+},
+{
+"number": 8000.0,
+"shown": "8,000"
+},
+"C",
+"The ten thousands digit is 8, so its value is 80,000.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 20,
+"cells": [
+"L019",
+"lower",
+"Quantitative Reasoning",
+"Factors and Multiples",
+"word problem",
+"Which number is a factor of 54?",
+52.0,
+32.0,
+49.0,
+3.0,
+"D",
+"54 ÷ 3 = 18 with no remainder.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 21,
+"cells": [
+"L020",
+"lower",
+"Quantitative Reasoning",
+"Remainder when Divided by a Given Number",
+"word problem",
+"What is the remainder when 92 is divided by 6?",
+2.0,
+3.0,
+5.0,
+0.0,
+"A",
+"6 × 15 = 90; 92 − 90 = 2.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 22,
+"cells": [
+"L021",
+"lower",
+"Mathematics Achievement",
+"Area of Rectangles",
+"word problem",
+"What is the area of a rectangle with length 12 ft and width 7 ft?",
+"19 sq ft",
+"91 sq ft",
+"38 sq ft",
+"84 sq ft",
+"D",
+"A = 12 × 7 = 84 square feet.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 23,
+"cells": [
+"L022",
+"lower",
+"Mathematics Achievement",
+"Conversions / Measurement",
+"word problem",
+"How many feet are in 7 yards?",
+84.0,
+21.0,
+24.0,
+252.0,
+"B",
+"Multiply by the conversion factor: 21 feet.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 24,
+"cells": [
+"L023",
+"lower",
+"Quantitative Reasoning",
+"Estimating Fractions on Number Lines",
+"word problem",
+"A number line from 0 to 1 is divided into 5 equal parts. Point P is at the 4th tick mark after 0. What number does P represent?",
+{
+"date": "2026-04-05"
+},
+{
+"date": "2026-02-03"
+},
+{
+"date": "2026-01-04"
+},
+{
+"date": "2026-01-05"
+},
+"A",
+"Each part is 1/5; 4 parts = 4/5.",
+1.0,
+"Number line from 0 to 1 with 4 evenly spaced interior tick marks; point P marked at tick 4.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 25,
+"cells": [
+"L024",
+"lower",
+"Mathematics Achievement",
+"Shape Construction & Symmetry",
+"word problem",
+"How many lines of symmetry does a regular pentagon have?",
+5.0,
+10.0,
+4.0,
+6.0,
+"A",
+"A regular pentagon has 5 line(s) of symmetry.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 26,
+"cells": [
+"L025",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Addition & Subtraction",
+"computation",
+"What is 4,003 + 357?",
+{
+"number": 4460.0,
+"shown": "4,460"
+},
+{
+"number": 4360.0,
+"shown": "4,360"
+},
+{
+"number": 4350.0,
+"shown": "4,350"
+},
+{
+"number": 3360.0,
+"shown": "3,360"
+},
+"B",
+"4,003 + 357 = 4,360.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 27,
+"cells": [
+"L026",
+"lower",
+"Quantitative Reasoning",
+"Determining Total Cost / Change",
+"word problem",
+"Sam buys 5 juice boxes for $3.75 each. He pays with $20. How much change should he get?",
+{
+"number": 18.75,
+"shown": "$18.75"
+},
+{
+"number": 1.25,
+"shown": "$1.25"
+},
+{
+"number": 0.75,
+"shown": "$0.75"
+},
+{
+"number": 5.0,
+"shown": "$5.00"
+},
+"B",
+"Cost = 5 × $3.75 = $18.75; change = $20 − $18.75 = $1.25.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 28,
+"cells": [
+"L027",
+"lower",
+"Mathematics Achievement",
+"Conversions / Measurement",
+"word problem",
+"How many minutes are in 4 hours?",
+240.0,
+400.0,
+96.0,
+300.0,
+"A",
+"Multiply by the conversion factor: 240 minutes.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 29,
+"cells": [
+"L028",
+"lower",
+"Mathematics Achievement",
+"Adding and Subtracting Decimals",
+"computation",
+"What is 38.06 − 6.4?",
+31.67,
+31.66,
+31.76,
+30.66,
+"B",
+"Line up the decimal points: the answer is 31.66.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 30,
+"cells": [
+"L029",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Addition & Subtraction",
+"computation",
+"What is 6,833 + 4,174?",
+{
+"number": 11007.0,
+"shown": "11,007"
+},
+{
+"number": 11107.0,
+"shown": "11,107"
+},
+{
+"number": 10997.0,
+"shown": "10,997"
+},
+{
+"number": 10007.0,
+"shown": "10,007"
+},
+"A",
+"6,833 + 4,174 = 11,007.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 31,
+"cells": [
+"L030",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 3/8 + 3/8?",
+"1 1/8",
+{
+"date": "2026-03-04"
+},
+{
+"date": "2026-07-08"
+},
+{
+"date": "2026-03-08"
+},
+"B",
+"Same denominator: add numerators, 3+3=6, giving 3/4.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 32,
+"cells": [
+"L031",
+"lower",
+"Quantitative Reasoning",
+"Factors and Multiples",
+"word problem",
+"Which number is a factor of 36?",
+10.0,
+15.0,
+11.0,
+6.0,
+"D",
+"36 ÷ 6 = 6 with no remainder.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 33,
+"cells": [
+"L032",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Multiplication",
+"computation",
+"What is 30 × 28?",
+840.0,
+540.0,
+812.0,
+870.0,
+"A",
+"30 × 28 = 840.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 34,
+"cells": [
+"L033",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Addition & Subtraction",
+"computation",
+"What is 4,714 − 3,279?",
+{
+"number": 2435.0,
+"shown": "2,435"
+},
+{
+"number": 1445.0,
+"shown": "1,445"
+},
+{
+"number": 1435.0,
+"shown": "1,435"
+},
+{
+"number": 1335.0,
+"shown": "1,335"
+},
+"C",
+"4,714 − 3,279 = 1,435.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 35,
+"cells": [
+"L034",
+"lower",
+"Quantitative Reasoning",
+"Finding the Mean",
+"word problem",
+"What is the mean (average) of 26, 26, 14, 16, 18?",
+100.0,
+20.0,
+12.0,
+21.0,
+"B",
+"Sum = 100, ÷ 5 = 20.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 36,
+"cells": [
+"L035",
+"lower",
+"Quantitative Reasoning",
+"Coins & Bills Problems",
+"word problem",
+"Jake has 1 quarters, 7 dimes, and 6 nickels. How much money does he have?",
+{
+"number": 1.25,
+"shown": "$1.25"
+},
+{
+"number": 1.15,
+"shown": "$1.15"
+},
+{
+"number": 1.4,
+"shown": "$1.40"
+},
+{
+"number": 1.3,
+"shown": "$1.30"
+},
+"A",
+"1×25¢ + 7×10¢ + 6×5¢ = $1.25.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 37,
+"cells": [
+"L036",
+"lower",
+"Mathematics Achievement",
+"Adding and Subtracting Decimals",
+"computation",
+"What is 27.41 + 3.4?",
+29.81,
+30.82,
+30.81,
+30.91,
+"C",
+"Line up the decimal points: the answer is 30.81.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 38,
+"cells": [
+"L037",
+"lower",
+"Quantitative Reasoning",
+"Area and Perimeter of Complex Polygons",
+"word problem",
+"The figure is an 8 × 10 rectangle with a 4 × 5 rectangle cut out of one corner. What is the area of the figure in square units?",
+60.0,
+36.0,
+71.0,
+80.0,
+"A",
+"8×10 − 4×5 = 80 − 20 = 60.",
+3.0,
+"L-shaped polygon: a rectangle 8 units wide and 10 units tall with a 4-unit-wide by 5-unit-tall rectangle removed from the top-right corner. Label outer sides 8 and 10; label the notch sides 4 and 5.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 39,
+"cells": [
+"L038",
+"lower",
+"Quantitative Reasoning",
+"Coins & Bills Problems",
+"word problem",
+"Jake has 2 quarters, 6 dimes, and 3 nickels. How much money does he have?",
+{
+"number": 1.1,
+"shown": "$1.10"
+},
+{
+"number": 1.3,
+"shown": "$1.30"
+},
+{
+"number": 1.25,
+"shown": "$1.25"
+},
+{
+"number": 1.15,
+"shown": "$1.15"
+},
+"C",
+"2×25¢ + 6×10¢ + 3×5¢ = $1.25.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 40,
+"cells": [
+"L039",
+"lower",
+"Quantitative Reasoning",
+"Comparing Fractions",
+"computation",
+"Which fraction is the greatest?",
+{
+"date": "2026-03-04"
+},
+{
+"date": "2026-03-05"
+},
+{
+"date": "2026-02-03"
+},
+{
+"date": "2026-07-10"
+},
+"A",
+"Convert to decimals: 3/5=0.6, 2/3=0.667, 3/4=0.75, 7/10=0.7.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 41,
+"cells": [
+"L040",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Multiplication",
+"computation",
+"What is 23 × 33?",
+529.0,
+726.0,
+759.0,
+782.0,
+"C",
+"23 × 33 = 759.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 42,
+"cells": [
+"L041",
+"lower",
+"Quantitative Reasoning",
+"Solving for a Missing Number",
+"computation",
+"If 5 × □ = 55, what number goes in the □?",
+11.0,
+60.0,
+50.0,
+12.0,
+"A",
+"Use the inverse operation: □ = 11.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 43,
+"cells": [
+"L042",
+"lower",
+"Quantitative Reasoning",
+"Estimating Fractions on Number Lines",
+"word problem",
+"A number line from 0 to 1 is divided into 5 equal parts. Point P is at the 2nd tick mark after 0. What number does P represent?",
+{
+"date": "2026-02-05"
+},
+{
+"date": "2026-01-02"
+},
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-03-05"
+},
+"A",
+"Each part is 1/5; 2 parts = 2/5.",
+1.0,
+"Number line from 0 to 1 with 4 evenly spaced interior tick marks; point P marked at tick 2.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 44,
+"cells": [
+"L043",
+"lower",
+"Mathematics Achievement",
+"Volume of Solids",
+"word problem",
+"A box is 4 cm long, 5 cm wide, and 3 cm tall. What is its volume?",
+"60 cubic cm",
+"20 cubic cm",
+"94 cubic cm",
+"12 cubic cm",
+"A",
+"V = 4×5×3 = 60.",
+2.0,
+"Rectangular prism labeled length 4 cm, width 5 cm, height 3 cm.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 45,
+"cells": [
+"L044",
+"lower",
+"Quantitative Reasoning",
+"Estimating Fractions on Number Lines",
+"word problem",
+"A number line from 0 to 1 is divided into 10 equal parts. Point P is at the 2nd tick mark after 0. What number does P represent?",
+{
+"date": "2026-02-11"
+},
+{
+"date": "2026-04-05"
+},
+{
+"date": "2026-01-02"
+},
+{
+"date": "2026-01-05"
+},
+"D",
+"Each part is 1/10; 2 parts = 1/5.",
+1.0,
+"Number line from 0 to 1 with 9 evenly spaced interior tick marks; point P marked at tick 2.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 46,
+"cells": [
+"L045",
+"lower",
+"Mathematics Achievement",
+"Conversions / Measurement",
+"word problem",
+"How many centimeters are in 8 meters?",
+80.0,
+900.0,
+8000.0,
+800.0,
+"D",
+"Multiply by the conversion factor: 800 centimeters.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 47,
+"cells": [
+"L046",
+"lower",
+"Quantitative Reasoning",
+"Estimating Fractions on Number Lines",
+"word problem",
+"A number line from 0 to 1 is divided into 4 equal parts. Point P is at the 1st tick mark after 0. What number does P represent?",
+{
+"date": "2026-01-02"
+},
+{
+"date": "2026-01-05"
+},
+{
+"date": "2026-01-04"
+},
+{
+"date": "2026-03-04"
+},
+"C",
+"Each part is 1/4; 1 parts = 1/4.",
+1.0,
+"Number line from 0 to 1 with 3 evenly spaced interior tick marks; point P marked at tick 1.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 48,
+"cells": [
+"L047",
+"lower",
+"Quantitative Reasoning",
+"Fractional Parts Word Problems",
+"word problem",
+"Maya has 44 marbles. She gives away 1/4 of them. How many marbles does she give away?",
+33.0,
+12.0,
+15.0,
+11.0,
+"D",
+"1/4 of 44 = 44 ÷ 4 × 1 = 11.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 49,
+"cells": [
+"L048",
+"lower",
+"Mathematics Achievement",
+"Order of Operations",
+"computation",
+"What is 5 + 4 × 6 − 4?",
+27.0,
+13.0,
+25.0,
+50.0,
+"C",
+"Multiply first: 4×6=24; 5+24−4=25.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 50,
+"cells": [
+"L049",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 3/7 + 3/7?",
+"1 2/7",
+{
+"date": "2026-03-07"
+},
+{
+"date": "2026-06-07"
+},
+1.0,
+"C",
+"Same denominator: add numerators, 3+3=6, giving 6/7.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 51,
+"cells": [
+"L050",
+"lower",
+"Quantitative Reasoning",
+"Solving for Subsets in a Venn Diagram",
+"word problem",
+"In a class, 12 students play soccer and 16 play basketball. 2 play both. Every student plays at least one. How many students are in the class?",
+28.0,
+30.0,
+24.0,
+26.0,
+"D",
+"12 + 16 − 2 = 26.",
+3.0,
+"Two overlapping circles labeled Soccer and Basketball; overlap region labeled 2; Soccer-only region 10; Basketball-only region 14.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 52,
+"cells": [
+"L051",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Rectangles",
+"word problem",
+"A rectangle is 15 cm long and 13 cm wide. What is its perimeter?",
+"58 cm",
+"28 cm",
+"56 cm",
+"195 cm",
+"C",
+"P = 2 × (15 + 13) = 56 cm.",
+1.0,
+"Rectangle labeled 15 cm on the long side and 13 cm on the short side.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 53,
+"cells": [
+"L052",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 5/9 + 2/9?",
+{
+"date": "2026-07-18"
+},
+"1 1/9",
+{
+"date": "2026-08-09"
+},
+{
+"date": "2026-07-09"
+},
+"D",
+"Same denominator: add numerators, 5+2=7, giving 7/9.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 54,
+"cells": [
+"L053",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Multiplication",
+"computation",
+"What is 86 × 17?",
+{
+"number": 1548.0,
+"shown": "1,548"
+},
+602.0,
+{
+"number": 1445.0,
+"shown": "1,445"
+},
+{
+"number": 1462.0,
+"shown": "1,462"
+},
+"D",
+"86 × 17 = 1462.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 55,
+"cells": [
+"L054",
+"lower",
+"Quantitative Reasoning",
+"Solving for a Missing Number",
+"computation",
+"If □ + 23 = 57, what number goes in the □?",
+23.0,
+34.0,
+80.0,
+44.0,
+"B",
+"Use the inverse operation: □ = 34.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 56,
+"cells": [
+"L055",
+"lower",
+"Mathematics Achievement",
+"Shape Construction & Symmetry",
+"word problem",
+"How many lines of symmetry does a square have?",
+8.0,
+3.0,
+4.0,
+5.0,
+"C",
+"A square has 4 line(s) of symmetry.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 57,
+"cells": [
+"L056",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Rectangles",
+"word problem",
+"A rectangle is 20 cm long and 14 cm wide. What is its perimeter?",
+"70 cm",
+"68 cm",
+"280 cm",
+"34 cm",
+"B",
+"P = 2 × (20 + 14) = 68 cm.",
+1.0,
+"Rectangle labeled 20 cm on the long side and 14 cm on the short side.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 58,
+"cells": [
+"L057",
+"lower",
+"Quantitative Reasoning",
+"Factors and Multiples",
+"word problem",
+"Which number is a factor of 24?",
+10.0,
+3.0,
+20.0,
+17.0,
+"B",
+"24 ÷ 3 = 8 with no remainder.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 59,
+"cells": [
+"L058",
+"lower",
+"Quantitative Reasoning",
+"Finding Range, given Sets of Numbers",
+"word problem",
+"What is the range of this set: 32, 49, 10, 23, 44, 33, 11?",
+49.0,
+32.0,
+59.0,
+39.0,
+"D",
+"49 − 10 = 39.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 60,
+"cells": [
+"L059",
+"lower",
+"Mathematics Achievement",
+"Identifying Shapes",
+"word problem",
+"Which shape has 8 sides?",
+"decagon",
+"octagon",
+"pentagon",
+"hexagon",
+"B",
+"A octagon has 8 sides.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 61,
+"cells": [
+"L060",
+"lower",
+"Quantitative Reasoning",
+"Computation with Time",
+"word problem",
+"A movie starts at 9:15 A.M. and lasts 35 minutes. What time does it end?",
+"8:50 A.M.",
+"10:00 A.M.",
+"9:50 A.M.",
+"10:50 A.M.",
+"C",
+"35 min = 0 h 35 min after 9:15 A.M. → 9:50 A.M..",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 62,
+"cells": [
+"L061",
+"lower",
+"Quantitative Reasoning",
+"Finding Missing Side, given Perimeter and 1 Side",
+"word problem",
+"A rectangle has a perimeter of 38 meters. Its width is 6 meters. What is its length?",
+"13 m",
+"26 m",
+"19 m",
+"32 m",
+"A",
+"38 = 2(L + 6) → L + 6 = 19 → L = 13 m.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 63,
+"cells": [
+"L062",
+"lower",
+"Mathematics Achievement",
+"Best Unit of Measure",
+"word problem",
+"Which unit is best for measuring the height of a door?",
+"miles",
+"feet",
+"inches",
+"kilometers",
+"B",
+"Feet are the most sensible size for the height of a door.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 64,
+"cells": [
+"L063",
+"lower",
+"Quantitative Reasoning",
+"Comparing Fractions",
+"computation",
+"Which fraction is the least?",
+{
+"date": "2026-03-05"
+},
+{
+"date": "2026-04-05"
+},
+{
+"date": "2026-03-04"
+},
+{
+"date": "2026-02-05"
+},
+"D",
+"Convert to decimals: 2/5=0.4, 3/4=0.75, 3/5=0.6, 4/5=0.8.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 65,
+"cells": [
+"L064",
+"lower",
+"Quantitative Reasoning",
+"Probability of 1 Event, given a List of Items",
+"word problem",
+"A bag has 6 red, 3 blue, and 2 green marbles. One marble is picked without looking. What is the probability it is red?",
+{
+"date": "2026-06-11"
+},
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-05-11"
+},
+"1 1/5",
+"A",
+"6 red out of 11 total = 6/11.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 66,
+"cells": [
+"L065",
+"lower",
+"Mathematics Achievement",
+"Shape Construction & Symmetry",
+"word problem",
+"How many lines of symmetry does a equilateral triangle have?",
+3.0,
+4.0,
+2.0,
+6.0,
+"A",
+"A equilateral triangle has 3 line(s) of symmetry.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 67,
+"cells": [
+"L066",
+"lower",
+"Quantitative Reasoning",
+"Finding the Mean",
+"word problem",
+"What is the mean (average) of 6, 9, 12, 24, 10, 11?",
+12.0,
+72.0,
+18.0,
+13.0,
+"A",
+"Sum = 72, ÷ 6 = 12.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 68,
+"cells": [
+"L067",
+"lower",
+"Quantitative Reasoning",
+"Determining Total Cost / Change",
+"word problem",
+"Sam buys 5 pens for $0.85 each. He pays with $5. How much change should he get?",
+{
+"number": 1.6,
+"shown": "$1.60"
+},
+{
+"number": 4.25,
+"shown": "$4.25"
+},
+{
+"number": 0.25,
+"shown": "$0.25"
+},
+{
+"number": 0.75,
+"shown": "$0.75"
+},
+"D",
+"Cost = 5 × $0.85 = $4.25; change = $5 − $4.25 = $0.75.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 69,
+"cells": [
+"L068",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Multiplication",
+"computation",
+"What is 75 × 22?",
+{
+"number": 1650.0,
+"shown": "1,650"
+},
+{
+"number": 1725.0,
+"shown": "1,725"
+},
+900.0,
+{
+"number": 1628.0,
+"shown": "1,628"
+},
+"A",
+"75 × 22 = 1650.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 70,
+"cells": [
+"L069",
+"lower",
+"Mathematics Achievement",
+"Volume of Solids",
+"word problem",
+"A box is 6 cm long, 6 cm wide, and 6 cm tall. What is its volume?",
+"36 cubic cm",
+"222 cubic cm",
+"216 cubic cm",
+"18 cubic cm",
+"C",
+"V = 6×6×6 = 216.",
+2.0,
+"Rectangular prism labeled length 6 cm, width 6 cm, height 6 cm.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 71,
+"cells": [
+"L070",
+"lower",
+"Mathematics Achievement",
+"Equivalent Fractions and Decimals",
+"computation",
+"Which decimal is equal to 1/4?",
+0.25,
+0.4,
+0.1,
+0.3,
+"A",
+"1 ÷ 4 = 0.25.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 72,
+"cells": [
+"L071",
+"lower",
+"Quantitative Reasoning",
+"Finding Range, given Sets of Numbers",
+"word problem",
+"What is the range of this set: 54, 31, 16, 35, 42?",
+54.0,
+35.0,
+38.0,
+70.0,
+"C",
+"54 − 16 = 38.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 73,
+"cells": [
+"L072",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Multiplication",
+"computation",
+"What is 37 × 37?",
+999.0,
+{
+"number": 1332.0,
+"shown": "1,332"
+},
+{
+"number": 1406.0,
+"shown": "1,406"
+},
+{
+"number": 1369.0,
+"shown": "1,369"
+},
+"D",
+"37 × 37 = 1369.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 74,
+"cells": [
+"L073",
+"lower",
+"Mathematics Achievement",
+"Identifying Shapes",
+"word problem",
+"Which shape has exactly one pair of parallel sides?",
+"trapezoid",
+"parallelogram",
+"square",
+"rectangle",
+"A",
+"A trapezoid has exactly one pair of parallel sides.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 75,
+"cells": [
+"L074",
+"lower",
+"Mathematics Achievement",
+"Best Unit of Measure",
+"word problem",
+"Which unit is best for measuring the amount of water in a bathtub?",
+"ounces",
+"milliliters",
+"gallons",
+"cups",
+"C",
+"Gallons are the most sensible size for the amount of water in a bathtub.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 76,
+"cells": [
+"L075",
+"lower",
+"Mathematics Achievement",
+"Adding and Subtracting Decimals",
+"computation",
+"What is 21.14 − 2.4?",
+17.74,
+18.74,
+18.75,
+18.84,
+"B",
+"Line up the decimal points: the answer is 18.74.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 77,
+"cells": [
+"L076",
+"lower",
+"Mathematics Achievement",
+"Best Unit of Measure",
+"word problem",
+"Which unit is best for measuring the length of a pencil?",
+"meters",
+"centimeters",
+"liters",
+"kilometers",
+"B",
+"Centimeters are the most sensible size for the length of a pencil.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 78,
+"cells": [
+"L077",
+"lower",
+"Mathematics Achievement",
+"Equivalent Fractions and Decimals",
+"computation",
+"Which decimal is equal to 1/2?",
+0.55,
+0.5,
+0.1,
+0.2,
+"B",
+"1 ÷ 2 = 0.5.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 79,
+"cells": [
+"L078",
+"lower",
+"Quantitative Reasoning",
+"Fractional Parts Word Problems",
+"word problem",
+"Maya has 30 books. She gives away 1/6 of them. How many books does she give away?",
+6.0,
+11.0,
+25.0,
+5.0,
+"D",
+"1/6 of 30 = 30 ÷ 6 × 1 = 5.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 80,
+"cells": [
+"L079",
+"lower",
+"Mathematics Achievement",
+"Area of Rectangles",
+"word problem",
+"What is the area of a rectangle with length 7 ft and width 6 ft?",
+"13 sq ft",
+"42 sq ft",
+"48 sq ft",
+"26 sq ft",
+"B",
+"A = 7 × 6 = 42 square feet.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 81,
+"cells": [
+"L080",
+"lower",
+"Quantitative Reasoning",
+"Probability of 1 Event, given a List of Items",
+"word problem",
+"A bag has 2 red, 3 blue, and 2 green marbles. One marble is picked without looking. What is the probability it is green?",
+{
+"date": "2026-02-05"
+},
+{
+"date": "2026-02-07"
+},
+{
+"date": "2026-05-07"
+},
+{
+"date": "2026-01-03"
+},
+"B",
+"2 green out of 7 total = 2/7.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 82,
+"cells": [
+"L081",
+"lower",
+"Quantitative Reasoning",
+"Finding Median, given Sets of Numbers",
+"word problem",
+"What is the median of 31, 51, 5, 23, 8, 19, 15?",
+22.0,
+46.0,
+23.0,
+19.0,
+"D",
+"In order: 5, 8, 15, 19, 23, 31, 51. The middle value is 19.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 83,
+"cells": [
+"L082",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Equilateral Figure",
+"word problem",
+"Each side of a square is 14 cm. What is its perimeter?",
+"196 cm",
+"42 cm",
+"56 cm",
+"70 cm",
+"C",
+"4 sides × 14 = 56 cm.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 84,
+"cells": [
+"L083",
+"lower",
+"Quantitative Reasoning",
+"Finding Median, given Sets of Numbers",
+"word problem",
+"What is the median of 59, 33, 5, 13, 6?",
+5.0,
+13.0,
+23.0,
+54.0,
+"B",
+"In order: 5, 6, 13, 33, 59. The middle value is 13.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 85,
+"cells": [
+"L084",
+"lower",
+"Mathematics Achievement",
+"Area of Rectangles",
+"word problem",
+"What is the area of a rectangle with length 11 ft and width 6 ft?",
+"66 sq ft",
+"72 sq ft",
+"17 sq ft",
+"34 sq ft",
+"A",
+"A = 11 × 6 = 66 square feet.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 86,
+"cells": [
+"L085",
+"lower",
+"Mathematics Achievement",
+"Order of Operations",
+"computation",
+"What is 9 + 9 × 6 − 3?",
+105.0,
+36.0,
+60.0,
+62.0,
+"C",
+"Multiply first: 9×6=54; 9+54−3=60.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 87,
+"cells": [
+"L086",
+"lower",
+"Quantitative Reasoning",
+"Probability of 1 Event, given a List of Items",
+"word problem",
+"A bag has 7 red, 5 blue, and 2 green marbles. One marble is picked without looking. What is the probability it is blue?",
+{
+"date": "2026-09-14"
+},
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-05-14"
+},
+{
+"date": "2026-05-09"
+},
+"C",
+"5 blue out of 14 total = 5/14.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 88,
+"cells": [
+"L087",
+"lower",
+"Quantitative Reasoning",
+"Comparing Fractions",
+"computation",
+"Which fraction is the greatest?",
+{
+"date": "2026-05-08"
+},
+{
+"date": "2026-03-04"
+},
+{
+"date": "2026-04-05"
+},
+{
+"date": "2026-03-08"
+},
+"C",
+"Convert to decimals: 3/8=0.375, 5/8=0.625, 3/4=0.75, 4/5=0.8.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 89,
+"cells": [
+"L088",
+"lower",
+"Quantitative Reasoning",
+"Finding the Mean",
+"word problem",
+"What is the mean (average) of 11, 17, 8, 9, 15, 12?",
+72.0,
+9.0,
+12.0,
+13.0,
+"C",
+"Sum = 72, ÷ 6 = 12.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 90,
+"cells": [
+"L089",
+"lower",
+"Quantitative Reasoning",
+"Determining Fraction of Shaded Area, given Figure",
+"word problem",
+"A rectangle is divided into 10 equal squares, and 1 of them are shaded. What fraction of the rectangle is shaded (in simplest form)?",
+{
+"date": "2026-01-10"
+},
+{
+"date": "2026-09-10"
+},
+{
+"date": "2026-01-05"
+},
+{
+"date": "2026-01-09"
+},
+"A",
+"1/10 = 1/10.",
+2.0,
+"Grid of 2 rows × 5 columns of equal squares; shade the first 1 squares reading left-to-right, top-to-bottom.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 91,
+"cells": [
+"L090",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Equilateral Figure",
+"word problem",
+"Each side of a equilateral triangle is 5 cm. What is its perimeter?",
+"25 cm",
+"10 cm",
+"15 cm",
+"20 cm",
+"C",
+"3 sides × 5 = 15 cm.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 92,
+"cells": [
+"L091",
+"lower",
+"Mathematics Achievement",
+"Area of Rectangles",
+"word problem",
+"What is the area of a rectangle with length 14 ft and width 12 ft?",
+"168 sq ft",
+"52 sq ft",
+"26 sq ft",
+"180 sq ft",
+"A",
+"A = 14 × 12 = 168 square feet.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 93,
+"cells": [
+"L092",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Multiplication",
+"computation",
+"What is 53 × 19?",
+477.0,
+{
+"number": 1007.0,
+"shown": "1,007"
+},
+988.0,
+{
+"number": 1060.0,
+"shown": "1,060"
+},
+"B",
+"53 × 19 = 1007.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 94,
+"cells": [
+"L093",
+"lower",
+"Quantitative Reasoning",
+"Multi-step Word Problems",
+"word problem",
+"An auditorium has 13 rows with 22 seats in each row, plus 16 folding chairs. How many seats are there in all?",
+286.0,
+494.0,
+51.0,
+302.0,
+"D",
+"13 × 22 = 286; + 16 = 302.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 95,
+"cells": [
+"L094",
+"lower",
+"Quantitative Reasoning",
+"Computation with Time",
+"word problem",
+"A movie starts at 10:15 A.M. and lasts 105 minutes. What time does it end?",
+"12:00 P.M.",
+"12:10 P.M.",
+"11:00 A.M.",
+"1:00 P.M.",
+"A",
+"105 min = 1 h 45 min after 10:15 A.M. → 12:00 P.M..",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 96,
+"cells": [
+"L095",
+"lower",
+"Mathematics Achievement",
+"Volume of Solids",
+"word problem",
+"A box is 6 cm long, 4 cm wide, and 3 cm tall. What is its volume?",
+"108 cubic cm",
+"24 cubic cm",
+"72 cubic cm",
+"13 cubic cm",
+"C",
+"V = 6×4×3 = 72.",
+2.0,
+"Rectangular prism labeled length 6 cm, width 4 cm, height 3 cm.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 97,
+"cells": [
+"L096",
+"lower",
+"Mathematics Achievement",
+"Conversions / Measurement",
+"word problem",
+"How many ounces are in 7 pounds?",
+84.0,
+70.0,
+128.0,
+112.0,
+"D",
+"Multiply by the conversion factor: 112 ounces.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 98,
+"cells": [
+"L097",
+"lower",
+"Quantitative Reasoning",
+"Multi-step Word Problems",
+"word problem",
+"An auditorium has 15 rows with 23 seats in each row, plus 20 folding chairs. How many seats are there in all?",
+365.0,
+58.0,
+345.0,
+645.0,
+"A",
+"15 × 23 = 345; + 20 = 365.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 99,
+"cells": [
+"L098",
+"lower",
+"Mathematics Achievement",
+"Equivalent Fractions and Decimals",
+"computation",
+"Which decimal is equal to 3/4?",
+0.75,
+0.3,
+0.8,
+0.4,
+"A",
+"3 ÷ 4 = 0.75.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 100,
+"cells": [
+"L099",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 2/3 + 2/9?",
+"25/27",
+{
+"date": "2026-08-09"
+},
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-04-27"
+},
+"B",
+"Use a common denominator: 2/3 + 2/9 = 8/9.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 101,
+"cells": [
+"L100",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Rectangles",
+"word problem",
+"A rectangle is 9 cm long and 15 cm wide. What is its perimeter?",
+"48 cm",
+"24 cm",
+"135 cm",
+"50 cm",
+"A",
+"P = 2 × (9 + 15) = 48 cm.",
+1.0,
+"Rectangle labeled 9 cm on the long side and 15 cm on the short side.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 102,
+"cells": [
+"L101",
+"lower",
+"Quantitative Reasoning",
+"Area and Perimeter of Complex Polygons",
+"word problem",
+"The figure is an 11 × 6 rectangle with a 5 × 3 rectangle cut out of one corner. What is the area of the figure in square units?",
+58.0,
+34.0,
+51.0,
+66.0,
+"C",
+"11×6 − 5×3 = 66 − 15 = 51.",
+3.0,
+"L-shaped polygon: a rectangle 11 units wide and 6 units tall with a 5-unit-wide by 3-unit-tall rectangle removed from the top-right corner. Label outer sides 11 and 6; label the notch sides 5 and 3.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 103,
+"cells": [
+"L102",
+"lower",
+"Quantitative Reasoning",
+"Determining Fraction of Shaded Area, given Figure",
+"word problem",
+"A rectangle is divided into 12 equal squares, and 2 of them are shaded. What fraction of the rectangle is shaded (in simplest form)?",
+{
+"date": "2026-01-06"
+},
+{
+"date": "2026-01-04"
+},
+{
+"date": "2026-05-06"
+},
+{
+"date": "2026-01-05"
+},
+"A",
+"2/12 = 1/6.",
+2.0,
+"Grid of 2 rows × 6 columns of equal squares; shade the first 2 squares reading left-to-right, top-to-bottom.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 104,
+"cells": [
+"L103",
+"lower",
+"Quantitative Reasoning",
+"Determining Fraction of Shaded Area, given Figure",
+"word problem",
+"A rectangle is divided into 20 equal squares, and 1 of them are shaded. What fraction of the rectangle is shaded (in simplest form)?",
+{
+"date": "2026-01-19"
+},
+{
+"date": "2026-01-20"
+},
+{
+"date": "2026-01-10"
+},
+"19/20",
+"B",
+"1/20 = 1/20.",
+2.0,
+"Grid of 4 rows × 5 columns of equal squares; shade the first 1 squares reading left-to-right, top-to-bottom.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 105,
+"cells": [
+"L104",
+"lower",
+"Mathematics Achievement",
+"Shape Construction & Symmetry",
+"word problem",
+"How many lines of symmetry does a rectangle (not a square) have?",
+3.0,
+2.0,
+1.0,
+4.0,
+"B",
+"A rectangle (not a square) has 2 line(s) of symmetry.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 106,
+"cells": [
+"L105",
+"lower",
+"Quantitative Reasoning",
+"Computation with Time",
+"word problem",
+"A movie starts at 10:00 A.M. and lasts 90 minutes. What time does it end?",
+"10:30 A.M.",
+"12:30 P.M.",
+"11:30 A.M.",
+"11:40 A.M.",
+"C",
+"90 min = 1 h 30 min after 10:00 A.M. → 11:30 A.M..",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 107,
+"cells": [
+"L106",
+"lower",
+"Mathematics Achievement",
+"Value of Digits",
+"word problem",
+"In the number 488,659, what is the value of the digit in the hundred thousands place?",
+4.0,
+{
+"number": 400000.0,
+"shown": "400,000"
+},
+{
+"number": 40000.0,
+"shown": "40,000"
+},
+{
+"number": 4000000.0,
+"shown": "4,000,000"
+},
+"B",
+"The hundred thousands digit is 4, so its value is 400,000.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 108,
+"cells": [
+"L107",
+"lower",
+"Quantitative Reasoning",
+"Solving for a Missing Number",
+"computation",
+"If □ − 21 = 107, what number goes in the □?",
+86.0,
+128.0,
+138.0,
+107.0,
+"B",
+"Use the inverse operation: □ = 128.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 109,
+"cells": [
+"L108",
+"lower",
+"Quantitative Reasoning",
+"Comparing Bar Graph Values",
+"word problem",
+"The bar graph shows books read this year: Eli 50, Dee 35, Cal 25, Fay 55. How many more books did Dee read than Cal?",
+10.0,
+60.0,
+5.0,
+15.0,
+"A",
+"35 − 25 = 10.",
+2.0,
+"Vertical bar graph titled 'Books Read'; x-axis: Eli, Dee, Cal, Fay; y-axis 0–60 in steps of 5; bar heights: Eli=50, Dee=35, Cal=25, Fay=55.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 110,
+"cells": [
+"L109",
+"lower",
+"Quantitative Reasoning",
+"Solving Problems with Rates",
+"word problem",
+"Lena reads 11 pages every minute. At that rate, how many pages will she read in 7 minutes?",
+88.0,
+77.0,
+70.0,
+18.0,
+"B",
+"11 × 7 = 77.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 111,
+"cells": [
+"L110",
+"lower",
+"Quantitative Reasoning",
+"Nth Term, given Arithmetic Sequence",
+"word problem",
+"The pattern 14, 17, 20, 23, … continues. What is the 8th number?",
+38.0,
+35.0,
+112.0,
+32.0,
+"B",
+"Start 14, add 3 each time: 14 + 3×7 = 35.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 112,
+"cells": [
+"L111",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Equilateral Figure",
+"word problem",
+"A regular octagon has a perimeter of 120 inches. How long is one side?",
+"30 in",
+"112 in",
+"15 in",
+"16 in",
+"C",
+"120 ÷ 8 = 15 inches.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 113,
+"cells": [
+"L112",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Rectangles",
+"word problem",
+"A rectangle is 12 cm long and 3 cm wide. What is its perimeter?",
+"15 cm",
+"36 cm",
+"32 cm",
+"30 cm",
+"D",
+"P = 2 × (12 + 3) = 30 cm.",
+1.0,
+"Rectangle labeled 12 cm on the long side and 3 cm on the short side.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 114,
+"cells": [
+"L113",
+"lower",
+"Mathematics Achievement",
+"Identifying Shapes",
+"word problem",
+"Which shape has exactly 4 equal sides and 4 right angles?",
+"trapezoid",
+"rhombus",
+"pentagon",
+"square",
+"D",
+"A square has exactly 4 equal sides and 4 right angles.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 115,
+"cells": [
+"L114",
+"lower",
+"Quantitative Reasoning",
+"Determining Fraction of Shaded Area, given Figure",
+"word problem",
+"A rectangle is divided into 12 equal squares, and 8 of them are shaded. What fraction of the rectangle is shaded (in simplest form)?",
+{
+"date": "2026-01-03"
+},
+2.0,
+{
+"date": "2026-03-04"
+},
+{
+"date": "2026-02-03"
+},
+"D",
+"8/12 = 2/3.",
+2.0,
+"Grid of 2 rows × 6 columns of equal squares; shade the first 8 squares reading left-to-right, top-to-bottom.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 116,
+"cells": [
+"L115",
+"lower",
+"Quantitative Reasoning",
+"Finding Median, given Sets of Numbers",
+"word problem",
+"What is the median of 4, 15, 3, 14, 24, 28, 32?",
+17.0,
+14.0,
+29.0,
+15.0,
+"D",
+"In order: 3, 4, 14, 15, 24, 28, 32. The middle value is 15.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 117,
+"cells": [
+"L116",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 1/2 + 3/4?",
+"1 1/4",
+{
+"date": "2026-02-03"
+},
+"1 3/8",
+{
+"date": "2026-01-02"
+},
+"A",
+"Use a common denominator: 1/2 + 3/4 = 1 1/4.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 118,
+"cells": [
+"L117",
+"lower",
+"Quantitative Reasoning",
+"Solving for Subsets in a Venn Diagram",
+"word problem",
+"In a class, 18 students play soccer and 8 play basketball. 4 play both. Every student plays at least one. How many students are in the class?",
+30.0,
+26.0,
+22.0,
+18.0,
+"C",
+"18 + 8 − 4 = 22.",
+3.0,
+"Two overlapping circles labeled Soccer and Basketball; overlap region labeled 4; Soccer-only region 14; Basketball-only region 4.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 119,
+"cells": [
+"L118",
+"lower",
+"Quantitative Reasoning",
+"Determining Total Cost / Change",
+"word problem",
+"Sam buys 6 juice boxes for $2.50 each. He pays with $20. How much change should he get?",
+{
+"number": 15.0,
+"shown": "$15.00"
+},
+{
+"number": 5.0,
+"shown": "$5.00"
+},
+{
+"number": 4.5,
+"shown": "$4.50"
+},
+{
+"number": 7.5,
+"shown": "$7.50"
+},
+"B",
+"Cost = 6 × $2.50 = $15.00; change = $20 − $15.00 = $5.00.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 120,
+"cells": [
+"L119",
+"lower",
+"Quantitative Reasoning",
+"Solving for Subsets in a Venn Diagram",
+"word problem",
+"In a class, 11 students play soccer and 10 play basketball. 7 play both. Every student plays at least one. How many students are in the class?",
+21.0,
+14.0,
+28.0,
+7.0,
+"B",
+"11 + 10 − 7 = 14.",
+3.0,
+"Two overlapping circles labeled Soccer and Basketball; overlap region labeled 7; Soccer-only region 4; Basketball-only region 3.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 121,
+"cells": [
+"L120",
+"lower",
+"Quantitative Reasoning",
+"Remainder when Divided by a Given Number",
+"word problem",
+"What is the remainder when 422 is divided by 5?",
+3.0,
+4.0,
+0.0,
+2.0,
+"D",
+"5 × 84 = 420; 422 − 420 = 2.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 122,
+"cells": [
+"L121",
+"lower",
+"Quantitative Reasoning",
+"Nth Term, given Arithmetic Sequence",
+"word problem",
+"The pattern 4, 11, 18, 25, … continues. What is the 10th number?",
+60.0,
+40.0,
+67.0,
+74.0,
+"C",
+"Start 4, add 7 each time: 4 + 7×9 = 67.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 123,
+"cells": [
+"L122",
+"lower",
+"Quantitative Reasoning",
+"Nth Term, given Arithmetic Sequence",
+"word problem",
+"The pattern 14, 19, 24, 29, … continues. What is the 10th number?",
+64.0,
+59.0,
+54.0,
+140.0,
+"B",
+"Start 14, add 5 each time: 14 + 5×9 = 59.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 124,
+"cells": [
+"L123",
+"lower",
+"Mathematics Achievement",
+"Area of Rectangles",
+"word problem",
+"What is the area of a rectangle with length 13 ft and width 2 ft?",
+"26 sq ft",
+"28 sq ft",
+"30 sq ft",
+"15 sq ft",
+"A",
+"A = 13 × 2 = 26 square feet.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 125,
+"cells": [
+"L124",
+"lower",
+"Mathematics Achievement",
+"Equivalent Fractions and Decimals",
+"computation",
+"Which decimal is equal to 9/10?",
+0.9,
+1.0,
+0.95,
+9.1,
+"A",
+"9 ÷ 10 = 0.9.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 126,
+"cells": [
+"L125",
+"lower",
+"Quantitative Reasoning",
+"Comparing Bar Graph Values",
+"word problem",
+"The bar graph shows books read this year: Ava 10, Cal 25, Ben 30, Dee 30. How many more books did Ben read than Ava?",
+20.0,
+15.0,
+25.0,
+40.0,
+"A",
+"30 − 10 = 20.",
+2.0,
+"Vertical bar graph titled 'Books Read'; x-axis: Ava, Cal, Ben, Dee; y-axis 0–60 in steps of 5; bar heights: Ava=10, Cal=25, Ben=30, Dee=30.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 127,
+"cells": [
+"L126",
+"lower",
+"Quantitative Reasoning",
+"Nth Term, given Arithmetic Sequence",
+"word problem",
+"The pattern 12, 19, 26, 33, … continues. What is the 15th number?",
+117.0,
+180.0,
+110.0,
+103.0,
+"C",
+"Start 12, add 7 each time: 12 + 7×14 = 110.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 128,
+"cells": [
+"L127",
+"lower",
+"Quantitative Reasoning",
+"Comparing Fractions",
+"computation",
+"Which fraction is the greatest?",
+{
+"date": "2026-05-08"
+},
+{
+"date": "2026-02-05"
+},
+{
+"date": "2026-03-05"
+},
+{
+"date": "2026-05-06"
+},
+"D",
+"Convert to decimals: 3/5=0.6, 5/8=0.625, 2/5=0.4, 5/6=0.833.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 129,
+"cells": [
+"L128",
+"lower",
+"Quantitative Reasoning",
+"Determining Fraction of Shaded Area, given Figure",
+"word problem",
+"A rectangle is divided into 20 equal squares, and 19 of them are shaded. What fraction of the rectangle is shaded (in simplest form)?",
+"19/20",
+{
+"date": "2026-01-20"
+},
+19.0,
+1.0,
+"A",
+"19/20 = 19/20.",
+2.0,
+"Grid of 4 rows × 5 columns of equal squares; shade the first 19 squares reading left-to-right, top-to-bottom.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 130,
+"cells": [
+"L129",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 1/5 + 1/5?",
+{
+"date": "2026-02-05"
+},
+1.0,
+{
+"date": "2026-01-05"
+},
+{
+"date": "2026-03-05"
+},
+"A",
+"Same denominator: add numerators, 1+1=2, giving 2/5.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 131,
+"cells": [
+"L130",
+"lower",
+"Quantitative Reasoning",
+"Determining Total Cost / Change",
+"word problem",
+"Sam buys 4 juice boxes for $3.75 each. He pays with $20. How much change should he get?",
+{
+"number": 8.75,
+"shown": "$8.75"
+},
+{
+"number": 4.5,
+"shown": "$4.50"
+},
+{
+"number": 15.0,
+"shown": "$15.00"
+},
+{
+"number": 5.0,
+"shown": "$5.00"
+},
+"D",
+"Cost = 4 × $3.75 = $15.00; change = $20 − $15.00 = $5.00.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 132,
+"cells": [
+"L131",
+"lower",
+"Mathematics Achievement",
+"Conversions / Measurement",
+"word problem",
+"How many feet are in 5 yards?",
+60.0,
+15.0,
+18.0,
+180.0,
+"B",
+"Multiply by the conversion factor: 15 feet.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 133,
+"cells": [
+"L132",
+"lower",
+"Quantitative Reasoning",
+"Coins & Bills Problems",
+"word problem",
+"Jake has 1 quarters, 2 dimes, and 6 nickels. How much money does he have?",
+{
+"number": 0.75,
+"shown": "$0.75"
+},
+{
+"number": 0.65,
+"shown": "$0.65"
+},
+{
+"number": 0.8,
+"shown": "$0.80"
+},
+{
+"number": 0.9,
+"shown": "$0.90"
+},
+"A",
+"1×25¢ + 2×10¢ + 6×5¢ = $0.75.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 134,
+"cells": [
+"L133",
+"lower",
+"Quantitative Reasoning",
+"Factors and Multiples",
+"word problem",
+"Which number is a factor of 36?",
+16.0,
+14.0,
+12.0,
+22.0,
+"C",
+"36 ÷ 12 = 3 with no remainder.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 135,
+"cells": [
+"L134",
+"lower",
+"Quantitative Reasoning",
+"Angle of Analog Clock Hands",
+"word problem",
+"What is the smaller angle between the hands of a clock at exactly 2:00?",
+"300°",
+"45°",
+"60°",
+"90°",
+"C",
+"Each hour mark is 30°; 2 × 30° = 60°.",
+1.0,
+"Analog clock showing 2:00.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 136,
+"cells": [
+"L135",
+"lower",
+"Mathematics Achievement",
+"Adding and Subtracting Decimals",
+"computation",
+"What is 23.96 − 7.57?",
+16.4,
+16.39,
+16.49,
+15.39,
+"B",
+"Line up the decimal points: the answer is 16.39.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 137,
+"cells": [
+"L136",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Multiplication",
+"computation",
+"What is 26 × 30?",
+806.0,
+520.0,
+750.0,
+780.0,
+"D",
+"26 × 30 = 780.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 138,
+"cells": [
+"L137",
+"lower",
+"Quantitative Reasoning",
+"Solving for Subsets in a Venn Diagram",
+"word problem",
+"In a class, 13 students play soccer and 13 play basketball. 7 play both. Every student plays at least one. How many students are in the class?",
+26.0,
+12.0,
+19.0,
+33.0,
+"C",
+"13 + 13 − 7 = 19.",
+3.0,
+"Two overlapping circles labeled Soccer and Basketball; overlap region labeled 7; Soccer-only region 6; Basketball-only region 6.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 139,
+"cells": [
+"L138",
+"lower",
+"Quantitative Reasoning",
+"Rounding / Estimation",
+"computation",
+"What is 72,196 rounded to the nearest thousand?",
+{
+"number": 73000.0,
+"shown": "73,000"
+},
+{
+"number": 70000.0,
+"shown": "70,000"
+},
+{
+"number": 71000.0,
+"shown": "71,000"
+},
+{
+"number": 72000.0,
+"shown": "72,000"
+},
+"D",
+"Look at the digit right of the thousands place to round 72,196 to 72,000.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 140,
+"cells": [
+"L139",
+"lower",
+"Quantitative Reasoning",
+"Estimating Fractions on Number Lines",
+"word problem",
+"A number line from 0 to 1 is divided into 8 equal parts. Point P is at the 2nd tick mark after 0. What number does P represent?",
+{
+"date": "2026-03-04"
+},
+{
+"date": "2026-02-09"
+},
+{
+"date": "2026-01-02"
+},
+{
+"date": "2026-01-04"
+},
+"D",
+"Each part is 1/8; 2 parts = 1/4.",
+1.0,
+"Number line from 0 to 1 with 7 evenly spaced interior tick marks; point P marked at tick 2.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 141,
+"cells": [
+"L140",
+"lower",
+"Mathematics Achievement",
+"Volume of Solids",
+"word problem",
+"A box is 8 cm long, 6 cm wide, and 5 cm tall. What is its volume?",
+"240 cubic cm",
+"236 cubic cm",
+"19 cubic cm",
+"48 cubic cm",
+"A",
+"V = 8×6×5 = 240.",
+2.0,
+"Rectangular prism labeled length 8 cm, width 6 cm, height 5 cm.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 142,
+"cells": [
+"L141",
+"lower",
+"Quantitative Reasoning",
+"Rounding / Estimation",
+"computation",
+"What is 99,232 rounded to the nearest hundred?",
+{
+"number": 99200.0,
+"shown": "99,200"
+},
+{
+"number": 99000.0,
+"shown": "99,000"
+},
+{
+"number": 99100.0,
+"shown": "99,100"
+},
+{
+"number": 99300.0,
+"shown": "99,300"
+},
+"A",
+"Look at the digit right of the hundreds place to round 99,232 to 99,200.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 143,
+"cells": [
+"L142",
+"lower",
+"Quantitative Reasoning",
+"Finding Missing Side, given Perimeter and 1 Side",
+"word problem",
+"A rectangle has a perimeter of 24 meters. Its width is 4 meters. What is its length?",
+"12 m",
+"20 m",
+"8 m",
+"16 m",
+"C",
+"24 = 2(L + 4) → L + 4 = 12 → L = 8 m.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 144,
+"cells": [
+"L143",
+"lower",
+"Quantitative Reasoning",
+"Rounding / Estimation",
+"computation",
+"What is 35,209 rounded to the nearest ten?",
+{
+"number": 35200.0,
+"shown": "35,200"
+},
+{
+"number": 35230.0,
+"shown": "35,230"
+},
+{
+"number": 35220.0,
+"shown": "35,220"
+},
+{
+"number": 35210.0,
+"shown": "35,210"
+},
+"D",
+"Look at the digit right of the tens place to round 35,209 to 35,210.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 145,
+"cells": [
+"L144",
+"lower",
+"Quantitative Reasoning",
+"Remainder when Divided by a Given Number",
+"word problem",
+"What is the remainder when 705 is divided by 9?",
+4.0,
+3.0,
+0.0,
+8.0,
+"B",
+"9 × 78 = 702; 705 − 702 = 3.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 146,
+"cells": [
+"L145",
+"lower",
+"Mathematics Achievement",
+"Equivalent Fractions and Decimals",
+"computation",
+"Which decimal is equal to 4/5?",
+0.8,
+0.85,
+0.4,
+0.5,
+"A",
+"4 ÷ 5 = 0.8.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 147,
+"cells": [
+"L146",
+"lower",
+"Quantitative Reasoning",
+"Fractional Parts Word Problems",
+"word problem",
+"Maya has 54 cards. She gives away 1/6 of them. How many cards does she give away?",
+9.0,
+45.0,
+15.0,
+10.0,
+"A",
+"1/6 of 54 = 54 ÷ 6 × 1 = 9.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 148,
+"cells": [
+"L147",
+"lower",
+"Quantitative Reasoning",
+"Fractional Parts Word Problems",
+"word problem",
+"Maya has 36 books. She gives away 1/4 of them. How many books does she give away?",
+10.0,
+13.0,
+9.0,
+27.0,
+"C",
+"1/4 of 36 = 36 ÷ 4 × 1 = 9.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 149,
+"cells": [
+"L148",
+"lower",
+"Quantitative Reasoning",
+"Finding Missing Side, given Area and 1 Side",
+"word problem",
+"A rectangle has an area of 136 square inches. Its width is 8 inches. What is its length?",
+"17 in",
+"68 in",
+"128 in",
+"18 in",
+"A",
+"Length = 136 ÷ 8 = 17 inches.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 150,
+"cells": [
+"L149",
+"lower",
+"Quantitative Reasoning",
+"Multi-step Word Problems",
+"word problem",
+"An auditorium has 7 rows with 21 seats in each row, plus 8 folding chairs. How many seats are there in all?",
+203.0,
+155.0,
+36.0,
+147.0,
+"B",
+"7 × 21 = 147; + 8 = 155.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 151,
+"cells": [
+"L150",
+"lower",
+"Quantitative Reasoning",
+"Factors and Multiples",
+"word problem",
+"Which number is a factor of 54?",
+23.0,
+32.0,
+3.0,
+11.0,
+"C",
+"54 ÷ 3 = 18 with no remainder.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 152,
+"cells": [
+"L151",
+"lower",
+"Quantitative Reasoning",
+"Fractional Parts Word Problems",
+"word problem",
+"Maya has 24 stickers. She gives away 1/4 of them. How many stickers does she give away?",
+6.0,
+10.0,
+18.0,
+7.0,
+"A",
+"1/4 of 24 = 24 ÷ 4 × 1 = 6.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 153,
+"cells": [
+"L152",
+"lower",
+"Quantitative Reasoning",
+"Factors and Multiples",
+"word problem",
+"Which number is a factor of 60?",
+45.0,
+6.0,
+42.0,
+49.0,
+"B",
+"60 ÷ 6 = 10 with no remainder.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 154,
+"cells": [
+"L153",
+"lower",
+"Quantitative Reasoning",
+"Area and Perimeter of Complex Polygons",
+"word problem",
+"The figure is an 11 × 8 rectangle with a 4 × 4 rectangle cut out of one corner. What is the area of the figure in square units?",
+72.0,
+80.0,
+38.0,
+88.0,
+"A",
+"11×8 − 4×4 = 88 − 16 = 72.",
+3.0,
+"L-shaped polygon: a rectangle 11 units wide and 8 units tall with a 4-unit-wide by 4-unit-tall rectangle removed from the top-right corner. Label outer sides 11 and 8; label the notch sides 4 and 4.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 155,
+"cells": [
+"L154",
+"lower",
+"Quantitative Reasoning",
+"Finding Missing Side, given Perimeter and 1 Side",
+"word problem",
+"A rectangle has a perimeter of 34 meters. Its width is 3 meters. What is its length?",
+"28 m",
+"17 m",
+"31 m",
+"14 m",
+"D",
+"34 = 2(L + 3) → L + 3 = 17 → L = 14 m.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 156,
+"cells": [
+"L155",
+"lower",
+"Quantitative Reasoning",
+"LCM (Least Common Multiple)",
+"word problem",
+"What is the least common multiple of 6 and 8?",
+2.0,
+24.0,
+30.0,
+48.0,
+"B",
+"Multiples of 6 and 8 first match at 24.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 157,
+"cells": [
+"L156",
+"lower",
+"Mathematics Achievement",
+"Volume of Solids",
+"word problem",
+"A box is 2 cm long, 2 cm wide, and 4 cm tall. What is its volume?",
+"40 cubic cm",
+"8 cubic cm",
+"4 cubic cm",
+"16 cubic cm",
+"D",
+"V = 2×2×4 = 16.",
+2.0,
+"Rectangular prism labeled length 2 cm, width 2 cm, height 4 cm.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 158,
+"cells": [
+"L157",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Rectangles",
+"word problem",
+"A rectangle is 10 cm long and 13 cm wide. What is its perimeter?",
+"130 cm",
+"48 cm",
+"23 cm",
+"46 cm",
+"D",
+"P = 2 × (10 + 13) = 46 cm.",
+1.0,
+"Rectangle labeled 10 cm on the long side and 13 cm on the short side.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 159,
+"cells": [
+"L158",
+"lower",
+"Quantitative Reasoning",
+"Solving Problems with Rates",
+"word problem",
+"Lena reads 8 pages every minute. At that rate, how many pages will she read in 6 minutes?",
+42.0,
+14.0,
+48.0,
+56.0,
+"C",
+"8 × 6 = 48.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 160,
+"cells": [
+"L159",
+"lower",
+"Quantitative Reasoning",
+"Rounding / Estimation",
+"computation",
+"What is 6,815 rounded to the nearest hundred?",
+{
+"number": 6800.0,
+"shown": "6,800"
+},
+{
+"number": 6700.0,
+"shown": "6,700"
+},
+{
+"number": 6900.0,
+"shown": "6,900"
+},
+{
+"number": 6600.0,
+"shown": "6,600"
+},
+"A",
+"Look at the digit right of the hundreds place to round 6,815 to 6,800.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 161,
+"cells": [
+"L160",
+"lower",
+"Quantitative Reasoning",
+"Solving for Subsets in a Venn Diagram",
+"word problem",
+"In a class, 12 students play soccer and 14 play basketball. 3 play both. Every student plays at least one. How many students are in the class?",
+29.0,
+23.0,
+20.0,
+26.0,
+"B",
+"12 + 14 − 3 = 23.",
+3.0,
+"Two overlapping circles labeled Soccer and Basketball; overlap region labeled 3; Soccer-only region 9; Basketball-only region 11.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 162,
+"cells": [
+"L161",
+"lower",
+"Quantitative Reasoning",
+"Comparing Bar Graph Values",
+"word problem",
+"The bar graph shows books read this year: Dee 55, Fay 45, Eli 15, Ava 10. How many more books did Eli read than Ava?",
+25.0,
+5.0,
+10.0,
+15.0,
+"B",
+"15 − 10 = 5.",
+2.0,
+"Vertical bar graph titled 'Books Read'; x-axis: Dee, Fay, Eli, Ava; y-axis 0–60 in steps of 5; bar heights: Dee=55, Fay=45, Eli=15, Ava=10.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 163,
+"cells": [
+"L162",
+"lower",
+"Quantitative Reasoning",
+"Multi-step Word Problems",
+"word problem",
+"An auditorium has 9 rows with 18 seats in each row, plus 9 folding chairs. How many seats are there in all?",
+243.0,
+162.0,
+36.0,
+171.0,
+"D",
+"9 × 18 = 162; + 9 = 171.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 164,
+"cells": [
+"L163",
+"lower",
+"Quantitative Reasoning",
+"Multi-step Word Problems",
+"word problem",
+"An auditorium has 6 rows with 10 seats in each row, plus 14 folding chairs. How many seats are there in all?",
+30.0,
+60.0,
+144.0,
+74.0,
+"D",
+"6 × 10 = 60; + 14 = 74.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 165,
+"cells": [
+"L164",
+"lower",
+"Quantitative Reasoning",
+"Computation with Time",
+"word problem",
+"A movie starts at 8:50 A.M. and lasts 140 minutes. What time does it end?",
+"11:20 A.M.",
+"11:10 A.M.",
+"12:10 P.M.",
+"10:10 A.M.",
+"B",
+"140 min = 2 h 20 min after 8:50 A.M. → 11:10 A.M..",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 166,
+"cells": [
+"L165",
+"lower",
+"Quantitative Reasoning",
+"Solving for a Missing Number",
+"computation",
+"If □ − 77 = 10, what number goes in the □?",
+97.0,
+87.0,
+"'-67",
+10.0,
+"B",
+"Use the inverse operation: □ = 87.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 167,
+"cells": [
+"L166",
+"lower",
+"Quantitative Reasoning",
+"Fractional Parts Word Problems",
+"word problem",
+"Maya has 30 marbles. She gives away 1/5 of them. How many marbles does she give away?",
+24.0,
+7.0,
+11.0,
+6.0,
+"D",
+"1/5 of 30 = 30 ÷ 5 × 1 = 6.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 168,
+"cells": [
+"L167",
+"lower",
+"Quantitative Reasoning",
+"Remainder when Divided by a Given Number",
+"word problem",
+"What is the remainder when 442 is divided by 7?",
+3.0,
+2.0,
+1.0,
+0.0,
+"C",
+"7 × 63 = 441; 442 − 441 = 1.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 169,
+"cells": [
+"L168",
+"lower",
+"Quantitative Reasoning",
+"Multi-step Word Problems",
+"word problem",
+"An auditorium has 6 rows with 19 seats in each row, plus 8 folding chairs. How many seats are there in all?",
+122.0,
+33.0,
+114.0,
+162.0,
+"A",
+"6 × 19 = 114; + 8 = 122.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 170,
+"cells": [
+"L169",
+"lower",
+"Quantitative Reasoning",
+"Area and Perimeter of Complex Polygons",
+"word problem",
+"The figure is a 14 × 8 rectangle with a 2 × 3 rectangle cut out of one corner. What is the area of the figure in square units?",
+112.0,
+106.0,
+107.0,
+44.0,
+"B",
+"14×8 − 2×3 = 112 − 6 = 106.",
+3.0,
+"L-shaped polygon: a rectangle 14 units wide and 8 units tall with a 2-unit-wide by 3-unit-tall rectangle removed from the top-right corner. Label outer sides 14 and 8; label the notch sides 2 and 3.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 171,
+"cells": [
+"L170",
+"lower",
+"Quantitative Reasoning",
+"Solving Problems with Rates",
+"word problem",
+"Lena reads 11 pages every minute. At that rate, how many pages will she read in 6 minutes?",
+60.0,
+17.0,
+77.0,
+66.0,
+"D",
+"11 × 6 = 66.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 172,
+"cells": [
+"L171",
+"lower",
+"Quantitative Reasoning",
+"Finding Missing Side, given Perimeter and 1 Side",
+"word problem",
+"A rectangle has a perimeter of 36 meters. Its width is 4 meters. What is its length?",
+"18 m",
+"14 m",
+"28 m",
+"32 m",
+"B",
+"36 = 2(L + 4) → L + 4 = 18 → L = 14 m.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 173,
+"cells": [
+"L172",
+"lower",
+"Quantitative Reasoning",
+"Fractional Parts Word Problems",
+"word problem",
+"Maya has 50 cards. She gives away 1/5 of them. How many cards does she give away?",
+11.0,
+15.0,
+40.0,
+10.0,
+"D",
+"1/5 of 50 = 50 ÷ 5 × 1 = 10.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 174,
+"cells": [
+"L173",
+"lower",
+"Quantitative Reasoning",
+"Angle of Analog Clock Hands",
+"word problem",
+"What is the smaller angle between the hands of a clock at exactly 4:00?",
+"240°",
+"120°",
+"150°",
+"105°",
+"B",
+"Each hour mark is 30°; 4 × 30° = 120°.",
+1.0,
+"Analog clock showing 4:00.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 175,
+"cells": [
+"L174",
+"lower",
+"Quantitative Reasoning",
+"Determining Fraction of Shaded Area, given Figure",
+"word problem",
+"A rectangle is divided into 12 equal squares, and 9 of them are shaded. What fraction of the rectangle is shaded (in simplest form)?",
+{
+"date": "2026-03-04"
+},
+{
+"date": "2026-05-06"
+},
+{
+"date": "2026-01-04"
+},
+3.0,
+"A",
+"9/12 = 3/4.",
+2.0,
+"Grid of 2 rows × 6 columns of equal squares; shade the first 9 squares reading left-to-right, top-to-bottom.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 176,
+"cells": [
+"L175",
+"lower",
+"Quantitative Reasoning",
+"Estimating Fractions on Number Lines",
+"word problem",
+"A number line from 0 to 1 is divided into 8 equal parts. Point P is at the 5th tick mark after 0. What number does P represent?",
+{
+"date": "2026-03-08"
+},
+{
+"date": "2026-01-05"
+},
+{
+"date": "2026-05-09"
+},
+{
+"date": "2026-05-08"
+},
+"D",
+"Each part is 1/8; 5 parts = 5/8.",
+1.0,
+"Number line from 0 to 1 with 7 evenly spaced interior tick marks; point P marked at tick 5.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 177,
+"cells": [
+"L176",
+"lower",
+"Mathematics Achievement",
+"Value of Digits",
+"word problem",
+"In the number 601,474, what is the value of the digit in the hundreds place?",
+40.0,
+400.0,
+4.0,
+{
+"number": 4000.0,
+"shown": "4,000"
+},
+"B",
+"The hundreds digit is 4, so its value is 400.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 178,
+"cells": [
+"L177",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Rectangles",
+"word problem",
+"A rectangle is 18 cm long and 4 cm wide. What is its perimeter?",
+"22 cm",
+"72 cm",
+"46 cm",
+"44 cm",
+"D",
+"P = 2 × (18 + 4) = 44 cm.",
+1.0,
+"Rectangle labeled 18 cm on the long side and 4 cm on the short side.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 179,
+"cells": [
+"L178",
+"lower",
+"Mathematics Achievement",
+"Area of Rectangles",
+"word problem",
+"What is the area of a rectangle with length 12 ft and width 11 ft?",
+"132 sq ft",
+"23 sq ft",
+"46 sq ft",
+"143 sq ft",
+"A",
+"A = 12 × 11 = 132 square feet.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 180,
+"cells": [
+"L179",
+"lower",
+"Quantitative Reasoning",
+"Rounding / Estimation",
+"computation",
+"What is 34,433 rounded to the nearest thousand?",
+{
+"number": 35000.0,
+"shown": "35,000"
+},
+{
+"number": 34000.0,
+"shown": "34,000"
+},
+{
+"number": 33000.0,
+"shown": "33,000"
+},
+{
+"number": 36000.0,
+"shown": "36,000"
+},
+"B",
+"Look at the digit right of the thousands place to round 34,433 to 34,000.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 181,
+"cells": [
+"L180",
+"lower",
+"Quantitative Reasoning",
+"Computation with Time",
+"word problem",
+"A movie starts at 8:50 A.M. and lasts 75 minutes. What time does it end?",
+"10:15 A.M.",
+"9:05 A.M.",
+"10:05 A.M.",
+"11:05 A.M.",
+"C",
+"75 min = 1 h 15 min after 8:50 A.M. → 10:05 A.M..",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 182,
+"cells": [
+"L181",
+"lower",
+"Quantitative Reasoning",
+"Solving Problems with Rates",
+"word problem",
+"Lena reads 9 cookies every hour. At that rate, how many cookies will she read in 4 hours?",
+13.0,
+36.0,
+32.0,
+45.0,
+"B",
+"9 × 4 = 36.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 183,
+"cells": [
+"L182",
+"lower",
+"Mathematics Achievement",
+"Best Unit of Measure",
+"word problem",
+"Which unit is best for measuring the weight of a car?",
+"inches",
+"tons",
+"grams",
+"ounces",
+"B",
+"Tons are the most sensible size for the weight of a car.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 184,
+"cells": [
+"L183",
+"lower",
+"Mathematics Achievement",
+"Best Unit of Measure",
+"word problem",
+"Which unit is best for measuring the amount of medicine in a spoon?",
+"kilograms",
+"liters",
+"milliliters",
+"gallons",
+"C",
+"Milliliters are the most sensible size for the amount of medicine in a spoon.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 185,
+"cells": [
+"L184",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 3/4 + 3/8?",
+"1 1/8",
+{
+"date": "2026-01-02"
+},
+{
+"date": "2026-03-16"
+},
+"1 5/32",
+"A",
+"Use a common denominator: 3/4 + 3/8 = 1 1/8.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 186,
+"cells": [
+"L185",
+"lower",
+"Mathematics Achievement",
+"Identifying Shapes",
+"word problem",
+"Which shape has 3 sides of different lengths?",
+"equilateral triangle",
+"right isosceles triangle",
+"scalene triangle",
+"isosceles triangle",
+"C",
+"A scalene triangle has 3 sides of different lengths.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 187,
+"cells": [
+"L186",
+"lower",
+"Quantitative Reasoning",
+"Coins & Bills Problems",
+"word problem",
+"Jake has 4 quarters, 1 dimes, and 1 nickels. How much money does he have?",
+{
+"number": 1.15,
+"shown": "$1.15"
+},
+{
+"number": 0.6,
+"shown": "$0.60"
+},
+{
+"number": 1.2,
+"shown": "$1.20"
+},
+{
+"number": 1.05,
+"shown": "$1.05"
+},
+"A",
+"4×25¢ + 1×10¢ + 1×5¢ = $1.15.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 188,
+"cells": [
+"L187",
+"lower",
+"Quantitative Reasoning",
+"Angle of Analog Clock Hands",
+"word problem",
+"What is the smaller angle between the hands of a clock at exactly 1:00?",
+"30°",
+"15°",
+"330°",
+"60°",
+"A",
+"Each hour mark is 30°; 1 × 30° = 30°.",
+1.0,
+"Analog clock showing 1:00.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 189,
+"cells": [
+"L188",
+"lower",
+"Quantitative Reasoning",
+"Finding Missing Side, given Perimeter and 1 Side",
+"word problem",
+"A rectangle has a perimeter of 24 meters. Its width is 3 meters. What is its length?",
+"18 m",
+"21 m",
+"12 m",
+"9 m",
+"D",
+"24 = 2(L + 3) → L + 3 = 12 → L = 9 m.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 190,
+"cells": [
+"L189",
+"lower",
+"Quantitative Reasoning",
+"Probability of 1 Event, given a List of Items",
+"word problem",
+"A bag has 6 red, 8 blue, and 1 green marbles. One marble is picked without looking. What is the probability it is red?",
+{
+"date": "2026-03-05"
+},
+{
+"date": "2026-02-03"
+},
+{
+"date": "2026-02-05"
+},
+{
+"date": "2026-01-03"
+},
+"C",
+"6 red out of 15 total = 2/5.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 191,
+"cells": [
+"L190",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Addition & Subtraction",
+"computation",
+"What is 7,082 + 4,044?",
+{
+"number": 11126.0,
+"shown": "11,126"
+},
+{
+"number": 10126.0,
+"shown": "10,126"
+},
+{
+"number": 11226.0,
+"shown": "11,226"
+},
+{
+"number": 11116.0,
+"shown": "11,116"
+},
+"A",
+"7,082 + 4,044 = 11,126.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 192,
+"cells": [
+"L191",
+"lower",
+"Quantitative Reasoning",
+"Determining Fraction of Shaded Area, given Figure",
+"word problem",
+"A rectangle is divided into 15 equal squares, and 10 of them are shaded. What fraction of the rectangle is shaded (in simplest form)?",
+2.0,
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-11-15"
+},
+{
+"date": "2026-02-03"
+},
+"D",
+"10/15 = 2/3.",
+2.0,
+"Grid of 3 rows × 5 columns of equal squares; shade the first 10 squares reading left-to-right, top-to-bottom.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 193,
+"cells": [
+"L192",
+"lower",
+"Quantitative Reasoning",
+"Comparing Bar Graph Values",
+"word problem",
+"The bar graph shows books read this year: Eli 45, Ben 45, Cal 20, Ava 30. How many more books did Ava read than Cal?",
+15.0,
+5.0,
+50.0,
+10.0,
+"D",
+"30 − 20 = 10.",
+2.0,
+"Vertical bar graph titled 'Books Read'; x-axis: Eli, Ben, Cal, Ava; y-axis 0–60 in steps of 5; bar heights: Eli=45, Ben=45, Cal=20, Ava=30.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 194,
+"cells": [
+"L193",
+"lower",
+"Quantitative Reasoning",
+"Determining Total Cost / Change",
+"word problem",
+"Sam buys 5 muffins for $1.25 each. He pays with $10. How much change should he get?",
+{
+"number": 3.75,
+"shown": "$3.75"
+},
+{
+"number": 3.25,
+"shown": "$3.25"
+},
+{
+"number": 6.25,
+"shown": "$6.25"
+},
+{
+"number": 5.0,
+"shown": "$5.00"
+},
+"A",
+"Cost = 5 × $1.25 = $6.25; change = $10 − $6.25 = $3.75.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 195,
+"cells": [
+"L194",
+"lower",
+"Quantitative Reasoning",
+"Determining Fraction of Shaded Area, given Figure",
+"word problem",
+"A rectangle is divided into 10 equal squares, and 9 of them are shaded. What fraction of the rectangle is shaded (in simplest form)?",
+{
+"date": "2026-01-10"
+},
+1.0,
+9.0,
+{
+"date": "2026-09-10"
+},
+"D",
+"9/10 = 9/10.",
+2.0,
+"Grid of 2 rows × 5 columns of equal squares; shade the first 9 squares reading left-to-right, top-to-bottom.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 196,
+"cells": [
+"L195",
+"lower",
+"Quantitative Reasoning",
+"Comparing Fractions",
+"computation",
+"Which fraction is the greatest?",
+{
+"date": "2026-03-04"
+},
+{
+"date": "2026-04-05"
+},
+{
+"date": "2026-03-05"
+},
+{
+"date": "2026-02-03"
+},
+"B",
+"Convert to decimals: 3/5=0.6, 2/3=0.667, 3/4=0.75, 4/5=0.8.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 197,
+"cells": [
+"L196",
+"lower",
+"Quantitative Reasoning",
+"Finding Range, given Sets of Numbers",
+"word problem",
+"What is the range of this set: 58, 30, 50, 59, 16, 42, 20?",
+43.0,
+59.0,
+42.0,
+75.0,
+"A",
+"59 − 16 = 43.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 198,
+"cells": [
+"L197",
+"lower",
+"Quantitative Reasoning",
+"Finding Median, given Sets of Numbers",
+"word problem",
+"What is the median of 31, 10, 41, 46, 14, 15, 38?",
+46.0,
+36.0,
+28.0,
+31.0,
+"D",
+"In order: 10, 14, 15, 31, 38, 41, 46. The middle value is 31.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 199,
+"cells": [
+"L198",
+"lower",
+"Quantitative Reasoning",
+"Solving Problems with Rates",
+"word problem",
+"Lena reads 6 cookies every hour. At that rate, how many cookies will she read in 5 hours?",
+30.0,
+36.0,
+25.0,
+11.0,
+"A",
+"6 × 5 = 30.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 200,
+"cells": [
+"L199",
+"lower",
+"Mathematics Achievement",
+"Value of Digits",
+"word problem",
+"In the number 695,754, what is the value of the digit in the thousands place?",
+{
+"number": 50000.0,
+"shown": "50,000"
+},
+{
+"number": 5000.0,
+"shown": "5,000"
+},
+500.0,
+5.0,
+"B",
+"The thousands digit is 5, so its value is 5,000.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 201,
+"cells": [
+"L200",
+"lower",
+"Quantitative Reasoning",
+"Finding Missing Side, given Perimeter and 1 Side",
+"word problem",
+"A rectangle has a perimeter of 50 meters. Its width is 8 meters. What is its length?",
+"25 m",
+"34 m",
+"42 m",
+"17 m",
+"D",
+"50 = 2(L + 8) → L + 8 = 25 → L = 17 m.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 202,
+"cells": [
+"L201",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 1/3 + 3/6?",
+{
+"date": "2026-04-09"
+},
+{
+"date": "2026-05-06"
+},
+{
+"date": "2026-08-09"
+},
+{
+"date": "2026-02-09"
+},
+"B",
+"Use a common denominator: 1/3 + 3/6 = 5/6.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 203,
+"cells": [
+"L202",
+"lower",
+"Quantitative Reasoning",
+"Determining Total Cost / Change",
+"word problem",
+"Sam buys 6 notebooks for $0.85 each. He pays with $10. How much change should he get?",
+{
+"number": 5.1,
+"shown": "$5.10"
+},
+{
+"number": 4.9,
+"shown": "$4.90"
+},
+{
+"number": 5.75,
+"shown": "$5.75"
+},
+{
+"number": 4.4,
+"shown": "$4.40"
+},
+"B",
+"Cost = 6 × $0.85 = $5.10; change = $10 − $5.10 = $4.90.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 204,
+"cells": [
+"L203",
+"lower",
+"Quantitative Reasoning",
+"Finding the Mean",
+"word problem",
+"What is the mean (average) of 2, 14, 2, 10, 12?",
+8.0,
+12.0,
+40.0,
+9.0,
+"A",
+"Sum = 40, ÷ 5 = 8.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 205,
+"cells": [
+"L204",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 5/7 + 1/7?",
+{
+"date": "2026-05-07"
+},
+1.0,
+{
+"date": "2026-06-07"
+},
+{
+"date": "2026-03-07"
+},
+"C",
+"Same denominator: add numerators, 5+1=6, giving 6/7.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 206,
+"cells": [
+"L205",
+"lower",
+"Quantitative Reasoning",
+"Nth Term, given Arithmetic Sequence",
+"word problem",
+"The pattern 5, 12, 19, 26, … continues. What is the 12th number?",
+60.0,
+89.0,
+82.0,
+75.0,
+"C",
+"Start 5, add 7 each time: 5 + 7×11 = 82.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 207,
+"cells": [
+"L206",
+"lower",
+"Mathematics Achievement",
+"Volume of Solids",
+"word problem",
+"A box is 5 cm long, 4 cm wide, and 2 cm tall. What is its volume?",
+"11 cubic cm",
+"20 cubic cm",
+"76 cubic cm",
+"40 cubic cm",
+"D",
+"V = 5×4×2 = 40.",
+2.0,
+"Rectangular prism labeled length 5 cm, width 4 cm, height 2 cm.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 208,
+"cells": [
+"L207",
+"lower",
+"Quantitative Reasoning",
+"Probability of 1 Event, given a List of Items",
+"word problem",
+"A bag has 2 red, 7 blue, and 4 green marbles. One marble is picked without looking. What is the probability it is blue?",
+{
+"date": "2026-06-13"
+},
+{
+"date": "2026-07-13"
+},
+"1 1/6",
+{
+"date": "2026-01-03"
+},
+"B",
+"7 blue out of 13 total = 7/13.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 209,
+"cells": [
+"L208",
+"lower",
+"Quantitative Reasoning",
+"Computation with Time",
+"word problem",
+"A movie starts at 9:00 A.M. and lasts 105 minutes. What time does it end?",
+"11:45 A.M.",
+"10:55 A.M.",
+"10:45 A.M.",
+"9:45 A.M.",
+"C",
+"105 min = 1 h 45 min after 9:00 A.M. → 10:45 A.M..",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 210,
+"cells": [
+"L209",
+"lower",
+"Mathematics Achievement",
+"Area of Rectangles",
+"word problem",
+"What is the area of a rectangle with length 10 ft and width 5 ft?",
+"15 sq ft",
+"30 sq ft",
+"50 sq ft",
+"55 sq ft",
+"C",
+"A = 10 × 5 = 50 square feet.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 211,
+"cells": [
+"L210",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Addition & Subtraction",
+"computation",
+"What is 5,724 − 4,750?",
+874.0,
+974.0,
+{
+"number": 1974.0,
+"shown": "1,974"
+},
+984.0,
+"B",
+"5,724 − 4,750 = 974.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 212,
+"cells": [
+"L211",
+"lower",
+"Mathematics Achievement",
+"Value of Digits",
+"word problem",
+"In the number 177,044, what is the value of the digit in the hundred thousands place?",
+{
+"number": 100000.0,
+"shown": "100,000"
+},
+{
+"number": 1000000.0,
+"shown": "1,000,000"
+},
+1.0,
+{
+"number": 10000.0,
+"shown": "10,000"
+},
+"A",
+"The hundred thousands digit is 1, so its value is 100,000.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 213,
+"cells": [
+"L212",
+"lower",
+"Mathematics Achievement",
+"Value of Digits",
+"word problem",
+"In the number 800,442, what is the value of the digit in the hundreds place?",
+4.0,
+{
+"number": 4000.0,
+"shown": "4,000"
+},
+40.0,
+400.0,
+"D",
+"The hundreds digit is 4, so its value is 400.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 214,
+"cells": [
+"L213",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 1/2 + 3/5?",
+"1 1/5",
+"1 1/10",
+{
+"date": "2026-04-07"
+},
+{
+"date": "2026-02-05"
+},
+"B",
+"Use a common denominator: 1/2 + 3/5 = 1 1/10.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 215,
+"cells": [
+"L214",
+"lower",
+"Mathematics Achievement",
+"Volume of Solids",
+"word problem",
+"A box is 4 cm long, 5 cm wide, and 2 cm tall. What is its volume?",
+"40 cubic cm",
+"20 cubic cm",
+"76 cubic cm",
+"11 cubic cm",
+"A",
+"V = 4×5×2 = 40.",
+2.0,
+"Rectangular prism labeled length 4 cm, width 5 cm, height 2 cm.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 216,
+"cells": [
+"L215",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Addition & Subtraction",
+"computation",
+"What is 7,914 + 2,259?",
+{
+"number": 9173.0,
+"shown": "9,173"
+},
+{
+"number": 10273.0,
+"shown": "10,273"
+},
+{
+"number": 10173.0,
+"shown": "10,173"
+},
+{
+"number": 10163.0,
+"shown": "10,163"
+},
+"C",
+"7,914 + 2,259 = 10,173.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 217,
+"cells": [
+"L216",
+"lower",
+"Mathematics Achievement",
+"Order of Operations",
+"computation",
+"What is 6 + 3 × 2 − 3?",
+15.0,
+9.0,
+11.0,
+3.0,
+"B",
+"Multiply first: 3×2=6; 6+6−3=9.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 218,
+"cells": [
+"L217",
+"lower",
+"Mathematics Achievement",
+"Order of Operations",
+"computation",
+"What is 6 + 6 × 2 − 5?",
+"'-12",
+19.0,
+15.0,
+13.0,
+"D",
+"Multiply first: 6×2=12; 6+12−5=13.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 219,
+"cells": [
+"L218",
+"lower",
+"Mathematics Achievement",
+"Volume of Solids",
+"word problem",
+"A box is 4 cm long, 2 cm wide, and 5 cm tall. What is its volume?",
+"11 cubic cm",
+"40 cubic cm",
+"76 cubic cm",
+"8 cubic cm",
+"B",
+"V = 4×2×5 = 40.",
+2.0,
+"Rectangular prism labeled length 4 cm, width 2 cm, height 5 cm.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 220,
+"cells": [
+"L219",
+"lower",
+"Mathematics Achievement",
+"Equivalent Fractions and Decimals",
+"computation",
+"Which decimal is equal to 7/10?",
+0.7,
+0.8,
+0.75,
+1.0,
+"A",
+"7 ÷ 10 = 0.7.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 221,
+"cells": [
+"L220",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Multiplication",
+"computation",
+"What is 17 × 17?",
+289.0,
+272.0,
+306.0,
+119.0,
+"A",
+"17 × 17 = 289.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 222,
+"cells": [
+"L221",
+"lower",
+"Quantitative Reasoning",
+"Solving for a Missing Number",
+"computation",
+"If 7 × □ = 28, what number goes in the □?",
+35.0,
+21.0,
+4.0,
+5.0,
+"C",
+"Use the inverse operation: □ = 4.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 223,
+"cells": [
+"L222",
+"lower",
+"Mathematics Achievement",
+"Order of Operations",
+"computation",
+"What is 6 + 7 × 5 − 6?",
+59.0,
+35.0,
+"'-1",
+37.0,
+"B",
+"Multiply first: 7×5=35; 6+35−6=35.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 224,
+"cells": [
+"L223",
+"lower",
+"Quantitative Reasoning",
+"Area and Perimeter of Complex Polygons",
+"word problem",
+"The figure is an 8 × 12 rectangle with a 2 × 5 rectangle cut out of one corner. What is the area of the figure in square units?",
+40.0,
+89.0,
+86.0,
+96.0,
+"C",
+"8×12 − 2×5 = 96 − 10 = 86.",
+3.0,
+"L-shaped polygon: a rectangle 8 units wide and 12 units tall with a 2-unit-wide by 5-unit-tall rectangle removed from the top-right corner. Label outer sides 8 and 12; label the notch sides 2 and 5.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 225,
+"cells": [
+"L224",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 1/4 + 2/8?",
+"3/32",
+{
+"date": "2026-01-04"
+},
+{
+"date": "2026-01-02"
+},
+"17/32",
+"C",
+"Use a common denominator: 1/4 + 2/8 = 1/2.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 226,
+"cells": [
+"L225",
+"lower",
+"Quantitative Reasoning",
+"Solving for a Missing Number",
+"computation",
+"If □ − 62 = 83, what number goes in the □?",
+145.0,
+21.0,
+155.0,
+83.0,
+"A",
+"Use the inverse operation: □ = 145.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 227,
+"cells": [
+"L226",
+"lower",
+"Quantitative Reasoning",
+"Remainder when Divided by a Given Number",
+"word problem",
+"What is the remainder when 394 is divided by 5?",
+0.0,
+4.0,
+8.0,
+3.0,
+"B",
+"5 × 78 = 390; 394 − 390 = 4.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 228,
+"cells": [
+"L227",
+"lower",
+"Quantitative Reasoning",
+"Area and Perimeter of Complex Polygons",
+"word problem",
+"The figure is a 12 × 12 rectangle with a 6 × 6 rectangle cut out of one corner. What is the area of the figure in square units?",
+132.0,
+108.0,
+48.0,
+144.0,
+"B",
+"12×12 − 6×6 = 144 − 36 = 108.",
+3.0,
+"L-shaped polygon: a rectangle 12 units wide and 12 units tall with a 6-unit-wide by 6-unit-tall rectangle removed from the top-right corner. Label outer sides 12 and 12; label the notch sides 6 and 6.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 229,
+"cells": [
+"L228",
+"lower",
+"Quantitative Reasoning",
+"Determining Total Cost / Change",
+"word problem",
+"Sam buys 4 pens for $4.20 each. He pays with $20. How much change should he get?",
+{
+"number": 16.8,
+"shown": "$16.80"
+},
+{
+"number": 2.7,
+"shown": "$2.70"
+},
+{
+"number": 3.2,
+"shown": "$3.20"
+},
+{
+"number": 7.4,
+"shown": "$7.40"
+},
+"C",
+"Cost = 4 × $4.20 = $16.80; change = $20 − $16.80 = $3.20.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 230,
+"cells": [
+"L229",
+"lower",
+"Mathematics Achievement",
+"Order of Operations",
+"computation",
+"What is 7 + 6 × 2 − 1?",
+20.0,
+13.0,
+25.0,
+18.0,
+"D",
+"Multiply first: 6×2=12; 7+12−1=18.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 231,
+"cells": [
+"L230",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 1/3 + 4/9?",
+{
+"date": "2026-07-09"
+},
+"22/27",
+{
+"date": "2026-05-12"
+},
+{
+"date": "2026-05-27"
+},
+"A",
+"Use a common denominator: 1/3 + 4/9 = 7/9.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 232,
+"cells": [
+"L231",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 2/12 + 9/12?",
+1.0,
+{
+"date": "2026-11-12"
+},
+"1 1/2",
+{
+"date": "2026-11-24"
+},
+"B",
+"Same denominator: add numerators, 2+9=11, giving 11/12.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 233,
+"cells": [
+"L232",
+"lower",
+"Quantitative Reasoning",
+"Coins & Bills Problems",
+"word problem",
+"Jake has 6 quarters, 6 dimes, and 2 nickels. How much money does he have?",
+{
+"number": 1.4,
+"shown": "$1.40"
+},
+{
+"number": 2.1,
+"shown": "$2.10"
+},
+{
+"number": 2.2,
+"shown": "$2.20"
+},
+{
+"number": 2.25,
+"shown": "$2.25"
+},
+"C",
+"6×25¢ + 6×10¢ + 2×5¢ = $2.20.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 234,
+"cells": [
+"L233",
+"lower",
+"Quantitative Reasoning",
+"Comparing Bar Graph Values",
+"word problem",
+"The bar graph shows books read this year: Dee 60, Eli 25, Ben 10, Ava 10. How many more books did Dee read than Ava?",
+45.0,
+55.0,
+50.0,
+70.0,
+"C",
+"60 − 10 = 50.",
+2.0,
+"Vertical bar graph titled 'Books Read'; x-axis: Dee, Eli, Ben, Ava; y-axis 0–60 in steps of 5; bar heights: Dee=60, Eli=25, Ben=10, Ava=10.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 235,
+"cells": [
+"L234",
+"lower",
+"Quantitative Reasoning",
+"LCM (Least Common Multiple)",
+"word problem",
+"What is the least common multiple of 6 and 9?",
+3.0,
+18.0,
+24.0,
+54.0,
+"B",
+"Multiples of 6 and 9 first match at 18.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 236,
+"cells": [
+"L235",
+"lower",
+"Quantitative Reasoning",
+"Finding the Mean",
+"word problem",
+"What is the mean (average) of 14, 16, 15, 11?",
+5.0,
+14.0,
+56.0,
+15.0,
+"B",
+"Sum = 56, ÷ 4 = 14.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 237,
+"cells": [
+"L236",
+"lower",
+"Quantitative Reasoning",
+"Rounding / Estimation",
+"computation",
+"What is 88,401 rounded to the nearest thousand?",
+{
+"number": 89000.0,
+"shown": "89,000"
+},
+{
+"number": 90000.0,
+"shown": "90,000"
+},
+{
+"number": 88000.0,
+"shown": "88,000"
+},
+{
+"number": 87000.0,
+"shown": "87,000"
+},
+"C",
+"Look at the digit right of the thousands place to round 88,401 to 88,000.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 238,
+"cells": [
+"L237",
+"lower",
+"Quantitative Reasoning",
+"Finding Missing Side, given Perimeter and 1 Side",
+"word problem",
+"A rectangle has a perimeter of 42 meters. Its width is 3 meters. What is its length?",
+"39 m",
+"21 m",
+"18 m",
+"36 m",
+"C",
+"42 = 2(L + 3) → L + 3 = 21 → L = 18 m.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 239,
+"cells": [
+"L238",
+"lower",
+"Quantitative Reasoning",
+"LCM (Least Common Multiple)",
+"word problem",
+"What is the least common multiple of 4 and 6?",
+16.0,
+12.0,
+24.0,
+2.0,
+"B",
+"Multiples of 4 and 6 first match at 12.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 240,
+"cells": [
+"L239",
+"lower",
+"Mathematics Achievement",
+"Adding and Subtracting Decimals",
+"computation",
+"What is 2.14 + 4.53?",
+6.68,
+6.77,
+5.67,
+6.67,
+"D",
+"Line up the decimal points: the answer is 6.67.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 241,
+"cells": [
+"L240",
+"lower",
+"Mathematics Achievement",
+"Adding and Subtracting Decimals",
+"computation",
+"What is 24.71 − 8.02?",
+15.69,
+16.7,
+16.69,
+16.79,
+"C",
+"Line up the decimal points: the answer is 16.69.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 242,
+"cells": [
+"L241",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 1/5 + 3/10?",
+{
+"date": "2026-01-02"
+},
+"13/25",
+{
+"date": "2026-02-25"
+},
+{
+"date": "2026-04-15"
+},
+"A",
+"Use a common denominator: 1/5 + 3/10 = 1/2.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 243,
+"cells": [
+"L242",
+"lower",
+"Mathematics Achievement",
+"Shape Construction & Symmetry",
+"word problem",
+"How many lines of symmetry does a regular hexagon have?",
+6.0,
+5.0,
+7.0,
+12.0,
+"A",
+"A regular hexagon has 6 line(s) of symmetry.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 244,
+"cells": [
+"L243",
+"lower",
+"Quantitative Reasoning",
+"LCM (Least Common Multiple)",
+"word problem",
+"What is the least common multiple of 3 and 5?",
+30.0,
+18.0,
+15.0,
+1.0,
+"C",
+"Multiples of 3 and 5 first match at 15.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 245,
+"cells": [
+"L244",
+"lower",
+"Quantitative Reasoning",
+"Remainder when Divided by a Given Number",
+"word problem",
+"What is the remainder when 100 is divided by 3?",
+2.0,
+3.0,
+1.0,
+0.0,
+"C",
+"3 × 33 = 99; 100 − 99 = 1.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 246,
+"cells": [
+"L245",
+"lower",
+"Quantitative Reasoning",
+"Solving Problems with Rates",
+"word problem",
+"Lena reads 8 pages every minute. At that rate, how many pages will she read in 5 minutes?",
+13.0,
+35.0,
+40.0,
+48.0,
+"C",
+"8 × 5 = 40.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 247,
+"cells": [
+"L246",
+"lower",
+"Mathematics Achievement",
+"Conversions / Measurement",
+"word problem",
+"How many inches are in 5 feet?",
+15.0,
+72.0,
+60.0,
+50.0,
+"C",
+"Multiply by the conversion factor: 60 inches.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 248,
+"cells": [
+"L247",
+"lower",
+"Quantitative Reasoning",
+"Multi-step Word Problems",
+"word problem",
+"An auditorium has 12 rows with 23 seats in each row, plus 4 folding chairs. How many seats are there in all?",
+276.0,
+324.0,
+39.0,
+280.0,
+"D",
+"12 × 23 = 276; + 4 = 280.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 249,
+"cells": [
+"L248",
+"lower",
+"Quantitative Reasoning",
+"Finding the Mean",
+"word problem",
+"What is the mean (average) of 11, 13, 19, 15, 17, 21?",
+17.0,
+10.0,
+96.0,
+16.0,
+"D",
+"Sum = 96, ÷ 6 = 16.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 250,
+"cells": [
+"L249",
+"lower",
+"Quantitative Reasoning",
+"Coins & Bills Problems",
+"word problem",
+"Jake has 3 quarters, 4 dimes, and 2 nickels. How much money does he have?",
+{
+"number": 1.15,
+"shown": "$1.15"
+},
+{
+"number": 1.25,
+"shown": "$1.25"
+},
+{
+"number": 0.9,
+"shown": "$0.90"
+},
+{
+"number": 1.3,
+"shown": "$1.30"
+},
+"B",
+"3×25¢ + 4×10¢ + 2×5¢ = $1.25.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 251,
+"cells": [
+"L250",
+"lower",
+"Quantitative Reasoning",
+"Remainder when Divided by a Given Number",
+"word problem",
+"What is the remainder when 207 is divided by 7?",
+9.0,
+0.0,
+4.0,
+5.0,
+"C",
+"7 × 29 = 203; 207 − 203 = 4.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 252,
+"cells": [
+"L251",
+"lower",
+"Quantitative Reasoning",
+"Probability of 1 Event, given a List of Items",
+"word problem",
+"A bag has 2 red, 8 blue, and 4 green marbles. One marble is picked without looking. What is the probability it is green?",
+{
+"date": "2026-02-07"
+},
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-05-07"
+},
+{
+"date": "2026-02-05"
+},
+"A",
+"4 green out of 14 total = 2/7.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 253,
+"cells": [
+"L252",
+"lower",
+"Quantitative Reasoning",
+"Nth Term, given Arithmetic Sequence",
+"word problem",
+"The pattern 11, 15, 19, 23, … continues. What is the 8th number?",
+35.0,
+88.0,
+43.0,
+39.0,
+"D",
+"Start 11, add 4 each time: 11 + 4×7 = 39.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 254,
+"cells": [
+"L253",
+"lower",
+"Quantitative Reasoning",
+"Comparing Fractions",
+"computation",
+"Which fraction is the greatest?",
+{
+"date": "2026-03-05"
+},
+{
+"date": "2026-01-02"
+},
+{
+"date": "2026-03-04"
+},
+{
+"date": "2026-07-10"
+},
+"C",
+"Convert to decimals: 3/5=0.6, 3/4=0.75, 1/2=0.5, 7/10=0.7.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 255,
+"cells": [
+"L254",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 5/10 + 1/10?",
+{
+"date": "2026-07-10"
+},
+{
+"date": "2026-03-05"
+},
+{
+"date": "2026-03-10"
+},
+{
+"date": "2026-01-02"
+},
+"B",
+"Same denominator: add numerators, 5+1=6, giving 3/5.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 256,
+"cells": [
+"L255",
+"lower",
+"Quantitative Reasoning",
+"LCM (Least Common Multiple)",
+"word problem",
+"What is the least common multiple of 8 and 12?",
+32.0,
+4.0,
+24.0,
+96.0,
+"C",
+"Multiples of 8 and 12 first match at 24.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 257,
+"cells": [
+"L256",
+"lower",
+"Quantitative Reasoning",
+"Solving for Subsets in a Venn Diagram",
+"word problem",
+"In a class, 11 students play soccer and 13 play basketball. 2 play both. Every student plays at least one. How many students are in the class?",
+20.0,
+24.0,
+22.0,
+26.0,
+"C",
+"11 + 13 − 2 = 22.",
+3.0,
+"Two overlapping circles labeled Soccer and Basketball; overlap region labeled 2; Soccer-only region 9; Basketball-only region 11.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 258,
+"cells": [
+"L257",
+"lower",
+"Mathematics Achievement",
+"Equivalent Fractions and Decimals",
+"computation",
+"Which decimal is equal to 3/10?",
+0.35,
+0.4,
+0.3,
+1.0,
+"C",
+"3 ÷ 10 = 0.3.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 259,
+"cells": [
+"L258",
+"lower",
+"Mathematics Achievement",
+"Conversions / Measurement",
+"word problem",
+"How many centimeters are in 4 meters?",
+400.0,
+4000.0,
+500.0,
+40.0,
+"A",
+"Multiply by the conversion factor: 400 centimeters.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 260,
+"cells": [
+"L259",
+"lower",
+"Quantitative Reasoning",
+"Probability of 1 Event, given a List of Items",
+"word problem",
+"A bag has 2 red, 6 blue, and 5 green marbles. One marble is picked without looking. What is the probability it is red?",
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-02-13"
+},
+{
+"date": "2026-11-13"
+},
+{
+"date": "2026-02-11"
+},
+"B",
+"2 red out of 13 total = 2/13.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 261,
+"cells": [
+"L260",
+"lower",
+"Mathematics Achievement",
+"Identifying Shapes",
+"word problem",
+"Which shape has 6 sides?",
+"heptagon",
+"pentagon",
+"octagon",
+"hexagon",
+"D",
+"A hexagon has 6 sides.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 262,
+"cells": [
+"L261",
+"lower",
+"Quantitative Reasoning",
+"Area and Perimeter of Complex Polygons",
+"word problem",
+"The figure is an 11 × 7 rectangle with a 5 × 3 rectangle cut out of one corner. What is the area of the figure in square units?",
+69.0,
+36.0,
+77.0,
+62.0,
+"D",
+"11×7 − 5×3 = 77 − 15 = 62.",
+3.0,
+"L-shaped polygon: a rectangle 11 units wide and 7 units tall with a 5-unit-wide by 3-unit-tall rectangle removed from the top-right corner. Label outer sides 11 and 7; label the notch sides 5 and 3.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 263,
+"cells": [
+"L262",
+"lower",
+"Quantitative Reasoning",
+"Probability of 1 Event, given a List of Items",
+"word problem",
+"A bag has 8 red, 6 blue, and 4 green marbles. One marble is picked without looking. What is the probability it is red?",
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-05-09"
+},
+{
+"date": "2026-04-05"
+},
+{
+"date": "2026-04-09"
+},
+"D",
+"8 red out of 18 total = 4/9.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 264,
+"cells": [
+"L263",
+"lower",
+"Quantitative Reasoning",
+"Solving for a Missing Number",
+"computation",
+"If □ + 60 = 108, what number goes in the □?",
+60.0,
+168.0,
+58.0,
+48.0,
+"D",
+"Use the inverse operation: □ = 48.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 265,
+"cells": [
+"L264",
+"lower",
+"Mathematics Achievement",
+"Area of Rectangles",
+"word problem",
+"What is the area of a rectangle with length 12 ft and width 2 ft?",
+"26 sq ft",
+"28 sq ft",
+"24 sq ft",
+"14 sq ft",
+"C",
+"A = 12 × 2 = 24 square feet.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 266,
+"cells": [
+"L265",
+"lower",
+"Mathematics Achievement",
+"Adding and Subtracting Decimals",
+"computation",
+"What is 49.48 + 11.5?",
+60.98,
+60.99,
+61.08,
+59.98,
+"A",
+"Line up the decimal points: the answer is 60.98.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 267,
+"cells": [
+"L266",
+"lower",
+"Quantitative Reasoning",
+"Comparing Bar Graph Values",
+"word problem",
+"The bar graph shows books read this year: Ava 25, Fay 45, Dee 10, Eli 20. How many more books did Fay read than Eli?",
+25.0,
+65.0,
+30.0,
+20.0,
+"A",
+"45 − 20 = 25.",
+2.0,
+"Vertical bar graph titled 'Books Read'; x-axis: Ava, Fay, Dee, Eli; y-axis 0–60 in steps of 5; bar heights: Ava=25, Fay=45, Dee=10, Eli=20.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 268,
+"cells": [
+"L267",
+"lower",
+"Mathematics Achievement",
+"Conversions / Measurement",
+"word problem",
+"How many quarts are in 4 gallons?",
+8.0,
+16.0,
+32.0,
+20.0,
+"B",
+"Multiply by the conversion factor: 16 quarts.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 269,
+"cells": [
+"L268",
+"lower",
+"Quantitative Reasoning",
+"Solving for Subsets in a Venn Diagram",
+"word problem",
+"In a class, 12 students play soccer and 9 play basketball. 4 play both. Every student plays at least one. How many students are in the class?",
+13.0,
+17.0,
+25.0,
+21.0,
+"B",
+"12 + 9 − 4 = 17.",
+3.0,
+"Two overlapping circles labeled Soccer and Basketball; overlap region labeled 4; Soccer-only region 8; Basketball-only region 5.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 270,
+"cells": [
+"L269",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Equilateral Figure",
+"word problem",
+"A square has a perimeter of 24 inches. How long is one side?",
+"6 in",
+"20 in",
+"7 in",
+"12 in",
+"A",
+"24 ÷ 4 = 6 inches.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 271,
+"cells": [
+"L270",
+"lower",
+"Quantitative Reasoning",
+"LCM (Least Common Multiple)",
+"word problem",
+"What is the least common multiple of 3 and 7?",
+24.0,
+1.0,
+42.0,
+21.0,
+"D",
+"Multiples of 3 and 7 first match at 21.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 272,
+"cells": [
+"L271",
+"lower",
+"Quantitative Reasoning",
+"Remainder when Divided by a Given Number",
+"word problem",
+"What is the remainder when 708 is divided by 9?",
+6.0,
+7.0,
+8.0,
+0.0,
+"A",
+"9 × 78 = 702; 708 − 702 = 6.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 273,
+"cells": [
+"L272",
+"lower",
+"Quantitative Reasoning",
+"Estimating Fractions on Number Lines",
+"word problem",
+"A number line from 0 to 1 is divided into 4 equal parts. Point P is at the 3rd tick mark after 0. What number does P represent?",
+{
+"date": "2026-03-05"
+},
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-01-04"
+},
+{
+"date": "2026-03-04"
+},
+"D",
+"Each part is 1/4; 3 parts = 3/4.",
+1.0,
+"Number line from 0 to 1 with 3 evenly spaced interior tick marks; point P marked at tick 3.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 274,
+"cells": [
+"L273",
+"lower",
+"Quantitative Reasoning",
+"Determining Total Cost / Change",
+"word problem",
+"Sam buys 3 juice boxes for $1.60 each. He pays with $5. How much change should he get?",
+{
+"number": 1.8,
+"shown": "$1.80"
+},
+{
+"number": 0.2,
+"shown": "$0.20"
+},
+{
+"number": 4.8,
+"shown": "$4.80"
+},
+{
+"number": 1.2,
+"shown": "$1.20"
+},
+"B",
+"Cost = 3 × $1.60 = $4.80; change = $5 − $4.80 = $0.20.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 275,
+"cells": [
+"L274",
+"lower",
+"Quantitative Reasoning",
+"Computation with Time",
+"word problem",
+"A movie starts at 7:10 A.M. and lasts 35 minutes. What time does it end?",
+"6:45 A.M.",
+"7:55 A.M.",
+"7:45 A.M.",
+"8:45 A.M.",
+"C",
+"35 min = 0 h 35 min after 7:10 A.M. → 7:45 A.M..",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 276,
+"cells": [
+"L275",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Rectangles",
+"word problem",
+"A rectangle is 13 cm long and 5 cm wide. What is its perimeter?",
+"36 cm",
+"18 cm",
+"65 cm",
+"38 cm",
+"A",
+"P = 2 × (13 + 5) = 36 cm.",
+1.0,
+"Rectangle labeled 13 cm on the long side and 5 cm on the short side.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 277,
+"cells": [
+"L276",
+"lower",
+"Mathematics Achievement",
+"Adding and Subtracting Decimals",
+"computation",
+"What is 38.71 + 18.1?",
+56.81,
+56.91,
+55.81,
+56.82,
+"A",
+"Line up the decimal points: the answer is 56.81.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 278,
+"cells": [
+"L277",
+"lower",
+"Quantitative Reasoning",
+"Coins & Bills Problems",
+"word problem",
+"Jake has 3 quarters, 1 dimes, and 2 nickels. How much money does he have?",
+{
+"number": 0.6,
+"shown": "$0.60"
+},
+{
+"number": 1.0,
+"shown": "$1.00"
+},
+{
+"number": 0.85,
+"shown": "$0.85"
+},
+{
+"number": 0.95,
+"shown": "$0.95"
+},
+"D",
+"3×25¢ + 1×10¢ + 2×5¢ = $0.95.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 279,
+"cells": [
+"L278",
+"lower",
+"Mathematics Achievement",
+"Order of Operations",
+"computation",
+"What is 5 + 8 × 4 − 9?",
+"'-35",
+30.0,
+28.0,
+43.0,
+"C",
+"Multiply first: 8×4=32; 5+32−9=28.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 280,
+"cells": [
+"L279",
+"lower",
+"Mathematics Achievement",
+"Operations with Fractions",
+"computation",
+"What is 3/9 + 1/9?",
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-04-09"
+},
+{
+"date": "2026-05-09"
+},
+{
+"date": "2026-02-09"
+},
+"B",
+"Same denominator: add numerators, 3+1=4, giving 4/9.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 281,
+"cells": [
+"L280",
+"lower",
+"Quantitative Reasoning",
+"Solving for a Missing Number",
+"computation",
+"If □ + 77 = 127, what number goes in the □?",
+77.0,
+204.0,
+50.0,
+60.0,
+"C",
+"Use the inverse operation: □ = 50.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 282,
+"cells": [
+"L281",
+"lower",
+"Quantitative Reasoning",
+"Solving for Subsets in a Venn Diagram",
+"word problem",
+"In a class, 18 students play soccer and 9 play basketball. 4 play both. Every student plays at least one. How many students are in the class?",
+19.0,
+23.0,
+31.0,
+27.0,
+"B",
+"18 + 9 − 4 = 23.",
+3.0,
+"Two overlapping circles labeled Soccer and Basketball; overlap region labeled 4; Soccer-only region 14; Basketball-only region 5.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 283,
+"cells": [
+"L282",
+"lower",
+"Quantitative Reasoning",
+"Computation with Time",
+"word problem",
+"A movie starts at 10:10 A.M. and lasts 140 minutes. What time does it end?",
+"12:30 P.M.",
+"11:30 A.M.",
+"1:30 P.M.",
+"12:40 P.M.",
+"A",
+"140 min = 2 h 20 min after 10:10 A.M. → 12:30 P.M..",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 284,
+"cells": [
+"L283",
+"lower",
+"Quantitative Reasoning",
+"Multi-step Word Problems",
+"word problem",
+"An auditorium has 6 rows with 11 seats in each row, plus 6 folding chairs. How many seats are there in all?",
+66.0,
+23.0,
+72.0,
+102.0,
+"C",
+"6 × 11 = 66; + 6 = 72.",
+3.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 285,
+"cells": [
+"L284",
+"lower",
+"Quantitative Reasoning",
+"Comparing Bar Graph Values",
+"word problem",
+"The bar graph shows books read this year: Cal 55, Ava 25, Fay 20, Dee 10. How many more books did Ava read than Dee?",
+20.0,
+10.0,
+15.0,
+35.0,
+"C",
+"25 − 10 = 15.",
+2.0,
+"Vertical bar graph titled 'Books Read'; x-axis: Cal, Ava, Fay, Dee; y-axis 0–60 in steps of 5; bar heights: Cal=55, Ava=25, Fay=20, Dee=10.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 286,
+"cells": [
+"L285",
+"lower",
+"Quantitative Reasoning",
+"Factors and Multiples",
+"word problem",
+"Which number is a factor of 12?",
+9.0,
+11.0,
+2.0,
+5.0,
+"C",
+"12 ÷ 2 = 6 with no remainder.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 287,
+"cells": [
+"L286",
+"lower",
+"Mathematics Achievement",
+"Identifying Shapes",
+"word problem",
+"Which shape has 4 equal sides but no right angles?",
+"rectangle",
+"rhombus",
+"square",
+"trapezoid",
+"B",
+"A rhombus has 4 equal sides but no right angles.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 288,
+"cells": [
+"L287",
+"lower",
+"Quantitative Reasoning",
+"Nth Term, given Arithmetic Sequence",
+"word problem",
+"The pattern 15, 20, 25, 30, … continues. What is the 10th number?",
+55.0,
+60.0,
+150.0,
+65.0,
+"B",
+"Start 15, add 5 each time: 15 + 5×9 = 60.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 289,
+"cells": [
+"L288",
+"lower",
+"Quantitative Reasoning",
+"Finding Median, given Sets of Numbers",
+"word problem",
+"What is the median of 57, 31, 51, 14, 29, 54, 33?",
+43.0,
+33.0,
+38.0,
+14.0,
+"B",
+"In order: 14, 29, 31, 33, 51, 54, 57. The middle value is 33.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 290,
+"cells": [
+"L289",
+"lower",
+"Quantitative Reasoning",
+"Fractional Parts Word Problems",
+"word problem",
+"Maya has 24 cards. She gives away 1/3 of them. How many cards does she give away?",
+11.0,
+9.0,
+8.0,
+16.0,
+"C",
+"1/3 of 24 = 24 ÷ 3 × 1 = 8.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 291,
+"cells": [
+"L290",
+"lower",
+"Quantitative Reasoning",
+"Comparing Fractions",
+"computation",
+"Which fraction is the least?",
+{
+"date": "2026-05-06"
+},
+{
+"date": "2026-04-05"
+},
+{
+"date": "2026-05-08"
+},
+{
+"date": "2026-03-05"
+},
+"D",
+"Convert to decimals: 4/5=0.8, 3/5=0.6, 5/6=0.833, 5/8=0.625.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 292,
+"cells": [
+"L291",
+"lower",
+"Quantitative Reasoning",
+"Finding the Mean",
+"word problem",
+"What is the mean (average) of 8, 12, 14, 12, 19?",
+65.0,
+14.0,
+11.0,
+13.0,
+"D",
+"Sum = 65, ÷ 5 = 13.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 293,
+"cells": [
+"L292",
+"lower",
+"Quantitative Reasoning",
+"Angle of Analog Clock Hands",
+"word problem",
+"What is the smaller angle between the hands of a clock at exactly 3:00?",
+"75°",
+"90°",
+"270°",
+"120°",
+"B",
+"Each hour mark is 30°; 3 × 30° = 90°.",
+1.0,
+"Analog clock showing 3:00.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 294,
+"cells": [
+"L293",
+"lower",
+"Mathematics Achievement",
+"Perimeter of Equilateral Figure",
+"word problem",
+"Each side of a equilateral triangle is 15 cm. What is its perimeter?",
+"225 cm",
+"30 cm",
+"45 cm",
+"60 cm",
+"C",
+"3 sides × 15 = 45 cm.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 295,
+"cells": [
+"L294",
+"lower",
+"Quantitative Reasoning",
+"Estimating Fractions on Number Lines",
+"word problem",
+"A number line from 0 to 1 is divided into 5 equal parts. Point P is at the 3rd tick mark after 0. What number does P represent?",
+{
+"date": "2026-03-05"
+},
+{
+"date": "2026-02-05"
+},
+{
+"date": "2026-01-03"
+},
+{
+"date": "2026-01-02"
+},
+"A",
+"Each part is 1/5; 3 parts = 3/5.",
+1.0,
+"Number line from 0 to 1 with 4 evenly spaced interior tick marks; point P marked at tick 3.",
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 296,
+"cells": [
+"L295",
+"lower",
+"Quantitative Reasoning",
+"Solving Problems with Rates",
+"word problem",
+"Lena reads 8 cookies every hour. At that rate, how many cookies will she read in 7 hours?",
+56.0,
+64.0,
+49.0,
+15.0,
+"A",
+"8 × 7 = 56.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 297,
+"cells": [
+"L296",
+"lower",
+"Mathematics Achievement",
+"Area of Rectangles",
+"word problem",
+"What is the area of a rectangle with length 8 ft and width 6 ft?",
+"14 sq ft",
+"54 sq ft",
+"28 sq ft",
+"48 sq ft",
+"D",
+"A = 8 × 6 = 48 square feet.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 298,
+"cells": [
+"L297",
+"lower",
+"Mathematics Achievement",
+"Best Unit of Measure",
+"word problem",
+"Which unit is best for measuring the weight of an apple?",
+"ounces",
+"miles",
+"tons",
+"pounds",
+"A",
+"Ounces are the most sensible size for the weight of an apple.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 299,
+"cells": [
+"L298",
+"lower",
+"Mathematics Achievement",
+"Whole Numbers: Addition & Subtraction",
+"computation",
+"What is 7,401 + 1,125?",
+{
+"number": 7526.0,
+"shown": "7,526"
+},
+{
+"number": 8516.0,
+"shown": "8,516"
+},
+{
+"number": 8626.0,
+"shown": "8,626"
+},
+{
+"number": 8526.0,
+"shown": "8,526"
+},
+"D",
+"7,401 + 1,125 = 8,526.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 300,
+"cells": [
+"L299",
+"lower",
+"Quantitative Reasoning",
+"Comparing Fractions",
+"computation",
+"Which fraction is the least?",
+{
+"date": "2026-02-03"
+},
+{
+"date": "2026-05-08"
+},
+{
+"date": "2026-03-08"
+},
+{
+"date": "2026-03-04"
+},
+"C",
+"Convert to decimals: 5/8=0.625, 3/8=0.375, 3/4=0.75, 2/3=0.667.",
+2.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+},
+{
+"row": 301,
+"cells": [
+"L300",
+"lower",
+"Mathematics Achievement",
+"Value of Digits",
+"word problem",
+"In the number 880,431, what is the value of the digit in the ten thousands place?",
+{
+"number": 8000.0,
+"shown": "8,000"
+},
+{
+"number": 800000.0,
+"shown": "800,000"
+},
+8.0,
+{
+"number": 80000.0,
+"shown": "80,000"
+},
+"D",
+"The ten thousands digit is 8, so its value is 80,000.",
+1.0,
+null,
+"Original ISEE-style question written by Claude (variant; topic list modeled on iseepracticetest.com)"
+]
+}
+]

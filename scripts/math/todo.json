@@ -1,0 +1,641 @@
+{
+  "csv": "questions.csv",
+  "diagram": [],
+  "explanation": [],
+  "difficulty": [],
+  "heldBack": [],
+  "corrected": [
+    {
+      "id": "L-0015",
+      "level": "lower",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: \"a equilateral triangle\" should be \"an equilateral triangle\"."
+    },
+    {
+      "id": "L-0024",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation wording: \"line(s) of symmetry\"."
+    },
+    {
+      "id": "L-0030",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation jumped from 3+3=6 to 3/4 without showing 6/8."
+    },
+    {
+      "id": "L-0035",
+      "level": "lower",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: a count of 1 was written with a plural coin name (\"1 quarters\" or \"1 dimes\")."
+    },
+    {
+      "id": "L-0044",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation jumped from 2 parts of 1/10 to 1/5 without showing 2/10."
+    },
+    {
+      "id": "L-0046",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation wording: \"1 parts\", with fractions typed as plain text."
+    },
+    {
+      "id": "L-0055",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation wording: \"line(s) of symmetry\"."
+    },
+    {
+      "id": "L-0059",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation wording: \"A octagon\"."
+    },
+    {
+      "id": "L-0060",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation ended with a doubled full stop and said \"0 h 35 min\"."
+    },
+    {
+      "id": "L-0062",
+      "level": "lower",
+      "fields": [
+        "choices"
+      ],
+      "why": "Two choices were defensible: door heights are commonly given in inches as well as feet; replaced inches with ounces so only feet fits."
+    },
+    {
+      "id": "L-0064",
+      "level": "lower",
+      "fields": [
+        "choices"
+      ],
+      "why": "Choice D was a probability greater than 1 (1 1/5); replaced with 3/11, the chance of blue."
+    },
+    {
+      "id": "L-0065",
+      "level": "lower",
+      "fields": [
+        "prompt",
+        "explanation"
+      ],
+      "why": "Wording: \"a equilateral triangle\" in the prompt and \"A equilateral triangle has 3 line(s)\" in the explanation."
+    },
+    {
+      "id": "L-0089",
+      "level": "lower",
+      "fields": [
+        "prompt",
+        "explanation"
+      ],
+      "why": "Wording: \"1 of them are shaded\", and the explanation only said 1/10 = 1/10."
+    },
+    {
+      "id": "L-0090",
+      "level": "lower",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: \"a equilateral triangle\" should be \"an equilateral triangle\"."
+    },
+    {
+      "id": "L-0094",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation ended with a doubled full stop (\"A.M..\")."
+    },
+    {
+      "id": "L-0100",
+      "level": "lower",
+      "fields": [
+        "prompt",
+        "explanation"
+      ],
+      "why": "The \"long\" side (9 cm) was shorter than the \"wide\" side (15 cm), and the figure description labels 9 cm on the long side; swapped so it is 15 cm long and 9 cm wide (the figure must label the long side 15 cm)."
+    },
+    {
+      "id": "L-0103",
+      "level": "lower",
+      "fields": [
+        "prompt",
+        "explanation"
+      ],
+      "why": "Wording: \"1 of them are shaded\", and the explanation only said 1/20 = 1/20."
+    },
+    {
+      "id": "L-0104",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation wording: \"line(s) of symmetry\"."
+    },
+    {
+      "id": "L-0105",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation ended with a doubled full stop (\"A.M..\")."
+    },
+    {
+      "id": "L-0114",
+      "level": "lower",
+      "fields": [
+        "choices"
+      ],
+      "why": "Choice B was the whole number 2 where a fraction of the rectangle is asked; replaced with 1/2 (unshaded 4 over shaded 8)."
+    },
+    {
+      "id": "L-0128",
+      "level": "lower",
+      "fields": [
+        "choices",
+        "explanation"
+      ],
+      "why": "Choice C was the whole number 19 where a fraction of the rectangle is asked, and the explanation only said 19/20 = 19/20."
+    },
+    {
+      "id": "L-0132",
+      "level": "lower",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: a count of 1 was written with a plural coin name (\"1 quarters\" or \"1 dimes\")."
+    },
+    {
+      "id": "L-0139",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation jumped from 2 parts of 1/8 to 1/4 without showing 2/8."
+    },
+    {
+      "id": "L-0157",
+      "level": "lower",
+      "fields": [
+        "prompt",
+        "explanation"
+      ],
+      "why": "The \"long\" side (10 cm) was shorter than the \"wide\" side (13 cm), and the figure description labels 10 cm on the long side; swapped so it is 13 cm long and 10 cm wide (the figure must label the long side 13 cm)."
+    },
+    {
+      "id": "L-0163",
+      "level": "lower",
+      "fields": [
+        "difficulty"
+      ],
+      "why": "Marked hard (3) but it is 6 x 10 + 14, an easy two-step sum."
+    },
+    {
+      "id": "L-0164",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation ended with a doubled full stop (\"A.M..\")."
+    },
+    {
+      "id": "L-0165",
+      "level": "lower",
+      "fields": [
+        "choices"
+      ],
+      "why": "Choice C was a negative number (-67), which is outside Lower Level content; replaced with 67 (subtracting instead of adding)."
+    },
+    {
+      "id": "L-0174",
+      "level": "lower",
+      "fields": [
+        "choices"
+      ],
+      "why": "Choice D was the whole number 3 where a fraction of the rectangle is asked; replaced with 1/3 (unshaded 3 over shaded 9)."
+    },
+    {
+      "id": "L-0180",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation ended with a doubled full stop (\"A.M..\")."
+    },
+    {
+      "id": "L-0181",
+      "level": "lower",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: \"Lena reads cookies\"; changed the verb to bakes."
+    },
+    {
+      "id": "L-0186",
+      "level": "lower",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: a count of 1 was written with a plural coin name (\"1 quarters\" or \"1 dimes\")."
+    },
+    {
+      "id": "L-0189",
+      "level": "lower",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: \"1 green marbles\"."
+    },
+    {
+      "id": "L-0191",
+      "level": "lower",
+      "fields": [
+        "choices"
+      ],
+      "why": "Choice A was the whole number 2 where a fraction of the rectangle is asked; replaced with 1/2 (unshaded 5 over shaded 10)."
+    },
+    {
+      "id": "L-0194",
+      "level": "lower",
+      "fields": [
+        "choices",
+        "explanation"
+      ],
+      "why": "Choice C was the whole number 9 where a fraction of the rectangle is asked, and the explanation only said 9/10 = 9/10."
+    },
+    {
+      "id": "L-0198",
+      "level": "lower",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: \"Lena reads cookies\"; changed the verb to bakes."
+    },
+    {
+      "id": "L-0207",
+      "level": "lower",
+      "fields": [
+        "choices"
+      ],
+      "why": "Choice C was a probability greater than 1 (1 1/6); replaced with 4/13, the chance of green."
+    },
+    {
+      "id": "L-0208",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation ended with a doubled full stop (\"A.M..\")."
+    },
+    {
+      "id": "L-0217",
+      "level": "lower",
+      "fields": [
+        "choices"
+      ],
+      "why": "Choice A was a negative number (-12), which is outside Lower Level content; replaced with 18 (forgetting to subtract 5)."
+    },
+    {
+      "id": "L-0222",
+      "level": "lower",
+      "fields": [
+        "choices"
+      ],
+      "why": "Choice C was a negative number (-1), which is outside Lower Level content; replaced with 41 (forgetting to subtract 6)."
+    },
+    {
+      "id": "L-0242",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation wording: \"line(s) of symmetry\"."
+    },
+    {
+      "id": "L-0254",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation jumped from 5+1=6 to 3/5 without showing 6/10."
+    },
+    {
+      "id": "L-0274",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation ended with a doubled full stop and said \"0 h 35 min\"."
+    },
+    {
+      "id": "L-0277",
+      "level": "lower",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: a count of 1 was written with a plural coin name (\"1 quarters\" or \"1 dimes\")."
+    },
+    {
+      "id": "L-0278",
+      "level": "lower",
+      "fields": [
+        "choices"
+      ],
+      "why": "Choice A was a negative number (-35), which is outside Lower Level content; replaced with 37 (forgetting to subtract 9)."
+    },
+    {
+      "id": "L-0282",
+      "level": "lower",
+      "fields": [
+        "explanation"
+      ],
+      "why": "Explanation ended with a doubled full stop (\"A.M..\")."
+    },
+    {
+      "id": "L-0283",
+      "level": "lower",
+      "fields": [
+        "difficulty"
+      ],
+      "why": "Marked hard (3) but it is 6 x 11 + 6, an easy two-step sum."
+    },
+    {
+      "id": "L-0293",
+      "level": "lower",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: \"a equilateral triangle\" should be \"an equilateral triangle\"."
+    },
+    {
+      "id": "L-0295",
+      "level": "lower",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: \"Lena reads cookies\"; changed the verb to bakes."
+    },
+    {
+      "id": "M-0006",
+      "level": "middle",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: \"1x\" should be written \"x\"."
+    },
+    {
+      "id": "M-0012",
+      "level": "middle",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: \"1x - 1y\" should be written \"x - y\"."
+    },
+    {
+      "id": "M-0022",
+      "level": "middle",
+      "fields": [
+        "difficulty"
+      ],
+      "why": "Difficulty 3 is two levels too high for a one-step 160 ÷ 4 rate problem."
+    },
+    {
+      "id": "M-0024",
+      "level": "middle",
+      "fields": [
+        "choices"
+      ],
+      "why": "A choice was a probability greater than 1 ($1\\frac{1}{7}$); replaced with the result of forgetting that the total drops to 6."
+    },
+    {
+      "id": "M-0034",
+      "level": "middle",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: \"1 students\" (twice) should be \"1 student\"."
+    },
+    {
+      "id": "M-0044",
+      "level": "middle",
+      "fields": [
+        "choices",
+        "explanation"
+      ],
+      "why": "A choice showed a negative price (\\$-12); replaced with a positive distractor, and the explanation mixed up dollar signs."
+    },
+    {
+      "id": "M-0059",
+      "level": "middle",
+      "fields": [
+        "choices"
+      ],
+      "why": "A choice was a probability greater than 1 ($1\\frac{1}{3}$); replaced with a plausible wrong fraction."
+    },
+    {
+      "id": "M-0067",
+      "level": "middle",
+      "fields": [
+        "choices",
+        "explanation"
+      ],
+      "why": "A choice showed a negative price (\\$-5); replaced with a positive distractor, and the explanation mixed up dollar signs."
+    },
+    {
+      "id": "M-0077",
+      "level": "middle",
+      "fields": [
+        "difficulty"
+      ],
+      "why": "Difficulty 3 is two levels too high for a one-step complement ($1 - \\frac{1}{8}$)."
+    },
+    {
+      "id": "M-0078",
+      "level": "middle",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: \"is marked up 15% more\" is broken."
+    },
+    {
+      "id": "M-0090",
+      "level": "middle",
+      "fields": [
+        "choices",
+        "explanation"
+      ],
+      "why": "A choice showed a negative price (\\$-13); replaced with a positive distractor, and the explanation mixed up dollar signs."
+    },
+    {
+      "id": "M-0102",
+      "level": "middle",
+      "fields": [
+        "choices"
+      ],
+      "why": "Two wrong choices had the same value; replaced one with the factorization that forgets a repeated prime."
+    },
+    {
+      "id": "M-0108",
+      "level": "middle",
+      "fields": [
+        "choices",
+        "difficulty"
+      ],
+      "why": "A choice was a probability greater than 1 ($3\\frac{1}{2}$) and difficulty 3 is two levels too high for a one-step complement."
+    },
+    {
+      "id": "M-0125",
+      "level": "middle",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: \"1x\" should be written \"x\"."
+    },
+    {
+      "id": "M-0136",
+      "level": "middle",
+      "fields": [
+        "choices"
+      ],
+      "why": "Wording: the choice \"1 hours\" should be \"1 hour\"."
+    },
+    {
+      "id": "M-0145",
+      "level": "middle",
+      "fields": [
+        "choices"
+      ],
+      "why": "Two wrong choices had the same value; replaced one with the factorization that forgets a repeated prime."
+    },
+    {
+      "id": "M-0170",
+      "level": "middle",
+      "fields": [
+        "choices",
+        "difficulty"
+      ],
+      "why": "A choice was a probability greater than 1 ($3\\frac{1}{3}$) and difficulty 3 is two levels too high for a one-step complement."
+    },
+    {
+      "id": "M-0175",
+      "level": "middle",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: \"1 students\" should be \"1 student\"."
+    },
+    {
+      "id": "M-0178",
+      "level": "middle",
+      "fields": [
+        "choices",
+        "explanation"
+      ],
+      "why": "The keyed choice 66.70% is not equal to $\\frac{2}{3}$ (it is a rounding); made it exact."
+    },
+    {
+      "id": "M-0189",
+      "level": "middle",
+      "fields": [
+        "explanation"
+      ],
+      "why": "The explanation mixed up dollar signs and read as \"37 + 11 per hour\"; answer unchanged."
+    },
+    {
+      "id": "M-0200",
+      "level": "middle",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: \"1x\" should be written \"x\"."
+    },
+    {
+      "id": "M-0210",
+      "level": "middle",
+      "fields": [
+        "choices"
+      ],
+      "why": "Two wrong choices had the same value; replaced one with the factorization that forgets a repeated prime."
+    },
+    {
+      "id": "M-0211",
+      "level": "middle",
+      "fields": [
+        "prompt"
+      ],
+      "why": "Wording: \"1x\" should be written \"x\"."
+    },
+    {
+      "id": "M-0223",
+      "level": "middle",
+      "fields": [
+        "choices",
+        "explanation"
+      ],
+      "why": "The keyed choice 83.30% is not equal to $\\frac{5}{6}$ (it is a rounding); made it exact."
+    },
+    {
+      "id": "M-0224",
+      "level": "middle",
+      "fields": [
+        "difficulty"
+      ],
+      "why": "Difficulty 3 is two levels too high for a one-step 110 ÷ 2 rate problem."
+    },
+    {
+      "id": "M-0264",
+      "level": "middle",
+      "fields": [
+        "choices"
+      ],
+      "why": "Two wrong choices had the same value; replaced one with the factorization that forgets a repeated prime."
+    },
+    {
+      "id": "M-0281",
+      "level": "middle",
+      "fields": [
+        "choices",
+        "explanation"
+      ],
+      "why": "Choices wrote the answer as $y^1$ and a distractor as $\\frac{1}{y^1}$; a simplified answer is $y$."
+    },
+    {
+      "id": "M-0285",
+      "level": "middle",
+      "fields": [
+        "explanation"
+      ],
+      "why": "The explanation was garbled (it printed $\\frac{3}{5}$ twice and never mentioned 0.6); answer unchanged."
+    },
+    {
+      "id": "M-0290",
+      "level": "middle",
+      "fields": [
+        "difficulty"
+      ],
+      "why": "Difficulty 3 is two levels too high for a one-step 45 × 2 rate problem."
+    }
+  ],
+  "dropped": []
+}

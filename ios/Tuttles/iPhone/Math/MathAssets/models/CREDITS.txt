@@ -1,0 +1,19 @@
+Math runner models: sources and licences
+========================================
+
+Every model here is from a pack by Kenney (www.kenney.nl), released as public
+domain (Creative Commons Zero, CC0 1.0). No attribution is required. The files
+are unchanged; the game recolours and resizes them when it loads them.
+
+  characters/   Mini Characters (1.0): the twelve people, their swatch sheet,
+                and two pairs of glasses
+  furniture/    Furniture Kit: desk, table, lounge chair, large fridge,
+                computer screen, trash can, potted plant
+  city/         City Kit (Suburban): two trees
+  food/         Food Kit: what's on the cafeteria tables
+
+They were fetched from the copies in github.com/series-ai/jam-ready-assets,
+which keeps each pack's own License.txt beside it.
+
+Everything else in the game (the school, what stands in the way, what the
+teacher throws) is built in code: MathProps.swift and MathZones.swift.

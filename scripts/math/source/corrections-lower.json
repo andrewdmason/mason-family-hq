@@ -1,0 +1,264 @@
+{
+  "checked": 300,
+  "corrections": {
+    "L-0015": {
+      "why": "Wording: \"a equilateral triangle\" should be \"an equilateral triangle\".",
+      "prompt": "Each side of an equilateral triangle is 3 cm. What is its perimeter?"
+    },
+    "L-0024": {
+      "why": "Explanation wording: \"line(s) of symmetry\".",
+      "explanation": "A regular pentagon has 5 lines of symmetry."
+    },
+    "L-0030": {
+      "why": "Explanation jumped from 3+3=6 to 3/4 without showing 6/8.",
+      "explanation": "Same denominator: add the numerators, $3+3=6$.\n$\\frac{6}{8} = \\frac{3}{4}$."
+    },
+    "L-0035": {
+      "why": "Wording: a count of 1 was written with a plural coin name (\"1 quarters\" or \"1 dimes\").",
+      "prompt": "Jake has 1 quarter, 7 dimes, and 6 nickels. How much money does he have?"
+    },
+    "L-0044": {
+      "why": "Explanation jumped from 2 parts of 1/10 to 1/5 without showing 2/10.",
+      "explanation": "Each part is $\\frac{1}{10}$.\n2 parts $= \\frac{2}{10} = \\frac{1}{5}$."
+    },
+    "L-0046": {
+      "why": "Explanation wording: \"1 parts\", with fractions typed as plain text.",
+      "explanation": "Each part is $\\frac{1}{4}$.\n1 part is $\\frac{1}{4}$."
+    },
+    "L-0055": {
+      "why": "Explanation wording: \"line(s) of symmetry\".",
+      "explanation": "A square has 4 lines of symmetry."
+    },
+    "L-0059": {
+      "why": "Explanation wording: \"A octagon\".",
+      "explanation": "An octagon has 8 sides."
+    },
+    "L-0060": {
+      "why": "Explanation ended with a doubled full stop and said \"0 h 35 min\".",
+      "explanation": "35 minutes after 9:15 A.M. is 9:50 A.M."
+    },
+    "L-0062": {
+      "why": "Two choices were defensible: door heights are commonly given in inches as well as feet; replaced inches with ounces so only feet fits.",
+      "choices": [
+        "miles",
+        "feet",
+        "ounces",
+        "kilometers"
+      ]
+    },
+    "L-0064": {
+      "why": "Choice D was a probability greater than 1 (1 1/5); replaced with 3/11, the chance of blue.",
+      "choices": [
+        "$\\frac{6}{11}$",
+        "$\\frac{1}{3}$",
+        "$\\frac{5}{11}$",
+        "$\\frac{3}{11}$"
+      ]
+    },
+    "L-0065": {
+      "why": "Wording: \"a equilateral triangle\" in the prompt and \"A equilateral triangle has 3 line(s)\" in the explanation.",
+      "prompt": "How many lines of symmetry does an equilateral triangle have?",
+      "explanation": "An equilateral triangle has 3 lines of symmetry."
+    },
+    "L-0089": {
+      "why": "Wording: \"1 of them are shaded\", and the explanation only said 1/10 = 1/10.",
+      "prompt": "A rectangle is divided into 10 equal squares, and 1 of them is shaded. What fraction of the rectangle is shaded (in simplest form)?",
+      "explanation": "1 of the 10 squares is shaded.\nThat is $\\frac{1}{10}$."
+    },
+    "L-0090": {
+      "why": "Wording: \"a equilateral triangle\" should be \"an equilateral triangle\".",
+      "prompt": "Each side of an equilateral triangle is 5 cm. What is its perimeter?"
+    },
+    "L-0094": {
+      "why": "Explanation ended with a doubled full stop (\"A.M..\").",
+      "explanation": "105 min = 1 h 45 min.\n1 h 45 min after 10:15 A.M. is 12:00 P.M."
+    },
+    "L-0100": {
+      "why": "The \"long\" side (9 cm) was shorter than the \"wide\" side (15 cm), and the figure description labels 9 cm on the long side; swapped so it is 15 cm long and 9 cm wide (the figure must label the long side 15 cm).",
+      "prompt": "A rectangle is 15 cm long and 9 cm wide. What is its perimeter?",
+      "explanation": "$P = 2 \\times (15 + 9) = 48$ cm."
+    },
+    "L-0103": {
+      "why": "Wording: \"1 of them are shaded\", and the explanation only said 1/20 = 1/20.",
+      "prompt": "A rectangle is divided into 20 equal squares, and 1 of them is shaded. What fraction of the rectangle is shaded (in simplest form)?",
+      "explanation": "1 of the 20 squares is shaded.\nThat is $\\frac{1}{20}$."
+    },
+    "L-0104": {
+      "why": "Explanation wording: \"line(s) of symmetry\".",
+      "explanation": "A rectangle that is not a square has 2 lines of symmetry."
+    },
+    "L-0105": {
+      "why": "Explanation ended with a doubled full stop (\"A.M..\").",
+      "explanation": "90 min = 1 h 30 min.\n1 h 30 min after 10:00 A.M. is 11:30 A.M."
+    },
+    "L-0114": {
+      "why": "Choice B was the whole number 2 where a fraction of the rectangle is asked; replaced with 1/2 (unshaded 4 over shaded 8).",
+      "choices": [
+        "$\\frac{1}{3}$",
+        "$\\frac{1}{2}$",
+        "$\\frac{3}{4}$",
+        "$\\frac{2}{3}$"
+      ]
+    },
+    "L-0128": {
+      "why": "Choice C was the whole number 19 where a fraction of the rectangle is asked, and the explanation only said 19/20 = 19/20.",
+      "choices": [
+        "$\\frac{19}{20}$",
+        "$\\frac{1}{20}$",
+        "$\\frac{1}{19}$",
+        "1"
+      ],
+      "explanation": "19 of the 20 squares are shaded.\nThat is $\\frac{19}{20}$, already in simplest form."
+    },
+    "L-0132": {
+      "why": "Wording: a count of 1 was written with a plural coin name (\"1 quarters\" or \"1 dimes\").",
+      "prompt": "Jake has 1 quarter, 2 dimes, and 6 nickels. How much money does he have?"
+    },
+    "L-0139": {
+      "why": "Explanation jumped from 2 parts of 1/8 to 1/4 without showing 2/8.",
+      "explanation": "Each part is $\\frac{1}{8}$.\n2 parts $= \\frac{2}{8} = \\frac{1}{4}$."
+    },
+    "L-0157": {
+      "why": "The \"long\" side (10 cm) was shorter than the \"wide\" side (13 cm), and the figure description labels 10 cm on the long side; swapped so it is 13 cm long and 10 cm wide (the figure must label the long side 13 cm).",
+      "prompt": "A rectangle is 13 cm long and 10 cm wide. What is its perimeter?",
+      "explanation": "$P = 2 \\times (13 + 10) = 46$ cm."
+    },
+    "L-0163": {
+      "why": "Marked hard (3) but it is 6 x 10 + 14, an easy two-step sum.",
+      "difficulty": 1
+    },
+    "L-0164": {
+      "why": "Explanation ended with a doubled full stop (\"A.M..\").",
+      "explanation": "140 min = 2 h 20 min.\n2 h 20 min after 8:50 A.M. is 11:10 A.M."
+    },
+    "L-0165": {
+      "why": "Choice C was a negative number (-67), which is outside Lower Level content; replaced with 67 (subtracting instead of adding).",
+      "choices": [
+        "97",
+        "87",
+        "67",
+        "10"
+      ]
+    },
+    "L-0174": {
+      "why": "Choice D was the whole number 3 where a fraction of the rectangle is asked; replaced with 1/3 (unshaded 3 over shaded 9).",
+      "choices": [
+        "$\\frac{3}{4}$",
+        "$\\frac{5}{6}$",
+        "$\\frac{1}{4}$",
+        "$\\frac{1}{3}$"
+      ]
+    },
+    "L-0180": {
+      "why": "Explanation ended with a doubled full stop (\"A.M..\").",
+      "explanation": "75 min = 1 h 15 min.\n1 h 15 min after 8:50 A.M. is 10:05 A.M."
+    },
+    "L-0181": {
+      "why": "Wording: \"Lena reads cookies\"; changed the verb to bakes.",
+      "prompt": "Lena bakes 9 cookies every hour. At that rate, how many cookies will she bake in 4 hours?"
+    },
+    "L-0186": {
+      "why": "Wording: a count of 1 was written with a plural coin name (\"1 quarters\" or \"1 dimes\").",
+      "prompt": "Jake has 4 quarters, 1 dime, and 1 nickel. How much money does he have?"
+    },
+    "L-0189": {
+      "why": "Wording: \"1 green marbles\".",
+      "prompt": "A bag has 6 red marbles, 8 blue marbles, and 1 green marble. One marble is picked without looking. What is the probability it is red?"
+    },
+    "L-0191": {
+      "why": "Choice A was the whole number 2 where a fraction of the rectangle is asked; replaced with 1/2 (unshaded 5 over shaded 10).",
+      "choices": [
+        "$\\frac{1}{2}$",
+        "$\\frac{1}{3}$",
+        "$\\frac{11}{15}$",
+        "$\\frac{2}{3}$"
+      ]
+    },
+    "L-0194": {
+      "why": "Choice C was the whole number 9 where a fraction of the rectangle is asked, and the explanation only said 9/10 = 9/10.",
+      "choices": [
+        "$\\frac{1}{10}$",
+        "1",
+        "$\\frac{1}{9}$",
+        "$\\frac{9}{10}$"
+      ],
+      "explanation": "9 of the 10 squares are shaded.\nThat is $\\frac{9}{10}$, already in simplest form."
+    },
+    "L-0198": {
+      "why": "Wording: \"Lena reads cookies\"; changed the verb to bakes.",
+      "prompt": "Lena bakes 6 cookies every hour. At that rate, how many cookies will she bake in 5 hours?"
+    },
+    "L-0207": {
+      "why": "Choice C was a probability greater than 1 (1 1/6); replaced with 4/13, the chance of green.",
+      "choices": [
+        "$\\frac{6}{13}$",
+        "$\\frac{7}{13}$",
+        "$\\frac{4}{13}$",
+        "$\\frac{1}{3}$"
+      ]
+    },
+    "L-0208": {
+      "why": "Explanation ended with a doubled full stop (\"A.M..\").",
+      "explanation": "105 min = 1 h 45 min.\n1 h 45 min after 9:00 A.M. is 10:45 A.M."
+    },
+    "L-0217": {
+      "why": "Choice A was a negative number (-12), which is outside Lower Level content; replaced with 18 (forgetting to subtract 5).",
+      "choices": [
+        "18",
+        "19",
+        "15",
+        "13"
+      ]
+    },
+    "L-0222": {
+      "why": "Choice C was a negative number (-1), which is outside Lower Level content; replaced with 41 (forgetting to subtract 6).",
+      "choices": [
+        "59",
+        "35",
+        "41",
+        "37"
+      ]
+    },
+    "L-0242": {
+      "why": "Explanation wording: \"line(s) of symmetry\".",
+      "explanation": "A regular hexagon has 6 lines of symmetry."
+    },
+    "L-0254": {
+      "why": "Explanation jumped from 5+1=6 to 3/5 without showing 6/10.",
+      "explanation": "Same denominator: add the numerators, $5+1=6$.\n$\\frac{6}{10} = \\frac{3}{5}$."
+    },
+    "L-0274": {
+      "why": "Explanation ended with a doubled full stop and said \"0 h 35 min\".",
+      "explanation": "35 minutes after 7:10 A.M. is 7:45 A.M."
+    },
+    "L-0277": {
+      "why": "Wording: a count of 1 was written with a plural coin name (\"1 quarters\" or \"1 dimes\").",
+      "prompt": "Jake has 3 quarters, 1 dime, and 2 nickels. How much money does he have?"
+    },
+    "L-0278": {
+      "why": "Choice A was a negative number (-35), which is outside Lower Level content; replaced with 37 (forgetting to subtract 9).",
+      "choices": [
+        "37",
+        "30",
+        "28",
+        "43"
+      ]
+    },
+    "L-0282": {
+      "why": "Explanation ended with a doubled full stop (\"A.M..\").",
+      "explanation": "140 min = 2 h 20 min.\n2 h 20 min after 10:10 A.M. is 12:30 P.M."
+    },
+    "L-0283": {
+      "why": "Marked hard (3) but it is 6 x 11 + 6, an easy two-step sum.",
+      "difficulty": 1
+    },
+    "L-0293": {
+      "why": "Wording: \"a equilateral triangle\" should be \"an equilateral triangle\".",
+      "prompt": "Each side of an equilateral triangle is 15 cm. What is its perimeter?"
+    },
+    "L-0295": {
+      "why": "Wording: \"Lena reads cookies\"; changed the verb to bakes.",
+      "prompt": "Lena bakes 8 cookies every hour. At that rate, how many cookies will she bake in 7 hours?"
+    }
+  }
+}

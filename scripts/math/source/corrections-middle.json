@@ -1,0 +1,204 @@
+{
+  "checked": 300,
+  "corrections": {
+    "M-0006": {
+      "why": "Wording: \"1x\" should be written \"x\".",
+      "prompt": "Solve: $5x + 5 = x + 5$"
+    },
+    "M-0012": {
+      "why": "Wording: \"1x - 1y\" should be written \"x - y\".",
+      "prompt": "Solve the system: $x + y = 2$ and $x - y = -10$."
+    },
+    "M-0022": {
+      "why": "Difficulty 3 is two levels too high for a one-step 160 ÷ 4 rate problem.",
+      "difficulty": 1
+    },
+    "M-0024": {
+      "why": "A choice was a probability greater than 1 ($1\\frac{1}{7}$); replaced with the result of forgetting that the total drops to 6.",
+      "choices": [
+        "$\\frac{12}{49}$",
+        "$\\frac{2}{7}$",
+        "$\\frac{4}{7}$",
+        "$\\frac{16}{49}$"
+      ]
+    },
+    "M-0034": {
+      "why": "Wording: \"1 students\" (twice) should be \"1 student\".",
+      "prompt": "A frequency table shows the number of pets owned by students: 1 pet: 1 student, 2 pets: 1 student, 3 pets: 3 students, 4 pets: 5 students, 5 pets: 6 students. What is the mode?"
+    },
+    "M-0044": {
+      "why": "A choice showed a negative price (\\$-12); replaced with a positive distractor, and the explanation mixed up dollar signs.",
+      "choices": [
+        "$C = 39h + 9$; \\$126",
+        "$C = 48h$; \\$144",
+        "$C = 9h + 39$; \\$66",
+        "$C = 39h - 9$; \\$108"
+      ],
+      "explanation": "The fixed fee is \\$39 and each hour adds \\$9, so $C = 9h + 39$.\n$9(3) + 39 = 66$, so the cost is \\$66."
+    },
+    "M-0059": {
+      "why": "A choice was a probability greater than 1 ($1\\frac{1}{3}$); replaced with a plausible wrong fraction.",
+      "choices": [
+        "$\\frac{4}{9}$",
+        "$\\frac{1}{3}$",
+        "$\\frac{2}{5}$",
+        "$\\frac{2}{3}$"
+      ]
+    },
+    "M-0067": {
+      "why": "A choice showed a negative price (\\$-5); replaced with a positive distractor, and the explanation mixed up dollar signs.",
+      "choices": [
+        "$C = 29h$; \\$203",
+        "$C = 3h + 26$; \\$47",
+        "$C = 26h - 3$; \\$179",
+        "$C = 26h + 3$; \\$185"
+      ],
+      "explanation": "The fixed fee is \\$26 and each hour adds \\$3, so $C = 3h + 26$.\n$3(7) + 26 = 47$, so the cost is \\$47."
+    },
+    "M-0077": {
+      "why": "Difficulty 3 is two levels too high for a one-step complement ($1 - \\frac{1}{8}$).",
+      "difficulty": 1
+    },
+    "M-0078": {
+      "why": "Wording: \"is marked up 15% more\" is broken.",
+      "prompt": "A jacket originally priced at \\$80 is marked up by 15%. What is the new price?"
+    },
+    "M-0090": {
+      "why": "A choice showed a negative price (\\$-13); replaced with a positive distractor, and the explanation mixed up dollar signs.",
+      "choices": [
+        "$C = 33h + 4$; \\$169",
+        "$C = 33h - 4$; \\$161",
+        "$C = 37h$; \\$185",
+        "$C = 4h + 33$; \\$53"
+      ],
+      "explanation": "The fixed fee is \\$33 and each hour adds \\$4, so $C = 4h + 33$.\n$4(5) + 33 = 53$, so the cost is \\$53."
+    },
+    "M-0102": {
+      "why": "Two wrong choices had the same value; replaced one with the factorization that forgets a repeated prime.",
+      "choices": [
+        "$2^2 \\times 3 \\times 7$",
+        "$2^2 \\times 3^2$",
+        "$2 \\times 3 \\times 7$",
+        "$2^3 \\times 3 \\times 7$"
+      ]
+    },
+    "M-0108": {
+      "why": "A choice was a probability greater than 1 ($3\\frac{1}{2}$) and difficulty 3 is two levels too high for a one-step complement.",
+      "choices": [
+        "$\\frac{5}{7}$",
+        "$\\frac{2}{5}$",
+        "$\\frac{2}{7}$",
+        "$\\frac{1}{2}$"
+      ],
+      "difficulty": 1
+    },
+    "M-0125": {
+      "why": "Wording: \"1x\" should be written \"x\".",
+      "prompt": "Solve: $9x - 1 = x + 71$"
+    },
+    "M-0136": {
+      "why": "Wording: the choice \"1 hours\" should be \"1 hour\".",
+      "choices": [
+        "6.7 hours",
+        "1 hour",
+        "2.5 hours",
+        "1.5 hours"
+      ]
+    },
+    "M-0145": {
+      "why": "Two wrong choices had the same value; replaced one with the factorization that forgets a repeated prime.",
+      "choices": [
+        "$2 \\times 3^2 \\times 5$",
+        "$2^2 \\times 3^2 \\times 5$",
+        "$2 \\times 3 \\times 5$",
+        "$2 \\times 3^2 \\times 7$"
+      ]
+    },
+    "M-0170": {
+      "why": "A choice was a probability greater than 1 ($3\\frac{1}{3}$) and difficulty 3 is two levels too high for a one-step complement.",
+      "choices": [
+        "$\\frac{1}{2}$",
+        "$\\frac{7}{10}$",
+        "$\\frac{3}{7}$",
+        "$\\frac{3}{10}$"
+      ],
+      "difficulty": 1
+    },
+    "M-0175": {
+      "why": "Wording: \"1 students\" should be \"1 student\".",
+      "prompt": "A frequency table shows the number of pets owned by students: 1 pet: 6 students, 2 pets: 5 students, 3 pets: 4 students, 4 pets: 2 students, 5 pets: 1 student. What is the mode?"
+    },
+    "M-0178": {
+      "why": "The keyed choice 66.70% is not equal to $\\frac{2}{3}$ (it is a rounding); made it exact.",
+      "choices": [
+        "6.67%",
+        "0.67%",
+        "$66\\frac{2}{3}$%",
+        "23%"
+      ],
+      "explanation": "$\\frac{2}{3} = 2 \\div 3 = 0.666...$\nAs a percent that is $66\\frac{2}{3}$%."
+    },
+    "M-0189": {
+      "why": "The explanation mixed up dollar signs and read as \"37 + 11 per hour\"; answer unchanged.",
+      "explanation": "The fixed fee is \\$37 and each hour adds \\$11, so $C = 11h + 37$.\n$11(5) + 37 = 92$, so the cost is \\$92."
+    },
+    "M-0200": {
+      "why": "Wording: \"1x\" should be written \"x\".",
+      "prompt": "Solve the system: $x + y = 6$ and $x - 4y = 11$."
+    },
+    "M-0210": {
+      "why": "Two wrong choices had the same value; replaced one with the factorization that forgets a repeated prime.",
+      "choices": [
+        "$2 \\times 3 \\times 5 \\times 7$",
+        "$2 \\times 3 \\times 5^2$",
+        "$2 \\times 3 \\times 5$",
+        "$2^2 \\times 3 \\times 5^2$"
+      ]
+    },
+    "M-0211": {
+      "why": "Wording: \"1x\" should be written \"x\".",
+      "prompt": "Solve: $7x + 9 = x + 51$"
+    },
+    "M-0223": {
+      "why": "The keyed choice 83.30% is not equal to $\\frac{5}{6}$ (it is a rounding); made it exact.",
+      "choices": [
+        "0.83%",
+        "56%",
+        "$83\\frac{1}{3}$%",
+        "8.33%"
+      ],
+      "explanation": "$\\frac{5}{6} = 5 \\div 6 = 0.8333...$\nAs a percent that is $83\\frac{1}{3}$%."
+    },
+    "M-0224": {
+      "why": "Difficulty 3 is two levels too high for a one-step 110 ÷ 2 rate problem.",
+      "difficulty": 1
+    },
+    "M-0264": {
+      "why": "Two wrong choices had the same value; replaced one with the factorization that forgets a repeated prime.",
+      "choices": [
+        "$2^2 \\times 3 \\times 7$",
+        "$2 \\times 3 \\times 5$",
+        "$2^3 \\times 3 \\times 5$",
+        "$2^2 \\times 3 \\times 5$"
+      ]
+    },
+    "M-0281": {
+      "why": "Choices wrote the answer as $y^1$ and a distractor as $\\frac{1}{y^1}$; a simplified answer is $y$.",
+      "choices": [
+        "$\\frac{1}{y}$",
+        "$y^{13}$",
+        "$y^3$",
+        "$y$"
+      ],
+      "explanation": "Same base: subtract the exponents.\n$y^{7-6} = y^1 = y$."
+    },
+    "M-0285": {
+      "why": "The explanation was garbled (it printed $\\frac{3}{5}$ twice and never mentioned 0.6); answer unchanged.",
+      "explanation": "$\\frac{3}{5} = 3 \\div 5 = 0.6$.\nThe two quantities are equal."
+    },
+    "M-0290": {
+      "why": "Difficulty 3 is two levels too high for a one-step 45 × 2 rate problem.",
+      "difficulty": 1
+    }
+  }
+}

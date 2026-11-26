@@ -3,6 +3,8 @@ import { Check, ChevronRight, Flame } from "lucide-react";
 import { clock, DayDots, WordsBar } from "@/components/words/progress-bits";
 import { buttonVariants } from "@/components/ui/button-variants";
 import { getIsAdult, requireUserId } from "@/lib/members/auth";
+import { MATH_DAY_GOAL, type KidSummary } from "@/lib/tuttles/math";
+import { loadMathSummary } from "@/lib/tuttles/math-db";
 import { cn } from "@/lib/utils";
 import { wordsToday } from "@/lib/words/day";
 import { daysBetween, TEST_DATE } from "@/lib/words/schedule";
@@ -79,11 +81,99 @@ export default async function WordsHome({ searchParams }: { searchParams: Promis
                   ))
                 )}
               </div>
+              <MathSection kids={await loadMathSummary(students).catch(() => [])} />
             </>
           )}
         </section>
       )}
     </main>
+  );
+}
+
+/** Math in the Tuttles app (src/lib/tuttles/math.ts), for the parents: it's played on the phones, so there's only this to see here. */
+function MathSection({ kids }: { kids: KidSummary[] }) {
+  // Nothing to show, or it couldn't be read: Words' own page shouldn't suffer for it.
+  if (kids.length === 0) return null;
+  return (
+    <div className="mt-10">
+      <h2 className="font-serif text-2xl tracking-tight text-foreground">ISEE Math</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        The running game in the Tuttles app. {MATH_DAY_GOAL} questions a day, right or wrong.
+      </p>
+      <div className="mt-5 grid gap-4">
+        {kids.map((kid) => (
+          <MathCard key={kid.kid} kid={kid} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MathCard({ kid }: { kid: KidSummary }) {
+  const { today, best } = kid;
+  const done = today.answered >= MATH_DAY_GOAL;
+  // The ones there's enough behind to say anything about.
+  const weakest = kid.topics.filter((t) => t.answered >= 3 && t.correct < t.answered).slice(0, 4);
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5">
+      <div className="flex items-baseline justify-between">
+        <div>
+          <span className="font-serif text-xl text-foreground">{kid.name}</span>
+          <span className="ml-2 text-xs text-muted-foreground">{LEVEL_NAME[kid.level]}</span>
+        </div>
+        <span className="flex items-center gap-1 text-sm text-foreground" title="Days in a row">
+          <Flame className={cn("size-4", kid.streak > 0 ? "text-orange-500" : "text-muted-foreground")} />
+          <span className="tabular-nums">{kid.streak}</span>
+        </span>
+      </div>
+      <p className={cn("mt-1 text-sm", done ? "text-emerald-700" : "text-muted-foreground")}>
+        {done
+          ? `Done today: ${today.answered} answered, ${today.correct} right.`
+          : today.answered > 0
+            ? `${today.answered} of ${MATH_DAY_GOAL} answered so far today.`
+            : "Not started yet today."}
+      </p>
+      <div className="mt-3 flex items-center justify-between">
+        <div className="flex gap-1">
+          {kid.days.map((d) => (
+            <span
+              key={d.day}
+              title={`${d.day}: ${d.answered} answered, ${d.correct} right`}
+              className={cn(
+                "size-2.5 rounded-full",
+                d.answered >= MATH_DAY_GOAL ? "bg-emerald-500" : d.answered > 0 ? "bg-emerald-200" : "bg-muted",
+                d.day === today.day && d.answered < MATH_DAY_GOAL && "ring-1 ring-foreground/40"
+              )}
+            />
+          ))}
+        </div>
+        <span className="text-xs text-muted-foreground">last 14 days</span>
+      </div>
+      {kid.answeredTotal > 0 && (
+        <p className="mt-4 text-sm text-foreground">
+          {kid.correctTotal} of {kid.answeredTotal} right
+          <span className="text-muted-foreground"> ({Math.round((kid.correctTotal / kid.answeredTotal) * 100)}%) in {kid.runs} {kid.runs === 1 ? "run" : "runs"}</span>
+        </p>
+      )}
+      {weakest.length > 0 && (
+        <ul className="mt-3 text-sm text-muted-foreground">
+          <li className="text-foreground">Weakest topics</li>
+          {weakest.map((t) => (
+            <li key={`${t.section}:${t.topic}`} className="flex items-baseline justify-between gap-3">
+              <span className="min-w-0 truncate">{t.topic}</span>
+              <span className="text-xs tabular-nums">
+                {t.correct} of {t.answered} right
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {kid.runs > 0 && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Best so far: {best.score.toLocaleString("en-US")} points, {best.waves} {best.waves === 1 ? "wave" : "waves"}, {best.streak} right in a row.
+        </p>
+      )}
+    </div>
   );
 }
 

@@ -265,7 +265,15 @@ targets:
   Tuttles:
     type: application
     platform: iOS
-    sources: [Tuttles/iPhone, Tuttles/Shared]
+    sources:
+      - path: Tuttles/iPhone
+        excludes: ["Math/MathAssets"]
+      # Math's models, sounds and questions, copied into the app as a folder
+      # (the models look for their textures beside them).
+      - path: Tuttles/iPhone/Math/MathAssets
+        type: folder
+        buildPhase: resources
+      - path: Tuttles/Shared
     dependencies:
       - package: MasonKit
       - package: Supabase

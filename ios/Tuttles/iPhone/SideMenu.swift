@@ -54,10 +54,12 @@ struct SideMenu: View {
                 if store.showingParentView {
                     place("This week", systemImage: "calendar", .week)
                     place("Vocab", systemImage: "character.book.closed", .vocab)
+                    place("Math", systemImage: "figure.run", .math)
                 } else {
                     place("Classes", systemImage: "books.vertical", .classes)
                     place("Study", systemImage: "checklist", .study)
                     place("Vocab", systemImage: "character.book.closed", .vocab)
+                    place("Math", systemImage: "figure.run", .math)
                 }
             }
             Section {
