@@ -12,6 +12,7 @@ import UIKit
 // that would hide others can be put away a floor at a time, and in a room
 // whatever's in front of it or over it isn't shown. The camera never turns:
 // it only moves and zooms, between the whole street, one house and one room.
+// On the street the town can be dragged about and pinched closer or further.
 
 /// One house to show: whose, and how it stands.
 struct HouseShown: Equatable {
@@ -58,10 +59,64 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     private(set) var placing: (room: String, cells: [[Int]])?
     private var aspect: Float = 0.46
     private var last: TimeInterval = 0
+    /// How the street is framed before anyone moves it: where the camera
+    /// looks and how much it takes in.
+    private var framed: (middle: SIMD3<Float>, scale: Float) = (.zero, 12)
+    /// Where they've dragged and pinched the town to from there, on the
+    /// street: across the screen and away up it, along the ground, and how
+    /// many times closer.
+    private(set) var roam = Roam()
+
+    struct Roam: Equatable {
+        var across: Float = 0
+        var away: Float = 0
+        var zoom: Float = 1
+
+        /// As far as the town can be pinched out and in.
+        static let zooms: ClosedRange<Float> = 0.35...3
+        /// As far as it can be dragged either way: where the trees still are.
+        static let reach = HouseLand.block * 2.5
+        /// A point up the screen is further than that along the ground, by this.
+        static let tilt = HouseStage.back.y
+
+        /// How much of the world a point of the screen covers, when the
+        /// street is framed at `scale` in a view `height` points high.
+        func perPoint(scale: Float, height: CGFloat) -> Float {
+            2 * scale / zoom / Float(max(1, height))
+        }
+
+        /// Dragged by `by` points: the town goes with the finger.
+        mutating func drag(by: CGPoint, scale: Float, height: CGFloat) {
+            let k = perPoint(scale: scale, height: height)
+            across -= Float(by.x) * k
+            away += Float(by.y) * k / Self.tilt
+            settle()
+        }
+
+        /// Pinched by `factor` about `at`, in points from the middle of the
+        /// view: what's under the fingers stays under them.
+        mutating func pinch(by factor: CGFloat, about at: CGPoint, scale: Float, height: CGFloat) {
+            guard factor > 0 else { return }
+            let before = perPoint(scale: scale, height: height)
+            zoom = min(max(zoom * Float(factor), Self.zooms.lowerBound), Self.zooms.upperBound)
+            let moved = before - perPoint(scale: scale, height: height)
+            across += Float(at.x) * moved
+            away -= Float(at.y) * moved / Self.tilt
+            settle()
+        }
+
+        private mutating func settle() {
+            across = min(max(across, -Self.reach), Self.reach)
+            away = min(max(away, -Self.reach), Self.reach)
+        }
+    }
 
     /// Towards the camera, from anything it looks at.
     private static let back = simd_normalize(SIMD3<Float>(1, 0.86, 1))
     private static let right = simd_normalize(SIMD3<Float>(1, 0, -1))
+    /// Up the screen, and the way along the ground that goes up it.
+    private static let up = simd_normalize(simd_cross(back, right))
+    private static let away = simd_normalize(SIMD3<Float>(-1, 0, -1))
 
     override init() {
         super.init()
@@ -524,6 +579,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         self.focus = focus
         // Moving between rooms moves who lives there, and the bubbles.
         if was != focus { for house in houses { update(house) } }
+        // Back on the street, the town is where it was first shown.
+        if was != focus { roam = Roam() }
         frame(animated: animated)
     }
 
@@ -561,7 +618,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     private func frame(animated: Bool) {
         let points = corners()
         guard !points.isEmpty else { return }
-        let right = Self.right, up = simd_normalize(simd_cross(Self.back, right))
+        let right = Self.right, up = Self.up
         var r0 = Float.greatestFiniteMagnitude, r1 = -r0, u0 = r0, u1 = -r0
         for p in points {
             let r = simd_dot(p, right), u = simd_dot(p, up)
@@ -572,14 +629,41 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         let scale = max(tall, wide)
         // Lower down the screen than the middle, clear of the purse; or up in the top of it, over a sheet.
         let middle = right * ((r0 + r1) / 2) + up * ((u0 + u1) / 2 + scale * (lifted ? -0.4 : 0.1))
+        framed = (middle, scale)
+        look(animated: animated)
+        // (It only ever looks one way: set once, in init.)
+        tidy()
+    }
+
+    /// Put the camera where the framing and any roaming say.
+    private func look(animated: Bool) {
+        let roam = roams ? roam : Roam()
         SCNTransaction.begin()
         SCNTransaction.animationDuration = animated ? 0.55 : 0
         SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        cameraNode.simdPosition = middle + Self.back * 150
-        cameraNode.camera?.orthographicScale = Double(scale)
+        // Along the ground, so the town stays the same distance off and nothing is cut short.
+        cameraNode.simdPosition = framed.middle + Self.right * roam.across + Self.away * roam.away + Self.back * 150
+        cameraNode.camera?.orthographicScale = Double(framed.scale / roam.zoom)
         SCNTransaction.commit()
-        // (It only ever looks one way: set once, in init.)
-        tidy()
+    }
+
+    // MARK: Moving about the town
+
+    /// The town can be moved about: on the street, with nothing lifted over a sheet.
+    var roams: Bool { focus == .street && !lifted }
+
+    /// Dragged by `by` points: the town goes with the finger.
+    func drag(by: CGPoint, height: CGFloat) {
+        guard roams else { return }
+        roam.drag(by: by, scale: framed.scale, height: height)
+        look(animated: false)
+    }
+
+    /// Pinched by `factor` about `at`, in points from the middle of the view.
+    func pinch(by factor: CGFloat, about at: CGPoint, height: CGFloat) {
+        guard roams else { return }
+        roam.pinch(by: factor, about: at, scale: framed.scale, height: height)
+        look(animated: false)
     }
 
     /// On the street each house says whose it is. Inside one, it's the only one there.

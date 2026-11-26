@@ -167,20 +167,32 @@ are in `src/lib/tuttles/prompt.ts`.
   stage's ground and scenery in code, moving a little, with the stages still
   ahead under a haze. `--vocab-path --vocab-climb` shows all twenty.
 - A parent's account menu picks who the phone is being used as: one of the
-  kids, the parent themselves ("Andrew (you)"), or the **Parent Dashboard**.
-  As themselves (`ChatStore.Viewer.me`), a parent has their own chats, Vocab,
-  Math and house, kept apart from the kids' and played at Sebastian's level
-  (Middle): the phone names the parent's own id in `X-Tuttles-Kid`, and the
-  website sets them up the first time (`parentSelf` in
+  kids, or the parent themselves ("Andrew", `ChatStore.Viewer.parent`). As
+  themselves a parent has one menu with two groups. The first is about the
+  kids, the **Parent Dashboard** (This week, both kids' Vocab and Math, the
+  houses), opening on a page of its own (`Shared/ParentDashboard.swift`,
+  `/tuttles/api/parent/dashboard`): for each kid, the words to practice with
+  them today and their last four weeks by day and by week. The second,
+  "Yours", is the parent's own Vocab, Math and house (`Route.myVocab`,
+  `.myMath`, `.myHouse`), kept apart from the kids' and played at Sebastian's
+  level (Middle). The shell tells the store which group the open place is in
+  (`ChatStore.play(own:)`), and Vocab's, Math's and the house's requests
+  then name the parent's own id in `X-Tuttles-Kid` (`authorize(mine:)`);
+  the website sets them up the first time (`parentSelf` in
   `src/lib/tuttles/tutoring-as.ts`, `PARENT_LEVEL` in `src/lib/tuttles/vocab.ts`).
-  Parents never appear on the street, the Math board or the summaries, which
-  list only the kids. The Parent Dashboard is what was the parents' view (This
-  week, both kids' Vocab and Math, the houses), opening on a page of its own
-  (`Shared/ParentDashboard.swift`, `/tuttles/api/parent/dashboard`): for each
-  kid, the words to practice with them today and their last four weeks by
-  day and by week. `--demo --dashboard -tuttles.viewer.demo parent` opens on it.
-- `--demo` runs on canned chats with no sign-in (`--open <n>` opens one), for
-  the simulator. `--website <url>` points the chat at another server.
+  A parent's chat list is their own: their briefings and the chats they've
+  started (`ChatStore.parentChats`; the plain ones from before 26 November
+  2026 were made for the kids and stay out). A chat they start is theirs,
+  typed or spoken: it names the parent's own id too, and the tutor talks to
+  them as an adult (`parentInstructions` in `src/lib/tuttles/prompt.ts`); a
+  briefing stays about the kid. Parents never appear on the street,
+  the Math board or the summaries, which list only the kids.
+  `--demo --dashboard -tuttles.viewer.demo parent` opens on the dashboard;
+  `--vocab --mine` (or `--math`, `--house`) on the parent's own.
+- `--demo` runs on canned chats with no sign-in (`--open <n>` opens one). The
+  simulator is the demo without the flag, so tapping its icon there opens
+  straight in; `--live` is the real app there, sign-in and all, and so is
+  `--website <url>`, which points the chat at another server.
 
 ### Math (iPhone only)
 
@@ -225,6 +237,12 @@ in each room fixed spots, each with its own things to choose between.
   are done (a chest not banked by midnight is lost, a boss waits), each under
   a key so nothing is paid twice. A house kept under the first economy
   (`HouseState.economy` 1, with back pay) starts again empty.
+- Vocab and Math have the same button at the top right (`HouseStatusButton`
+  in `HouseViews.swift`): today's Vocab time against the ten minutes (a ring,
+  then a tick), the coins and the gems. Tapping it slides the house up over
+  the game, with an X at the top left to put it away. Vocab's
+  first screen opens the purse too, so its winnings are in as soon as the ten
+  minutes are done. (The Mac, with no house, keeps the streak there.)
 - Math's end screen has a stars top 10 of runs, today's and of all time
   (`top` from `/tuttles/api/math/sync`, `topRuns` in `src/lib/tuttles/math.ts`):
   the kids' runs since stars were the score, and a parent's own when they play.
@@ -244,7 +262,10 @@ in each room fixed spots, each with its own things to choose between.
   nothing in front of it or over it is shown. The houses stand
   in a town (`HouseLand.swift`): one ground picture of a block and its roads,
   repeated; each house on a block of its own with a fence and trees at the
-  back, the street going up the screen, trees on the blocks between. Looking
+  back, the street going up the screen, trees on the blocks between. On the
+  street a finger drags the town about and two pinch it closer or further
+  (`HouseStage.Roam`), as far as the trees go; going into a house and back
+  puts it as it was. While the street's up a drag doesn't slide the menu out. Looking
   at the basement takes the ground away and shows it in earth. Furniture and pets are Kenney's kits; rugs, floors,
   pictures, windows and the odd things are drawn in code (`HouseProps.swift`).
 - The house goes to `/tuttles/api/house/sync` whole, newest wins, and the

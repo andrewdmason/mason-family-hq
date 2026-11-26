@@ -52,24 +52,30 @@ struct SideMenu: View {
     var body: some View {
         List {
             Section {
-                if store.showingParentView {
+                if store.asParent {
                     place("Dashboard", systemImage: "chart.bar.xaxis", .dashboard)
                     place("This week", systemImage: "calendar", .week)
                     place("Kids' Vocab", systemImage: "character.book.closed", .vocab)
                     place("Kids' Math", systemImage: "figure.run", .math)
                     place("Houses", systemImage: "house", .house)
-                } else if store.playingAsSelf {
-                    // A parent's own: no Canvas classes. The account menu switches to the Parent Dashboard.
-                    place("Study", systemImage: "checklist", .study)
-                    place("Vocab", systemImage: "character.book.closed", .vocab)
-                    place("Math", systemImage: "figure.run", .math)
-                    place("House", systemImage: "house", .house)
                 } else {
                     place("Classes", systemImage: "books.vertical", .classes)
                     place("Study", systemImage: "checklist", .study)
                     place("Vocab", systemImage: "character.book.closed", .vocab)
                     place("Math", systemImage: "figure.run", .math)
                     place("House", systemImage: "house", .house)
+                }
+            }
+            if store.asParent {
+                // A parent's own practice, apart from the kids'.
+                Section {
+                    place("Vocab", systemImage: "character.book.closed", .myVocab)
+                    place("Math", systemImage: "figure.run", .myMath)
+                    place("House", systemImage: "house", .myHouse)
+                } header: {
+                    Text("Yours")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
             }
             Section {
@@ -84,7 +90,7 @@ struct SideMenu: View {
                 if let error = store.listError {
                     Text(error).foregroundStyle(.secondary).listRowBackground(Color.clear)
                 } else if store.threadsLoaded, threads.isEmpty {
-                    Text(store.showingParentView ? "No briefings yet" : "No chats yet")
+                    Text("No chats yet")
                         .foregroundStyle(.secondary)
                         .listRowBackground(Color.clear)
                 }
@@ -102,7 +108,7 @@ struct SideMenu: View {
                     .listRowBackground(highlight(current.chatID == thread.id))
                     .listRowSeparator(.hidden)
                     .contextMenu {
-                        if !store.showingParentView, let classes = store.classes?.classes {
+                        if !store.asParent, let classes = store.classes?.classes {
                             Picker("Class", selection: Binding(
                                 get: { thread.courseId },
                                 set: { id in Task { await store.setCourse(thread, to: id) } }
@@ -117,7 +123,7 @@ struct SideMenu: View {
                     }
                 }
             } header: {
-                Text(store.showingParentView ? "Your briefings" : "Chats")
+                Text(store.asParent ? "Your chats" : "Chats")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -130,8 +136,6 @@ struct SideMenu: View {
                 Text("Tuttles").font(.largeTitle.bold())
                 if let kid = store.actingKid {
                     Text("\(kid.name) is using Tuttles").font(.subheadline).foregroundStyle(.secondary)
-                } else if store.showingParentView {
-                    Text("Parent Dashboard").font(.subheadline).foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -156,7 +160,8 @@ struct SideMenu: View {
         .animation(.default, value: store.threads.count)
     }
 
-    private var threads: [TutorThread] { store.showingParentView ? store.briefings : store.kidThreads }
+    /// A parent's are their briefings and the chats they've started; a kid's, their chats.
+    private var threads: [TutorThread] { store.asParent ? store.parentChats : store.kidThreads }
 
     /// One of the places at the top: an icon and a name, like Claude's Projects and Code.
     private func place(_ title: String, systemImage: String, _ route: Route) -> some View {

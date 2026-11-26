@@ -541,7 +541,7 @@ extension ChatStore {
         request.httpMethod = "POST"
         // The words come down the first time: give a slow line room.
         request.timeoutInterval = local == nil ? 90 : 30
-        authorize(&request, token: token)
+        authorize(&request, token: token, mine: playingAsSelf)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         guard let (data, response) = try? await URLSession.shared.data(for: request) else { return .offline }
@@ -566,13 +566,13 @@ extension ChatStore {
     /// The first screen for a kid, or a phone used as one: what's on the phone
     /// straight away, then the website's word on it if it can be reached.
     func refreshVocabLocal() async -> Bool {
-        let asked = viewer
+        let asked = using
         if let local = vocabOpenLocal() {
             vocab = local.home()
             vocabWaiting = local.waiting > 0
         }
         let outcome = await vocabSync()
-        guard viewer == asked else { return true }
+        guard using == asked else { return true }
         guard let local = vocabLocal, vocabLocalOwner == ownerID else {
             // Nothing kept here. An older website, or not set up: ask the way it was always asked.
             if outcome == .unavailable { return false }

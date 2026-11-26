@@ -77,6 +77,21 @@ enum Route: Hashable {
     /// The Parent Dashboard's own page: each kid's last four weeks, and the
     /// words to practice with them today (ParentDashboard.swift).
     case dashboard
+    /// A parent's own Vocab, Math and house, beside the kids' in their menu
+    /// (`vocab`, `math` and `house` are the kids' there). The same screens,
+    /// played as themselves (ChatStore.playingAsSelf).
+    case myVocab
+    case myMath
+    case myHouse
+
+    /// One of a parent's own places. Whatever's opened from one (All words,
+    /// the house from Math) is theirs too: it goes by what's at the bottom.
+    var isMine: Bool {
+        switch self {
+        case .myVocab, .myMath, .myHouse: true
+        default: false
+        }
+    }
 
     /// The chat this route opens, if it's one.
     var chatID: UUID? {

@@ -13,7 +13,7 @@ struct MacSidebar: View {
 
     /// A row that can be the one open.
     private enum Item: Hashable {
-        case dashboard, week, classes, study, vocab
+        case dashboard, week, classes, study, vocab, myVocab
         case thread(UUID)
     }
 
@@ -25,8 +25,9 @@ struct MacSidebar: View {
             case .classes, .classPage: .classes
             case .study, .studySet: .study
             case .vocab, .vocabList, .vocabProgress: .vocab
+            case .myVocab: .myVocab
             case .chat(let id, _, _, _, _, _): .thread(id)
-            case .topic, .math, .house: nil
+            case .topic, .math, .house, .myMath, .myHouse: nil
             }
         } set: { item in
             switch item {
@@ -35,6 +36,7 @@ struct MacSidebar: View {
             case .classes: open(.classes)
             case .study: open(.study)
             case .vocab: open(.vocab)
+            case .myVocab: open(.myVocab)
             case .thread(let id): open(.chat(id, isNew: false))
             case nil: break
             }
@@ -44,20 +46,23 @@ struct MacSidebar: View {
     var body: some View {
         List(selection: selection) {
             Section {
-                if store.showingParentView {
+                if store.asParent {
                     place("Dashboard", "chart.bar.xaxis").tag(Item.dashboard)
                     place("This week", "calendar").tag(Item.week)
                     place("Kids' Vocab", "character.book.closed").tag(Item.vocab)
-                } else if store.playingAsSelf {
-                    place("Study", "checklist").tag(Item.study)
-                    place("Vocab", "character.book.closed").tag(Item.vocab)
                 } else {
                     place("Classes", "books.vertical").tag(Item.classes)
                     place("Study", "checklist").tag(Item.study)
                     place("Vocab", "character.book.closed").tag(Item.vocab)
                 }
             }
-            Section(store.showingParentView ? "Your briefings" : "Chats") {
+            if store.asParent {
+                // A parent's own practice, apart from the kids'. Math and the house are the iPhone's.
+                Section("Yours") {
+                    place("Vocab", "character.book.closed").tag(Item.myVocab)
+                }
+            }
+            Section(store.asParent ? "Your chats" : "Chats") {
                 if !store.threadsLoaded {
                     ForEach(0..<4, id: \.self) { _ in
                         Text("Loading a chat title").redacted(reason: .placeholder)
@@ -67,7 +72,7 @@ struct MacSidebar: View {
                 if let error = store.listError {
                     Text(error).foregroundStyle(.secondary).selectionDisabled()
                 } else if store.threadsLoaded, threads.isEmpty {
-                    Text(store.showingParentView ? "No briefings yet" : "No chats yet")
+                    Text("No chats yet")
                         .foregroundStyle(.secondary)
                         .selectionDisabled()
                 }
@@ -76,7 +81,7 @@ struct MacSidebar: View {
                         .lineLimit(1)
                         .tag(Item.thread(thread.id))
                         .contextMenu {
-                            if !store.showingParentView, let classes = store.classes?.classes {
+                            if !store.asParent, let classes = store.classes?.classes {
                                 Picker("Class", selection: Binding(
                                     get: { thread.courseId },
                                     set: { id in Task { await store.setCourse(thread, to: id) } }
@@ -93,20 +98,18 @@ struct MacSidebar: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if !store.showingParentView {
-                Button { open(.chat(UUID(), isNew: true)) } label: {
-                    Label("New chat", systemImage: "square.and.pencil")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 9)
-                }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.tint(TuttlesLook.accent).interactive(), in: .capsule)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .help("New chat (⌘N)")
+            Button { open(.chat(UUID(), isNew: true)) } label: {
+                Label("New chat", systemImage: "square.and.pencil")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
             }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.tint(TuttlesLook.accent).interactive(), in: .capsule)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .help("New chat (⌘N)")
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 8) {
@@ -124,7 +127,8 @@ struct MacSidebar: View {
         Label { Text(title) } icon: { Image(systemName: systemImage).foregroundStyle(TuttlesLook.accent) }
     }
 
-    private var threads: [TutorThread] { store.showingParentView ? store.briefings : store.kidThreads }
+    /// A parent's are their briefings and the chats they've started; a kid's, their chats.
+    private var threads: [TutorThread] { store.asParent ? store.parentChats : store.kidThreads }
 }
 
 /// Who's using Tuttles, at the foot of the sidebar: a parent switches between
@@ -141,13 +145,12 @@ struct MacAccountMenu: View {
                     ForEach(store.kids) { kid in
                         Label(kid.name, systemImage: "person.fill").tag(ChatStore.Viewer.kid(kid.id))
                     }
-                    // The parent as themselves: their own practice, apart from the kids'.
-                    Label("\(store.myName) (you)", systemImage: "person.crop.circle").tag(ChatStore.Viewer.me)
-                    Label("Parent Dashboard", systemImage: "person.2").tag(ChatStore.Viewer.parent)
+                    // The parent as themselves: the Parent Dashboard and their own practice.
+                    Label(store.myName, systemImage: "person.crop.circle").tag(ChatStore.Viewer.parent)
                 }
                 .pickerStyle(.inline)
             }
-            Button(store.showingParentView ? "What Tuttles knows about \(store.classes?.student.name ?? "them")" : "What Tuttles knows about you",
+            Button(store.asParent ? "What Tuttles knows about \(store.classes?.student.name ?? "them")" : "What Tuttles knows about you",
                    systemImage: "brain.head.profile") { showMemory = true }
             Section(Session.shared.email ?? "Signed in") {
                 Button("Sign out", role: .destructive) { Task { await Session.shared.signOut() } }
@@ -163,8 +166,6 @@ struct MacAccountMenu: View {
                     Text(who).font(.callout.weight(.medium)).lineLimit(1)
                     if let kid = store.actingKid {
                         Text("\(kid.name) is using Tuttles").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    } else if store.showingParentView {
-                        Text("Parent Dashboard").font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Spacer(minLength: 0)

@@ -281,12 +281,21 @@ struct VocabHomeView: View {
         .toolbar {
             if let overview = store.vocab?.overview {
                 ToolbarItem(placement: .tuttlesTrailing) {
+                    #if os(iOS)
+                    // Today's ten minutes and the purse, as on Math; it opens the house (HouseViews.swift).
+                    if store.showingParentView {
+                        VocabStreak(days: overview.streak).padding(.horizontal, 6)
+                    } else {
+                        HouseStatusButton(day: overview.day)
+                    }
+                    #else
                     VocabStreak(days: overview.streak).padding(.horizontal, 6)
+                    #endif
                 }
             }
         }
-        .refreshable { await store.refreshVocab() }
-        .task { await store.refreshVocab() }
+        .refreshable { await refresh() }
+        .task { await refresh() }
         .sheet(item: $open) { stage in
             VocabStageSheet(stage: stage, current: store.vocab?.path?.current?.number == stage.number) {
                 open = nil
@@ -300,7 +309,7 @@ struct VocabHomeView: View {
             // Back from a session: the path and the day have moved.
             if closed {
                 store.vocabStopPlaying()
-                Task { await store.refreshVocab() }
+                Task { await refresh() }
             }
         }
         .alert("Couldn't start", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
@@ -309,6 +318,15 @@ struct VocabHomeView: View {
             Text(problem ?? "")
         }
         .animation(.default, value: store.vocab?.overview)
+    }
+
+    /// Vocab's first screen again and then, on the phone, the purse: what's
+    /// been won goes in once the ten minutes are done, for the button at the top.
+    private func refresh() async {
+        await store.refreshVocab()
+        #if os(iOS)
+        store.openHouse()
+        #endif
     }
 
     /// Across the top of the path: today against the ten minutes and the

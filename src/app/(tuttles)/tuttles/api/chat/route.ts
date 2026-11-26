@@ -2,7 +2,7 @@ import { after, NextResponse } from "next/server";
 import OpenAI from "openai";
 import type { ResponseInputItem } from "openai/resources/responses/responses";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { briefingInstructions, TUTOR_MODEL, tutorInstructions, type Briefing } from "@/lib/tuttles/prompt";
+import { briefingInstructions, parentInstructions, TUTOR_MODEL, tutorInstructions, type Briefing } from "@/lib/tuttles/prompt";
 import { nameThread } from "@/lib/tuttles/naming";
 import { requestedKid, tutoredStudent } from "@/lib/tuttles/tutoring-as";
 import { studentSections } from "@/lib/tuttles/context";
@@ -192,15 +192,19 @@ export async function POST(request: Request) {
   // What the tutor knows of them (src/lib/tuttles/memory.ts) and their classes,
   // when a parent has connected Canvas. After the fixed tutoring rules, so
   // those stay a cacheable prefix.
+  // A parent in a chat of their own is talked to as themselves, an adult.
+  const rules = student.parentSelf
+    ? parentInstructions(student.name)
+    : tutorInstructions({ name: student.name, birthdate: student.birthdate });
   const instructions = briefing
     ? [
         briefingInstructions(await parentName(db, user.id), { name: student.name, birthdate: student.birthdate }, briefing),
         ...(await studentSections(db, student, briefing.assignmentIds[0] ?? null)),
       ].join("\n\n")
     : study?.isQuiz
-      ? [tutorInstructions({ name: student.name, birthdate: student.birthdate }), ...study.instructions].join("\n\n")
+      ? [rules, ...study.instructions].join("\n\n")
       : [
-          tutorInstructions({ name: student.name, birthdate: student.birthdate }),
+          rules,
           ...(await studentSections(db, student, assignmentId)),
           ...(study?.instructions ?? []),
         ].join("\n\n");
