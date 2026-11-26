@@ -62,7 +62,7 @@ struct MacSidebar: View {
                     place("Vocab", "character.book.closed").tag(Item.myVocab)
                 }
             }
-            Section(store.asParent ? "Your briefings" : "Chats") {
+            Section(store.asParent ? "Your chats" : "Chats") {
                 if !store.threadsLoaded {
                     ForEach(0..<4, id: \.self) { _ in
                         Text("Loading a chat title").redacted(reason: .placeholder)
@@ -72,7 +72,7 @@ struct MacSidebar: View {
                 if let error = store.listError {
                     Text(error).foregroundStyle(.secondary).selectionDisabled()
                 } else if store.threadsLoaded, threads.isEmpty {
-                    Text(store.asParent ? "No briefings yet" : "No chats yet")
+                    Text("No chats yet")
                         .foregroundStyle(.secondary)
                         .selectionDisabled()
                 }
@@ -98,20 +98,18 @@ struct MacSidebar: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if !store.asParent {
-                Button { open(.chat(UUID(), isNew: true)) } label: {
-                    Label("New chat", systemImage: "square.and.pencil")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 9)
-                }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.tint(TuttlesLook.accent).interactive(), in: .capsule)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .help("New chat (⌘N)")
+            Button { open(.chat(UUID(), isNew: true)) } label: {
+                Label("New chat", systemImage: "square.and.pencil")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
             }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.tint(TuttlesLook.accent).interactive(), in: .capsule)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .help("New chat (⌘N)")
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 8) {
@@ -129,7 +127,8 @@ struct MacSidebar: View {
         Label { Text(title) } icon: { Image(systemName: systemImage).foregroundStyle(TuttlesLook.accent) }
     }
 
-    private var threads: [TutorThread] { store.asParent ? store.briefings : store.kidThreads }
+    /// A parent's are their briefings and the chats they've started; a kid's, their chats.
+    private var threads: [TutorThread] { store.asParent ? store.parentChats : store.kidThreads }
 }
 
 /// Who's using Tuttles, at the foot of the sidebar: a parent switches between

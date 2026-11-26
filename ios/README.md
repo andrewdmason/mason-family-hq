@@ -177,7 +177,9 @@ are in `src/lib/tuttles/prompt.ts`.
   then name the parent's own id in `X-Tuttles-Kid` (`authorize(playing:)`);
   the website sets them up the first time (`parentSelf` in
   `src/lib/tuttles/tutoring-as.ts`, `PARENT_LEVEL` in `src/lib/tuttles/vocab.ts`).
-  A parent's chats are their briefings. Parents never appear on the street,
+  A parent's chat list is their own: their briefings and the chats they've
+  started (`ChatStore.parentChats`; the plain ones from before 26 November
+  2026 were made for the kids and stay out). Parents never appear on the street,
   the Math board or the summaries, which list only the kids.
   `--demo --dashboard -tuttles.viewer.demo parent` opens on the dashboard;
   `--vocab --mine` (or `--math`, `--house`) on the parent's own.

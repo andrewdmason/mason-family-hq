@@ -9,6 +9,8 @@ struct TutorThread: Identifiable, Codable, Equatable {
     let id: UUID
     var title: String?
     var updatedAt: Date
+    /// When it was started. Nil for one this phone saved before it kept this.
+    var createdAt: Date?
     var archivedAt: Date?
     /// The class it's about (a Canvas course id), or nil.
     var courseId: Int?
@@ -22,6 +24,7 @@ struct TutorThread: Identifiable, Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case id, title, kind
         case updatedAt = "updated_at"
+        case createdAt = "created_at"
         case archivedAt = "archived_at"
         case courseId = "course_id"
         case studySetId = "study_set_id"
@@ -89,6 +92,19 @@ final class ChatStore {
     var kidThreads: [TutorThread] { threads.filter { $0.kind != "briefing" } }
     var briefings: [TutorThread] { threads.filter { $0.kind == "briefing" } }
 
+    /// A parent's history: their briefings and the chats they've started.
+    var parentChats: [TutorThread] { isDemo ? threads : Self.parentChats(in: threads) }
+
+    /// The plain chats saved under a parent before `since` were made for the
+    /// kids, on this phone before it had the kids' views. They're still on
+    /// the website, and stay out of the parent's own history.
+    nonisolated static func parentChats(in threads: [TutorThread], since: Date = parentChatsSince) -> [TutorThread] {
+        threads.filter { $0.kind == "briefing" || ($0.createdAt ?? .distantPast) >= since }
+    }
+
+    /// 26 November 2026, 22:00 UTC: when parents got a view of their own.
+    nonisolated static let parentChatsSince = Date(timeIntervalSince1970: 1_795_730_400)
+
     /// The signed-in member is a parent (or it's the demo).
     var isParent: Bool { isDemo || ["owner", "parent"].contains(Session.shared.role ?? "") }
 
@@ -151,7 +167,7 @@ final class ChatStore {
     }
 
     /// A parent using the app as themselves: the menu is the parents', and
-    /// the chats are their briefings.
+    /// the chats are their own (`parentChats`).
     var asParent: Bool { isParent && viewer == .parent }
 
     /// The parent is on one of their own places (the menu's "Yours": Vocab,
@@ -334,7 +350,7 @@ final class ChatStore {
         }
         do {
             let fresh: [TutorThread] = try await client.from("tutor_threads")
-                .select("id, title, updated_at, archived_at, course_id, kind, study_set_id")
+                .select("id, title, updated_at, created_at, archived_at, course_id, kind, study_set_id")
                 .eq("student_id", value: ownerID?.uuidString.lowercased() ?? "")
                 .is("archived_at", value: nil)
                 .order("updated_at", ascending: false)

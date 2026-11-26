@@ -406,6 +406,25 @@ final class ParentAsThemselvesTests: XCTestCase {
         XCTAssertEqual(ChatStore.viewer(saved: nil, parentView: true), .parent)
     }
 
+    /// A parent's history is their briefings and the chats they've started
+    /// since they had a view of their own: the plain ones from before were
+    /// the kids', and one with no date (saved by an older build) waits.
+    func testAParentsHistoryIsTheirBriefingsAndTheirOwnChats() {
+        let since = ChatStore.parentChatsSince
+        XCTAssertEqual(since.ISO8601Format(), "2026-11-26T22:00:00Z")
+        func thread(_ title: String, _ created: Date?, kind: String? = nil) -> TutorThread {
+            TutorThread(id: UUID(), title: title, updatedAt: .now, createdAt: created, kind: kind)
+        }
+        let threads = [
+            thread("new chat", since.addingTimeInterval(60)),
+            thread("old briefing", since.addingTimeInterval(-86_400), kind: "briefing"),
+            thread("the kids', before", since.addingTimeInterval(-60)),
+            thread("no date", nil),
+            thread("new briefing", since.addingTimeInterval(120), kind: "briefing"),
+        ]
+        XCTAssertEqual(ChatStore.parentChats(in: threads).map(\.title), ["new chat", "old briefing", "new briefing"])
+    }
+
     /// Only a parent's own places are theirs: the kids' Vocab, Math and
     /// houses, in the same menu, are not.
     func testOnlyAParentsOwnPlacesAreMine() {

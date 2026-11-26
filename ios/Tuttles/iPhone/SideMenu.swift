@@ -90,7 +90,7 @@ struct SideMenu: View {
                 if let error = store.listError {
                     Text(error).foregroundStyle(.secondary).listRowBackground(Color.clear)
                 } else if store.threadsLoaded, threads.isEmpty {
-                    Text(store.asParent ? "No briefings yet" : "No chats yet")
+                    Text("No chats yet")
                         .foregroundStyle(.secondary)
                         .listRowBackground(Color.clear)
                 }
@@ -123,7 +123,7 @@ struct SideMenu: View {
                     }
                 }
             } header: {
-                Text(store.asParent ? "Your briefings" : "Chats")
+                Text(store.asParent ? "Your chats" : "Chats")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -160,7 +160,8 @@ struct SideMenu: View {
         .animation(.default, value: store.threads.count)
     }
 
-    private var threads: [TutorThread] { store.asParent ? store.briefings : store.kidThreads }
+    /// A parent's are their briefings and the chats they've started; a kid's, their chats.
+    private var threads: [TutorThread] { store.asParent ? store.parentChats : store.kidThreads }
 
     /// One of the places at the top: an icon and a name, like Claude's Projects and Code.
     private func place(_ title: String, systemImage: String, _ route: Route) -> some View {

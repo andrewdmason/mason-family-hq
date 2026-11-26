@@ -139,8 +139,7 @@ struct MacShell: View {
             store.play(own: root.isMine)
         }
         .onReceive(NotificationCenter.default.publisher(for: .newChat)) { _ in
-            // A parent's own chats are briefings, started from This week.
-            if !store.asParent { open(.chat(UUID(), isNew: true)) }
+            open(.chat(UUID(), isNew: true))
         }
         // Back at the Mac after a while: catch up on what the phone did meanwhile.
         .onChange(of: scenePhase) { _, phase in
