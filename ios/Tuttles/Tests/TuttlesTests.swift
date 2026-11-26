@@ -392,3 +392,24 @@ final class ParentDashboardTests: XCTestCase {
         XCTAssertTrue(payload.kids.allSatisfy { $0.days.count == 28 && $0.weeks.count == 4 })
     }
 }
+
+final class ParentAsThemselvesTests: XCTestCase {
+    /// A parent's own practice used to be a choice of its own ("me") beside
+    /// the Parent Dashboard. A phone that saved either opens as the parent.
+    @MainActor func testASavedMeIsTheParent() {
+        XCTAssertEqual(ChatStore.viewer(saved: "me"), .parent)
+        XCTAssertEqual(ChatStore.viewer(saved: "parent"), .parent)
+        let kid = UUID()
+        XCTAssertEqual(ChatStore.viewer(saved: kid.uuidString.lowercased()), .kid(kid))
+        XCTAssertEqual(ChatStore.viewer(saved: "nobody"), .unchosen)
+        XCTAssertEqual(ChatStore.viewer(saved: nil), .unchosen)
+        XCTAssertEqual(ChatStore.viewer(saved: nil, parentView: true), .parent)
+    }
+
+    /// Only a parent's own places are theirs: the kids' Vocab, Math and
+    /// houses, in the same menu, are not.
+    func testOnlyAParentsOwnPlacesAreMine() {
+        XCTAssertTrue([Route.myVocab, .myMath, .myHouse].allSatisfy(\.isMine))
+        XCTAssertFalse([Route.vocab, .math, .house, .dashboard, .week, .study, .classes].contains(where: \.isMine))
+    }
+}

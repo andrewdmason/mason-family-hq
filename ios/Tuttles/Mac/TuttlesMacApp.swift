@@ -109,7 +109,8 @@ struct MacShell: View {
         if let id = Launch.value("class").flatMap(Int.init) { return (.classes, [.classPage(id)]) }
         if CommandLine.arguments.contains("--study") { return (.study, []) }
         if CommandLine.arguments.contains("--classes") { return (.classes, []) }
-        if CommandLine.arguments.contains("--vocab") { return (.vocab, []) }
+        // `--mine`: a parent's own, rather than the kids'.
+        if CommandLine.arguments.contains("--vocab") { return (CommandLine.arguments.contains("--mine") ? .myVocab : .vocab, []) }
         return (.chat(UUID(), isNew: true), [])
     }
 
@@ -130,13 +131,16 @@ struct MacShell: View {
                 .frame(minWidth: 460, minHeight: 420)
         }
         .onChange(of: store.viewer) {
-            // A view starts at its home: the parent's This week, or a new chat for the kid's.
-            open(store.showingParentView ? .dashboard : .chat(UUID(), isNew: true))
+            // A view starts at its home: the Parent Dashboard for a parent, or a new chat for a kid.
+            open(store.asParent ? .dashboard : .chat(UUID(), isNew: true))
         }
-        .onAppear { if store.showingParentView, ![Route.dashboard, .week, .vocab].contains(root) { root = .dashboard; path = [] } }
+        .onAppear {
+            if store.asParent, ![Route.dashboard, .week, .vocab, .myVocab].contains(root) { root = .dashboard; path = [] }
+            store.play(own: root.isMine)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .newChat)) { _ in
             // A parent's own chats are briefings, started from This week.
-            if !store.showingParentView { open(.chat(UUID(), isNew: true)) }
+            if !store.asParent { open(.chat(UUID(), isNew: true)) }
         }
         // Back at the Mac after a while: catch up on what the phone did meanwhile.
         .onChange(of: scenePhase) { _, phase in
@@ -162,7 +166,7 @@ struct MacShell: View {
             StudyListView(path: $path).macPage()
         case .week:
             ParentHomeView(path: $path).macPage()
-        case .vocab:
+        case .vocab, .myVocab:
             VocabHomeView(path: $path)
         case .vocabList(let kid, let name):
             VocabListView(kid: kid, name: name)
@@ -170,10 +174,10 @@ struct MacShell: View {
             VocabProgressView()
         case .vocabFacts:
             VocabFactsView()
-        case .math:
+        case .math, .myMath:
             // The game is the iPhone's.
             ContentUnavailableView("Math is on the iPhone", systemImage: "figure.run")
-        case .house:
+        case .house, .myHouse:
             ContentUnavailableView("The house is on the iPhone", systemImage: "house")
         case .dashboard:
             ParentDashboardView().macPage()
@@ -183,6 +187,8 @@ struct MacShell: View {
     /// Swap what's open for something picked in the sidebar.
     private func open(_ route: Route) {
         guard route != root || !path.isEmpty else { return }
+        // Before the place opens, so it loads as whose it is.
+        store.play(own: route.isMine)
         root = route
         path = []
     }

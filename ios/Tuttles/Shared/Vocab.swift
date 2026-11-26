@@ -409,7 +409,7 @@ enum VocabRules {
 
 extension ChatStore {
     func refreshVocab() async {
-        let asked = viewer
+        let asked = using
         if isDemo {
             if let local = vocabOpenLocal() {
                 vocab = local.home()
@@ -424,7 +424,7 @@ extension ChatStore {
         guard let (data, status) = try? await vocabCall("GET", "tuttles/api/vocab"), status == 200,
               let home = try? Self.decoder.decode(VocabHome.self, from: data),
               // Unless the view changed meanwhile: then this isn't its page.
-              viewer == asked else { return }
+              using == asked else { return }
         vocab = home
     }
 
@@ -504,7 +504,7 @@ extension ChatStore {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 30
-        authorize(&request, token: token)
+        authorize(&request, token: token, playing: true)
         if let json {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: json)

@@ -76,9 +76,11 @@ struct ChatsView: View {
         if let at = args.firstIndex(of: "--class"), args.count > at + 1, let id = Int(args[at + 1]) {
             return (.classes, [.classPage(id)], false)
         }
-        if args.contains("--vocab") { return (.vocab, [], false) }
-        if args.contains("--math") { return (.math, [], false) }
-        if args.contains("--house") { return (.house, [], false) }
+        // `--mine`: a parent's own, rather than the kids'.
+        let mine = args.contains("--mine")
+        if args.contains("--vocab") { return (mine ? .myVocab : .vocab, [], false) }
+        if args.contains("--math") { return (mine ? .myMath : .math, [], false) }
+        if args.contains("--house") { return (mine ? .myHouse : .house, [], false) }
         if args.contains("--dashboard") { return (.dashboard, [], false) }
         return (.chat(UUID(), isNew: true), [], args.contains("--list"))
     }
@@ -126,11 +128,17 @@ struct ChatsView: View {
             MemorySheet(memory: store.classes?.memory, name: store.classes?.student.name ?? "")
         }
         .onChange(of: store.viewer) {
-            // A view starts at its home: the Parent Dashboard, or a new chat for the kid's (or a parent's own).
+            // A view starts at its home: the Parent Dashboard for a parent, or a new chat for a kid.
             // The menu stays out, so the next pick is a tap away.
-            open(store.showingParentView ? .dashboard : .chat(UUID(), isNew: true), closingMenu: false)
+            open(store.asParent ? .dashboard : .chat(UUID(), isNew: true), closingMenu: false)
         }
-        .onAppear { if store.showingParentView, ![Route.dashboard, .week, .vocab, .math, .house].contains(root) { root = .dashboard; path = [] } }
+        .onAppear {
+            if store.asParent, ![Route.dashboard, .week, .vocab, .math, .house, .myVocab, .myMath, .myHouse].contains(root) {
+                root = .dashboard
+                path = []
+            }
+            store.play(own: root.isMine)
+        }
         .onChange(of: menu.isOpen) {
             guard menu.isOpen else { return }
             // Opening the menu: put the keyboard away, and catch up on the chat
@@ -174,7 +182,7 @@ struct ChatsView: View {
             StudyListView(path: $path).menuButton(isRoot)
         case .week:
             ParentHomeView(path: $path).menuButton(isRoot)
-        case .vocab:
+        case .vocab, .myVocab:
             VocabHomeView(path: $path).menuButton(isRoot)
         case .vocabList(let kid, let name):
             VocabListView(kid: kid, name: name).menuButton(isRoot)
@@ -182,9 +190,9 @@ struct ChatsView: View {
             VocabProgressView().menuButton(isRoot)
         case .vocabFacts:
             VocabFactsView().menuButton(isRoot)
-        case .math:
+        case .math, .myMath:
             MathHomeView().menuButton(isRoot)
-        case .house:
+        case .house, .myHouse:
             HouseHomeView().menuButton(isRoot)
         case .dashboard:
             ParentDashboardView().menuButton(isRoot)
@@ -197,6 +205,8 @@ struct ChatsView: View {
             var noAnimation = Transaction()
             noAnimation.disablesAnimations = true
             withTransaction(noAnimation) {
+                // Before the place opens, so it loads as whose it is.
+                store.play(own: route.isMine)
                 root = route
                 path = []
             }
@@ -241,18 +251,16 @@ struct AccountMenu: View {
         @Bindable var store = store
         Menu {
             if store.isParent {
-                // The phone as one of the kids, in the kid's own chats, or the
-                // parents' own view.
+                // The phone as one of the kids, in the kid's own chats, or as
+                // the parent: the Parent Dashboard and their own practice.
                 Picker("View", selection: $store.viewer) {
                     ForEach(store.kids) { kid in
                         Label(kid.name, systemImage: "person.fill").tag(ChatStore.Viewer.kid(kid.id))
                     }
-                    // The parent as themselves: their own practice, apart from the kids'.
-                    Label("\(store.myName) (you)", systemImage: "person.crop.circle").tag(ChatStore.Viewer.me)
-                    Label("Parent Dashboard", systemImage: "person.2").tag(ChatStore.Viewer.parent)
+                    Label(store.myName, systemImage: "person.crop.circle").tag(ChatStore.Viewer.parent)
                 }
             }
-            Button(store.showingParentView ? "What Tuttles knows about \(store.classes?.student.name ?? "them")" : "What Tuttles knows about you",
+            Button(store.asParent ? "What Tuttles knows about \(store.classes?.student.name ?? "them")" : "What Tuttles knows about you",
                    systemImage: "brain.head.profile") { showMemory = true }
             Section(Session.shared.email ?? "Signed in") {
                 Button("Sign out", role: .destructive) { Task { await Session.shared.signOut() } }
