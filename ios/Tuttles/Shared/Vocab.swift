@@ -118,6 +118,9 @@ struct VocabOverview: Decodable, Hashable {
         var leftMs: Int { max(0, goalMs - ms) }
     }
     var day: Goal? = nil
+    /// Coins won today and waiting for the ten minutes to be done (HousePay.swift).
+    /// Only worked out on the phone.
+    var waitingCoins: Int? = nil
 
     /// Today's practice is done. For an older website, that's a session finished.
     var isDoneToday: Bool { day?.done ?? (doneToday != nil) }
@@ -150,7 +153,7 @@ struct VocabHome: Decodable {
     /// Days until the ISEE.
     let daysLeft: Int
     /// A kid's own; nil when Vocab isn't set up for them.
-    let overview: VocabOverview?
+    var overview: VocabOverview?
     let kids: [Kid]?
     /// The words as a path of stages (VocabPath.swift). Worked out on the
     /// phone from what it keeps: nil until it has the words, and for a parent.

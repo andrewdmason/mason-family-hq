@@ -343,7 +343,7 @@ final class VocabLocalTests: XCTestCase {
         state = try XCTUnwrap(local.answer(session: state.sessionId, position: 2, choice: state.question?.key?.correctIndex, ms: 4_000, now: noon))
         XCTAssertEqual(state.summary?.boss?.beaten, true)
         // Beaten: coins and a gem, waiting for the purse, and shown on the end screen.
-        XCTAssertEqual(state.summary?.pay, VocabEarning(key: "boss:1", coins: VocabPay.bossCoins, gems: 1))
+        XCTAssertEqual(state.summary?.pay, VocabEarning(key: "boss:1", coins: VocabPay.bossCoins, gems: 1, day: local.today(noon)))
         XCTAssertEqual(local.earnings.map(\.key), ["boss:1"])
 
         path = local.path()
@@ -556,9 +556,10 @@ final class VocabLocalTests: XCTestCase {
         XCTAssertEqual(VocabFacts.fact(first.fact)?.tier, .gold)
         XCTAssertEqual(state.summary?.factsFound, 1)
         // Shut, it isn't one they've found; opened, it is, and stays opened.
-        // It pays for each right answer and for the chest, once the purse takes it.
+        // It pays for the chest (not each right answer), once the purse takes it.
         let pay = try XCTUnwrap(state.summary?.pay)
-        XCTAssertEqual(pay, VocabEarning(key: VocabPay.chestKey(state.sessionId), coins: 4 * VocabPay.perRight + VocabPay.bonus(.gold), gems: 0))
+        XCTAssertEqual(pay, VocabEarning(key: VocabPay.chestKey(state.sessionId), coins: VocabPay.bonus(.gold), gems: 0, day: local.today(noon)))
+        XCTAssertEqual(local.waitingCoins(now: noon), VocabPay.bonus(.gold))
         XCTAssertEqual(local.earnings, [pay])
         XCTAssertEqual(try XCTUnwrap(VocabLocal.load(from: folder)).earnings, [pay])
         local.settle([pay.key])

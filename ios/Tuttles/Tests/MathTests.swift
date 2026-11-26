@@ -74,11 +74,13 @@ final class MathTests: XCTestCase {
     }
 
     func testARightAnswerPaysMoreForHardFastAndInARow() {
-        XCTAssertGreaterThan(MathStore.payout(difficulty: 3, fraction: 0.5, streak: 1), MathStore.payout(difficulty: 1, fraction: 0.5, streak: 1))
-        XCTAssertGreaterThan(MathStore.payout(difficulty: 2, fraction: 0.9, streak: 1), MathStore.payout(difficulty: 2, fraction: 0.1, streak: 1))
-        XCTAssertGreaterThan(MathStore.payout(difficulty: 2, fraction: 0.5, streak: 4), MathStore.payout(difficulty: 2, fraction: 0.5, streak: 1))
-        // The run of right answers stops counting at three times.
-        XCTAssertEqual(MathStore.payout(difficulty: 2, fraction: 0.5, streak: 40), MathStore.payout(difficulty: 2, fraction: 0.5, streak: 9))
+        XCTAssertGreaterThan(MathPay.answer(difficulty: 3, left: 0.5, streak: 1), MathPay.answer(difficulty: 1, left: 0.5, streak: 1))
+        XCTAssertGreaterThan(MathPay.answer(difficulty: 2, left: 0.9, streak: 1), MathPay.answer(difficulty: 2, left: 0.1, streak: 1))
+        XCTAssertGreaterThan(MathPay.answer(difficulty: 2, left: 0.5, streak: 4), MathPay.answer(difficulty: 2, left: 0.5, streak: 1))
+        // 25 to 70 stars before the run of them, which stops counting at twice.
+        XCTAssertEqual(MathPay.answer(difficulty: 1, left: 0, streak: 1), 25)
+        XCTAssertEqual(MathPay.answer(difficulty: 3, left: 1, streak: 1), 70)
+        XCTAssertEqual(MathPay.answer(difficulty: 2, left: 0.5, streak: 40), MathPay.answer(difficulty: 2, left: 0.5, streak: 5))
     }
 
     func testEveryCharacterAndPropInTheGameLoads() {

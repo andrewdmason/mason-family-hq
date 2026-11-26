@@ -33,9 +33,8 @@ final class MathGame: NSObject, SCNSceneRendererDelegate {
 
     /// What the screen shows over the run.
     struct HUD: Equatable {
-        var score = 0
+        /// The run's score: stars picked up and won by answers.
         var stars = 0
-        var multiplier = 1
         /// How close the teacher is, 0 to 1: the wave's clock.
         var danger: Float = 0
         var powers: [PowerLeft] = []
@@ -173,8 +172,6 @@ final class MathGame: NSObject, SCNSceneRendererDelegate {
     private var level = 0
     private var wave: Float = 0
     private var safe: Float = 0
-    private var streak = 0
-    private var score: Double = 0
     private var stars = 0
     private var depth = 0
     private var powers: [MathProps.Power: Float] = [:]
@@ -371,9 +368,7 @@ final class MathGame: NSObject, SCNSceneRendererDelegate {
 
     private func publish() {
         var hud = HUD()
-        hud.score = Int(score)
         hud.stars = stars
-        hud.multiplier = multiplier
         hud.danger = min(1, max(0, intensity(wave)))
         hud.powers = powers.sorted { $0.key.rawValue < $1.key.rawValue }.map { PowerLeft(kind: $0.key, left: $0.value / $0.key.seconds) }
         hud.level = level
@@ -383,7 +378,6 @@ final class MathGame: NSObject, SCNSceneRendererDelegate {
         DispatchQueue.main.async { [weak self] in self?.onHUD?(hud) }
     }
 
-    private var multiplier: Int { (1 + streak) * (powers[.double] != nil ? 2 : 1) }
 
     // MARK: The wave's clock
 
@@ -461,7 +455,6 @@ final class MathGame: NSObject, SCNSceneRendererDelegate {
     private func free() {
         phase = .running
         level += 1
-        streak += 1
         wave = 0
         safe = 2.0
         saidClose = false
@@ -543,7 +536,6 @@ final class MathGame: NSObject, SCNSceneRendererDelegate {
         speed += (want - speed) * min(1, dt * 1.6)
         let step = speed * dt
         d += step
-        score += Double(step) * Double(multiplier)
 
         // Sideways.
         let targetX = Self.lanes[lane]
@@ -689,8 +681,7 @@ final class MathGame: NSObject, SCNSceneRendererDelegate {
                 if let power = p.power {
                     take(power)
                 } else {
-                    stars += 1
-                    score += 10 * Double(multiplier)
+                    stars += MathPay.pickup(double: powers[.double] != nil)
                     starChain = min(starChain + 1, 3)
                     starChainClock = 0.5
                     audio.play("star-\(starChain)", volume: 0.5)
@@ -781,8 +772,10 @@ final class MathGame: NSObject, SCNSceneRendererDelegate {
                 }
             }
 
-            // Stars along the way through, over or under whatever's in it.
-            if rng.chance(0.62) {
+            // Stars along the way through, over or under whatever's in it. Not
+            // every row: they're the run's score now, and the answers should
+            // be most of it (Shared/HousePay.swift), about 30 to a wave.
+            if rng.chance(0.3) {
                 let from = cursor - gap + 2.2
                 let to = cursor + (row[safeLane] == nil ? 0 : 1.6)
                 var at = max(from, cursor - 11)

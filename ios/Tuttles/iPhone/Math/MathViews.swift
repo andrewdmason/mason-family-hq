@@ -56,7 +56,8 @@ final class MathSession {
         let missed: MathQuestion?
         let chosen: Int?
         let line: String
-        let goalBonus: Int
+        /// The coins its stars made (MathPay.coins).
+        let coins: Int
         var gem = false
         let newBest: Bool
     }
@@ -82,11 +83,8 @@ final class MathSession {
     @ObservationIgnored private var streak = 0
     @ObservationIgnored private var bubbleID = 0
     @ObservationIgnored private var timer: Task<Void, Never>?
-    @ObservationIgnored private var goalBonus = 0
     /// The run made the day a strong one: a gem.
     @ObservationIgnored private var gem = false
-    /// Stars from answers, shown in the run's count but already in the purse.
-    @ObservationIgnored private var granted = 0
     private let store = MathStore.shared
     private let audio = MathAudio.shared
 
@@ -141,9 +139,7 @@ final class MathSession {
         run = MathRun(id: UUID(), startedAt: Date(), endedAt: Date(), score: 0, distance: 0, waves: 0, depth: 0, stars: 0, answered: 0, correct: 0, bestStreak: 0)
         asked = []
         streak = 0
-        goalBonus = 0
         gem = false
-        granted = 0
         stage = .running
         audio.setMusic("music-run")
         game.start()
@@ -225,7 +221,6 @@ final class MathSession {
         let before = store.goalReachedToday
         let result = store.record(record, question: q, left: left / max(1, total), streak: streak)
         paid = result.stars
-        goalBonus += result.goalBonus
         if result.gem { gem = true }
         if !before, store.goalReachedToday {
             goalJustReached = true
@@ -241,7 +236,6 @@ final class MathSession {
             try? await Task.sleep(for: .seconds(correct ? 1.1 : 1.5))
             if correct {
                 self.game.grant(stars: self.paid)
-                self.granted += self.paid
                 self.game.answer(correct: true)
                 self.stage = .running
                 self.question = nil
@@ -258,14 +252,15 @@ final class MathSession {
         guard var run else { return }
         timer?.cancel()
         run.endedAt = Date()
-        run.score = hud.score
         run.distance = hud.distance
         run.waves = hud.level
         run.depth = hud.depth
         run.stars = hud.stars
-        let best = run.score > store.wallet.bestScore && store.wallet.bestScore > 0
-        store.finish(run, pickedUp: max(0, hud.stars - granted))
-        ending = Ending(run: run, missed: missed, chosen: chosen, line: line, goalBonus: goalBonus, gem: gem, newBest: best)
+        run.score = hud.stars
+        let before = store.wallet.bestStars ?? 0
+        let best = run.stars > before && before > 0
+        let coins = store.finish(run)
+        ending = Ending(run: run, missed: missed, chosen: chosen, line: line, coins: coins, gem: gem, newBest: best)
         self.run = nil
         paused = false
         game.hold(false)
@@ -529,17 +524,18 @@ struct MathHomeOverlay: View {
 
     private var board: some View {
         VStack(alignment: .leading, spacing: 5) {
-            let rows = math.board.sorted { $0.bestScore > $1.bestScore }
+            let mine = math.wallet.bestStars ?? 0
+            let rows = math.board.sorted { max($0.bestScore, $0.me ? mine : 0) > max($1.bestScore, $1.me ? mine : 0) }
             if rows.isEmpty {
-                Text("Best").font(.caption.weight(.bold)).foregroundStyle(.secondary)
-                Text(math.wallet.bestScore.formatted()).font(.system(.title3, design: .rounded).weight(.heavy))
+                Text("Most stars").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                Label(mine.formatted(), systemImage: "star.fill").font(.system(.title3, design: .rounded).weight(.heavy))
             } else {
                 ForEach(Array(rows.prefix(3).enumerated()), id: \.element.id) { place, row in
                     HStack(spacing: 6) {
                         Text("\(place + 1)").font(.caption.weight(.heavy)).foregroundStyle(.secondary)
                         Text(row.name).font(.system(.subheadline, design: .rounded).weight(row.me ? .heavy : .medium)).lineLimit(1)
                         Spacer(minLength: 2)
-                        Text(max(row.bestScore, row.me ? math.wallet.bestScore : 0).formatted())
+                        Text(max(row.bestScore, row.me ? mine : 0).formatted())
                             .font(.system(.subheadline, design: .rounded).weight(.bold).monospacedDigit())
                     }
                 }
@@ -562,16 +558,23 @@ struct MathHUDView: View {
             VStack(spacing: 8) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(hud.score.formatted())
-                            .font(.system(size: 34, weight: .black, design: .rounded).monospacedDigit())
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.55), radius: 0, x: 0, y: 2)
+                        // The score: stars, the only one (Andrew, 2026-11-26).
                         HStack(spacing: 6) {
-                            Text("×\(hud.multiplier)")
+                            Image(systemName: "star.fill").foregroundStyle(.yellow)
+                            Text(hud.stars.formatted()).foregroundStyle(.white).contentTransition(.numericText())
+                        }
+                        .font(.system(size: 34, weight: .black, design: .rounded).monospacedDigit())
+                        .shadow(color: .black.opacity(0.55), radius: 0, x: 0, y: 2)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("\(hud.stars) stars")
+                        HStack(spacing: 6) {
+                            // What the next right answer's stars are multiplied by: a quarter more for each in a row.
+                            let times = min(MathPay.streakCap, 1 + 0.25 * Double(hud.level))
+                            Text("×\(times.formatted(.number.precision(.fractionLength(0...2))))")
                                 .font(.system(.subheadline, design: .rounded).weight(.black))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 8).padding(.vertical, 2)
-                                .background(hud.multiplier > 1 ? Color.purple : Color.black.opacity(0.35), in: .capsule)
+                                .background(times > 1 ? Color.purple : Color.black.opacity(0.35), in: .capsule)
                             Text("Wave \(hud.level + 1)")
                                 .font(.system(.caption, design: .rounded).weight(.bold))
                                 .foregroundStyle(.white.opacity(0.9))
@@ -581,12 +584,6 @@ struct MathHUDView: View {
                     Spacer()
                     VStack(alignment: .trailing, spacing: 6) {
                         HStack(spacing: 8) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "star.fill").foregroundStyle(.yellow)
-                                Text("\(hud.stars)").font(.system(.headline, design: .rounded).weight(.heavy).monospacedDigit()).foregroundStyle(.white)
-                            }
-                            .padding(.horizontal, 12).padding(.vertical, 7)
-                            .background(.black.opacity(0.35), in: .capsule)
                             Button { session.pause(true) } label: {
                                 Image(systemName: "pause.fill").font(.headline).foregroundStyle(.white)
                                     .frame(width: 40, height: 40)
@@ -728,24 +725,26 @@ struct MathOverView: View {
                             .padding(.horizontal, 24)
                     }
                     VStack(spacing: 4) {
-                        Text(ending.run.score.formatted())
-                            .font(.system(size: 60, weight: .black, design: .rounded).monospacedDigit())
-                            .foregroundStyle(.white)
-                        Text(ending.newBest ? "A new best" : "Best \(math.wallet.bestScore.formatted())")
+                        HStack(spacing: 8) {
+                            Image(systemName: "star.fill").foregroundStyle(.yellow)
+                            Text(ending.run.stars.formatted()).foregroundStyle(.white)
+                        }
+                        .font(.system(size: 60, weight: .black, design: .rounded).monospacedDigit())
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("\(ending.run.stars) stars")
+                        Text(ending.newBest ? "Your most stars yet" : "Your best \((math.wallet.bestStars ?? 0).formatted()) stars")
                             .font(.system(.subheadline, design: .rounded).weight(.bold))
                             .foregroundStyle(ending.newBest ? .yellow : .white.opacity(0.7))
                     }
                     HStack(spacing: 10) {
-                        stat("\(ending.run.stars)", "coins", "circle.fill", .yellow)
+                        stat("+\(ending.coins)", "coins", "circle.fill", .yellow)
                         stat("\(ending.run.correct)/\(ending.run.answered)", "right", "checkmark.circle.fill", .green)
                         stat("\(ending.run.distance) m", MathZone.all[MathZone.index(forLevel: ending.run.depth)].name, "figure.run", .white)
                     }
                     .padding(.horizontal, 14)
-                    if ending.goalBonus > 0 {
-                        Label("Today's 20 done: +\(ending.goalBonus) coins", systemImage: "checkmark.seal.fill")
-                            .font(.system(.subheadline, design: .rounded).weight(.heavy))
-                            .foregroundStyle(.green)
-                    }
+                    Text("Every \(MathPay.starsPerCoin) stars is a coin.")
+                        .font(.system(.caption, design: .rounded).weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.6))
                     if ending.gem {
                         Label("A strong day: +1 gem", systemImage: "diamond.fill")
                             .font(.system(.subheadline, design: .rounded).weight(.heavy))
@@ -759,6 +758,8 @@ struct MathOverView: View {
                             .font(.system(.subheadline, design: .rounded).weight(.semibold))
                             .foregroundStyle(.white.opacity(0.75))
                     }
+                    MathTopTen(top: math.top, just: ending.run.id)
+                        .padding(.horizontal, 14)
                     if let q = ending.missed { missed(q) }
                     Color.clear.frame(height: 120)
                 }
@@ -830,5 +831,68 @@ struct MathOverView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: .rect(cornerRadius: 24))
         .padding(.horizontal, 14)
+    }
+}
+
+/// The ten runs with the most stars, today's and of all time (Andrew:
+/// "a stars top 10 at the end of each run"). Runs, not players, so one good
+/// day can fill it. The kids' runs, and a parent's own when they're the one
+/// playing.
+struct MathTopTen: View {
+    let top: MathTop
+    /// The run just over, picked out if it's there.
+    let just: UUID
+    @State private var allTime = false
+
+    var body: some View {
+        let rows = allTime ? top.all : top.today
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Top 10", systemImage: "star.fill")
+                    .font(.system(.headline, design: .rounded).weight(.heavy))
+                    .foregroundStyle(.white)
+                Spacer()
+                Picker("Which", selection: $allTime) {
+                    Text("Today").tag(false)
+                    Text("All time").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 170)
+            }
+            if rows.isEmpty {
+                Text(allTime ? "No runs yet." : "No runs yet today.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .padding(.vertical, 6)
+            }
+            ForEach(Array(rows.enumerated()), id: \.element.id) { place, row in
+                let mine = row.id == just
+                HStack(spacing: 10) {
+                    Text("\(place + 1)")
+                        .font(.system(.subheadline, design: .rounded).weight(.heavy).monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.6))
+                        .frame(width: 22, alignment: .trailing)
+                    Text(row.name)
+                        .font(.system(.subheadline, design: .rounded).weight(row.me ? .heavy : .medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if allTime {
+                        Text(row.at.formatted(.dateTime.month(.abbreviated).day()))
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                    Spacer(minLength: 4)
+                    Label(row.stars.formatted(), systemImage: "star.fill")
+                        .labelStyle(.titleAndIcon)
+                        .font(.system(.subheadline, design: .rounded).weight(.bold).monospacedDigit())
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(mine ? Color.yellow.opacity(0.28) : Color.clear, in: .rect(cornerRadius: 10))
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .padding(14)
+        .background(.white.opacity(0.1), in: .rect(cornerRadius: 22))
     }
 }

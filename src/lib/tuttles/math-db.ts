@@ -6,14 +6,18 @@ import {
   dayIn,
   firstName,
   stateForPhone,
+  STARS_ECONOMY,
   summarize,
+  topRuns,
   type Answered,
   type BoardEntry,
   type KidSummary,
   type KidTally,
   type MathState,
   type RunBests,
+  type StarRun,
   type SyncInput,
+  type TopRun,
 } from "@/lib/tuttles/math";
 import { WORDS_TZ, wordsToday } from "@/lib/words/day";
 import { loadStudents, type Admin, type Profile } from "@/lib/words/session";
@@ -37,6 +41,8 @@ export type MathSync = {
   state: MathState | null;
   today: { day: string; answered: number };
   board: BoardEntry[];
+  /** The stars top 10s: the kids' runs, and the one asking's own. */
+  top: { today: TopRun[]; all: TopRun[] };
   /** How much of what was sent was malformed and left out. The rest was taken. */
   dropped: { runs: number; answers: number; state: boolean };
 };
@@ -79,6 +85,7 @@ export async function applyMath(profile: Profile, input: SyncInput): Promise<voi
         answered: r.answered,
         correct: r.correct,
         best_streak: r.bestStreak,
+        economy: r.economy,
         updated_at: new Date(now).toISOString(),
       }));
     if (rows.length > 0) {
@@ -141,7 +148,7 @@ async function countAnswers(admin: Admin, userId: string, only: { correct?: true
   return count ?? 0;
 }
 
-type RunRow = { score: number; waves: number; depth: number; best_streak: number };
+type RunRow = { stars: number; economy: number; waves: number; depth: number; best_streak: number };
 
 async function loadRuns(admin: Admin, userId: string): Promise<RunBests[]> {
   const out: RunBests[] = [];
@@ -149,16 +156,41 @@ async function loadRuns(admin: Admin, userId: string): Promise<RunBests[]> {
   for (let from = 0; ; from += 1000) {
     const { data, error } = await admin
       .from("tuttles_math_runs")
-      .select("score, waves, depth, best_streak")
+      .select("stars, economy, waves, depth, best_streak")
       .eq("user_id", userId)
       .order("started_at")
       .order("id")
       .range(from, from + 999);
     if (error) throw new Error(error.message);
-    for (const r of (data ?? []) as RunRow[]) out.push({ score: r.score, waves: r.waves, depth: r.depth, bestStreak: r.best_streak });
+    for (const r of (data ?? []) as RunRow[]) {
+      out.push({ stars: r.stars, economy: r.economy, waves: r.waves, depth: r.depth, bestStreak: r.best_streak });
+    }
     if (!data || data.length < 1000) break;
   }
   return out;
+}
+
+/**
+ * The runs the stars top 10s can be made from: the best ten of all time of
+ * those people's, and every one of theirs that ended in the last two days
+ * (today, in any time zone, is in there).
+ */
+async function loadStarRuns(admin: Admin, userIds: string[]): Promise<StarRun[]> {
+  if (userIds.length === 0) return [];
+  const base = () =>
+    admin.from("tuttles_math_runs").select("id, user_id, stars, ended_at").in("user_id", userIds).gte("economy", STARS_ECONOMY);
+  const since = new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString();
+  const [best, recent] = await Promise.all([
+    base().order("stars", { ascending: false }).order("ended_at").limit(10),
+    base().gte("ended_at", since).order("stars", { ascending: false }).limit(500),
+  ]);
+  if (best.error) throw new Error(best.error.message);
+  if (recent.error) throw new Error(recent.error.message);
+  const out = new Map<string, StarRun>();
+  for (const r of [...(best.data ?? []), ...(recent.data ?? [])] as { id: string; user_id: string; stars: number; ended_at: string }[]) {
+    out.set(r.id, { id: r.id, userId: r.user_id, stars: r.stars, endedAt: r.ended_at });
+  }
+  return [...out.values()];
 }
 
 type AnswerRow = { question: string; topic: string; section: "qr" | "ma"; chosen: number | null; correct: boolean; ms: number; answered_at: string };
@@ -209,6 +241,10 @@ export async function loadMathSync(profile: Profile, name: string, input: Pick<S
   );
   // (Someone playing who isn't one of the kids on the board still gets their own day.)
   const mine = tallies.get(profile.userId)?.answeredToday ?? (await countAnswers(admin, profile.userId, { day: today }));
+  // The top 10 is the kids', and a parent playing as themselves sees their own on it too.
+  const names = new Map(kids.map((k) => [k.userId, k.name] as [string, string]));
+  if (!names.has(profile.userId)) names.set(profile.userId, name);
+  const starRuns = await loadStarRuns(admin, [...names.keys()]);
   return {
     name: firstName(name),
     level: profile.level,
@@ -220,6 +256,7 @@ export async function loadMathSync(profile: Profile, name: string, input: Pick<S
       profile.userId,
       tallies,
     ),
+    top: topRuns(starRuns, names, profile.userId, today, WORDS_TZ),
     dropped: input.dropped,
   };
 }
