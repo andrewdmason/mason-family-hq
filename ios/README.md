@@ -208,15 +208,23 @@ in each room fixed spots, each with its own things to choose between.
   nothing is paid twice.
 - Rooms, spots, things and prices are all in `HouseCatalog.swift`; the prices
   are checked against a day's pay in `Tests/HouseTests.swift`.
+- Each kid puts each room where they like and can move it later, free
+  (`HouseLayout.swift`): on a 5 by 5 lot, on the ground or on another room,
+  touching the rest; nothing on the garden or observatory, and the basement
+  only under a ground-floor room. Houses from before this are laid out again
+  so they hold together.
 - It's SceneKit from one fixed corner (`HouseScene.swift`). A room is a floor
-  and two walls, and each room sits one up and one back from the one below, so
-  none hides another. Furniture and pets are Kenney's kits; rugs, floors,
+  and two walls. A wall with a room behind it is down to the knee with a gap,
+  except from inside that room; a house can be looked at a floor at a time,
+  and in a room nothing in front of it or over it is shown. Furniture and pets are Kenney's kits; rugs, floors,
   pictures, windows and the odd things are drawn in code (`HouseProps.swift`).
 - The house goes to `/tuttles/api/house/sync` whole, newest wins, and the
   street comes back and is kept, so the other house shows with no connection.
   The parents see the street and each purse.
 - For the simulator, with `--demo --house`: `--house-coins 50000` and
   `--house-gems 40` fill the purse, `--house-room den` opens on a room,
+  `--house-add kitchen` opens on choosing where that room goes,
+  `--house-floor 0` shows the house up to that floor,
   `--house-fill 0` gives every room with each spot's first thing in it (`2`:
   its third), and `--house-sizes` prints each kit model's size.
 

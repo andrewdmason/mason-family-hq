@@ -1,10 +1,13 @@
 import SceneKit
 import UIKit
 
-// The street, in 3D, seen from one fixed corner like a doll's house. Each
-// house is its rooms stacked as steps: a room is a square of floor with two
-// walls behind it, and the next room up sits one up and one back, so from
-// where the camera is no room hides any of another. The camera never turns:
+// The street, in 3D, seen from one fixed corner like a doll's house. A room
+// is a square of floor with two walls behind it, and each house's rooms stand
+// where its owner put them (HouseLayout.swift). Where a room has another
+// behind it, the wall between comes down to the knee with a gap in it, so
+// you can see in; it's only all the way up when you're in that room. Rooms
+// that would hide others can be put away a floor at a time, and in a room
+// whatever's in front of it or over it isn't shown. The camera never turns:
 // it only moves and zooms, between the whole street, one house and one room.
 
 /// One house to show: whose, and how it stands.
@@ -26,8 +29,8 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     enum Hit: Equatable {
         case house(String)
         case room(String, String)
-        /// A room that isn't theirs yet.
-        case locked(String, String)
+        /// Somewhere the room being placed could go.
+        case cell(String, [Int])
         case spot(String, String, String)
     }
 
@@ -41,8 +44,12 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     /// The room is to sit in the top of the screen, over a sheet.
     private(set) var lifted = false
     private(set) var focus = Focus.street
-    /// Bubbles on the spots of the room in focus, and the rooms still to buy shown as ghosts.
+    /// Bubbles on the spots of the room in focus.
     private(set) var decorating = false
+    /// The highest floor shown in a house (nil: all of it).
+    private(set) var floor: Int?
+    /// A room being put somewhere, and where it could go.
+    private(set) var placing: (room: String, cells: [[Int]])?
     private var aspect: Float = 0.46
     private var last: TimeInterval = 0
 
@@ -127,8 +134,9 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     private static func box(_ state: HouseState, right: SIMD3<Float>, up: SIMD3<Float>) -> (r0: Float, r1: Float, u0: Float, u1: Float) {
         let S = HouseCatalog.side, H = HouseCatalog.height
         var r0 = Float.greatestFiniteMagnitude, r1 = -r0, u0 = r0, u1 = -r0
-        for room in HouseCatalog.rooms where state.has(room: room.id) {
-            let o = SIMD3(Float(room.cell[0]) * S, Float(room.cell[1]) * H, Float(room.cell[2]) * S)
+        for room in state.rooms {
+            let c = state.cell(of: room)
+            let o = SIMD3(Float(c[0]) * S, Float(c[1]) * H, Float(c[2]) * S)
             for x in [Float(0), S] { for y in [Float(-0.3), H] { for z in [Float(0), S] {
                 let p = o + SIMD3(x, y, z), r = simd_dot(p, right), u = simd_dot(p, up)
                 r0 = min(r0, r); r1 = max(r1, r); u0 = min(u0, u); u1 = max(u1, u)
@@ -158,6 +166,19 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         }
     }
 
+    func setFloor(_ floor: Int?) {
+        guard floor != self.floor else { return }
+        self.floor = floor
+        for house in houses { update(house) }
+        frame(animated: true)
+    }
+
+    func setPlacing(_ placing: (room: String, cells: [[Int]])?) {
+        self.placing = placing
+        for house in houses where house.mine { update(house) }
+        frame(animated: true)
+    }
+
     func setDecorating(_ on: Bool) {
         guard on != decorating else { return }
         decorating = on
@@ -171,27 +192,35 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         let root = SCNNode()
         root.name = "house:\(house.kid)"
         let S = HouseCatalog.side, H = HouseCatalog.height
-        for room in HouseCatalog.rooms {
-            let owned = house.state.has(room: room.id)
-            // The rooms still to buy show only to their owner, while decorating.
-            guard owned || (house.mine && decorating && focus == .house(house.kid)) else { continue }
-            let node = owned ? self.room(room, of: house) : ghost(room, of: house)
-            node.position = SCNVector3(Float(room.cell[0]) * S, Float(room.cell[1]) * H, Float(room.cell[2]) * S)
+        let state = house.state
+        for id in state.rooms {
+            guard let room = HouseCatalog.room(id), shows(state.cell(of: id), of: house) else { continue }
+            let node = self.room(room, of: house)
+            node.simdPosition = Self.at(state.cell(of: id))
             root.addChildNode(node)
         }
+        // Where the room being placed could go.
+        if house.mine, let placing, focus == .house(house.kid) {
+            for cell in placing.cells where shows(cell, of: house) && state.room(at: cell) == nil {
+                let tile = self.tile(placing.room, at: cell, of: house)
+                tile.simdPosition = Self.at(cell)
+                root.addChildNode(tile)
+            }
+        }
         // Whose it is, over the top of it.
-        let top = HouseCatalog.rooms.filter { house.state.has(room: $0.id) }.max { $0.cell[1] < $1.cell[1] } ?? HouseCatalog.rooms[0]
+        let top = state.rooms.map { state.cell(of: $0) }.max { $0[1] < $1[1] } ?? [0, 0, 0]
         let sign = HouseProps.sign([house.mine ? "My house" : "\(house.name)'s house"], width: 5.2)
         sign.name = "label"
-        root.add(sign, Float(top.cell[0]) * S + 0.4, Float(top.cell[1] + 1) * H + 1.3, Float(top.cell[2]) * S + 0.4)
+        root.add(sign, Float(top[0]) * S + 0.4, Float(top[1] + 1) * H + 1.3, Float(top[2]) * S + 0.4)
 
         // They live in it: in the room in focus, or else the first.
         let character = MathCharacter(look: house.look, height: 1.5)
         character.play("idle")
         lock.lock(); characters[house.kid] = character; lock.unlock()
         var home = HouseCatalog.rooms[0]
-        if case .room(let kid, let id) = focus, kid == house.kid, house.state.has(room: id), let r = HouseCatalog.room(id) { home = r }
-        character.node.position = SCNVector3(Float(home.cell[0]) * S + home.stand[0], Float(home.cell[1]) * H, Float(home.cell[2]) * S + home.stand[1])
+        if case .room(let kid, let id) = focus, kid == house.kid, state.has(room: id), let r = HouseCatalog.room(id) { home = r }
+        character.node.simdPosition = Self.at(state.cell(of: home.id)) + SIMD3(home.stand[0], 0, home.stand[1])
+        character.node.isHidden = !shows(state.cell(of: home.id), of: house)
         // Facing out, towards whoever's looking.
         character.node.eulerAngles.y = .pi * 1.25
         root.addChildNode(character.node)
@@ -217,14 +246,40 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         let inside = HouseProps.wallMaterial(paint.0, paint.1)
         let garden = room.id == "garden"
         let wallH = garden ? H * 0.42 : H
-        let left = MathShape.faced(0.3, wallH, S + 0.3, [outside, inside, outside, outside, outside, outside])
-        node.add(left, -0.15, wallH / 2, S / 2 - 0.15)
-        let rightWall = MathShape.faced(S, wallH, 0.3, [inside, outside, outside, outside, outside, outside])
-        node.add(rightWall, S / 2, wallH / 2, -0.15)
-        for wall in [left, rightWall, top] { wall.castsShadow = false }
+        // A wall with a room behind it is down to the knee, with a gap to walk
+        // through, unless this is the room you're in.
+        let cell = house.state.cell(of: room.id)
+        let inHere = focus == .room(house.kid, room.id)
+        let lowLeft = !inHere && house.state.room(at: [cell[0] - 1, cell[1], cell[2]]) != nil
+        let lowRight = !inHere && house.state.room(at: [cell[0], cell[1], cell[2] - 1]) != nil
+        top.castsShadow = false
+        if lowLeft {
+            for (a, b) in Self.knee {
+                let piece = MathShape.box(0.3, 0.45, b - a, MathMat.color(paint.0))
+                piece.castsShadow = false
+                node.add(piece, -0.15, 0.225, (a + b) / 2)
+            }
+        } else {
+            let left = MathShape.faced(0.3, wallH, S + 0.3, [outside, inside, outside, outside, outside, outside])
+            left.castsShadow = false
+            node.add(left, -0.15, wallH / 2, S / 2 - 0.15)
+        }
+        if lowRight {
+            for (a, b) in Self.knee {
+                let piece = MathShape.box(b - a, 0.45, 0.3, MathMat.color(paint.0))
+                piece.castsShadow = false
+                node.add(piece, (a + b) / 2, 0.225, -0.15)
+            }
+        } else {
+            let rightWall = MathShape.faced(S, wallH, 0.3, [inside, outside, outside, outside, outside, outside])
+            rightWall.castsShadow = false
+            node.add(rightWall, S / 2, wallH / 2, -0.15)
+        }
 
         var standing: [String: (at: SCNVector3, top: Float)] = [:]
         for spot in room.spots {
+            // What hangs on a wall that's down isn't shown, and can only be chosen for from inside.
+            if case .wall(let onLeft, _, _) = spot.place, onLeft ? lowLeft : lowRight { continue }
             let key = HouseCatalog.key(room.id, spot.id)
             let item = house.state.item(in: spot, of: room.id)
             var anchor = Self.anchor(spot.place, wallHeight: wallH)
@@ -256,20 +311,43 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         return node
     }
 
-    /// A room not yet theirs: its outline, and what it costs.
-    private func ghost(_ room: HouseRoom, of house: HouseShown) -> SCNNode {
+    /// A wall that's down: two bits either side of the gap, along it.
+    private static let knee: [(Float, Float)] = [(-0.3, 1.4), (2.6, HouseCatalog.side)]
+
+    /// Where a cell is in a house.
+    private static func at(_ cell: [Int]) -> SIMD3<Float> {
+        SIMD3(Float(cell[0]) * HouseCatalog.side, Float(cell[1]) * HouseCatalog.height, Float(cell[2]) * HouseCatalog.side)
+    }
+
+    /// Whether a room in this cell is shown, for the floor picked and the room in focus.
+    private func shows(_ cell: [Int], of house: HouseShown) -> Bool {
+        switch focus {
+        case .street:
+            return true
+        case .house(let kid):
+            guard kid == house.kid, let floor else { return true }
+            return cell[1] <= floor
+        case .room(let kid, let id):
+            guard kid == house.kid, house.state.has(room: id) else { return true }
+            // Nothing over it, or in front of it on its floor.
+            let a = house.state.cell(of: id)
+            if cell == a { return true }
+            return cell[1] < a[1] || (cell[1] == a[1] && (cell[0] - a[0]) + (cell[2] - a[2]) <= 0)
+        }
+    }
+
+    /// Somewhere the room being placed could go: its outline, and a bubble to tap.
+    private func tile(_ room: String, at cell: [Int], of house: HouseShown) -> SCNNode {
         let S = HouseCatalog.side, H = HouseCatalog.height
         let node = SCNNode()
-        node.name = "locked:\(house.kid):\(room.id)"
-        let glass = MathMat.color(room.gems > 0 ? "b9a3f0" : "ffffff", alpha: 0.38)
-        node.add(MathShape.box(S, 0.2, S, glass), S / 2, -0.1, S / 2)
-        node.add(MathShape.box(0.12, H, S, glass), -0.06, H / 2, S / 2)
-        node.add(MathShape.box(S, H, 0.12, glass), S / 2, H / 2, -0.06)
-        let price = house.state.price(of: room)
-        let sign = HouseProps.sign([room.name, price.gems > 0 ? "\(price.gems) gems" : "\(price.coins.formatted()) coins"],
-                                   paper: house.state.canAfford(coins: price.coins, gems: price.gems) ? "e3f0a8" : "fff7e6", width: 2.7)
-        node.add(sign, S / 2, H * 0.5, S / 2)
-        node.childNodes.forEach { $0.castsShadow = false }
+        node.name = "cell:\(house.kid):\(cell.map(String.init).joined(separator: ":"))"
+        let glass = MathMat.color((HouseCatalog.room(room)?.gems ?? 0) > 0 ? "b9a3f0" : "ffffff", alpha: 0.38)
+        // Flat, so it doesn't hide the rooms round it: a pane of glass where the floor would be.
+        node.add(MathShape.box(S - 0.3, 0.16, S - 0.3, glass), S / 2, 0.08, S / 2)
+        let bubble = HouseProps.bubble(empty: true)
+        bubble.position = SCNVector3(S / 2, min(H * 0.3, 1.0), S / 2)
+        node.addChildNode(bubble)
+        node.enumerateHierarchy { n, _ in n.castsShadow = false }
         return node
     }
 
@@ -358,23 +436,31 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
     /// The corners of what's in focus, in the world.
     private func corners() -> [SIMD3<Float>] {
         let S = HouseCatalog.side, H = HouseCatalog.height
-        func box(_ house: HouseShown, _ room: HouseRoom, pad: Float) -> [SIMD3<Float>] {
+        func box(_ house: HouseShown, _ cell: [Int], pad: Float) -> [SIMD3<Float>] {
             guard let origin = nodes[house.kid]?.simdPosition else { return [] }
-            let o = origin + SIMD3(Float(room.cell[0]) * S, Float(room.cell[1]) * H, Float(room.cell[2]) * S)
+            let o = origin + Self.at(cell)
             var out: [SIMD3<Float>] = []
             for x in [-pad, S + pad] { for y in [-pad, H + pad] { for z in [-pad, S + pad] { out.append(o + SIMD3(x, y, z)) } } }
             return out
         }
         func whole(_ house: HouseShown) -> [SIMD3<Float>] {
-            HouseCatalog.rooms.filter { house.state.has(room: $0.id) || (house.mine && decorating && focus == .house(house.kid)) }.flatMap { box(house, $0, pad: 0.2) }
-                + (nodes[house.kid].map { [$0.simdPosition + SIMD3(0, Float((HouseCatalog.rooms.filter { house.state.has(room: $0.id) }.map { $0.cell[1] }.max() ?? 0) + 1) * H + 2.2, 0)] } ?? [])
+            var cells = house.state.rooms.map { house.state.cell(of: $0) }
+            if house.mine, let placing, focus == .house(house.kid) { cells += placing.cells }
+            cells = cells.filter { shows($0, of: house) }
+            var out = cells.flatMap { box(house, $0, pad: 0.2) }
+            if focus == .street, let origin = nodes[house.kid]?.simdPosition {
+                // The sign over it.
+                let top = house.state.rooms.map { house.state.cell(of: $0)[1] }.max() ?? 0
+                out.append(origin + SIMD3(0, Float(top + 1) * H + 2.2, 0))
+            }
+            return out
         }
         switch focus {
         case .street: return houses.flatMap(whole)
         case .house(let kid): return houses.filter { $0.kid == kid }.flatMap(whole)
         case .room(let kid, let id):
-            guard let house = houses.first(where: { $0.kid == kid }), let room = HouseCatalog.room(id) else { return houses.flatMap(whole) }
-            return box(house, room, pad: 0.35)
+            guard let house = houses.first(where: { $0.kid == kid }), house.state.has(room: id) else { return houses.flatMap(whole) }
+            return box(house, house.state.cell(of: id), pad: 0.35)
         }
     }
 
@@ -426,17 +512,18 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
                     let parts = name.split(separator: ":").map(String.init)
                     if parts.first == "spot", parts.count == 4 { found.append(.spot(parts[1], parts[2], parts[3])) }
                     if parts.first == "room", parts.count == 3 { found.append(.room(parts[1], parts[2])) }
-                    if parts.first == "locked", parts.count == 3 { found.append(.locked(parts[1], parts[2])) }
+                    if parts.first == "cell", parts.count == 5 { found.append(.cell(parts[1], parts[2...].compactMap { Int($0) })) }
                     if parts.first == "house", parts.count == 2 { found.append(.house(parts[1])) }
                 }
                 node = n.parent
             }
         }
+        if let cell = found.first(where: { if case .cell = $0 { return true }; return false }) { return cell }
         if let spot = found.first(where: { if case .spot = $0 { return true }; return false }) { return spot }
         switch focus {
         case .street: return found.first { if case .house = $0 { return true }; return false }
         case .house, .room:
-            return found.first { if case .locked = $0 { return true }; if case .room = $0 { return true }; return false }
+            return found.first { if case .room = $0 { return true }; return false }
                 ?? found.first { if case .house = $0 { return true }; return false }
         }
     }
