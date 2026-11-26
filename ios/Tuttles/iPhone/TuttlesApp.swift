@@ -126,7 +126,8 @@ struct ChatsView: View {
         }
         .onChange(of: store.viewer) {
             // A view starts at its home: the parent's This week, or a new chat for the kid's.
-            open(store.showingParentView ? .week : .chat(UUID(), isNew: true))
+            // The menu stays out, so the next pick is a tap away.
+            open(store.showingParentView ? .week : .chat(UUID(), isNew: true), closingMenu: false)
         }
         .onAppear { if store.showingParentView, root != .week, root != .vocab, root != .math { root = .week; path = [] } }
         .onChange(of: menu.isOpen) {
@@ -188,7 +189,7 @@ struct ChatsView: View {
     }
 
     /// Swap what's open for something picked in the menu, and close it.
-    private func open(_ route: Route) {
+    private func open(_ route: Route, closingMenu: Bool = true) {
         if route != root || !path.isEmpty {
             var noAnimation = Transaction()
             noAnimation.disablesAnimations = true
@@ -197,7 +198,7 @@ struct ChatsView: View {
                 path = []
             }
         }
-        setMenu(false)
+        if closingMenu { setMenu(false) }
     }
 
     private func setMenu(_ open: Bool) {
