@@ -35,26 +35,39 @@ final class MathTests: XCTestCase {
         XCTAssertEqual(MathText.split(""), [])
     }
 
-    func testAMissedQuestionComesBackFirst() {
+    func testNothingRepeatsUntilTheWholeBankHasBeenAsked() {
         let all = MathBank.questions(.middle)
         guard all.count > 5 else { return XCTFail("no bank") }
-        let missed = all[3].id
         var rng = SystemRandomNumberGenerator()
-        var came = 0
-        for _ in 0..<60 {
-            if MathBank.next(level: .middle, runLevel: 0, seen: [:], comeback: [missed], asked: [], using: &rng)?.id == missed { came += 1 }
+        // Every question but one has been had: that one is next, whatever the run level.
+        var seen = Dictionary(uniqueKeysWithValues: all.map { ($0.id, MathBank.Seen(times: 1, right: 0, last: Date())) })
+        seen[all[3].id] = nil
+        for runLevel in [0, 3, 6] {
+            XCTAssertEqual(MathBank.next(level: .middle, runLevel: runLevel, seen: seen, asked: [], using: &rng)?.id, all[3].id)
         }
-        XCTAssertGreaterThan(came, 25)
-        // But never twice in one run.
-        for _ in 0..<20 {
-            XCTAssertNotEqual(MathBank.next(level: .middle, runLevel: 0, seen: [:], comeback: [missed], asked: [missed], using: &rng)?.id, missed)
+        // And never twice in one run.
+        XCTAssertNotEqual(MathBank.next(level: .middle, runLevel: 0, seen: seen, asked: [all[3].id], using: &rng)?.id, all[3].id)
+        // A new kid's first question isn't always the same one.
+        let firsts = Set((0..<40).compactMap { _ in MathBank.next(level: .middle, runLevel: 0, seen: [:], asked: [], using: &rng)?.id })
+        XCTAssertGreaterThan(firsts.count, 15)
+    }
+
+    func testChoicesAreShuffledButTheAnswerIsTheSame() {
+        var rng = SystemRandomNumberGenerator()
+        var moved = 0
+        for q in MathBank.questions(.middle) {
+            let s = q.shuffled(using: &rng)
+            XCTAssertEqual(s.choices.sorted(), q.choices.sorted(), q.id)
+            XCTAssertEqual(s.choices[s.answer], q.choices[q.answer], q.id)
+            if q.type == "comparison" { XCTAssertEqual(s.choices, q.choices, q.id) } else if s.choices != q.choices { moved += 1 }
         }
+        XCTAssertGreaterThan(moved, 100)
     }
 
     func testQuestionsGetHarderFurtherIntoARun() {
         var rng = SystemRandomNumberGenerator()
         func average(_ runLevel: Int) -> Double {
-            let picks = (0..<80).compactMap { _ in MathBank.next(level: .middle, runLevel: runLevel, seen: [:], comeback: [], asked: [], using: &rng)?.difficulty }
+            let picks = (0..<80).compactMap { _ in MathBank.next(level: .middle, runLevel: runLevel, seen: [:], asked: [], using: &rng)?.difficulty }
             return Double(picks.reduce(0, +)) / Double(max(1, picks.count))
         }
         XCTAssertLessThan(average(0), average(6))

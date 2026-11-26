@@ -208,7 +208,7 @@ final class MathStore {
 
     func nextQuestion(runLevel: Int, asked: Set<String>) -> MathQuestion? {
         var rng = SystemRandomNumberGenerator()
-        return MathBank.next(level: saved.level ?? .middle, runLevel: runLevel, seen: saved.seen, comeback: saved.comeback, asked: asked, using: &rng)
+        return MathBank.next(level: saved.level ?? .middle, runLevel: runLevel, seen: saved.seen, asked: asked, using: &rng)?.shuffled(using: &rng)
     }
 
     /// What a right answer pays: more for a hard one, a quick one, and a run of them.

@@ -31,6 +31,17 @@ struct MathQuestion: Codable, Identifiable, Hashable {
         let base = [1: 55, 2: 65, 3: 85][difficulty] ?? 65
         return base + (diagram != nil ? 5 : 0) + (prompt.count > 220 ? 10 : 0)
     }
+
+    /// The same question with its choices in a new order, so the answer is
+    /// known by what it says and not by where it sits. A comparison's four
+    /// stay put: on the test they are always the same four in the same order.
+    func shuffled(using rng: inout SystemRandomNumberGenerator) -> MathQuestion {
+        guard type != "comparison", choices.indices.contains(answer) else { return self }
+        let order = Array(choices.indices).shuffled(using: &rng)
+        return MathQuestion(id: id, section: section, topic: topic, type: type, prompt: prompt, columnA: columnA, columnB: columnB,
+                            choices: order.map { choices[$0] }, answer: order.firstIndex(of: answer) ?? answer, explanation: explanation,
+                            difficulty: difficulty, diagram: diagram, source: source, of: of, ref: ref)
+    }
 }
 
 /// A figure, in the small drawing language the importer writes (scripts/math/bank.mts).
@@ -154,28 +165,23 @@ enum MathBank {
         var last: Date?
     }
 
-    /// The next question for a run. One missed lately comes back first
-    /// (Andrew: "within the next run or two"). Otherwise it's one they
-    /// haven't had, as hard as this far into a run should be, real ones
-    /// before variants before placeholders.
-    static func next(level: VocabLevel, runLevel: Int, seen: [String: Seen], comeback: [String], asked: Set<String>,
+    /// The next question for a run, drawn at random. Nothing comes round
+    /// again until the whole bank has been asked (Andrew: this isn't vocab,
+    /// where the same one keeps coming back): it's drawn from the ones asked
+    /// the fewest times, leaning toward as hard as this far into a run should be.
+    static func next(level: VocabLevel, runLevel: Int, seen: [String: Seen], asked: Set<String>,
                      using rng: inout SystemRandomNumberGenerator) -> MathQuestion? {
         let all = questions(level).filter { !asked.contains($0.id) }
         guard !all.isEmpty else { return questions(level).randomElement(using: &rng) }
-        if let due = comeback.first(where: { id in all.contains { $0.id == id } }), Double.random(in: 0...1, using: &rng) < 0.7 {
-            return all.first { $0.id == due }
-        }
+        let fewest = all.map { seen[$0.id]?.times ?? 0 }.min() ?? 0
+        let pool = all.filter { (seen[$0.id]?.times ?? 0) == fewest }
         let wanted = runLevel < 2 ? 1 : (runLevel < 5 ? 2 : 3)
-        func rank(_ q: MathQuestion) -> Double {
-            let s = seen[q.id]
-            var score = 0.0
-            // Not had yet beats had; got wrong beats got right.
-            if s == nil { score += 40 } else if (s?.right ?? 0) == 0 { score += 25 } else { score -= Double(s?.right ?? 0) * 6 }
-            if let last = s?.last { score += min(20, Date().timeIntervalSince(last) / 86400 * 3) }
-            score -= Double(abs(q.difficulty - wanted)) * 14
-            score += ["real": 12.0, "written": 12.0, "variant": 6.0][q.source] ?? 0
-            return score + Double.random(in: 0..<10, using: &rng)
+        let weights = pool.map { [0: 1.0, 1: 0.4][abs($0.difficulty - wanted)] ?? 0.12 }
+        var roll = Double.random(in: 0..<weights.reduce(0, +), using: &rng)
+        for (q, weight) in zip(pool, weights) {
+            roll -= weight
+            if roll < 0 { return q }
         }
-        return all.max { rank($0) < rank($1) }
+        return pool.last
     }
 }
