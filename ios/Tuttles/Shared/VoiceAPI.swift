@@ -20,7 +20,8 @@ extension ChatStore {
     func voiceKey(threadID: UUID, assignmentID: Int?) async throws -> VoiceKey {
         var body: [String: Any] = ["threadId": threadID.uuidString.lowercased()]
         if let assignmentID { body["assignmentId"] = assignmentID }
-        let data = try await post("tuttles/api/voice/session", json: body)
+        // A call in a parent's own chat is with the parent, like the chat.
+        let data = try await post("tuttles/api/voice/session", json: body, mine: !isBriefing(threadID))
         return try JSONDecoder().decode(VoiceKey.self, from: data)
     }
 
@@ -56,19 +57,20 @@ extension ChatStore {
         struct Body: Encodable { let threadId: String; let assignmentId: Int?; let studySetId: String?; let turns: [VoiceTurn] }
         let body = try JSONEncoder().encode(Body(threadId: threadID.uuidString.lowercased(), assignmentId: assignmentID,
                                                  studySetId: studySetID, turns: turns))
-        _ = try await post("tuttles/api/voice/save", body: body, contentType: "application/json")
+        _ = try await post("tuttles/api/voice/save", body: body, contentType: "application/json", mine: !isBriefing(threadID))
     }
 
-    func post(_ route: String, json: [String: Any]) async throws -> Data {
-        try await post(route, body: try JSONSerialization.data(withJSONObject: json), contentType: "application/json")
+    func post(_ route: String, json: [String: Any], mine: Bool = false) async throws -> Data {
+        try await post(route, body: try JSONSerialization.data(withJSONObject: json), contentType: "application/json", mine: mine)
     }
 
-    func post(_ route: String, body: Data, contentType: String) async throws -> Data {
+    /// `mine`: see `authorize`.
+    func post(_ route: String, body: Data, contentType: String, mine: Bool = false) async throws -> Data {
         let token = try await client.auth.session.accessToken
         var request = URLRequest(url: Self.websiteURL.appending(path: route))
         request.httpMethod = "POST"
         request.timeoutInterval = 60
-        authorize(&request, token: token)
+        authorize(&request, token: token, mine: mine)
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         let (data, response) = try await URLSession.shared.data(for: request)

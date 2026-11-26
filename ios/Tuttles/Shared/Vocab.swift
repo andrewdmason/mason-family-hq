@@ -504,7 +504,7 @@ extension ChatStore {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 30
-        authorize(&request, token: token, playing: true)
+        authorize(&request, token: token, mine: playingAsSelf)
         if let json {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: json)

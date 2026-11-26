@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { studentSections, tuttlesCaller } from "@/lib/tuttles/context";
 import { memoryContext } from "@/lib/tuttles/memory";
-import { briefingInstructions, tutorInstructions, type Briefing } from "@/lib/tuttles/prompt";
+import { briefingInstructions, parentInstructions, tutorInstructions, type Briefing } from "@/lib/tuttles/prompt";
 import { questions, quizThread, setSummaries, topicStates } from "@/lib/tuttles/study-db";
 import {
   ASK_QUESTION_TOOL,
@@ -111,7 +111,12 @@ export async function POST(request: Request) {
       student,
       sections,
       chatSoFar,
-      briefing && parent ? briefingInstructions(parent, student, briefing) : undefined,
+      // A parent's briefing, or a chat of their own: an adult either way.
+      briefing && parent
+        ? briefingInstructions(parent, student, briefing)
+        : student.parentSelf
+          ? parentInstructions(student.name)
+          : undefined,
       parent ?? undefined,
     );
     tools = briefing ? [SHOW_VISUAL_TOOL] : [SHOW_VISUAL_TOOL, SAVE_STUDY_SET_TOOL];

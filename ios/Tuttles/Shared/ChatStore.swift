@@ -92,6 +92,15 @@ final class ChatStore {
     var kidThreads: [TutorThread] { threads.filter { $0.kind != "briefing" } }
     var briefings: [TutorThread] { threads.filter { $0.kind == "briefing" } }
 
+    /// Briefings begun here that the list hasn't caught up with yet.
+    @ObservationIgnored private var startedBriefings: Set<UUID> = []
+
+    /// A parent's chat about one of a kid's topics. Their other chats are
+    /// their own: the tutor is talking to them, not to the kid.
+    func isBriefing(_ threadID: UUID) -> Bool {
+        startedBriefings.contains(threadID) || threads.contains { $0.id == threadID && $0.kind == "briefing" }
+    }
+
     /// A parent's history: their briefings and the chats they've started.
     var parentChats: [TutorThread] { isDemo ? threads : Self.parentChats(in: threads) }
 
@@ -231,13 +240,14 @@ final class ChatStore {
 
     /// A request to the website, signed as the member, naming the kid the
     /// phone is being used as if it is (src/lib/tuttles/tutoring-as.ts).
-    /// `playing`: it's Vocab's, Math's or the house's, which a parent has of
-    /// their own; everything else of a parent's is about the kids.
-    func authorize(_ request: inout URLRequest, token: String, playing: Bool = false) {
+    /// `mine`: for a parent as themselves, it's about the parent (their own
+    /// Vocab, Math or house, or a chat of theirs) rather than the kids, which
+    /// the rest of a parent's view is (This week, the kids' pages, briefings).
+    func authorize(_ request: inout URLRequest, token: String, mine: Bool = false) {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let kid = actingKid {
             request.setValue(kid.id.uuidString.lowercased(), forHTTPHeaderField: "X-Tuttles-Kid")
-        } else if playing, playingAsSelf, let me = Session.shared.userID {
+        } else if mine, asParent, let me = Session.shared.userID {
             // Naming themselves: the website keeps this parent's practice as
             // their own, apart from the kids' (src/lib/tuttles/tutoring-as.ts).
             request.setValue(me.uuidString.lowercased(), forHTTPHeaderField: "X-Tuttles-Kid")
@@ -570,7 +580,8 @@ final class ChatStore {
         var request = URLRequest(url: Self.chatURL)
         request.httpMethod = "POST"
         request.timeoutInterval = 120
-        authorize(&request, token: token)
+        if briefing != nil { startedBriefings.insert(threadID) }
+        authorize(&request, token: token, mine: !isBriefing(threadID))
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = ["threadId": threadID.uuidString.lowercased(), "text": text, "images": paths]
         if !sentFiles.isEmpty { body["files"] = sentFiles }

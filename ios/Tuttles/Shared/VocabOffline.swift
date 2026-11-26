@@ -548,7 +548,7 @@ extension ChatStore {
         request.httpMethod = "POST"
         // The words come down the first time: give a slow line room.
         request.timeoutInterval = local == nil ? 90 : 30
-        authorize(&request, token: token, playing: true)
+        authorize(&request, token: token, mine: playingAsSelf)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         guard let (data, response) = try? await URLSession.shared.data(for: request) else { return .offline }

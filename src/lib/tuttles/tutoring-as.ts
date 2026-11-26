@@ -16,7 +16,8 @@ export type TutoredStudent = {
   /**
    * A parent using the app as themselves (the app's "Andrew" or "Jenny"):
    * their own chats, Vocab, Math and house, kept apart from the kids' so a
-   * parent can try things without touching the kids' progress.
+   * parent can try things without touching the kids' progress. In a chat
+   * they're talked to as an adult (`parentInstructions`).
    */
   parentSelf?: boolean;
 };

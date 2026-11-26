@@ -75,6 +75,19 @@ export function tutorInstructions(student: { name: string; birthdate: string | n
   return [studentLine(student.name, student.birthdate), TUTORING, VISUALS].join("\n\n");
 }
 
+/**
+ * A parent using Tuttles for themselves (the app's "Andrew", `parentSelf` in
+ * tutoring-as.ts): the chat is theirs, not a kid's. An adult, so no tutoring
+ * rules: they get the real explanations and answers, as in a briefing.
+ */
+export function parentInstructions(parent: string): string {
+  return [
+    `You are Tuttles, the family's homework tutor. You're talking with ${parent}, a parent, in a chat of their own, not one of their kids'.`,
+    `Answer ${parent} directly, as an adult: the real explanations, answers and worked examples, with no hints-only tutoring. Keep replies short; it's read on a phone. If ${parent} asks how to help one of their kids with something, suggest ways to support without doing the work for them.`,
+    VISUALS,
+  ].join("\n\n");
+}
+
 export const TITLE_INSTRUCTIONS =
   "Name this homework chat in 2 to 5 words, the way a chat app titles a conversation (\"Mapping diagrams\", \"Vasco da Gama's voyage\"). Reply with the title only, no quotes or period.";
 

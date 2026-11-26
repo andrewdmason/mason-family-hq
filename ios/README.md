@@ -173,13 +173,16 @@ are in `src/lib/tuttles/prompt.ts`.
   "Yours", is the parent's own Vocab, Math and house (`Route.myVocab`,
   `.myMath`, `.myHouse`), kept apart from the kids' and played at Sebastian's
   level (Middle). The shell tells the store which group the open place is in
-  (`ChatStore.play(own:)`), and only Vocab's, Math's and the house's requests
-  then name the parent's own id in `X-Tuttles-Kid` (`authorize(playing:)`);
+  (`ChatStore.play(own:)`), and Vocab's, Math's and the house's requests
+  then name the parent's own id in `X-Tuttles-Kid` (`authorize(mine:)`);
   the website sets them up the first time (`parentSelf` in
   `src/lib/tuttles/tutoring-as.ts`, `PARENT_LEVEL` in `src/lib/tuttles/vocab.ts`).
   A parent's chat list is their own: their briefings and the chats they've
   started (`ChatStore.parentChats`; the plain ones from before 26 November
-  2026 were made for the kids and stay out). Parents never appear on the street,
+  2026 were made for the kids and stay out). A chat they start is theirs,
+  typed or spoken: it names the parent's own id too, and the tutor talks to
+  them as an adult (`parentInstructions` in `src/lib/tuttles/prompt.ts`); a
+  briefing stays about the kid. Parents never appear on the street,
   the Math board or the summaries, which list only the kids.
   `--demo --dashboard -tuttles.viewer.demo parent` opens on the dashboard;
   `--vocab --mine` (or `--math`, `--house`) on the parent's own.
