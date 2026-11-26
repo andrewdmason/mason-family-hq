@@ -13,7 +13,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BANK_DIR, bankFile, LEVELS, validateBank, type Bank, type Level, type Problem } from "./bank.mts";
+import { BANK_DIR, bankFile, LEVELS, validateBank, type Bank, type Level, type Problem } from "./bank.mjs";
 
 export function checkFile(file: string): { problems: Problem[]; bank: Bank | null } {
   if (!existsSync(file)) return { problems: [{ id: null, level: "error", message: "file not found" }], bank: null };

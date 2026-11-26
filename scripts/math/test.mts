@@ -9,9 +9,9 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { BANK_DIR, bankFile, diagramProblems, here, LEVELS, questionProblems, textProblems, validateBank, type Bank, type Question } from "./bank.mts";
-import { checkFile } from "./check.mts";
-import { fixDollars, parseCsv, questionId, readTopic, runImport } from "./import.mts";
+import { BANK_DIR, bankFile, diagramProblems, here, LEVELS, questionProblems, textProblems, validateBank, type Bank, type Question } from "./bank.mjs";
+import { checkFile } from "./check.mjs";
+import { fixDollars, parseCsv, questionId, readTopic, runImport } from "./import.mjs";
 
 let failures = 0;
 function check(ok: boolean, what: string) {

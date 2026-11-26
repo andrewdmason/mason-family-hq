@@ -50,7 +50,7 @@ import {
   type QuestionType,
   type Section,
   type Topic,
-} from "./bank.mts";
+} from "./bank.mjs";
 
 // ---------------------------------------------------------------- CSV
 
