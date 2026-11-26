@@ -3,7 +3,8 @@ import SwiftUI
 // The menu that slides in from the left, the way Claude's and ChatGPT's do:
 // Classes, Study and Vocab at the top, the chats under them, and the account and a
 // new chat along the bottom. It's somewhere to pass through; picking anything
-// closes it on what was picked (ChatsView, TuttlesApp.swift).
+// closes it on what was picked (ChatsView, TuttlesApp.swift), except switching who's
+// using the phone, which leaves it open.
 
 /// Whether the menu is out, shared with the screens that open it.
 @MainActor
