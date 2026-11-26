@@ -249,7 +249,7 @@ final class ChatStore {
     /// wait on the network to open; the refreshes replace it.
     func loadSaved() {
         guard !isDemo, let userID = ownerID else { return }
-        if threads.isEmpty, let data = try? Data(contentsOf: Self.savedFile("threads", userID)),
+        if threads.isEmpty, let data = try? Data(contentsOf: Self.savedFile(threadsFile, userID)),
            let saved = try? Self.decoder.decode([TutorThread].self, from: data) {
             threads = saved
             threadsLoaded = true
@@ -270,6 +270,11 @@ final class ChatStore {
     /// A parent's classes as themselves aren't the ones the Parent Dashboard is
     /// about (a kid's), though both are saved under the parent.
     private var classesFile: String { playingAsSelf ? "classes-self" : "classes" }
+    /// The same for the chats: a parent's own list leaves out the ones from before (refreshThreads).
+    private var threadsFile: String { playingAsSelf ? "threads-self" : "threads" }
+
+    /// When a parent could first use the app as themselves (Viewer.me).
+    static let parentSelfSince = "2026-11-26T22:00:00Z"
 
     private static func savedFile(_ name: String, _ userID: UUID) -> URL {
         #if os(macOS)
@@ -296,16 +301,22 @@ final class ChatStore {
             return
         }
         do {
-            let fresh: [TutorThread] = try await client.from("tutor_threads")
+            var query = client.from("tutor_threads")
                 .select("id, title, updated_at, archived_at, course_id, kind, study_set_id")
                 .eq("student_id", value: ownerID?.uuidString.lowercased() ?? "")
                 .is("archived_at", value: nil)
+            // A parent as themselves starts clean: the chats saved under them
+            // before then were made for the kids (on this phone before it had
+            // the kids' views, or in the parents' view). They're still on the
+            // website, and briefings stay in the Parent Dashboard.
+            if playingAsSelf { query = query.gte("created_at", value: Self.parentSelfSince) }
+            let fresh: [TutorThread] = try await query
                 .order("updated_at", ascending: false)
                 .limit(200)
                 .execute()
                 .value
             if fresh != threads { threads = fresh }
-            if let data = try? Self.encoder.encode(fresh) { save(data, as: "threads") }
+            if let data = try? Self.encoder.encode(fresh) { save(data, as: threadsFile) }
             listError = nil
         } catch {
             listError = "Couldn't load your chats."
