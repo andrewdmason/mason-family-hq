@@ -165,8 +165,6 @@ struct MacAccountMenu: View {
                         Text("\(kid.name) is using Tuttles").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     } else if store.showingParentView {
                         Text("Parent Dashboard").font(.caption).foregroundStyle(.secondary)
-                    } else if store.playingAsSelf {
-                        Text("Your own, apart from the kids'").font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Spacer(minLength: 0)
