@@ -13,9 +13,6 @@ final class HouseTests: XCTestCase {
         XCTAssertEqual(rooms.first?.cell, [0, 0, 0])
         var ids = Set<String>()
         for room in rooms {
-            // Up one is back one, so no room stands in front of another.
-            XCTAssertEqual(room.cell[0] + room.cell[2], -room.cell[1], room.id)
-            XCTAssertTrue(room.cell[0] <= 0 && room.cell[2] <= 0, room.id)
             XCTAssertEqual(Set(room.spots.map(\.id)).count, room.spots.count, room.id)
             XCTAssertGreaterThanOrEqual(room.spots.count, 9, room.id)
             // Walls and a floor always have something on them.
@@ -36,6 +33,8 @@ final class HouseTests: XCTestCase {
         // The room they start in has a bed in it.
         XCTAssertNotNil(HouseCatalog.room(HouseCatalog.first)?.spot("bed")?.starter)
         XCTAssertEqual(rooms.filter { $0.gems > 0 }.map(\.id), ["basement", "observatory"])
+        // Where the catalogue puts them, all together, is a house that holds together.
+        XCTAssertTrue(HouseLayout.sound(Dictionary(uniqueKeysWithValues: rooms.map { ($0.id, $0.cell) })))
     }
 
     func testEveryModelTheCatalogueAsksForIsThere() {
@@ -208,5 +207,64 @@ final class HouseTests: XCTestCase {
         XCTAssertEqual(HouseState().economy, HouseState.economy)
         let copy = try JSONDecoder().decode(HouseState.self, from: JSONEncoder().encode(HouseState()))
         XCTAssertEqual(copy.economy, HouseState.economy)
+    }
+
+    // MARK: Where rooms go
+
+    func testWhatHoldsTogether() {
+        // On the ground, or on a room; touching the rest.
+        XCTAssertTrue(HouseLayout.sound(["bedroom": [0, 0, 0], "living": [1, 0, 0], "den": [1, 1, 0]]))
+        XCTAssertFalse(HouseLayout.sound(["bedroom": [0, 0, 0], "den": [1, 1, 0]]), "in the air")
+        XCTAssertFalse(HouseLayout.sound(["bedroom": [0, 0, 0], "living": [2, 0, 0]]), "not touching")
+        XCTAssertFalse(HouseLayout.sound(["bedroom": [0, 0, 0], "living": [0, 0, 0]]), "two in one place")
+        XCTAssertFalse(HouseLayout.sound(["bedroom": [0, 0, 0], "living": [3, 0, 0]]), "off the lot")
+        // Nothing on a room with no roof.
+        XCTAssertFalse(HouseLayout.sound(["garden": [0, 0, 0], "den": [0, 1, 0]]))
+        XCTAssertTrue(HouseLayout.sound(["bedroom": [0, 0, 0], "observatory": [0, 1, 0]]))
+        // The basement is under the house, and only the basement is.
+        XCTAssertTrue(HouseLayout.sound(["bedroom": [0, 0, 0], "basement": [0, -1, 0]]))
+        XCTAssertFalse(HouseLayout.sound(["bedroom": [0, 0, 0], "basement": [1, 0, 0]]))
+        XCTAssertFalse(HouseLayout.sound(["bedroom": [0, 0, 0], "basement": [1, -1, 0]]), "nothing over it")
+        XCTAssertFalse(HouseLayout.sound(["bedroom": [0, 0, 0], "den": [0, -1, 0]]))
+    }
+
+    func testPuttingRoomsWhereTheyLike() throws {
+        let living = try XCTUnwrap(HouseCatalog.room("living")), den = try XCTUnwrap(HouseCatalog.room("den"))
+        var state = HouseState()
+        state.coins = 100_000
+        // A new room goes next to the bedroom or on top of it.
+        let places = state.places(for: "living")
+        XCTAssertEqual(Set(places), [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]])
+        XCTAssertFalse(state.unlock(living, at: [2, 0, 0]))
+        XCTAssertEqual(state.coins, 100_000, "nothing paid for somewhere it can't go")
+        XCTAssertTrue(state.unlock(living, at: [1, 0, 0]))
+        XCTAssertEqual(state.cell(of: "living"), [1, 0, 0])
+        XCTAssertTrue(state.unlock(den, at: [1, 1, 0]))
+        // The living room can't go out from under the den, and the bedroom can't leave the house.
+        XCTAssertFalse(state.move("living", to: [-1, 0, 0]))
+        XCTAssertFalse(state.move("bedroom", to: [-2, 0, 0]))
+        // The bedroom can go round the other side of the living room, which is free.
+        let coins = state.coins
+        XCTAssertTrue(state.move("bedroom", to: [2, 0, 0]))
+        XCTAssertEqual(state.coins, coins)
+        XCTAssertEqual(state.room(at: [2, 0, 0]), "bedroom")
+        XCTAssertEqual(state.floors, [0, 1])
+        // And it's kept.
+        let back = try JSONDecoder().decode(HouseState.self, from: JSONEncoder().encode(state))
+        XCTAssertEqual(back.cells, state.cells)
+    }
+
+    func testAHouseFromBeforeRoomsMovedComesOutSound() throws {
+        // As the first phones kept it: rooms, and nowhere said for them.
+        let json = #"{"coins":10,"rooms":["bedroom","living","kitchen","basement","garden"]}"#
+        let state = try JSONDecoder().decode(HouseState.self, from: Data(json.utf8))
+        XCTAssertEqual(Set(state.cells.keys), Set(state.rooms))
+        XCTAssertTrue(HouseLayout.sound(state.cells))
+        XCTAssertEqual(state.cell(of: "bedroom"), [0, 0, 0])
+        XCTAssertEqual(state.cell(of: "basement")[1], -1)
+        // Somewhere it can't be is put right.
+        let muddle = #"{"rooms":["bedroom","living"],"cells":{"bedroom":[0,0,0],"living":[0,2,0]}}"#
+        let fixed = try JSONDecoder().decode(HouseState.self, from: Data(muddle.utf8))
+        XCTAssertTrue(HouseLayout.sound(fixed.cells))
     }
 }

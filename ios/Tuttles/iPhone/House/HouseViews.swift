@@ -4,7 +4,10 @@ import SwiftUI
 // The house's screens. One scene (HouseScene.swift) under everything: the
 // street with both houses on it, then a house, then a room. Their own house
 // can be changed: a room in focus has a bubble on each spot, and tapping one
-// brings up what can go there, tried in the room before it's paid for. The
+// brings up what can go there, tried in the room before it's paid for. In the
+// house they add rooms, putting each where they like, and move them about
+// (HouseLayout.swift); a house of more than one floor can be looked at a
+// floor at a time. The
 // other house can be walked through and not touched. The parents see the
 // street the same way, and what each purse has had paid in.
 
@@ -96,9 +99,27 @@ struct HouseHomeView: View {
     @State private var ready = false
     /// The spot being chosen for, and the room to buy.
     @State private var choosing: Choosing?
-    @State private var buying: HouseRoom?
+    @State private var adding = false
+    /// A room being put somewhere: one to buy, or one of theirs to move.
+    @State private var placing: Placing?
+    /// Waiting for them to tap the room they want to move.
+    @State private var moving = false
+    /// The highest floor shown (nil: all of it).
+    @State private var floor: Int?
     @State private var showingPurses = false
     private let house = HouseStore.shared
+
+    enum Placing: Equatable {
+        case new(HouseRoom)
+        case move(String)
+
+        var room: String {
+            switch self {
+            case .new(let room): room.id
+            case .move(let id): id
+            }
+        }
+    }
 
     struct Choosing: Identifiable, Equatable {
         let room: HouseRoom
@@ -138,6 +159,14 @@ struct HouseHomeView: View {
                     print(String(format: "SIZE %@ %.2f %.2f %.2f", name, size.x, size.y, size.z))
                 }
             }
+            if let at = args.firstIndex(of: "--house-floor"), args.count > at + 1, let n = Int(args[at + 1]) {
+                go(.house(me))
+                setFloor(n)
+            }
+            if let at = args.firstIndex(of: "--house-add"), args.count > at + 1, let room = HouseCatalog.room(args[at + 1]), !house.state.has(room: room.id) {
+                go(.house(me))
+                place(.new(room))
+            }
             if let at = args.firstIndex(of: "--house-room") {
                 let id = args.count > at + 1 && HouseCatalog.room(args[at + 1]) != nil ? args[at + 1] : HouseCatalog.first
                 if house.state.has(room: id) { go(.room(me, id)) }
@@ -154,12 +183,12 @@ struct HouseHomeView: View {
             .presentationBackgroundInteraction(.enabled(upThrough: .fraction(0.46)))
             .presentationDragIndicator(.visible)
         }
-        .sheet(item: $buying, onDismiss: { Task { await house.sync(with: store) } }) { room in
-            HouseRoomSheet(room: room) {
-                refresh()
-                go(.room(me, room.id))
+        .sheet(isPresented: $adding) {
+            HouseRoomSheet { room in
+                adding = false
+                place(.new(room))
             }
-            .presentationDetents([.height(330)])
+            .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingPurses) {
@@ -206,6 +235,8 @@ struct HouseHomeView: View {
     }
 
     private func go(_ to: HouseStage.Focus) {
+        if placing != nil || moving { stopPlacing() }
+        if case .house = to {} else if floor != nil { setFloor(nil) }
         focus = to
         stage.setDecorating(mine(to))
         stage.focus(on: to)
@@ -220,10 +251,15 @@ struct HouseHomeView: View {
             stage.setLifted(true)
             choosing = Choosing(room: room, spot: spot)
             MathAudio.shared.play("tap", volume: 0.4)
-        case .locked(_, let roomID):
-            buying = HouseCatalog.room(roomID)
+        case .cell(_, let cell):
+            put(at: cell)
         case .room(let kid, let roomID):
-            if focus != .room(kid, roomID) { go(.room(kid, roomID)) }
+            if moving, kid == me {
+                moving = false
+                place(.move(roomID))
+            } else if placing == nil, focus != .room(kid, roomID) {
+                go(.room(kid, roomID))
+            }
         case .house(let kid):
             if case .street = focus { go(.house(kid)) }
         case nil:
@@ -231,11 +267,65 @@ struct HouseHomeView: View {
         }
     }
 
+    // MARK: Where rooms go
+
+    /// Show where a room could go, for them to tap one.
+    private func place(_ what: Placing) {
+        placing = what
+        moving = false
+        stage.setPlacing((what.room, house.state.places(for: what.room)))
+        MathAudio.shared.play("tap", volume: 0.4)
+    }
+
+    private func stopPlacing() {
+        placing = nil
+        moving = false
+        stage.setPlacing(nil)
+    }
+
+    /// They've tapped where it goes.
+    private func put(at cell: [Int]) {
+        guard let placing else { return }
+        switch placing {
+        case .new(let room):
+            guard house.unlock(room, at: cell) else { MathAudio.shared.play("deny", volume: 0.6); return }
+            MathAudio.shared.play("goal", volume: 0.7)
+            stopPlacing()
+            show()
+            go(.room(me, room.id))
+        case .move(let id):
+            guard house.move(id, to: cell) else { MathAudio.shared.play("deny", volume: 0.6); return }
+            MathAudio.shared.play("equip", volume: 0.6)
+            stopPlacing()
+            show()
+        }
+        Task { await house.sync(with: store) }
+    }
+
+    private func setFloor(_ floor: Int?) {
+        self.floor = floor
+        stage.setFloor(floor)
+    }
+
+    /// The floors of the house in focus, lowest first, and those a room being placed could go on.
+    private var floors: [Int] {
+        guard case .house(let kid) = focus else { return [] }
+        let state = kid == me && !parents ? house.state : house.street.first { $0.kid == kid }?.state
+        var out = Set(state?.floors ?? [])
+        if placing != nil, kid == me, let cells = stage.placing?.cells { out.formUnion(cells.map { $0[1] }) }
+        return out.sorted()
+    }
+
     private func back() {
+        if placing != nil || moving { stopPlacing(); return }
         switch focus {
         case .street: break
         case .house: go(.street)
-        case .room(let kid, _): go(.house(kid))
+        case .room(let kid, let id):
+            go(.house(kid))
+            // Back out onto the floor that room's on, like going upstairs and looking round.
+            let state = kid == me && !parents ? house.state : house.street.first { $0.kid == kid }?.state
+            if let state, state.floors.count > 1, state.has(room: id) { setFloor(state.cell(of: id)[1]) }
         }
     }
 
@@ -246,6 +336,12 @@ struct HouseHomeView: View {
         case .street:
             return stage.focus == .street && house.others.isEmpty && !parents ? "Your house. Tap it to go in." : "Tap a house to go in"
         case .house(let kid):
+            if let placing {
+                let room = HouseCatalog.room(placing.room)?.name ?? "room"
+                if case .new = placing { return "Tap where the \(room.lowercased()) goes" }
+                return "Tap where to move the \(room.lowercased())"
+            }
+            if moving { return "Tap the room to move" }
             return mine(focus) ? "Tap a room to decorate it" : "\(name(kid))'s house"
         case .room(let kid, let id):
             let room = HouseCatalog.room(id)?.name ?? ""
@@ -289,6 +385,8 @@ struct HouseHomeView: View {
                 .foregroundStyle(Color(red: 0.35, green: 0.23, blue: 0.16))
                 .animation(.default, value: focus)
             Spacer()
+            if floors.count > 1 { floorPicker }
+            if mine(focus), case .house = focus { building }
             if !parents, mine(focus) || focus == .street {
                 let filled = house.state.filled
                 Text("\(house.state.rooms.count) of \(HouseCatalog.rooms.count) rooms · \(filled.0) of \(filled.1) spots filled")
@@ -300,6 +398,53 @@ struct HouseHomeView: View {
         .allowsHitTesting(true)
     }
 
+    /// A floor at a time, or all of it.
+    private var floorPicker: some View {
+        HStack(spacing: 6) {
+            ForEach([nil] + floors.reversed().map(Optional.some), id: \.self) { (f: Int?) in
+                let on = floor == f
+                Button { setFloor(f); MathAudio.shared.play("tap", volume: 0.4) } label: {
+                    Text(f.map(HouseLayout.name(of:)) ?? "All")
+                        .font(.system(.footnote, design: .rounded).weight(.heavy))
+                        .padding(.horizontal, 11).padding(.vertical, 7)
+                        .foregroundStyle(on ? .white : .primary)
+                }
+                .glassEffect(.regular.tint(on ? TuttlesLook.accent : .clear).interactive(), in: .capsule)
+            }
+        }
+    }
+
+    /// Add a room, or move one; or, while that's going on, stop.
+    private var building: some View {
+        HStack(spacing: 10) {
+            if placing != nil || moving {
+                Button { stopPlacing() } label: {
+                    Label("Cancel", systemImage: "xmark")
+                        .font(.system(.headline, design: .rounded).weight(.heavy))
+                        .padding(.horizontal, 18).padding(.vertical, 11)
+                }
+                .glassEffect(.regular.interactive(), in: .capsule)
+            } else {
+                Button { adding = true } label: {
+                    Label("Add a room", systemImage: "plus")
+                        .font(.system(.headline, design: .rounded).weight(.heavy))
+                        .padding(.horizontal, 16).padding(.vertical, 11)
+                        .foregroundStyle(.white)
+                }
+                .glassEffect(.regular.tint(TuttlesLook.accent).interactive(), in: .capsule)
+                .disabled(house.state.rooms.count == HouseCatalog.rooms.count)
+                if house.state.rooms.count > 1 {
+                    Button { moving = true; MathAudio.shared.play("tap", volume: 0.4) } label: {
+                        Label("Move a room", systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+                            .font(.system(.headline, design: .rounded).weight(.heavy))
+                            .padding(.horizontal, 16).padding(.vertical, 11)
+                    }
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                }
+            }
+        }
+    }
+
     // MARK: For the simulator
 
     /// `--house-coins 50000 --house-gems 40`, and in the demo a brother's house to look at.
@@ -309,6 +454,8 @@ struct HouseHomeView: View {
         guard store.isDemo || number("--house-coins") != nil else { return }
         var theirs = HouseState()
         theirs.rooms = ["bedroom", "living", "kitchen"]
+        theirs.cells = ["bedroom": [0, 0, 0], "living": [0, 0, -1], "kitchen": [-1, 1, -1]]
+        theirs.settle()
         for id in ["bedroom.bed.bunk", "bedroom.rug.space", "bedroom.desk.screen", "bedroom.left.shark", "bedroom.pet.dog", "bedroom.walls.sky",
                    "living.sofa.long", "living.tv.modern", "living.rug.zigzag", "living.armchair.relax", "kitchen.fridge.large", "kitchen.table.round",
                    "kitchen.food.cake", "kitchen.floor.diner-checks"] {
@@ -430,51 +577,70 @@ struct HouseSpotSheet: View {
 
 // MARK: - Buying a room
 
+/// The rooms still to have, and what each costs. Picking one goes on to where it goes.
 struct HouseRoomSheet: View {
-    let room: HouseRoom
-    let bought: () -> Void
-    @Environment(\.dismiss) private var dismiss
+    let picked: (HouseRoom) -> Void
+    @State private var refused = 0
     private let house = HouseStore.shared
 
     var body: some View {
-        let price = house.state.price(of: room)
-        let afford = house.state.canAfford(coins: price.coins, gems: price.gems)
-        VStack(spacing: 14) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
+                Text("Add a room").font(.system(.title3, design: .rounded).weight(.heavy))
                 Spacer()
                 HousePurse()
             }
-            Image(systemName: room.gems > 0 ? "diamond.fill" : "house.fill")
-                .font(.system(size: 40))
-                .foregroundStyle(room.gems > 0 ? Color.cyan : TuttlesLook.accent)
-            Text(room.name).font(.system(.title2, design: .rounded).weight(.heavy))
-            Text(room.blurb).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Text("\(room.spots.count) spots to fill").font(.footnote).foregroundStyle(.secondary)
-            Spacer(minLength: 0)
-            Button {
-                guard house.unlock(room) else { return }
-                MathAudio.shared.play("goal", volume: 0.7)
-                dismiss()
-                bought()
-            } label: {
-                HStack(spacing: 8) {
-                    if afford {
-                        Text("Unlock for")
-                        HousePrice(coins: price.coins, gems: price.gems)
-                    } else if price.gems > 0 {
-                        Text("\(price.gems - house.gems) more gem\(price.gems - house.gems == 1 ? "" : "s")")
-                    } else {
-                        Text("\((price.coins - house.coins).formatted()) more coins")
+            .padding(.horizontal, 18)
+            .padding(.top, 20)
+            .padding(.bottom, 10)
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(HouseCatalog.rooms.filter { !house.state.has(room: $0.id) }) { room in row(room) }
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 24)
+            }
+        }
+        .sensoryFeedback(.error, trigger: refused)
+    }
+
+    private func row(_ room: HouseRoom) -> some View {
+        let price = house.state.price(of: room)
+        let afford = house.state.canAfford(coins: price.coins, gems: price.gems)
+        let fits = !house.state.places(for: room.id).isEmpty
+        return Button {
+            guard afford, fits else { refused += 1; MathAudio.shared.play("deny", volume: 0.6); return }
+            picked(room)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: room.gems > 0 ? "diamond.fill" : "house.fill")
+                    .font(.title2)
+                    .foregroundStyle(room.gems > 0 ? Color.cyan : TuttlesLook.accent)
+                    .frame(width: 34)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(room.name).font(.system(.headline, design: .rounded).weight(.heavy))
+                    Text(room.blurb).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                    if !fits {
+                        Text(room.id == "basement" ? "Goes under a room on the ground." : "Nowhere it fits yet.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                .font(.system(.headline, design: .rounded).weight(.heavy))
-                .foregroundStyle(afford ? .white : .primary)
-                .frame(maxWidth: .infinity, minHeight: 54)
+                Spacer(minLength: 6)
+                VStack(alignment: .trailing, spacing: 2) {
+                    HousePrice(coins: price.coins, gems: price.gems)
+                    if !afford {
+                        Text(price.gems > 0 ? "\(price.gems - house.gems) more" : "\((price.coins - house.coins).formatted()) more")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                .opacity(afford ? 1 : 0.55)
             }
-            .glassEffect(.regular.tint(afford ? TuttlesLook.accent : .gray.opacity(0.4)).interactive(), in: .capsule)
-            .disabled(!afford)
+            .padding(.horizontal, 14).padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.05), in: .rect(cornerRadius: 18))
+            .contentShape(.rect)
         }
-        .padding(20)
+        .buttonStyle(.plain)
     }
 }
 
