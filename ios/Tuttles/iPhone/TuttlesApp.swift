@@ -78,6 +78,7 @@ struct ChatsView: View {
         }
         if args.contains("--vocab") { return (.vocab, [], false) }
         if args.contains("--math") { return (.math, [], false) }
+        if args.contains("--house") { return (.house, [], false) }
         return (.chat(UUID(), isNew: true), [], args.contains("--list"))
     }
 
@@ -181,6 +182,8 @@ struct ChatsView: View {
             VocabFactsView().menuButton(isRoot)
         case .math:
             MathHomeView().menuButton(isRoot)
+        case .house:
+            HouseHomeView().menuButton(isRoot)
         }
     }
 

@@ -268,6 +268,8 @@ struct VocabSummary: Decodable, Hashable {
     /// facts they've found with it. Only for a session played on the phone.
     var prize: VocabPrize? = nil
     var factsFound: Int? = nil
+    /// The coins and gems the session paid into the house's purse. Only for one played on the phone.
+    var pay: VocabEarning? = nil
 
     /// Where the day stands now this session is over.
     var day: VocabOverview.Goal? {

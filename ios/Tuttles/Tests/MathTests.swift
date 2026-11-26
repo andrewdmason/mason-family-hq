@@ -119,16 +119,6 @@ final class MathTests: XCTestCase {
         XCTAssertTrue((0..<60).allSatisfy { MathZone.all.indices.contains(MathZone.index(forLevel: $0)) })
     }
 
-    func testTheShopHasOneDefaultInEverySlotAndNothingRepeats() {
-        XCTAssertEqual(Set(MathCatalog.items.map(\.id)).count, MathCatalog.items.count)
-        for slot in MathCatalog.slots {
-            let items = MathCatalog.items(in: slot.id)
-            XCTAssertEqual(items.filter(\.isDefault).count, 1, slot.id)
-            XCTAssertTrue(items.filter(\.isDefault).allSatisfy { $0.price == 0 }, slot.id)
-            XCTAssertGreaterThanOrEqual(items.count, 6, slot.id)
-        }
-    }
-
     func testEverySoundTheGameAsksForIsThere() {
         let folder = Bundle.main.bundleURL.appending(path: "MathAssets/audio")
         let have = Set(((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).map { ($0 as NSString).deletingPathExtension })

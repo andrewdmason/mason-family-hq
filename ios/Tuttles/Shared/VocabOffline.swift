@@ -88,6 +88,9 @@ final class VocabLocal {
         var heckled: [String: Int]?
         /// The latest of those, and the session it was said before.
         var heckle: Said?
+        /// Coins and gems won here that the house's purse hasn't taken yet
+        /// (HouseStore.swift), oldest first.
+        var earned: [VocabEarning]?
     }
 
     struct Said: Codable {
@@ -126,6 +129,21 @@ final class VocabLocal {
     var prizes: [VocabPrize] { mine.prizes ?? [] }
     /// The facts they've had out of a chest they opened, that are still facts.
     var found: Set<Int> { VocabFacts.found(in: prizes) }
+
+    /// What's been won and not yet put in the purse.
+    var earnings: [VocabEarning] { mine.earned ?? [] }
+
+    /// The purse has these: they needn't be kept here any longer.
+    func settle(_ keys: Set<String>) {
+        guard let earned = mine.earned, earned.contains(where: { keys.contains($0.key) }) else { return }
+        mine.earned = earned.filter { !keys.contains($0.key) }
+        saveMine()
+    }
+
+    private func earn(_ earning: VocabEarning) {
+        guard !earnings.contains(where: { $0.key == earning.key }) else { return }
+        mine.earned = Array((earnings + [earning]).suffix(300))
+    }
 
     /// A chest is opened: what's in it is theirs now.
     func open(_ prize: VocabPrize) {
@@ -261,6 +279,13 @@ final class VocabLocal {
         var random = SystemRandomNumberGenerator()
         guard let fact = VocabFacts.draw(chest, have: Set(prizes.map(\.fact)), using: &random) else { return }
         mine.prizes = prizes + [VocabPrize(session: session.id, fact: fact.id, chest: chest, day: session.day, opened: false)]
+        earn(VocabPay.chest(chest, right: session.correct, session: session.id))
+    }
+
+    /// A boss beaten pays coins and a gem, the once.
+    private func pay(boss session: VocabLocalSession) {
+        guard let stage = session.boss, session.isFinished, session.correct >= VocabEngine.bossNeeded(session.total) else { return }
+        earn(VocabPay.boss(stage: stage))
     }
 
     /// Drops what was being kept for a session's chest.
@@ -342,7 +367,10 @@ final class VocabLocal {
             serve(&session, now: now)
         }
         keep(session)
-        if session.isFinished { award(session) }
+        if session.isFinished {
+            award(session)
+            pay(boss: session)
+        }
         saveMine()
         return state(session)
     }
@@ -367,6 +395,9 @@ final class VocabLocal {
             summary = VocabEngine.summary(session, content: content,
                                           dayMs: sessions.filter { $0.day == session.day }.reduce(0) { $0 + $1.elapsedMs }, rules: rules)
             summary?.boss = boss
+            let key = session.boss.map(VocabPay.bossKey) ?? VocabPay.chestKey(session.id)
+            // (Once the purse has it, it's no longer here: the screen's been seen by then.)
+            summary?.pay = earnings.first { $0.key == key }
             if boss == nil, let from = startedFrom[session.id], let stage = path().stages.first(where: { $0.number == from.stage }) {
                 summary?.climb = VocabClimb(stage: stage, metBefore: min(from.met, stage.met))
             }

@@ -630,6 +630,18 @@ private struct VocabSummaryView: View {
                     }
                 }
 
+                // What it paid into the house's purse (HousePay.swift).
+                if let pay = summary.pay {
+                    HStack(spacing: 14) {
+                        Label("+\(pay.coins.formatted()) coins", systemImage: "circle.fill").foregroundStyle(VocabLook.amberText)
+                        if pay.gems > 0 { Label("+\(pay.gems) gem", systemImage: "diamond.fill").foregroundStyle(.cyan) }
+                    }
+                    .font(.system(.headline, design: .rounded).weight(.heavy))
+                    .padding(.horizontal, 18).padding(.vertical, 10)
+                    .vocabGlass(tint: VocabLook.gold.opacity(0.14))
+                    .accessibilityElement(children: .combine)
+                }
+
                 // The prize for a boss beaten (VocabJokes.swift). Each kid's are a few along from the other's.
                 if let boss = summary.boss, boss.beaten,
                    let joke = VocabJokes.joke(stage: boss.stage, shift: store.vocab?.overview?.level == .middle ? 13 : 0) {

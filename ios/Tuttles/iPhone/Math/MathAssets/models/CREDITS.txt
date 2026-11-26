@@ -17,3 +17,9 @@ which keeps each pack's own License.txt beside it.
 
 Everything else in the game (the school, what stands in the way, what the
 teacher throws) is built in code: MathProps.swift and MathZones.swift.
+
+The house (Tuttles/iPhone/House) uses more of the same, fetched from the same
+place:
+
+  furniture/    Furniture Kit: the rest of what's here, some eighty pieces
+  pets/         Cube Pets (1.0): the twenty-four animals and their swatch sheet
