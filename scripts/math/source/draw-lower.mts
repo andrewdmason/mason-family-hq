@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { diagramProblems, type Diagram, type DiagramItem } from "../bank.mts";
+import { diagramProblems, type Diagram, type DiagramItem } from "../bank.mjs";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const todo = JSON.parse(fs.readFileSync(path.join(dir, "out/todo.json"), "utf8")) as {

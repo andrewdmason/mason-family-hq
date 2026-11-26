@@ -417,6 +417,8 @@ if (out) {
   const draw = (d: Diagram) => {
     let s = "";
     const st = `stroke="${INK}" stroke-width="0.55" stroke-linecap="round" stroke-linejoin="round"`;
+    // The preview draws every kind of item loosely; the bank's own check is what's strict.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const it of d.items as any[]) {
       if (it.t === "line") {
         s += `<line x1="${it.a[0]}" y1="${it.a[1]}" x2="${it.b[0]}" y2="${it.b[1]}" ${st} ${it.dash ? 'stroke-dasharray="1.6 1.4"' : ""}/>`;
