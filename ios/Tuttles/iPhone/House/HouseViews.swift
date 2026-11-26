@@ -36,6 +36,74 @@ struct HousePurse: View {
     }
 }
 
+/// Today's ten minutes of Vocab and the purse, in one button at the top of
+/// Vocab and of Math: the same three things on both, since Vocab's coins wait
+/// for the ten minutes. Tapping it slides the house up over what's there,
+/// with an X to come back.
+struct HouseStatusButton: View {
+    /// Today against Vocab's ten minutes. Nil for whoever isn't set up for Vocab: the purse alone.
+    let day: VocabOverview.Goal?
+    @State private var showingHouse = false
+    private let house = HouseStore.shared
+
+    var body: some View {
+        Button { showingHouse = true } label: {
+            HStack(spacing: 9) {
+                if let day { time(day) }
+                count("circle.fill", .yellow, house.coins)
+                count("diamond.fill", .cyan, house.gems)
+            }
+            .font(.system(.subheadline, design: .rounded).weight(.bold).monospacedDigit())
+            // (Not .primary: in a bar's button that's the app's red.)
+            .foregroundStyle(Color(.label))
+            .padding(.horizontal, 3)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Self.spoken(day: day, coins: house.coins, gems: house.gems))
+        .accessibilityHint("Opens the house")
+        .fullScreenCover(isPresented: $showingHouse) {
+            HouseHomeView(close: { showingHouse = false })
+        }
+    }
+
+    /// The time answered today: a ring filling up, then a tick once the ten minutes are done.
+    private func time(_ day: VocabOverview.Goal) -> some View {
+        HStack(spacing: 4) {
+            if day.done {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(VocabLook.right)
+            } else {
+                ZStack {
+                    Circle().stroke(Color(.label).opacity(0.15), lineWidth: 2.5)
+                    Circle().trim(from: 0, to: day.fraction)
+                        .stroke(TuttlesLook.accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+                .frame(width: 14, height: 14)
+            }
+            Text(VocabRules.clock(day.ms))
+                .foregroundStyle(day.done ? VocabLook.rightText : Color(.label))
+                .contentTransition(.numericText())
+        }
+    }
+
+    private func count(_ symbol: String, _ color: Color, _ n: Int) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbol).font(.caption).foregroundStyle(color)
+            Text(n.formatted()).contentTransition(.numericText())
+        }
+    }
+
+    /// "4:12 of 10 minutes of Vocab today. 120 coins, 3 gems."
+    static func spoken(day: VocabOverview.Goal?, coins: Int, gems: Int) -> String {
+        let purse = "\(coins) \(coins == 1 ? "coin" : "coins"), \(gems) \(gems == 1 ? "gem" : "gems")"
+        guard let day else { return purse }
+        let minutes = day.goalMs / 60_000
+        let time = day.done ? "Today's \(minutes) minutes of Vocab done, \(VocabRules.clock(day.ms))"
+            : "\(VocabRules.clock(day.ms)) of \(minutes) minutes of Vocab today"
+        return "\(time). \(purse)"
+    }
+}
+
 /// What something costs, as it's written on a button.
 struct HousePrice: View {
     let coins: Int
@@ -59,15 +127,41 @@ struct HousePrice: View {
 
 struct HouseSceneView: UIViewRepresentable {
     let stage: HouseStage
+    /// On the street: a finger drags the town about and two pinch it closer.
+    var roams = false
     let tapped: (HouseStage.Hit?) -> Void
 
     final class Coordinator: NSObject {
         var parent: HouseSceneView
+        var drag: UIPanGestureRecognizer?
+        var pinch: UIPinchGestureRecognizer?
+        /// Where the two fingers were, between them, the last time they moved.
+        private var between: CGPoint?
         init(_ parent: HouseSceneView) { self.parent = parent }
 
         @objc func tap(_ g: UITapGestureRecognizer) {
             guard let view = g.view as? SCNView else { return }
             parent.tapped(parent.stage.hit(g.location(in: view), in: view))
+        }
+
+        @objc func dragged(_ g: UIPanGestureRecognizer) {
+            guard let view = g.view, g.state == .changed else { return }
+            parent.stage.drag(by: g.translation(in: view), height: view.bounds.height)
+            g.setTranslation(.zero, in: view)
+        }
+
+        @objc func pinched(_ g: UIPinchGestureRecognizer) {
+            // With a finger lifted the middle jumps to the one left: wait for two again.
+            guard let view = g.view, g.state == .changed, g.numberOfTouches == 2 else {
+                between = nil
+                return
+            }
+            let at = g.location(in: view)
+            // Two fingers going the same way carry the town along as one does.
+            if let between { parent.stage.drag(by: CGPoint(x: at.x - between.x, y: at.y - between.y), height: view.bounds.height) }
+            between = at
+            parent.stage.pinch(by: g.scale, about: CGPoint(x: at.x - view.bounds.midX, y: at.y - view.bounds.midY), height: view.bounds.height)
+            g.scale = 1
         }
     }
 
@@ -83,16 +177,30 @@ struct HouseSceneView: UIViewRepresentable {
         view.delegate = stage
         view.isPlaying = true
         view.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap(_:))))
+        let drag = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.dragged(_:)))
+        drag.maximumNumberOfTouches = 1
+        let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pinched(_:)))
+        for g in [drag, pinch] as [UIGestureRecognizer] {
+            g.isEnabled = roams
+            view.addGestureRecognizer(g)
+        }
+        context.coordinator.drag = drag
+        context.coordinator.pinch = pinch
         return view
     }
 
     func updateUIView(_ view: SCNView, context: Context) {
         context.coordinator.parent = self
+        // Only on the street: inside a house a swipe is still the menu's.
+        context.coordinator.drag?.isEnabled = roams
+        context.coordinator.pinch?.isEnabled = roams
         if view.bounds.height > 0 { stage.setAspect(Float(view.bounds.width / view.bounds.height)) }
     }
 }
 
 struct HouseHomeView: View {
+    /// Slid up over Vocab or Math (HouseStatusButton): how to put it away, for the X at the top.
+    private let close: (() -> Void)?
     @Environment(ChatStore.self) private var store
     @State private var stage = HouseStage()
     @State private var focus = HouseStage.Focus.street
@@ -107,6 +215,7 @@ struct HouseHomeView: View {
     /// The highest floor shown (nil: all of it).
     @State private var floor: Int?
     @State private var showingPurses = false
+    @Environment(SideMenuState.self) private var menu: SideMenuState?
     private let house = HouseStore.shared
 
     enum Placing: Equatable {
@@ -127,13 +236,15 @@ struct HouseHomeView: View {
         var id: String { HouseCatalog.key(room.id, spot.id) }
     }
 
+    init(close: (() -> Void)? = nil) { self.close = close }
+
     private var parents: Bool { store.showingParentView }
     private var me: String { house.owner?.uuidString.lowercased() ?? "me" }
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                HouseSceneView(stage: stage) { tapped($0) }
+                HouseSceneView(stage: stage, roams: focus == .street) { tapped($0) }
                     .ignoresSafeArea()
                     .onChange(of: geo.size, initial: true) { _, size in
                         if size.height > 0 { stage.setAspect(Float(size.width / (size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom))) }
@@ -174,7 +285,12 @@ struct HouseHomeView: View {
             await house.sync(with: store)
             show()
         }
-        .onDisappear { Task { await house.sync(with: store) } }
+        .onDisappear {
+            menu?.locked = false
+            Task { await house.sync(with: store) }
+        }
+        // On the street a drag moves the town, so it doesn't also slide the menu out (the ☰ still opens it).
+        .onChange(of: focus, initial: true) { menu?.locked = focus == .street }
         .sheet(item: $choosing, onDismiss: { stage.setLifted(false); refresh(); Task { await house.sync(with: store) } }) { choice in
             HouseSpotSheet(room: choice.room, spot: choice.spot) { preview in
                 refresh(trying: preview.map { (choice, $0) }, popping: choice.id)
@@ -354,6 +470,15 @@ struct HouseHomeView: View {
     private var overlay: some View {
         VStack(spacing: 10) {
             HStack(alignment: .top) {
+                if let close {
+                    Button(action: close) {
+                        Image(systemName: "xmark")
+                            .font(.system(.headline, design: .rounded).weight(.heavy))
+                            .frame(width: 42, height: 42)
+                    }
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .accessibilityLabel("Close")
+                }
                 if focus != .street {
                     Button(action: back) {
                         Image(systemName: "chevron.left")

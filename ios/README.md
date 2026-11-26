@@ -224,6 +224,12 @@ in each room fixed spots, each with its own things to choose between.
   are done (a chest not banked by midnight is lost, a boss waits), each under
   a key so nothing is paid twice. A house kept under the first economy
   (`HouseState.economy` 1, with back pay) starts again empty.
+- Vocab and Math have the same button at the top right (`HouseStatusButton`
+  in `HouseViews.swift`): today's Vocab time against the ten minutes (a ring,
+  then a tick), the coins and the gems. Tapping it slides the house up over
+  the game, with an X at the top left to put it away. Vocab's
+  first screen opens the purse too, so its winnings are in as soon as the ten
+  minutes are done. (The Mac, with no house, keeps the streak there.)
 - Math's end screen has a stars top 10 of runs, today's and of all time
   (`top` from `/tuttles/api/math/sync`, `topRuns` in `src/lib/tuttles/math.ts`):
   the kids' runs since stars were the score, and a parent's own when they play.
@@ -243,7 +249,10 @@ in each room fixed spots, each with its own things to choose between.
   nothing in front of it or over it is shown. The houses stand
   in a town (`HouseLand.swift`): one ground picture of a block and its roads,
   repeated; each house on a block of its own with a fence and trees at the
-  back, the street going up the screen, trees on the blocks between. Looking
+  back, the street going up the screen, trees on the blocks between. On the
+  street a finger drags the town about and two pinch it closer or further
+  (`HouseStage.Roam`), as far as the trees go; going into a house and back
+  puts it as it was. While the street's up a drag doesn't slide the menu out. Looking
   at the basement takes the ground away and shows it in earth. Furniture and pets are Kenney's kits; rugs, floors,
   pictures, windows and the odd things are drawn in code (`HouseProps.swift`).
 - The house goes to `/tuttles/api/house/sync` whole, newest wins, and the
