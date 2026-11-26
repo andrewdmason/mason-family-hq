@@ -42,6 +42,13 @@ extension ChatStore {
         guard let home = vocab else { return .open }
         return .from(home.overview)
     }
+
+    /// Today against Vocab's ten minutes, for whoever's using the app: from
+    /// what the phone keeps, else Vocab's first screen as it last loaded. Nil
+    /// for whoever isn't set up for Vocab.
+    var vocabDay: VocabOverview.Goal? {
+        (vocabOpenLocal()?.home().overview ?? vocab?.overview)?.day
+    }
 }
 
 /// In place of Run while today's Vocab isn't done: how far along the ten

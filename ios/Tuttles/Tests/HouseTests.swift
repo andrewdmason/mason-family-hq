@@ -267,4 +267,53 @@ final class HouseTests: XCTestCase {
         let fixed = try JSONDecoder().decode(HouseState.self, from: Data(muddle.utf8))
         XCTAssertTrue(HouseLayout.sound(fixed.cells))
     }
+
+    // MARK: The button at the top of Vocab and Math
+
+    func testTheButtonSaysTheTimeAndThePurse() {
+        let part = VocabOverview.Goal(ms: 252_000, goalMs: 600_000, done: false)
+        XCTAssertEqual(HouseStatusButton.spoken(day: part, coins: 120, gems: 1), "4:12 of 10 minutes of Vocab today. 120 coins, 1 gem")
+        let done = VocabOverview.Goal(ms: 620_000, goalMs: 600_000, done: true)
+        XCTAssertEqual(HouseStatusButton.spoken(day: done, coins: 1, gems: 0), "Today's 10 minutes of Vocab done, 10:20. 1 coin, 0 gems")
+        // Not set up for Vocab: the purse alone.
+        XCTAssertEqual(HouseStatusButton.spoken(day: nil, coins: 0, gems: 3), "0 coins, 3 gems")
+    }
+
+    // MARK: Moving about the town
+
+    func testDraggingTheTownGoesWithTheFinger() {
+        var roam = HouseStage.Roam()
+        // Framed 12 high either way in a view 800 points tall: 0.03 of the world to a point.
+        roam.drag(by: CGPoint(x: 100, y: 0), scale: 12, height: 800)
+        XCTAssertEqual(roam.across, -3, accuracy: 0.001)
+        XCTAssertEqual(roam.away, 0, accuracy: 0.001)
+        // Down the screen is further along the ground than it looks.
+        roam.drag(by: CGPoint(x: 0, y: 100), scale: 12, height: 800)
+        XCTAssertEqual(roam.away, 3 / HouseStage.Roam.tilt, accuracy: 0.001)
+        // And no further than the trees go.
+        roam.drag(by: CGPoint(x: 1_000_000, y: -1_000_000), scale: 12, height: 800)
+        XCTAssertEqual(roam.across, -HouseStage.Roam.reach)
+        XCTAssertEqual(roam.away, -HouseStage.Roam.reach)
+    }
+
+    func testPinchingKeepsWhatsUnderTheFingers() {
+        var roam = HouseStage.Roam()
+        // What's under a point of the screen: across it, and along the ground up it.
+        func under(_ at: CGPoint) -> (Float, Float) {
+            let k = roam.perPoint(scale: 12, height: 800)
+            return (roam.across + Float(at.x) * k, roam.away - Float(at.y) * k / HouseStage.Roam.tilt)
+        }
+        let at = CGPoint(x: 120, y: -200)
+        let before = under(at)
+        roam.pinch(by: 2, about: at, scale: 12, height: 800)
+        XCTAssertEqual(roam.zoom, 2)
+        let after = under(at)
+        XCTAssertEqual(after.0, before.0, accuracy: 0.001)
+        XCTAssertEqual(after.1, before.1, accuracy: 0.001)
+        // Only so close, and only so far.
+        roam.pinch(by: 100, about: .zero, scale: 12, height: 800)
+        XCTAssertEqual(roam.zoom, HouseStage.Roam.zooms.upperBound)
+        roam.pinch(by: 0.0001, about: .zero, scale: 12, height: 800)
+        XCTAssertEqual(roam.zoom, HouseStage.Roam.zooms.lowerBound)
+    }
 }

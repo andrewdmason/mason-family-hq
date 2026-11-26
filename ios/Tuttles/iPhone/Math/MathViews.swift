@@ -284,6 +284,8 @@ struct MathPlayView: View {
     @State private var showingShop = false
     @State private var fired = false
     @State private var gate = MathGate.checking
+    /// Today against Vocab's ten minutes, for the button at the top (HouseStatusButton).
+    @State private var day: VocabOverview.Goal?
     @Environment(\.navigate) private var navigate
     private let math = MathStore.shared
 
@@ -301,6 +303,10 @@ struct MathPlayView: View {
         }
         .toolbar(session?.stage == .home || session == nil ? .visible : .hidden, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar {
+            // Today's ten minutes and the purse, as on Vocab; it opens the house.
+            ToolbarItem(placement: .topBarTrailing) { HouseStatusButton(day: day) }
+        }
         .navigationTitle("")
         .statusBarHidden(session?.stage == .running)
         .task {
@@ -313,6 +319,7 @@ struct MathPlayView: View {
             MathAudio.shared.setMusic("music-menu")
             MathAudio.shared.setZone(sound: "amb-hall", mood: 0)
             gate = await store.mathGate()
+            day = store.vocabDay
             await math.sync(with: store)
             if CommandLine.arguments.contains("--math-run"), gate.isOpen { made.start() }
             if CommandLine.arguments.contains("--math-shop") { showingShop = true }
@@ -347,6 +354,7 @@ struct MathPlayView: View {
         let now = await store.mathGate()
         // A run under way carries on; the gate only stands in front of Run.
         if gate != now { withAnimation { gate = now } }
+        day = store.vocabDay
     }
 
     private func swipes(_ session: MathSession) -> some Gesture {
@@ -432,12 +440,7 @@ struct MathHomeOverlay: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                HousePurse()
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 6)
+            // (The purse is in the bar above, with today's Vocab: HouseStatusButton.)
             Text("MATH")
                 .font(.system(size: 54, weight: .black, design: .rounded))
                 .foregroundStyle(.white)
