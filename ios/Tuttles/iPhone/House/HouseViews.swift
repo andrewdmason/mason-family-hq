@@ -321,7 +321,11 @@ struct HouseHomeView: View {
         switch focus {
         case .street: break
         case .house: go(.street)
-        case .room(let kid, _): go(.house(kid))
+        case .room(let kid, let id):
+            go(.house(kid))
+            // Back out onto the floor that room's on, like going upstairs and looking round.
+            let state = kid == me && !parents ? house.state : house.street.first { $0.kid == kid }?.state
+            if let state, state.floors.count > 1, state.has(room: id) { setFloor(state.cell(of: id)[1]) }
         }
     }
 

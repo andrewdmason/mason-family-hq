@@ -5,8 +5,10 @@ import UIKit
 // is a square of floor with two walls behind it, and each house's rooms stand
 // where its owner put them (HouseLayout.swift). Where a room has another
 // behind it, the wall between comes down to the knee with a gap in it, so
-// you can see in; it's only all the way up when you're in that room. In a
-// house, its floors are pulled apart so each can be seen into. Rooms
+// you can see in; it's only all the way up when you're in that room. On the
+// street a house is shut, with a roof, and opens when you go in. Inside, a
+// floor picked is the one you're on: those over it go, those under it fade.
+// Rooms
 // that would hide others can be put away a floor at a time, and in a room
 // whatever's in front of it or over it isn't shown. The camera never turns:
 // it only moves and zooms, between the whole street, one house and one room.
@@ -214,6 +216,7 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
             guard let room = HouseCatalog.room(id), shows(state.cell(of: id), of: house) else { continue }
             let node = self.room(room, of: house)
             node.simdPosition = at(state.cell(of: id), of: house.kid)
+            if focus == .house(house.kid), let floor, state.cell(of: id)[1] < floor { node.opacity = 0.3 }
             root.addChildNode(node)
         }
         // Where the room being placed could go.
@@ -244,6 +247,11 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         if case .room(let kid, let id) = focus, kid == house.kid, state.has(room: id), let r = HouseCatalog.room(id) { home = r }
         character.node.simdPosition = at(state.cell(of: home.id), of: house.kid) + SIMD3(home.stand[0], 0, home.stand[1])
         character.node.isHidden = !shows(state.cell(of: home.id), of: house)
+        if focus == .house(house.kid), let floor, state.cell(of: home.id)[1] < floor { character.node.opacity = 0.3 }
+        if focus == .street, let door = Self.frontDoor(state) {
+            // Out on the front step.
+            character.node.simdPosition = at(door, of: house.kid) + SIMD3(HouseCatalog.side * 0.62, 0, HouseCatalog.side + 1.2)
+        }
         // Facing out, towards whoever's looking.
         character.node.eulerAngles.y = .pi * 1.25
         root.addChildNode(character.node)
@@ -273,8 +281,10 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         // through, unless this is the room you're in.
         let cell = house.state.cell(of: room.id)
         let inHere = focus == .room(house.kid, room.id)
-        let lowLeft = !inHere && house.state.room(at: [cell[0] - 1, cell[1], cell[2]]) != nil
-        let lowRight = !inHere && house.state.room(at: [cell[0], cell[1], cell[2] - 1]) != nil
+        // On the street a house is shut: walls all round and a roof, nothing of inside.
+        let closed = focus == .street
+        let lowLeft = !inHere && !closed && house.state.room(at: [cell[0] - 1, cell[1], cell[2]]) != nil
+        let lowRight = !inHere && !closed && house.state.room(at: [cell[0], cell[1], cell[2] - 1]) != nil
         top.castsShadow = false
         if lowLeft {
             for (a, b) in Self.knee {
@@ -297,6 +307,11 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
             let rightWall = MathShape.faced(S, wallH, 0.3, [inside, outside, outside, outside, outside, outside])
             rightWall.castsShadow = false
             node.add(rightWall, S / 2, wallH / 2, -0.15)
+        }
+
+        if closed {
+            Self.outside(of: node, room: room, cell: cell, state: house.state, wall: outside, height: wallH)
+            return node
         }
 
         var standing: [String: (at: SCNVector3, top: Float)] = [:]
@@ -334,17 +349,68 @@ final class HouseStage: NSObject, SCNSceneRendererDelegate {
         return node
     }
 
+    /// The front of a room seen from the street: walls where nothing's in
+    /// front of it, with a window in each, and a roof if nothing's on top.
+    /// The front door's on the room nearest the street, on the ground.
+    private static func outside(of node: SCNNode, room: HouseRoom, cell: [Int], state: HouseState, wall: SCNMaterial, height h: Float) {
+        let S = HouseCatalog.side
+        let garden = room.id == "garden"
+        // A wall to the front where nothing's there, or only the garden (it has no roof to hide behind).
+        func open(_ c: [Int]) -> Bool { state.room(at: c).map { $0 == "garden" } ?? true }
+        let frontX = open([cell[0] + 1, cell[1], cell[2]])
+        let frontZ = open([cell[0], cell[1], cell[2] + 1])
+        let glass = MathMat.color("a9d6ef"), frame = MathMat.color("f6f1e4")
+        let door = cell == frontDoor(state)
+        if frontX {
+            node.add(MathShape.box(0.3, h, S + 0.6, wall), S + 0.15, h / 2, S / 2)
+            if !garden {
+                node.add(MathShape.box(0.1, 1.3, 1.5, frame), S + 0.33, h * 0.55, S / 2)
+                node.add(MathShape.box(0.1, 1.1, 1.3, glass), S + 0.36, h * 0.55, S / 2)
+            }
+        }
+        if frontZ {
+            node.add(MathShape.box(S + 0.6, h, 0.3, wall), S / 2, h / 2, S + 0.15)
+            if door {
+                node.add(MathShape.box(1.3, 2.3, 0.1, frame), S * 0.3, 1.15, S + 0.33)
+                node.add(MathShape.box(1.1, 2.15, 0.1, MathMat.color("b5483b")), S * 0.3, 1.08, S + 0.36)
+                node.add(MathShape.box(1.5, 0.2, 0.9, MathMat.color("d9d2c0")), S * 0.3, 0.1, S + 0.75)
+                node.add(MathShape.box(1.3, 1.1, 0.1, frame), S * 0.72, h * 0.55, S + 0.33)
+                node.add(MathShape.box(1.1, 0.9, 0.1, glass), S * 0.72, h * 0.55, S + 0.36)
+            } else if !garden {
+                node.add(MathShape.box(1.5, 1.3, 0.1, frame), S / 2, h * 0.55, S + 0.33)
+                node.add(MathShape.box(1.3, 1.1, 0.1, glass), S / 2, h * 0.55, S + 0.36)
+            }
+        }
+        guard !garden, state.room(at: HouseLayout.above(cell)) == nil else { return }
+        // A lid, and a roof on it: a dome on the observatory, a gable on the rest.
+        node.add(MathShape.box(S + 0.6, 0.25, S + 0.6, MathMat.color("8a5a44")), S / 2, h + 0.12, S / 2)
+        if room.id == "observatory" {
+            let dome = MathShape.sphere(S * 0.42, MathMat.color("dfe6ee"), segments: 20)
+            node.add(dome, S / 2, h + 0.25, S / 2)
+            return
+        }
+        let path = UIBezierPath()
+        let half = CGFloat(S / 2 + 0.35)
+        path.move(to: CGPoint(x: -half, y: 0))
+        path.addLine(to: CGPoint(x: half, y: 0))
+        path.addLine(to: CGPoint(x: 0, y: 1.7))
+        path.close()
+        let shape = SCNShape(path: path, extrusionDepth: CGFloat(S + 0.6))
+        shape.materials = [MathMat.color("c0574a")]
+        node.add(SCNNode(geometry: shape), S / 2, h + 0.25, S / 2)
+    }
+
+    /// Where the front door is: the room on the ground nearest the street.
+    static func frontDoor(_ state: HouseState) -> [Int]? {
+        state.rooms.map { state.cell(of: $0) }.filter { $0[1] == 0 }.max { ($0[0] + $0[2], $0[2]) < ($1[0] + $1[2], $1[2]) }
+    }
+
     /// A wall that's down: two bits either side of the gap, along it.
     private static let knee: [(Float, Float)] = [(-0.3, 1.4), (2.6, HouseCatalog.side)]
 
     /// Where a cell is in a house.
-    /// How far apart the floors are pulled in a house in focus, so the
-    /// floor above doesn't hide the room under it.
-    static let spread: Float = 2.2
-
     private func at(_ cell: [Int], of kid: String) -> SIMD3<Float> {
-        let gap = focus == .house(kid) ? Self.spread : 0
-        return SIMD3(Float(cell[0]) * HouseCatalog.side, Float(cell[1]) * (HouseCatalog.height + gap), Float(cell[2]) * HouseCatalog.side)
+        SIMD3(Float(cell[0]) * HouseCatalog.side, Float(cell[1]) * HouseCatalog.height, Float(cell[2]) * HouseCatalog.side)
     }
 
     /// Whether a room in this cell is shown, for the floor picked and the room in focus.
